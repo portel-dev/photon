@@ -1,0 +1,55 @@
+{
+  "name": "@portel/photon",
+  "version": "1.0.0",
+  "description": "Zero-install CLI for running single-file TypeScript MCPs",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "photon": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "photon",
+    "typescript",
+    "cli",
+    "npx",
+    "single-file"
+  ],
+  "author": "Portel Dev",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "chokidar": "^4.0.3",
+    "commander": "^12.1.0",
+    "esbuild": "^0.24.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/portel-dev/photon-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/portel-dev/photon-mcp/issues"
+  },
+  "homepage": "https://github.com/portel-dev/photon-mcp#readme"
+}

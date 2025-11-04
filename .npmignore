@@ -1,0 +1,10 @@
+src/
+examples/
+tests/
+*.photon.ts
+tsconfig.json
+.gitignore
+.git/
+node_modules/
+*.log
+.DS_Store
