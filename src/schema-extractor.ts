@@ -2,10 +2,11 @@
  * Schema Extractor
  *
  * Extracts JSON schemas from TypeScript method signatures and JSDoc comments
+ * Also extracts constructor parameters for config injection
  */
 
 import * as fs from 'fs/promises';
-import { ExtractedSchema } from './types.js';
+import { ExtractedSchema, ConstructorParam } from './types.js';
 
 /**
  * Extract schemas from a Photon MCP class file
@@ -76,6 +77,133 @@ export class SchemaExtractor {
   }
 
   /**
+   * Extract constructor parameters for config injection
+   */
+  extractConstructorParams(source: string): ConstructorParam[] {
+    const params: ConstructorParam[] = [];
+
+    // Find constructor start
+    const constructorStart = source.indexOf('constructor');
+    if (constructorStart === -1) {
+      return params; // No constructor
+    }
+
+    // Find the opening parenthesis
+    const openParen = source.indexOf('(', constructorStart);
+    if (openParen === -1) {
+      return params;
+    }
+
+    // Extract parameters by tracking parentheses depth
+    let depth = 0;
+    let paramsContent = '';
+    let foundClosing = false;
+
+    for (let i = openParen; i < source.length; i++) {
+      const char = source[i];
+
+      if (char === '(') {
+        depth++;
+        if (depth > 1) paramsContent += char; // Don't include the first opening paren
+      } else if (char === ')') {
+        depth--;
+        if (depth === 0) {
+          foundClosing = true;
+          break;
+        }
+        paramsContent += char;
+      } else {
+        if (depth > 0) paramsContent += char;
+      }
+    }
+
+    if (!foundClosing || !paramsContent.trim()) {
+      return params; // Malformed constructor or empty
+    }
+
+    // Split parameters, respecting nested structures
+    const paramList = this.splitParams(paramsContent);
+
+    for (const param of paramList) {
+      const parsed = this.parseConstructorParam(param.trim());
+      if (parsed) {
+        params.push(parsed);
+      }
+    }
+
+    return params;
+  }
+
+  /**
+   * Parse a single constructor parameter
+   * Handles formats like:
+   * - private workdir: string = "/path"
+   * - workdir: string
+   * - workdir?: string
+   * - private readonly maxSize: number = 1024
+   * - private workdir: string = join(homedir(), 'Documents')
+   */
+  private parseConstructorParam(paramStr: string): ConstructorParam | null {
+    // Remove visibility modifiers and readonly
+    let cleaned = paramStr
+      .replace(/^\s*(private|public|protected|readonly)\s+/g, '')
+      .trim();
+
+    // Match: name?: type = defaultValue
+    // We need to carefully extract the default value without breaking on nested parentheses
+    // Pattern: name optionalMarker : type = value
+    const nameTypeRegex = /^(\w+)(\?)?:\s*([^=]+)/;
+    const nameTypeMatch = nameTypeRegex.exec(cleaned);
+
+    if (!nameTypeMatch) {
+      return null;
+    }
+
+    const [matchedPart, name, optional, typeStr] = nameTypeMatch;
+
+    // Check if there's a default value after the type
+    const afterType = cleaned.substring(matchedPart.length).trim();
+    let defaultValue: string | undefined;
+
+    if (afterType.startsWith('=')) {
+      // Extract everything after '='
+      defaultValue = afterType.substring(1).trim();
+    }
+
+    return {
+      name: name.trim(),
+      type: typeStr.trim(),
+      isOptional: !!optional || !!defaultValue, // Optional if marked with ? or has default value
+      hasDefault: !!defaultValue,
+      defaultValue: defaultValue ? this.parseDefaultValue(defaultValue) : undefined,
+    };
+  }
+
+  /**
+   * Parse default value from TypeScript
+   * Handles: strings, numbers, booleans, function calls
+   */
+  private parseDefaultValue(value: string): any {
+    // Remove quotes from strings
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      return value.slice(1, -1);
+    }
+
+    // Boolean
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+
+    // Number
+    if (/^\d+(\.\d+)?$/.test(value)) {
+      return parseFloat(value);
+    }
+
+    // Function call or complex expression - return as string for display
+    return value;
+  }
+
+  /**
    * Extract main description from JSDoc comment
    */
   private extractDescription(jsdocContent: string): string {
@@ -143,6 +271,7 @@ export class SchemaExtractor {
 
   /**
    * Split parameters by semicolon or comma, respecting nested structures
+   * Handles {}, [], and () depth
    */
   private splitParams(paramsContent: string): string[] {
     const params: string[] = [];
@@ -150,10 +279,10 @@ export class SchemaExtractor {
     let depth = 0;
 
     for (const char of paramsContent) {
-      if (char === '{' || char === '[') {
+      if (char === '{' || char === '[' || char === '(') {
         depth++;
         current += char;
-      } else if (char === '}' || char === ']') {
+      } else if (char === '}' || char === ']' || char === ')') {
         depth--;
         current += char;
       } else if ((char === ';' || char === ',') && depth === 0) {

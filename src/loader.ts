@@ -48,16 +48,29 @@ export class PhotonLoader {
         throw new Error('No MCP class found in file. Expected a class with async methods.');
       }
 
-      // Create instance
-      const instance = new MCPClass();
+      // Get MCP name
+      const name = this.getMCPName(MCPClass);
+
+      // Extract constructor parameters from source
+      const constructorParams = await this.extractConstructorParams(absolutePath);
+
+      // Resolve values from environment variables
+      const { values, configError } = this.resolveConstructorArgs(constructorParams, name);
+
+      // Create instance with injected config
+      const instance = new MCPClass(...values);
+
+      // Store config error for later (fail on tool call, not initialization)
+      if (configError) {
+        instance._photonConfigError = configError;
+        console.error(`[Photon] ⚠️  ${name} MCP loaded with configuration warnings`);
+        console.error(configError);
+      }
 
       // Call lifecycle hook if present
       if (instance.onInitialize) {
         await instance.onInitialize();
       }
-
-      // Get MCP name
-      const name = this.getMCPName(MCPClass);
 
       // Extract tools
       const tools = await this.extractTools(MCPClass, absolutePath);
@@ -308,10 +321,138 @@ export class PhotonLoader {
   }
 
   /**
+   * Extract constructor parameters from source file
+   */
+  private async extractConstructorParams(filePath: string): Promise<import('./types.js').ConstructorParam[]> {
+    try {
+      const source = await fs.readFile(filePath, 'utf-8');
+      const extractor = new SchemaExtractor();
+      return extractor.extractConstructorParams(source);
+    } catch (error: any) {
+      console.error(`[Photon] Failed to extract constructor params: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Resolve constructor arguments from environment variables
+   */
+  private resolveConstructorArgs(
+    params: import('./types.js').ConstructorParam[],
+    mcpName: string
+  ): { values: any[]; configError: string | null } {
+    const values: any[] = [];
+    const missing: Array<{ paramName: string; envVarName: string; type: string }> = [];
+
+    for (const param of params) {
+      const envVarName = this.toEnvVarName(mcpName, param.name);
+      const envValue = process.env[envVarName];
+
+      if (envValue !== undefined) {
+        // Environment variable provided - parse and use it
+        values.push(this.parseEnvValue(envValue, param.type));
+      } else if (param.hasDefault || param.isOptional) {
+        // Has default value or is optional - use undefined (constructor default will apply)
+        values.push(undefined);
+      } else {
+        // Required parameter missing!
+        missing.push({
+          paramName: param.name,
+          envVarName,
+          type: param.type,
+        });
+        // Push undefined anyway so constructor doesn't break
+        values.push(undefined);
+      }
+    }
+
+    const configError = missing.length > 0
+      ? this.generateConfigErrorMessage(mcpName, missing)
+      : null;
+
+    return { values, configError };
+  }
+
+  /**
+   * Convert MCP name and parameter name to environment variable name
+   * Example: filesystem, workdir → FILESYSTEM_WORKDIR
+   */
+  private toEnvVarName(mcpName: string, paramName: string): string {
+    const mcpPrefix = mcpName.toUpperCase().replace(/-/g, '_');
+    const paramSuffix = paramName
+      .replace(/([A-Z])/g, '_$1')
+      .toUpperCase()
+      .replace(/^_/, '');
+    return `${mcpPrefix}_${paramSuffix}`;
+  }
+
+  /**
+   * Parse environment variable value based on TypeScript type
+   */
+  private parseEnvValue(value: string, type: string): any {
+    switch (type) {
+      case 'number':
+        return parseFloat(value);
+      case 'boolean':
+        return value.toLowerCase() === 'true';
+      case 'string':
+      default:
+        return value;
+    }
+  }
+
+  /**
+   * Generate user-friendly configuration error message
+   */
+  private generateConfigErrorMessage(
+    mcpName: string,
+    missing: Array<{ paramName: string; envVarName: string; type: string }>
+  ): string {
+    const envVarList = missing.map(m => `  • ${m.envVarName} (${m.paramName}: ${m.type})`).join('\n');
+
+    const exampleEnv = Object.fromEntries(
+      missing.map(m => [m.envVarName, `<your-${m.paramName}>`])
+    );
+
+    return `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  Configuration Warning: ${mcpName} MCP
+
+Missing required environment variables:
+${envVarList}
+
+Tools will fail until configuration is fixed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+To fix, add environment variables to your MCP client config:
+
+{
+  "mcpServers": {
+    "${mcpName}": {
+      "command": "npx",
+      "args": ["@portel/photon", "${mcpName}"],
+      "env": ${JSON.stringify(exampleEnv, null, 8).replace(/\n/g, '\n      ')}
+    }
+  }
+}
+
+Or run: photon ${mcpName} --config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`.trim();
+  }
+
+  /**
    * Execute a tool on the loaded MCP instance
    */
   async executeTool(mcp: PhotonMCPClass, toolName: string, parameters: any): Promise<any> {
     try {
+      // Check for configuration errors before executing tool
+      if (mcp.instance._photonConfigError) {
+        throw new Error(mcp.instance._photonConfigError);
+      }
+
       // Check if instance has PhotonMCP's executeTool method
       if (typeof mcp.instance.executeTool === 'function') {
         return await mcp.instance.executeTool(toolName, parameters);

@@ -28,3 +28,11 @@ export interface PhotonMCPClass {
   tools: PhotonTool[];
   instance: any;
 }
+
+export interface ConstructorParam {
+  name: string;
+  type: string;
+  isOptional: boolean;
+  hasDefault: boolean;
+  defaultValue?: any;
+}

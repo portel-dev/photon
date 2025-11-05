@@ -9,14 +9,67 @@
 import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
 import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
+import { SchemaExtractor } from './schema-extractor.js';
+import { ConstructorParam } from './types.js';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Extract constructor parameters from a Photon MCP file
+ */
+async function extractConstructorParams(filePath: string): Promise<ConstructorParam[]> {
+  try {
+    const source = await fs.readFile(filePath, 'utf-8');
+    const extractor = new SchemaExtractor();
+    return extractor.extractConstructorParams(source);
+  } catch (error: any) {
+    console.error(`[Photon] Failed to extract constructor params: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Convert MCP name and parameter name to environment variable name
+ */
+function toEnvVarName(mcpName: string, paramName: string): string {
+  const mcpPrefix = mcpName.toUpperCase().replace(/-/g, '_');
+  const paramSuffix = paramName
+    .replace(/([A-Z])/g, '_$1')
+    .toUpperCase()
+    .replace(/^_/, '');
+  return `${mcpPrefix}_${paramSuffix}`;
+}
+
+/**
+ * Format default value for display in config
+ */
+function formatDefaultValue(value: any): string {
+  if (typeof value === 'string') {
+    // Check if it's a function call expression
+    if (value.includes('homedir()')) {
+      // Replace homedir() with actual home directory
+      return value.replace(/join\(homedir\(\),\s*['"]([^'"]+)['"]\)/g, (_, folderName) => {
+        return path.join(os.homedir(), folderName);
+      });
+    }
+    if (value.includes('process.cwd()')) {
+      return process.cwd();
+    }
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  // For other complex expressions
+  return String(value);
+}
 
 // Get version from package.json
 let version = '1.0.0';
@@ -59,14 +112,64 @@ program
       // Config mode: output Claude Desktop config
       if (options.config) {
         const mcpName = path.basename(filePath, path.extname(filePath)).replace('.photon', '');
+
+        // Extract constructor parameters from source
+        const constructorParams = await extractConstructorParams(filePath);
+
+        // Build env vars object with defaults
+        const env: Record<string, string> = {};
+        const envFlags: string[] = [];
+
+        for (const param of constructorParams) {
+          const envVarName = toEnvVarName(mcpName, param.name);
+          const defaultDisplay = param.defaultValue !== undefined
+            ? formatDefaultValue(param.defaultValue)
+            : `<your-${param.name}>`;
+
+          env[envVarName] = defaultDisplay;
+          envFlags.push(`--env ${envVarName}="${defaultDisplay}"`);
+        }
+
+        // Claude Desktop JSON config
         const config = {
           [mcpName]: {
             command: 'npx',
-            args: ['@portel/photon', filePath],
+            args: ['@portel/photon', mcpName],
+            ...(Object.keys(env).length > 0 && { env }),
           },
         };
 
-        console.log(JSON.stringify(config, null, 2));
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('# Claude Desktop Configuration');
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('#');
+        console.log('# Add this to: ~/Library/Application Support/Claude/claude_desktop_config.json');
+        console.log('# (macOS) or %APPDATA%\\Claude\\claude_desktop_config.json (Windows)');
+        console.log('#');
+        console.log(JSON.stringify({ mcpServers: config }, null, 2));
+        console.log('');
+
+        // Claude Code CLI
+        if (envFlags.length > 0) {
+          console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('# Claude Code');
+          console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('#');
+          console.log(`claude-code mcp add ${mcpName} npx @portel/photon ${mcpName} \\`);
+          envFlags.forEach((flag, i) => {
+            console.log(`  ${flag}${i < envFlags.length - 1 ? ' \\' : ''}`);
+          });
+          console.log('');
+        }
+
+        // Cursor (if needed)
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('# Cursor / Windsurf');
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('#');
+        console.log(`# Use the MCP config UI or add to settings manually`);
+        console.log('');
+
         return;
       }
 
