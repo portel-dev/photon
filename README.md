@@ -8,6 +8,7 @@ Photon lets you create Model Context Protocol (MCP) servers using a single TypeS
 
 - 🚀 **Zero Install** - Run with `npx photon` (no global installation)
 - 📝 **Single File** - One `.photon.ts` file = one MCP server
+- 📦 **Auto Dependencies** - Automatic npm package installation from JSDoc tags
 - 🔄 **Hot Reload** - Dev mode with automatic reloading on file changes
 - 🎯 **Convention Over Configuration** - Auto-discover tools from class methods
 - 📊 **Auto Schema Extraction** - Generate JSON schemas from TypeScript types
@@ -383,9 +384,13 @@ Photon extracts JSON schemas from your TypeScript types. MCP clients validate pa
 
 ### Can I use external packages?
 
-Yes! Just import them as usual:
+Yes! Dependencies are **auto-installed** from JSDoc tags:
 
 ```typescript
+/**
+ * Fetch MCP - HTTP client utilities
+ * @dependencies axios@^1.6.0
+ */
 import axios from 'axios';
 
 export default class FetchMCP {
@@ -396,7 +401,21 @@ export default class FetchMCP {
 }
 ```
 
-Make sure to run `npm install` in the directory containing your `.photon.ts` file.
+**How it works:**
+- Photon parses `@dependencies` tags from JSDoc comments
+- Auto-installs to `~/.cache/photon-mcp/dependencies/{mcp-name}/`
+- Works like `npx` or Python's `uv` - zero manual setup
+- Cached per MCP, isolated from other MCPs
+- Only installs once, reuses on subsequent runs
+
+**Formats supported:**
+```typescript
+@dependencies axios@^1.0.0                    // Single dependency
+@dependencies axios@^1.0.0, date-fns@^2.0.0  // Multiple on one line
+@dependencies @octokit/rest@^3.1.0           // Scoped packages
+```
+
+No manual `npm install` needed!
 
 ### How does hot reload work?
 
