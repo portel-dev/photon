@@ -90,6 +90,30 @@ This outputs the config to add to Claude Desktop:
 
 Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS).
 
+## 📦 Production-Ready MCPs
+
+We maintain a registry of production-ready Photon MCPs at **[portel-dev/photons](https://github.com/portel-dev/photons)**:
+
+- **GitHub Issues** - Manage GitHub repository issues (7 tools)
+- **Slack** - Slack workspace integration (7 tools)
+- **PostgreSQL** - Database operations with connection pooling (9 tools)
+- **SQLite** - Local database operations (9 tools)
+- **Web Fetch** - Web content fetching with markdown conversion (2 tools)
+- **Memory** - Knowledge graph persistent memory (10 tools)
+
+**Quick Install:**
+
+```bash
+# Install GitHub Issues MCP
+curl -o ~/.photon/github-issues.photon.ts https://raw.githubusercontent.com/portel-dev/photons/main/github-issues.photon.ts
+
+# Configure and run
+export GITHUB_ISSUES_TOKEN="ghp_your_token"
+photon github-issues --config
+```
+
+See the [Photons Registry](https://github.com/portel-dev/photons) for full documentation on each MCP.
+
 ## How It Works
 
 Photon uses **convention over configuration**:
