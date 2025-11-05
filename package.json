@@ -15,7 +15,9 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "test": "node --test tests/**/*.test.js"
+    "test": "npm run test:sqlite",
+    "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
+    "test:github": "npm run build && npx tsx tests/github-issues.test.ts"
   },
   "keywords": [
     "mcp",
@@ -39,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "tsx": "^4.20.6",
     "typescript": "^5.7.3"
   },
   "engines": {
@@ -46,10 +49,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/portel-dev/photon-mcp.git"
+    "url": "https://github.com/portel-dev/photon.git"
   },
   "bugs": {
-    "url": "https://github.com/portel-dev/photon-mcp/issues"
+    "url": "https://github.com/portel-dev/photon/issues"
   },
-  "homepage": "https://github.com/portel-dev/photon-mcp#readme"
+  "homepage": "https://github.com/portel-dev/photon#readme"
 }

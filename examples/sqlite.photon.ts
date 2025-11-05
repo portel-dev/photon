@@ -22,6 +22,23 @@ export default class SQLite {
   private db: Database.Database | null = null;
   private dbPath: string = ':memory:';
 
+  constructor(private path?: string) {
+    if (path) {
+      this.dbPath = path;
+    }
+  }
+
+  async onInitialize() {
+    // Auto-open database if path was provided in constructor
+    if (this.dbPath !== ':memory:' || this.path) {
+      this.db = new Database(this.dbPath, {
+        readonly: false,
+        fileMustExist: false,
+      });
+      console.error(`[sqlite] ✅ Database opened: ${this.dbPath}`);
+    }
+  }
+
   /**
    * Open a SQLite database
    * @param path Database file path (use ":memory:" for in-memory database)
