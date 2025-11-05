@@ -344,6 +344,125 @@ program
     }
   });
 
+// Upgrade command: update MCPs from registry
+program
+  .command('upgrade')
+  .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
+  .option('--check', 'Check for updates without upgrading')
+  .description('Upgrade MCP(s) from the Photons registry')
+  .action(async (name: string | undefined, options: any, command: Command) => {
+    try {
+      // Get working directory from global options
+      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+
+      const { VersionChecker } = await import('./version-checker.js');
+      const checker = new VersionChecker();
+
+      if (name) {
+        // Upgrade single MCP
+        const filePath = await resolvePhotonPath(name, workingDir);
+
+        if (!filePath) {
+          console.error(`[Photon] ❌ MCP not found: ${name}`);
+          console.error(`[Photon] Searched in: ${workingDir}`);
+          process.exit(1);
+        }
+
+        console.error(`[Photon] Checking ${name} for updates...`);
+        const versionInfo = await checker.checkForUpdate(name, filePath);
+
+        if (!versionInfo.local) {
+          console.error(`[Photon] ⚠️  Could not determine local version`);
+          return;
+        }
+
+        if (!versionInfo.remote) {
+          console.error(`[Photon] ⚠️  Not found in registry. This might be a local-only MCP.`);
+          return;
+        }
+
+        if (options.check) {
+          if (versionInfo.needsUpdate) {
+            console.error(`[Photon] 🔄 Update available: ${versionInfo.local} → ${versionInfo.remote}`);
+          } else {
+            console.error(`[Photon] ✅ Already up to date (${versionInfo.local})`);
+          }
+          return;
+        }
+
+        if (!versionInfo.needsUpdate) {
+          console.error(`[Photon] ✅ Already up to date (${versionInfo.local})`);
+          return;
+        }
+
+        console.error(`[Photon] 🔄 Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
+
+        const success = await checker.updateMCP(name, filePath);
+
+        if (success) {
+          console.error(`[Photon] ✅ Successfully upgraded ${name} to ${versionInfo.remote}`);
+        } else {
+          console.error(`[Photon] ❌ Failed to upgrade ${name}`);
+          process.exit(1);
+        }
+      } else {
+        // Check/upgrade all MCPs
+        console.error(`[Photon] Checking all MCPs in ${workingDir}...`);
+        const updates = await checker.checkAllUpdates(workingDir);
+
+        if (updates.size === 0) {
+          console.error(`[Photon] No MCPs found`);
+          return;
+        }
+
+        const needsUpdate: string[] = [];
+
+        console.error('');
+        for (const [mcpName, info] of updates) {
+          const status = checker.formatVersionInfo(info);
+
+          if (info.needsUpdate) {
+            console.error(`  🔄 ${mcpName}: ${status}`);
+            needsUpdate.push(mcpName);
+          } else if (info.local && info.remote) {
+            console.error(`  ✅ ${mcpName}: ${status}`);
+          } else {
+            console.error(`  📦 ${mcpName}: ${status}`);
+          }
+        }
+        console.error('');
+
+        if (needsUpdate.length === 0) {
+          console.error(`[Photon] All MCPs are up to date!`);
+          return;
+        }
+
+        if (options.check) {
+          console.error(`[Photon] ${needsUpdate.length} MCP(s) have updates available`);
+          console.error(`[Photon] Run 'photon upgrade' to upgrade all`);
+          return;
+        }
+
+        // Upgrade all that need updates
+        console.error(`[Photon] Upgrading ${needsUpdate.length} MCP(s)...`);
+
+        for (const mcpName of needsUpdate) {
+          const filePath = path.join(workingDir, `${mcpName}.photon.ts`);
+          const success = await checker.updateMCP(mcpName, filePath);
+
+          if (success) {
+            console.error(`[Photon] ✅ Upgraded ${mcpName}`);
+          } else {
+            console.error(`[Photon] ❌ Failed to upgrade ${mcpName}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 /**

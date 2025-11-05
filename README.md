@@ -371,7 +371,42 @@ photon validate my-tool
 
 # 5. List all your MCPs
 photon list
+
+# 6. Keep MCPs up to date
+photon upgrade --check  # Check for updates
+photon upgrade          # Upgrade all MCPs
 ```
+
+### Keeping MCPs Updated
+
+Photon can automatically check for updates from the [Photons registry](https://github.com/portel-dev/photons):
+
+```bash
+# Check for updates
+photon upgrade --check
+
+# Upgrade all MCPs
+photon upgrade
+
+# Upgrade specific MCP
+photon upgrade github-issues
+```
+
+**Version information** is extracted from `@version` tags in MCP doc comments:
+
+```typescript
+/**
+ * GitHub Issues MCP
+ * @version 1.0.0
+ * @author Portel
+ */
+```
+
+When you run `photon upgrade`, it:
+1. Extracts local version from `@version` tag
+2. Fetches remote version from registry
+3. Compares versions (semver)
+4. Downloads and updates if newer version available
 
 ### Project-Specific Workflow (Custom Directory)
 
