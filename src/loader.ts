@@ -58,9 +58,18 @@ export class PhotonLoader {
       const { values, configError } = this.resolveConstructorArgs(constructorParams, name);
 
       // Create instance with injected config
-      const instance = new MCPClass(...values);
+      let instance;
+      try {
+        instance = new MCPClass(...values);
+      } catch (error: any) {
+        // Constructor threw an error (likely validation failure)
+        // Enhance the error message with config information
+        const enhancedError = this.enhanceConstructorError(error, name, constructorParams, configError);
+        throw enhancedError;
+      }
 
-      // Store config error for later (fail on tool call, not initialization)
+      // Store config warning for later if there were missing params
+      // (constructor didn't throw, but params were missing - they had defaults)
       if (configError) {
         instance._photonConfigError = configError;
         console.error(`[Photon] ⚠️  ${name} MCP loaded with configuration warnings`);
@@ -399,6 +408,61 @@ export class PhotonLoader {
       default:
         return value;
     }
+  }
+
+  /**
+   * Enhance constructor error with configuration guidance
+   */
+  private enhanceConstructorError(
+    error: Error,
+    mcpName: string,
+    constructorParams: import('./types.js').ConstructorParam[],
+    configError: string | null
+  ): Error {
+    const originalMessage = error.message;
+
+    // Build env var documentation
+    const envVarDocs = constructorParams.map(param => {
+      const envVarName = this.toEnvVarName(mcpName, param.name);
+      const required = !param.isOptional && !param.hasDefault;
+      const status = required ? '[REQUIRED]' : '[OPTIONAL]';
+      return `  • ${envVarName} ${status} (${param.name}: ${param.type})`;
+    }).join('\n');
+
+    const enhancedMessage = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ Configuration Error: ${mcpName} MCP failed to initialize
+
+Original error: ${originalMessage}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Configuration parameters:
+${envVarDocs}
+
+To fix this, set environment variables in your MCP client:
+
+{
+  "mcpServers": {
+    "${mcpName}": {
+      "command": "npx",
+      "args": ["@portel/photon", "${mcpName}"],
+      "env": {
+        // Add required environment variables here
+      }
+    }
+  }
+}
+
+Or run: photon ${mcpName} --config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`.trim();
+
+    const enhanced = new Error(enhancedMessage);
+    enhanced.name = 'PhotonConfigError';
+    enhanced.stack = error.stack;
+    return enhanced;
   }
 
   /**

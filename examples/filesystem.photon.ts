@@ -1,5 +1,5 @@
 /**
- * Filesystem Photon MCP - File and directory operations
+ * Filesystem - File and directory operations
  *
  * Provides essential file system utilities: read, write, list, search, delete files and directories.
  * All paths are resolved relative to the configured working directory for security.
@@ -11,12 +11,12 @@
  *
  * Example: read({ path: "notes.md" }) → file contents
  *
- * Configuration (via environment variables):
- * - FILESYSTEM_WORKDIR: Working directory (default: ~/Documents)
- * - FILESYSTEM_MAX_FILE_SIZE: Max file size in bytes (default: 10MB)
- * - FILESYSTEM_ALLOW_HIDDEN: Allow hidden files (default: false)
+ * Configuration:
+ * - workdir: Working directory (default: ~/Documents)
+ * - maxFileSize: Max file size in bytes (default: 10MB)
+ * - allowHidden: Allow hidden files (default: false)
  *
- * Run with: npx photon filesystem.photon.ts --dev
+ * Dependencies: None (uses Node.js built-in fs)
  *
  * @version 2.0.0
  * @author Portel
@@ -29,42 +29,25 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 
 export default class Filesystem {
-  private _configError: string | null = null;
-
   constructor(
     private workdir: string = join(homedir(), 'Documents'),
     private maxFileSize: number = 10485760, // 10MB
     private allowHidden: boolean = false
   ) {
-    // Validate configuration but don't throw (fail on tool call instead)
+    // Validate configuration
     if (!workdir || workdir.trim() === '') {
-      this._configError = 'Missing required config: FILESYSTEM_WORKDIR must be a non-empty path';
-    } else if (!existsSync(workdir)) {
-      this._configError = `Working directory does not exist: ${workdir}`;
+      throw new Error('Working directory must be a non-empty path');
+    }
+    if (!existsSync(workdir)) {
+      throw new Error(`Working directory does not exist: ${workdir}`);
     }
   }
 
   async onInitialize() {
-    if (this._configError) {
-      console.error(`[filesystem] ⚠️  Configuration error: ${this._configError}`);
-      console.error(`[filesystem] Tools will fail until configuration is fixed`);
-      console.error(`[filesystem] Run: photon filesystem --config`);
-    } else {
-      console.error(`[filesystem] ✅ Initialized`);
-      console.error(`[filesystem] Working directory: ${this.workdir}`);
-      console.error(`[filesystem] Max file size: ${this.maxFileSize} bytes`);
-      console.error(`[filesystem] Allow hidden files: ${this.allowHidden}`);
-    }
-  }
-
-  private _checkConfig(): void {
-    if (this._configError) {
-      throw new Error(
-        `Filesystem MCP configuration error: ${this._configError}\n\n` +
-        `Please set environment variables in your MCP client configuration.\n` +
-        `Run: photon filesystem --config`
-      );
-    }
+    console.error(`[filesystem] ✅ Initialized`);
+    console.error(`[filesystem] Working directory: ${this.workdir}`);
+    console.error(`[filesystem] Max file size: ${this.maxFileSize} bytes`);
+    console.error(`[filesystem] Allow hidden files: ${this.allowHidden}`);
   }
 
   /**
@@ -73,7 +56,6 @@ export default class Filesystem {
    * @param encoding File encoding (default: utf-8)
    */
   async read(params: { path: string; encoding?: 'utf-8' | 'base64' }) {
-    this._checkConfig();
     try {
       const fullPath = this._resolvePath(params.path);
       const encoding = params.encoding || 'utf-8';
@@ -91,7 +73,6 @@ export default class Filesystem {
    * @param encoding File encoding (default: utf-8)
    */
   async write(params: { path: string; content: string; encoding?: 'utf-8' | 'base64' }) {
-    this._checkConfig();
     try {
       const fullPath = this._resolvePath(params.path);
       const encoding = params.encoding || 'utf-8';
@@ -108,7 +89,6 @@ export default class Filesystem {
    * @param recursive List recursively (default: false)
    */
   async list(params: { path?: string; recursive?: boolean }) {
-    this._checkConfig();
     try {
       const dirPath = this._resolvePath(params.path || '.');
       const entries = await this._listRecursive(dirPath, params.recursive || false);
@@ -123,7 +103,6 @@ export default class Filesystem {
    * @param path Path to check (relative to working directory)
    */
   async exists(params: { path: string }) {
-    this._checkConfig();
     try {
       const fullPath = this._resolvePath(params.path);
       const exists = existsSync(fullPath);
@@ -151,7 +130,6 @@ export default class Filesystem {
    * @param filePattern File pattern to match (e.g., "*.ts", default: all files)
    */
   async search(params: { pattern: string; path?: string; filePattern?: string }) {
-    this._checkConfig();
     try {
       const dirPath = this._resolvePath(params.path || '.');
       const files = await this._listRecursive(dirPath, true);
@@ -205,7 +183,6 @@ export default class Filesystem {
    * @param recursive Delete directory recursively (default: false)
    */
   async delete(params: { path: string; recursive?: boolean }) {
-    this._checkConfig();
     try {
       const fullPath = this._resolvePath(params.path);
       await rm(fullPath, { recursive: params.recursive || false, force: true });
@@ -221,7 +198,6 @@ export default class Filesystem {
    * @param recursive Create parent directories if needed (default: true)
    */
   async mkdir(params: { path: string; recursive?: boolean }) {
-    this._checkConfig();
     try {
       const fullPath = this._resolvePath(params.path);
       await mkdir(fullPath, { recursive: params.recursive !== false });
