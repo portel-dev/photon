@@ -6,9 +6,9 @@
  *
  * Example: query({ sql: "SELECT * FROM users WHERE id = ?", params: [1] })
  *
- * Dependencies: npm install better-sqlite3
+ * Dependencies are auto-installed on first run.
  *
- * Run with: npx photon sqlite.photon.ts --dev
+ * @dependencies better-sqlite3@^11.0.0
  *
  * @version 1.0.0
  * @author Portel

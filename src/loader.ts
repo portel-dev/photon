@@ -12,8 +12,15 @@ import { PhotonMCP } from './base.js';
 import { SchemaExtractor } from './schema-extractor.js';
 import { PhotonMCPClass, PhotonTool } from './types.js';
 import * as os from 'os';
+import { DependencyManager } from './dependency-manager.js';
 
 export class PhotonLoader {
+  private dependencyManager: DependencyManager;
+
+  constructor() {
+    this.dependencyManager = new DependencyManager();
+  }
+
   /**
    * Load a single Photon MCP file
    */
@@ -29,8 +36,17 @@ export class PhotonLoader {
       let module: any;
 
       if (absolutePath.endsWith('.ts')) {
+        // Extract and install dependencies before compilation
+        const dependencies = await this.dependencyManager.extractDependencies(absolutePath);
+        const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+
+        if (dependencies.length > 0) {
+          console.error(`[Photon] 📦 Found ${dependencies.length} dependencies`);
+          await this.dependencyManager.ensureDependencies(mcpName, dependencies);
+        }
+
         // Compile TypeScript to JavaScript using esbuild
-        const cachedJsPath = await this.compileTypeScript(absolutePath);
+        const cachedJsPath = await this.compileTypeScript(absolutePath, mcpName);
         const cachedJsUrl = pathToFileURL(cachedJsPath).href;
 
         // Add cache busting to avoid stale imports
@@ -109,7 +125,8 @@ export class PhotonLoader {
       // Clear the compiled cache
       const tsContent = await fs.readFile(absolutePath, 'utf-8');
       const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
-      const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+      const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+      const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
       const fileName = path.basename(absolutePath, '.ts');
       const cachedJsPath = path.join(cacheDir, `${fileName}.${hash}.mjs`);
 
@@ -126,12 +143,13 @@ export class PhotonLoader {
   /**
    * Compile TypeScript file to JavaScript and cache it
    */
-  private async compileTypeScript(tsFilePath: string): Promise<string> {
+  private async compileTypeScript(tsFilePath: string, mcpName: string): Promise<string> {
     // Generate cache path based on file content hash
     const tsContent = await fs.readFile(tsFilePath, 'utf-8');
     const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
 
-    const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+    // Store compiled files in the same directory as dependencies for module resolution
+    const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
     const fileName = path.basename(tsFilePath, '.ts');
     const cachedJsPath = path.join(cacheDir, `${fileName}.${hash}.mjs`);
 
