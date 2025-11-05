@@ -1,12 +1,14 @@
 /**
- * Workflow Photon MCP - Simple task management
+ * Workflow Photon MCP - Task and workflow orchestration utilities
  *
- * Demonstrates workflow and task orchestration capabilities.
- * This is a simplified version for demonstration purposes.
+ * Exposes a set of workflow and task management operations for AI/agent use:
+ * create, list, get, update, delete tasks, and validate workflow definitions.
+ *
+ * Example: create({ name: "Write docs", description: "Document the MCP" })
  *
  * Run with: npx photon workflow.photon.ts --dev
  *
- * @version 1.0.0
+ * @version 1.1.0
  * @author Portel
  * @license MIT
  */
