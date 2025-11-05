@@ -13,12 +13,22 @@ export const DEFAULT_WORKING_DIR = path.join(os.homedir(), '.photon');
 
 /**
  * Resolve a Photon MCP file path from name
- * Looks in the specified working directory
+ * Looks in the specified working directory, or uses absolute path if provided
  */
 export async function resolvePhotonPath(
   name: string,
   workingDir: string = DEFAULT_WORKING_DIR
 ): Promise<string | null> {
+  // If absolute path provided, check if it exists
+  if (path.isAbsolute(name)) {
+    try {
+      await fs.access(name);
+      return name;
+    } catch {
+      return null;
+    }
+  }
+
   // Remove extension if provided
   const basename = name.replace(/\.photon\.(ts|js)$/, '');
 
