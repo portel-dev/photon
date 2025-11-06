@@ -9,6 +9,7 @@
 import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as os from 'os';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
@@ -344,6 +345,224 @@ program
     }
   });
 
+// Registry command: manage MCP registries
+program
+  .command('registry')
+  .description('Manage MCP registries')
+  .action(() => {
+    // Show help if no subcommand
+    program.outputHelp();
+  });
+
+program
+  .command('registry:list')
+  .description('List all configured registries')
+  .action(async () => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      const registries = manager.getAll();
+
+      if (registries.length === 0) {
+        console.error('[Photon] No registries configured');
+        return;
+      }
+
+      console.error(`[Photon] Configured registries (${registries.length}):`);
+      console.error('');
+
+      for (const registry of registries) {
+        const status = registry.enabled ? '✅' : '❌';
+        console.error(`  ${status} ${registry.name}`);
+        console.error(`     ${registry.url}`);
+      }
+
+      console.error('');
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('registry:add')
+  .argument('<name>', 'Registry name')
+  .argument('<url>', 'Registry base URL')
+  .description('Add a new MCP registry')
+  .action(async (name: string, url: string) => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      const added = await manager.add(name, url);
+
+      if (added) {
+        console.error(`[Photon] ✅ Added registry: ${name}`);
+        console.error(`[Photon] URL: ${url}`);
+      } else {
+        console.error(`[Photon] ❌ Registry '${name}' already exists`);
+        process.exit(1);
+      }
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('registry:remove')
+  .argument('<name>', 'Registry name')
+  .description('Remove a registry')
+  .action(async (name: string) => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      const removed = await manager.remove(name);
+
+      if (removed) {
+        console.error(`[Photon] ✅ Removed registry: ${name}`);
+      } else {
+        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        process.exit(1);
+      }
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('registry:enable')
+  .argument('<name>', 'Registry name')
+  .description('Enable a registry')
+  .action(async (name: string) => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      const success = await manager.setEnabled(name, true);
+
+      if (success) {
+        console.error(`[Photon] ✅ Enabled registry: ${name}`);
+      } else {
+        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        process.exit(1);
+      }
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('registry:disable')
+  .argument('<name>', 'Registry name')
+  .description('Disable a registry')
+  .action(async (name: string) => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      const success = await manager.setEnabled(name, false);
+
+      if (success) {
+        console.error(`[Photon] ✅ Disabled registry: ${name}`);
+      } else {
+        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        process.exit(1);
+      }
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('registry:search')
+  .argument('<query>', 'MCP name to search for')
+  .description('Search for MCP in all enabled registries')
+  .action(async (query: string) => {
+    try {
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      console.error(`[Photon] Searching for '${query}' in registries...`);
+
+      const results = await manager.search(query);
+
+      if (results.size === 0) {
+        console.error(`[Photon] ❌ No results found for '${query}'`);
+        return;
+      }
+
+      console.error('');
+      for (const [mcpName, registries] of results) {
+        console.error(`  📦 ${mcpName}`);
+        for (const registry of registries) {
+          console.error(`     ✓ ${registry.name} (${registry.url})`);
+        }
+      }
+      console.error('');
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// Install command: install MCP from registry
+program
+  .command('install')
+  .argument('<name>', 'MCP name to install')
+  .option('--registry <name>', 'Specific registry to use')
+  .description('Install an MCP from a registry')
+  .action(async (name: string, options: any, command: Command) => {
+    try {
+      // Get working directory from global options
+      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      await ensureWorkingDir(workingDir);
+
+      const { RegistryManager } = await import('./registry-manager.js');
+      const manager = new RegistryManager();
+      await manager.initialize();
+
+      console.error(`[Photon] Installing ${name}...`);
+
+      const result = await manager.fetchMCP(name);
+
+      if (!result) {
+        console.error(`[Photon] ❌ MCP '${name}' not found in any enabled registry`);
+        console.error(`[Photon] Tip: Use 'photon registry:search ${name}' to find it`);
+        process.exit(1);
+      }
+
+      const filePath = path.join(workingDir, `${name}.photon.ts`);
+
+      // Check if already exists
+      if (existsSync(filePath)) {
+        console.error(`[Photon] ⚠️  MCP '${name}' already exists`);
+        console.error(`[Photon] Use 'photon upgrade ${name}' to update it`);
+        process.exit(1);
+      }
+
+      await fs.writeFile(filePath, result.content, 'utf-8');
+
+      console.error(`[Photon] ✅ Installed ${name} from ${result.registry.name}`);
+      console.error(`[Photon] Location: ${filePath}`);
+      console.error(`[Photon] Run with: photon ${name} --dev`);
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
 // Upgrade command: update MCPs from registry
 program
   .command('upgrade')
@@ -357,6 +576,7 @@ program
 
       const { VersionChecker } = await import('./version-checker.js');
       const checker = new VersionChecker();
+      await checker.initialize();
 
       if (name) {
         // Upgrade single MCP

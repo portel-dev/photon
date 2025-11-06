@@ -377,9 +377,65 @@ photon upgrade --check  # Check for updates
 photon upgrade          # Upgrade all MCPs
 ```
 
+### Installing MCPs from Registries
+
+Photon supports multiple MCP registries (similar to npm or Claude Code plugins):
+
+```bash
+# Install from registry
+photon install github-issues
+
+# Search for MCPs
+photon registry:search slack
+
+# List all registries
+photon registry:list
+```
+
+### Managing Registries
+
+```bash
+# List all registries
+photon registry:list
+
+# Add custom registry
+photon registry:add my-mcps https://raw.githubusercontent.com/username/my-mcps/main
+
+# Remove registry
+photon registry:remove my-mcps
+
+# Enable/disable registries
+photon registry:enable my-mcps
+photon registry:disable my-mcps
+
+# Search across all enabled registries
+photon registry:search github
+```
+
+**Default Registry:** `photons` at `https://github.com/portel-dev/photons`
+
+**Registry Config:** Stored in `~/.config/photon/registries.json`
+
+```json
+{
+  "registries": [
+    {
+      "name": "photons",
+      "url": "https://raw.githubusercontent.com/portel-dev/photons/main",
+      "enabled": true
+    },
+    {
+      "name": "my-mcps",
+      "url": "https://raw.githubusercontent.com/username/my-mcps/main",
+      "enabled": true
+    }
+  ]
+}
+```
+
 ### Keeping MCPs Updated
 
-Photon can automatically check for updates from the [Photons registry](https://github.com/portel-dev/photons):
+Photon automatically checks for updates across all enabled registries:
 
 ```bash
 # Check for updates
@@ -404,7 +460,7 @@ photon upgrade github-issues
 
 When you run `photon upgrade`, it:
 1. Extracts local version from `@version` tag
-2. Fetches remote version from registry
+2. Searches all enabled registries for remote version
 3. Compares versions (semver)
 4. Downloads and updates if newer version available
 
