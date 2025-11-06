@@ -7,10 +7,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 
+export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
+
 export interface Marketplace {
   name: string;
-  repo: string;
-  url: string;
+  repo: string; // For GitHub sources
+  url: string; // Base URL for fetching
+  sourceType: MarketplaceSourceType;
+  source: string; // Original input (for display)
   enabled: boolean;
   lastUpdated?: string;
 }
@@ -62,6 +66,8 @@ const DEFAULT_MARKETPLACE: Marketplace = {
   name: 'photons',
   repo: 'portel-dev/photons',
   url: 'https://raw.githubusercontent.com/portel-dev/photons/main',
+  sourceType: 'github',
+  source: 'portel-dev/photons',
   enabled: true,
 };
 
@@ -110,14 +116,16 @@ export class MarketplaceManager {
   }
 
   /**
-   * Parse GitHub repo reference into marketplace info
+   * Parse marketplace source into structured info
    * Supports:
-   * - username/repo
-   * - https://github.com/username/repo
-   * - https://github.com/username/repo.git
+   * 1. GitHub shorthand: username/repo
+   * 2. GitHub HTTPS: https://github.com/username/repo[.git]
+   * 3. GitHub SSH: git@github.com:username/repo.git
+   * 4. Direct URL: https://example.com/marketplace.json
+   * 5. Local path: ./path/to/marketplace or /absolute/path
    */
-  private parseGitHubRepo(input: string): { name: string; repo: string; url: string } | null {
-    // Pattern 1: username/repo
+  private parseMarketplaceSource(input: string): Omit<Marketplace, 'enabled' | 'lastUpdated'> | null {
+    // Pattern 1: username/repo (GitHub shorthand)
     const shorthandMatch = input.match(/^([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+)$/);
     if (shorthandMatch) {
       const [, username, repo] = shorthandMatch;
@@ -125,17 +133,70 @@ export class MarketplaceManager {
         name: repo,
         repo: input,
         url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
+        sourceType: 'github',
+        source: input,
       };
     }
 
-    // Pattern 2: https://github.com/username/repo or https://github.com/username/repo.git
-    const urlMatch = input.match(/^https?:\/\/github\.com\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/);
-    if (urlMatch) {
-      const [, username, repo] = urlMatch;
+    // Pattern 2: https://github.com/username/repo[.git] (GitHub HTTPS)
+    const httpsMatch = input.match(/^https?:\/\/github\.com\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/);
+    if (httpsMatch) {
+      const [, username, repo] = httpsMatch;
       return {
         name: repo,
         repo: `${username}/${repo}`,
         url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
+        sourceType: 'github',
+        source: input,
+      };
+    }
+
+    // Pattern 3: git@github.com:username/repo.git (GitHub SSH)
+    const sshMatch = input.match(/^git@github\.com:([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/);
+    if (sshMatch) {
+      const [, username, repo] = sshMatch;
+      const repoName = repo.replace(/\.git$/, '');
+      return {
+        name: repoName,
+        repo: `${username}/${repoName}`,
+        url: `https://raw.githubusercontent.com/${username}/${repoName}/main`,
+        sourceType: 'git-ssh',
+        source: input,
+      };
+    }
+
+    // Pattern 4: https://example.com/marketplace.json (Direct URL)
+    if (input.startsWith('http://') || input.startsWith('https://')) {
+      // Extract name from URL
+      const urlObj = new URL(input);
+      const pathParts = urlObj.pathname.split('/');
+      const fileName = pathParts[pathParts.length - 1];
+      const name = fileName.replace(/\.(json|ts)$/, '') || urlObj.hostname;
+
+      // Base URL is the directory containing the marketplace.json
+      const baseUrl = input.replace(/\/[^/]*$/, '');
+
+      return {
+        name,
+        repo: '', // Not a repo
+        url: baseUrl,
+        sourceType: 'url',
+        source: input,
+      };
+    }
+
+    // Pattern 5: ./path/to/marketplace or /absolute/path (Local filesystem)
+    if (input.startsWith('./') || input.startsWith('../') || input.startsWith('/') || input.startsWith('~')) {
+      // Resolve to absolute path
+      const absolutePath = path.resolve(input.replace(/^~/, os.homedir()));
+      const name = path.basename(absolutePath);
+
+      return {
+        name,
+        repo: '', // Not a repo
+        url: `file://${absolutePath}`,
+        sourceType: 'local',
+        source: input,
       };
     }
 
@@ -143,15 +204,23 @@ export class MarketplaceManager {
   }
 
   /**
-   * Add a new marketplace from GitHub repo
-   * Supports: username/repo or https://github.com/username/repo
+   * Add a new marketplace
+   * Supports:
+   * - GitHub: username/repo, https://github.com/username/repo, git@github.com:username/repo.git
+   * - Direct URL: https://example.com/marketplace.json
+   * - Local path: ./path/to/marketplace, /absolute/path
    */
-  async add(githubRepo: string): Promise<{ name: string; repo: string; url: string }> {
-    const parsed = this.parseGitHubRepo(githubRepo);
+  async add(source: string): Promise<Omit<Marketplace, 'enabled' | 'lastUpdated'>> {
+    const parsed = this.parseMarketplaceSource(source);
 
     if (!parsed) {
       throw new Error(
-        'Invalid format. Use: username/repo or https://github.com/username/repo'
+        `Invalid marketplace source format. Supported formats:
+- GitHub: username/repo
+- GitHub HTTPS: https://github.com/username/repo
+- GitHub SSH: git@github.com:username/repo.git
+- Direct URL: https://example.com/marketplace.json
+- Local path: ./path/to/marketplace or /absolute/path`
       );
     }
 
@@ -160,15 +229,15 @@ export class MarketplaceManager {
       throw new Error(`Marketplace '${parsed.name}' already exists`);
     }
 
-    this.config.marketplaces.push({
-      name: parsed.name,
-      repo: parsed.repo,
-      url: parsed.url,
+    const marketplace: Marketplace = {
+      ...parsed,
       enabled: true,
       lastUpdated: new Date().toISOString(),
-    });
+    };
 
+    this.config.marketplaces.push(marketplace);
     await this.save();
+
     return parsed;
   }
 
@@ -215,19 +284,38 @@ export class MarketplaceManager {
   }
 
   /**
-   * Fetch marketplace.json from remote
+   * Fetch marketplace.json from various sources
    */
   async fetchManifest(marketplace: Marketplace): Promise<MarketplaceManifest | null> {
     try {
-      const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
-      const response = await fetch(manifestUrl);
+      if (marketplace.sourceType === 'local') {
+        // Local filesystem
+        const localPath = marketplace.url.replace('file://', '');
+        const manifestPath = path.join(localPath, '.photon', 'marketplace.json');
 
-      if (response.ok) {
-        const data = await response.json() as MarketplaceManifest;
-        return data;
+        if (existsSync(manifestPath)) {
+          const data = await fs.readFile(manifestPath, 'utf-8');
+          return JSON.parse(data) as MarketplaceManifest;
+        }
+      } else if (marketplace.sourceType === 'url') {
+        // Direct URL - the source already points to marketplace.json
+        const response = await fetch(marketplace.source);
+
+        if (response.ok) {
+          return await response.json() as MarketplaceManifest;
+        }
+      } else {
+        // GitHub sources (github, git-ssh)
+        const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
+        const response = await fetch(manifestUrl);
+
+        if (response.ok) {
+          return await response.json() as MarketplaceManifest;
+        }
       }
-    } catch {
-      // Marketplace doesn't have a manifest
+    } catch (error) {
+      // Marketplace doesn't have a manifest or fetch failed
+      console.error(`[Photon] Failed to fetch manifest from ${marketplace.name}:`, error);
     }
 
     return null;
@@ -392,11 +480,27 @@ export class MarketplaceManager {
 
     for (const marketplace of enabled) {
       try {
-        const url = `${marketplace.url}/${mcpName}.photon.ts`;
-        const response = await fetch(url);
+        let content: string | null = null;
 
-        if (response.ok) {
-          const content = await response.text();
+        if (marketplace.sourceType === 'local') {
+          // Local filesystem
+          const localPath = marketplace.url.replace('file://', '');
+          const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
+
+          if (existsSync(mcpPath)) {
+            content = await fs.readFile(mcpPath, 'utf-8');
+          }
+        } else {
+          // Remote fetch (GitHub, URL)
+          const url = `${marketplace.url}/${mcpName}.photon.ts`;
+          const response = await fetch(url);
+
+          if (response.ok) {
+            content = await response.text();
+          }
+        }
+
+        if (content) {
           return { content, marketplace };
         }
       } catch {
@@ -415,13 +519,28 @@ export class MarketplaceManager {
 
     for (const marketplace of enabled) {
       try {
-        const url = `${marketplace.url}/${mcpName}.photon.ts`;
-        const response = await fetch(url);
+        let content: string | null = null;
 
-        if (response.ok) {
-          const content = await response.text();
+        if (marketplace.sourceType === 'local') {
+          // Local filesystem
+          const localPath = marketplace.url.replace('file://', '');
+          const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
+
+          if (existsSync(mcpPath)) {
+            content = await fs.readFile(mcpPath, 'utf-8');
+          }
+        } else {
+          // Remote fetch (GitHub, URL)
+          const url = `${marketplace.url}/${mcpName}.photon.ts`;
+          const response = await fetch(url);
+
+          if (response.ok) {
+            content = await response.text();
+          }
+        }
+
+        if (content) {
           const versionMatch = content.match(/@version\s+(\d+\.\d+\.\d+)/);
-
           if (versionMatch) {
             return { version: versionMatch[1], marketplace };
           }

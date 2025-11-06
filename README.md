@@ -544,16 +544,27 @@ photon registry:list
 # List all registries
 photon registry:list
 
-# Add custom registry (shorthand)
+# Add marketplace - Multiple formats supported:
+
+# 1. GitHub shorthand
 photon registry:add username/my-mcps
 
-# Or use full GitHub URL
+# 2. GitHub HTTPS
 photon registry:add https://github.com/username/my-mcps
-
-# Or with .git extension
 photon registry:add https://github.com/username/my-mcps.git
 
-# Remove registry (uses repo name)
+# 3. GitHub SSH
+photon registry:add git@github.com:username/my-mcps.git
+
+# 4. Direct URL (marketplace.json)
+photon registry:add https://example.com/marketplaces/my-mcps.json
+
+# 5. Local filesystem path
+photon registry:add ./my-local-mcps
+photon registry:add ~/Documents/my-photons
+photon registry:add /absolute/path/to/mcps
+
+# Remove registry (uses repo/folder name)
 photon registry:remove my-mcps
 
 # Enable/disable registries
@@ -564,11 +575,18 @@ photon registry:disable my-mcps
 photon registry:search github
 ```
 
+**Supported Source Types:**
+- **GitHub** (`username/repo`) - Fetches from raw.githubusercontent.com
+- **GitHub HTTPS** (`https://github.com/username/repo`) - Same as shorthand
+- **GitHub SSH** (`git@github.com:username/repo.git`) - Converted to HTTPS
+- **Direct URL** (`https://example.com/marketplace.json`) - Fetches JSON directly
+- **Local Path** (`./path`, `/absolute/path`, `~/path`) - Reads from filesystem
+
 **How it works:**
-- Just provide `username/repo` or GitHub URL
-- Registry name is automatically derived from repo name
-- URLs are automatically converted to raw.githubusercontent.com
-- Defaults to `/main` branch
+- Registry name is automatically derived from repo/folder name
+- GitHub URLs are automatically converted to raw.githubusercontent.com
+- Defaults to `/main` branch for GitHub sources
+- Local paths support relative (`./`), absolute (`/`), and home (`~/`) paths
 
 **Examples:**
 ```bash
