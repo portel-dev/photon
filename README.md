@@ -19,6 +19,22 @@ Why laser-focused bulky AI toolsets when you can photon-focus at exactly what yo
 - 🛠️ **Simple API** - Just export a class with async methods
 - 🔌 **MCP Compatible** - Works with Claude Desktop, Cursor, Windsurf, etc.
 
+### MCP Capabilities Supported
+
+Photon implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) with full support for:
+
+- ✅ **Tools** - Execute operations and commands (`listChanged: true`)
+- ✅ **Prompts** (Templates) - Reusable text generation with variables (`listChanged: true`)
+- ✅ **Resources** (Static) - Read-only content and data (`listChanged: true`)
+- ✅ **Hot Reload Notifications** - Sends `list_changed` events to clients in dev mode
+
+When running in `--dev` mode, Photon automatically sends MCP notifications when your code changes:
+- `notifications/tools/list_changed` - Tools updated
+- `notifications/prompts/list_changed` - Templates updated
+- `notifications/resources/list_changed` - Static resources updated
+
+This allows MCP clients like Claude Desktop to automatically refresh without restart.
+
 ## Installation
 
 ### Option 1: Global Install (Recommended)
