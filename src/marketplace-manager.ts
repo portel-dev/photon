@@ -20,9 +20,9 @@ export interface MarketplaceConfig {
 }
 
 /**
- * MCP metadata from marketplace.json
+ * Photon metadata from marketplace.json
  */
-export interface MCPMetadata {
+export interface PhotonMetadata {
   name: string;
   version: string;
   description: string;
@@ -48,7 +48,7 @@ export interface MarketplaceManifest {
     email?: string;
     url?: string;
   };
-  mcps: MCPMetadata[];
+  photons: PhotonMetadata[];
 }
 
 const CONFIG_DIR = path.join(os.homedir(), '.photon');
@@ -294,18 +294,18 @@ export class MarketplaceManager {
   }
 
   /**
-   * Get MCP metadata from cached manifest
+   * Get Photon metadata from cached manifest
    */
-  async getMCPMetadata(mcpName: string): Promise<{ metadata: MCPMetadata; marketplace: Marketplace } | null> {
+  async getPhotonMetadata(photonName: string): Promise<{ metadata: PhotonMetadata; marketplace: Marketplace } | null> {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
       const manifest = await this.getCachedManifest(marketplace.name);
 
       if (manifest) {
-        const mcp = manifest.mcps.find((m) => m.name === mcpName);
-        if (mcp) {
-          return { metadata: mcp, marketplace };
+        const photon = manifest.photons.find((p) => p.name === photonName);
+        if (photon) {
+          return { metadata: photon, marketplace };
         }
       }
     }
@@ -314,30 +314,30 @@ export class MarketplaceManager {
   }
 
   /**
-   * Get all MCPs with metadata from all enabled marketplaces
+   * Get all Photons with metadata from all enabled marketplaces
    */
-  async getAllMCPs(): Promise<Map<string, { metadata: MCPMetadata; marketplace: Marketplace }>> {
-    const mcps = new Map<string, { metadata: MCPMetadata; marketplace: Marketplace }>();
+  async getAllPhotons(): Promise<Map<string, { metadata: PhotonMetadata; marketplace: Marketplace }>> {
+    const photons = new Map<string, { metadata: PhotonMetadata; marketplace: Marketplace }>();
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
       const manifest = await this.getCachedManifest(marketplace.name);
 
       if (manifest) {
-        for (const mcp of manifest.mcps) {
-          // First marketplace wins if MCP exists in multiple
-          if (!mcps.has(mcp.name)) {
-            mcps.set(mcp.name, { metadata: mcp, marketplace });
+        for (const photon of manifest.photons) {
+          // First marketplace wins if Photon exists in multiple
+          if (!photons.has(photon.name)) {
+            photons.set(photon.name, { metadata: photon, marketplace });
           }
         }
       }
     }
 
-    return mcps;
+    return photons;
   }
 
   /**
-   * Get count of available MCPs per marketplace
+   * Get count of available Photons per marketplace
    */
   async getMarketplaceCounts(): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
@@ -345,7 +345,7 @@ export class MarketplaceManager {
 
     for (const marketplace of all) {
       const manifest = await this.getCachedManifest(marketplace.name);
-      counts.set(marketplace.name, manifest?.mcps.length || 0);
+      counts.set(marketplace.name, manifest?.photons.length || 0);
     }
 
     return counts;
@@ -435,11 +435,11 @@ export class MarketplaceManager {
   }
 
   /**
-   * Search for MCP in all marketplaces
+   * Search for Photon in all marketplaces
    * Searches in name, description, tags, and author fields
    */
-  async search(query: string): Promise<Map<string, { metadata?: MCPMetadata; marketplace: Marketplace }[]>> {
-    const results = new Map<string, { metadata?: MCPMetadata; marketplace: Marketplace }[]>();
+  async search(query: string): Promise<Map<string, { metadata?: PhotonMetadata; marketplace: Marketplace }[]>> {
+    const results = new Map<string, { metadata?: PhotonMetadata; marketplace: Marketplace }[]>();
     const enabled = this.getEnabled();
     const lowerQuery = query.toLowerCase();
 
@@ -449,16 +449,16 @@ export class MarketplaceManager {
 
       if (manifest) {
         // Search in manifest metadata
-        for (const mcp of manifest.mcps) {
-          const nameMatch = mcp.name.toLowerCase().includes(lowerQuery);
-          const descMatch = mcp.description?.toLowerCase().includes(lowerQuery);
-          const tagMatch = mcp.tags?.some(tag => tag.toLowerCase().includes(lowerQuery));
-          const authorMatch = mcp.author?.toLowerCase().includes(lowerQuery);
+        for (const photon of manifest.photons) {
+          const nameMatch = photon.name.toLowerCase().includes(lowerQuery);
+          const descMatch = photon.description?.toLowerCase().includes(lowerQuery);
+          const tagMatch = photon.tags?.some(tag => tag.toLowerCase().includes(lowerQuery));
+          const authorMatch = photon.author?.toLowerCase().includes(lowerQuery);
 
           if (nameMatch || descMatch || tagMatch || authorMatch) {
-            const existing = results.get(mcp.name) || [];
-            existing.push({ metadata: mcp, marketplace });
-            results.set(mcp.name, existing);
+            const existing = results.get(photon.name) || [];
+            existing.push({ metadata: photon, marketplace });
+            results.set(photon.name, existing);
           }
         }
       } else {
