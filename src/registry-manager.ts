@@ -70,29 +70,62 @@ export class RegistryManager {
   }
 
   /**
-   * Add a new registry
+   * Parse GitHub repo reference into registry info
+   * Supports:
+   * - username/repo
+   * - https://github.com/username/repo
+   * - https://github.com/username/repo.git
    */
-  async add(name: string, url: string): Promise<boolean> {
-    // Check if already exists
-    if (this.get(name)) {
-      return false;
+  private parseGitHubRepo(input: string): { name: string; url: string } | null {
+    // Pattern 1: username/repo
+    const shorthandMatch = input.match(/^([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+)$/);
+    if (shorthandMatch) {
+      const [, username, repo] = shorthandMatch;
+      return {
+        name: repo,
+        url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
+      };
     }
 
-    // Validate URL format
-    try {
-      new URL(url);
-    } catch {
-      throw new Error('Invalid URL format');
+    // Pattern 2: https://github.com/username/repo or https://github.com/username/repo.git
+    const urlMatch = input.match(/^https?:\/\/github\.com\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/);
+    if (urlMatch) {
+      const [, username, repo] = urlMatch;
+      return {
+        name: repo,
+        url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Add a new registry from GitHub repo
+   * Supports: username/repo or https://github.com/username/repo
+   */
+  async add(githubRepo: string): Promise<{ name: string; url: string }> {
+    const parsed = this.parseGitHubRepo(githubRepo);
+
+    if (!parsed) {
+      throw new Error(
+        'Invalid format. Use: username/repo or https://github.com/username/repo'
+      );
+    }
+
+    // Check if already exists
+    if (this.get(parsed.name)) {
+      throw new Error(`Registry '${parsed.name}' already exists`);
     }
 
     this.config.registries.push({
-      name,
-      url,
+      name: parsed.name,
+      url: parsed.url,
       enabled: true,
     });
 
     await this.save();
-    return true;
+    return parsed;
   }
 
   /**

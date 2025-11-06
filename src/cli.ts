@@ -388,24 +388,19 @@ program
 
 program
   .command('registry:add')
-  .argument('<name>', 'Registry name')
-  .argument('<url>', 'Registry base URL')
-  .description('Add a new MCP registry')
-  .action(async (name: string, url: string) => {
+  .argument('<repo>', 'GitHub repository (username/repo or github.com URL)')
+  .description('Add a new MCP registry from GitHub')
+  .action(async (repo: string) => {
     try {
       const { RegistryManager } = await import('./registry-manager.js');
       const manager = new RegistryManager();
       await manager.initialize();
 
-      const added = await manager.add(name, url);
+      const result = await manager.add(repo);
 
-      if (added) {
-        console.error(`[Photon] ✅ Added registry: ${name}`);
-        console.error(`[Photon] URL: ${url}`);
-      } else {
-        console.error(`[Photon] ❌ Registry '${name}' already exists`);
-        process.exit(1);
-      }
+      console.error(`[Photon] ✅ Added registry: ${result.name}`);
+      console.error(`[Photon] GitHub: ${repo}`);
+      console.error(`[Photon] URL: ${result.url}`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
