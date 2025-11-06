@@ -4,16 +4,26 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
-const REGISTRY_URL = 'https://raw.githubusercontent.com/portel-dev/photons/main';
+import { RegistryManager, Registry } from './registry-manager.js';
 
 interface VersionInfo {
   local?: string;
   remote?: string;
   needsUpdate: boolean;
+  registry?: Registry;
 }
 
 export class VersionChecker {
+  private registryManager: RegistryManager;
+
+  constructor(registryManager?: RegistryManager) {
+    this.registryManager = registryManager || new RegistryManager();
+  }
+
+  async initialize() {
+    await this.registryManager.initialize();
+  }
+
   /**
    * Extract version from MCP source file
    */
@@ -30,21 +40,8 @@ export class VersionChecker {
   /**
    * Fetch remote version from registry
    */
-  async fetchRemoteVersion(mcpName: string): Promise<string | null> {
-    try {
-      const url = `${REGISTRY_URL}/${mcpName}.photon.ts`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const content = await response.text();
-      const versionMatch = content.match(/@version\s+(\d+\.\d+\.\d+)/);
-      return versionMatch ? versionMatch[1] : null;
-    } catch {
-      return null;
-    }
+  async fetchRemoteVersion(mcpName: string): Promise<{ version: string; registry: Registry } | null> {
+    return await this.registryManager.fetchVersion(mcpName);
   }
 
   /**
@@ -67,15 +64,25 @@ export class VersionChecker {
    */
   async checkForUpdate(mcpName: string, localPath: string): Promise<VersionInfo> {
     const local = await this.extractVersion(localPath);
-    const remote = await this.fetchRemoteVersion(mcpName);
+    const remoteInfo = await this.fetchRemoteVersion(mcpName);
 
-    if (!local || !remote) {
-      return { local: local || undefined, remote: remote || undefined, needsUpdate: false };
+    if (!local || !remoteInfo) {
+      return {
+        local: local || undefined,
+        remote: remoteInfo?.version,
+        needsUpdate: false,
+        registry: remoteInfo?.registry,
+      };
     }
 
-    const needsUpdate = this.compareVersions(remote, local) > 0;
+    const needsUpdate = this.compareVersions(remoteInfo.version, local) > 0;
 
-    return { local, remote, needsUpdate };
+    return {
+      local,
+      remote: remoteInfo.version,
+      needsUpdate,
+      registry: remoteInfo.registry,
+    };
   }
 
   /**
@@ -110,15 +117,13 @@ export class VersionChecker {
    */
   async updateMCP(mcpName: string, targetPath: string): Promise<boolean> {
     try {
-      const url = `${REGISTRY_URL}/${mcpName}.photon.ts`;
-      const response = await fetch(url);
+      const result = await this.registryManager.fetchMCP(mcpName);
 
-      if (!response.ok) {
+      if (!result) {
         return false;
       }
 
-      const content = await response.text();
-      await fs.writeFile(targetPath, content, 'utf-8');
+      await fs.writeFile(targetPath, result.content, 'utf-8');
       return true;
     } catch {
       return false;
