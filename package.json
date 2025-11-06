@@ -15,7 +15,12 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "test": "npm run test:sqlite",
+    "test": "npm run test:all",
+    "test:all": "npm run build && npm run test:schema && npm run test:marketplace && npm run test:loader && npm run test:server",
+    "test:schema": "npx tsx tests/schema-extractor.test.ts",
+    "test:marketplace": "npx tsx tests/marketplace-manager.test.ts",
+    "test:loader": "npx tsx tests/loader.test.ts",
+    "test:server": "npx tsx tests/server.test.ts",
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
     "test:github": "npm run build && npx tsx tests/github-issues.test.ts"
   },
