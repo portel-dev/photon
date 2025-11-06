@@ -278,6 +278,105 @@ async tool4(params: {}) {
 }
 ```
 
+### Templates (MCP Prompts)
+
+Templates are reusable text generation patterns with variable substitution. They map to:
+- **MCP Prompts** (slash commands in Claude Desktop)
+- **HTTP Template Endpoints** (POST endpoints)
+- **CLI Help Generators**
+
+Mark a method as a Template using the `@Template` JSDoc tag and `Template` return type:
+
+```typescript
+import { Template, asTemplate } from '@portel/photon';
+
+export default class MyMCP {
+  /**
+   * Generate a code review prompt
+   * @Template
+   * @param language Programming language
+   * @param code Code to review
+   */
+  async codeReview(params: { language: string; code: string }): Promise<Template> {
+    const prompt = `Review this ${params.language} code:\n\`\`\`\n${params.code}\n\`\`\``;
+    return asTemplate(prompt);
+  }
+}
+```
+
+**Advanced Template with Messages:**
+
+```typescript
+import { TemplateResponse } from '@portel/photon';
+
+/**
+ * Generate a commit message with examples
+ * @Template
+ * @param type Type of change (feat, fix, docs)
+ */
+async commitPrompt(params: { type: string }): Promise<TemplateResponse> {
+  return {
+    messages: [
+      {
+        role: 'user',
+        content: { type: 'text', text: `I need a ${params.type} commit message` }
+      },
+      {
+        role: 'assistant',
+        content: { type: 'text', text: 'Here are some examples...' }
+      }
+    ]
+  };
+}
+```
+
+### Static Resources (MCP Resources)
+
+Static resources expose read-only content and data. They map to:
+- **MCP Resources** (context data in Claude Desktop)
+- **HTTP GET Endpoints**
+- **CLI Read Commands**
+
+Mark a method as Static using the `@Static` JSDoc tag with a URI pattern:
+
+```typescript
+import { Static, asStatic } from '@portel/photon';
+
+export default class MyMCP {
+  /**
+   * Get API documentation
+   * @Static api://docs
+   * @mimeType text/markdown
+   */
+  async apiDocs(params: {}): Promise<Static> {
+    const docs = `# API Documentation\n\n...`;
+    return asStatic(docs);
+  }
+
+  /**
+   * Get README for a project type
+   * @Static readme://{projectType}
+   * @mimeType text/markdown
+   * @param projectType Type of project (api, library, cli)
+   */
+  async readme(params: { projectType: string }): Promise<Static> {
+    const content = `# ${params.projectType} Project\n\n...`;
+    return asStatic(content);
+  }
+}
+```
+
+**URI Patterns:**
+- Simple: `@Static api://docs`
+- With parameters: `@Static github://repos/{owner}/{repo}/readme`
+- Parameters are extracted from URI and passed to the method
+
+**MIME Types:**
+- `text/plain` (default)
+- `text/markdown`
+- `application/json`
+- Any standard MIME type
+
 ### TypeScript Type Support
 
 Photon extracts JSON schemas from TypeScript types:
@@ -325,12 +424,23 @@ export default class MyMCP {
 
 ## Examples
 
-The repository includes three example Photon MCPs:
+The repository includes example Photon MCPs:
+
+### Content (Templates & Static)
+
+```bash
+npx photon examples/content --dev
+```
+
+Demonstrates Templates (MCP Prompts) and Static resources (MCP Resources):
+- **Templates**: `codeReview`, `prDescription`, `commitPrompt`
+- **Statics**: `apiDocs`, `configReference`, `readmeTemplate`
+- **Tools**: `wordCount`
 
 ### Calculator
 
 ```bash
-npx photon examples/calculator --dev
+npx photon examples/math --dev
 ```
 
 Basic arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `power`
@@ -338,7 +448,7 @@ Basic arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `power`
 ### String Utilities
 
 ```bash
-npx photon examples/string --dev
+npx photon examples/text --dev
 ```
 
 Text manipulation: `uppercase`, `lowercase`, `slugify`, `reverse`, `wordCount`, `split`, `replace`, `titleCase`, `substring`
