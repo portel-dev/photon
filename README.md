@@ -383,15 +383,29 @@ export default class MyMCP {
 ```
 
 **URI Patterns:**
-- Simple: `@Static api://docs`
-- With parameters: `@Static github://repos/{owner}/{repo}/readme`
+- **Static URI**: `@Static api://docs` - No parameters, returned in `resources/list`
+- **URI Template**: `@Static readme://{projectType}` - Has parameters, returned in `resources/templates/list`
 - Parameters are extracted from URI and passed to the method
+
+**How Clients Use URI Templates:**
+1. Client requests `resources/templates/list`
+2. Sees template: `readme://{projectType}`
+3. Extracts variable name: `projectType`
+4. Prompts user for value (or autocompletes)
+5. Substitutes to create URI: `readme://api`
+6. Calls `resources/read` with resolved URI
+7. Server parses parameters and returns rendered content
 
 **MIME Types:**
 - `text/plain` (default)
 - `text/markdown`
 - `application/json`
 - Any standard MIME type
+
+**Caching:**
+- Each unique resolved URI is cacheable by the client
+- `readme://api` and `readme://library` are cached separately
+- Cache invalidated when `notifications/resources/list_changed` is sent
 
 ### TypeScript Type Support
 
