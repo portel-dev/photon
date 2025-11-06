@@ -24,7 +24,7 @@ export interface MarketplaceConfig {
 }
 
 /**
- * Photon metadata from marketplace.json
+ * Photon metadata from photons.json manifest
  */
 export interface PhotonMetadata {
   name: string;
@@ -41,7 +41,7 @@ export interface PhotonMetadata {
 }
 
 /**
- * Marketplace manifest (.photon/marketplace.json)
+ * Marketplace manifest (.marketplace/photons.json)
  */
 export interface MarketplaceManifest {
   name: string;
@@ -121,7 +121,7 @@ export class MarketplaceManager {
    * 1. GitHub shorthand: username/repo
    * 2. GitHub HTTPS: https://github.com/username/repo[.git]
    * 3. GitHub SSH: git@github.com:username/repo.git
-   * 4. Direct URL: https://example.com/marketplace.json
+   * 4. Direct URL: https://example.com/photons.json
    * 5. Local path: ./path/to/marketplace or /absolute/path
    */
   private parseMarketplaceSource(input: string): Omit<Marketplace, 'enabled' | 'lastUpdated'> | null {
@@ -165,7 +165,7 @@ export class MarketplaceManager {
       };
     }
 
-    // Pattern 4: https://example.com/marketplace.json (Direct URL)
+    // Pattern 4: https://example.com/photons.json (Direct URL)
     if (input.startsWith('http://') || input.startsWith('https://')) {
       // Extract name from URL
       const urlObj = new URL(input);
@@ -173,7 +173,7 @@ export class MarketplaceManager {
       const fileName = pathParts[pathParts.length - 1];
       const name = fileName.replace(/\.(json|ts)$/, '') || urlObj.hostname;
 
-      // Base URL is the directory containing the marketplace.json
+      // Base URL is the directory containing the photons.json
       const baseUrl = input.replace(/\/[^/]*$/, '');
 
       return {
@@ -247,7 +247,7 @@ export class MarketplaceManager {
    * Add a new marketplace
    * Supports:
    * - GitHub: username/repo, https://github.com/username/repo, git@github.com:username/repo.git
-   * - Direct URL: https://example.com/marketplace.json
+   * - Direct URL: https://example.com/photons.json
    * - Local path: ./path/to/marketplace, /absolute/path
    *
    * If a marketplace with the same name already exists, automatically appends a numeric suffix (-2, -3, etc.)
@@ -264,7 +264,7 @@ export class MarketplaceManager {
 - GitHub: username/repo
 - GitHub HTTPS: https://github.com/username/repo
 - GitHub SSH: git@github.com:username/repo.git
-- Direct URL: https://example.com/marketplace.json
+- Direct URL: https://example.com/photons.json
 - Local path: ./path/to/marketplace or /absolute/path`
       );
     }
@@ -346,21 +346,21 @@ export class MarketplaceManager {
   }
 
   /**
-   * Fetch marketplace.json from various sources
+   * Fetch photons.json manifest from various sources
    */
   async fetchManifest(marketplace: Marketplace): Promise<MarketplaceManifest | null> {
     try {
       if (marketplace.sourceType === 'local') {
         // Local filesystem
         const localPath = marketplace.url.replace('file://', '');
-        const manifestPath = path.join(localPath, '.photon', 'marketplace.json');
+        const manifestPath = path.join(localPath, '.marketplace', 'photons.json');
 
         if (existsSync(manifestPath)) {
           const data = await fs.readFile(manifestPath, 'utf-8');
           return JSON.parse(data) as MarketplaceManifest;
         }
       } else if (marketplace.sourceType === 'url') {
-        // Direct URL - the source already points to marketplace.json
+        // Direct URL - the source already points to photons.json
         const response = await fetch(marketplace.source);
 
         if (response.ok) {
@@ -368,7 +368,7 @@ export class MarketplaceManager {
         }
       } else {
         // GitHub sources (github, git-ssh)
-        const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
+        const manifestUrl = `${marketplace.url}/.marketplace/photons.json`;
         const response = await fetch(manifestUrl);
 
         if (response.ok) {
@@ -384,7 +384,7 @@ export class MarketplaceManager {
   }
 
   /**
-   * Update marketplace cache (fetch and save marketplace.json)
+   * Update marketplace cache (fetch and save photons.json manifest)
    */
   async updateMarketplaceCache(name: string): Promise<boolean> {
     const marketplace = this.get(name);
@@ -664,7 +664,7 @@ export class MarketplaceManager {
 
   /**
    * List all available MCPs from a marketplace
-   * Note: Requires marketplace to have a .photon/marketplace.json file
+   * Note: Requires marketplace to have a .marketplace/photons.json file
    */
   async listFromMarketplace(marketplaceName: string): Promise<string[]> {
     const marketplace = this.get(marketplaceName);
@@ -674,13 +674,10 @@ export class MarketplaceManager {
     }
 
     try {
-      // Try to fetch marketplace.json if it exists
-      const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
-      const response = await fetch(manifestUrl);
-
-      if (response.ok) {
-        const data: any = await response.json();
-        return data.mcps || [];
+      // Try to fetch photons.json manifest
+      const manifest = await this.fetchManifest(marketplace);
+      if (manifest) {
+        return manifest.photons.map(p => p.name);
       }
     } catch {
       // No manifest file available
