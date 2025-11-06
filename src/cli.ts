@@ -550,17 +550,23 @@ marketplace
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      const result = await manager.add(repo);
+      const { marketplace: result, added } = await manager.add(repo);
 
-      console.error(`[Photon] ✅ Added marketplace: ${result.name}`);
-      console.error(`[Photon] GitHub: ${repo}`);
-      console.error(`[Photon] URL: ${result.url}`);
+      if (added) {
+        console.error(`[Photon] ✅ Added marketplace: ${result.name}`);
+        console.error(`[Photon] Source: ${repo}`);
+        console.error(`[Photon] URL: ${result.url}`);
 
-      // Auto-fetch marketplace.json
-      console.error(`[Photon] Fetching marketplace metadata...`);
-      const success = await manager.updateMarketplaceCache(result.name);
-      if (success) {
-        console.error(`[Photon] ✅ Marketplace ready to use`);
+        // Auto-fetch marketplace.json
+        console.error(`[Photon] Fetching marketplace metadata...`);
+        const success = await manager.updateMarketplaceCache(result.name);
+        if (success) {
+          console.error(`[Photon] ✅ Marketplace ready to use`);
+        }
+      } else {
+        console.error(`[Photon] ℹ️  Marketplace already exists: ${result.name}`);
+        console.error(`[Photon] Source: ${result.source}`);
+        console.error(`[Photon] Skipping duplicate addition`);
       }
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);

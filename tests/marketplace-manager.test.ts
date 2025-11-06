@@ -180,7 +180,35 @@ async function runTests() {
     console.log('✅ Duplicate name handling with numeric suffixes');
   }
 
-  // Test 14: Manual URI template detection (regex check)
+  // Test 14: Duplicate source detection
+  {
+    const testManager = new MarketplaceManager();
+    await testManager.initialize();
+
+    // Manually add a marketplace
+    (testManager as any).config.marketplaces = [
+      {
+        name: 'photon-mcps',
+        repo: 'anthropics/photon-mcps',
+        url: 'https://raw.githubusercontent.com/anthropics/photon-mcps/main',
+        sourceType: 'github',
+        source: 'anthropics/photon-mcps',
+        enabled: true,
+      },
+    ];
+
+    // Test findBySource
+    const found = (testManager as any).findBySource('anthropics/photon-mcps');
+    assert.ok(found, 'Should find marketplace by source');
+    assert.equal(found.name, 'photon-mcps', 'Should return correct marketplace');
+
+    const notFound = (testManager as any).findBySource('other/repo');
+    assert.equal(notFound, undefined, 'Should return undefined for non-existent source');
+
+    console.log('✅ Duplicate source detection');
+  }
+
+  // Test 15: Manual URI template detection (regex check)
   {
     const isTemplate = (uri: string) => /\{[^}]+\}/.test(uri);
 

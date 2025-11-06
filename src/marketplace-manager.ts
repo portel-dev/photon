@@ -237,6 +237,13 @@ export class MarketplaceManager {
   }
 
   /**
+   * Check if a marketplace with the same source already exists
+   */
+  private findBySource(source: string): Marketplace | undefined {
+    return this.config.marketplaces.find((m) => m.source === source);
+  }
+
+  /**
    * Add a new marketplace
    * Supports:
    * - GitHub: username/repo, https://github.com/username/repo, git@github.com:username/repo.git
@@ -244,8 +251,11 @@ export class MarketplaceManager {
    * - Local path: ./path/to/marketplace, /absolute/path
    *
    * If a marketplace with the same name already exists, automatically appends a numeric suffix (-2, -3, etc.)
+   * If the exact same source already exists, returns the existing marketplace without creating a duplicate.
+   *
+   * @returns Object with marketplace info and 'added' flag (false if already existed)
    */
-  async add(source: string): Promise<Omit<Marketplace, 'enabled' | 'lastUpdated'>> {
+  async add(source: string): Promise<{ marketplace: Omit<Marketplace, 'enabled' | 'lastUpdated'>; added: boolean }> {
     const parsed = this.parseMarketplaceSource(source);
 
     if (!parsed) {
@@ -257,6 +267,21 @@ export class MarketplaceManager {
 - Direct URL: https://example.com/marketplace.json
 - Local path: ./path/to/marketplace or /absolute/path`
       );
+    }
+
+    // Check if this exact source is already added
+    const existing = this.findBySource(parsed.source);
+    if (existing) {
+      return {
+        marketplace: {
+          name: existing.name,
+          repo: existing.repo,
+          url: existing.url,
+          sourceType: existing.sourceType,
+          source: existing.source,
+        },
+        added: false,
+      };
     }
 
     // Get unique name (adds numeric suffix if name already exists)
@@ -272,7 +297,10 @@ export class MarketplaceManager {
     this.config.marketplaces.push(marketplace);
     await this.save();
 
-    return finalParsed;
+    return {
+      marketplace: finalParsed,
+      added: true,
+    };
   }
 
   /**
