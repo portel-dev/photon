@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { PhotonMCP } from './base.js';
 import { SchemaExtractor } from './schema-extractor.js';
-import { PhotonMCPClass, PhotonTool } from './types.js';
+import { PhotonMCPClass, PhotonMCPClassExtended, PhotonTool, TemplateInfo, StaticInfo } from './types.js';
 import * as os from 'os';
 import { DependencyManager } from './dependency-manager.js';
 
@@ -24,7 +24,7 @@ export class PhotonLoader {
   /**
    * Load a single Photon MCP file
    */
-  async loadFile(filePath: string): Promise<PhotonMCPClass> {
+  async loadFile(filePath: string): Promise<PhotonMCPClassExtended> {
     try {
       // Resolve to absolute path
       const absolutePath = path.resolve(filePath);
@@ -97,15 +97,23 @@ export class PhotonLoader {
         await instance.onInitialize();
       }
 
-      // Extract tools
-      const tools = await this.extractTools(MCPClass, absolutePath);
+      // Extract tools, templates, and statics
+      const { tools, templates, statics } = await this.extractTools(MCPClass, absolutePath);
 
-      console.error(`[Photon] ✅ Loaded: ${name} (${tools.length} tools)`);
+      const counts = [
+        tools.length > 0 ? `${tools.length} tools` : null,
+        templates.length > 0 ? `${templates.length} templates` : null,
+        statics.length > 0 ? `${statics.length} statics` : null,
+      ].filter(Boolean).join(', ');
+
+      console.error(`[Photon] ✅ Loaded: ${name} (${counts})`);
 
       return {
         name,
         description: `${name} MCP`,
         tools,
+        templates,
+        statics,
         instance,
       };
     } catch (error: any) {
@@ -117,7 +125,7 @@ export class PhotonLoader {
   /**
    * Reload a Photon MCP file (for hot reload)
    */
-  async reloadFile(filePath: string): Promise<PhotonMCPClass> {
+  async reloadFile(filePath: string): Promise<PhotonMCPClassExtended> {
     // Invalidate the cache for this file
     const absolutePath = path.resolve(filePath);
 
@@ -282,11 +290,17 @@ export class PhotonLoader {
   }
 
   /**
-   * Extract tools from a class
+   * Extract tools, templates, and statics from a class
    */
-  private async extractTools(mcpClass: any, sourceFilePath: string): Promise<PhotonTool[]> {
+  private async extractTools(mcpClass: any, sourceFilePath: string): Promise<{
+    tools: PhotonTool[];
+    templates: TemplateInfo[];
+    statics: StaticInfo[];
+  }> {
     const methodNames = this.getToolMethods(mcpClass);
-    const tools: PhotonTool[] = [];
+    let tools: PhotonTool[] = [];
+    let templates: TemplateInfo[] = [];
+    let statics: StaticInfo[] = [];
 
     try {
       // First, try loading from pre-generated .schema.json file
@@ -306,25 +320,21 @@ export class PhotonLoader {
         }
 
         console.error(`[Photon] Loaded ${tools.length} schemas from .schema.json`);
-        return tools;
+        return { tools, templates, statics };
       } catch (jsonError: any) {
         // .schema.json doesn't exist, try extracting from .ts source
         if (jsonError.code === 'ENOENT') {
           const extractor = new SchemaExtractor();
-          const schemas = await extractor.extractFromFile(sourceFilePath);
+          const source = await fs.readFile(sourceFilePath, 'utf-8');
+          const metadata = extractor.extractAllFromSource(source);
 
-          for (const schema of schemas) {
-            if (methodNames.includes(schema.name)) {
-              tools.push({
-                name: schema.name,
-                description: schema.description,
-                inputSchema: schema.inputSchema,
-              });
-            }
-          }
+          // Filter by method names that exist in the class
+          tools = metadata.tools.filter(t => methodNames.includes(t.name));
+          templates = metadata.templates.filter(t => methodNames.includes(t.name));
+          statics = metadata.statics.filter(s => methodNames.includes(s.name));
 
-          console.error(`[Photon] Extracted ${tools.length} schemas from source`);
-          return tools;
+          console.error(`[Photon] Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`);
+          return { tools, templates, statics };
         }
         throw jsonError;
       }
@@ -344,7 +354,7 @@ export class PhotonLoader {
       }
     }
 
-    return tools;
+    return { tools, templates, statics };
   }
 
   /**

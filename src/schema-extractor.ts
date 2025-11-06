@@ -3,10 +3,17 @@
  *
  * Extracts JSON schemas from TypeScript method signatures and JSDoc comments
  * Also extracts constructor parameters for config injection
+ * Supports Templates (@Template) and Static resources (@Static)
  */
 
 import * as fs from 'fs/promises';
-import { ExtractedSchema, ConstructorParam } from './types.js';
+import { ExtractedSchema, ConstructorParam, TemplateInfo, StaticInfo } from './types.js';
+
+export interface ExtractedMetadata {
+  tools: ExtractedSchema[];
+  templates: TemplateInfo[];
+  statics: StaticInfo[];
+}
 
 /**
  * Extract schemas from a Photon MCP class file
@@ -27,10 +34,12 @@ export class SchemaExtractor {
   }
 
   /**
-   * Extract schemas from source code string
+   * Extract all metadata (tools, templates, statics) from source code
    */
-  extractFromSource(source: string): ExtractedSchema[] {
-    const schemas: ExtractedSchema[] = [];
+  extractAllFromSource(source: string): ExtractedMetadata {
+    const tools: ExtractedSchema[] = [];
+    const templates: TemplateInfo[] = [];
+    const statics: StaticInfo[] = [];
 
     // Regex to match async method signatures with JSDoc
     // Matches: /** ... */ async methodName(params: { ... }) { ... }
@@ -62,18 +71,51 @@ export class SchemaExtractor {
         (key) => !paramsContent.includes(`${key}?:`)
       );
 
-      schemas.push({
-        name: methodName,
-        description,
-        inputSchema: {
-          type: 'object',
-          properties,
-          ...(required.length > 0 ? { required } : {}),
-        },
-      });
+      const inputSchema = {
+        type: 'object' as const,
+        properties,
+        ...(required.length > 0 ? { required } : {}),
+      };
+
+      // Check if this is a Template
+      if (this.hasTemplateTag(jsdocContent)) {
+        templates.push({
+          name: methodName,
+          description,
+          inputSchema,
+        });
+      }
+      // Check if this is a Static resource
+      else if (this.hasStaticTag(jsdocContent)) {
+        const uri = this.extractStaticURI(jsdocContent) || `static://${methodName}`;
+        const mimeType = this.extractMimeType(jsdocContent);
+
+        statics.push({
+          name: methodName,
+          uri,
+          description,
+          mimeType,
+          inputSchema,
+        });
+      }
+      // Otherwise, it's a regular tool
+      else {
+        tools.push({
+          name: methodName,
+          description,
+          inputSchema,
+        });
+      }
     }
 
-    return schemas;
+    return { tools, templates, statics };
+  }
+
+  /**
+   * Extract schemas from source code string (backward compatibility)
+   */
+  extractFromSource(source: string): ExtractedSchema[] {
+    return this.extractAllFromSource(source).tools;
   }
 
   /**
@@ -346,5 +388,37 @@ export class SchemaExtractor {
     }
 
     return schema;
+  }
+
+  /**
+   * Check if JSDoc contains @Template tag
+   */
+  private hasTemplateTag(jsdocContent: string): boolean {
+    return /@Template/i.test(jsdocContent);
+  }
+
+  /**
+   * Check if JSDoc contains @Static tag
+   */
+  private hasStaticTag(jsdocContent: string): boolean {
+    return /@Static/i.test(jsdocContent);
+  }
+
+  /**
+   * Extract URI pattern from @Static tag
+   * Example: @Static github://repos/{owner}/{repo}/readme
+   */
+  private extractStaticURI(jsdocContent: string): string | null {
+    const match = jsdocContent.match(/@Static\s+([\w:\/\{\}\-_.]+)/i);
+    return match ? match[1].trim() : null;
+  }
+
+  /**
+   * Extract MIME type from @mimeType tag
+   * Example: @mimeType text/markdown
+   */
+  private extractMimeType(jsdocContent: string): string | undefined {
+    const match = jsdocContent.match(/@mimeType\s+([\w\/\-+.]+)/i);
+    return match ? match[1].trim() : undefined;
   }
 }
