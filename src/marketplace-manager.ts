@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
+import * as crypto from 'crypto';
 
 export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
@@ -37,7 +38,27 @@ export interface PhotonMetadata {
   tags?: string[];
   category?: string;
   source: string;
+  hash?: string; // SHA-256 hash of the file content
   tools?: string[];
+}
+
+/**
+ * Local installation metadata for tracking Photon origins
+ */
+export interface PhotonInstallMetadata {
+  marketplace: string;
+  marketplaceRepo: string;
+  version: string;
+  originalHash: string;
+  installedAt: string;
+  lastChecked?: string;
+}
+
+/**
+ * Local metadata file structure
+ */
+export interface LocalMetadata {
+  photons: Record<string, PhotonInstallMetadata>;
 }
 
 /**
@@ -58,6 +79,7 @@ export interface MarketplaceManifest {
 const CONFIG_DIR = path.join(os.homedir(), '.photon');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'marketplaces.json');
 const CACHE_DIR = path.join(CONFIG_DIR, '.cache', 'marketplaces');
+const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');
 
 // Cache is considered stale after 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -70,6 +92,46 @@ const DEFAULT_MARKETPLACE: Marketplace = {
   source: 'portel-dev/photons',
   enabled: true,
 };
+
+/**
+ * Calculate SHA-256 hash of file content
+ */
+export async function calculateFileHash(filePath: string): Promise<string> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  const hash = crypto.createHash('sha256').update(content).digest('hex');
+  return `sha256:${hash}`;
+}
+
+/**
+ * Calculate SHA-256 hash of string content
+ */
+export function calculateHash(content: string): string {
+  const hash = crypto.createHash('sha256').update(content).digest('hex');
+  return `sha256:${hash}`;
+}
+
+/**
+ * Read local installation metadata
+ */
+export async function readLocalMetadata(): Promise<LocalMetadata> {
+  try {
+    if (existsSync(METADATA_FILE)) {
+      const data = await fs.readFile(METADATA_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch {
+    // File doesn't exist or is invalid
+  }
+  return { photons: {} };
+}
+
+/**
+ * Write local installation metadata
+ */
+export async function writeLocalMetadata(metadata: LocalMetadata): Promise<void> {
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
+  await fs.writeFile(METADATA_FILE, JSON.stringify(metadata, null, 2), 'utf-8');
+}
 
 export class MarketplaceManager {
   private config: MarketplaceConfig = { marketplaces: [] };
@@ -536,8 +598,9 @@ export class MarketplaceManager {
 
   /**
    * Try to fetch MCP from all enabled marketplaces
+   * Returns content, marketplace info, and metadata (version, hash)
    */
-  async fetchMCP(mcpName: string): Promise<{ content: string; marketplace: Marketplace } | null> {
+  async fetchMCP(mcpName: string): Promise<{ content: string; marketplace: Marketplace; metadata?: PhotonMetadata } | null> {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
@@ -563,7 +626,11 @@ export class MarketplaceManager {
         }
 
         if (content) {
-          return { content, marketplace };
+          // Try to fetch metadata from manifest
+          const manifest = await this.getCachedManifest(marketplace.name);
+          const metadata = manifest?.photons.find(p => p.name === mcpName);
+
+          return { content, marketplace, metadata };
         }
       } catch {
         // Try next marketplace
@@ -684,5 +751,52 @@ export class MarketplaceManager {
     }
 
     return [];
+  }
+
+  /**
+   * Save installation metadata for a Photon
+   */
+  async savePhotonMetadata(
+    fileName: string,
+    marketplace: Marketplace,
+    metadata: PhotonMetadata,
+    contentHash: string
+  ): Promise<void> {
+    const localMetadata = await readLocalMetadata();
+
+    localMetadata.photons[fileName] = {
+      marketplace: marketplace.name,
+      marketplaceRepo: marketplace.repo,
+      version: metadata.version,
+      originalHash: metadata.hash || contentHash,
+      installedAt: new Date().toISOString(),
+    };
+
+    await writeLocalMetadata(localMetadata);
+  }
+
+  /**
+   * Get local installation metadata for a Photon
+   */
+  async getPhotonInstallMetadata(fileName: string): Promise<PhotonInstallMetadata | null> {
+    const localMetadata = await readLocalMetadata();
+    return localMetadata.photons[fileName] || null;
+  }
+
+  /**
+   * Check if a Photon file has been modified since installation
+   */
+  async isPhotonModified(filePath: string, fileName: string): Promise<boolean> {
+    const metadata = await this.getPhotonInstallMetadata(fileName);
+    if (!metadata) {
+      return false; // No metadata, can't determine
+    }
+
+    try {
+      const currentHash = await calculateFileHash(filePath);
+      return currentHash !== metadata.originalHash;
+    } catch {
+      return false;
+    }
   }
 }
