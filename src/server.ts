@@ -13,6 +13,9 @@ import {
   GetPromptRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ToolListChangedNotificationSchema,
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { PhotonLoader } from './loader.js';
 import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from './types.js';
@@ -40,9 +43,15 @@ export class PhotonServer {
       },
       {
         capabilities: {
-          tools: {},
-          prompts: {},
-          resources: {},
+          tools: {
+            listChanged: true, // We support hot reload notifications
+          },
+          prompts: {
+            listChanged: true, // We support hot reload notifications
+          },
+          resources: {
+            listChanged: true, // We support hot reload notifications
+          },
         },
       }
     );
@@ -419,10 +428,41 @@ export class PhotonServer {
       // Reload the file
       this.mcp = await this.loader.reloadFile(this.options.filePath);
 
+      // Send list_changed notifications to inform client of updates
+      await this.notifyListsChanged();
+
       console.error('[Photon] Reload complete');
     } catch (error: any) {
       console.error(`[Photon] Reload failed: ${error.message}`);
       // Keep the old instance running
+    }
+  }
+
+  /**
+   * Send list_changed notifications to inform client that tools/prompts/resources changed
+   * Used after hot reload to tell clients (like Claude Desktop) to refresh
+   */
+  private async notifyListsChanged() {
+    try {
+      // Send tools list changed notification
+      await this.server.notification({
+        method: 'notifications/tools/list_changed',
+      } as any);
+
+      // Send prompts list changed notification
+      await this.server.notification({
+        method: 'notifications/prompts/list_changed',
+      } as any);
+
+      // Send resources list changed notification
+      await this.server.notification({
+        method: 'notifications/resources/list_changed',
+      } as any);
+
+      console.error('[Photon] Sent list_changed notifications');
+    } catch (error: any) {
+      // Notification sending is best-effort - don't fail reload if it fails
+      console.error(`[Photon] Warning: Failed to send list_changed notifications: ${error.message}`);
     }
   }
 }
