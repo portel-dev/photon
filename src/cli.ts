@@ -318,11 +318,13 @@ program
 // List command: show all MCPs in working directory
 program
   .command('list')
-  .description('List all Photon MCPs in working directory')
+  .description('List all Photon MCPs in working directory (use --config to output config for all)')
   .action(async (options: any, command: Command) => {
     try {
-      // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      // Get working directory from global/parent options
+      const parentOpts = command.parent?.opts() || {};
+      const workingDir = parentOpts.workingDir || DEFAULT_WORKING_DIR;
+      const showConfig = parentOpts.config || false;
 
       const mcps = await listPhotonMCPs(workingDir);
 
@@ -332,6 +334,47 @@ program
         return;
       }
 
+      // Config mode: generate consolidated Claude Desktop config
+      if (showConfig) {
+        const allConfigs: Record<string, any> = {};
+
+        for (const mcpName of mcps) {
+          const filePath = await resolvePhotonPath(mcpName, workingDir);
+          if (!filePath) continue;
+
+          // Extract constructor parameters
+          const constructorParams = await extractConstructorParams(filePath);
+
+          // Build env vars object with defaults
+          const env: Record<string, string> = {};
+          for (const param of constructorParams) {
+            const envVarName = toEnvVarName(mcpName, param.name);
+            const defaultDisplay = param.defaultValue !== undefined
+              ? formatDefaultValue(param.defaultValue)
+              : `<your-${param.name}>`;
+            env[envVarName] = defaultDisplay;
+          }
+
+          allConfigs[mcpName] = {
+            command: 'npx',
+            args: ['@portel/photon', mcpName],
+            ...(Object.keys(env).length > 0 && { env }),
+          };
+        }
+
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`# Claude Desktop Configuration (${mcps.length} MCPs)`);
+        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('#');
+        console.log('# Add this to: ~/Library/Application Support/Claude/claude_desktop_config.json');
+        console.log('# (macOS) or %APPDATA%\\Claude\\claude_desktop_config.json (Windows)');
+        console.log('#');
+        console.log(JSON.stringify({ mcpServers: allConfigs }, null, 2));
+        console.log('');
+        return;
+      }
+
+      // Normal list mode
       console.error(`[Photon] MCPs in ${workingDir} (${mcps.length}):`);
       console.error('');
       for (const mcp of mcps) {
@@ -339,6 +382,7 @@ program
       }
       console.error('');
       console.error(`[Photon] Run any MCP with: photon <name> --dev`);
+      console.error(`[Photon] Generate config with: photon list --config`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
