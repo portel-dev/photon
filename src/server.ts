@@ -12,6 +12,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
@@ -149,15 +150,37 @@ export class PhotonServer {
       }
     });
 
-    // Handle resources/list
+    // Handle resources/list (static URIs only, no parameters)
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
       if (!this.mcp) {
         return { resources: [] };
       }
 
+      // Only return resources with static URIs (no {parameters})
+      const staticResources = this.mcp.statics.filter(s => !this.isUriTemplate(s.uri));
+
       return {
-        resources: this.mcp.statics.map(static_ => ({
+        resources: staticResources.map(static_ => ({
           uri: static_.uri,
+          name: static_.name,
+          description: static_.description,
+          mimeType: static_.mimeType || 'text/plain',
+        })),
+      };
+    });
+
+    // Handle resources/templates/list (parameterized URIs)
+    this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+      if (!this.mcp) {
+        return { resourceTemplates: [] };
+      }
+
+      // Only return resources with URI templates (has {parameters})
+      const templateResources = this.mcp.statics.filter(s => this.isUriTemplate(s.uri));
+
+      return {
+        resourceTemplates: templateResources.map(static_ => ({
+          uriTemplate: static_.uri,
           name: static_.name,
           description: static_.description,
           mimeType: static_.mimeType || 'text/plain',
@@ -257,6 +280,13 @@ export class PhotonServer {
         },
       ],
     };
+  }
+
+  /**
+   * Check if a URI is a template (contains {parameters})
+   */
+  private isUriTemplate(uri: string): boolean {
+    return /\{[^}]+\}/.test(uri);
   }
 
   /**
