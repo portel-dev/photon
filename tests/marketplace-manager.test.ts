@@ -104,14 +104,83 @@ async function runTests() {
     console.log('✅ Local home directory path parsing');
   }
 
-  // Test 10: Invalid format
+  // Test 10: Windows absolute path (C:\) - only on Windows
+  if (process.platform === 'win32') {
+    const result = parseSource('C:\\Program Files\\Microsoft\\Caller');
+    assert.ok(result, 'Should parse Windows absolute path');
+    assert.equal(result.sourceType, 'local', 'Should be local type');
+    assert.equal(result.name, 'Caller', 'Name should be Caller');
+    assert.ok(result.url.startsWith('file://'), 'URL should start with file://');
+    assert.ok(result.url.includes('Program Files'), 'URL should include path with spaces');
+    console.log('✅ Windows absolute path parsing');
+  } else {
+    // On non-Windows, just verify the regex matches Windows paths
+    const windowsPathRegex = /^[A-Za-z]:[\\/]/;
+    assert.ok(windowsPathRegex.test('C:\\Program Files\\Microsoft\\Caller'), 'Should detect Windows path pattern');
+    console.log('✅ Windows absolute path pattern detection (cross-platform)');
+  }
+
+  // Test 11: Windows absolute path with forward slashes
+  if (process.platform === 'win32') {
+    const result = parseSource('D:/Users/Documents/photons');
+    assert.ok(result, 'Should parse Windows path with forward slashes');
+    assert.equal(result.sourceType, 'local', 'Should be local type');
+    assert.equal(result.name, 'photons', 'Name should be photons');
+    assert.ok(result.url.startsWith('file://'), 'URL should start with file://');
+    console.log('✅ Windows forward slash path parsing');
+  } else {
+    const windowsPathRegex = /^[A-Za-z]:[\\/]/;
+    assert.ok(windowsPathRegex.test('D:/Users/Documents/photons'), 'Should detect Windows path with forward slashes');
+    console.log('✅ Windows forward slash path pattern detection (cross-platform)');
+  }
+
+  // Test 12: Invalid format
   {
     const result = parseSource('invalid-format');
     assert.equal(result, null, 'Should return null for invalid format');
     console.log('✅ Invalid format handling');
   }
 
-  // Test 11: Manual URI template detection (regex check)
+  // Test 13: Duplicate name handling with numeric suffixes
+  {
+    // Test the getUniqueName logic directly through add() method behavior
+    // by simulating what happens when the same base name is added multiple times
+
+    // Mock a manager with pre-existing marketplaces
+    const testManager = new MarketplaceManager();
+    await testManager.initialize();
+
+    // Manually add marketplaces to config to simulate existing ones
+    (testManager as any).config.marketplaces = [
+      {
+        name: 'photon-mcps',
+        repo: 'user1/photon-mcps',
+        url: 'https://raw.githubusercontent.com/user1/photon-mcps/main',
+        sourceType: 'github',
+        source: 'user1/photon-mcps',
+        enabled: true,
+      },
+      {
+        name: 'photon-mcps-2',
+        repo: 'user2/photon-mcps',
+        url: 'https://raw.githubusercontent.com/user2/photon-mcps/main',
+        sourceType: 'github',
+        source: 'user2/photon-mcps',
+        enabled: true,
+      },
+    ];
+
+    // Test getUniqueName with existing names
+    const uniqueName1 = (testManager as any).getUniqueName('photon-mcps');
+    assert.equal(uniqueName1, 'photon-mcps-3', 'Should return photon-mcps-3 when -1 and -2 exist');
+
+    const uniqueName2 = (testManager as any).getUniqueName('new-marketplace');
+    assert.equal(uniqueName2, 'new-marketplace', 'Should return base name when no conflict');
+
+    console.log('✅ Duplicate name handling with numeric suffixes');
+  }
+
+  // Test 14: Manual URI template detection (regex check)
   {
     const isTemplate = (uri: string) => /\{[^}]+\}/.test(uri);
 

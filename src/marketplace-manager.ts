@@ -185,16 +185,29 @@ export class MarketplaceManager {
       };
     }
 
-    // Pattern 5: ./path/to/marketplace or /absolute/path (Local filesystem)
-    if (input.startsWith('./') || input.startsWith('../') || input.startsWith('/') || input.startsWith('~')) {
-      // Resolve to absolute path
+    // Pattern 5: Local filesystem (Unix and Windows paths)
+    // Unix: ./path, ../path, /absolute, ~/path
+    // Windows: C:\path, D:\Users\..., etc.
+    const isLocalPath =
+      input.startsWith('./') ||
+      input.startsWith('../') ||
+      input.startsWith('/') ||
+      input.startsWith('~') ||
+      /^[A-Za-z]:[\\/]/.test(input); // Windows drive letter (C:\, D:\, etc.)
+
+    if (isLocalPath) {
+      // Resolve to absolute path (handles ~ expansion)
       const absolutePath = path.resolve(input.replace(/^~/, os.homedir()));
       const name = path.basename(absolutePath);
+
+      // Normalize path separators for file:// URL
+      // On Windows, path.resolve returns backslashes, but file:// needs forward slashes
+      const normalizedPath = absolutePath.replace(/\\/g, '/');
 
       return {
         name,
         repo: '', // Not a repo
-        url: `file://${absolutePath}`,
+        url: `file://${normalizedPath}`,
         sourceType: 'local',
         source: input,
       };
@@ -204,11 +217,33 @@ export class MarketplaceManager {
   }
 
   /**
+   * Get next available name with numeric suffix if name already exists
+   * e.g., if 'photon-mcps' exists, returns 'photon-mcps-2'
+   * if 'photon-mcps' and 'photon-mcps-2' exist, returns 'photon-mcps-3'
+   */
+  private getUniqueName(baseName: string): string {
+    // If base name doesn't exist, use it as-is
+    if (!this.get(baseName)) {
+      return baseName;
+    }
+
+    // Find next available number
+    let suffix = 2;
+    while (this.get(`${baseName}-${suffix}`)) {
+      suffix++;
+    }
+
+    return `${baseName}-${suffix}`;
+  }
+
+  /**
    * Add a new marketplace
    * Supports:
    * - GitHub: username/repo, https://github.com/username/repo, git@github.com:username/repo.git
    * - Direct URL: https://example.com/marketplace.json
    * - Local path: ./path/to/marketplace, /absolute/path
+   *
+   * If a marketplace with the same name already exists, automatically appends a numeric suffix (-2, -3, etc.)
    */
   async add(source: string): Promise<Omit<Marketplace, 'enabled' | 'lastUpdated'>> {
     const parsed = this.parseMarketplaceSource(source);
@@ -224,13 +259,12 @@ export class MarketplaceManager {
       );
     }
 
-    // Check if already exists
-    if (this.get(parsed.name)) {
-      throw new Error(`Marketplace '${parsed.name}' already exists`);
-    }
+    // Get unique name (adds numeric suffix if name already exists)
+    const uniqueName = this.getUniqueName(parsed.name);
+    const finalParsed = { ...parsed, name: uniqueName };
 
     const marketplace: Marketplace = {
-      ...parsed,
+      ...finalParsed,
       enabled: true,
       lastUpdated: new Date().toISOString(),
     };
@@ -238,7 +272,7 @@ export class MarketplaceManager {
     this.config.marketplaces.push(marketplace);
     await this.save();
 
-    return parsed;
+    return finalParsed;
   }
 
   /**
