@@ -555,6 +555,109 @@ const marketplace = program
   .description('Manage MCP marketplaces');
 
 marketplace
+  .command('init')
+  .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
+  .option('--name <name>', 'Marketplace name')
+  .option('--description <desc>', 'Marketplace description')
+  .option('--owner <owner>', 'Owner name')
+  .description('Initialize a directory as a Photon marketplace')
+  .action(async (dirPath: string, options: any) => {
+    try {
+      const resolvedPath = path.resolve(dirPath);
+
+      if (!existsSync(resolvedPath)) {
+        console.error(`❌ Directory not found: ${resolvedPath}`);
+        process.exit(1);
+      }
+
+      // Scan for .photon.ts files
+      const files = await fs.readdir(resolvedPath);
+      const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+
+      if (photonFiles.length === 0) {
+        console.error(`❌ No .photon.ts files found in ${resolvedPath}`);
+        process.exit(1);
+      }
+
+      console.error(`Found ${photonFiles.length} Photon(s)...\n`);
+
+      // Extract metadata from each Photon
+      const { calculateFileHash } = await import('./marketplace-manager.js');
+      const { SchemaExtractor } = await import('./schema-extractor.js');
+      const extractor = new SchemaExtractor();
+
+      const photons: any[] = [];
+
+      for (const file of photonFiles.sort()) {
+        const filePath = path.join(resolvedPath, file);
+        const name = file.replace('.photon.ts', '');
+
+        console.error(`  📦 ${name}`);
+
+        // Read file content
+        const content = await fs.readFile(filePath, 'utf-8');
+
+        // Calculate hash
+        const hash = await calculateFileHash(filePath);
+
+        // Extract version from JSDoc
+        const versionMatch = content.match(/@version\s+([^\s]+)/);
+        const version = versionMatch ? versionMatch[1] : '1.0.0';
+
+        // Extract description from file-level comment
+        const descMatch = content.match(/\/\*\*\s*\n\s*\*\s*(.+?)\s*\n/);
+        const description = descMatch ? descMatch[1] : `${name} Photon`;
+
+        // Extract tools
+        const params = extractor.extractConstructorParams(content);
+        const toolsMatch = content.matchAll(/async\s+(\w+)\s*\(/g);
+        const tools = Array.from(toolsMatch).map(m => m[1]);
+
+        photons.push({
+          name,
+          version,
+          description,
+          author: options.owner || 'Unknown',
+          license: 'MIT',
+          source: `../${file}`,
+          hash,
+          tools: tools.length > 0 ? tools : undefined,
+        });
+      }
+
+      // Create manifest
+      const baseName = path.basename(resolvedPath);
+      const manifest = {
+        name: options.name || baseName,
+        version: '1.0.0',
+        description: options.description || `${baseName} Photon marketplace`,
+        owner: options.owner ? {
+          name: options.owner,
+        } : undefined,
+        photons,
+      };
+
+      // Write to .marketplace/photons.json
+      const marketplaceDir = path.join(resolvedPath, '.marketplace');
+      await fs.mkdir(marketplaceDir, { recursive: true });
+
+      const manifestPath = path.join(marketplaceDir, 'photons.json');
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+
+      console.error(`\n✅ Created marketplace manifest: ${manifestPath}`);
+      console.error(`\nMarketplace: ${manifest.name}`);
+      console.error(`Photons: ${photons.length}`);
+      console.error(`\nYou can now:`);
+      console.error(`  • Commit to git and push to GitHub`);
+      console.error(`  • Add locally: photon marketplace add ${resolvedPath}`);
+      console.error(`  • Share: photon marketplace add <your-username>/<repo>`);
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+marketplace
   .command('list')
   .description('List all configured marketplaces')
   .action(async () => {
