@@ -394,14 +394,22 @@ photon registry:list
 
 ### Managing Registries
 
+**Add any GitHub repository as a registry** (just like Claude Code plugins):
+
 ```bash
 # List all registries
 photon registry:list
 
-# Add custom registry
-photon registry:add my-mcps https://raw.githubusercontent.com/username/my-mcps/main
+# Add custom registry (shorthand)
+photon registry:add username/my-mcps
 
-# Remove registry
+# Or use full GitHub URL
+photon registry:add https://github.com/username/my-mcps
+
+# Or with .git extension
+photon registry:add https://github.com/username/my-mcps.git
+
+# Remove registry (uses repo name)
 photon registry:remove my-mcps
 
 # Enable/disable registries
@@ -412,7 +420,25 @@ photon registry:disable my-mcps
 photon registry:search github
 ```
 
-**Default Registry:** `photons` at `https://github.com/portel-dev/photons`
+**How it works:**
+- Just provide `username/repo` or GitHub URL
+- Registry name is automatically derived from repo name
+- URLs are automatically converted to raw.githubusercontent.com
+- Defaults to `/main` branch
+
+**Examples:**
+```bash
+# Add your company's MCPs
+photon registry:add acme-corp/mcps
+
+# Add community MCPs
+photon registry:add awesome-mcp/registry
+
+# Add personal MCPs
+photon registry:add myusername/my-photon-mcps
+```
+
+**Default Registry:** `photons` from `portel-dev/photons`
 
 **Registry Config:** Stored in `~/.config/photon/registries.json`
 
