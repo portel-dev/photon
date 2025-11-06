@@ -198,8 +198,8 @@ program
       // Write file
       await fs.writeFile(filePath, content, 'utf-8');
 
-      console.error(`[Photon] ✅ Created ${fileName} in ${workingDir}`);
-      console.error(`[Photon] Run with: photon mcp ${name} --dev`);
+      console.error(`✅ Created ${fileName} in ${workingDir}`);
+      console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
@@ -226,7 +226,7 @@ program
         process.exit(1);
       }
 
-      console.error(`[Photon] Validating ${path.basename(filePath)}...`);
+      console.error(`Validating ${path.basename(filePath)}...\n`);
 
       // Import loader and try to load
       const { PhotonLoader } = await import('./loader.js');
@@ -234,9 +234,9 @@ program
 
       const mcp = await loader.loadFile(filePath);
 
-      console.error(`[Photon] ✅ Valid Photon MCP`);
-      console.error(`[Photon] Name: ${mcp.name}`);
-      console.error(`[Photon] Tools: ${mcp.tools.length}`);
+      console.error(`✅ Valid Photon MCP`);
+      console.error(`Name: ${mcp.name}`);
+      console.error(`Tools: ${mcp.tools.length}`);
 
       for (const tool of mcp.tools) {
         console.error(`  - ${tool.name}: ${tool.description}`);
@@ -263,8 +263,8 @@ program
       const mcps = await listPhotonMCPs(workingDir);
 
       if (mcps.length === 0) {
-        console.error(`[Photon] No MCPs found in ${workingDir}`);
-        console.error(`[Photon] Create one with: photon init <name>`);
+        console.error(`No MCPs found in ${workingDir}`);
+        console.error(`Create one with: photon init <name>`);
         return;
       }
 
@@ -309,14 +309,12 @@ program
       }
 
       // Normal list mode
-      console.error(`[Photon] MCPs in ${workingDir} (${mcps.length}):`);
-      console.error('');
+      console.error(`MCPs in ${workingDir} (${mcps.length}):\n`);
       for (const mcp of mcps) {
         console.error(`  📦 ${mcp}`);
       }
-      console.error('');
-      console.error(`[Photon] Run any MCP with: photon mcp <name> --dev`);
-      console.error(`[Photon] Generate config with: photon list --config`);
+      console.error(`\nRun any MCP with: photon mcp <name> --dev`);
+      console.error(`Generate config with: photon list --config`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
@@ -337,16 +335,16 @@ program
       // Auto-update stale caches
       const updated = await manager.autoUpdateStaleCaches();
       if (updated) {
-        console.error('[Photon] 🔄 Refreshed marketplace data...\n');
+        console.error('🔄 Refreshed marketplace data...\n');
       }
 
-      console.error(`[Photon] Searching for '${query}' in marketplaces...`);
+      console.error(`Searching for '${query}' in marketplaces...`);
 
       const results = await manager.search(query);
 
       if (results.size === 0) {
-        console.error(`[Photon] ❌ No results found for '${query}'`);
-        console.error(`[Photon] Tip: Run 'photon marketplace update' to manually refresh marketplace data`);
+        console.error(`❌ No results found for '${query}'`);
+        console.error(`Tip: Run 'photon marketplace update' to manually refresh marketplace data`);
         return;
       }
 
@@ -443,15 +441,14 @@ marketplace
       const marketplaces = manager.getAll();
 
       if (marketplaces.length === 0) {
-        console.error('[Photon] No marketplaces configured');
+        console.error('No marketplaces configured');
         return;
       }
 
       // Get MCP counts
       const counts = await manager.getMarketplaceCounts();
 
-      console.error(`[Photon] Configured marketplaces (${marketplaces.length}):`);
-      console.error('');
+      console.error(`Configured marketplaces (${marketplaces.length}):\n`);
 
       for (const marketplace of marketplaces) {
         const status = marketplace.enabled ? '✅' : '❌';
@@ -487,20 +484,20 @@ marketplace
       const { marketplace: result, added } = await manager.add(repo);
 
       if (added) {
-        console.error(`[Photon] ✅ Added marketplace: ${result.name}`);
-        console.error(`[Photon] Source: ${repo}`);
-        console.error(`[Photon] URL: ${result.url}`);
+        console.error(`✅ Added marketplace: ${result.name}`);
+        console.error(`Source: ${repo}`);
+        console.error(`URL: ${result.url}`);
 
         // Auto-fetch marketplace.json
-        console.error(`[Photon] Fetching marketplace metadata...`);
+        console.error(`Fetching marketplace metadata...`);
         const success = await manager.updateMarketplaceCache(result.name);
         if (success) {
-          console.error(`[Photon] ✅ Marketplace ready to use`);
+          console.error(`✅ Marketplace ready to use`);
         }
       } else {
-        console.error(`[Photon] ℹ️  Marketplace already exists: ${result.name}`);
-        console.error(`[Photon] Source: ${result.source}`);
-        console.error(`[Photon] Skipping duplicate addition`);
+        console.error(`ℹ️  Marketplace already exists: ${result.name}`);
+        console.error(`Source: ${result.source}`);
+        console.error(`Skipping duplicate addition`);
       }
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
@@ -521,9 +518,9 @@ marketplace
       const removed = await manager.remove(name);
 
       if (removed) {
-        console.error(`[Photon] ✅ Removed marketplace: ${name}`);
+        console.error(`✅ Removed marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
+        console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -545,9 +542,9 @@ marketplace
       const success = await manager.setEnabled(name, true);
 
       if (success) {
-        console.error(`[Photon] ✅ Enabled marketplace: ${name}`);
+        console.error(`✅ Enabled marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
+        console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -569,9 +566,9 @@ marketplace
       const success = await manager.setEnabled(name, false);
 
       if (success) {
-        console.error(`[Photon] ✅ Disabled marketplace: ${name}`);
+        console.error(`✅ Disabled marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
+        console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -592,21 +589,20 @@ marketplace
 
       if (name) {
         // Update specific marketplace
-        console.error(`[Photon] Updating ${name}...`);
+        console.error(`Updating ${name}...`);
         const success = await manager.updateMarketplaceCache(name);
 
         if (success) {
-          console.error(`[Photon] ✅ Updated ${name}`);
+          console.error(`✅ Updated ${name}`);
         } else {
-          console.error(`[Photon] ❌ Failed to update ${name} (not found or no manifest)`);
+          console.error(`❌ Failed to update ${name} (not found or no manifest)`);
           process.exit(1);
         }
       } else {
         // Update all enabled marketplaces
-        console.error(`[Photon] Updating all marketplaces...`);
+        console.error(`Updating all marketplaces...\n`);
         const results = await manager.updateAllCaches();
 
-        console.error('');
         for (const [marketplaceName, success] of results) {
           if (success) {
             console.error(`  ✅ ${marketplaceName}`);
@@ -614,10 +610,9 @@ marketplace
             console.error(`  ⚠️  ${marketplaceName} (no manifest)`);
           }
         }
-        console.error('');
 
         const successCount = Array.from(results.values()).filter(Boolean).length;
-        console.error(`[Photon] Updated ${successCount}/${results.size} marketplaces`);
+        console.error(`\nUpdated ${successCount}/${results.size} marketplaces`);
       }
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
@@ -641,13 +636,13 @@ program
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error(`[Photon] Adding ${name}...`);
+      console.error(`Adding ${name}...`);
 
       const result = await manager.fetchMCP(name);
 
       if (!result) {
-        console.error(`[Photon] ❌ MCP '${name}' not found in any enabled marketplace`);
-        console.error(`[Photon] Tip: Use 'photon marketplace:search ${name}' to find it`);
+        console.error(`❌ MCP '${name}' not found in any enabled marketplace`);
+        console.error(`Tip: Use 'photon search ${name}' to find it`);
         process.exit(1);
       }
 
@@ -655,16 +650,16 @@ program
 
       // Check if already exists
       if (existsSync(filePath)) {
-        console.error(`[Photon] ⚠️  MCP '${name}' already exists`);
-        console.error(`[Photon] Use 'photon upgrade ${name}' to update it`);
+        console.error(`⚠️  MCP '${name}' already exists`);
+        console.error(`Use 'photon upgrade ${name}' to update it`);
         process.exit(1);
       }
 
       await fs.writeFile(filePath, result.content, 'utf-8');
 
-      console.error(`[Photon] ✅ Added ${name} from ${result.marketplace.name}`);
-      console.error(`[Photon] Location: ${filePath}`);
-      console.error(`[Photon] Run with: photon mcp ${name} --dev`);
+      console.error(`✅ Added ${name} from ${result.marketplace.name}`);
+      console.error(`Location: ${filePath}`);
+      console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
@@ -696,56 +691,55 @@ program
           process.exit(1);
         }
 
-        console.error(`[Photon] Checking ${name} for updates...`);
+        console.error(`Checking ${name} for updates...`);
         const versionInfo = await checker.checkForUpdate(name, filePath);
 
         if (!versionInfo.local) {
-          console.error(`[Photon] ⚠️  Could not determine local version`);
+          console.error(`⚠️  Could not determine local version`);
           return;
         }
 
         if (!versionInfo.remote) {
-          console.error(`[Photon] ⚠️  Not found in any marketplace. This might be a local-only MCP.`);
+          console.error(`⚠️  Not found in any marketplace. This might be a local-only MCP.`);
           return;
         }
 
         if (options.check) {
           if (versionInfo.needsUpdate) {
-            console.error(`[Photon] 🔄 Update available: ${versionInfo.local} → ${versionInfo.remote}`);
+            console.error(`🔄 Update available: ${versionInfo.local} → ${versionInfo.remote}`);
           } else {
-            console.error(`[Photon] ✅ Already up to date (${versionInfo.local})`);
+            console.error(`✅ Already up to date (${versionInfo.local})`);
           }
           return;
         }
 
         if (!versionInfo.needsUpdate) {
-          console.error(`[Photon] ✅ Already up to date (${versionInfo.local})`);
+          console.error(`✅ Already up to date (${versionInfo.local})`);
           return;
         }
 
-        console.error(`[Photon] 🔄 Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
+        console.error(`🔄 Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
 
         const success = await checker.updateMCP(name, filePath);
 
         if (success) {
-          console.error(`[Photon] ✅ Successfully upgraded ${name} to ${versionInfo.remote}`);
+          console.error(`✅ Successfully upgraded ${name} to ${versionInfo.remote}`);
         } else {
-          console.error(`[Photon] ❌ Failed to upgrade ${name}`);
+          console.error(`❌ Failed to upgrade ${name}`);
           process.exit(1);
         }
       } else {
         // Check/upgrade all MCPs
-        console.error(`[Photon] Checking all MCPs in ${workingDir}...`);
+        console.error(`Checking all MCPs in ${workingDir}...\n`);
         const updates = await checker.checkAllUpdates(workingDir);
 
         if (updates.size === 0) {
-          console.error(`[Photon] No MCPs found`);
+          console.error(`No MCPs found`);
           return;
         }
 
         const needsUpdate: string[] = [];
 
-        console.error('');
         for (const [mcpName, info] of updates) {
           const status = checker.formatVersionInfo(info);
 
@@ -758,30 +752,29 @@ program
             console.error(`  📦 ${mcpName}: ${status}`);
           }
         }
-        console.error('');
 
         if (needsUpdate.length === 0) {
-          console.error(`[Photon] All MCPs are up to date!`);
+          console.error(`\nAll MCPs are up to date!`);
           return;
         }
 
         if (options.check) {
-          console.error(`[Photon] ${needsUpdate.length} MCP(s) have updates available`);
-          console.error(`[Photon] Run 'photon upgrade' to upgrade all`);
+          console.error(`\n${needsUpdate.length} MCP(s) have updates available`);
+          console.error(`Run 'photon upgrade' to upgrade all`);
           return;
         }
 
         // Upgrade all that need updates
-        console.error(`[Photon] Upgrading ${needsUpdate.length} MCP(s)...`);
+        console.error(`\nUpgrading ${needsUpdate.length} MCP(s)...`);
 
         for (const mcpName of needsUpdate) {
           const filePath = path.join(workingDir, `${mcpName}.photon.ts`);
           const success = await checker.updateMCP(mcpName, filePath);
 
           if (success) {
-            console.error(`[Photon] ✅ Upgraded ${mcpName}`);
+            console.error(`✅ Upgraded ${mcpName}`);
           } else {
-            console.error(`[Photon] ❌ Failed to upgrade ${mcpName}`);
+            console.error(`❌ Failed to upgrade ${mcpName}`);
           }
         }
       }
