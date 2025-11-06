@@ -345,17 +345,116 @@ program
     }
   });
 
-// Marketplace command: manage MCP marketplaces
+// Search command: search for MCPs across marketplaces
 program
-  .command('marketplace')
-  .description('Manage MCP marketplaces')
-  .action(() => {
-    // Show help if no subcommand
-    program.outputHelp();
+  .command('search')
+  .argument('<query>', 'MCP name or keyword to search for')
+  .description('Search for MCP in all enabled marketplaces')
+  .action(async (query: string) => {
+    try {
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+
+      // Auto-update stale caches
+      const updated = await manager.autoUpdateStaleCaches();
+      if (updated) {
+        console.error('[Photon] 🔄 Refreshed marketplace data...\n');
+      }
+
+      console.error(`[Photon] Searching for '${query}' in marketplaces...`);
+
+      const results = await manager.search(query);
+
+      if (results.size === 0) {
+        console.error(`[Photon] ❌ No results found for '${query}'`);
+        console.error(`[Photon] Tip: Run 'photon marketplace update' to manually refresh marketplace data`);
+        return;
+      }
+
+      console.error('');
+      for (const [mcpName, entries] of results) {
+        for (const entry of entries) {
+          if (entry.metadata) {
+            console.error(`  📦 ${mcpName} (v${entry.metadata.version})`);
+            console.error(`     ${entry.metadata.description}`);
+            console.error(`     ${entry.marketplace.name} (${entry.marketplace.repo})`);
+            if (entry.metadata.tags && entry.metadata.tags.length > 0) {
+              console.error(`     Tags: ${entry.metadata.tags.join(', ')}`);
+            }
+          } else {
+            console.error(`  📦 ${mcpName}`);
+            console.error(`     ✓ ${entry.marketplace.name} (${entry.marketplace.repo})`);
+          }
+        }
+      }
+      console.error('');
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
   });
 
+// Info command: show detailed MCP information
 program
-  .command('marketplace:list')
+  .command('info')
+  .argument('<name>', 'MCP name to show information for')
+  .description('Show detailed MCP information from marketplaces')
+  .action(async (name: string) => {
+    try {
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+
+      // Auto-update stale caches
+      await manager.autoUpdateStaleCaches();
+
+      const result = await manager.getMCPMetadata(name);
+
+      if (!result) {
+        console.error(`[Photon] ❌ MCP '${name}' not found in any marketplace`);
+        console.error(`[Photon] Tip: Use 'photon search ${name}' to find similar MCPs`);
+        process.exit(1);
+      }
+
+      const { metadata, marketplace } = result;
+
+      console.error('');
+      console.error(`  📦 ${metadata.name} (v${metadata.version})`);
+      console.error(`     ${metadata.description}`);
+      console.error('');
+      console.error(`  Marketplace: ${marketplace.name} (${marketplace.repo})`);
+      if (metadata.author) {
+        console.error(`  Author: ${metadata.author}`);
+      }
+      if (metadata.license) {
+        console.error(`  License: ${metadata.license}`);
+      }
+      if (metadata.homepage) {
+        console.error(`  Homepage: ${metadata.homepage}`);
+      }
+      if (metadata.tags && metadata.tags.length > 0) {
+        console.error(`  Tags: ${metadata.tags.join(', ')}`);
+      }
+      if (metadata.tools && metadata.tools.length > 0) {
+        console.error(`  Tools: ${metadata.tools.join(', ')}`);
+      }
+      console.error('');
+      console.error(`  To add: photon add ${metadata.name}`);
+      console.error('');
+    } catch (error: any) {
+      console.error(`[Photon] ❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// Marketplace command: manage MCP marketplaces
+const marketplace = program
+  .command('marketplace')
+  .description('Manage MCP marketplaces');
+
+marketplace
+  .command('list')
   .description('List all configured marketplaces')
   .action(async () => {
     try {
@@ -370,13 +469,20 @@ program
         return;
       }
 
+      // Get MCP counts
+      const counts = await manager.getMarketplaceCounts();
+
       console.error(`[Photon] Configured marketplaces (${marketplaces.length}):`);
       console.error('');
 
       for (const marketplace of marketplaces) {
         const status = marketplace.enabled ? '✅' : '❌';
+        const count = counts.get(marketplace.name) || 0;
+        const countStr = count > 0 ? `${count} available` : 'no manifest';
+
         console.error(`  ${status} ${marketplace.name}`);
         console.error(`     ${marketplace.repo}`);
+        console.error(`     ${countStr}`);
         if (marketplace.lastUpdated) {
           const date = new Date(marketplace.lastUpdated);
           console.error(`     Updated ${date.toLocaleDateString()}`);
@@ -390,8 +496,8 @@ program
     }
   });
 
-program
-  .command('marketplace:add')
+marketplace
+  .command('add')
   .argument('<repo>', 'GitHub repository (username/repo or github.com URL)')
   .description('Add a new MCP marketplace from GitHub')
   .action(async (repo: string) => {
@@ -405,14 +511,21 @@ program
       console.error(`[Photon] ✅ Added marketplace: ${result.name}`);
       console.error(`[Photon] GitHub: ${repo}`);
       console.error(`[Photon] URL: ${result.url}`);
+
+      // Auto-fetch marketplace.json
+      console.error(`[Photon] Fetching marketplace metadata...`);
+      const success = await manager.updateMarketplaceCache(result.name);
+      if (success) {
+        console.error(`[Photon] ✅ Marketplace ready to use`);
+      }
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
 
-program
-  .command('marketplace:remove')
+marketplace
+  .command('remove')
   .argument('<name>', 'Marketplace name')
   .description('Remove a marketplace')
   .action(async (name: string) => {
@@ -435,8 +548,8 @@ program
     }
   });
 
-program
-  .command('marketplace:enable')
+marketplace
+  .command('enable')
   .argument('<name>', 'Marketplace name')
   .description('Enable a marketplace')
   .action(async (name: string) => {
@@ -459,8 +572,8 @@ program
     }
   });
 
-program
-  .command('marketplace:disable')
+marketplace
+  .command('disable')
   .argument('<name>', 'Marketplace name')
   .description('Disable a marketplace')
   .action(async (name: string) => {
@@ -483,33 +596,45 @@ program
     }
   });
 
-program
-  .command('marketplace:search')
-  .argument('<query>', 'MCP name to search for')
-  .description('Search for MCP in all enabled marketplaces')
-  .action(async (query: string) => {
+marketplace
+  .command('update')
+  .argument('[name]', 'Marketplace name to update (updates all if omitted)')
+  .description('Update marketplace metadata from remote')
+  .action(async (name: string | undefined) => {
     try {
       const { MarketplaceManager } = await import('./marketplace-manager.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error(`[Photon] Searching for '${query}' in marketplaces...`);
+      if (name) {
+        // Update specific marketplace
+        console.error(`[Photon] Updating ${name}...`);
+        const success = await manager.updateMarketplaceCache(name);
 
-      const results = await manager.search(query);
-
-      if (results.size === 0) {
-        console.error(`[Photon] ❌ No results found for '${query}'`);
-        return;
-      }
-
-      console.error('');
-      for (const [mcpName, marketplaces] of results) {
-        console.error(`  📦 ${mcpName}`);
-        for (const marketplace of marketplaces) {
-          console.error(`     ✓ ${marketplace.name} (${marketplace.repo})`);
+        if (success) {
+          console.error(`[Photon] ✅ Updated ${name}`);
+        } else {
+          console.error(`[Photon] ❌ Failed to update ${name} (not found or no manifest)`);
+          process.exit(1);
         }
+      } else {
+        // Update all enabled marketplaces
+        console.error(`[Photon] Updating all marketplaces...`);
+        const results = await manager.updateAllCaches();
+
+        console.error('');
+        for (const [marketplaceName, success] of results) {
+          if (success) {
+            console.error(`  ✅ ${marketplaceName}`);
+          } else {
+            console.error(`  ⚠️  ${marketplaceName} (no manifest)`);
+          }
+        }
+        console.error('');
+
+        const successCount = Array.from(results.values()).filter(Boolean).length;
+        console.error(`[Photon] Updated ${successCount}/${results.size} marketplaces`);
       }
-      console.error('');
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);

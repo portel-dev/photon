@@ -19,8 +19,44 @@ export interface MarketplaceConfig {
   marketplaces: Marketplace[];
 }
 
+/**
+ * MCP metadata from marketplace.json
+ */
+export interface MCPMetadata {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  homepage?: string;
+  repository?: string;
+  license?: string;
+  tags?: string[];
+  category?: string;
+  source: string;
+  tools?: string[];
+}
+
+/**
+ * Marketplace manifest (.photon/marketplace.json)
+ */
+export interface MarketplaceManifest {
+  name: string;
+  version?: string;
+  description?: string;
+  owner?: {
+    name: string;
+    email?: string;
+    url?: string;
+  };
+  mcps: MCPMetadata[];
+}
+
 const CONFIG_DIR = path.join(os.homedir(), '.photon');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'marketplaces.json');
+const CACHE_DIR = path.join(CONFIG_DIR, '.cache', 'marketplaces');
+
+// Cache is considered stale after 24 hours
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_MARKETPLACE: Marketplace = {
   name: 'photons',
@@ -34,6 +70,7 @@ export class MarketplaceManager {
 
   async initialize() {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
+    await fs.mkdir(CACHE_DIR, { recursive: true });
 
     if (existsSync(CONFIG_FILE)) {
       const data = await fs.readFile(CONFIG_FILE, 'utf-8');
@@ -171,6 +208,183 @@ export class MarketplaceManager {
   }
 
   /**
+   * Get cache file path for marketplace
+   */
+  private getCacheFile(marketplaceName: string): string {
+    return path.join(CACHE_DIR, `${marketplaceName}.json`);
+  }
+
+  /**
+   * Fetch marketplace.json from remote
+   */
+  async fetchManifest(marketplace: Marketplace): Promise<MarketplaceManifest | null> {
+    try {
+      const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
+      const response = await fetch(manifestUrl);
+
+      if (response.ok) {
+        const data = await response.json() as MarketplaceManifest;
+        return data;
+      }
+    } catch {
+      // Marketplace doesn't have a manifest
+    }
+
+    return null;
+  }
+
+  /**
+   * Update marketplace cache (fetch and save marketplace.json)
+   */
+  async updateMarketplaceCache(name: string): Promise<boolean> {
+    const marketplace = this.get(name);
+
+    if (!marketplace) {
+      return false;
+    }
+
+    const manifest = await this.fetchManifest(marketplace);
+
+    if (manifest) {
+      // Save to cache
+      const cacheFile = this.getCacheFile(name);
+      await fs.writeFile(cacheFile, JSON.stringify(manifest, null, 2), 'utf-8');
+
+      // Update lastUpdated timestamp
+      marketplace.lastUpdated = new Date().toISOString();
+      await this.save();
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Update all enabled marketplace caches
+   */
+  async updateAllCaches(): Promise<Map<string, boolean>> {
+    const results = new Map<string, boolean>();
+    const enabled = this.getEnabled();
+
+    for (const marketplace of enabled) {
+      const success = await this.updateMarketplaceCache(marketplace.name);
+      results.set(marketplace.name, success);
+    }
+
+    return results;
+  }
+
+  /**
+   * Get cached marketplace manifest
+   */
+  async getCachedManifest(marketplaceName: string): Promise<MarketplaceManifest | null> {
+    try {
+      const cacheFile = this.getCacheFile(marketplaceName);
+
+      if (existsSync(cacheFile)) {
+        const data = await fs.readFile(cacheFile, 'utf-8');
+        return JSON.parse(data);
+      }
+    } catch {
+      // Cache doesn't exist or is invalid
+    }
+
+    return null;
+  }
+
+  /**
+   * Get MCP metadata from cached manifest
+   */
+  async getMCPMetadata(mcpName: string): Promise<{ metadata: MCPMetadata; marketplace: Marketplace } | null> {
+    const enabled = this.getEnabled();
+
+    for (const marketplace of enabled) {
+      const manifest = await this.getCachedManifest(marketplace.name);
+
+      if (manifest) {
+        const mcp = manifest.mcps.find((m) => m.name === mcpName);
+        if (mcp) {
+          return { metadata: mcp, marketplace };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get all MCPs with metadata from all enabled marketplaces
+   */
+  async getAllMCPs(): Promise<Map<string, { metadata: MCPMetadata; marketplace: Marketplace }>> {
+    const mcps = new Map<string, { metadata: MCPMetadata; marketplace: Marketplace }>();
+    const enabled = this.getEnabled();
+
+    for (const marketplace of enabled) {
+      const manifest = await this.getCachedManifest(marketplace.name);
+
+      if (manifest) {
+        for (const mcp of manifest.mcps) {
+          // First marketplace wins if MCP exists in multiple
+          if (!mcps.has(mcp.name)) {
+            mcps.set(mcp.name, { metadata: mcp, marketplace });
+          }
+        }
+      }
+    }
+
+    return mcps;
+  }
+
+  /**
+   * Get count of available MCPs per marketplace
+   */
+  async getMarketplaceCounts(): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    const all = this.getAll();
+
+    for (const marketplace of all) {
+      const manifest = await this.getCachedManifest(marketplace.name);
+      counts.set(marketplace.name, manifest?.mcps.length || 0);
+    }
+
+    return counts;
+  }
+
+  /**
+   * Check if marketplace cache is stale
+   */
+  private isCacheStale(marketplace: Marketplace): boolean {
+    if (!marketplace.lastUpdated) {
+      return true;
+    }
+
+    const lastUpdate = new Date(marketplace.lastUpdated).getTime();
+    const now = Date.now();
+    return (now - lastUpdate) > CACHE_TTL_MS;
+  }
+
+  /**
+   * Auto-update stale caches
+   * Returns true if any updates were performed
+   */
+  async autoUpdateStaleCaches(): Promise<boolean> {
+    const enabled = this.getEnabled();
+    let updated = false;
+
+    for (const marketplace of enabled) {
+      if (this.isCacheStale(marketplace)) {
+        const success = await this.updateMarketplaceCache(marketplace.name);
+        if (success) {
+          updated = true;
+        }
+      }
+    }
+
+    return updated;
+  }
+
+  /**
    * Try to fetch MCP from all enabled marketplaces
    */
   async fetchMCP(mcpName: string): Promise<{ content: string; marketplace: Marketplace } | null> {
@@ -222,25 +436,45 @@ export class MarketplaceManager {
 
   /**
    * Search for MCP in all marketplaces
+   * Searches in name, description, tags, and author fields
    */
-  async search(query: string): Promise<Map<string, Marketplace[]>> {
-    const results = new Map<string, Marketplace[]>();
+  async search(query: string): Promise<Map<string, { metadata?: MCPMetadata; marketplace: Marketplace }[]>> {
+    const results = new Map<string, { metadata?: MCPMetadata; marketplace: Marketplace }[]>();
     const enabled = this.getEnabled();
+    const lowerQuery = query.toLowerCase();
 
-    // For now, we just check if the MCP exists by name
-    // In the future, marketplaces could provide a manifest/index file
     for (const marketplace of enabled) {
-      try {
-        const url = `${marketplace.url}/${query}.photon.ts`;
-        const response = await fetch(url, { method: 'HEAD' });
+      // First, try to search in cached manifest
+      const manifest = await this.getCachedManifest(marketplace.name);
 
-        if (response.ok) {
-          const existing = results.get(query) || [];
-          existing.push(marketplace);
-          results.set(query, existing);
+      if (manifest) {
+        // Search in manifest metadata
+        for (const mcp of manifest.mcps) {
+          const nameMatch = mcp.name.toLowerCase().includes(lowerQuery);
+          const descMatch = mcp.description?.toLowerCase().includes(lowerQuery);
+          const tagMatch = mcp.tags?.some(tag => tag.toLowerCase().includes(lowerQuery));
+          const authorMatch = mcp.author?.toLowerCase().includes(lowerQuery);
+
+          if (nameMatch || descMatch || tagMatch || authorMatch) {
+            const existing = results.get(mcp.name) || [];
+            existing.push({ metadata: mcp, marketplace });
+            results.set(mcp.name, existing);
+          }
         }
-      } catch {
-        // Skip this marketplace
+      } else {
+        // Fallback: check if exact filename exists (for marketplaces without manifest)
+        try {
+          const url = `${marketplace.url}/${query}.photon.ts`;
+          const response = await fetch(url, { method: 'HEAD' });
+
+          if (response.ok) {
+            const existing = results.get(query) || [];
+            existing.push({ marketplace });
+            results.set(query, existing);
+          }
+        } catch {
+          // Skip this marketplace
+        }
       }
     }
 
