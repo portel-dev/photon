@@ -1,5 +1,5 @@
 /**
- * Registry Manager - Manage multiple MCP registries
+ * Marketplace Manager - Manage multiple MCP marketplaces
  */
 
 import * as fs from 'fs/promises';
@@ -7,27 +7,30 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 
-export interface Registry {
+export interface Marketplace {
   name: string;
+  repo: string;
   url: string;
   enabled: boolean;
+  lastUpdated?: string;
 }
 
-export interface RegistryConfig {
-  registries: Registry[];
+export interface MarketplaceConfig {
+  marketplaces: Marketplace[];
 }
 
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'photon');
-const CONFIG_FILE = path.join(CONFIG_DIR, 'registries.json');
+const CONFIG_DIR = path.join(os.homedir(), '.photon');
+const CONFIG_FILE = path.join(CONFIG_DIR, 'marketplaces.json');
 
-const DEFAULT_REGISTRY: Registry = {
+const DEFAULT_MARKETPLACE: Marketplace = {
   name: 'photons',
+  repo: 'portel-dev/photons',
   url: 'https://raw.githubusercontent.com/portel-dev/photons/main',
   enabled: true,
 };
 
-export class RegistryManager {
-  private config: RegistryConfig = { registries: [] };
+export class MarketplaceManager {
+  private config: MarketplaceConfig = { marketplaces: [] };
 
   async initialize() {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
@@ -36,9 +39,9 @@ export class RegistryManager {
       const data = await fs.readFile(CONFIG_FILE, 'utf-8');
       this.config = JSON.parse(data);
     } else {
-      // Initialize with default registry
+      // Initialize with default marketplace
       this.config = {
-        registries: [DEFAULT_REGISTRY],
+        marketplaces: [DEFAULT_MARKETPLACE],
       };
       await this.save();
     }
@@ -49,40 +52,41 @@ export class RegistryManager {
   }
 
   /**
-   * Get all registries
+   * Get all marketplaces
    */
-  getAll(): Registry[] {
-    return this.config.registries;
+  getAll(): Marketplace[] {
+    return this.config.marketplaces;
   }
 
   /**
-   * Get enabled registries
+   * Get enabled marketplaces
    */
-  getEnabled(): Registry[] {
-    return this.config.registries.filter((r) => r.enabled);
+  getEnabled(): Marketplace[] {
+    return this.config.marketplaces.filter((m) => m.enabled);
   }
 
   /**
-   * Get registry by name
+   * Get marketplace by name
    */
-  get(name: string): Registry | undefined {
-    return this.config.registries.find((r) => r.name === name);
+  get(name: string): Marketplace | undefined {
+    return this.config.marketplaces.find((m) => m.name === name);
   }
 
   /**
-   * Parse GitHub repo reference into registry info
+   * Parse GitHub repo reference into marketplace info
    * Supports:
    * - username/repo
    * - https://github.com/username/repo
    * - https://github.com/username/repo.git
    */
-  private parseGitHubRepo(input: string): { name: string; url: string } | null {
+  private parseGitHubRepo(input: string): { name: string; repo: string; url: string } | null {
     // Pattern 1: username/repo
     const shorthandMatch = input.match(/^([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+)$/);
     if (shorthandMatch) {
       const [, username, repo] = shorthandMatch;
       return {
         name: repo,
+        repo: input,
         url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
       };
     }
@@ -93,6 +97,7 @@ export class RegistryManager {
       const [, username, repo] = urlMatch;
       return {
         name: repo,
+        repo: `${username}/${repo}`,
         url: `https://raw.githubusercontent.com/${username}/${repo}/main`,
       };
     }
@@ -101,10 +106,10 @@ export class RegistryManager {
   }
 
   /**
-   * Add a new registry from GitHub repo
+   * Add a new marketplace from GitHub repo
    * Supports: username/repo or https://github.com/username/repo
    */
-  async add(githubRepo: string): Promise<{ name: string; url: string }> {
+  async add(githubRepo: string): Promise<{ name: string; repo: string; url: string }> {
     const parsed = this.parseGitHubRepo(githubRepo);
 
     if (!parsed) {
@@ -115,13 +120,15 @@ export class RegistryManager {
 
     // Check if already exists
     if (this.get(parsed.name)) {
-      throw new Error(`Registry '${parsed.name}' already exists`);
+      throw new Error(`Marketplace '${parsed.name}' already exists`);
     }
 
-    this.config.registries.push({
+    this.config.marketplaces.push({
       name: parsed.name,
+      repo: parsed.repo,
       url: parsed.url,
       enabled: true,
+      lastUpdated: new Date().toISOString(),
     });
 
     await this.save();
@@ -129,57 +136,57 @@ export class RegistryManager {
   }
 
   /**
-   * Remove a registry
+   * Remove a marketplace
    */
   async remove(name: string): Promise<boolean> {
-    const index = this.config.registries.findIndex((r) => r.name === name);
+    const index = this.config.marketplaces.findIndex((m) => m.name === name);
 
     if (index === -1) {
       return false;
     }
 
-    // Prevent removing the default registry
-    if (this.config.registries[index].url === DEFAULT_REGISTRY.url) {
-      throw new Error('Cannot remove the default photons registry');
+    // Prevent removing the default marketplace
+    if (this.config.marketplaces[index].url === DEFAULT_MARKETPLACE.url) {
+      throw new Error('Cannot remove the default photons marketplace');
     }
 
-    this.config.registries.splice(index, 1);
+    this.config.marketplaces.splice(index, 1);
     await this.save();
     return true;
   }
 
   /**
-   * Enable/disable a registry
+   * Enable/disable a marketplace
    */
   async setEnabled(name: string, enabled: boolean): Promise<boolean> {
-    const registry = this.get(name);
+    const marketplace = this.get(name);
 
-    if (!registry) {
+    if (!marketplace) {
       return false;
     }
 
-    registry.enabled = enabled;
+    marketplace.enabled = enabled;
     await this.save();
     return true;
   }
 
   /**
-   * Try to fetch MCP from all enabled registries
+   * Try to fetch MCP from all enabled marketplaces
    */
-  async fetchMCP(mcpName: string): Promise<{ content: string; registry: Registry } | null> {
+  async fetchMCP(mcpName: string): Promise<{ content: string; marketplace: Marketplace } | null> {
     const enabled = this.getEnabled();
 
-    for (const registry of enabled) {
+    for (const marketplace of enabled) {
       try {
-        const url = `${registry.url}/${mcpName}.photon.ts`;
+        const url = `${marketplace.url}/${mcpName}.photon.ts`;
         const response = await fetch(url);
 
         if (response.ok) {
           const content = await response.text();
-          return { content, registry };
+          return { content, marketplace };
         }
       } catch {
-        // Try next registry
+        // Try next marketplace
       }
     }
 
@@ -187,14 +194,14 @@ export class RegistryManager {
   }
 
   /**
-   * Fetch version from all enabled registries
+   * Fetch version from all enabled marketplaces
    */
-  async fetchVersion(mcpName: string): Promise<{ version: string; registry: Registry } | null> {
+  async fetchVersion(mcpName: string): Promise<{ version: string; marketplace: Marketplace } | null> {
     const enabled = this.getEnabled();
 
-    for (const registry of enabled) {
+    for (const marketplace of enabled) {
       try {
-        const url = `${registry.url}/${mcpName}.photon.ts`;
+        const url = `${marketplace.url}/${mcpName}.photon.ts`;
         const response = await fetch(url);
 
         if (response.ok) {
@@ -202,11 +209,11 @@ export class RegistryManager {
           const versionMatch = content.match(/@version\s+(\d+\.\d+\.\d+)/);
 
           if (versionMatch) {
-            return { version: versionMatch[1], registry };
+            return { version: versionMatch[1], marketplace };
           }
         }
       } catch {
-        // Try next registry
+        // Try next marketplace
       }
     }
 
@@ -214,26 +221,26 @@ export class RegistryManager {
   }
 
   /**
-   * Search for MCP in all registries
+   * Search for MCP in all marketplaces
    */
-  async search(query: string): Promise<Map<string, Registry[]>> {
-    const results = new Map<string, Registry[]>();
+  async search(query: string): Promise<Map<string, Marketplace[]>> {
+    const results = new Map<string, Marketplace[]>();
     const enabled = this.getEnabled();
 
     // For now, we just check if the MCP exists by name
-    // In the future, registries could provide a manifest/index file
-    for (const registry of enabled) {
+    // In the future, marketplaces could provide a manifest/index file
+    for (const marketplace of enabled) {
       try {
-        const url = `${registry.url}/${query}.photon.ts`;
+        const url = `${marketplace.url}/${query}.photon.ts`;
         const response = await fetch(url, { method: 'HEAD' });
 
         if (response.ok) {
           const existing = results.get(query) || [];
-          existing.push(registry);
+          existing.push(marketplace);
           results.set(query, existing);
         }
       } catch {
-        // Skip this registry
+        // Skip this marketplace
       }
     }
 
@@ -241,27 +248,27 @@ export class RegistryManager {
   }
 
   /**
-   * List all available MCPs from a registry
-   * Note: Requires registry to have an index.json file
+   * List all available MCPs from a marketplace
+   * Note: Requires marketplace to have a .photon/marketplace.json file
    */
-  async listFromRegistry(registryName: string): Promise<string[]> {
-    const registry = this.get(registryName);
+  async listFromMarketplace(marketplaceName: string): Promise<string[]> {
+    const marketplace = this.get(marketplaceName);
 
-    if (!registry) {
+    if (!marketplace) {
       return [];
     }
 
     try {
-      // Try to fetch index.json if it exists
-      const indexUrl = `${registry.url}/index.json`;
-      const response = await fetch(indexUrl);
+      // Try to fetch marketplace.json if it exists
+      const manifestUrl = `${marketplace.url}/.photon/marketplace.json`;
+      const response = await fetch(manifestUrl);
 
       if (response.ok) {
         const data: any = await response.json();
         return data.mcps || [];
       }
     } catch {
-      // No index file available
+      // No manifest file available
     }
 
     return [];

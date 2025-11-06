@@ -345,38 +345,42 @@ program
     }
   });
 
-// Registry command: manage MCP registries
+// Marketplace command: manage MCP marketplaces
 program
-  .command('registry')
-  .description('Manage MCP registries')
+  .command('marketplace')
+  .description('Manage MCP marketplaces')
   .action(() => {
     // Show help if no subcommand
     program.outputHelp();
   });
 
 program
-  .command('registry:list')
-  .description('List all configured registries')
+  .command('marketplace:list')
+  .description('List all configured marketplaces')
   .action(async () => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
-      const registries = manager.getAll();
+      const marketplaces = manager.getAll();
 
-      if (registries.length === 0) {
-        console.error('[Photon] No registries configured');
+      if (marketplaces.length === 0) {
+        console.error('[Photon] No marketplaces configured');
         return;
       }
 
-      console.error(`[Photon] Configured registries (${registries.length}):`);
+      console.error(`[Photon] Configured marketplaces (${marketplaces.length}):`);
       console.error('');
 
-      for (const registry of registries) {
-        const status = registry.enabled ? '✅' : '❌';
-        console.error(`  ${status} ${registry.name}`);
-        console.error(`     ${registry.url}`);
+      for (const marketplace of marketplaces) {
+        const status = marketplace.enabled ? '✅' : '❌';
+        console.error(`  ${status} ${marketplace.name}`);
+        console.error(`     ${marketplace.repo}`);
+        if (marketplace.lastUpdated) {
+          const date = new Date(marketplace.lastUpdated);
+          console.error(`     Updated ${date.toLocaleDateString()}`);
+        }
       }
 
       console.error('');
@@ -387,18 +391,18 @@ program
   });
 
 program
-  .command('registry:add')
+  .command('marketplace:add')
   .argument('<repo>', 'GitHub repository (username/repo or github.com URL)')
-  .description('Add a new MCP registry from GitHub')
+  .description('Add a new MCP marketplace from GitHub')
   .action(async (repo: string) => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
       const result = await manager.add(repo);
 
-      console.error(`[Photon] ✅ Added registry: ${result.name}`);
+      console.error(`[Photon] ✅ Added marketplace: ${result.name}`);
       console.error(`[Photon] GitHub: ${repo}`);
       console.error(`[Photon] URL: ${result.url}`);
     } catch (error: any) {
@@ -408,21 +412,21 @@ program
   });
 
 program
-  .command('registry:remove')
-  .argument('<name>', 'Registry name')
-  .description('Remove a registry')
+  .command('marketplace:remove')
+  .argument('<name>', 'Marketplace name')
+  .description('Remove a marketplace')
   .action(async (name: string) => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
       const removed = await manager.remove(name);
 
       if (removed) {
-        console.error(`[Photon] ✅ Removed registry: ${name}`);
+        console.error(`[Photon] ✅ Removed marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -432,21 +436,21 @@ program
   });
 
 program
-  .command('registry:enable')
-  .argument('<name>', 'Registry name')
-  .description('Enable a registry')
+  .command('marketplace:enable')
+  .argument('<name>', 'Marketplace name')
+  .description('Enable a marketplace')
   .action(async (name: string) => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
       const success = await manager.setEnabled(name, true);
 
       if (success) {
-        console.error(`[Photon] ✅ Enabled registry: ${name}`);
+        console.error(`[Photon] ✅ Enabled marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -456,21 +460,21 @@ program
   });
 
 program
-  .command('registry:disable')
-  .argument('<name>', 'Registry name')
-  .description('Disable a registry')
+  .command('marketplace:disable')
+  .argument('<name>', 'Marketplace name')
+  .description('Disable a marketplace')
   .action(async (name: string) => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
       const success = await manager.setEnabled(name, false);
 
       if (success) {
-        console.error(`[Photon] ✅ Disabled registry: ${name}`);
+        console.error(`[Photon] ✅ Disabled marketplace: ${name}`);
       } else {
-        console.error(`[Photon] ❌ Registry '${name}' not found`);
+        console.error(`[Photon] ❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error: any) {
@@ -480,16 +484,16 @@ program
   });
 
 program
-  .command('registry:search')
+  .command('marketplace:search')
   .argument('<query>', 'MCP name to search for')
-  .description('Search for MCP in all enabled registries')
+  .description('Search for MCP in all enabled marketplaces')
   .action(async (query: string) => {
     try {
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error(`[Photon] Searching for '${query}' in registries...`);
+      console.error(`[Photon] Searching for '${query}' in marketplaces...`);
 
       const results = await manager.search(query);
 
@@ -499,10 +503,10 @@ program
       }
 
       console.error('');
-      for (const [mcpName, registries] of results) {
+      for (const [mcpName, marketplaces] of results) {
         console.error(`  📦 ${mcpName}`);
-        for (const registry of registries) {
-          console.error(`     ✓ ${registry.name} (${registry.url})`);
+        for (const marketplace of marketplaces) {
+          console.error(`     ✓ ${marketplace.name} (${marketplace.repo})`);
         }
       }
       console.error('');
@@ -512,29 +516,29 @@ program
     }
   });
 
-// Install command: install MCP from registry
+// Add command: add MCP from marketplace
 program
-  .command('install')
-  .argument('<name>', 'MCP name to install')
-  .option('--registry <name>', 'Specific registry to use')
-  .description('Install an MCP from a registry')
+  .command('add')
+  .argument('<name>', 'MCP name to add')
+  .option('--marketplace <name>', 'Specific marketplace to use')
+  .description('Add an MCP from a marketplace')
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
       await ensureWorkingDir(workingDir);
 
-      const { RegistryManager } = await import('./registry-manager.js');
-      const manager = new RegistryManager();
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error(`[Photon] Installing ${name}...`);
+      console.error(`[Photon] Adding ${name}...`);
 
       const result = await manager.fetchMCP(name);
 
       if (!result) {
-        console.error(`[Photon] ❌ MCP '${name}' not found in any enabled registry`);
-        console.error(`[Photon] Tip: Use 'photon registry:search ${name}' to find it`);
+        console.error(`[Photon] ❌ MCP '${name}' not found in any enabled marketplace`);
+        console.error(`[Photon] Tip: Use 'photon marketplace:search ${name}' to find it`);
         process.exit(1);
       }
 
@@ -549,7 +553,7 @@ program
 
       await fs.writeFile(filePath, result.content, 'utf-8');
 
-      console.error(`[Photon] ✅ Installed ${name} from ${result.registry.name}`);
+      console.error(`[Photon] ✅ Added ${name} from ${result.marketplace.name}`);
       console.error(`[Photon] Location: ${filePath}`);
       console.error(`[Photon] Run with: photon ${name} --dev`);
     } catch (error: any) {
@@ -558,12 +562,12 @@ program
     }
   });
 
-// Upgrade command: update MCPs from registry
+// Upgrade command: update MCPs from marketplace
 program
   .command('upgrade')
   .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
   .option('--check', 'Check for updates without upgrading')
-  .description('Upgrade MCP(s) from the Photons registry')
+  .description('Upgrade MCP(s) from marketplaces')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
       // Get working directory from global options
@@ -592,7 +596,7 @@ program
         }
 
         if (!versionInfo.remote) {
-          console.error(`[Photon] ⚠️  Not found in registry. This might be a local-only MCP.`);
+          console.error(`[Photon] ⚠️  Not found in any marketplace. This might be a local-only MCP.`);
           return;
         }
 
