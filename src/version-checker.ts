@@ -1,27 +1,27 @@
 /**
- * Version Checker - Check for MCP updates from registry
+ * Version Checker - Check for MCP updates from marketplace
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { RegistryManager, Registry } from './registry-manager.js';
+import { MarketplaceManager, Marketplace } from './marketplace-manager.js';
 
 interface VersionInfo {
   local?: string;
   remote?: string;
   needsUpdate: boolean;
-  registry?: Registry;
+  marketplace?: Marketplace;
 }
 
 export class VersionChecker {
-  private registryManager: RegistryManager;
+  private marketplaceManager: MarketplaceManager;
 
-  constructor(registryManager?: RegistryManager) {
-    this.registryManager = registryManager || new RegistryManager();
+  constructor(marketplaceManager?: MarketplaceManager) {
+    this.marketplaceManager = marketplaceManager || new MarketplaceManager();
   }
 
   async initialize() {
-    await this.registryManager.initialize();
+    await this.marketplaceManager.initialize();
   }
 
   /**
@@ -38,10 +38,10 @@ export class VersionChecker {
   }
 
   /**
-   * Fetch remote version from registry
+   * Fetch remote version from marketplace
    */
-  async fetchRemoteVersion(mcpName: string): Promise<{ version: string; registry: Registry } | null> {
-    return await this.registryManager.fetchVersion(mcpName);
+  async fetchRemoteVersion(mcpName: string): Promise<{ version: string; marketplace: Marketplace } | null> {
+    return await this.marketplaceManager.fetchVersion(mcpName);
   }
 
   /**
@@ -71,7 +71,7 @@ export class VersionChecker {
         local: local || undefined,
         remote: remoteInfo?.version,
         needsUpdate: false,
-        registry: remoteInfo?.registry,
+        marketplace: remoteInfo?.marketplace,
       };
     }
 
@@ -81,7 +81,7 @@ export class VersionChecker {
       local,
       remote: remoteInfo.version,
       needsUpdate,
-      registry: remoteInfo.registry,
+      marketplace: remoteInfo.marketplace,
     };
   }
 
@@ -113,11 +113,11 @@ export class VersionChecker {
   }
 
   /**
-   * Download and update MCP from registry
+   * Download and update MCP from marketplace
    */
   async updateMCP(mcpName: string, targetPath: string): Promise<boolean> {
     try {
-      const result = await this.registryManager.fetchMCP(mcpName);
+      const result = await this.marketplaceManager.fetchMCP(mcpName);
 
       if (!result) {
         return false;
