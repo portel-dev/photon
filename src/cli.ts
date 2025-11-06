@@ -732,6 +732,7 @@ program
       }
 
       const filePath = path.join(workingDir, `${name}.photon.ts`);
+      const fileName = `${name}.photon.ts`;
 
       // Check if already exists
       if (existsSync(filePath)) {
@@ -740,9 +741,20 @@ program
         process.exit(1);
       }
 
+      // Write file
       await fs.writeFile(filePath, result.content, 'utf-8');
 
+      // Save installation metadata if we have it
+      if (result.metadata) {
+        const { calculateHash } = await import('./marketplace-manager.js');
+        const contentHash = calculateHash(result.content);
+        await manager.savePhotonMetadata(fileName, result.marketplace, result.metadata, contentHash);
+      }
+
       console.error(`✅ Added ${name} from ${result.marketplace.name}`);
+      if (result.metadata?.version) {
+        console.error(`Version: ${result.metadata.version}`);
+      }
       console.error(`Location: ${filePath}`);
       console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
