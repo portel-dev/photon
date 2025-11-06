@@ -323,8 +323,27 @@ program
           const loader = new PhotonLoader();
           const mcp = await loader.loadFile(filePath);
 
+          const { MarketplaceManager } = await import('./marketplace-manager.js');
+          const manager = new MarketplaceManager();
+          await manager.initialize();
+
+          const fileName = `${name}.photon.ts`;
+          const metadata = await manager.getPhotonInstallMetadata(fileName);
+          const isModified = metadata ? await manager.isPhotonModified(filePath, fileName) : false;
+
           console.error(`📦 ${name}\n`);
           console.error(`Location: ${filePath}`);
+
+          // Show marketplace metadata if available
+          if (metadata) {
+            console.error(`Version: ${metadata.version}`);
+            console.error(`Marketplace: ${metadata.marketplace} (${metadata.marketplaceRepo})`);
+            console.error(`Installed: ${new Date(metadata.installedAt).toLocaleDateString()}`);
+            if (isModified) {
+              console.error(`Status: ⚠️  Modified locally`);
+            }
+          }
+
           console.error(`Tools: ${mcp.tools.length}`);
           console.error(`Templates: ${mcp.templates.length}`);
           console.error(`Resources: ${mcp.statics.length}\n`);
@@ -392,11 +411,32 @@ program
         return;
       }
 
-      // Normal list mode
+      // Normal list mode - show with metadata
       console.error(`Photons in ${workingDir} (${mcps.length}):\n`);
-      for (const mcp of mcps) {
-        console.error(`  📦 ${mcp}`);
+
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+
+      for (const mcpName of mcps) {
+        const fileName = `${mcpName}.photon.ts`;
+        const filePath = path.join(workingDir, fileName);
+
+        // Get installation metadata
+        const metadata = await manager.getPhotonInstallMetadata(fileName);
+
+        if (metadata) {
+          // Has metadata - show version and status
+          const isModified = await manager.isPhotonModified(filePath, fileName);
+          const modifiedMark = isModified ? ' ⚠️  modified' : '';
+
+          console.error(`  📦 ${mcpName} (v${metadata.version} from ${metadata.marketplace})${modifiedMark}`);
+        } else {
+          // No metadata - local or pre-metadata Photon
+          console.error(`  📦 ${mcpName}`);
+        }
       }
+
       console.error(`\nRun: photon mcp <name> --dev`);
       console.error(`Details: photon get <name>`);
       console.error(`MCP config: photon get --mcp`);
