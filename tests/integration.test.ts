@@ -14,13 +14,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 async function runIntegrationTests() {
   console.log('🧪 Running MCP Integration Tests...\n');
 
-  // Start PhotonServer as a subprocess
-  const examplePath = path.join(__dirname, '..', 'examples', 'content.photon.ts');
+  // Start PhotonServer as a subprocess using the mcp subcommand
   const cliPath = path.join(__dirname, '..', 'dist', 'cli.js');
+  const examplesDir = path.join(__dirname, '..', 'examples');
 
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, examplePath],
+    args: [cliPath, '--working-dir', examplesDir, 'mcp', 'content'],
   });
 
   const client = new Client({

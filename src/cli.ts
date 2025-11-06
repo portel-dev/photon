@@ -85,20 +85,21 @@ const program = new Command();
 
 program
   .name('photon')
-  .description('Run single-file TypeScript MCPs')
+  .description('Universal runtime for single-file TypeScript programs')
   .version(version)
-  .option('--working-dir <dir>', 'Working directory for MCPs (default: ~/.photon)', DEFAULT_WORKING_DIR);
+  .option('--working-dir <dir>', 'Working directory for Photons (default: ~/.photon)', DEFAULT_WORKING_DIR)
+  .option('--config', 'Output Claude Desktop config (use with list command)');
 
-// Main command: run a .photon.ts file
+// MCP Runtime: run a .photon.ts file as MCP server
 program
+  .command('mcp')
   .argument('<name>', 'MCP name (without .photon.ts extension)')
+  .description('Run a Photon as MCP server')
   .option('--dev', 'Enable development mode with hot reload')
-  .option('--config', 'Output Claude Desktop config snippet')
-  .option('--verbose', 'Show detailed logs')
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().workingDir || DEFAULT_WORKING_DIR;
 
       // Resolve file path from name in working directory
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -110,71 +111,7 @@ program
         process.exit(1);
       }
 
-      // Config mode: output Claude Desktop config
-      if (options.config) {
-        const mcpName = path.basename(filePath, path.extname(filePath)).replace('.photon', '');
-
-        // Extract constructor parameters from source
-        const constructorParams = await extractConstructorParams(filePath);
-
-        // Build env vars object with defaults
-        const env: Record<string, string> = {};
-        const envFlags: string[] = [];
-
-        for (const param of constructorParams) {
-          const envVarName = toEnvVarName(mcpName, param.name);
-          const defaultDisplay = param.defaultValue !== undefined
-            ? formatDefaultValue(param.defaultValue)
-            : `<your-${param.name}>`;
-
-          env[envVarName] = defaultDisplay;
-          envFlags.push(`--env ${envVarName}="${defaultDisplay}"`);
-        }
-
-        // Claude Desktop JSON config
-        const config = {
-          [mcpName]: {
-            command: 'npx',
-            args: ['@portel/photon', mcpName],
-            ...(Object.keys(env).length > 0 && { env }),
-          },
-        };
-
-        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('# Claude Desktop Configuration');
-        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('#');
-        console.log('# Add this to: ~/Library/Application Support/Claude/claude_desktop_config.json');
-        console.log('# (macOS) or %APPDATA%\\Claude\\claude_desktop_config.json (Windows)');
-        console.log('#');
-        console.log(JSON.stringify({ mcpServers: config }, null, 2));
-        console.log('');
-
-        // Claude Code CLI
-        if (envFlags.length > 0) {
-          console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('# Claude Code');
-          console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('#');
-          console.log(`claude-code mcp add ${mcpName} npx @portel/photon ${mcpName} \\`);
-          envFlags.forEach((flag, i) => {
-            console.log(`  ${flag}${i < envFlags.length - 1 ? ' \\' : ''}`);
-          });
-          console.log('');
-        }
-
-        // Cursor (if needed)
-        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('# Cursor / Windsurf');
-        console.log('# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('#');
-        console.log(`# Use the MCP config UI or add to settings manually`);
-        console.log('');
-
-        return;
-      }
-
-      // Normal mode: start server
+      // Start MCP server
       const server = new PhotonServer({
         filePath,
         devMode: options.dev,
@@ -208,9 +145,6 @@ program
       }
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
-      if (options.verbose) {
-        console.error(error.stack);
-      }
       process.exit(1);
     }
   });
@@ -265,7 +199,7 @@ program
       await fs.writeFile(filePath, content, 'utf-8');
 
       console.error(`[Photon] ✅ Created ${fileName} in ${workingDir}`);
-      console.error(`[Photon] Run with: photon ${name} --dev`);
+      console.error(`[Photon] Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
@@ -357,7 +291,7 @@ program
 
           allConfigs[mcpName] = {
             command: 'npx',
-            args: ['@portel/photon', mcpName],
+            args: ['@portel/photon', 'mcp', mcpName],
             ...(Object.keys(env).length > 0 && { env }),
           };
         }
@@ -381,7 +315,7 @@ program
         console.error(`  📦 ${mcp}`);
       }
       console.error('');
-      console.error(`[Photon] Run any MCP with: photon <name> --dev`);
+      console.error(`[Photon] Run any MCP with: photon mcp <name> --dev`);
       console.error(`[Photon] Generate config with: photon list --config`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
@@ -730,7 +664,7 @@ program
 
       console.error(`[Photon] ✅ Added ${name} from ${result.marketplace.name}`);
       console.error(`[Photon] Location: ${filePath}`);
-      console.error(`[Photon] Run with: photon ${name} --dev`);
+      console.error(`[Photon] Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
       console.error(`[Photon] ❌ Error: ${error.message}`);
       process.exit(1);
