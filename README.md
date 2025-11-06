@@ -1,8 +1,12 @@
 # Photon MCP
 
+> **Singular focus. Precise target.**
+
 **Zero-install CLI for running single-file TypeScript MCPs**
 
 Photon lets you create Model Context Protocol (MCP) servers using a single TypeScript file. No configuration, no decorators, no base classes required—just write a class with async methods and you're done.
+
+Why laser-focused bulky AI toolsets when you can photon-focus at exactly what you need?
 
 ## Features
 
