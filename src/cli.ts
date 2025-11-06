@@ -409,7 +409,7 @@ program
       // Auto-update stale caches
       await manager.autoUpdateStaleCaches();
 
-      const result = await manager.getMCPMetadata(name);
+      const result = await manager.getPhotonMetadata(name);
 
       if (!result) {
         console.error(`[Photon] ❌ MCP '${name}' not found in any marketplace`);
