@@ -277,16 +277,14 @@ photon add aws-s3
 ### 3. Use It
 
 \\\`\\\`\\\`bash
-# Run as MCP server for Claude
+# Run as MCP server
 photon mcp filesystem
 
-# Get config for Claude Desktop
+# Get config for your MCP client
 photon get filesystem --mcp
 \\\`\\\`\\\`
 
-Copy the output to your Claude Desktop config:
-- **macOS:** \\\`~/Library/Application Support/Claude/claude_desktop_config.json\\\`
-- **Windows:** \\\`%APPDATA%\\Claude\\claude_desktop_config.json\\\`
+Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
 
 **That's it!** Your AI assistant now has \${photons.length} focused tools at its fingertips.
 
