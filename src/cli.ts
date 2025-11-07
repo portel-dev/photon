@@ -49,6 +49,38 @@ function toEnvVarName(mcpName: string, paramName: string): string {
 }
 
 /**
+ * Ensure .gitignore includes marketplace template directory
+ */
+async function ensureGitignore(workingDir: string): Promise<void> {
+  const gitignorePath = path.join(workingDir, '.gitignore');
+  const templatesPattern = '.marketplace/_templates/';
+
+  try {
+    let gitignoreContent = '';
+
+    if (existsSync(gitignorePath)) {
+      gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
+    }
+
+    // Check if pattern already exists
+    if (gitignoreContent.includes(templatesPattern)) {
+      return; // Already configured
+    }
+
+    // Add templates pattern to .gitignore
+    const newContent = gitignoreContent.endsWith('\n')
+      ? gitignoreContent + templatesPattern + '\n'
+      : gitignoreContent + '\n' + templatesPattern + '\n';
+
+    await fs.writeFile(gitignorePath, newContent, 'utf-8');
+    console.error('   ✓ Added .marketplace/_templates/ to .gitignore');
+  } catch (error: any) {
+    // Non-fatal - just warn
+    console.error(`   ⚠ Could not update .gitignore: ${error.message}`);
+  }
+}
+
+/**
  * Format default value for display in config
  */
 function formatDefaultValue(value: any): string {
@@ -726,6 +758,10 @@ marketplace
 
       console.error('📝 Ensuring templates...');
       await templateMgr.ensureTemplates();
+
+      // Ensure .gitignore excludes templates
+      await ensureGitignore(resolvedPath);
+
       console.error('');
 
       // Extract metadata from each Photon
