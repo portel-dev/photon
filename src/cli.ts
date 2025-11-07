@@ -1204,6 +1204,119 @@ program
     }
   });
 
+// Audit command: security scan for MCP dependencies
+program
+  .command('audit')
+  .argument('[name]', 'MCP name to audit (audits all if omitted)')
+  .description('Security audit of MCP dependencies')
+  .action(async (name: string | undefined, options: any, command: Command) => {
+    try {
+      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const { DependencyManager } = await import('./dependency-manager.js');
+      const { SecurityScanner } = await import('./security-scanner.js');
+
+      const depManager = new DependencyManager();
+      const scanner = new SecurityScanner();
+
+      if (name) {
+        // Audit single MCP
+        const filePath = await resolvePhotonPath(name, workingDir);
+
+        if (!filePath) {
+          console.error(`❌ MCP not found: ${name}`);
+          process.exit(1);
+        }
+
+        console.error(`🔍 Auditing dependencies for: ${name}\n`);
+
+        const dependencies = await depManager.extractDependencies(filePath);
+
+        if (dependencies.length === 0) {
+          console.error('✅ No dependencies to audit');
+          return;
+        }
+
+        const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
+        const result = await scanner.auditMCP(name, depStrings);
+
+        console.error(scanner.formatAuditResult(result));
+
+        if (result.totalVulnerabilities > 0) {
+          console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.error('Vulnerabilities found:');
+
+          result.dependencies.forEach(dep => {
+            if (dep.hasVulnerabilities) {
+              console.error(`\n📦 ${dep.dependency}@${dep.version}`);
+              dep.vulnerabilities.forEach(vuln => {
+                const symbol = scanner.getSeveritySymbol(vuln.severity);
+                console.error(`   ${symbol} ${vuln.severity.toUpperCase()}: ${vuln.title}`);
+                if (vuln.url) {
+                  console.error(`      ${vuln.url}`);
+                }
+              });
+            }
+          });
+
+          console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.error('\n💡 To fix vulnerabilities:');
+          console.error(`   1. Update dependency versions in @dependencies JSDoc tag`);
+          console.error(`   2. Clear cache: photon clear-cache`);
+          console.error(`   3. Restart MCP to reinstall with new versions`);
+
+          if (result.criticalCount > 0 || result.highCount > 0) {
+            process.exit(1);
+          }
+        }
+      } else {
+        // Audit all MCPs
+        console.error('🔍 Auditing all MCPs...\n');
+
+        const mcps = await listPhotonMCPs(workingDir);
+
+        if (mcps.length === 0) {
+          console.error('No MCPs found');
+          return;
+        }
+
+        let totalVulnerabilities = 0;
+        let mcpsWithVulnerabilities = 0;
+
+        for (const mcp of mcps) {
+          const mcpPath = path.join(workingDir, mcp);
+          const mcpName = path.basename(mcp, '.photon.ts');
+          const dependencies = await depManager.extractDependencies(mcpPath);
+
+          if (dependencies.length === 0) {
+            console.error(`✅ ${mcpName}: No dependencies`);
+            continue;
+          }
+
+          const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
+          const result = await scanner.auditMCP(mcpName, depStrings);
+
+          console.error(scanner.formatAuditResult(result));
+
+          if (result.totalVulnerabilities > 0) {
+            totalVulnerabilities += result.totalVulnerabilities;
+            mcpsWithVulnerabilities++;
+          }
+        }
+
+        console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error(`\nSummary: ${totalVulnerabilities} vulnerabilities in ${mcpsWithVulnerabilities}/${mcps.length} MCPs`);
+
+        if (totalVulnerabilities > 0) {
+          console.error('\nRun: photon audit <name>  # for detailed vulnerability info');
+          process.exit(1);
+        }
+      }
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
 // Conflicts command: show MCPs available in multiple marketplaces
 program
   .command('conflicts')
