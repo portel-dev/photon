@@ -6,6 +6,7 @@ Deep dive into Photon's advanced features, patterns, and best practices.
 
 - [Lifecycle Hooks](#lifecycle-hooks)
 - [Advanced Type Patterns](#advanced-type-patterns)
+- [Manual Schema Overrides](#manual-schema-overrides)
 - [Performance Optimization](#performance-optimization)
 - [Error Handling Strategies](#error-handling-strategies)
 - [Testing MCPs](#testing-mcps)
@@ -191,6 +192,182 @@ async setLogLevel(params: {
   return { level: params.level };
 }
 ```
+
+---
+
+## Manual Schema Overrides
+
+When TypeScript's auto-extraction doesn't cover edge cases (complex imported types, type aliases, or dynamic schemas), you can manually specify schemas using a `.schema.json` file.
+
+### When to Use
+
+Use manual overrides when:
+- Using complex imported types that can't be inlined
+- Type aliases that reference external definitions
+- Dynamic schemas that vary at runtime
+- Third-party types from libraries
+- Schemas with advanced JSON Schema features
+
+### Format
+
+Create a `.schema.json` file next to your `.photon.ts` MCP file:
+
+```
+my-mcp.photon.ts
+my-mcp.schema.json  ← Manual schema override
+```
+
+### Schema Structure
+
+```json
+{
+  "tools": [
+    {
+      "name": "toolName",
+      "description": "Tool description",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "param": { "type": "string" }
+        },
+        "required": ["param"]
+      }
+    }
+  ],
+  "templates": [
+    {
+      "name": "templateName",
+      "description": "Template description",
+      "inputSchema": { /* ... */ }
+    }
+  ],
+  "statics": [
+    {
+      "name": "staticName",
+      "uri": "static://path",
+      "description": "Static resource description",
+      "mimeType": "application/json",
+      "inputSchema": { /* ... */ }
+    }
+  ]
+}
+```
+
+### Example: Complex Type Alias
+
+```typescript
+// my-mcp.photon.ts
+import { ComplexFilter } from './types'; // Can't be auto-extracted
+
+export default class SearchMCP {
+  /**
+   * Search with complex filters
+   */
+  async search(params: {
+    query: string;
+    filters: ComplexFilter; // Type alias - won't auto-extract properly
+  }) {
+    // Implementation
+  }
+}
+```
+
+```json
+// my-mcp.schema.json
+{
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search with complex filters",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Advanced filter options",
+            "properties": {
+              "tags": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "dateRange": {
+                "type": "object",
+                "properties": {
+                  "from": { "type": "string", "format": "date" },
+                  "to": { "type": "string", "format": "date" }
+                }
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
+```
+
+### Partial Override
+
+You can override specific tools while auto-extracting others:
+
+```json
+{
+  "tools": [
+    {
+      "name": "complexTool",
+      "inputSchema": { /* manual schema */ }
+    }
+    // Other tools will be auto-extracted
+  ]
+}
+```
+
+### Validation
+
+Photon validates that:
+- Tool/template/static names exist in your TypeScript class
+- Schema follows JSON Schema Draft 2020-12
+- Required fields are present
+
+### Limitations
+
+- Must manually keep schema in sync with code
+- No TypeScript type checking for schema
+- Overridden tools skip auto-extraction entirely
+
+### Best Practices
+
+1. **Document why**: Add a comment explaining why manual override is needed
+   ```json
+   {
+     "tools": [{
+       "name": "complexQuery",
+       "description": "Uses imported GraphQL types that can't be auto-extracted",
+       "inputSchema": { /* ... */ }
+     }]
+   }
+   ```
+
+2. **Validate regularly**: Test that manual schemas match actual implementation
+   ```bash
+   photon mcp my-mcp --validate
+   ```
+
+3. **Keep it minimal**: Only override what's necessary, let auto-extraction handle the rest
+
+4. **Version control**: Commit both `.photon.ts` and `.schema.json` together
+
+5. **Use TypeScript for simple cases**: Inline types when possible instead of manual overrides
 
 ---
 
