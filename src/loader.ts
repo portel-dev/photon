@@ -103,9 +103,20 @@ export class PhotonLoader {
         console.error(configError);
       }
 
-      // Call lifecycle hook if present
+      // Call lifecycle hook if present with error handling
       if (instance.onInitialize) {
-        await instance.onInitialize();
+        try {
+          await instance.onInitialize();
+        } catch (error: any) {
+          const initError = new Error(
+            `Initialization failed for ${name}: ${error.message}\n` +
+            `\nThe onInitialize() lifecycle hook threw an error.\n` +
+            `Check your constructor configuration and initialization logic.`
+          );
+          initError.name = 'PhotonInitializationError';
+          initError.stack = error.stack;
+          throw initError;
+        }
       }
 
       // Extract tools, templates, and statics

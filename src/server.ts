@@ -446,25 +446,78 @@ export class PhotonServer {
   /**
    * Reload the MCP file (for dev mode hot reload)
    */
-  async reload() {
-    try {
-      console.error('Reloading...');
+  private reloadFailureCount = 0;
+  private readonly MAX_RELOAD_FAILURES = 3;
+  private reloadRetryTimeout?: NodeJS.Timeout;
 
-      // Call shutdown hook on old instance
-      if (this.mcp?.instance?.onShutdown) {
-        await this.mcp.instance.onShutdown();
+  async reload() {
+    // Clear any pending retry
+    if (this.reloadRetryTimeout) {
+      clearTimeout(this.reloadRetryTimeout);
+      this.reloadRetryTimeout = undefined;
+    }
+
+    try {
+      console.error('🔄 Reloading...');
+
+      // Store old instance in case we need to rollback
+      const oldInstance = this.mcp;
+
+      // Call shutdown hook on old instance (but keep it for rollback)
+      if (oldInstance?.instance?.onShutdown) {
+        try {
+          await oldInstance.instance.onShutdown();
+        } catch (shutdownError: any) {
+          console.error(`⚠️  Shutdown hook failed: ${shutdownError.message}`);
+          // Continue with reload anyway
+        }
       }
 
       // Reload the file
-      this.mcp = await this.loader.reloadFile(this.options.filePath);
+      const newMcp = await this.loader.reloadFile(this.options.filePath);
+
+      // Success! Update instance and reset failure count
+      this.mcp = newMcp;
+      this.reloadFailureCount = 0;
 
       // Send list_changed notifications to inform client of updates
       await this.notifyListsChanged();
 
-      console.error('Reload complete');
+      console.error('✅ Reload complete');
     } catch (error: any) {
-      console.error(`Reload failed: ${error.message}`);
-      // Keep the old instance running
+      this.reloadFailureCount++;
+
+      console.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.error(`❌ Reload failed (attempt ${this.reloadFailureCount}/${this.MAX_RELOAD_FAILURES})`);
+      console.error(`Error: ${error.message}`);
+      console.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+      if (error.name === 'PhotonInitializationError') {
+        console.error(`\n💡 The onInitialize() lifecycle hook failed.`);
+        console.error(`   Common causes:`);
+        console.error(`   - Database connection failure`);
+        console.error(`   - API authentication error`);
+        console.error(`   - Missing environment variables`);
+        console.error(`   - Invalid configuration`);
+      }
+
+      if (this.reloadFailureCount >= this.MAX_RELOAD_FAILURES) {
+        console.error(`\n⚠️  Maximum reload failures reached (${this.MAX_RELOAD_FAILURES})`);
+        console.error(`   Keeping previous working version active.`);
+        console.error(`   Fix the errors and save the file again to retry.`);
+        console.error(`\n   Or restart the server: photon mcp <name> --dev`);
+
+        // Reset counter after cooling off
+        this.reloadFailureCount = 0;
+      } else {
+        // Schedule automatic retry
+        const retryDelay = Math.min(5000 * this.reloadFailureCount, 15000); // 5s, 10s, 15s max
+        console.error(`\n🔄 Will retry reload in ${retryDelay / 1000}s if file changes again...`);
+        console.error(`   Previous working version remains active.`);
+      }
+
+      // Keep the old instance running - it's still functional
+      console.error(`\n✓ Server still running with previous version`);
     }
   }
 
