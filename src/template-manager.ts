@@ -328,6 +328,42 @@ This photon provides **\${tools ? tools.length : 0}** tools:
 No tools defined.
 \`)}
 
+## 📥 Usage
+
+### Install Photon CLI
+
+\\\`\\\`\\\`bash
+npm install -g @portel/photon
+\\\`\\\`\\\`
+
+### Run This Photon
+
+**Option 1: Run directly from file**
+
+\\\`\\\`\\\`bash
+# Clone/download the photon file
+photon ./\${name}.photon.ts
+\\\`\\\`\\\`
+
+**Option 2: Install to ~/.photon/ (recommended)**
+
+\\\`\\\`\\\`bash
+# Copy to photon directory
+cp \${name}.photon.ts ~/.photon/
+
+# Run by name
+photon \${name}
+\\\`\\\`\\\`
+
+**Option 3: Use with Claude Desktop**
+
+\\\`\\\`\\\`bash
+# Generate MCP configuration
+photon \${name} --config
+
+# Add the output to ~/Library/Application Support/Claude/claude_desktop_config.json
+\\\`\\\`\\\`
+
 ## 📦 Dependencies
 
 \${$if(dependencies, \`
