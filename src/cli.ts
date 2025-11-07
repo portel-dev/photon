@@ -81,6 +81,237 @@ async function ensureGitignore(workingDir: string): Promise<void> {
 }
 
 /**
+ * Check if directory is a git repository
+ */
+async function isGitRepo(workingDir: string): Promise<boolean> {
+  try {
+    const { execSync } = await import('child_process');
+    execSync('git rev-parse --git-dir', { cwd: workingDir, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get git status for marketplace files
+ */
+async function getMarketplaceGitStatus(workingDir: string): Promise<string[]> {
+  try {
+    const { execSync } = await import('child_process');
+    const output = execSync('git status --short .marketplace/ README.md', {
+      cwd: workingDir,
+      encoding: 'utf-8'
+    });
+    return output.trim().split('\n').filter(line => line.trim());
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Prompt user for yes/no confirmation
+ */
+async function promptConfirm(message: string): Promise<boolean> {
+  const readline = await import('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${message} `, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+    });
+  });
+}
+
+/**
+ * Commit and push marketplace changes
+ */
+async function commitAndPushMarketplace(workingDir: string, photonCount: number): Promise<void> {
+  try {
+    const { execSync } = await import('child_process');
+
+    // Stage marketplace files
+    execSync('git add .marketplace/ README.md .gitignore', { cwd: workingDir, stdio: 'inherit' });
+
+    // Create commit
+    const commitMsg = `docs: sync marketplace - updated ${photonCount} photon docs`;
+    execSync(`git commit -m "${commitMsg}"`, { cwd: workingDir, stdio: 'inherit' });
+
+    // Push to current branch
+    execSync('git push', { cwd: workingDir, stdio: 'inherit' });
+
+    console.error('\n✅ Changes committed and pushed successfully!');
+  } catch (error: any) {
+    console.error(`\n❌ Git operation failed: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Perform marketplace sync with optional git commit/push
+ */
+async function performMarketplaceSync(
+  dirPath: string,
+  options: { name?: string; description?: string; owner?: string; yes?: boolean }
+): Promise<void> {
+  const resolvedPath = path.resolve(dirPath);
+
+  if (!existsSync(resolvedPath)) {
+    console.error(`❌ Directory not found: ${resolvedPath}`);
+    process.exit(1);
+  }
+
+  // Scan for .photon.ts files
+  console.error('📦 Scanning for .photon.ts files...');
+  const files = await fs.readdir(resolvedPath);
+  const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+
+  if (photonFiles.length === 0) {
+    console.error(`❌ No .photon.ts files found in ${resolvedPath}`);
+    process.exit(1);
+  }
+
+  console.error(`   Found ${photonFiles.length} photons\n`);
+
+  // Initialize template manager
+  const { TemplateManager } = await import('./template-manager.js');
+  const templateMgr = new TemplateManager(resolvedPath);
+
+  console.error('📝 Ensuring templates...');
+  await templateMgr.ensureTemplates();
+
+  // Ensure .gitignore excludes templates
+  await ensureGitignore(resolvedPath);
+
+  console.error('');
+
+  // Extract metadata from each Photon
+  console.error('📄 Extracting documentation...');
+  const { calculateFileHash } = await import('./marketplace-manager.js');
+  const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
+
+  const photons: any[] = [];
+
+  for (const file of photonFiles.sort()) {
+    const filePath = path.join(resolvedPath, file);
+
+    // Extract full metadata
+    const extractor = new PhotonDocExtractor(filePath);
+    const metadata = await extractor.extractFullMetadata();
+
+    // Calculate hash
+    const hash = await calculateFileHash(filePath);
+
+    console.error(`   ✓ ${metadata.name} (${metadata.tools?.length || 0} tools)`);
+
+    // Build manifest entry
+    photons.push({
+      name: metadata.name,
+      version: metadata.version,
+      description: metadata.description,
+      author: metadata.author || options.owner || 'Unknown',
+      license: metadata.license || 'MIT',
+      repository: metadata.repository,
+      homepage: metadata.homepage,
+      source: `../${file}`,
+      hash,
+      tools: metadata.tools?.map(t => t.name),
+    });
+
+    // Generate individual photon documentation
+    const photonMarkdown = await templateMgr.renderTemplate('photon.md', metadata);
+    const docPath = path.join(resolvedPath, '.marketplace', `${metadata.name}.md`);
+    await fs.writeFile(docPath, photonMarkdown, 'utf-8');
+  }
+
+  // Create manifest
+  console.error('\n📋 Updating manifest...');
+  const baseName = path.basename(resolvedPath);
+  const manifest = {
+    name: options.name || baseName,
+    version: '1.0.0',
+    description: options.description || `${baseName} Photon marketplace`,
+    owner: options.owner ? {
+      name: options.owner,
+    } : undefined,
+    photons,
+  };
+
+  const marketplaceDir = path.join(resolvedPath, '.marketplace');
+  await fs.mkdir(marketplaceDir, { recursive: true });
+
+  const manifestPath = path.join(marketplaceDir, 'photons.json');
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  console.error('   ✓ .marketplace/photons.json');
+
+  // Sync README with generated content
+  console.error('\n📖 Syncing README.md...');
+  const { ReadmeSyncer } = await import('./readme-syncer.js');
+  const readmePath = path.join(resolvedPath, 'README.md');
+  const syncer = new ReadmeSyncer(readmePath);
+
+  // Render README section from template
+  const readmeContent = await templateMgr.renderTemplate('readme.md', {
+    marketplaceName: manifest.name,
+    marketplaceDescription: manifest.description || '',
+    photons: photons.map(p => ({
+      name: p.name,
+      description: p.description,
+      version: p.version,
+      license: p.license,
+      tools: p.tools || [],
+    })),
+  });
+
+  const isUpdate = await syncer.sync(readmeContent);
+  if (isUpdate) {
+    console.error('   ✓ README.md synced (user content preserved)');
+  } else {
+    console.error('   ✓ README.md created');
+  }
+
+  console.error('\n✅ Marketplace synced successfully!');
+  console.error(`\n   Marketplace: ${manifest.name}`);
+  console.error(`   Photons: ${photons.length}`);
+  console.error(`   Documentation: ${photons.length} markdown files generated`);
+
+  // Check if git repo and offer to commit/push
+  const isGit = await isGitRepo(resolvedPath);
+  if (isGit) {
+    const gitStatus = await getMarketplaceGitStatus(resolvedPath);
+
+    if (gitStatus.length > 0) {
+      console.error('\n📊 Git Status:');
+      gitStatus.forEach(line => console.error(`   ${line}`));
+
+      let shouldCommit = options.yes;
+      if (!shouldCommit) {
+        console.error('');
+        shouldCommit = await promptConfirm('❓ Commit and push these changes? (y/N):');
+      }
+
+      if (shouldCommit) {
+        await commitAndPushMarketplace(resolvedPath, photons.length);
+      } else {
+        console.error('\n💡 Next steps:');
+        console.error(`   • Review changes: git diff`);
+        console.error(`   • Commit manually: git add . && git commit && git push`);
+      }
+    } else {
+      console.error('\n✓ No changes to commit');
+    }
+  } else {
+    console.error(`\n💡 Next steps:`);
+    console.error(`   • Review generated docs in .marketplace/`);
+    console.error(`   • Commit and push to GitHub`);
+  }
+}
+
+/**
  * Format default value for display in config
  */
 function formatDefaultValue(value: any): string {
@@ -719,145 +950,48 @@ program
     }
   });
 
+// Sync command: synchronize local resources
+const sync = program
+  .command('sync')
+  .description('Synchronize local resources');
+
+sync
+  .command('marketplace')
+  .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
+  .option('--name <name>', 'Marketplace name')
+  .option('--description <desc>', 'Marketplace description')
+  .option('--owner <owner>', 'Owner name')
+  .option('-y, --yes', 'Skip confirmation prompts and auto-commit/push')
+  .description('Generate/sync marketplace manifest and documentation')
+  .action(async (dirPath: string, options: any) => {
+    try {
+      await performMarketplaceSync(dirPath, options);
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      if (process.env.DEBUG) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+  });
+
 // Marketplace command: manage MCP marketplaces
 const marketplace = program
   .command('marketplace')
   .description('Manage MCP marketplaces');
 
 marketplace
-  .command('sync')
+  .command('sync', { hidden: true })
   .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
   .option('--name <name>', 'Marketplace name')
   .option('--description <desc>', 'Marketplace description')
   .option('--owner <owner>', 'Owner name')
-  .description('Generate/sync marketplace manifest and documentation (re-runnable)')
+  .option('-y, --yes', 'Skip confirmation prompts')
+  .description('(Deprecated: use "photon sync marketplace") Generate/sync marketplace manifest and documentation')
   .action(async (dirPath: string, options: any) => {
+    console.error('⚠️  Note: "photon marketplace sync" is deprecated. Use "photon sync marketplace" instead.\n');
     try {
-      const resolvedPath = path.resolve(dirPath);
-
-      if (!existsSync(resolvedPath)) {
-        console.error(`❌ Directory not found: ${resolvedPath}`);
-        process.exit(1);
-      }
-
-      // Scan for .photon.ts files
-      console.error('📦 Scanning for .photon.ts files...');
-      const files = await fs.readdir(resolvedPath);
-      const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
-
-      if (photonFiles.length === 0) {
-        console.error(`❌ No .photon.ts files found in ${resolvedPath}`);
-        process.exit(1);
-      }
-
-      console.error(`   Found ${photonFiles.length} photons\n`);
-
-      // Initialize template manager
-      const { TemplateManager } = await import('./template-manager.js');
-      const templateMgr = new TemplateManager(resolvedPath);
-
-      console.error('📝 Ensuring templates...');
-      await templateMgr.ensureTemplates();
-
-      // Ensure .gitignore excludes templates
-      await ensureGitignore(resolvedPath);
-
-      console.error('');
-
-      // Extract metadata from each Photon
-      console.error('📄 Extracting documentation...');
-      const { calculateFileHash } = await import('./marketplace-manager.js');
-      const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
-
-      const photons: any[] = [];
-
-      for (const file of photonFiles.sort()) {
-        const filePath = path.join(resolvedPath, file);
-
-        // Extract full metadata
-        const extractor = new PhotonDocExtractor(filePath);
-        const metadata = await extractor.extractFullMetadata();
-
-        // Calculate hash
-        const hash = await calculateFileHash(filePath);
-
-        console.error(`   ✓ ${metadata.name} (${metadata.tools?.length || 0} tools)`);
-
-        // Build manifest entry
-        photons.push({
-          name: metadata.name,
-          version: metadata.version,
-          description: metadata.description,
-          author: metadata.author || options.owner || 'Unknown',
-          license: metadata.license || 'MIT',
-          repository: metadata.repository,
-          homepage: metadata.homepage,
-          source: `../${file}`,
-          hash,
-          tools: metadata.tools?.map(t => t.name),
-        });
-
-        // Generate individual photon documentation
-        const photonMarkdown = await templateMgr.renderTemplate('photon.md', metadata);
-        const docPath = path.join(resolvedPath, '.marketplace', `${metadata.name}.md`);
-        await fs.writeFile(docPath, photonMarkdown, 'utf-8');
-      }
-
-      // Create manifest
-      console.error('\n📋 Updating manifest...');
-      const baseName = path.basename(resolvedPath);
-      const manifest = {
-        name: options.name || baseName,
-        version: '1.0.0',
-        description: options.description || `${baseName} Photon marketplace`,
-        owner: options.owner ? {
-          name: options.owner,
-        } : undefined,
-        photons,
-      };
-
-      const marketplaceDir = path.join(resolvedPath, '.marketplace');
-      await fs.mkdir(marketplaceDir, { recursive: true });
-
-      const manifestPath = path.join(marketplaceDir, 'photons.json');
-      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
-      console.error('   ✓ .marketplace/photons.json');
-
-      // Sync README with generated content
-      console.error('\n📖 Syncing README.md...');
-      const { ReadmeSyncer } = await import('./readme-syncer.js');
-      const readmePath = path.join(resolvedPath, 'README.md');
-      const syncer = new ReadmeSyncer(readmePath);
-
-      // Render README section from template
-      const readmeContent = await templateMgr.renderTemplate('readme.md', {
-        marketplaceName: manifest.name,
-        marketplaceDescription: manifest.description || '',
-        photons: photons.map(p => ({
-          name: p.name,
-          description: p.description,
-          version: p.version,
-          license: p.license,
-          tools: p.tools || [],
-        })),
-      });
-
-      const isUpdate = await syncer.sync(readmeContent);
-      if (isUpdate) {
-        console.error('   ✓ README.md synced (user content preserved)');
-      } else {
-        console.error('   ✓ README.md created');
-      }
-
-      console.error('\n✅ Marketplace synced successfully!');
-      console.error(`\n   Marketplace: ${manifest.name}`);
-      console.error(`   Photons: ${photons.length}`);
-      console.error(`   Documentation: ${photons.length} markdown files generated`);
-      console.error(`\n💡 Next steps:`);
-      console.error(`   • Review generated docs in .marketplace/`);
-      console.error(`   • Customize templates in .marketplace/_templates/ (optional)`);
-      console.error(`   • Commit and push to GitHub`);
-      console.error(`   • Share: photon marketplace add <your-username>/<repo>`);
+      await performMarketplaceSync(dirPath, options);
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       if (process.env.DEBUG) {
