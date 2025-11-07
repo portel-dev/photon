@@ -33,7 +33,7 @@ npm install @modelcontextprotocol/sdk turndown
 // ~50 lines of server setup code
 
 // Photon: Zero setup, auto-installs dependencies
-npx @portel/photon web-fetch
+npx @portel/photon mcp web-fetch
 // Ready to use in seconds
 ```
 
@@ -236,7 +236,7 @@ constructor(user_agent?: string, storage_path?: string) { }
 
 **Claude Desktop config (auto-generated):**
 ```bash
-npx @portel/photon web-fetch --config
+npx @portel/photon get web-fetch --mcp
 ```
 
 ```json
@@ -244,7 +244,7 @@ npx @portel/photon web-fetch --config
   "mcpServers": {
     "web-fetch": {
       "command": "npx",
-      "args": ["@portel/photon", "web-fetch"],
+      "args": ["@portel/photon", "mcp", "web-fetch"],
       "env": {
         "WEB_FETCH_USER_AGENT": "MyBot/1.0"
       }
