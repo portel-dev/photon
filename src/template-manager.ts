@@ -251,7 +251,7 @@ photon mcp \${photons[0]?.name}
 
 | Photon | Description | Tools | Documentation |
 |--------|-------------|-------|---------------|
-\${each(photons, (p) => \`| **\${p.name}** | \${p.description} | \${p.tools ? p.tools.length : 0} | [View Details](\${p.name}.md) |\n\`)}
+\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View Details](\${p.name}.md) |\n\`)}
 
 ---
 
