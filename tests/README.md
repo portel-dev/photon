@@ -8,6 +8,52 @@ The test client spawns MCP servers, sends JSON-RPC messages over stdio, and vali
 
 ## Running Tests
 
+### All Tests
+```bash
+npm test
+```
+
+Runs the complete test suite including unit tests, integration tests, load tests, and README validation.
+
+### README Validation
+```bash
+npm run test:readme
+# or
+./tests/readme-validation.sh
+```
+
+**Purpose**: Validates that all claims, examples, and instructions in README.md work correctly. Ensures users have a seamless experience when following documentation.
+
+**Coverage** (26 assertions):
+- ✓ Installation and help commands
+- ✓ Quick start workflow (init, validate, get)
+- ✓ MCP config generation
+- ✓ Working directory flag support
+- ✓ All example Photons validate (math, text, workflow, content)
+- ✓ Marketplace commands
+- ✓ Constructor environment variable mapping
+- ✓ TypeScript schema extraction
+- ✓ JSDoc description extraction
+- ✓ Private method exclusion
+- ✓ Multiple return value formats
+
+**Why it matters**: When users follow the README, they expect everything to work. This test ensures no broken examples, incorrect claims, or missing features.
+
+### Load Testing
+```bash
+npm run test:load
+```
+
+**Purpose**: Validates performance under stress and ensures no memory leaks.
+
+**Coverage**:
+- Concurrent request handling (100 parallel)
+- Memory leak detection with GC validation
+- Large payload handling (10KB-500KB)
+- Error handling under load
+- CPU-intensive operations
+- Complex schema processing
+
 ### SQLite MCP (no credentials needed)
 ```bash
 npm test:sqlite
@@ -21,11 +67,6 @@ export GITHUB_TOKEN="ghp_your_token_here"
 npm test:github
 # or
 npx tsx tests/github-issues.test.ts
-```
-
-### All Tests
-```bash
-npm test
 ```
 
 ## Writing Tests
