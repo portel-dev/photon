@@ -212,51 +212,37 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-\${$if(marketplaceDescription && marketplaceDescription !== marketplaceName && !marketplaceDescription.toLowerCase().includes(marketplaceName.toLowerCase()), \`\${marketplaceDescription}\n\`, '')}## 📦 Available Photons
-
-\${each(photons, (p) => \`
-### [\${p.name}](./.marketplace/\${p.name}.md)
-
-\${p.description}
-
-**Tools:** \${p.tools ? p.tools.length : 0} • **Version:** \${p.version} • **License:** \${p.license || 'MIT'}
-
-\`)}
-
----
-
+\${$if(marketplaceDescription && marketplaceDescription !== marketplaceName && !marketplaceDescription.toLowerCase().includes(marketplaceName.toLowerCase()), \`\${marketplaceDescription}\n\n\`, '')}
 ## 🚀 Quick Start
 
-Install Photon globally:
+### Install Photon CLI
 
 \\\`\\\`\\\`bash
 npm install -g @portel/photon
 \\\`\\\`\\\`
 
-### Run a Photon
+### Add a Photon from this Marketplace
 
 \\\`\\\`\\\`bash
-# Clone this repository
-git clone <repository-url>
-cd \${marketplaceName}
+# Add any photon to your library
+photon add <photon-name>
 
-# Run a photon directly
-photon ./\${photons[0]?.name}.photon.ts
+# For example:
+photon add \${photons[0]?.name}
 
-# Or install to ~/.photon/ for easier access
-cp \${photons[0]?.name}.photon.ts ~/.photon/
-photon \${photons[0]?.name}
+# Run it
+photon mcp \${photons[0]?.name}
 \\\`\\\`\\\`
 
-## 📖 Documentation
+## 📦 Available Photons
 
-Detailed documentation for each photon:
+| Photon | Description | Tools | Documentation |
+|--------|-------------|-------|---------------|
+\${each(photons, (p) => \`| **\${p.name}** | \${p.description} | \${p.tools ? p.tools.length : 0} | [View Details](docs/\${p.name}.md) |\n\`)}
 
-\${each(photons, (p) => \`- [\${p.name}](./.marketplace/\${p.name}.md) - \${p.description}\n\`)}
+---
 
-## 🔧 Configuration
-
-Each photon may require specific environment variables. See individual photon documentation for configuration details.
+**Total:** \${photons.length} photons • Click on "View Details" for configuration and usage instructions.
 `;
   }
 
