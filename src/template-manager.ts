@@ -212,9 +212,7 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-\${marketplaceDescription}
-
-## 📦 Available Photons
+\${$if(marketplaceDescription && marketplaceDescription !== marketplaceName && !marketplaceDescription.toLowerCase().includes(marketplaceName.toLowerCase()), \`\${marketplaceDescription}\n\`, '')}## 📦 Available Photons
 
 \${each(photons, (p) => \`
 ### [\${p.name}](./.marketplace/\${p.name}.md)
@@ -227,31 +225,38 @@ export class TemplateManager {
 
 ---
 
-## 🚀 Installation
+## 🚀 Quick Start
 
-Each photon can be installed to \\\`~/.photon/\\\` directory:
+Install Photon globally:
 
 \\\`\\\`\\\`bash
-# Download a photon
-curl -o ~/.photon/\${photons[0]?.name}.photon.ts https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/\${photons[0]?.name}.photon.ts
+npm install -g @portel/photon
+\\\`\\\`\\\`
 
-# Run it
+### Run a Photon
+
+\\\`\\\`\\\`bash
+# Clone this repository
+git clone <repository-url>
+cd \${marketplaceName}
+
+# Run a photon directly
+photon ./\${photons[0]?.name}.photon.ts
+
+# Or install to ~/.photon/ for easier access
+cp \${photons[0]?.name}.photon.ts ~/.photon/
 photon \${photons[0]?.name}
 \\\`\\\`\\\`
 
 ## 📖 Documentation
 
-Detailed documentation for each photon is available in the \\\`.marketplace/\\\` directory:
+Detailed documentation for each photon:
 
 \${each(photons, (p) => \`- [\${p.name}](./.marketplace/\${p.name}.md) - \${p.description}\n\`)}
 
 ## 🔧 Configuration
 
-Each photon requires specific environment variables. See individual photon documentation for details.
-
-## 📝 License
-
-Individual photons may have different licenses. See each photon's documentation for license information.
+Each photon may require specific environment variables. See individual photon documentation for configuration details.
 `;
   }
 
@@ -267,10 +272,7 @@ Individual photons may have different licenses. See each photon's documentation 
 
 **Version:** \${version}
 **Author:** \${author || 'Unknown'}
-**License:** \${license || 'MIT'}
-
-\${$if(repository, \`**Repository:** \${repository}\n\`)}
-\${$if(homepage, \`**Homepage:** \${homepage}\n\`)}
+**License:** \${license || 'MIT'}\${$if(repository, \`  \n**Repository:** \${repository}\`, '')}\${$if(homepage, \`  \n**Homepage:** \${homepage}\`, '')}
 
 ## ⚙️ Configuration
 
