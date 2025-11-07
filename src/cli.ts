@@ -163,7 +163,7 @@ async function performMarketplaceSync(
   const manifest = {
     name: options.name || baseName,
     version: '1.0.0',
-    description: options.description || `${baseName} Photon marketplace`,
+    description: options.description || undefined,
     owner: options.owner ? {
       name: options.owner,
     } : undefined,

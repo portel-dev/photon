@@ -212,8 +212,7 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-\${$if(marketplaceDescription && marketplaceDescription !== marketplaceName && !marketplaceDescription.toLowerCase().includes(marketplaceName.toLowerCase()), \`\${marketplaceDescription}\n\n\`, '')}
-## 🚀 Quick Start
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Production-ready MCPs for the Photon runtime. Single-file, zero-config, auto-dependency MCPs that work out of the box.\n\n\`)}## 🚀 Quick Start
 
 ### Install Photon CLI
 
