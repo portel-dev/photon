@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as os from 'os';
+import * as readline from 'readline';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
 import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
@@ -1161,13 +1162,45 @@ program
           console.error(`\n💡 Recommended: ${conflict.recommendation} (newest version)`);
         }
 
-        console.error(`\nTo specify a marketplace, use:`);
-        console.error(`  photon add ${name} --marketplace <name>`);
-        console.error(`\nOr use the first marketplace by continuing...`);
+        // Get default choice (recommended or first)
+        const recommendedIndex = conflict.sources.findIndex(s => s.marketplace.name === conflict.recommendation);
+        const defaultChoice = recommendedIndex !== -1 ? recommendedIndex + 1 : 1;
 
-        // Use recommended or first source
-        const recommendedSource = conflict.sources.find(s => s.marketplace.name === conflict.recommendation);
-        const selectedSource = recommendedSource || conflict.sources[0];
+        // Interactive selection
+        const selectedIndex = await new Promise<number>((resolve) => {
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stderr,
+          });
+
+          const askQuestion = () => {
+            rl.question(`\nWhich marketplace? [1-${conflict.sources.length}] (default: ${defaultChoice}): `, (answer) => {
+              const trimmed = answer.trim();
+
+              // Empty input = use default
+              if (trimmed === '') {
+                rl.close();
+                resolve(defaultChoice - 1);
+                return;
+              }
+
+              const choice = parseInt(trimmed, 10);
+
+              // Validate input
+              if (isNaN(choice) || choice < 1 || choice > conflict.sources.length) {
+                console.error(`Invalid choice. Please enter a number between 1 and ${conflict.sources.length}.`);
+                askQuestion();
+              } else {
+                rl.close();
+                resolve(choice - 1);
+              }
+            });
+          };
+
+          askQuestion();
+        });
+
+        const selectedSource = conflict.sources[selectedIndex];
         selectedMarketplace = selectedSource.marketplace;
         selectedMetadata = selectedSource.metadata;
 
