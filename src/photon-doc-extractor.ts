@@ -117,6 +117,9 @@ export class PhotonDocExtractor {
       return [];
     }
 
+    // Extract configuration descriptions from class JSDoc
+    const configDescriptions = this.extractConfigDescriptions();
+
     return params.map((param) => {
       // Convert to environment variable format
       // ClassName -> class-name -> CLASS_NAME_PARAM_NAME
@@ -124,12 +127,15 @@ export class PhotonDocExtractor {
       const envPrefix = kebabCase.toUpperCase().replace(/-/g, '_');
       const envVar = `${envPrefix}_${param.name.toUpperCase()}`;
 
+      // Find description from Configuration section
+      const description = configDescriptions[param.name] || 'No description available';
+
       return {
         name: param.name,
         envVar,
         type: param.type || 'string',
         required: !param.isOptional,
-        description: 'No description available', // JSDoc @param descriptions not extracted by SchemaExtractor for constructor
+        description,
         default: param.hasDefault ? param.defaultValue : undefined,
       };
     });
@@ -141,6 +147,29 @@ export class PhotonDocExtractor {
   private extractClassName(): string {
     const match = this.content.match(/export\s+default\s+class\s+(\w+)/);
     return match ? match[1] : this.extractName();
+  }
+
+  /**
+   * Extract configuration descriptions from "Configuration:" section
+   * Returns a map of parameter name to description
+   */
+  private extractConfigDescriptions(): Record<string, string> {
+    const setupText = this.extractSetupInstructions();
+    if (!setupText) return {};
+
+    const descriptions: Record<string, string> = {};
+
+    // Parse lines like "- paramName: Description text"
+    const lines = setupText.split('\n');
+    for (const line of lines) {
+      const match = line.match(/^-?\s*(\w+):\s*(.+)$/);
+      if (match) {
+        const [, paramName, description] = match;
+        descriptions[paramName] = description.trim();
+      }
+    }
+
+    return descriptions;
   }
 
   /**
