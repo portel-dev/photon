@@ -34,7 +34,7 @@ export default class MyTool {
 }
 
 # 3. Test it
-photon my-tool --dev
+photon mcp my-tool --dev
 ```
 
 That's it! Your MCP is now running and ready to use.
@@ -81,7 +81,7 @@ Here's a real-world example with all features:
 export default class Calculator {
   // Optional lifecycle hook
   async onInitialize() {
-    console.error('[calculator] Ready to calculate');
+    console.error('Ready to calculate');
   }
 
   /**
@@ -421,14 +421,14 @@ Called once when the MCP server starts:
 
 ```typescript
 async onInitialize() {
-  console.error('[my-mcp] Starting up...');
-  console.error(`[my-mcp] Working directory: ${this.workdir}`);
+  console.error('Starting up...');
+  console.error(`Working directory: ${this.workdir}`);
 
   // Initialize resources
   await this._connectDatabase();
   await this._loadConfig();
 
-  console.error('[my-mcp] ✅ Ready');
+  console.error('✅ Ready');
 }
 ```
 
@@ -444,13 +444,13 @@ Called when the MCP server is shutting down:
 
 ```typescript
 async onShutdown() {
-  console.error('[my-mcp] Shutting down...');
+  console.error('Shutting down...');
 
   // Clean up resources
   await this.db?.close();
   await this.httpClient?.dispose();
 
-  console.error('[my-mcp] ✅ Shutdown complete');
+  console.error('✅ Shutdown complete');
 }
 ```
 
@@ -471,15 +471,15 @@ export default class SqliteMCP {
   constructor(private dbPath: string = join(homedir(), 'data.db')) {}
 
   async onInitialize() {
-    console.error(`[sqlite] Opening database: ${this.dbPath}`);
+    console.error(`Opening database: ${this.dbPath}`);
     this.db = new Database(this.dbPath);
-    console.error('[sqlite] ✅ Database ready');
+    console.error('✅ Database ready');
   }
 
   async onShutdown() {
-    console.error('[sqlite] Closing database...');
+    console.error('Closing database...');
     this.db?.close();
-    console.error('[sqlite] ✅ Database closed');
+    console.error('✅ Database closed');
   }
 
   async query(params: { sql: string }) {
@@ -622,7 +622,7 @@ export default class Sqlite {
     this.db = new Database(this.dbPath, {
       readonly: this.readonly
     });
-    console.error(`[sqlite] Database ready: ${this.dbPath}`);
+    console.error(`Database ready: ${this.dbPath}`);
   }
 
   async onShutdown() {
@@ -732,7 +732,7 @@ code ~/.photon/my-tool.photon.ts
 
 **3. Run in dev mode:**
 ```bash
-photon my-tool --dev
+photon mcp my-tool --dev
 ```
 
 Dev mode features:
@@ -802,7 +802,7 @@ npx tsx test.ts
 **Enable verbose logging:**
 ```typescript
 async onInitialize() {
-  console.error('[my-mcp] Configuration:');
+  console.error('Configuration:');
   console.error(JSON.stringify({
     workdir: this.workdir,
     enabled: this.enabled
@@ -832,7 +832,7 @@ photon validate my-tool
 
 **1. Generate config:**
 ```bash
-photon my-tool --config
+photon get my-tool --mcp
 ```
 
 **Output:**
@@ -841,7 +841,7 @@ photon my-tool --config
   "mcpServers": {
     "my-tool": {
       "command": "npx",
-      "args": ["@portel/photon", "/Users/you/.photon/my-tool.photon.ts"],
+      "args": ["@portel/photon", "mcp", "my-tool"],
       "env": {
         "MY_TOOL_WORKDIR": "~/Documents",
         "MY_TOOL_MAX_FILE_SIZE": "10485760"
@@ -874,7 +874,7 @@ Add to `.claude/claude.json`:
   "mcpServers": {
     "my-tool": {
       "command": "photon",
-      "args": ["my-tool"],
+      "args": ["mcp", "my-tool"],
       "env": {
         "MY_TOOL_WORKDIR": "${workspaceFolder}/data"
       }
@@ -892,7 +892,7 @@ Add to MCP settings:
   "mcpServers": {
     "my-tool": {
       "command": "npx",
-      "args": ["@portel/photon", "my-tool"]
+      "args": ["@portel/photon", "mcp", "my-tool"]
     }
   }
 }
@@ -905,7 +905,7 @@ Add to MCP settings:
 {
   "my-tool": {
     "command": "photon",
-    "args": ["my-tool"],
+    "args": ["mcp", "my-tool"],
     "env": {
       "MY_TOOL_API_KEY": "sk-...",
       "MY_TOOL_ENDPOINT": "https://api.example.com"
@@ -917,7 +917,7 @@ Add to MCP settings:
 **Option 2: System environment:**
 ```bash
 export MY_TOOL_API_KEY="sk-..."
-photon my-tool
+photon mcp my-tool
 ```
 
 **Option 3: .env file (not recommended for production):**
