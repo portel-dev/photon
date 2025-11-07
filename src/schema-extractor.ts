@@ -4,9 +4,12 @@
  * Extracts JSON schemas from TypeScript method signatures and JSDoc comments
  * Also extracts constructor parameters for config injection
  * Supports Templates (@Template) and Static resources (@Static)
+ *
+ * Now uses TypeScript's compiler API for robust type parsing
  */
 
 import * as fs from 'fs/promises';
+import * as ts from 'typescript';
 import { ExtractedSchema, ConstructorParam, TemplateInfo, StaticInfo } from './types.js';
 
 export interface ExtractedMetadata {
@@ -20,8 +23,7 @@ export interface ExtractedMetadata {
  */
 export class SchemaExtractor {
   /**
-   * Extract method schemas from source code
-   * Parses JSDoc and TypeScript types to build JSON schemas
+   * Extract method schemas from source code file
    */
   async extractFromFile(filePath: string): Promise<ExtractedSchema[]> {
     try {
@@ -41,71 +43,102 @@ export class SchemaExtractor {
     const templates: TemplateInfo[] = [];
     const statics: StaticInfo[] = [];
 
-    // Regex to match async method signatures with JSDoc
-    // Matches: /** ... */ async methodName(params: { ... }) { ... }
-    const methodRegex = /\/\*\*\s*\n([\s\S]*?)\*\/\s+async\s+(\w+)\s*\(/g;
+    try {
+      // If source doesn't contain a class declaration, wrap it in one
+      let sourceToParse = source;
+      if (!source.includes('class ')) {
+        sourceToParse = `export default class Temp {\n${source}\n}`;
+      }
 
-    let match;
-    while ((match = methodRegex.exec(source)) !== null) {
-      const [, jsdocContent, methodName] = match;
-
-      // Find the params type by parsing from the match position
-      const afterMatch = source.slice(match.index + match[0].length);
-      const paramsMatch = afterMatch.match(/(?:params)?\s*:\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/);
-
-      if (!paramsMatch) continue;
-
-      const paramsContent = paramsMatch[1];
-
-      // Extract description from JSDoc (first line only, before @param tags)
-      const description = this.extractDescription(jsdocContent);
-
-      // Extract parameter info from JSDoc @param tags
-      const paramDocs = this.extractParamDocs(jsdocContent);
-
-      // Parse TypeScript parameter types
-      const properties = this.parseParamTypes(paramsContent, paramDocs);
-
-      // Determine required fields (all params are required unless marked optional with ?)
-      const required = Object.keys(properties).filter(
-        (key) => !paramsContent.includes(`${key}?:`)
+      // Parse source file into AST
+      const sourceFile = ts.createSourceFile(
+        'temp.ts',
+        sourceToParse,
+        ts.ScriptTarget.Latest,
+        true
       );
 
-      const inputSchema = {
-        type: 'object' as const,
-        properties,
-        ...(required.length > 0 ? { required } : {}),
+      // Helper to process a method declaration
+      const processMethod = (member: ts.MethodDeclaration) => {
+        const methodName = member.name.getText(sourceFile);
+        const jsdoc = this.getJSDocComment(member, sourceFile);
+
+        // Extract parameter type information
+        const paramsType = this.getFirstParameterType(member, sourceFile);
+        if (!paramsType) {
+          return; // Skip methods without proper params
+        }
+
+        // Build schema from TypeScript type
+        const { properties, required } = this.buildSchemaFromType(paramsType, sourceFile);
+
+        // Extract descriptions from JSDoc
+        const paramDocs = this.extractParamDocs(jsdoc);
+
+        // Merge descriptions into properties
+        Object.keys(properties).forEach(key => {
+          if (paramDocs.has(key)) {
+            properties[key].description = paramDocs.get(key);
+          }
+        });
+
+        const description = this.extractDescription(jsdoc);
+        const inputSchema = {
+          type: 'object' as const,
+          properties,
+          ...(required.length > 0 ? { required } : {}),
+        };
+
+        // Check if this is a Template
+        if (this.hasTemplateTag(jsdoc)) {
+          templates.push({
+            name: methodName,
+            description,
+            inputSchema,
+          });
+        }
+        // Check if this is a Static resource
+        else if (this.hasStaticTag(jsdoc)) {
+          const uri = this.extractStaticURI(jsdoc) || `static://${methodName}`;
+          const mimeType = this.extractMimeType(jsdoc);
+
+          statics.push({
+            name: methodName,
+            uri,
+            description,
+            mimeType,
+            inputSchema,
+          });
+        }
+        // Otherwise, it's a regular tool
+        else {
+          tools.push({
+            name: methodName,
+            description,
+            inputSchema,
+          });
+        }
       };
 
-      // Check if this is a Template
-      if (this.hasTemplateTag(jsdocContent)) {
-        templates.push({
-          name: methodName,
-          description,
-          inputSchema,
-        });
-      }
-      // Check if this is a Static resource
-      else if (this.hasStaticTag(jsdocContent)) {
-        const uri = this.extractStaticURI(jsdocContent) || `static://${methodName}`;
-        const mimeType = this.extractMimeType(jsdocContent);
+      // Visit all nodes in the AST
+      const visit = (node: ts.Node) => {
+        // Look for class declarations
+        if (ts.isClassDeclaration(node)) {
+          node.members.forEach((member) => {
+            // Look for async methods
+            if (ts.isMethodDeclaration(member) &&
+                member.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
+              processMethod(member);
+            }
+          });
+        }
 
-        statics.push({
-          name: methodName,
-          uri,
-          description,
-          mimeType,
-          inputSchema,
-        });
-      }
-      // Otherwise, it's a regular tool
-      else {
-        tools.push({
-          name: methodName,
-          description,
-          inputSchema,
-        });
-      }
+        ts.forEachChild(node, visit);
+      };
+
+      visit(sourceFile);
+    } catch (error: any) {
+      console.error('Failed to parse TypeScript source:', error.message);
     }
 
     return { tools, templates, statics };
@@ -119,130 +152,250 @@ export class SchemaExtractor {
   }
 
   /**
+   * Get JSDoc comment for a node
+   */
+  private getJSDocComment(node: ts.Node, sourceFile: ts.SourceFile): string {
+    // Use TypeScript's JSDoc extraction
+    const jsDocs = (node as any).jsDoc;
+    if (jsDocs && jsDocs.length > 0) {
+      const jsDoc = jsDocs[0];
+      const comment = jsDoc.comment;
+
+      // Get full JSDoc text including tags
+      const fullText = sourceFile.getFullText();
+      const start = jsDoc.pos;
+      const end = jsDoc.end;
+      const jsDocText = fullText.substring(start, end);
+
+      // Extract content between /** and */
+      const match = jsDocText.match(/\/\*\*([\s\S]*?)\*\//);
+      return match ? match[1] : '';
+    }
+
+    return '';
+  }
+
+  /**
+   * Get the first parameter's type node
+   */
+  private getFirstParameterType(method: ts.MethodDeclaration, sourceFile: ts.SourceFile): ts.TypeNode | undefined {
+    if (method.parameters.length === 0) {
+      return undefined;
+    }
+
+    const firstParam = method.parameters[0];
+    return firstParam.type;
+  }
+
+  /**
+   * Build JSON schema from TypeScript type node
+   */
+  private buildSchemaFromType(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): { properties: Record<string, any>, required: string[] } {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    // Handle type literal (object type)
+    if (ts.isTypeLiteralNode(typeNode)) {
+      typeNode.members.forEach((member) => {
+        if (ts.isPropertySignature(member) && member.name) {
+          const propName = member.name.getText(sourceFile);
+          const isOptional = member.questionToken !== undefined;
+
+          if (!isOptional) {
+            required.push(propName);
+          }
+
+          if (member.type) {
+            properties[propName] = this.typeNodeToSchema(member.type, sourceFile);
+          } else {
+            properties[propName] = { type: 'object' };
+          }
+        }
+      });
+    }
+
+    return { properties, required };
+  }
+
+  /**
+   * Convert TypeScript type node to JSON schema
+   */
+  private typeNodeToSchema(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): any {
+    const schema: any = {};
+
+    // Handle union types
+    if (ts.isUnionTypeNode(typeNode)) {
+      schema.anyOf = typeNode.types.map(t => this.typeNodeToSchema(t, sourceFile));
+      return schema;
+    }
+
+    // Handle intersection types
+    if (ts.isIntersectionTypeNode(typeNode)) {
+      schema.allOf = typeNode.types.map(t => this.typeNodeToSchema(t, sourceFile));
+      return schema;
+    }
+
+    // Handle array types
+    if (ts.isArrayTypeNode(typeNode)) {
+      schema.type = 'array';
+      schema.items = this.typeNodeToSchema(typeNode.elementType, sourceFile);
+      return schema;
+    }
+
+    // Handle type reference (e.g., Array<string>)
+    if (ts.isTypeReferenceNode(typeNode)) {
+      const typeName = typeNode.typeName.getText(sourceFile);
+
+      if (typeName === 'Array' && typeNode.typeArguments && typeNode.typeArguments.length > 0) {
+        schema.type = 'array';
+        schema.items = this.typeNodeToSchema(typeNode.typeArguments[0], sourceFile);
+        return schema;
+      }
+
+      // For other type references, default to object
+      schema.type = 'object';
+      return schema;
+    }
+
+    // Handle literal types
+    if (ts.isLiteralTypeNode(typeNode)) {
+      const literal = typeNode.literal;
+      if (ts.isStringLiteral(literal)) {
+        schema.type = 'string';
+        schema.enum = [literal.text];
+        return schema;
+      }
+      if (ts.isNumericLiteral(literal)) {
+        schema.type = 'number';
+        schema.enum = [parseFloat(literal.text)];
+        return schema;
+      }
+      if (literal.kind === ts.SyntaxKind.TrueKeyword || literal.kind === ts.SyntaxKind.FalseKeyword) {
+        schema.type = 'boolean';
+        return schema;
+      }
+    }
+
+    // Handle tuple types
+    if (ts.isTupleTypeNode(typeNode)) {
+      schema.type = 'array';
+      schema.items = typeNode.elements.map(e => this.typeNodeToSchema(e, sourceFile));
+      return schema;
+    }
+
+    // Handle type literal (nested object)
+    if (ts.isTypeLiteralNode(typeNode)) {
+      schema.type = 'object';
+      const { properties, required } = this.buildSchemaFromType(typeNode, sourceFile);
+      schema.properties = properties;
+      if (required.length > 0) {
+        schema.required = required;
+      }
+      return schema;
+    }
+
+    // Handle keyword types (string, number, boolean, etc.)
+    const typeText = typeNode.getText(sourceFile);
+    switch (typeText) {
+      case 'string':
+        schema.type = 'string';
+        break;
+      case 'number':
+        schema.type = 'number';
+        break;
+      case 'boolean':
+        schema.type = 'boolean';
+        break;
+      case 'any':
+      case 'unknown':
+        // No type restriction
+        break;
+      default:
+        // Default to object for complex types
+        schema.type = 'object';
+    }
+
+    return schema;
+  }
+
+  /**
    * Extract constructor parameters for config injection
    */
   extractConstructorParams(source: string): ConstructorParam[] {
     const params: ConstructorParam[] = [];
 
-    // Find constructor start
-    const constructorStart = source.indexOf('constructor');
-    if (constructorStart === -1) {
-      return params; // No constructor
-    }
+    try {
+      const sourceFile = ts.createSourceFile(
+        'temp.ts',
+        source,
+        ts.ScriptTarget.Latest,
+        true
+      );
 
-    // Find the opening parenthesis
-    const openParen = source.indexOf('(', constructorStart);
-    if (openParen === -1) {
-      return params;
-    }
+      const visit = (node: ts.Node) => {
+        if (ts.isClassDeclaration(node)) {
+          node.members.forEach((member) => {
+            if (ts.isConstructorDeclaration(member)) {
+              member.parameters.forEach((param) => {
+                if (param.name && ts.isIdentifier(param.name)) {
+                  const name = param.name.getText(sourceFile);
+                  const type = param.type ? param.type.getText(sourceFile) : 'any';
+                  const isOptional = param.questionToken !== undefined || param.initializer !== undefined;
+                  const hasDefault = param.initializer !== undefined;
 
-    // Extract parameters by tracking parentheses depth
-    let depth = 0;
-    let paramsContent = '';
-    let foundClosing = false;
+                  let defaultValue: any = undefined;
+                  if (param.initializer) {
+                    defaultValue = this.extractDefaultValue(param.initializer, sourceFile);
+                  }
 
-    for (let i = openParen; i < source.length; i++) {
-      const char = source[i];
-
-      if (char === '(') {
-        depth++;
-        if (depth > 1) paramsContent += char; // Don't include the first opening paren
-      } else if (char === ')') {
-        depth--;
-        if (depth === 0) {
-          foundClosing = true;
-          break;
+                  params.push({
+                    name,
+                    type,
+                    isOptional,
+                    hasDefault,
+                    defaultValue,
+                  });
+                }
+              });
+            }
+          });
         }
-        paramsContent += char;
-      } else {
-        if (depth > 0) paramsContent += char;
-      }
-    }
 
-    if (!foundClosing || !paramsContent.trim()) {
-      return params; // Malformed constructor or empty
-    }
+        ts.forEachChild(node, visit);
+      };
 
-    // Split parameters, respecting nested structures
-    const paramList = this.splitParams(paramsContent);
-
-    for (const param of paramList) {
-      const parsed = this.parseConstructorParam(param.trim());
-      if (parsed) {
-        params.push(parsed);
-      }
+      visit(sourceFile);
+    } catch (error: any) {
+      console.error('Failed to extract constructor params:', error.message);
     }
 
     return params;
   }
 
   /**
-   * Parse a single constructor parameter
-   * Handles formats like:
-   * - private workdir: string = "/path"
-   * - workdir: string
-   * - workdir?: string
-   * - private readonly maxSize: number = 1024
-   * - private workdir: string = join(homedir(), 'Documents')
+   * Extract default value from initializer
    */
-  private parseConstructorParam(paramStr: string): ConstructorParam | null {
-    // Remove visibility modifiers and readonly
-    let cleaned = paramStr
-      .replace(/^\s*(private|public|protected|readonly)\s+/g, '')
-      .trim();
-
-    // Match: name?: type = defaultValue
-    // We need to carefully extract the default value without breaking on nested parentheses
-    // Pattern: name optionalMarker : type = value
-    const nameTypeRegex = /^(\w+)(\?)?:\s*([^=]+)/;
-    const nameTypeMatch = nameTypeRegex.exec(cleaned);
-
-    if (!nameTypeMatch) {
-      return null;
+  private extractDefaultValue(initializer: ts.Expression, sourceFile: ts.SourceFile): any {
+    // String literals
+    if (ts.isStringLiteral(initializer)) {
+      return initializer.text;
     }
 
-    const [matchedPart, name, optional, typeStr] = nameTypeMatch;
-
-    // Check if there's a default value after the type
-    const afterType = cleaned.substring(matchedPart.length).trim();
-    let defaultValue: string | undefined;
-
-    if (afterType.startsWith('=')) {
-      // Extract everything after '='
-      defaultValue = afterType.substring(1).trim();
+    // Numeric literals
+    if (ts.isNumericLiteral(initializer)) {
+      return parseFloat(initializer.text);
     }
 
-    return {
-      name: name.trim(),
-      type: typeStr.trim(),
-      isOptional: !!optional || !!defaultValue, // Optional if marked with ? or has default value
-      hasDefault: !!defaultValue,
-      defaultValue: defaultValue ? this.parseDefaultValue(defaultValue) : undefined,
-    };
-  }
-
-  /**
-   * Parse default value from TypeScript
-   * Handles: strings, numbers, booleans, function calls
-   */
-  private parseDefaultValue(value: string): any {
-    // Remove quotes from strings
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      return value.slice(1, -1);
+    // Boolean literals
+    if (initializer.kind === ts.SyntaxKind.TrueKeyword) {
+      return true;
+    }
+    if (initializer.kind === ts.SyntaxKind.FalseKeyword) {
+      return false;
     }
 
-    // Boolean
-    if (value === 'true') return true;
-    if (value === 'false') return false;
-
-    // Number
-    if (/^\d+(\.\d+)?$/.test(value)) {
-      return parseFloat(value);
-    }
-
-    // Function call or complex expression - return as string for display
-    return value;
+    // For complex expressions (function calls, etc.), return as string
+    return initializer.getText(sourceFile);
   }
 
   /**
@@ -283,111 +436,6 @@ export class SchemaExtractor {
     }
 
     return paramDocs;
-  }
-
-  /**
-   * Parse TypeScript parameter types into JSON schema properties
-   */
-  private parseParamTypes(
-    paramsContent: string,
-    paramDocs: Map<string, string>
-  ): Record<string, any> {
-    const properties: Record<string, any> = {};
-
-    // Split by commas or semicolons (but not inside nested objects/arrays)
-    const params = this.splitParams(paramsContent);
-
-    for (const param of params) {
-      const match = param.trim().match(/(\w+)\??:\s*(.+)/);
-      if (!match) continue;
-
-      const [, name, typeStr] = match;
-      const description = paramDocs.get(name) || '';
-      const schema = this.typeToSchema(typeStr.trim(), description);
-
-      properties[name] = schema;
-    }
-
-    return properties;
-  }
-
-  /**
-   * Split parameters by semicolon or comma, respecting nested structures
-   * Handles {}, [], and () depth
-   */
-  private splitParams(paramsContent: string): string[] {
-    const params: string[] = [];
-    let current = '';
-    let depth = 0;
-
-    for (const char of paramsContent) {
-      if (char === '{' || char === '[' || char === '(') {
-        depth++;
-        current += char;
-      } else if (char === '}' || char === ']' || char === ')') {
-        depth--;
-        current += char;
-      } else if ((char === ';' || char === ',') && depth === 0) {
-        if (current.trim()) params.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-
-    if (current.trim()) params.push(current.trim());
-    return params;
-  }
-
-  /**
-   * Convert TypeScript type string to JSON schema
-   */
-  private typeToSchema(typeStr: string, description: string): any {
-    const schema: any = {};
-
-    if (description) {
-      schema.description = description;
-    }
-
-    // Handle union types (e.g., 'string | number')
-    if (typeStr.includes('|')) {
-      const types = typeStr.split('|').map((t) => t.trim());
-      schema.anyOf = types.map((t) => this.typeToSchema(t, ''));
-      return schema;
-    }
-
-    // Handle array types (e.g., 'string[]' or 'Array<string>')
-    if (typeStr.endsWith('[]')) {
-      schema.type = 'array';
-      schema.items = this.typeToSchema(typeStr.slice(0, -2), '');
-      return schema;
-    }
-    if (typeStr.startsWith('Array<') && typeStr.endsWith('>')) {
-      schema.type = 'array';
-      schema.items = this.typeToSchema(typeStr.slice(6, -1), '');
-      return schema;
-    }
-
-    // Handle primitive types
-    switch (typeStr) {
-      case 'string':
-        schema.type = 'string';
-        break;
-      case 'number':
-        schema.type = 'number';
-        break;
-      case 'boolean':
-        schema.type = 'boolean';
-        break;
-      case 'any':
-        // No type restriction
-        break;
-      default:
-        // Object type or complex type - default to object
-        schema.type = 'object';
-    }
-
-    return schema;
   }
 
   /**
