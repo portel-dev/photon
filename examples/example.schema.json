@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Manual schema override for Photon MCP - use when auto-extraction doesn't cover edge cases",
+  "tools": [
+    {
+      "name": "complexTool",
+      "description": "Example tool with manually specified schema",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Complex filter object",
+            "properties": {
+              "tags": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "dateRange": {
+                "type": "object",
+                "properties": {
+                  "from": { "type": "string", "format": "date" },
+                  "to": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          },
+          "options": {
+            "type": "object",
+            "description": "Additional options",
+            "additionalProperties": true
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ],
+  "templates": [
+    {
+      "name": "reportTemplate",
+      "description": "Generate report with custom data structure",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Complex nested data structure",
+            "additionalProperties": true
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "html", "pdf"],
+            "description": "Output format"
+          }
+        },
+        "required": ["data"]
+      }
+    }
+  ],
+  "statics": [
+    {
+      "name": "configuration",
+      "uri": "static://config",
+      "description": "Static configuration resource",
+      "mimeType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Config version to retrieve"
+          }
+        }
+      }
+    }
+  ]
+}

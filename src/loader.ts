@@ -119,7 +119,7 @@ export class PhotonLoader {
         }
       }
 
-      // Extract tools, templates, and statics
+      // Extract tools, templates, and statics (with schema override support)
       const { tools, templates, statics } = await this.extractTools(MCPClass, absolutePath);
 
       const counts = [
@@ -325,23 +325,54 @@ export class PhotonLoader {
     let statics: StaticInfo[] = [];
 
     try {
-      // First, try loading from pre-generated .schema.json file
-      const schemaJsonPath = sourceFilePath.replace(/\.ts$/, '.photon.schema.json');
+      // First, try loading from manual schema override file
+      const schemaJsonPath = sourceFilePath.replace(/\.ts$/, '.schema.json');
       try {
         const schemaContent = await fs.readFile(schemaJsonPath, 'utf-8');
         const schemas = JSON.parse(schemaContent);
 
-        for (const schema of schemas) {
-          if (methodNames.includes(schema.name)) {
-            tools.push({
-              name: schema.name,
-              description: schema.description,
-              inputSchema: schema.inputSchema,
-            });
+        // Process tools
+        if (schemas.tools) {
+          for (const schema of schemas.tools) {
+            if (methodNames.includes(schema.name)) {
+              tools.push({
+                name: schema.name,
+                description: schema.description || `${schema.name} tool`,
+                inputSchema: schema.inputSchema || { type: 'object', properties: {} },
+              });
+            }
           }
         }
 
-        this.log(`Loaded ${tools.length} schemas from .schema.json`);
+        // Process templates
+        if (schemas.templates) {
+          for (const schema of schemas.templates) {
+            if (methodNames.includes(schema.name)) {
+              templates.push({
+                name: schema.name,
+                description: schema.description || `${schema.name} template`,
+                inputSchema: schema.inputSchema || { type: 'object', properties: {} },
+              });
+            }
+          }
+        }
+
+        // Process statics
+        if (schemas.statics) {
+          for (const schema of schemas.statics) {
+            if (methodNames.includes(schema.name)) {
+              statics.push({
+                name: schema.name,
+                uri: schema.uri || `static://${schema.name}`,
+                description: schema.description || `${schema.name} resource`,
+                mimeType: schema.mimeType,
+                inputSchema: schema.inputSchema || { type: 'object', properties: {} },
+              });
+            }
+          }
+        }
+
+        this.log(`Loaded ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from .schema.json override`);
         return { tools, templates, statics };
       } catch (jsonError: any) {
         // .schema.json doesn't exist, try extracting from .ts source
