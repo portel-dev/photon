@@ -81,82 +81,11 @@ async function ensureGitignore(workingDir: string): Promise<void> {
 }
 
 /**
- * Check if directory is a git repository
- */
-async function isGitRepo(workingDir: string): Promise<boolean> {
-  try {
-    const { execSync } = await import('child_process');
-    execSync('git rev-parse --git-dir', { cwd: workingDir, stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get git status for marketplace files
- */
-async function getMarketplaceGitStatus(workingDir: string): Promise<string[]> {
-  try {
-    const { execSync } = await import('child_process');
-    const output = execSync('git status --short .marketplace/ README.md', {
-      cwd: workingDir,
-      encoding: 'utf-8'
-    });
-    return output.trim().split('\n').filter(line => line.trim());
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Prompt user for yes/no confirmation
- */
-async function promptConfirm(message: string): Promise<boolean> {
-  const readline = await import('readline');
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr
-  });
-
-  return new Promise((resolve) => {
-    rl.question(`${message} `, (answer) => {
-      rl.close();
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
-    });
-  });
-}
-
-/**
- * Commit and push marketplace changes
- */
-async function commitAndPushMarketplace(workingDir: string, photonCount: number): Promise<void> {
-  try {
-    const { execSync } = await import('child_process');
-
-    // Stage marketplace files
-    execSync('git add .marketplace/ README.md .gitignore', { cwd: workingDir, stdio: 'inherit' });
-
-    // Create commit
-    const commitMsg = `docs: sync marketplace - updated ${photonCount} photon docs`;
-    execSync(`git commit -m "${commitMsg}"`, { cwd: workingDir, stdio: 'inherit' });
-
-    // Push to current branch
-    execSync('git push', { cwd: workingDir, stdio: 'inherit' });
-
-    console.error('\n✅ Changes committed and pushed successfully!');
-  } catch (error: any) {
-    console.error(`\n❌ Git operation failed: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Perform marketplace sync with optional git commit/push
+ * Perform marketplace sync - generates documentation files
  */
 async function performMarketplaceSync(
   dirPath: string,
-  options: { name?: string; description?: string; owner?: string; yes?: boolean }
+  options: { name?: string; description?: string; owner?: string }
 ): Promise<void> {
   const resolvedPath = path.resolve(dirPath);
 
@@ -278,37 +207,10 @@ async function performMarketplaceSync(
   console.error(`\n   Marketplace: ${manifest.name}`);
   console.error(`   Photons: ${photons.length}`);
   console.error(`   Documentation: ${photons.length} markdown files generated`);
-
-  // Check if git repo and offer to commit/push
-  const isGit = await isGitRepo(resolvedPath);
-  if (isGit) {
-    const gitStatus = await getMarketplaceGitStatus(resolvedPath);
-
-    if (gitStatus.length > 0) {
-      console.error('\n📊 Git Status:');
-      gitStatus.forEach(line => console.error(`   ${line}`));
-
-      let shouldCommit = options.yes;
-      if (!shouldCommit) {
-        console.error('');
-        shouldCommit = await promptConfirm('❓ Commit and push these changes? (y/N):');
-      }
-
-      if (shouldCommit) {
-        await commitAndPushMarketplace(resolvedPath, photons.length);
-      } else {
-        console.error('\n💡 Next steps:');
-        console.error(`   • Review changes: git diff`);
-        console.error(`   • Commit manually: git add . && git commit && git push`);
-      }
-    } else {
-      console.error('\n✓ No changes to commit');
-    }
-  } else {
-    console.error(`\n💡 Next steps:`);
-    console.error(`   • Review generated docs in .marketplace/`);
-    console.error(`   • Commit and push to GitHub`);
-  }
+  console.error(`\n   Generated files:`);
+  console.error(`   • .marketplace/photons.json`);
+  console.error(`   • .marketplace/*.md (${photons.length} files)`);
+  console.error(`   • README.md (auto-generated section)`);
 }
 
 /**
@@ -961,7 +863,6 @@ sync
   .option('--name <name>', 'Marketplace name')
   .option('--description <desc>', 'Marketplace description')
   .option('--owner <owner>', 'Owner name')
-  .option('-y, --yes', 'Skip confirmation prompts and auto-commit/push')
   .description('Generate/sync marketplace manifest and documentation')
   .action(async (dirPath: string, options: any) => {
     try {
@@ -986,7 +887,6 @@ marketplace
   .option('--name <name>', 'Marketplace name')
   .option('--description <desc>', 'Marketplace description')
   .option('--owner <owner>', 'Owner name')
-  .option('-y, --yes', 'Skip confirmation prompts')
   .description('(Deprecated: use "photon sync marketplace") Generate/sync marketplace manifest and documentation')
   .action(async (dirPath: string, options: any) => {
     console.error('⚠️  Note: "photon marketplace sync" is deprecated. Use "photon sync marketplace" instead.\n');
