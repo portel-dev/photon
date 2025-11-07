@@ -22,6 +22,7 @@
     "test:loader": "npx tsx tests/loader.test.ts",
     "test:server": "npx tsx tests/server.test.ts",
     "test:integration": "npx tsx tests/integration.test.ts",
+    "test:load": "npm run build && node --expose-gc --max-old-space-size=4096 node_modules/.bin/tsx tests/load-test.ts",
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
     "test:github": "npm run build && npx tsx tests/github-issues.test.ts"
   },
@@ -51,6 +52,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "autocannon": "^8.0.0",
+    "clinic": "^13.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.7.3"
   },
