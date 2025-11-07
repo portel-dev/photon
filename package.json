@@ -1,7 +1,7 @@
 {
   "name": "@portel/photon",
   "version": "1.0.0",
-  "description": "Zero-install CLI for running single-file TypeScript MCPs",
+  "description": "You focus on the business logic. We'll enable the rest. Build MCP servers in a single TypeScript file.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -31,8 +31,14 @@
     "photon",
     "typescript",
     "cli",
-    "npx",
-    "single-file"
+    "single-file",
+    "business-logic",
+    "convention-over-configuration",
+    "claude",
+    "claude-desktop",
+    "hot-reload",
+    "marketplace",
+    "enterprise"
   ],
   "author": "Portel Dev",
   "license": "MIT",
