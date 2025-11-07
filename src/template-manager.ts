@@ -226,36 +226,166 @@ export class TemplateManager {
   private getDefaultReadmeTemplate(): string {
     return `# \${marketplaceName}
 
-\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Production-ready MCPs for the Photon runtime. Single-file, zero-config, auto-dependency MCPs that work out of the box.\n\n\`)}## 🚀 Quick Start
+> **Singular focus. Precise target.**
 
-### Install Photon CLI
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Production-ready photons for instant use. Zero configuration, auto-dependencies, single command installation.\n\n\`)}## ⚛️ What Are Photons?
+
+**Photons** are laser-focused modules - each does ONE thing exceptionally well:
+- 📁 **Filesystem** - File operations
+- 🐙 **Git** - Repository management
+- ☁️ **AWS S3** - Cloud storage
+- 📅 **Google Calendar** - Calendar integration
+- 🕐 **Time** - Timezone operations
+- ... and more
+
+Each photon delivers **singular focus** to a **precise target**.
+
+## ✨ Why This Matters
+
+**Zero Configuration**
+\\\`\\\`\\\`bash
+photon add filesystem  # That's it. No setup, no config files.
+\\\`\\\`\\\`
+
+**Instant Value**
+- 🎯 Each photon does one thing perfectly
+- 📦 \${photons.length} production-ready photons available
+- ⚡ Auto-installs dependencies
+- 🔧 Works out of the box
+
+**Universal Runtime**
+- 🤖 **MCP servers** for AI assistants (available now)
+- 💻 **CLI tools** for terminal workflows (coming soon)
+- 🔌 More interfaces coming...
+
+## 🚀 Quick Start
+
+### 1. Install Photon CLI
 
 \\\`\\\`\\\`bash
 npm install -g @portel/photon
 \\\`\\\`\\\`
 
-### Add a Photon from this Marketplace
+### 2. Add Any Photon
 
 \\\`\\\`\\\`bash
-# Add any photon to your library
-photon add <photon-name>
-
-# For example:
-photon add \${photons[0]?.name}
-
-# Run it
-photon mcp \${photons[0]?.name}
+photon add filesystem
+photon add git
+photon add aws-s3
 \\\`\\\`\\\`
+
+### 3. Use It
+
+\\\`\\\`\\\`bash
+# Run as MCP server for Claude
+photon mcp filesystem
+
+# Get config for Claude Desktop
+photon get filesystem --mcp
+\\\`\\\`\\\`
+
+Copy the output to your Claude Desktop config:
+- **macOS:** \\\`~/Library/Application Support/Claude/claude_desktop_config.json\\\`
+- **Windows:** \\\`%APPDATA%\\Claude\\claude_desktop_config.json\\\`
+
+**That's it!** Your AI assistant now has \${photons.length} focused tools at its fingertips.
 
 ## 📦 Available Photons
 
-| Photon | Description | Tools | Documentation |
-|--------|-------------|-------|---------------|
-\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View Details](\${p.name}.md) |\n\`)}
+| Photon | Focus | Tools | Details |
+|--------|-------|-------|---------|
+\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View →](\${p.name}.md) |\n\`)}
+
+**Total:** \${photons.length} photons ready to use
+
+## 🎯 The Value Proposition
+
+### Before Photon
+\\\`\\\`\\\`bash
+# For each MCP:
+pip install mcp-server-X
+# Configure manually
+# Repeat for every tool
+# Different package managers
+# Different configurations
+\\\`\\\`\\\`
+
+### With Photon
+\\\`\\\`\\\`bash
+photon add filesystem  # One command
+photon mcp filesystem  # Works immediately
+\\\`\\\`\\\`
+
+**Difference:**
+- ✅ One CLI, one command
+- ✅ Zero configuration
+- ✅ Instant installation
+- ✅ Auto-dependencies
+- ✅ Consistent experience
+
+## 💡 Use Cases
+
+**For Claude Users:**
+\\\`\\\`\\\`bash
+photon add filesystem git github-issues
+photon get --mcp  # Get config for all three
+\\\`\\\`\\\`
+Add to Claude Desktop → Now Claude can read files, manage repos, create issues
+
+**For Teams:**
+\\\`\\\`\\\`bash
+photon add postgres mongodb redis
+photon get --mcp
+\\\`\\\`\\\`
+Give Claude access to your data infrastructure
+
+**For Developers:**
+\\\`\\\`\\\`bash
+photon add docker git slack
+photon get --mcp
+\\\`\\\`\\\`
+Automate your workflow through AI
+
+## 🔍 Browse & Search
+
+\\\`\\\`\\\`bash
+# List all photons
+photon list
+
+# Search by keyword
+photon search calendar
+
+# View details
+photon get google-calendar
+
+# Upgrade all
+photon upgrade
+\\\`\\\`\\\`
+
+## 🏢 For Enterprises
+
+Create your own marketplace:
+
+\\\`\\\`\\\`bash
+# 1. Organize photons
+mkdir company-photons && cd company-photons
+
+# 2. Generate marketplace
+photon sync marketplace
+
+# 3. Share with team
+git push origin main
+
+# Team members use:
+photon marketplace add company/photons
+photon add your-internal-tool
+\\\`\\\`\\\`
 
 ---
 
-**Total:** \${photons.length} photons • Click on "View Details" for configuration and usage instructions.
+**Built with singular focus. Deployed with precise targeting.**
+
+Made with ⚛️ by [Portel](https://github.com/portel-dev)
 `;
   }
 
