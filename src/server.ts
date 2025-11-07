@@ -34,7 +34,7 @@ export class PhotonServer {
 
   constructor(options: PhotonServerOptions) {
     this.options = options;
-    this.loader = new PhotonLoader();
+    this.loader = new PhotonLoader(true); // verbose=true for server mode
 
     // Create MCP server instance
     this.server = new Server(
@@ -406,21 +406,21 @@ export class PhotonServer {
   async start() {
     try {
       // Load the Photon MCP file
-      console.error(`[Photon] Loading ${this.options.filePath}...`);
+      console.error(`Loading ${this.options.filePath}...`);
       this.mcp = await this.loader.loadFile(this.options.filePath);
 
       // Connect to stdio transport
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
 
-      console.error(`[Photon] Server started: ${this.mcp.name}`);
+      console.error(`Server started: ${this.mcp.name}`);
 
       // In dev mode, we could set up file watching here
       if (this.options.devMode) {
-        console.error('[Photon] Dev mode enabled - hot reload active');
+        console.error('Dev mode enabled - hot reload active');
       }
     } catch (error: any) {
-      console.error(`[Photon] Failed to start server: ${error.message}`);
+      console.error(`Failed to start server: ${error.message}`);
       console.error(error.stack);
       process.exit(1);
     }
@@ -437,9 +437,9 @@ export class PhotonServer {
       }
 
       await this.server.close();
-      console.error('[Photon] Server stopped');
+      console.error('Server stopped');
     } catch (error: any) {
-      console.error(`[Photon] Error stopping server: ${error.message}`);
+      console.error(`Error stopping server: ${error.message}`);
     }
   }
 
@@ -448,7 +448,7 @@ export class PhotonServer {
    */
   async reload() {
     try {
-      console.error('[Photon] Reloading...');
+      console.error('Reloading...');
 
       // Call shutdown hook on old instance
       if (this.mcp?.instance?.onShutdown) {
@@ -461,9 +461,9 @@ export class PhotonServer {
       // Send list_changed notifications to inform client of updates
       await this.notifyListsChanged();
 
-      console.error('[Photon] Reload complete');
+      console.error('Reload complete');
     } catch (error: any) {
-      console.error(`[Photon] Reload failed: ${error.message}`);
+      console.error(`Reload failed: ${error.message}`);
       // Keep the old instance running
     }
   }
@@ -489,10 +489,10 @@ export class PhotonServer {
         method: 'notifications/resources/list_changed',
       } as any);
 
-      console.error('[Photon] Sent list_changed notifications');
+      console.error('Sent list_changed notifications');
     } catch (error: any) {
       // Notification sending is best-effort - don't fail reload if it fails
-      console.error(`[Photon] Warning: Failed to send list_changed notifications: ${error.message}`);
+      console.error(`Warning: Failed to send list_changed notifications: ${error.message}`);
     }
   }
 }

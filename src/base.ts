@@ -92,7 +92,7 @@ export class PhotonMCP {
       const result = await method.call(this, parameters);
       return result;
     } catch (error: any) {
-      console.error(`[Photon] Tool execution failed: ${toolName} - ${error.message}`);
+      console.error(`Tool execution failed: ${toolName} - ${error.message}`);
       throw error;
     }
   }

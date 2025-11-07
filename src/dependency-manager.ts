@@ -95,7 +95,7 @@ export class DependencyManager {
     // Check if already installed
     const installed = await this.checkInstalled(mcpDir, dependencies);
     if (installed) {
-      console.error(`[Photon] Dependencies already installed for ${mcpName}`);
+      console.error(`Dependencies already installed for ${mcpName}`);
       return nodeModules;
     }
 
@@ -118,10 +118,10 @@ export class DependencyManager {
     );
 
     // Install dependencies
-    console.error(`[Photon] 📦 Installing dependencies for ${mcpName}...`);
+    console.error(`📦 Installing dependencies for ${mcpName}...`);
     await this.runNpmInstall(mcpDir);
 
-    console.error(`[Photon] ✅ Dependencies installed for ${mcpName}`);
+    console.error(`✅ Dependencies installed for ${mcpName}`);
     return nodeModules;
   }
 
@@ -186,9 +186,9 @@ export class DependencyManager {
     const mcpDir = path.join(this.cacheDir, mcpName);
     try {
       await fs.rm(mcpDir, { recursive: true, force: true });
-      console.error(`[Photon] 🗑️  Cleared cache for ${mcpName}`);
+      console.error(`🗑️  Cleared cache for ${mcpName}`);
     } catch (error: any) {
-      console.error(`[Photon] Failed to clear cache for ${mcpName}: ${error.message}`);
+      console.error(`Failed to clear cache for ${mcpName}: ${error.message}`);
     }
   }
 
@@ -198,9 +198,9 @@ export class DependencyManager {
   async clearAllCache(): Promise<void> {
     try {
       await fs.rm(this.cacheDir, { recursive: true, force: true });
-      console.error(`[Photon] 🗑️  Cleared all MCP dependency cache`);
+      console.error(`🗑️  Cleared all MCP dependency cache`);
     } catch (error: any) {
-      console.error(`[Photon] Failed to clear cache: ${error.message}`);
+      console.error(`Failed to clear cache: ${error.message}`);
     }
   }
 }
