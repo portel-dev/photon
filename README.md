@@ -1,73 +1,324 @@
-# Photon MCP
+# Photon
 
-> **Singular focus. Precise target.**
+> **You focus on the business logic. We'll enable the rest.**
 
-**Zero-install CLI for running single-file TypeScript MCPs**
+## What You Want vs What You Get
 
-Photon lets you create Model Context Protocol (MCP) servers using a single TypeScript file. No configuration, no decorators, no base classes required—just write a class with async methods and you're done.
+**You want to write:**
+```typescript
+async createJiraTicket(params: { title: string; description: string }) {
+  return await this.jira.create({
+    project: 'ACME',
+    type: 'Bug',
+    title: params.title,
+    description: params.description
+  });
+}
+```
 
-Why laser-focused bulky AI toolsets when you can photon-focus at exactly what you need?
+**Traditional MCP makes you write:**
+```typescript
+// index.ts - 50 lines of server setup
+// server.ts - 40 lines of transport config
+// tools.ts - tool registration boilerplate
+// schemas.ts - manual JSON schema definitions
+// types.ts - type definitions
+// package.json - dependency management
+// tsconfig.json - build configuration
 
-## Features
+// THEN finally your 10 lines of actual logic
+```
 
-- 🚀 **Zero Install** - Run with `npx photon` (no global installation)
-- 📝 **Single File** - One `.photon.ts` file = one MCP server
-- 📦 **Auto Dependencies** - Automatic npm package installation from JSDoc tags
-- 🔄 **Hot Reload** - Dev mode with automatic reloading on file changes
-- 🎯 **Convention Over Configuration** - Auto-discover tools from class methods
-- 📊 **Auto Schema Extraction** - Generate JSON schemas from TypeScript types
-- 🛠️ **Simple API** - Just export a class with async methods
-- 🔌 **MCP Compatible** - Works with Claude Desktop, Cursor, Windsurf, etc.
+**Photon lets you write ONLY the business logic.**
 
-### MCP Capabilities Supported
+---
 
-Photon implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) with full support for:
+## You Write Business Logic
 
-- ✅ **Tools** - Execute operations and commands (`listChanged: true`)
-- ✅ **Prompts** (Templates) - Reusable text generation with variables (`listChanged: true`)
-- ✅ **Resources** (Static) - Read-only content and data (`listChanged: true`)
-- ✅ **Hot Reload Notifications** - Sends `list_changed` events to clients in dev mode
+```typescript
+// jira.photon.ts
+export default class Jira {
+  constructor(private token: string, private project: string) {}
 
-When running in `--dev` mode, Photon automatically sends MCP notifications when your code changes:
-- `notifications/tools/list_changed` - Tools updated
-- `notifications/prompts/list_changed` - Templates updated
-- `notifications/resources/list_changed` - Static resources updated
+  async createTicket(params: { title: string }) {
+    // YOUR business logic
+    // YOUR API calls
+    // YOUR data format
+    return await this.api.post('/issue', { ...params });
+  }
+}
+```
 
-This allows MCP clients like Claude Desktop to automatically refresh without restart.
+**That's it. That's the whole file.**
+
+---
+
+## Photon Enables The Rest
+
+**Photon automatically handles:**
+
+✅ **MCP Protocol**
+- Server setup
+- Transport configuration
+- JSON-RPC handling
+- Error formatting
+
+✅ **Schema Generation**
+- TypeScript types → JSON schemas
+- JSDoc → tool descriptions
+- Parameter validation
+- Type safety
+
+✅ **Runtime**
+- TypeScript compilation
+- Module loading
+- Hot reload
+- Dependency management
+
+✅ **Developer Experience**
+- CLI commands
+- Config generation
+- Validation
+- Error messages
+
+✅ **Distribution**
+- Marketplace system
+- Version tracking
+- Hash verification
+- Metadata management
+
+**You wrote 10 lines. Photon made it a production MCP server.**
+
+---
+
+## The Division of Labor
+
+### Your Job: Business Logic
+
+```typescript
+// What you care about:
+async queryAnalytics(params: { metric: string, startDate: string }) {
+  const sql = `
+    SELECT date, ${params.metric}
+    FROM analytics
+    WHERE date >= '${params.startDate}'
+  `;
+  return await this.db.query(sql);
+}
+```
+
+**Focus on:**
+- Your data
+- Your APIs
+- Your workflows
+- Your business rules
+
+### Photon's Job: Everything Else
+
+**Photon handles:**
+- ✅ TypeScript compilation
+- ✅ Schema extraction from `params: { metric: string, startDate: string }`
+- ✅ MCP server protocol
+- ✅ Tool registration
+- ✅ Parameter validation
+- ✅ Error handling
+- ✅ Hot reload
+- ✅ CLI commands
+
+**You never think about it.**
+
+---
+
+## Convention = Automation
+
+**Photon uses conventions to automate infrastructure:**
+
+### 1. File Name → MCP Name
+```typescript
+// jira.photon.ts
+// Photon knows: This is the "jira" MCP
+```
+
+### 2. Class Methods → Tools
+```typescript
+async createTicket() {}  // Photon knows: This is the "createTicket" tool
+async listTickets() {}   // Photon knows: This is the "listTickets" tool
+```
+
+### 3. TypeScript Types → Schemas
+```typescript
+async create(params: { title: string; priority: number }) {}
+// Photon generates:
+// {
+//   "properties": {
+//     "title": { "type": "string" },
+//     "priority": { "type": "number" }
+//   }
+// }
+```
+
+### 4. JSDoc → Descriptions
+```typescript
+/**
+ * Create a new Jira ticket
+ * @param title Ticket title
+ */
+// Photon knows: Tool description and parameter docs
+```
+
+### 5. Constructor → Configuration
+```typescript
+constructor(private token: string) {}
+// Photon knows: Needs JIRA_TOKEN environment variable
+```
+
+**Convention over configuration = You write logic, Photon does the rest.**
+
+---
+
+## Example: From Idea to Production
+
+**Your need:** "I want Claude to query our analytics database"
+
+### Step 1: Write Business Logic (5 minutes)
+
+```bash
+photon init analytics
+```
+
+```typescript
+// ~/.photon/analytics.photon.ts
+/**
+ * @dependencies pg@^8.11.0
+ */
+import { Client } from 'pg';
+
+export default class Analytics {
+  private db: Client;
+
+  constructor(
+    private host: string,
+    private database: string,
+    private password: string
+  ) {}
+
+  async onInitialize() {
+    this.db = new Client({
+      host: this.host,
+      database: this.database,
+      password: this.password
+    });
+    await this.db.connect();
+  }
+
+  async revenue(params: { startDate: string; endDate: string }) {
+    const result = await this.db.query(
+      'SELECT date, SUM(amount) FROM orders WHERE date BETWEEN $1 AND $2 GROUP BY date',
+      [params.startDate, params.endDate]
+    );
+    return result.rows;
+  }
+
+  async topCustomers(params: { limit: number }) {
+    const result = await this.db.query(
+      'SELECT customer_id, SUM(amount) as total FROM orders GROUP BY customer_id ORDER BY total DESC LIMIT $1',
+      [params.limit]
+    );
+    return result.rows;
+  }
+}
+```
+
+**That's your business logic. Done.**
+
+### Step 2: Photon Enables Everything Else
+
+```bash
+# Test it
+photon mcp analytics --dev
+
+# Generate config
+photon get analytics --mcp
+
+# Share with team
+git push to company/mcps
+photon marketplace add company/mcps
+```
+
+**Photon handled:**
+- ✅ TypeScript compilation
+- ✅ Schema generation for both tools
+- ✅ MCP server setup
+- ✅ Environment variable mapping (ANALYTICS_HOST, ANALYTICS_DATABASE, ANALYTICS_PASSWORD)
+- ✅ Hot reload in dev mode
+- ✅ CLI integration
+- ✅ Config generation
+- ✅ Marketplace distribution
+
+**You wrote 40 lines of business logic. Photon made it a complete MCP.**
+
+---
+
+## For Enterprises: Focus on Your Business
+
+### Your Team Writes Business Logic
+
+```
+company-mcps/
+├── jira.photon.ts           # Your Jira workflow (40 lines)
+├── salesforce.photon.ts     # Your CRM queries (60 lines)
+├── analytics.photon.ts      # Your database schema (50 lines)
+├── github.photon.ts         # Your deployment flow (45 lines)
+└── slack.photon.ts          # Your notification format (30 lines)
+```
+
+**Total business logic: ~225 lines**
+
+### Photon Enables Everything Else
+
+**Without Photon, you'd need:**
+- 5 separate server projects
+- ~200 lines of boilerplate each (1000 lines total)
+- Build configurations
+- Dependency management
+- Schema definitions
+- Deployment pipelines
+
+**With Photon:**
+- 5 simple files
+- 225 lines total
+- Push to GitHub
+- Done
+
+**ROI: 80% less code. 100% focused on business logic.**
+
+---
 
 ## Installation
 
-### Option 1: Global Install (Recommended)
+### Global Install (Recommended)
 
 ```bash
 npm install -g @portel/photon
 ```
 
-Then use the `photon` command directly:
+### Zero Install (npx)
 
 ```bash
-photon calculator.photon.ts --dev
+npx @portel/photon --help
 ```
 
-### Option 2: Zero Install (npx)
-
-No installation needed—run directly with npx:
-
-```bash
-npx @portel/photon calculator.photon.ts --dev
-```
+---
 
 ## Quick Start
 
-### Create a new Photon MCP
+### 1. Create a Photon
 
 ```bash
 photon init calculator
 ```
 
-MCPs are stored in `~/.photon/` by default and can be run from any directory!
-
-This creates `calculator.photon.ts`:
+This creates `~/.photon/calculator.photon.ts`:
 
 ```typescript
 export default class Calculator {
@@ -82,88 +333,24 @@ export default class Calculator {
 }
 ```
 
-### Run in development mode
+### 2. Run in Development Mode
 
 ```bash
-npx photon mcp calculator --dev
-
-# Or with file path:
-npx photon mcp calculator.photon.ts --dev
+photon mcp calculator --dev
 ```
 
-### Use with Claude Desktop
+### 3. Use with Claude Desktop
 
 ```bash
-npx @portel/photon get calculator --mcp
+photon get calculator --mcp
 ```
 
-This outputs the MCP config to add to Claude Desktop:
+Copy the output to your Claude Desktop config:
 
-```json
-{
-  "calculator": {
-    "command": "npx",
-    "args": ["@portel/photon", "mcp", "calculator"]
-  }
-}
-```
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS).
-
-## 📦 Production-Ready MCPs
-
-We maintain a registry of production-ready Photon MCPs at **[portel-dev/photons](https://github.com/portel-dev/photons)**:
-
-- **GitHub Issues** - Manage GitHub repository issues (7 tools)
-- **Slack** - Slack workspace integration (7 tools)
-- **PostgreSQL** - Database operations with connection pooling (9 tools)
-- **SQLite** - Local database operations (9 tools)
-- **Web Fetch** - Web content fetching with markdown conversion (2 tools)
-- **Memory** - Knowledge graph persistent memory (10 tools)
-
-**Quick Install:**
-
-```bash
-# Add from marketplace
-photon add github-issues
-
-# Configure and run
-export GITHUB_ISSUES_TOKEN="ghp_your_token"
-photon get github-issues --mcp
-```
-
-See the [Photons Registry](https://github.com/portel-dev/photons) for full documentation on each MCP.
-
-## How It Works
-
-Photon uses **convention over configuration**:
-
-1. **File name** → MCP name
-   `calculator.photon.ts` → `calculator` MCP
-
-2. **Class name** → MCP name (alternative)
-   `class Calculator` → `calculator` MCP
-
-3. **Public async methods** → Tools
-   ```typescript
-   async add(...) { }  // → "add" tool
-   async subtract(...) { }  // → "subtract" tool
-   ```
-
-4. **JSDoc comments** → Tool descriptions
-   ```typescript
-   /**
-    * Add two numbers together  ← Tool description
-    * @param a First number      ← Parameter description
-    * @param b Second number
-    */
-   ```
-
-5. **TypeScript types** → JSON schemas
-   ```typescript
-   async add(params: { a: number; b: number })
-   // → inputSchema: { type: "object", properties: { a: { type: "number" }, ... } }
-   ```
+---
 
 ## Commands
 
@@ -224,9 +411,141 @@ photon --working-dir ./project-mcps get
 photon --working-dir ./project-mcps mcp my-tool --dev
 ```
 
+---
+
+## Photon Marketplace
+
+### Install Photons
+
+```bash
+# Add from default marketplace (portel-dev/photons)
+photon add github-issues
+photon add sqlite
+photon add memory
+
+# Search for Photons
+photon search slack
+```
+
+### Available Photons
+
+Production-ready Photons from **[portel-dev/photons](https://github.com/portel-dev/photons)**:
+
+- **GitHub Issues** - Manage GitHub repository issues (7 tools)
+- **Slack** - Slack workspace integration (7 tools)
+- **PostgreSQL** - Database operations with connection pooling (9 tools)
+- **SQLite** - Local database operations (9 tools)
+- **Web Fetch** - Web content fetching with markdown conversion (2 tools)
+- **Memory** - Knowledge graph persistent memory (10 tools)
+
+### Create Your Marketplace
+
+**For enterprises and teams:**
+
+```bash
+# 1. Organize your Photons
+mkdir company-mcps && cd company-mcps
+cp ~/.photon/*.photon.ts .
+
+# 2. Generate marketplace manifest
+photon marketplace init --name company-mcps --description "Company MCPs"
+
+# 3. Push to GitHub
+git init
+git add .
+git commit -m "Initial marketplace"
+git push origin main
+
+# 4. Share with team
+# Team members run: photon marketplace add company/mcps
+```
+
+### Manage Marketplaces
+
+```bash
+# List all marketplaces
+photon marketplace list
+
+# Add marketplace - Multiple formats supported:
+
+# 1. GitHub shorthand
+photon marketplace add username/my-photons
+
+# 2. GitHub HTTPS
+photon marketplace add https://github.com/username/my-photons
+
+# 3. GitHub SSH
+photon marketplace add git@github.com:username/my-photons.git
+
+# 4. Direct URL
+photon marketplace add https://example.com/photons
+
+# 5. Local filesystem path
+photon marketplace add ./my-local-photons
+photon marketplace add ~/Documents/my-photons
+
+# Remove marketplace
+photon marketplace remove my-photons
+
+# Search across all marketplaces
+photon search github
+```
+
+### Marketplace Structure
+
+```
+repo/
+├── .marketplace/
+│   └── photons.json          # Marketplace manifest
+├── calculator.photon.ts       # Photon files in root
+├── weather.photon.ts
+└── github-issues.photon.ts
+```
+
+**Manifest Format (`.marketplace/photons.json`):**
+```json
+{
+  "name": "my-photons",
+  "description": "Collection of useful Photons",
+  "photons": [
+    {
+      "name": "calculator",
+      "version": "1.0.0",
+      "description": "Basic arithmetic operations",
+      "source": "../calculator.photon.ts",
+      "hash": "sha256:abc123...",
+      "tools": ["add", "subtract", "multiply", "divide"]
+    }
+  ]
+}
+```
+
+### Metadata and Integrity
+
+Photon tracks installation metadata for each Photon:
+
+```bash
+# View metadata
+photon get github-issues
+
+# Output shows:
+# Version: 1.0.0
+# Marketplace: photons (https://github.com/portel-dev/photons)
+# Installed: 1/1/2025
+# Status: ⚠️ Modified locally  # If you edited the file
+```
+
+**Features:**
+- **Version tracking** - Know which version you have installed
+- **Modification detection** - SHA-256 hash comparison alerts you to local changes
+- **Marketplace attribution** - See where each Photon came from
+- **Integrity verification** - Detect tampering or corruption
+
+---
+
 ## Writing Photon MCPs
 
-### Basic Example
+### Basic Structure
 
 ```typescript
 export default class MyMCP {
@@ -239,6 +558,33 @@ export default class MyMCP {
   }
 }
 ```
+
+### Configuration via Constructor
+
+Constructor parameters automatically map to **environment variables**:
+
+```typescript
+export default class Filesystem {
+  constructor(
+    private workdir: string = join(homedir(), 'Documents'),
+    private maxFileSize: number = 10485760,
+    private allowHidden: boolean = false
+  ) {
+    // Validate configuration
+    if (!existsSync(workdir)) {
+      throw new Error(`Working directory does not exist: ${workdir}`);
+    }
+  }
+}
+```
+
+**Environment Variable Mapping:**
+
+| Constructor Parameter | Environment Variable |
+|-----------------------|----------------------|
+| `workdir` | `FILESYSTEM_WORKDIR` |
+| `maxFileSize` | `FILESYSTEM_MAX_FILE_SIZE` |
+| `allowHidden` | `FILESYSTEM_ALLOW_HIDDEN` |
 
 ### Lifecycle Hooks (Optional)
 
@@ -298,12 +644,7 @@ async tool4(params: {}) {
 
 ### Templates (MCP Prompts)
 
-Templates are reusable text generation patterns with variable substitution. They map to:
-- **MCP Prompts** (slash commands in Claude Desktop)
-- **HTTP Template Endpoints** (POST endpoints)
-- **CLI Help Generators**
-
-Mark a method as a Template using the `@Template` JSDoc tag and `Template` return type:
+Templates are reusable text generation patterns with variable substitution:
 
 ```typescript
 import { Template, asTemplate } from '@portel/photon';
@@ -322,40 +663,9 @@ export default class MyMCP {
 }
 ```
 
-**Advanced Template with Messages:**
-
-```typescript
-import { TemplateResponse } from '@portel/photon';
-
-/**
- * Generate a commit message with examples
- * @Template
- * @param type Type of change (feat, fix, docs)
- */
-async commitPrompt(params: { type: string }): Promise<TemplateResponse> {
-  return {
-    messages: [
-      {
-        role: 'user',
-        content: { type: 'text', text: `I need a ${params.type} commit message` }
-      },
-      {
-        role: 'assistant',
-        content: { type: 'text', text: 'Here are some examples...' }
-      }
-    ]
-  };
-}
-```
-
 ### Static Resources (MCP Resources)
 
-Static resources expose read-only content and data. They map to:
-- **MCP Resources** (context data in Claude Desktop)
-- **HTTP GET Endpoints**
-- **CLI Read Commands**
-
-Mark a method as Static using the `@Static` JSDoc tag with a URI pattern:
+Static resources expose read-only content and data:
 
 ```typescript
 import { Static, asStatic } from '@portel/photon';
@@ -384,57 +694,30 @@ export default class MyMCP {
 }
 ```
 
-**URI Patterns:**
-- **Static URI**: `@Static api://docs` - No parameters, returned in `resources/list`
-- **URI Template**: `@Static readme://{projectType}` - Has parameters, returned in `resources/templates/list`
-- Parameters are extracted from URI and passed to the method
+### Auto-Dependencies
 
-**How Clients Use URI Templates:**
-1. Client requests `resources/templates/list`
-2. Sees template: `readme://{projectType}`
-3. Extracts variable name: `projectType`
-4. Prompts user for value (or autocompletes)
-5. Substitutes to create URI: `readme://api`
-6. Calls `resources/read` with resolved URI
-7. Server parses parameters and returns rendered content
-
-**MIME Types:**
-- `text/plain` (default)
-- `text/markdown`
-- `application/json`
-- Any standard MIME type
-
-**Caching:**
-- Each unique resolved URI is cacheable by the client
-- `readme://api` and `readme://library` are cached separately
-- Cache invalidated when `notifications/resources/list_changed` is sent
-
-### TypeScript Type Support
-
-Photon extracts JSON schemas from TypeScript types:
+Dependencies are **auto-installed** from JSDoc tags:
 
 ```typescript
-export default class AdvancedMCP {
-  /**
-   * Process data with various types
-   * @param name User name
-   * @param age User age
-   * @param tags Optional tags
-   * @param settings Configuration object
-   */
-  async process(params: {
-    name: string;
-    age: number;
-    tags?: string[];  // Optional array
-    settings: {
-      enabled: boolean;
-      count: number;
-    };
-  }) {
-    return { processed: true };
+/**
+ * Fetch MCP - HTTP client utilities
+ * @dependencies axios@^1.6.0
+ */
+import axios from 'axios';
+
+export default class FetchMCP {
+  async fetch(params: { url: string }) {
+    const response = await axios.get(params.url);
+    return response.data;
   }
 }
 ```
+
+**How it works:**
+- Photon parses `@dependencies` tags from JSDoc comments
+- Auto-installs to `~/.cache/photon-mcp/dependencies/{mcp-name}/`
+- Works like `npx` - zero manual setup
+- Cached per MCP, isolated from other MCPs
 
 ### Private Methods
 
@@ -453,6 +736,8 @@ export default class MyMCP {
   }
 }
 ```
+
+---
 
 ## Examples
 
@@ -493,192 +778,46 @@ npx photon --working-dir examples mcp workflow --dev
 
 Task management: `list`, `get`, `create`, `updateStatus`, `delete`, `validate`
 
-## Development Workflow
+---
 
-### Standard Workflow (Default: ~/.photon)
+## The Promise
 
-```bash
-# 1. Create Photon
-photon init my-tool
+**When you use Photon:**
 
-# 2. Edit ~/.photon/my-tool.photon.ts
-export default class MyTool {
-  async greet(params: { name: string }) {
-    return `Hello, ${params.name}!`;
-  }
-}
+1. **You write:** Business logic only
+2. **Photon provides:** MCP infrastructure
+3. **You maintain:** Your domain code
+4. **Photon handles:** Protocol, schemas, runtime
+5. **You own:** Simple, readable files
+6. **Photon enables:** Distribution, versioning, tooling
 
-# 3. Test from anywhere
-cd ~/Documents  # Or any directory
-photon mcp my-tool --dev  # Works from anywhere!
+**Separation of concerns:**
+- **Your expertise:** Business domain
+- **Photon's expertise:** MCP infrastructure
 
-# 4. Validate
-photon validate my-tool
+---
 
-# 5. List all your Photons
-photon get
+## Philosophy
 
-# 6. Get MCP config
-photon get my-tool --mcp
-```
+**Photon's contract with you:**
 
-### Installing Photons from Marketplaces
+✅ **You write:**
+- Business logic
+- Domain code
+- API integrations
+- Data transformations
 
-Photon supports multiple marketplaces (similar to npm or Claude Code plugins):
+❌ **You don't write:**
+- Server boilerplate
+- Protocol handling
+- Schema definitions
+- Build configurations
+- Tool registration
+- Transport setup
 
-```bash
-# Add Photon from marketplace
-photon add github-issues
+**We handle the MCP infrastructure. You handle the business value.**
 
-# Search for Photons
-photon search slack
-
-# List all marketplaces
-photon marketplace list
-```
-
-### Managing Marketplaces
-
-**Add any GitHub repository as a marketplace** (just like Claude Code plugins):
-
-```bash
-# List all marketplaces
-photon marketplace list
-
-# Add marketplace - Multiple formats supported:
-
-# 1. GitHub shorthand
-photon marketplace add username/my-photons
-
-# 2. GitHub HTTPS
-photon marketplace add https://github.com/username/my-photons
-
-# 3. GitHub SSH
-photon marketplace add git@github.com:username/my-photons.git
-
-# 4. Direct URL
-photon marketplace add https://example.com/photons
-
-# 5. Local filesystem path
-photon marketplace add ./my-local-photons
-photon marketplace add ~/Documents/my-photons
-
-# Remove marketplace
-photon marketplace remove my-photons
-
-# Search across all marketplaces
-photon search github
-```
-
-**Marketplace Structure:**
-```
-repo/
-├── .marketplace/
-│   └── photons.json          # Marketplace manifest
-├── calculator.photon.ts       # Photon files in root
-├── weather.photon.ts
-└── github-issues.photon.ts
-```
-
-**Manifest Format (`.marketplace/photons.json`):**
-```json
-{
-  "name": "my-photons",
-  "description": "Collection of useful Photons",
-  "photons": [
-    {
-      "name": "calculator",
-      "version": "1.0.0",
-      "description": "Basic arithmetic operations",
-      "source": "../calculator.photon.ts",
-      "hash": "sha256:abc123...",
-      "tools": ["add", "subtract", "multiply", "divide"]
-    }
-  ]
-}
-```
-
-**Create Your Own Marketplace:**
-```bash
-# 1. Organize your Photons
-mkdir my-photons && cd my-photons
-cp ~/.photon/*.photon.ts .
-
-# 2. Generate marketplace manifest
-photon marketplace init
-
-# 3. Push to GitHub
-git init
-git add .
-git commit -m "Initial marketplace"
-git push origin main
-
-# 4. Share with others
-# Users can now: photon marketplace add username/my-photons
-```
-
-**Default Marketplace:** `photons` from `portel-dev/photons`
-
-**Marketplace Config:** Stored in `~/.config/photon/marketplaces.json`
-
-```json
-{
-  "marketplaces": [
-    {
-      "name": "photons",
-      "url": "https://raw.githubusercontent.com/portel-dev/photons/main"
-    },
-    {
-      "name": "my-photons",
-      "url": "https://raw.githubusercontent.com/username/my-photons/main"
-    }
-  ]
-}
-```
-
-### Metadata and Integrity
-
-Photon tracks installation metadata for each Photon:
-
-```bash
-# View metadata
-photon get github-issues
-
-# Output shows:
-# Version: 1.0.0
-# Marketplace: photons (https://github.com/portel-dev/photons)
-# Installed: 1/1/2025
-# Status: ⚠️ Modified locally  # If you edited the file
-```
-
-**Features:**
-- **Version tracking** - Know which version you have installed
-- **Modification detection** - SHA-256 hash comparison alerts you to local changes
-- **Marketplace attribution** - See where each Photon came from
-- **Integrity verification** - Detect tampering or corruption
-
-### Project-Specific Workflow (Custom Directory)
-
-```bash
-# 1. Set up project Photons directory
-cd ~/my-project
-mkdir mcps
-
-# 2. Create and use Photons in that directory
-photon --working-dir ./mcps init project-tool
-photon --working-dir ./mcps mcp project-tool --dev
-
-# 3. List project Photons
-photon --working-dir ./mcps get
-```
-
-### Add to Claude Desktop
-
-```bash
-photon get my-tool --mcp
-```
-
-Copy the output to `claude_desktop_config.json` and restart Claude Desktop.
+---
 
 ## FAQ
 
@@ -692,38 +831,7 @@ Photon extracts JSON schemas from your TypeScript types. MCP clients validate pa
 
 ### Can I use external packages?
 
-Yes! Dependencies are **auto-installed** from JSDoc tags:
-
-```typescript
-/**
- * Fetch MCP - HTTP client utilities
- * @dependencies axios@^1.6.0
- */
-import axios from 'axios';
-
-export default class FetchMCP {
-  async fetch(params: { url: string }) {
-    const response = await axios.get(params.url);
-    return response.data;
-  }
-}
-```
-
-**How it works:**
-- Photon parses `@dependencies` tags from JSDoc comments
-- Auto-installs to `~/.cache/photon-mcp/dependencies/{mcp-name}/`
-- Works like `npx` or Python's `uv` - zero manual setup
-- Cached per MCP, isolated from other MCPs
-- Only installs once, reuses on subsequent runs
-
-**Formats supported:**
-```typescript
-@dependencies axios@^1.0.0                    // Single dependency
-@dependencies axios@^1.0.0, date-fns@^2.0.0  // Multiple on one line
-@dependencies @octokit/rest@^3.1.0           // Scoped packages
-```
-
-No manual `npm install` needed!
+Yes! Dependencies are **auto-installed** from JSDoc tags. No manual `npm install` needed.
 
 ### How does hot reload work?
 
@@ -739,40 +847,17 @@ In `--dev` mode, Photon watches your `.photon.ts` file. When you save changes:
 
 Cache is content-based—if you edit your file, a new cache entry is created.
 
-### Where are my MCPs stored?
+### Where are my Photons stored?
 
 **Default location:** `~/.photon/`
 - Created with: `photon init calculator`
-- Accessible from anywhere: `photon calculator --dev`
+- Accessible from anywhere: `photon mcp calculator --dev`
 
 **Custom location:** Use `--working-dir`
 - Create: `photon --working-dir ./mcps init tool`
-- Run: `photon --working-dir ./mcps tool --dev`
+- Run: `photon --working-dir ./mcps mcp tool --dev`
 
-Use default (`~/.photon/`) for personal tools, custom directories for project-specific MCPs.
-
-### Can I pre-generate schemas?
-
-Yes! Create a `.photon.schema.json` file next to your `.photon.ts`:
-
-```json
-[
-  {
-    "name": "add",
-    "description": "Add two numbers",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "a": { "type": "number" },
-        "b": { "type": "number" }
-      },
-      "required": ["a", "b"]
-    }
-  }
-]
-```
-
-This is useful for bundled/packaged MCPs where TypeScript sources aren't included.
+---
 
 ## Architecture
 
@@ -802,24 +887,19 @@ This is useful for bundled/packaged MCPs where TypeScript sources aren't include
   └──────────────┘   (Claude Desktop, Cursor, etc.)
 ```
 
-## Comparison with Other MCP Frameworks
-
-| Feature | Photon | Traditional MCP Server | MicroMCP (gateway) |
-|---------|--------|------------------------|---------------------|
-| File count | 1 | Multiple | Multiple |
-| Configuration | None | Extensive | Extensive |
-| Base classes | Optional | Required | Required |
-| Schema generation | Automatic | Manual | Manual |
-| Hot reload | Built-in | Manual setup | No |
-| Use case | Rapid prototyping | Enterprise apps | Multi-service composition |
+---
 
 ## Contributing
 
 Contributions welcome! Please open issues and PRs at [github.com/portel-dev/photon-mcp](https://github.com/portel-dev/photon-mcp).
 
+---
+
 ## License
 
 MIT © Portel
+
+---
 
 ## Related Projects
 
@@ -829,3 +909,5 @@ MIT © Portel
 ---
 
 **Made with ⚛️ by Portel**
+
+**Stop writing infrastructure. Start writing business logic.**
