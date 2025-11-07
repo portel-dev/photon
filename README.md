@@ -85,25 +85,25 @@ export default class Calculator {
 ### Run in development mode
 
 ```bash
-npx photon calculator.photon.ts --dev
+npx photon mcp calculator --dev
 
-# Or omit the extension:
-npx photon calculator --dev
+# Or with file path:
+npx photon mcp calculator.photon.ts --dev
 ```
 
 ### Use with Claude Desktop
 
 ```bash
-npx @portel/photon calculator --config
+npx @portel/photon get calculator --mcp
 ```
 
-This outputs the config to add to Claude Desktop:
+This outputs the MCP config to add to Claude Desktop:
 
 ```json
 {
   "calculator": {
     "command": "npx",
-    "args": ["@portel/photon", "/absolute/path/to/calculator.photon.ts"]
+    "args": ["@portel/photon", "mcp", "calculator"]
   }
 }
 ```
@@ -124,12 +124,12 @@ We maintain a registry of production-ready Photon MCPs at **[portel-dev/photons]
 **Quick Install:**
 
 ```bash
-# Install GitHub Issues MCP
-curl -o ~/.photon/github-issues.photon.ts https://raw.githubusercontent.com/portel-dev/photons/main/github-issues.photon.ts
+# Add from marketplace
+photon add github-issues
 
 # Configure and run
 export GITHUB_ISSUES_TOKEN="ghp_your_token"
-photon github-issues --config
+photon get github-issues --mcp
 ```
 
 See the [Photons Registry](https://github.com/portel-dev/photons) for full documentation on each MCP.
@@ -171,18 +171,29 @@ Photon uses **convention over configuration**:
 
 ```bash
 # Production mode (for MCP clients)
-photon calculator
+photon mcp calculator
 
 # Development mode (hot reload)
-photon calculator --dev
-
-# Generate Claude Desktop config
-photon calculator --config
+photon mcp calculator --dev
 ```
 
-All MCPs are referenced by name only—no paths, no extensions!
+### List and Inspect Photons
 
-### Create New MCP
+```bash
+# List all Photons
+photon get
+
+# Show details for one
+photon get calculator
+
+# Get MCP config for all Photons
+photon get --mcp
+
+# Get MCP config for one Photon
+photon get calculator --mcp
+```
+
+### Create New Photon
 
 ```bash
 photon init calculator
@@ -195,16 +206,7 @@ Creates `calculator.photon.ts` in `~/.photon/` (accessible from anywhere).
 photon --working-dir ./my-mcps init calculator
 ```
 
-### List MCPs
-
-```bash
-photon list
-
-# Or in custom directory
-photon --working-dir ./my-mcps list
-```
-
-### Validate MCP
+### Validate Photon
 
 ```bash
 photon validate calculator
@@ -218,8 +220,8 @@ All commands use `~/.photon/` by default. Override with `--working-dir`:
 
 ```bash
 photon --working-dir ./project-mcps init my-tool
-photon --working-dir ./project-mcps list
-photon --working-dir ./project-mcps my-tool --dev
+photon --working-dir ./project-mcps get
+photon --working-dir ./project-mcps mcp my-tool --dev
 ```
 
 ## Writing Photon MCPs
@@ -246,14 +248,14 @@ export default class MyMCP {
    * Called when MCP is loaded
    */
   async onInitialize() {
-    console.error('[my-mcp] Initialized');
+    console.error('Initialized');
   }
 
   /**
    * Called when MCP is shutting down
    */
   async onShutdown() {
-    console.error('[my-mcp] Shutting down');
+    console.error('Shutting down');
   }
 
   async myTool(params: { input: string }) {
@@ -459,7 +461,7 @@ The repository includes example Photon MCPs:
 ### Content (Templates & Static)
 
 ```bash
-npx photon examples/content --dev
+npx photon --working-dir examples mcp content --dev
 ```
 
 Demonstrates Templates (MCP Prompts) and Static resources (MCP Resources):
@@ -470,7 +472,7 @@ Demonstrates Templates (MCP Prompts) and Static resources (MCP Resources):
 ### Calculator
 
 ```bash
-npx photon examples/math --dev
+npx photon --working-dir examples mcp math --dev
 ```
 
 Basic arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `power`
@@ -478,7 +480,7 @@ Basic arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `power`
 ### String Utilities
 
 ```bash
-npx photon examples/text --dev
+npx photon --working-dir examples mcp text --dev
 ```
 
 Text manipulation: `uppercase`, `lowercase`, `slugify`, `reverse`, `wordCount`, `split`, `replace`, `titleCase`, `substring`
@@ -486,7 +488,7 @@ Text manipulation: `uppercase`, `lowercase`, `slugify`, `reverse`, `wordCount`, 
 ### Workflow
 
 ```bash
-npx photon examples/workflow --dev
+npx photon --working-dir examples mcp workflow --dev
 ```
 
 Task management: `list`, `get`, `create`, `updateStatus`, `delete`, `validate`
@@ -496,7 +498,7 @@ Task management: `list`, `get`, `create`, `updateStatus`, `delete`, `validate`
 ### Standard Workflow (Default: ~/.photon)
 
 ```bash
-# 1. Create MCP
+# 1. Create Photon
 photon init my-tool
 
 # 2. Edit ~/.photon/my-tool.photon.ts
@@ -508,169 +510,172 @@ export default class MyTool {
 
 # 3. Test from anywhere
 cd ~/Documents  # Or any directory
-photon my-tool --dev  # Works from anywhere!
+photon mcp my-tool --dev  # Works from anywhere!
 
 # 4. Validate
 photon validate my-tool
 
-# 5. List all your MCPs
-photon list
+# 5. List all your Photons
+photon get
 
-# 6. Keep MCPs up to date
-photon upgrade --check  # Check for updates
-photon upgrade          # Upgrade all MCPs
+# 6. Get MCP config
+photon get my-tool --mcp
 ```
 
-### Installing MCPs from Registries
+### Installing Photons from Marketplaces
 
-Photon supports multiple MCP registries (similar to npm or Claude Code plugins):
+Photon supports multiple marketplaces (similar to npm or Claude Code plugins):
 
 ```bash
-# Install from registry
-photon install github-issues
+# Add Photon from marketplace
+photon add github-issues
 
-# Search for MCPs
-photon registry:search slack
+# Search for Photons
+photon search slack
 
-# List all registries
-photon registry:list
+# List all marketplaces
+photon marketplace list
 ```
 
-### Managing Registries
+### Managing Marketplaces
 
-**Add any GitHub repository as a registry** (just like Claude Code plugins):
+**Add any GitHub repository as a marketplace** (just like Claude Code plugins):
 
 ```bash
-# List all registries
-photon registry:list
+# List all marketplaces
+photon marketplace list
 
 # Add marketplace - Multiple formats supported:
 
 # 1. GitHub shorthand
-photon registry:add username/my-mcps
+photon marketplace add username/my-photons
 
 # 2. GitHub HTTPS
-photon registry:add https://github.com/username/my-mcps
-photon registry:add https://github.com/username/my-mcps.git
+photon marketplace add https://github.com/username/my-photons
 
 # 3. GitHub SSH
-photon registry:add git@github.com:username/my-mcps.git
+photon marketplace add git@github.com:username/my-photons.git
 
-# 4. Direct URL (marketplace.json)
-photon registry:add https://example.com/marketplaces/my-mcps.json
+# 4. Direct URL
+photon marketplace add https://example.com/photons
 
 # 5. Local filesystem path
-photon registry:add ./my-local-mcps
-photon registry:add ~/Documents/my-photons
-photon registry:add /absolute/path/to/mcps
+photon marketplace add ./my-local-photons
+photon marketplace add ~/Documents/my-photons
 
-# Remove registry (uses repo/folder name)
-photon registry:remove my-mcps
+# Remove marketplace
+photon marketplace remove my-photons
 
-# Enable/disable registries
-photon registry:enable my-mcps
-photon registry:disable my-mcps
-
-# Search across all enabled registries
-photon registry:search github
+# Search across all marketplaces
+photon search github
 ```
 
-**Supported Source Types:**
-- **GitHub** (`username/repo`) - Fetches from raw.githubusercontent.com
-- **GitHub HTTPS** (`https://github.com/username/repo`) - Same as shorthand
-- **GitHub SSH** (`git@github.com:username/repo.git`) - Converted to HTTPS
-- **Direct URL** (`https://example.com/marketplace.json`) - Fetches JSON directly
-- **Local Path** (`./path`, `/absolute/path`, `~/path`) - Reads from filesystem
-
-**How it works:**
-- Registry name is automatically derived from repo/folder name
-- GitHub URLs are automatically converted to raw.githubusercontent.com
-- Defaults to `/main` branch for GitHub sources
-- Local paths support relative (`./`), absolute (`/`), and home (`~/`) paths
-
-**Examples:**
-```bash
-# Add your company's MCPs
-photon registry:add acme-corp/mcps
-
-# Add community MCPs
-photon registry:add awesome-mcp/registry
-
-# Add personal MCPs
-photon registry:add myusername/my-photon-mcps
+**Marketplace Structure:**
+```
+repo/
+├── .marketplace/
+│   └── photons.json          # Marketplace manifest
+├── calculator.photon.ts       # Photon files in root
+├── weather.photon.ts
+└── github-issues.photon.ts
 ```
 
-**Default Registry:** `photons` from `portel-dev/photons`
-
-**Registry Config:** Stored in `~/.config/photon/registries.json`
-
+**Manifest Format (`.marketplace/photons.json`):**
 ```json
 {
-  "registries": [
+  "name": "my-photons",
+  "description": "Collection of useful Photons",
+  "photons": [
     {
-      "name": "photons",
-      "url": "https://raw.githubusercontent.com/portel-dev/photons/main",
-      "enabled": true
-    },
-    {
-      "name": "my-mcps",
-      "url": "https://raw.githubusercontent.com/username/my-mcps/main",
-      "enabled": true
+      "name": "calculator",
+      "version": "1.0.0",
+      "description": "Basic arithmetic operations",
+      "source": "../calculator.photon.ts",
+      "hash": "sha256:abc123...",
+      "tools": ["add", "subtract", "multiply", "divide"]
     }
   ]
 }
 ```
 
-### Keeping MCPs Updated
+**Create Your Own Marketplace:**
+```bash
+# 1. Organize your Photons
+mkdir my-photons && cd my-photons
+cp ~/.photon/*.photon.ts .
 
-Photon automatically checks for updates across all enabled registries:
+# 2. Generate marketplace manifest
+photon marketplace init
+
+# 3. Push to GitHub
+git init
+git add .
+git commit -m "Initial marketplace"
+git push origin main
+
+# 4. Share with others
+# Users can now: photon marketplace add username/my-photons
+```
+
+**Default Marketplace:** `photons` from `portel-dev/photons`
+
+**Marketplace Config:** Stored in `~/.config/photon/marketplaces.json`
+
+```json
+{
+  "marketplaces": [
+    {
+      "name": "photons",
+      "url": "https://raw.githubusercontent.com/portel-dev/photons/main"
+    },
+    {
+      "name": "my-photons",
+      "url": "https://raw.githubusercontent.com/username/my-photons/main"
+    }
+  ]
+}
+```
+
+### Metadata and Integrity
+
+Photon tracks installation metadata for each Photon:
 
 ```bash
-# Check for updates
-photon upgrade --check
+# View metadata
+photon get github-issues
 
-# Upgrade all MCPs
-photon upgrade
-
-# Upgrade specific MCP
-photon upgrade github-issues
+# Output shows:
+# Version: 1.0.0
+# Marketplace: photons (https://github.com/portel-dev/photons)
+# Installed: 1/1/2025
+# Status: ⚠️ Modified locally  # If you edited the file
 ```
 
-**Version information** is extracted from `@version` tags in MCP doc comments:
-
-```typescript
-/**
- * GitHub Issues MCP
- * @version 1.0.0
- * @author Portel
- */
-```
-
-When you run `photon upgrade`, it:
-1. Extracts local version from `@version` tag
-2. Searches all enabled registries for remote version
-3. Compares versions (semver)
-4. Downloads and updates if newer version available
+**Features:**
+- **Version tracking** - Know which version you have installed
+- **Modification detection** - SHA-256 hash comparison alerts you to local changes
+- **Marketplace attribution** - See where each Photon came from
+- **Integrity verification** - Detect tampering or corruption
 
 ### Project-Specific Workflow (Custom Directory)
 
 ```bash
-# 1. Set up project MCPs directory
+# 1. Set up project Photons directory
 cd ~/my-project
 mkdir mcps
 
-# 2. Create and use MCPs in that directory
+# 2. Create and use Photons in that directory
 photon --working-dir ./mcps init project-tool
-photon --working-dir ./mcps project-tool --dev
+photon --working-dir ./mcps mcp project-tool --dev
 
-# 3. List project MCPs
-photon --working-dir ./mcps list
+# 3. List project Photons
+photon --working-dir ./mcps get
 ```
 
 ### Add to Claude Desktop
 
 ```bash
-photon my-tool --config
+photon get my-tool --mcp
 ```
 
 Copy the output to `claude_desktop_config.json` and restart Claude Desktop.
