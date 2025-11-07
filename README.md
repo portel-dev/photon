@@ -43,6 +43,14 @@ photon mcp filesystem
 photon cli filesystem read --path file.txt
 ```
 
+### Get MCP Config
+```bash
+# Get config for your MCP client
+photon get filesystem --mcp
+```
+
+Add the output to your MCP client's configuration. Consult your client's documentation for setup instructions.
+
 ---
 
 ## Why Photon?
@@ -245,7 +253,7 @@ photon get
 # Show details for one
 photon get calculator
 
-# Get MCP config for Claude Desktop
+# Get MCP config for any client
 photon get calculator --mcp
 ```
 
@@ -423,26 +431,26 @@ export default class MyPhoton {
 
 ---
 
-## Integration with Claude Desktop
+## Integration with MCP Clients
 
 ```bash
-# Get MCP config
+# Get MCP config for any photon
 photon get calculator --mcp
 ```
 
-Copy the output to your Claude Desktop config:
+This outputs the configuration needed for your MCP client. Add it to your client's config file.
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+**Consult your MCP client's documentation** for:
+- Config file location
+- Configuration format
+- Setup instructions
 
-Example config:
+Example output:
 ```json
 {
-  "mcpServers": {
-    "calculator": {
-      "command": "photon",
-      "args": ["mcp", "calculator"]
-    }
+  "calculator": {
+    "command": "photon",
+    "args": ["mcp", "calculator"]
   }
 }
 ```
