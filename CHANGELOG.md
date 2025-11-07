@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+**CLI Structure Overhaul:**
+- `photon <name>` → `photon mcp <name>` - More explicit MCP server invocation
+- `photon list` → `photon get` - Follows kubectl/gh CLI patterns
+- `photon list --config` → `photon get <name> --mcp` - Generate MCP config
+- `photon get` - List all Photons
+- `photon get <name>` - Show Photon details with metadata
+- `photon get --mcp` - MCP config for all Photons
+- `photon get <name> --mcp` - MCP config for one Photon
+
+**Marketplace System (replacing Registry):**
+- `photon registry:*` → `photon marketplace *` - Simpler, clearer naming
+- Marketplace structure: `.marketplace/photons.json` (was `.photon/marketplace.json`)
+- Added `photon marketplace init` - Generate marketplace manifest from directory
+- Marketplace manifest includes SHA-256 hashes for integrity verification
+- Source paths relative to `.marketplace/` directory (use `../` prefix)
+
+### Added
+
+**Metadata Tracking:**
+- Installation metadata stored in `~/.photon/.metadata.json`
+- Track marketplace source, version, installation date for each Photon
+- SHA-256 hash calculation for modification detection
+- `photon get <name>` shows version, marketplace, and modification status
+- ⚠️ Modified indicator when file hash doesn't match original
+
+**Commands:**
+- `photon marketplace init [path]` - Generate marketplace manifest
+- `photon add <name>` - Install Photon from marketplace
+- `photon search <query>` - Search across marketplaces
+
+**Logging:**
+- Conditional logging in PhotonLoader (verbose mode)
+- Server mode shows compilation logs (verbose=true)
+- CLI inspection commands are quiet (verbose=false)
+- Errors always display regardless of verbose setting
+
+### Removed
+
+- `[Photon]` prefix from all log messages - cleaner output
+- Old registry commands (`photon registry:add`, etc.)
+- Old list command format
+
+### Documentation
+
+- Updated README.md with new CLI structure
+- Updated GUIDE.md with new commands and marketplace system
+- Updated COMPARISON.md with new command references
+- Added marketplace structure and creation documentation
+- Added metadata tracking documentation
+
 ## [1.0.0] - 2025-01-04
 
 ### Initial Release
