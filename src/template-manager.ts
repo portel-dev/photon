@@ -95,6 +95,20 @@ export class TemplateManager {
       $default: (value: any, defaultValue: any): any => {
         return value !== undefined && value !== null && value !== '' ? value : defaultValue;
       },
+
+      // Extract proper name from description (before " - ")
+      properName: (desc: string, fallbackName: string): string => {
+        if (desc.includes(' - ')) {
+          return desc.split(' - ')[0];
+        }
+        // Fallback: title case the name
+        return fallbackName.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      },
+
+      // Extract description after " - " separator
+      cleanDesc: (desc: string): string => {
+        return desc.includes(' - ') ? desc.split(' - ').slice(1).join(' - ') : desc;
+      },
     };
 
     try {
@@ -104,7 +118,7 @@ export class TemplateManager {
         'helpers',
         `
         with (data) {
-          const { each, $if, $default } = helpers;
+          const { each, $if, $default, properName, cleanDesc } = helpers;
           return \`${template}\`;
         }
         `
@@ -249,9 +263,9 @@ photon mcp \${photons[0]?.name}
    * Get default Photon documentation template
    */
   private getDefaultPhotonTemplate(): string {
-    return `# \${name}
+    return `# \${properName(description, name)}
 
-\${description}
+\${cleanDesc(description)}
 
 ## 📋 Overview
 
