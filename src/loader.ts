@@ -16,9 +16,20 @@ import { DependencyManager } from './dependency-manager.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
+  private verbose: boolean;
 
-  constructor() {
+  constructor(verbose: boolean = false) {
     this.dependencyManager = new DependencyManager();
+    this.verbose = verbose;
+  }
+
+  /**
+   * Log message only if verbose mode is enabled
+   */
+  private log(message: string): void {
+    if (this.verbose) {
+      console.error(message);
+    }
   }
 
   /**
@@ -41,7 +52,7 @@ export class PhotonLoader {
         const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
 
         if (dependencies.length > 0) {
-          console.error(`[Photon] 📦 Found ${dependencies.length} dependencies`);
+          this.log(`📦 Found ${dependencies.length} dependencies`);
           await this.dependencyManager.ensureDependencies(mcpName, dependencies);
         }
 
@@ -88,7 +99,7 @@ export class PhotonLoader {
       // (constructor didn't throw, but params were missing - they had defaults)
       if (configError) {
         instance._photonConfigError = configError;
-        console.error(`[Photon] ⚠️  ${name} MCP loaded with configuration warnings`);
+        console.error(`⚠️  ${name} loaded with configuration warnings:`);
         console.error(configError);
       }
 
@@ -106,7 +117,7 @@ export class PhotonLoader {
         statics.length > 0 ? `${statics.length} statics` : null,
       ].filter(Boolean).join(', ');
 
-      console.error(`[Photon] ✅ Loaded: ${name} (${counts})`);
+      this.log(`✅ Loaded: ${name} (${counts})`);
 
       return {
         name,
@@ -117,7 +128,7 @@ export class PhotonLoader {
         instance,
       };
     } catch (error: any) {
-      console.error(`[Photon] ❌ Failed to load ${filePath}: ${error.message}`);
+      console.error(`❌ Failed to load ${filePath}: ${error.message}`);
       throw error;
     }
   }
@@ -164,14 +175,14 @@ export class PhotonLoader {
     // Check if cached version exists
     try {
       await fs.access(cachedJsPath);
-      console.error(`[Photon] Using cached compiled version`);
+      this.log(`Using cached compiled version`);
       return cachedJsPath;
     } catch {
       // Cache miss - compile it
     }
 
     // Compile TypeScript to JavaScript
-    console.error(`[Photon] Compiling ${path.basename(tsFilePath)} with esbuild...`);
+    this.log(`Compiling ${path.basename(tsFilePath)} with esbuild...`);
 
     const esbuild = await import('esbuild');
     const result = await esbuild.transform(tsContent, {
@@ -186,7 +197,7 @@ export class PhotonLoader {
 
     // Write compiled JavaScript to cache
     await fs.writeFile(cachedJsPath, result.code, 'utf-8');
-    console.error(`[Photon] Compiled and cached`);
+    this.log(`Compiled and cached`);
 
     return cachedJsPath;
   }
@@ -319,7 +330,7 @@ export class PhotonLoader {
           }
         }
 
-        console.error(`[Photon] Loaded ${tools.length} schemas from .schema.json`);
+        this.log(`Loaded ${tools.length} schemas from .schema.json`);
         return { tools, templates, statics };
       } catch (jsonError: any) {
         // .schema.json doesn't exist, try extracting from .ts source
@@ -333,13 +344,13 @@ export class PhotonLoader {
           templates = metadata.templates.filter(t => methodNames.includes(t.name));
           statics = metadata.statics.filter(s => methodNames.includes(s.name));
 
-          console.error(`[Photon] Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`);
+          this.log(`Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`);
           return { tools, templates, statics };
         }
         throw jsonError;
       }
     } catch (error: any) {
-      console.error(`[Photon] ⚠️  Failed to extract schemas: ${error.message}. Using basic tools.`);
+      console.error(`⚠️  Failed to extract schemas: ${error.message}. Using basic tools.`);
 
       // Fallback: create basic tools without detailed schemas
       for (const methodName of methodNames) {
@@ -366,7 +377,7 @@ export class PhotonLoader {
       const extractor = new SchemaExtractor();
       return extractor.extractConstructorParams(source);
     } catch (error: any) {
-      console.error(`[Photon] Failed to extract constructor params: ${error.message}`);
+      console.error(`Failed to extract constructor params: ${error.message}`);
       return [];
     }
   }
@@ -559,7 +570,7 @@ Or run: photon ${mcpName} --config
         return await method.call(mcp.instance, parameters);
       }
     } catch (error: any) {
-      console.error(`[Photon] Tool execution failed: ${toolName} - ${error.message}`);
+      console.error(`Tool execution failed: ${toolName} - ${error.message}`);
       throw error;
     }
   }

@@ -23,7 +23,7 @@ export class FileWatcher {
    * Start watching the file
    */
   start() {
-    console.error(`[Photon] Watching ${path.basename(this.filePath)} for changes...`);
+    console.error(`Watching ${path.basename(this.filePath)} for changes...`);
 
     this.watcher = chokidar.watch(this.filePath, {
       persistent: true,
@@ -40,7 +40,7 @@ export class FileWatcher {
 
     this.watcher.on('error', (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[Photon] Watcher error: ${message}`);
+      console.error(`Watcher error: ${message}`);
     });
   }
 
@@ -48,7 +48,7 @@ export class FileWatcher {
    * Handle file change event
    */
   private handleFileChange(changedPath: string) {
-    console.error(`[Photon] ♻️  File changed: ${path.basename(changedPath)}`);
+    console.error(`♻️  File changed: ${path.basename(changedPath)}`);
 
     // Debounce rapid changes
     if (this.reloadTimeout) {
@@ -58,9 +58,9 @@ export class FileWatcher {
     this.reloadTimeout = setTimeout(async () => {
       try {
         await this.server.reload();
-        console.error('[Photon] ✅ Hot reload complete');
+        console.error('✅ Hot reload complete');
       } catch (error: any) {
-        console.error(`[Photon] ❌ Hot reload failed: ${error.message}`);
+        console.error(`❌ Hot reload failed: ${error.message}`);
       }
     }, 200);
   }
@@ -79,6 +79,6 @@ export class FileWatcher {
       this.reloadTimeout = null;
     }
 
-    console.error('[Photon] File watcher stopped');
+    console.error('File watcher stopped');
   }
 }

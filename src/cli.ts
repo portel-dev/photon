@@ -31,7 +31,7 @@ async function extractConstructorParams(filePath: string): Promise<ConstructorPa
     const extractor = new SchemaExtractor();
     return extractor.extractConstructorParams(source);
   } catch (error: any) {
-    console.error(`[Photon] Failed to extract constructor params: ${error.message}`);
+    console.error(`Failed to extract constructor params: ${error.message}`);
     return [];
   }
 }
@@ -119,9 +119,9 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`[Photon] ❌ MCP not found: ${name}`);
-        console.error(`[Photon] Searched in: ${workingDir}`);
-        console.error(`[Photon] Tip: Use 'photon list' to see available MCPs`);
+        console.error(`❌ MCP not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon list' to see available MCPs`);
         process.exit(1);
       }
 
@@ -133,7 +133,7 @@ program
 
       // Handle shutdown signals
       const shutdown = async () => {
-        console.error('\n[Photon] Shutting down...');
+        console.error('\nShutting down...');
         await server.stop();
         process.exit(0);
       };
@@ -158,7 +158,7 @@ program
         });
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -182,7 +182,7 @@ program
       // Check if file already exists
       try {
         await fs.access(filePath);
-        console.error(`[Photon] ❌ File already exists: ${filePath}`);
+        console.error(`❌ File already exists: ${filePath}`);
         process.exit(1);
       } catch {
         // File doesn't exist, good
@@ -215,7 +215,7 @@ program
       console.error(`✅ Created ${fileName} in ${workingDir}`);
       console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -234,9 +234,9 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`[Photon] ❌ MCP not found: ${name}`);
-        console.error(`[Photon] Searched in: ${workingDir}`);
-        console.error(`[Photon] Tip: Use 'photon list' to see available MCPs`);
+        console.error(`❌ MCP not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon list' to see available MCPs`);
         process.exit(1);
       }
 
@@ -244,7 +244,7 @@ program
 
       // Import loader and try to load
       const { PhotonLoader } = await import('./loader.js');
-      const loader = new PhotonLoader();
+      const loader = new PhotonLoader(false); // quiet mode for inspection
 
       const mcp = await loader.loadFile(filePath);
 
@@ -258,7 +258,7 @@ program
 
       process.exit(0);
     } catch (error: any) {
-      console.error(`[Photon] ❌ Validation failed: ${error.message}`);
+      console.error(`❌ Validation failed: ${error.message}`);
       process.exit(1);
     }
   });
@@ -320,7 +320,7 @@ program
         } else {
           // Show Photon details
           const { PhotonLoader } = await import('./loader.js');
-          const loader = new PhotonLoader();
+          const loader = new PhotonLoader(false); // quiet mode for inspection
           const mcp = await loader.loadFile(filePath);
 
           const { MarketplaceManager } = await import('./marketplace-manager.js');
@@ -441,7 +441,7 @@ program
       console.error(`Details: photon get <name>`);
       console.error(`MCP config: photon get --mcp`);
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -491,7 +491,7 @@ program
       }
       console.error('');
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -513,8 +513,8 @@ program
       const result = await manager.getPhotonMetadata(name);
 
       if (!result) {
-        console.error(`[Photon] ❌ MCP '${name}' not found in any marketplace`);
-        console.error(`[Photon] Tip: Use 'photon search ${name}' to find similar MCPs`);
+        console.error(`❌ MCP '${name}' not found in any marketplace`);
+        console.error(`Tip: Use 'photon search ${name}' to find similar MCPs`);
         process.exit(1);
       }
 
@@ -544,7 +544,7 @@ program
       console.error(`  To add: photon add ${metadata.name}`);
       console.error('');
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -652,7 +652,7 @@ marketplace
       console.error(`  • Add locally: photon marketplace add ${resolvedPath}`);
       console.error(`  • Share: photon marketplace add <your-username>/<repo>`);
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -694,7 +694,7 @@ marketplace
 
       console.error('');
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -728,7 +728,7 @@ marketplace
         console.error(`Skipping duplicate addition`);
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -752,7 +752,7 @@ marketplace
         process.exit(1);
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -776,7 +776,7 @@ marketplace
         process.exit(1);
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -800,7 +800,7 @@ marketplace
         process.exit(1);
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -843,7 +843,7 @@ marketplace
         console.error(`\nUpdated ${successCount}/${results.size} marketplaces`);
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -901,7 +901,7 @@ program
       console.error(`Location: ${filePath}`);
       console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });
@@ -926,8 +926,8 @@ program
         const filePath = await resolvePhotonPath(name, workingDir);
 
         if (!filePath) {
-          console.error(`[Photon] ❌ MCP not found: ${name}`);
-          console.error(`[Photon] Searched in: ${workingDir}`);
+          console.error(`❌ MCP not found: ${name}`);
+          console.error(`Searched in: ${workingDir}`);
           process.exit(1);
         }
 
@@ -1019,7 +1019,7 @@ program
         }
       }
     } catch (error: any) {
-      console.error(`[Photon] ❌ Error: ${error.message}`);
+      console.error(`❌ Error: ${error.message}`);
       process.exit(1);
     }
   });

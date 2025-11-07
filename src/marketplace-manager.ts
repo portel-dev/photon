@@ -439,7 +439,7 @@ export class MarketplaceManager {
       }
     } catch (error) {
       // Marketplace doesn't have a manifest or fetch failed
-      console.error(`[Photon] Failed to fetch manifest from ${marketplace.name}:`, error);
+      console.error(`Failed to fetch manifest from ${marketplace.name}:`, error);
     }
 
     return null;

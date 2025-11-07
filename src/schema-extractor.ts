@@ -28,7 +28,7 @@ export class SchemaExtractor {
       const source = await fs.readFile(filePath, 'utf-8');
       return this.extractFromSource(source);
     } catch (error: any) {
-      console.error(`[Photon] Failed to extract schemas from ${filePath}: ${error.message}`);
+      console.error(`Failed to extract schemas from ${filePath}: ${error.message}`);
       return [];
     }
   }
