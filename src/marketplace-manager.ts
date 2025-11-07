@@ -799,4 +799,166 @@ export class MarketplaceManager {
       return false;
     }
   }
+
+  /**
+   * Find all marketplaces that have a specific MCP (for conflict detection)
+   */
+  async findAllSources(mcpName: string): Promise<Array<{ marketplace: Marketplace; metadata?: PhotonMetadata; content?: string }>> {
+    const sources = [];
+    const enabled = this.getEnabled();
+
+    for (const marketplace of enabled) {
+      try {
+        let content: string | null = null;
+
+        if (marketplace.sourceType === 'local') {
+          // Local filesystem
+          const localPath = marketplace.url.replace('file://', '');
+          const mcpPath = path.join(localPath, `${mcpName}.photon.ts`);
+
+          if (existsSync(mcpPath)) {
+            content = await fs.readFile(mcpPath, 'utf-8');
+          }
+        } else {
+          // Remote fetch (GitHub, URL)
+          const url = `${marketplace.url}/${mcpName}.photon.ts`;
+          const response = await fetch(url);
+
+          if (response.ok) {
+            content = await response.text();
+          }
+        }
+
+        if (content) {
+          // Try to fetch metadata from manifest
+          const manifest = await this.getCachedManifest(marketplace.name);
+          const metadata = manifest?.photons.find(p => p.name === mcpName);
+
+          sources.push({
+            marketplace,
+            metadata,
+            content,
+          });
+        }
+      } catch {
+        // Skip marketplace on error
+      }
+    }
+
+    return sources;
+  }
+
+  /**
+   * Detect all MCP conflicts across marketplaces
+   */
+  async detectAllConflicts(): Promise<Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>> {
+    const conflicts = new Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>();
+    const enabled = this.getEnabled();
+
+    if (enabled.length <= 1) {
+      return conflicts; // No conflicts possible with 0 or 1 marketplace
+    }
+
+    // Collect all MCPs from all marketplaces
+    const mcpsByName = new Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>();
+
+    for (const marketplace of enabled) {
+      const manifest = await this.getCachedManifest(marketplace.name);
+
+      if (manifest && manifest.photons) {
+        for (const photon of manifest.photons) {
+          if (!mcpsByName.has(photon.name)) {
+            mcpsByName.set(photon.name, []);
+          }
+          mcpsByName.get(photon.name)!.push({
+            marketplace,
+            metadata: photon,
+          });
+        }
+      }
+    }
+
+    // Find MCPs that appear in multiple marketplaces
+    for (const [name, sources] of mcpsByName.entries()) {
+      if (sources.length > 1) {
+        conflicts.set(name, sources);
+      }
+    }
+
+    return conflicts;
+  }
+
+  /**
+   * Check if adding/upgrading an MCP would create a conflict
+   */
+  async checkConflict(mcpName: string, targetMarketplace?: string): Promise<{
+    hasConflict: boolean;
+    sources: Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>;
+    recommendation?: string;
+  }> {
+    const sources = await this.findAllSources(mcpName);
+
+    if (sources.length === 0) {
+      return { hasConflict: false, sources: [] };
+    }
+
+    if (sources.length === 1) {
+      return { hasConflict: false, sources };
+    }
+
+    // Multiple sources found - determine recommendation
+    let recommendation: string | undefined;
+
+    // If target marketplace specified, recommend it
+    if (targetMarketplace) {
+      const targetSource = sources.find(s => s.marketplace.name === targetMarketplace);
+      if (targetSource) {
+        recommendation = targetMarketplace;
+      }
+    }
+
+    // Otherwise, recommend based on priority: version, then marketplace order
+    if (!recommendation) {
+      // Sort by version (semver) if available
+      const withVersions = sources
+        .filter(s => s.metadata?.version)
+        .sort((a, b) => {
+          const vA = a.metadata!.version;
+          const vB = b.metadata!.version;
+          return this.compareVersions(vB, vA); // Descending (newest first)
+        });
+
+      if (withVersions.length > 0) {
+        recommendation = withVersions[0].marketplace.name;
+      } else {
+        // Default to first enabled marketplace
+        recommendation = sources[0].marketplace.name;
+      }
+    }
+
+    return {
+      hasConflict: true,
+      sources,
+      recommendation,
+    };
+  }
+
+  /**
+   * Compare two semver versions
+   * Returns: positive if v1 > v2, negative if v1 < v2, 0 if equal
+   */
+  private compareVersions(v1: string, v2: string): number {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const p1 = parts1[i] || 0;
+      const p2 = parts2[i] || 0;
+
+      if (p1 > p2) return 1;
+      if (p1 < p2) return -1;
+    }
+
+    return 0;
+  }
 }

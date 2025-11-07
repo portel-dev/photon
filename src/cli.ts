@@ -1002,39 +1002,81 @@ program
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error(`Adding ${name}...`);
+      // Check for conflicts
+      const conflict = await manager.checkConflict(name, options.marketplace);
 
-      const result = await manager.fetchMCP(name);
-
-      if (!result) {
+      if (!conflict.sources || conflict.sources.length === 0) {
         console.error(`❌ MCP '${name}' not found in any enabled marketplace`);
         console.error(`Tip: Use 'photon search ${name}' to find it`);
         process.exit(1);
       }
 
+      // Check if already exists locally
       const filePath = path.join(workingDir, `${name}.photon.ts`);
       const fileName = `${name}.photon.ts`;
 
-      // Check if already exists
       if (existsSync(filePath)) {
         console.error(`⚠️  MCP '${name}' already exists`);
         console.error(`Use 'photon upgrade ${name}' to update it`);
         process.exit(1);
       }
 
-      // Write file
-      await fs.writeFile(filePath, result.content, 'utf-8');
+      // Handle conflicts
+      let selectedMarketplace: typeof conflict.sources[0]['marketplace'];
+      let selectedMetadata: typeof conflict.sources[0]['metadata'];
 
-      // Save installation metadata if we have it
-      if (result.metadata) {
-        const { calculateHash } = await import('./marketplace-manager.js');
-        const contentHash = calculateHash(result.content);
-        await manager.savePhotonMetadata(fileName, result.marketplace, result.metadata, contentHash);
+      if (conflict.hasConflict) {
+        console.error(`⚠️  MCP '${name}' found in multiple marketplaces:\n`);
+
+        conflict.sources.forEach((source, index) => {
+          const marker = source.marketplace.name === conflict.recommendation ? '→' : ' ';
+          const version = source.metadata?.version || 'unknown';
+          console.error(`  ${marker} [${index + 1}] ${source.marketplace.name} (v${version})`);
+          console.error(`      ${source.marketplace.repo || source.marketplace.url}`);
+        });
+
+        if (conflict.recommendation) {
+          console.error(`\n💡 Recommended: ${conflict.recommendation} (newest version)`);
+        }
+
+        console.error(`\nTo specify a marketplace, use:`);
+        console.error(`  photon add ${name} --marketplace <name>`);
+        console.error(`\nOr use the first marketplace by continuing...`);
+
+        // Use recommended or first source
+        const recommendedSource = conflict.sources.find(s => s.marketplace.name === conflict.recommendation);
+        const selectedSource = recommendedSource || conflict.sources[0];
+        selectedMarketplace = selectedSource.marketplace;
+        selectedMetadata = selectedSource.metadata;
+
+        console.error(`\n✓ Using: ${selectedMarketplace.name}`);
+      } else {
+        selectedMarketplace = conflict.sources[0].marketplace;
+        selectedMetadata = conflict.sources[0].metadata;
+        console.error(`Adding ${name} from ${selectedMarketplace.name}...`);
       }
 
-      console.error(`✅ Added ${name} from ${result.marketplace.name}`);
-      if (result.metadata?.version) {
-        console.error(`Version: ${result.metadata.version}`);
+      // Fetch content from selected marketplace
+      const result = await manager.fetchMCP(name);
+      if (!result) {
+        console.error(`❌ Failed to fetch MCP content`);
+        process.exit(1);
+      }
+      const content = result.content;
+
+      // Write file
+      await fs.writeFile(filePath, content, 'utf-8');
+
+      // Save installation metadata if we have it
+      if (selectedMetadata) {
+        const { calculateHash } = await import('./marketplace-manager.js');
+        const contentHash = calculateHash(content);
+        await manager.savePhotonMetadata(fileName, selectedMarketplace, selectedMetadata, contentHash);
+      }
+
+      console.error(`✅ Added ${name} from ${selectedMarketplace.name}`);
+      if (selectedMetadata?.version) {
+        console.error(`Version: ${selectedMetadata.version}`);
       }
       console.error(`Location: ${filePath}`);
       console.error(`Run with: photon mcp ${name} --dev`);
@@ -1156,6 +1198,60 @@ program
           }
         }
       }
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// Conflicts command: show MCPs available in multiple marketplaces
+program
+  .command('conflicts')
+  .description('Show MCPs available in multiple marketplaces')
+  .action(async () => {
+    try {
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+
+      console.error('🔍 Scanning for MCP conflicts across marketplaces...\n');
+
+      const conflicts = await manager.detectAllConflicts();
+
+      if (conflicts.size === 0) {
+        console.error('✅ No conflicts detected');
+        console.error('\nAll MCPs are uniquely available from single marketplaces.');
+        return;
+      }
+
+      console.error(`⚠️  Found ${conflicts.size} MCP(s) in multiple marketplaces:\n`);
+
+      for (const [mcpName, sources] of conflicts) {
+        console.error(`📦 ${mcpName}`);
+
+        sources.forEach(source => {
+          const version = source.metadata?.version || 'unknown';
+          const description = source.metadata?.description || '';
+          console.error(`   → ${source.marketplace.name} (v${version})`);
+          if (description) {
+            console.error(`     ${description.substring(0, 60)}${description.length > 60 ? '...' : ''}`);
+          }
+        });
+
+        // Show recommendation
+        const conflict = await manager.checkConflict(mcpName);
+        if (conflict.recommendation) {
+          console.error(`   💡 Recommended: ${conflict.recommendation}`);
+        }
+
+        console.error('');
+      }
+
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('\n💡 Tip: Use --marketplace flag to specify which to use:');
+      console.error('   photon add <name> --marketplace <marketplace-name>');
+      console.error('\nOr disable marketplaces you don\'t need:');
+      console.error('   photon marketplace disable <marketplace-name>');
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       process.exit(1);
