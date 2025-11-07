@@ -153,9 +153,7 @@ async function performMarketplaceSync(
 
     // Generate individual photon documentation
     const photonMarkdown = await templateMgr.renderTemplate('photon.md', metadata);
-    const docsDir = path.join(resolvedPath, 'docs');
-    await fs.mkdir(docsDir, { recursive: true });
-    const docPath = path.join(docsDir, `${metadata.name}.md`);
+    const docPath = path.join(resolvedPath, `${metadata.name}.md`);
     await fs.writeFile(docPath, photonMarkdown, 'utf-8');
   }
 
@@ -211,7 +209,7 @@ async function performMarketplaceSync(
   console.error(`   Documentation: ${photons.length} markdown files generated`);
   console.error(`\n   Generated files:`);
   console.error(`   • .marketplace/photons.json (manifest)`);
-  console.error(`   • docs/*.md (${photons.length} documentation files)`);
+  console.error(`   • *.md (${photons.length} documentation files at root)`);
   console.error(`   • README.md (auto-generated table)`);
 }
 
