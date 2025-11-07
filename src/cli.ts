@@ -87,6 +87,130 @@ function getConfigPath(): string {
   }
 }
 
+/**
+ * Validate configuration for an MCP
+ */
+async function validateConfiguration(filePath: string, mcpName: string): Promise<void> {
+  console.log(`🔍 Validating configuration for: ${mcpName}\n`);
+
+  const params = await extractConstructorParams(filePath);
+
+  if (params.length === 0) {
+    console.log('✅ No configuration required');
+    return;
+  }
+
+  let hasErrors = false;
+  const results: Array<{name: string; envVar: string; status: string; value?: string}> = [];
+
+  for (const param of params) {
+    const envVarName = toEnvVarName(mcpName, param.name);
+    const envValue = process.env[envVarName];
+    const isRequired = !param.isOptional && !param.hasDefault;
+
+    if (isRequired && !envValue) {
+      hasErrors = true;
+      results.push({
+        name: param.name,
+        envVar: envVarName,
+        status: '❌ MISSING (required)',
+      });
+    } else if (envValue) {
+      results.push({
+        name: param.name,
+        envVar: envVarName,
+        status: '✅ SET',
+        value: envValue.length > 20 ? envValue.substring(0, 17) + '...' : envValue,
+      });
+    } else {
+      results.push({
+        name: param.name,
+        envVar: envVarName,
+        status: '⚪ Optional',
+        value: param.hasDefault ? `default: ${formatDefaultValue(param.defaultValue)}` : undefined,
+      });
+    }
+  }
+
+  // Print results
+  console.log('Configuration Status:\n');
+  results.forEach(r => {
+    console.log(`  ${r.status} ${r.envVar}`);
+    if (r.value) {
+      console.log(`     Value: ${r.value}`);
+    }
+    console.log();
+  });
+
+  if (hasErrors) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('❌ Validation failed: Missing required environment variables');
+    console.log('\nRun: photon mcp ' + mcpName + ' --config');
+    console.log('     To see configuration template');
+    process.exit(1);
+  } else {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ Configuration valid!');
+    console.log('\nYou can now run: photon mcp ' + mcpName);
+  }
+}
+
+/**
+ * Show configuration template for an MCP
+ */
+async function showConfigTemplate(filePath: string, mcpName: string): Promise<void> {
+  console.log(`📋 Configuration template for: ${mcpName}\n`);
+
+  const params = await extractConstructorParams(filePath);
+
+  if (params.length === 0) {
+    console.log('✅ No configuration required for this MCP');
+    return;
+  }
+
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Environment Variables:\n');
+
+  params.forEach(param => {
+    const envVarName = toEnvVarName(mcpName, param.name);
+    const isRequired = !param.isOptional && !param.hasDefault;
+    const status = isRequired ? '[REQUIRED]' : '[OPTIONAL]';
+
+    console.log(`  ${envVarName} ${status}`);
+    console.log(`    Type: ${param.type}`);
+    if (param.hasDefault) {
+      console.log(`    Default: ${formatDefaultValue(param.defaultValue)}`);
+    }
+    console.log();
+  });
+
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Claude Desktop Configuration:\n');
+
+  const envExample: Record<string, string> = {};
+  params.forEach(param => {
+    const envVarName = toEnvVarName(mcpName, param.name);
+    if (!param.isOptional && !param.hasDefault) {
+      envExample[envVarName] = `<your-${param.name}>`;
+    }
+  });
+
+  const config = {
+    mcpServers: {
+      [mcpName]: {
+        command: 'npx',
+        args: ['@portel/photon', 'mcp', mcpName],
+        env: envExample,
+      },
+    },
+  };
+
+  console.log(JSON.stringify(config, null, 2));
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`\nAdd this to: ${getConfigPath()}`);
+  console.log('\nValidate: photon mcp ' + mcpName + ' --validate');
+}
+
 // Get version from package.json
 let version = '1.0.0';
 try {
@@ -110,6 +234,8 @@ program
   .argument('<name>', 'MCP name (without .photon.ts extension)')
   .description('Run a Photon as MCP server')
   .option('--dev', 'Enable development mode with hot reload')
+  .option('--validate', 'Validate configuration without running server')
+  .option('--config', 'Show configuration template and exit')
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
@@ -123,6 +249,18 @@ program
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon list' to see available MCPs`);
         process.exit(1);
+      }
+
+      // Handle --validate flag
+      if (options.validate) {
+        await validateConfiguration(filePath, name);
+        return;
+      }
+
+      // Handle --config flag
+      if (options.config) {
+        await showConfigTemplate(filePath, name);
+        return;
       }
 
       // Start MCP server

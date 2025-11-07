@@ -460,40 +460,70 @@ export class PhotonLoader {
   ): Error {
     const originalMessage = error.message;
 
-    // Build env var documentation
+    // Build detailed env var documentation with examples
     const envVarDocs = constructorParams.map(param => {
       const envVarName = this.toEnvVarName(mcpName, param.name);
       const required = !param.isOptional && !param.hasDefault;
       const status = required ? '[REQUIRED]' : '[OPTIONAL]';
-      return `  • ${envVarName} ${status} (${param.name}: ${param.type})`;
-    }).join('\n');
+
+      // Generate helpful example values based on type and name
+      const exampleValue = this.generateExampleValue(param.name, param.type);
+      const defaultInfo = param.hasDefault
+        ? ` (default: ${JSON.stringify(param.defaultValue)})`
+        : '';
+
+      let line = `  • ${envVarName} ${status}`;
+      line += `\n    Type: ${param.type}${defaultInfo}`;
+      if (exampleValue) {
+        line += `\n    Example: ${envVarName}="${exampleValue}"`;
+      }
+
+      return line;
+    }).join('\n\n');
+
+    // Build example config with placeholder values
+    const envExample: Record<string, string> = {};
+    constructorParams.forEach(param => {
+      const envVarName = this.toEnvVarName(mcpName, param.name);
+      if (!param.isOptional && !param.hasDefault) {
+        envExample[envVarName] = this.generateExampleValue(param.name, param.type) || `your-${param.name}`;
+      }
+    });
 
     const enhancedMessage = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ❌ Configuration Error: ${mcpName} MCP failed to initialize
 
-Original error: ${originalMessage}
+${originalMessage}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Configuration parameters:
+📋 Configuration Parameters:
+
 ${envVarDocs}
 
-To fix this, set environment variables in your MCP client:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 How to Fix:
+
+Option 1: Set environment variables in your MCP client config
+(Claude Desktop, Cursor, etc.)
 
 {
   "mcpServers": {
     "${mcpName}": {
       "command": "npx",
       "args": ["@portel/photon", "${mcpName}"],
-      "env": {
-        // Add required environment variables here
-      }
+      "env": ${JSON.stringify(envExample, null, 8).replace(/\n/g, '\n      ')}
     }
   }
 }
 
-Or run: photon ${mcpName} --config
+Option 2: Check configuration
+Run: photon mcp ${mcpName} --validate
+
+Option 3: Generate config template
+Run: photon mcp ${mcpName} --config
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `.trim();
@@ -502,6 +532,68 @@ Or run: photon ${mcpName} --config
     enhanced.name = 'PhotonConfigError';
     enhanced.stack = error.stack;
     return enhanced;
+  }
+
+  /**
+   * Generate helpful example values based on parameter name and type
+   */
+  private generateExampleValue(paramName: string, paramType: string): string | null {
+    const lowerName = paramName.toLowerCase();
+
+    // API keys and tokens
+    if (lowerName.includes('apikey') || lowerName.includes('api_key')) {
+      return 'sk_your_api_key_here';
+    }
+    if (lowerName.includes('token') || lowerName.includes('secret')) {
+      return 'your_secret_token';
+    }
+
+    // URLs and endpoints
+    if (lowerName.includes('url') || lowerName.includes('endpoint')) {
+      return 'https://api.example.com';
+    }
+    if (lowerName.includes('host') || lowerName.includes('server')) {
+      return 'localhost';
+    }
+
+    // Ports
+    if (lowerName.includes('port')) {
+      return '5432';
+    }
+
+    // Database
+    if (lowerName.includes('database') || lowerName.includes('db')) {
+      return 'my_database';
+    }
+    if (lowerName.includes('user') || lowerName.includes('username')) {
+      return 'admin';
+    }
+    if (lowerName.includes('password')) {
+      return 'your_secure_password';
+    }
+
+    // Paths
+    if (lowerName.includes('path') || lowerName.includes('dir')) {
+      return '/path/to/directory';
+    }
+
+    // Common names
+    if (lowerName.includes('name')) {
+      return 'my-service';
+    }
+    if (lowerName.includes('region')) {
+      return 'us-east-1';
+    }
+
+    // Type-based defaults
+    if (paramType === 'boolean') {
+      return 'true';
+    }
+    if (paramType === 'number') {
+      return '3000';
+    }
+
+    return null;
   }
 
   /**
