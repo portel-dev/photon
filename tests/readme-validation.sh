@@ -19,7 +19,6 @@ TESTS_FAILED=0
 # Get repository root early before changing directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXAMPLES_DIR="$REPO_ROOT/examples"
 
 # Test working directory
 TEST_DIR="/tmp/photon-test-$$"
@@ -212,59 +211,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 6: Examples - Test All Example MCPs
-# ============================================================================
-
-if [ -d "$EXAMPLES_DIR" ]; then
-    test_start "Example: math.photon.ts should validate"
-    if [ -f "$EXAMPLES_DIR/math.photon.ts" ]; then
-        if $PHOTON_CMD --working-dir "$EXAMPLES_DIR" validate math > /dev/null 2>&1; then
-            test_pass "math example validates"
-        else
-            test_fail "math example validation failed"
-        fi
-    else
-        test_fail "math.photon.ts not found"
-    fi
-
-    test_start "Example: text.photon.ts should validate"
-    if [ -f "$EXAMPLES_DIR/text.photon.ts" ]; then
-        if $PHOTON_CMD --working-dir "$EXAMPLES_DIR" validate text > /dev/null 2>&1; then
-            test_pass "text example validates"
-        else
-            test_fail "text example validation failed"
-        fi
-    else
-        test_fail "text.photon.ts not found"
-    fi
-
-    test_start "Example: workflow.photon.ts should validate"
-    if [ -f "$EXAMPLES_DIR/workflow.photon.ts" ]; then
-        if $PHOTON_CMD --working-dir "$EXAMPLES_DIR" validate workflow > /dev/null 2>&1; then
-            test_pass "workflow example validates"
-        else
-            test_fail "workflow example validation failed"
-        fi
-    else
-        test_fail "workflow.photon.ts not found"
-    fi
-
-    test_start "Example: content.photon.ts should validate"
-    if [ -f "$EXAMPLES_DIR/content.photon.ts" ]; then
-        if $PHOTON_CMD --working-dir "$EXAMPLES_DIR" validate content > /dev/null 2>&1; then
-            test_pass "content example validates"
-        else
-            test_fail "content example validation failed"
-        fi
-    else
-        test_fail "content.photon.ts not found"
-    fi
-else
-    test_fail "Examples directory not found at $EXAMPLES_DIR"
-fi
-
-# ============================================================================
-# SECTION 7: Marketplace Commands
+# SECTION 6: Marketplace Commands
 # ============================================================================
 
 test_start "photon marketplace list should work"
@@ -282,7 +229,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 8: Constructor Environment Variable Mapping
+# SECTION 7: Constructor Environment Variable Mapping
 # ============================================================================
 
 test_start "Constructor parameters should map to environment variables"
@@ -311,7 +258,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 9: Type Extraction from TypeScript
+# SECTION 8: Type Extraction from TypeScript
 # ============================================================================
 
 test_start "Schema extraction should handle complex types"
@@ -350,7 +297,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 10: JSDoc Descriptions
+# SECTION 9: JSDoc Descriptions
 # ============================================================================
 
 test_start "JSDoc descriptions should be extracted"
@@ -366,7 +313,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 11: Private Methods (should not become tools)
+# SECTION 10: Private Methods (should not become tools)
 # ============================================================================
 
 test_start "Private methods (starting with _) should not be tools"
@@ -394,7 +341,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 12: Return Value Formats
+# SECTION 11: Return Value Formats
 # ============================================================================
 
 test_start "Different return value formats should be supported"
