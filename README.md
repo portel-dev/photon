@@ -336,49 +336,230 @@ photon mcp analytics
 
 ---
 
-## Commands
+## Commands Reference
 
-### Development
+### Global Options
 
 ```bash
-# Create new photon
-photon init <name>
-
-# Run with hot reload
-photon mcp <name> --dev
-
-# Validate syntax and schemas
-photon validate <name>
+--working-dir <dir>   # Use custom directory instead of ~/.photon
+-V, --version         # Show version number
+-h, --help            # Show help
 ```
 
-### Production
+### Development Commands
+
+#### `photon init <name>`
+Create a new `.photon.ts` file from template.
 
 ```bash
-# Run MCP server
-photon mcp <name>
+# Create in default directory (~/.photon)
+photon init calculator
+
+# Create in custom directory
+photon --working-dir ./my-photons init calculator
+```
+
+#### `photon validate <name>`
+Validate syntax and extract schemas without running.
+
+```bash
+photon validate calculator
+```
+
+Useful for:
+- Checking syntax errors
+- Testing schema generation
+- CI/CD validation
+
+### Running Photons
+
+#### `photon mcp <name>`
+Run a photon as an MCP server.
+
+```bash
+# Production mode
+photon mcp calculator
+
+# Development mode (hot reload on file changes)
+photon mcp calculator --dev
+```
+
+**Options:**
+- `--dev` - Enable hot reload for development
+
+### Inspect & Configure
+
+#### `photon get [name]`
+List all photons or show details for a specific one.
+
+```bash
+# List all installed photons
+photon get
+
+# Show details for one photon
+photon get calculator
 
 # Get MCP client configuration
-photon get <name> --mcp
+photon get calculator --mcp
 ```
 
-### Marketplace
+**Options:**
+- `--mcp` - Output MCP server configuration for your client
+
+### Marketplace Commands
+
+#### `photon add <name>`
+Install a photon from a marketplace.
 
 ```bash
-# List available photons
-photon list
+# Install from any enabled marketplace
+photon add filesystem
 
-# Search photons
-photon search <keyword>
-
-# Install photon
-photon add <name>
-
-# View photon details
-photon get <name>
-
-# Upgrade photons
-photon upgrade [name]
+# Install from specific marketplace
+photon add filesystem --marketplace portel-dev/photons
 ```
+
+**Options:**
+- `--marketplace <name>` - Specify which marketplace to use
+
+#### `photon search <query>`
+Search for photons across all enabled marketplaces.
+
+```bash
+photon search database
+photon search git
+```
+
+#### `photon info <name>`
+Show detailed information about a photon from marketplaces.
+
+```bash
+photon info postgres
+```
+
+Shows:
+- Description
+- Available tools
+- Configuration requirements
+- Marketplace source
+
+#### `photon upgrade [name]`
+Upgrade photons from marketplaces.
+
+```bash
+# Upgrade all photons
+photon upgrade
+
+# Upgrade specific photon
+photon upgrade filesystem
+
+# Check for updates without upgrading
+photon upgrade --check
+```
+
+**Options:**
+- `--check` - Only check for updates, don't install
+
+#### `photon conflicts`
+Show photons available in multiple marketplaces.
+
+```bash
+photon conflicts
+```
+
+Useful when same photon name exists in different marketplaces.
+
+### Marketplace Management
+
+#### `photon marketplace list`
+List all configured marketplaces.
+
+```bash
+photon marketplace list
+```
+
+#### `photon marketplace add <repo>`
+Add a new marketplace.
+
+```bash
+# GitHub shorthand
+photon marketplace add username/repo
+
+# Full HTTPS URL
+photon marketplace add https://github.com/username/repo
+
+# SSH URL
+photon marketplace add git@github.com:username/repo.git
+
+# Direct URL
+photon marketplace add https://example.com/marketplace
+
+# Local path
+photon marketplace add ./my-local-marketplace
+```
+
+#### `photon marketplace remove <name>`
+Remove a marketplace.
+
+```bash
+photon marketplace remove my-marketplace
+```
+
+#### `photon marketplace enable <name>`
+Enable a previously disabled marketplace.
+
+```bash
+photon marketplace enable my-marketplace
+```
+
+#### `photon marketplace disable <name>`
+Disable a marketplace without removing it.
+
+```bash
+photon marketplace disable my-marketplace
+```
+
+#### `photon marketplace update [name]`
+Update marketplace metadata from remote.
+
+```bash
+# Update all marketplaces
+photon marketplace update
+
+# Update specific marketplace
+photon marketplace update portel-dev/photons
+```
+
+### Advanced Commands
+
+#### `photon sync marketplace [path]`
+Generate marketplace manifest and documentation.
+
+```bash
+# Sync current directory
+photon sync marketplace
+
+# Sync specific directory
+photon sync marketplace ./my-marketplace
+```
+
+Used when creating your own marketplace. See [Marketplace System](#marketplace-system).
+
+#### `photon audit [name]`
+Security audit of photon dependencies.
+
+```bash
+# Audit all photons
+photon audit
+
+# Audit specific photon
+photon audit postgres
+```
+
+Checks for:
+- Vulnerable dependencies
+- Outdated packages
+- Security advisories
 
 ---
 
