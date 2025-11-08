@@ -143,7 +143,7 @@ npm install -g @portel/photon
 
 ```bash
 # Browse 16+ production-ready photons
-photon list
+photon get
 
 # Install any photon
 photon add filesystem
@@ -245,7 +245,7 @@ Production-ready photons from **[portel-dev/photons](https://github.com/portel-d
 
 Browse and install:
 ```bash
-photon list           # See all available photons
+photon get            # See all available photons
 photon add postgres   # Install any photon
 photon search git     # Search by keyword
 ```
@@ -382,10 +382,18 @@ photon mcp calculator
 
 # Development mode (hot reload on file changes)
 photon mcp calculator --dev
+
+# Validate configuration without running
+photon mcp calculator --validate
+
+# Show MCP configuration template
+photon mcp calculator --config
 ```
 
 **Options:**
 - `--dev` - Enable hot reload for development
+- `--validate` - Validate configuration without running server
+- `--config` - Show configuration template and exit
 
 ### Inspect & Configure
 
