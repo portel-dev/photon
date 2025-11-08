@@ -319,18 +319,18 @@ Add the output to your MCP client's configuration. **Consult your client's docum
 
 ### Before Photon
 \\\`\\\`\\\`bash
-# For each MCP:
-pip install mcp-server-X
-# Configure manually
-# Repeat for every tool
-# Different package managers
-# Different configurations
+# For each MCP server:
+# 1. Find and clone the repository
+# 2. Install dependencies manually
+# 3. Configure environment variables
+# 4. Add to MCP client config
+# 5. Repeat for every server
 \\\`\\\`\\\`
 
 ### With Photon
 \\\`\\\`\\\`bash
-photon add filesystem  # One command
-photon mcp filesystem  # Works immediately
+photon add filesystem        # Install from marketplace
+photon get filesystem --mcp  # Get config, add to MCP client instantly
 \\\`\\\`\\\`
 
 **Difference:**
