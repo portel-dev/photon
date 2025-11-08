@@ -228,7 +228,7 @@ export class TemplateManager {
 
 > **Singular focus. Precise target.**
 
-\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Production-ready photons for instant use. Zero configuration, auto-dependencies, single command installation.\n\n\`)}\${$if(marketplaceName === 'photons', \`## 🏛️ Official Marketplace
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Photons are single-file TypeScript classes that run as [MCP servers](https://modelcontextprotocol.io/introduction). Add them to your favorite AI assistant using the [Photon runtime](https://github.com/portel-dev/photon).\n\n\`)}\${$if(marketplaceName === 'photons', \`## 🏛️ Official Marketplace
 
 This is the **official Photon marketplace** maintained by Portel. It comes pre-configured with Photon - no manual setup needed.
 
@@ -247,39 +247,19 @@ We welcome contributions! Submit pull requests for:
 
 **Repository:** [github.com/portel-dev/photons](https://github.com/portel-dev/photons)
 
-\`, '')}## ⚛️ What Are Photons?
+\`, '')}## 📦 Available Photons
 
-**Photons** are laser-focused modules - each does ONE thing exceptionally well:
-- 📁 **Filesystem** - File operations
-- 🐙 **Git** - Repository management
-- ☁️ **AWS S3** - Cloud storage
-- 📅 **Google Calendar** - Calendar integration
-- 🕐 **Time** - Timezone operations
-- ... and more
+| Photon | Focus | Tools | Details |
+|--------|-------|-------|---------|
+\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View →](\${p.name}.md) |\n\`)}
 
-Each photon delivers **singular focus** to a **precise target**.
+**Total:** \${photons.length} photons ready to use
 
-## ✨ Why This Matters
-
-**Zero Configuration**
-\\\`\\\`\\\`bash
-photon add filesystem  # That's it. No setup, no config files.
-\\\`\\\`\\\`
-
-**Instant Value**
-- 🎯 Each photon does one thing perfectly
-- 📦 \${photons.length} production-ready photons available
-- ⚡ Auto-installs dependencies
-- 🔧 Works out of the box
-
-**Universal Runtime**
-- 🤖 **MCP servers** for AI assistants (available now)
-- 💻 **CLI tools** for terminal workflows (coming soon)
-- 🔌 More interfaces coming...
+---
 
 ## 🚀 Quick Start
 
-### 1. Install Photon CLI
+### 1. Install Photon
 
 \\\`\\\`\\\`bash
 npm install -g @portel/photon
@@ -303,17 +283,40 @@ photon mcp filesystem
 photon get filesystem --mcp
 \\\`\\\`\\\`
 
+Output (paste directly into your MCP client config):
+\\\`\\\`\\\`json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "photon",
+      "args": ["mcp", "filesystem"]
+    }
+  }
+}
+\\\`\\\`\\\`
+
 Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
 
 **That's it!** Your AI assistant now has \${photons.length} focused tools at its fingertips.
 
-## 📦 Available Photons
+## ⚛️ What Are Photons?
 
-| Photon | Focus | Tools | Details |
-|--------|-------|-------|---------|
-\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View →](\${p.name}.md) |\n\`)}
+**Photons** are laser-focused modules - each does ONE thing exceptionally well:
+- 📁 **Filesystem** - File operations
+- 🐙 **Git** - Repository management
+- ☁️ **AWS S3** - Cloud storage
+- 📅 **Google Calendar** - Calendar integration
+- 🕐 **Time** - Timezone operations
+- ... and more
 
-**Total:** \${photons.length} photons ready to use
+Each photon delivers **singular focus** to a **precise target**.
+
+**Key Features:**
+- 🎯 Each photon does one thing perfectly
+- 📦 \${photons.length} production-ready photons available
+- ⚡ Auto-installs dependencies
+- 🔧 Works out of the box
+- 📄 Single-file design (easy to fork and customize)
 
 ## 🎯 The Value Proposition
 
