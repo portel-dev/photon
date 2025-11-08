@@ -4,7 +4,7 @@
 
 Build MCP servers in a single TypeScript file — no infrastructure code required.
 
-![Photon Logo](https://github.com/portel-dev/photon-mcp/raw/main/assets/photon-logo.png)
+![Photon Logo](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-logo.png)
 
 ---
 
