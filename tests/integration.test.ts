@@ -16,11 +16,11 @@ async function runIntegrationTests() {
 
   // Start PhotonServer as a subprocess using the mcp subcommand
   const cliPath = path.join(__dirname, '..', 'dist', 'cli.js');
-  const examplesDir = path.join(__dirname, '..', 'examples');
+  const fixturesDir = path.join(__dirname, 'fixtures');
 
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, '--working-dir', examplesDir, 'mcp', 'content'],
+    args: [cliPath, '--working-dir', fixturesDir, 'mcp', 'content'],
   });
 
   const client = new Client({
