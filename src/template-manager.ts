@@ -318,20 +318,37 @@ Add the output to your MCP client's configuration. **Consult your client's docum
 ## 🎯 The Value Proposition
 
 ### Before Photon
-\\\`\\\`\\\`bash
-# For each MCP server:
-# 1. Find and clone the repository
-# 2. Install dependencies manually
-# 3. Configure environment variables
-# 4. Add to MCP client config
-# 5. Repeat for every server
-\\\`\\\`\\\`
+
+For each MCP server:
+1. Find and clone the repository
+2. Install dependencies manually
+3. Configure environment variables
+4. Write MCP client config JSON by hand
+5. Repeat for every server
 
 ### With Photon
+
 \\\`\\\`\\\`bash
-photon add filesystem        # Install from marketplace
-photon get filesystem --mcp  # Get config, add to MCP client instantly
+# Install from marketplace
+photon add filesystem
+
+# Get MCP config
+photon get filesystem --mcp
 \\\`\\\`\\\`
+
+Output (paste directly into your MCP client config):
+\\\`\\\`\\\`json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "photon",
+      "args": ["mcp", "filesystem"]
+    }
+  }
+}
+\\\`\\\`\\\`
+
+**That's it.** No dependencies, no environment setup, no configuration files.
 
 **Difference:**
 - ✅ One CLI, one command
