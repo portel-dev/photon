@@ -1,116 +1,38 @@
 # Photon
 
-> **Singular focus. Precise target.**
+**One file. Zero boilerplate. Pure business logic.**
+
+Build MCP servers in a single TypeScript file — no infrastructure code required.
 
 ![Photon Logo](https://github.com/portel-dev/photon-mcp/raw/main/assets/photon-logo.png)
 
-Laser-focused TypeScript modules powered by a universal runtime.
+---
+
+## The Problem
+
+Traditional MCP servers scatter your logic across 4-6 files:
+
+```
+traditional-mcp/
+├── server.ts         (50 lines of boilerplate)
+├── transport.ts      (40 lines of setup)
+├── schemas.ts        (40 lines of type definitions)
+├── types.ts          (30 lines more types)
+├── package.json      (dependencies)
+└── business.ts       (20 lines of YOUR CODE)
+```
+
+**This creates real problems:**
+- ❌ **For AI agents**: Scattered context across files makes understanding difficult
+- ❌ **For humans**: Jump between files to understand one feature
+- ❌ **For teams**: 200+ lines before you write business logic
+- ❌ **For maintenance**: Changes require updating multiple files and configs
 
 ---
 
-## What is Photon?
+## The Solution
 
-**Photons** are TypeScript modules with **singular focus** - each does ONE thing exceptionally well.
-
-The **Photon Runtime** delivers **precise targeting** across any interface:
-- 🤖 **MCP servers** - for AI assistants
-- 💻 **CLI tools** - for terminal workflows *(coming soon)*
-- **...**
-
-Write focused business logic once. Deploy it everywhere.
-
----
-
-## Quick Start
-
-### Install
-```bash
-npm install -g @portel/photon
-```
-
-### Add a Photon
-```bash
-photon add filesystem
-```
-
-### Run as MCP Server
-```bash
-photon mcp filesystem
-```
-
-### Use as CLI *(coming soon)*
-```bash
-photon cli filesystem read --path file.txt
-```
-
-### Get MCP Config
-```bash
-# Get config for your MCP client
-photon get filesystem --mcp
-```
-
-Add the output to your MCP client's configuration. Consult your client's documentation for setup instructions.
-
----
-
-## Why Photon?
-
-| Feature | Benefit |
-|---------|---------|
-| 🎯 **Singular Focus** | Each photon does ONE thing exceptionally well |
-| 🔌 **Universal Runtime** | Same code, multiple interfaces (MCP, CLI, ...) |
-| 📦 **Instant Marketplace** | 16+ production-ready photons, zero configuration |
-| ⚡ **Auto-Dependencies** | Runtime handles installation automatically |
-| 📄 **Single-File Design** | Easy to read, fork, and customize |
-
----
-
-## Philosophy
-
-A **photon** is the smallest unit of light, delivering **singular focus** to a **precise target**.
-
-Each Photon module embodies this principle:
-- **Singular focus** - One responsibility, executed flawlessly
-- **Precise target** - Clear purpose, clean API
-- **Universal delivery** - Write once, use everywhere
-
----
-
-## Available Photons
-
-Production-ready photons from **[portel-dev/photons](https://github.com/portel-dev/photons)**:
-
-| Photon | Focus | Tools |
-|--------|-------|-------|
-| **AWS S3** | Cloud object storage | 11 |
-| **Docker** | Container management | 10 |
-| **Email** | SMTP and IMAP operations | 8 |
-| **Fetch** | Web content with readability extraction | 2 |
-| **Filesystem** | File and directory operations | 13 |
-| **Git** | Local repository management | 11 |
-| **GitHub Issues** | Issue tracking | 7 |
-| **Google Calendar** | Calendar integration | 9 |
-| **Jira** | Project management | 10 |
-| **Memory** | Knowledge graph persistence | 10 |
-| **MongoDB** | NoSQL database | 13 |
-| **PostgreSQL** | SQL database | 7 |
-| **Redis** | In-memory data store | 18 |
-| **Slack** | Workspace integration | 7 |
-| **SQLite** | Local SQL database | 9 |
-| **Time** | Timezone operations | 3 |
-
-Browse and install:
-```bash
-photon list           # See all available photons
-photon add postgres   # Install any photon
-photon search git     # Search by keyword
-```
-
----
-
-## Create Your Own
-
-### Write Focused Business Logic
+Photon puts everything in **one file**:
 
 ```typescript
 /**
@@ -152,35 +74,117 @@ export default class Analytics {
 }
 ```
 
-### Photon Enables Everything Else
-
-```bash
-# Run as MCP server
-photon mcp analytics
-
-# Use as CLI (coming soon)
-photon cli analytics revenue --start-date 2024-01-01 --end-date 2024-12-31
-
-# More interfaces coming...
-```
-
-**What Photon handles automatically:**
-- ✅ TypeScript compilation
-- ✅ Schema generation from types
-- ✅ MCP protocol implementation
-- ✅ Environment variable mapping
-- ✅ Dependency installation
-- ✅ Hot reload in dev mode
-- ✅ CLI integration (coming)
-
-**You focus on:** Your business logic
-**Photon handles:** Everything else
+**40 lines. One file. Production-ready.**
 
 ---
 
-## How It Works
+## Why One File Changes Everything
 
-### 1. Convention = Automation
+### 🤖 AI-Native Design
+
+AI agents can now understand your entire MCP in one context:
+
+```bash
+# AI can read, understand, and suggest improvements
+"Read my analytics.photon.ts and explain how it works"
+"Review this photon for security issues"
+"Add error handling to this photon"
+```
+
+Traditional MCPs require AI to piece together scattered files — Photons give complete context.
+
+### 👤 Human-Friendly
+
+- **Understand**: Read one file, understand the whole system
+- **Review**: Code reviews are one file, one story
+- **Debug**: All logic in one place, no jumping around
+- **Learn**: New team members read one file
+
+### 🔧 Fork-First Philosophy
+
+Every photon is designed to be customized:
+
+```bash
+# Copy, modify, done — no build configs to update
+cp ~/.photon/jira.photon.ts ~/.photon/my-jira.photon.ts
+# Edit my-jira.photon.ts however you want
+photon mcp my-jira  # Works immediately
+```
+
+**Use cases:**
+- Add company-specific authentication
+- Customize business logic
+- Merge multiple photons
+- Experiment without breaking originals
+
+### 📦 Zero-Friction Dependencies
+
+Dependencies are auto-installed via JSDoc (like `npx` or `uv`):
+
+```typescript
+/**
+ * @dependencies axios@^1.6.0, lodash@^4.17.21
+ */
+```
+
+No manual `npm install`. No `package.json`. Photon handles it.
+
+---
+
+## Quick Start
+
+### Install
+
+```bash
+npm install -g @portel/photon
+```
+
+### Use Ready-Made Photons
+
+```bash
+# Browse 16+ production-ready photons
+photon list
+
+# Install any photon
+photon add filesystem
+
+# Run as MCP server
+photon mcp filesystem
+```
+
+### Integrate with Your MCP Client
+
+```bash
+# Get configuration for any MCP client
+photon get filesystem --mcp
+```
+
+Add the output to your MCP client's config file. **Consult your client's documentation** for setup instructions.
+
+**MCP clients include:** Claude Desktop, Cursor, Zed, Continue, Cline, and more.
+
+---
+
+## The Value Proposition
+
+| Metric | Traditional MCP | Photon |
+|--------|-----------------|--------|
+| **Setup Time** | 40 minutes | 5 minutes |
+| **Lines of Code** | 200+ | ~40 |
+| **Files Needed** | 4-6 files | 1 file |
+| **Boilerplate** | Manual | Auto-handled |
+| **Schema Generation** | Manual | Automatic from TypeScript |
+| **Dependencies** | Manual npm install | Auto-installed from @dependencies |
+| **Hot Reload** | Configure yourself | Built-in with --dev |
+| **AI Context** | Scattered | Single file |
+
+[See detailed comparison →](COMPARISON.md)
+
+---
+
+## How Photon Works
+
+### Convention = Automation
 
 **File Name → MCP Name**
 ```typescript
@@ -193,99 +197,197 @@ async revenue() {}      // → "revenue" tool
 async topCustomers() {} // → "topCustomers" tool
 ```
 
-**TypeScript Types → Schemas**
+**TypeScript Types → JSON Schemas**
 ```typescript
 async create(params: { title: string; priority: number }) {}
-// Auto-generates JSON schema from TypeScript types
+// Photon auto-generates JSON schema from TypeScript types
 ```
 
-**JSDoc → Descriptions**
+**JSDoc → Tool Descriptions**
 ```typescript
 /**
  * Get revenue by date range
  * @param startDate Start date (YYYY-MM-DD)
  */
-// Photon extracts tool descriptions automatically
+// Photon extracts descriptions automatically
 ```
 
-**Constructor → Configuration**
+**Constructor Parameters → Environment Variables**
 ```typescript
 constructor(private host: string, private database: string) {}
 // Maps to: ANALYTICS_HOST, ANALYTICS_DATABASE
 ```
 
-### 2. Zero-Setup Dependencies
+**JSDoc @dependencies → Auto-Install**
+```typescript
+/**
+ * @dependencies pg@^8.11.0, lodash@^4.17.21
+ */
+// Photon auto-installs on first run (like npx or uv)
+```
+
+---
+
+## Available Photons
+
+Production-ready photons from **[portel-dev/photons](https://github.com/portel-dev/photons)**:
+
+| Category | Photons | Total Tools |
+|----------|---------|-------------|
+| **Databases** | PostgreSQL (7), MongoDB (13), Redis (18), SQLite (9) | 47 |
+| **Infrastructure** | AWS S3 (11), Docker (10), Filesystem (13) | 34 |
+| **Development** | Git (11), GitHub Issues (7) | 18 |
+| **Communication** | Email (8), Slack (7) | 15 |
+| **Productivity** | Google Calendar (9), Jira (10) | 19 |
+| **Utilities** | Fetch (2), Time (3), Memory (10) | 15 |
+
+**Total: 16 photons, 148 focused tools**
+
+Browse and install:
+```bash
+photon list           # See all available photons
+photon add postgres   # Install any photon
+photon search git     # Search by keyword
+```
+
+---
+
+## Create Your Own Photon
+
+### 1. Initialize
+
+```bash
+photon init analytics
+```
+
+Creates `analytics.photon.ts` in `~/.photon/` (accessible from anywhere).
+
+**Custom directory:**
+```bash
+photon --working-dir ./my-photons init analytics
+```
+
+### 2. Write Business Logic
 
 ```typescript
 /**
- * @dependencies axios@^1.6.0, lodash@^4.17.21
+ * Analytics - Query company analytics database
+ * @dependencies pg@^8.11.0
  */
-// Photon auto-installs on first run. No manual npm install needed.
+import { Client } from 'pg';
+
+export default class Analytics {
+  private db: Client;
+
+  constructor(
+    private host: string,
+    private database: string,
+    private password: string
+  ) {}
+
+  async onInitialize() {
+    this.db = new Client({
+      host: this.host,
+      database: this.database,
+      password: this.password
+    });
+    await this.db.connect();
+  }
+
+  /**
+   * Get revenue by date range
+   * @param startDate Start date (YYYY-MM-DD)
+   * @param endDate End date (YYYY-MM-DD)
+   */
+  async revenue(params: { startDate: string; endDate: string }) {
+    const result = await this.db.query(
+      'SELECT date, SUM(amount) FROM orders WHERE date BETWEEN $1 AND $2 GROUP BY date',
+      [params.startDate, params.endDate]
+    );
+    return result.rows;
+  }
+
+  async onShutdown() {
+    await this.db.end();
+  }
+}
 ```
 
-### 3. Single-File Distribution
+### 3. Run
 
-- One `.ts` file = one photon
-- Easy to customize: just edit the file
-- Easy to share: copy file or push to git
-- Git-friendly, version controllable
+```bash
+# Development mode (hot reload)
+photon mcp analytics --dev
+
+# Production mode
+photon mcp analytics
+```
+
+**That's it!** Photon handles:
+- ✅ TypeScript compilation (via esbuild)
+- ✅ Schema generation from types
+- ✅ MCP protocol implementation
+- ✅ Environment variable mapping
+- ✅ Dependency installation (@dependencies)
+- ✅ Hot reload in dev mode
+
+**You focus on:** Your business logic
+**Photon handles:** Everything else
 
 ---
 
 ## Commands
 
-### Run MCP Server
+### Development
 
 ```bash
-# Production mode
-photon mcp calculator
+# Create new photon
+photon init <name>
 
-# Development mode (hot reload)
-photon mcp calculator --dev
+# Run with hot reload
+photon mcp <name> --dev
+
+# Validate syntax and schemas
+photon validate <name>
 ```
 
-### List and Inspect Photons
+### Production
 
 ```bash
-# List all photons
-photon get
+# Run MCP server
+photon mcp <name>
 
-# Show details for one
-photon get calculator
-
-# Get MCP config for any client
-photon get calculator --mcp
+# Get MCP client configuration
+photon get <name> --mcp
 ```
 
-### Create New Photon
+### Marketplace
 
 ```bash
-photon init calculator
+# List available photons
+photon list
+
+# Search photons
+photon search <keyword>
+
+# Install photon
+photon add <name>
+
+# View photon details
+photon get <name>
+
+# Upgrade photons
+photon upgrade [name]
 ```
-
-Creates `calculator.photon.ts` in `~/.photon/` (accessible from anywhere).
-
-**Custom directory:**
-```bash
-photon --working-dir ./my-photons init calculator
-```
-
-### Validate Photon
-
-```bash
-photon validate calculator
-```
-
-Validates syntax and extracts schemas without running.
 
 ---
 
 ## Marketplace System
 
-### Install from Marketplace
+### For Users: Install from Marketplace
 
 ```bash
-# Install from default marketplace (portel-dev/photons)
+# Install from official marketplace (portel-dev/photons)
 photon add github-issues
 photon add sqlite
 photon add memory
@@ -294,9 +396,9 @@ photon add memory
 photon search slack
 ```
 
-### Create Your Marketplace
+### For Teams: Create Your Marketplace
 
-**For enterprises and teams:**
+**Build an internal marketplace for your organization:**
 
 ```bash
 # 1. Organize your photons
@@ -306,15 +408,23 @@ cp ~/.photon/*.photon.ts .
 # 2. Generate marketplace manifest
 photon sync marketplace
 
-# 3. Push to GitHub
+# 3. Push to GitHub/Git
 git init
 git add .
 git commit -m "Initial marketplace"
 git push origin main
 
-# 4. Share with team
-# Team members run: photon marketplace add company/photons
+# 4. Team members install
+photon marketplace add company/photons
+photon add internal-crm
+photon add analytics-db
 ```
+
+**Benefits:**
+- 🔒 **Secure**: Your code, your infrastructure, your control
+- 📦 **Easy**: Single-file photons are trivial to maintain
+- 🎯 **Focused**: Build exact tools for your workflows
+- 📊 **Traceable**: Git-based versioning and attribution
 
 ### Manage Marketplaces
 
@@ -322,35 +432,19 @@ git push origin main
 # List all marketplaces
 photon marketplace list
 
-# Add marketplace - Multiple formats supported:
-photon marketplace add username/my-photons           # GitHub shorthand
-photon marketplace add https://github.com/user/repo  # HTTPS
-photon marketplace add git@github.com:user/repo.git  # SSH
-photon marketplace add https://example.com/photons   # Direct URL
-photon marketplace add ./my-local-photons            # Local path
+# Add marketplace (multiple formats supported)
+photon marketplace add username/repo              # GitHub shorthand
+photon marketplace add https://github.com/u/repo  # HTTPS
+photon marketplace add git@github.com:u/repo.git  # SSH
+photon marketplace add https://example.com/mkt    # Direct URL
+photon marketplace add ./local-photons            # Local path
 
 # Remove marketplace
-photon marketplace remove my-photons
+photon marketplace remove <name>
 
 # Search across all marketplaces
-photon search github
+photon search <keyword>
 ```
-
-### Upgrade Photons
-
-```bash
-# Upgrade all photons
-photon upgrade
-
-# Upgrade specific photon
-photon upgrade filesystem
-```
-
-**Features:**
-- Version tracking
-- Modification detection (SHA-256 hash)
-- Marketplace attribution
-- Integrity verification
 
 ---
 
@@ -361,13 +455,13 @@ photon upgrade filesystem
 ```typescript
 export default class MyPhoton {
   async onInitialize() {
-    // Called when photon is loaded
-    console.error('Initialized');
+    // Called when photon loads
+    console.error('Photon initialized');
   }
 
   async onShutdown() {
     // Called on shutdown
-    console.error('Shutting down');
+    console.error('Photon shutting down');
   }
 
   async myTool(params: { input: string }) {
@@ -415,6 +509,8 @@ export default class MyPhoton {
 
 ### Private Methods
 
+Methods starting with `_` are private (not exposed as tools):
+
 ```typescript
 export default class MyPhoton {
   // Public tool
@@ -422,9 +518,9 @@ export default class MyPhoton {
     return this._helperMethod();
   }
 
-  // Private helper (NOT a tool)
+  // Private helper (NOT exposed)
   async _helperMethod() {
-    return "This won't be exposed as a tool";
+    return "Internal logic only";
   }
 }
 ```
@@ -433,12 +529,21 @@ export default class MyPhoton {
 
 ## Integration with MCP Clients
 
-```bash
-# Get MCP config for any photon
-photon get calculator --mcp
-```
+Photon works with **any MCP client**:
 
-This outputs the configuration needed for your MCP client. Add it to your client's config file.
+- **Claude Desktop** (Anthropic)
+- **Cursor** (IDE)
+- **Zed** (IDE)
+- **Continue** (VS Code extension)
+- **Cline** (VS Code extension)
+- ... and more
+
+### Setup
+
+```bash
+# Get configuration for your MCP client
+photon get <photon-name> --mcp
+```
 
 **Consult your MCP client's documentation** for:
 - Config file location
@@ -448,9 +553,14 @@ This outputs the configuration needed for your MCP client. Add it to your client
 Example output:
 ```json
 {
-  "calculator": {
+  "analytics": {
     "command": "photon",
-    "args": ["mcp", "calculator"]
+    "args": ["mcp", "analytics"],
+    "env": {
+      "ANALYTICS_HOST": "localhost",
+      "ANALYTICS_DATABASE": "company",
+      "ANALYTICS_PASSWORD": "secret"
+    }
   }
 }
 ```
@@ -459,9 +569,9 @@ Example output:
 
 ## Examples
 
-The repository includes example photons in the `examples/` directory:
+The repository includes example photons in `examples/`:
 
-### Content (Templates & Static)
+### Content (Templates & Static Resources)
 ```bash
 npx photon --working-dir examples mcp content --dev
 ```
@@ -490,30 +600,48 @@ Task management system.
 ## Architecture
 
 ```
-┌─────────────────┐
-│ .photon.ts file │
-└────────┬────────┘
-         │
-         ↓
-   ┌─────────────┐
-   │   Loader    │ ← Compiles TypeScript with esbuild
-   └─────┬───────┘   Loads class dynamically
-         │
-         ↓
- ┌──────────────────┐
- │ Schema Extractor │ ← Parses JSDoc + TypeScript types
- └────────┬─────────┘   Generates JSON schemas
-          │
-          ↓
-  ┌───────────────┐
-  │  MCP Server   │ ← Implements MCP protocol
-  └───────┬───────┘   Using @modelcontextprotocol/sdk
-          │
-          ↓
-  ┌──────────────┐
-  │ stdio/JSON-RPC│ ← Communicates with MCP clients
-  └──────────────┘   (Claude Desktop, Cursor, etc.)
+┌─────────────────────┐
+│  .photon.ts file    │  ← Your single TypeScript file
+└──────────┬──────────┘
+           │
+           ↓
+   ┌───────────────┐
+   │ Auto-Install  │  ← Reads @dependencies, installs packages
+   └───────┬───────┘
+           │
+           ↓
+   ┌───────────────┐
+   │    Loader     │  ← Compiles TypeScript with esbuild
+   └───────┬───────┘    Loads class dynamically
+           │
+           ↓
+ ┌─────────────────────┐
+ │  Schema Extractor   │  ← Parses JSDoc + TypeScript types
+ └──────────┬──────────┘    Generates JSON schemas
+            │
+            ↓
+    ┌──────────────┐
+    │  MCP Server  │  ← Implements MCP protocol
+    └──────┬───────┘    Using @modelcontextprotocol/sdk
+           │
+           ↓
+   ┌──────────────┐
+   │ stdio/JSON-RPC│  ← Communicates with MCP clients
+   └──────────────┘    (Claude Desktop, Cursor, Zed, etc.)
 ```
+
+---
+
+## Philosophy
+
+> **"Singular focus. Precise target."**
+
+A **photon** is the smallest unit of light, delivering **singular focus** to a **precise target**.
+
+Each Photon module embodies this principle:
+- **Singular focus** - One responsibility, executed flawlessly
+- **Precise target** - Clear purpose, clean API
+- **Universal design** - Pure TypeScript, ready for future possibilities
 
 ---
 
@@ -521,7 +649,7 @@ Task management system.
 
 ### Do I need to extend a base class?
 
-No! Just export any class with async methods.
+No! Just export any class with async methods. Photon handles the rest.
 
 ### How are parameters validated?
 
@@ -529,7 +657,7 @@ Photon extracts JSON schemas from your TypeScript types. MCP clients validate pa
 
 ### Can I use external packages?
 
-Yes! Dependencies are **auto-installed** from JSDoc `@dependencies` tags.
+Yes! Dependencies are **auto-installed** from JSDoc `@dependencies` tags (like `npx` or `uv`).
 
 ### How does hot reload work?
 
@@ -544,25 +672,48 @@ In `--dev` mode, Photon watches your `.photon.ts` file and recompiles on save.
 **Default:** `~/.photon/`
 **Custom:** Use `--working-dir` flag
 
+### Can I fork and customize photons?
+
+Absolutely! That's the design. Copy any `.photon.ts` file, edit it, run it. No build config changes needed.
+
+### How do I update photons?
+
+```bash
+photon upgrade        # Update all
+photon upgrade <name> # Update specific photon
+```
+
 ---
 
 ## Roadmap
 
-- [x] **MCP Server Interface** - AI assistant integration
-- [ ] **CLI Tool Interface** - Terminal workflows
-- [ ] **More interfaces coming...**
+### ✅ Version 1.0 - MCP Servers (Available Now)
+
+Build and run photons as MCP servers for AI assistants. Works with Claude Desktop, Cursor, Zed, Continue, Cline, and any MCP-compatible client.
+
+### 🔮 Future Versions
+
+Photon's framework-agnostic design enables future deployment targets:
+- **CLI tools** - Run photons as terminal commands
+- **More targets** - Additional deployment options as the ecosystem grows
+
+**The vision:** Write focused business logic once. As Photon evolves, deploy it to multiple targets.
+
+---
+
+## Documentation
+
+- **[GUIDE.md](GUIDE.md)** - Complete tutorial for creating photons
+- **[ADVANCED.md](ADVANCED.md)** - Lifecycle hooks, performance, production deployment
+- **[COMPARISON.md](COMPARISON.md)** - Detailed comparison vs traditional MCP
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
 ---
 
 ## Contributing
 
 Contributions welcome! Please open issues and PRs at [github.com/portel-dev/photon-mcp](https://github.com/portel-dev/photon-mcp).
-
----
-
-## License
-
-MIT © Portel
 
 ---
 
@@ -573,6 +724,12 @@ MIT © Portel
 
 ---
 
+## License
+
+MIT © Portel
+
+---
+
 **Built with singular focus. Deployed with precise targeting.**
 
-Made with ⚛️ by Portel
+Made with ⚛️ by [Portel](https://github.com/portel-dev)
