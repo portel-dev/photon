@@ -1114,6 +1114,7 @@ program
   .command('add')
   .argument('<name>', 'MCP name to add')
   .option('--marketplace <name>', 'Specific marketplace to use')
+  .option('-y, --yes', 'Automatically select first suggestion without prompting')
   .description('Add an MCP from a marketplace')
   .action(async (name: string, options: any, command: Command) => {
     try {
@@ -1151,43 +1152,51 @@ program
             count++;
           }
 
-          // Interactive selection
-          const selectedIndex = await new Promise<number | null>((resolve) => {
-            const rl = readline.createInterface({
-              input: process.stdin,
-              output: process.stderr,
+          // Interactive selection or auto-select with -y
+          let selectedIndex: number | null;
+
+          if (options.yes) {
+            // Auto-select first suggestion
+            selectedIndex = 0;
+          } else {
+            // Interactive selection
+            selectedIndex = await new Promise<number | null>((resolve) => {
+              const rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stderr,
+              });
+
+              const askQuestion = () => {
+                rl.question(`\nWhich one? [1-${suggestions.length}] (or press Enter to cancel): `, (answer) => {
+                  const trimmed = answer.trim();
+
+                  // Empty input = cancel
+                  if (trimmed === '') {
+                    rl.close();
+                    resolve(null);
+                    return;
+                  }
+
+                  const choice = parseInt(trimmed, 10);
+
+                  // Validate input
+                  if (isNaN(choice) || choice < 1 || choice > suggestions.length) {
+                    console.error(`Invalid choice. Please enter a number between 1 and ${suggestions.length}.`);
+                    askQuestion();
+                  } else {
+                    rl.close();
+                    resolve(choice - 1);
+                  }
+                });
+              };
+
+              askQuestion();
             });
 
-            const askQuestion = () => {
-              rl.question(`\nWhich one? [1-${suggestions.length}] (or press Enter to cancel): `, (answer) => {
-                const trimmed = answer.trim();
-
-                // Empty input = cancel
-                if (trimmed === '') {
-                  rl.close();
-                  resolve(null);
-                  return;
-                }
-
-                const choice = parseInt(trimmed, 10);
-
-                // Validate input
-                if (isNaN(choice) || choice < 1 || choice > suggestions.length) {
-                  console.error(`Invalid choice. Please enter a number between 1 and ${suggestions.length}.`);
-                  askQuestion();
-                } else {
-                  rl.close();
-                  resolve(choice - 1);
-                }
-              });
-            };
-
-            askQuestion();
-          });
-
-          if (selectedIndex === null) {
-            console.error('\nCancelled.');
-            process.exit(0);
+            if (selectedIndex === null) {
+              console.error('\nCancelled.');
+              process.exit(0);
+            }
           }
 
           // Update name to the selected MCP
