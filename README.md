@@ -1,4 +1,3 @@
-# Photon
 
 ![Photon Logo](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-logo.png)
 
@@ -6,9 +5,11 @@
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon.svg)](https://www.npmjs.com/package/@portel/photon)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
 
+# Photon
+
 **Runtime that turns single-file TypeScript classes into production-ready MCP servers.**
 
-One file. Zero boilerplate. Pure business logic.
+Photon TS files are Single file. Zero boilerplate. Pure business logic.
 
 ---
 
@@ -27,6 +28,7 @@ traditional-mcp/
 ```
 
 **This creates real problems:**
+
 - ❌ **For AI agents**: Scattered context across files makes understanding difficult
 - ❌ **For humans**: Jump between files to understand one feature
 - ❌ **For teams**: 200+ lines before you write business logic
@@ -633,6 +635,7 @@ photon add analytics-db
 ```
 
 **Benefits:**
+
 - 🔒 **Secure**: Your code, your infrastructure, your control
 - 📦 **Easy**: Single-file photons are trivial to maintain
 - 🎯 **Focused**: Build exact tools for your workflows
@@ -837,9 +840,9 @@ Task management system.
     └──────┬───────┘    Using @modelcontextprotocol/sdk
            │
            ↓
-   ┌──────────────┐
+   ┌─────────────-─┐
    │ stdio/JSON-RPC│  ← Communicates with MCP clients
-   └──────────────┘    (Claude Desktop, Cursor, Zed, etc.)
+   └─────────────-─┘    (Claude Desktop, Cursor, Zed, etc.)
 ```
 
 ---
@@ -851,6 +854,7 @@ Task management system.
 A **photon** is the smallest unit of light, delivering **singular focus** to a **precise target**.
 
 Each Photon module embodies this principle:
+
 - **Singular focus** - One responsibility, executed flawlessly
 - **Precise target** - Clear purpose, clean API
 - **Universal design** - Pure TypeScript, ready for future possibilities
@@ -906,6 +910,7 @@ Build and run photons as MCP servers for AI assistants. Works with Claude Deskto
 ### 🔮 Future Versions
 
 Photon's framework-agnostic design enables future deployment targets:
+
 - **CLI tools** - Run photons as terminal commands
 - **More targets** - Additional deployment options as the ecosystem grows
 
