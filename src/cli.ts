@@ -902,20 +902,127 @@ marketplace
     }
   });
 
-// Backwards compatibility: 'init' as hidden alias for 'sync'
+// Initialize a new marketplace with git hooks
 marketplace
-  .command('init', { hidden: true })
-  .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
+  .command('init')
+  .argument('[path]', 'Directory to initialize as marketplace (defaults to current directory)', '.')
   .option('--name <name>', 'Marketplace name')
   .option('--description <desc>', 'Marketplace description')
   .option('--owner <owner>', 'Owner name')
-  .description('(Deprecated: use "sync") Initialize a directory as a Photon marketplace')
+  .description('Initialize a directory as a Photon marketplace with git hooks')
   .action(async (dirPath: string, options: any) => {
-    console.error('⚠️  "marketplace init" is deprecated. Please use "marketplace sync" instead.\n');
-    // Call the same handler - will be refactored into shared function later
-    await program.commands.find(cmd => cmd.name() === 'marketplace')
-      ?.commands.find(cmd => cmd.name() === 'sync')
-      ?.parseAsync(['sync', dirPath], { from: 'user' });
+    try {
+      const fs = await import('fs/promises');
+      const { existsSync } = await import('fs');
+      const path = await import('path');
+
+      const absolutePath = path.resolve(dirPath);
+
+      // Check if directory exists
+      if (!existsSync(absolutePath)) {
+        await fs.mkdir(absolutePath, { recursive: true });
+        console.error(`📁 Created directory: ${absolutePath}`);
+      }
+
+      // Check if it's a git repository
+      const gitDir = path.join(absolutePath, '.git');
+      if (!existsSync(gitDir)) {
+        console.error('⚠️  Not a git repository. Initialize with: git init');
+        process.exit(1);
+      }
+
+      // Create .githooks directory
+      const hooksDir = path.join(absolutePath, '.githooks');
+      await fs.mkdir(hooksDir, { recursive: true });
+
+      // Create pre-commit hook
+      const preCommitHook = `#!/bin/bash
+# Pre-commit hook: Auto-sync marketplace manifest before commit
+# This ensures .marketplace/photons.json is always up-to-date
+
+# Check if any .photon.ts files or marketplace files are being committed
+if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/'; then
+  echo "🔄 Syncing marketplace manifest..."
+
+  # Run photon sync marketplace
+  if photon sync marketplace; then
+    # Stage the generated files
+    git add .marketplace/photons.json README.md *.md 2>/dev/null
+    echo "✅ Marketplace synced and staged"
+  else
+    echo "❌ Failed to sync marketplace"
+    exit 1
+  fi
+fi
+
+exit 0
+`;
+
+      const preCommitPath = path.join(hooksDir, 'pre-commit');
+      await fs.writeFile(preCommitPath, preCommitHook, { mode: 0o755 });
+      console.error('✅ Created .githooks/pre-commit');
+
+      // Create setup script
+      const setupScript = `#!/bin/bash
+# Setup script to install git hooks for this marketplace
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+HOOKS_DIR="$REPO_ROOT/.git/hooks"
+SOURCE_HOOKS="$REPO_ROOT/.githooks"
+
+echo "🔧 Installing git hooks for Photon marketplace..."
+
+# Copy pre-commit hook
+if [ -f "$SOURCE_HOOKS/pre-commit" ]; then
+  cp "$SOURCE_HOOKS/pre-commit" "$HOOKS_DIR/pre-commit"
+  chmod +x "$HOOKS_DIR/pre-commit"
+  echo "✅ Installed pre-commit hook (auto-syncs marketplace manifest)"
+else
+  echo "❌ pre-commit hook not found"
+  exit 1
+fi
+
+echo ""
+echo "✅ Git hooks installed successfully!"
+echo ""
+echo "The pre-commit hook will automatically run 'photon sync marketplace'"
+echo "whenever you commit changes to .photon.ts files."
+`;
+
+      const setupPath = path.join(hooksDir, 'setup.sh');
+      await fs.writeFile(setupPath, setupScript, { mode: 0o755 });
+      console.error('✅ Created .githooks/setup.sh');
+
+      // Install hooks to .git/hooks
+      const gitHooksDir = path.join(absolutePath, '.git', 'hooks');
+      const gitPreCommitPath = path.join(gitHooksDir, 'pre-commit');
+      await fs.writeFile(gitPreCommitPath, preCommitHook, { mode: 0o755 });
+      console.error('✅ Installed hooks to .git/hooks');
+
+      // Create .marketplace directory
+      const marketplaceDir = path.join(absolutePath, '.marketplace');
+      await fs.mkdir(marketplaceDir, { recursive: true });
+      console.error('✅ Created .marketplace directory');
+
+      // Run initial sync
+      console.error('\n🔄 Running initial marketplace sync...\n');
+      await performMarketplaceSync(dirPath, options);
+
+      console.error('\n✅ Marketplace initialized successfully!');
+      console.error('\nNext steps:');
+      console.error('1. Add your .photon.ts files to this directory');
+      console.error('2. Commit your changes (hooks will auto-sync)');
+      console.error('3. Push to GitHub to share your marketplace');
+      console.error('\nContributors can setup hooks with:');
+      console.error('  bash .githooks/setup.sh');
+
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      if (process.env.DEBUG) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
   });
 
 marketplace
