@@ -1129,8 +1129,27 @@ program
       const conflict = await manager.checkConflict(name, options.marketplace);
 
       if (!conflict.sources || conflict.sources.length === 0) {
-        console.error(`❌ MCP '${name}' not found in any enabled marketplace`);
-        console.error(`Tip: Use 'photon search ${name}' to find it`);
+        console.error(`❌ MCP '${name}' not found in any enabled marketplace\n`);
+
+        // Search for similar names
+        const searchResults = await manager.search(name);
+
+        if (searchResults.size > 0) {
+          console.error(`Did you mean one of these?\n`);
+          let count = 0;
+          for (const [mcpName, sources] of searchResults) {
+            if (count >= 5) break; // Limit to 5 suggestions
+            const source = sources[0]; // Use first marketplace
+            const version = source.metadata?.version || 'unknown';
+            const description = source.metadata?.description || 'No description';
+            console.error(`  📦 ${mcpName} (v${version})`);
+            console.error(`     ${description}`);
+            count++;
+          }
+        } else {
+          console.error(`Run 'photon get' to see all available MCPs`);
+        }
+
         process.exit(1);
       }
 
