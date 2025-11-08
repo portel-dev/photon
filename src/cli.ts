@@ -1126,7 +1126,7 @@ program
       await manager.initialize();
 
       // Check for conflicts
-      const conflict = await manager.checkConflict(name, options.marketplace);
+      let conflict = await manager.checkConflict(name, options.marketplace);
 
       if (!conflict.sources || conflict.sources.length === 0) {
         console.error(`❌ MCP '${name}' not found in any enabled marketplace\n`);
@@ -1136,21 +1136,74 @@ program
 
         if (searchResults.size > 0) {
           console.error(`Did you mean one of these?\n`);
+
+          // Convert search results to array for selection
+          const suggestions: Array<{ name: string; version: string; description: string }> = [];
           let count = 0;
           for (const [mcpName, sources] of searchResults) {
             if (count >= 5) break; // Limit to 5 suggestions
             const source = sources[0]; // Use first marketplace
             const version = source.metadata?.version || 'unknown';
             const description = source.metadata?.description || 'No description';
-            console.error(`  📦 ${mcpName} (v${version})`);
-            console.error(`     ${description}`);
+            suggestions.push({ name: mcpName, version, description });
+            console.error(`  [${count + 1}] ${mcpName} (v${version})`);
+            console.error(`      ${description}`);
             count++;
+          }
+
+          // Interactive selection
+          const selectedIndex = await new Promise<number | null>((resolve) => {
+            const rl = readline.createInterface({
+              input: process.stdin,
+              output: process.stderr,
+            });
+
+            const askQuestion = () => {
+              rl.question(`\nWhich one? [1-${suggestions.length}] (or press Enter to cancel): `, (answer) => {
+                const trimmed = answer.trim();
+
+                // Empty input = cancel
+                if (trimmed === '') {
+                  rl.close();
+                  resolve(null);
+                  return;
+                }
+
+                const choice = parseInt(trimmed, 10);
+
+                // Validate input
+                if (isNaN(choice) || choice < 1 || choice > suggestions.length) {
+                  console.error(`Invalid choice. Please enter a number between 1 and ${suggestions.length}.`);
+                  askQuestion();
+                } else {
+                  rl.close();
+                  resolve(choice - 1);
+                }
+              });
+            };
+
+            askQuestion();
+          });
+
+          if (selectedIndex === null) {
+            console.error('\nCancelled.');
+            process.exit(0);
+          }
+
+          // Update name to the selected MCP
+          name = suggestions[selectedIndex].name;
+          console.error(`\n✓ Selected: ${name}`);
+
+          // Re-check for conflicts with the new name
+          conflict = await manager.checkConflict(name, options.marketplace);
+          if (!conflict.sources || conflict.sources.length === 0) {
+            console.error(`❌ MCP '${name}' is no longer available`);
+            process.exit(1);
           }
         } else {
           console.error(`Run 'photon get' to see all available MCPs`);
+          process.exit(1);
         }
-
-        process.exit(1);
       }
 
       // Check if already exists locally
