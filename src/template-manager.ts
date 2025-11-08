@@ -384,7 +384,7 @@ Automate your workflow through AI
 
 \\\`\\\`\\\`bash
 # List all photons
-photon list
+photon get
 
 # Search by keyword
 photon search calendar
