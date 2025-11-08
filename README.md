@@ -1,10 +1,14 @@
 # Photon
 
-**One file. Zero boilerplate. Pure business logic.**
-
-Build MCP servers in a single TypeScript file — no infrastructure code required.
-
 ![Photon Logo](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-logo.png)
+
+[![npm version](https://img.shields.io/npm/v/@portel/photon.svg)](https://www.npmjs.com/package/@portel/photon)
+[![npm downloads](https://img.shields.io/npm/dm/@portel/photon.svg)](https://www.npmjs.com/package/@portel/photon)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
+
+**Runtime that turns single-file TypeScript classes into production-ready MCP servers.**
+
+One file. Zero boilerplate. Pure business logic.
 
 ---
 
@@ -141,15 +145,34 @@ npm install -g @portel/photon
 
 ### Use Ready-Made Photons
 
+The [**official Photon marketplace**](https://github.com/portel-dev/photons) comes pre-configured with 16+ production-ready photons:
+
 ```bash
-# Browse 16+ production-ready photons
+# Browse all photons
 photon get
 
-# Install any photon
+# Install any photon (filesystem, git, postgres, mongodb, slack, etc.)
 photon add filesystem
 
 # Run as MCP server
 photon mcp filesystem
+```
+
+### Build Photons with AI
+
+Use the [**photon-skill**](https://github.com/portel-dev/photon-skill) for Claude Desktop or Claude Code to generate `.photon.ts` files:
+- Single TypeScript files with metadata
+- AI understands complete context in one file
+- Zero boilerplate, just business logic
+
+### Add Your Own Marketplace
+
+```bash
+# Add custom marketplace from GitHub
+photon marketplace add your-org/your-photons
+
+# Install from your marketplace
+photon add your-custom-tool
 ```
 
 ### Integrate with Your MCP Client

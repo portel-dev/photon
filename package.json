@@ -25,7 +25,12 @@
     "test:integration": "npx tsx tests/integration.test.ts",
     "test:load": "npm run build && node --expose-gc --max-old-space-size=4096 node_modules/.bin/tsx tests/load-test.ts",
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
-    "test:github": "npm run build && npx tsx tests/github-issues.test.ts"
+    "test:github": "npm run build && npx tsx tests/github-issues.test.ts",
+    "release": "release-it",
+    "release:minor": "release-it minor",
+    "release:major": "release-it major",
+    "release:patch": "release-it patch",
+    "release:dry": "release-it --dry-run"
   },
   "keywords": [
     "mcp",
@@ -52,9 +57,11 @@
     "typescript": "^5.0.0"
   },
   "devDependencies": {
+    "@release-it/conventional-changelog": "^10.0.1",
     "@types/node": "^22.10.2",
     "autocannon": "^8.0.0",
     "clinic": "^13.0.0",
+    "release-it": "^19.0.6",
     "tsx": "^4.20.6",
     "typescript": "^5.7.3"
   },
