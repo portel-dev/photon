@@ -45,7 +45,8 @@ test_fail() {
 }
 
 # Get photon command (either global or local)
-PHOTON_CMD="node dist/cli.js"
+# Use absolute path for dist/cli.js to work after cd operations
+PHOTON_CMD="node $REPO_ROOT/dist/cli.js"
 if command -v photon &> /dev/null; then
     PHOTON_CMD="photon"
 fi
