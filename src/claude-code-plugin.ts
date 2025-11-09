@@ -85,7 +85,10 @@ async function generateMarketplaceJson(
     owner: options.owner ? {
       name: options.owner,
       email: 'contact@portel.dev'
-    } : manifest.owner,
+    } : (manifest.owner || {
+      name: 'Portel',
+      email: 'contact@portel.dev'
+    }),
     metadata: {
       description: manifest.description || options.description || `Official ${manifest.name} MCP servers`,
       version: manifest.version || '1.0.0'
