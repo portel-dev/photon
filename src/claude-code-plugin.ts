@@ -64,8 +64,8 @@ async function generateMarketplaceJson(
   manifest: any,
   options: any
 ): Promise<void> {
-  // Build MCP server configurations from photons
-  const mcpServers: Record<string, any> = {};
+  // Create one plugin per photon
+  const plugins: any[] = [];
 
   for (const photon of manifest.photons || []) {
     const serverName = `photon-${photon.name}`;
@@ -73,11 +73,27 @@ async function generateMarketplaceJson(
     // Get constructor params to determine env vars
     const envVars = await extractEnvVars(photon);
 
-    mcpServers[serverName] = {
+    const mcpConfig: any = {
       command: 'photon',
-      args: ['mcp', photon.name],
-      ...(Object.keys(envVars).length > 0 && { env: envVars })
+      args: ['mcp', photon.name]
     };
+
+    if (Object.keys(envVars).length > 0) {
+      mcpConfig.env = envVars;
+    }
+
+    plugins.push({
+      name: serverName,
+      description: photon.description || `${photon.name} photon MCP server`,
+      source: './',
+      strict: false,
+      hooks: [
+        './.claude-plugin/hooks.json'
+      ],
+      mcpServers: {
+        [serverName]: mcpConfig
+      }
+    });
   }
 
   const pluginManifest = {
@@ -93,18 +109,7 @@ async function generateMarketplaceJson(
       description: manifest.description || options.description || `Official ${manifest.name} MCP servers`,
       version: manifest.version || '1.0.0'
     },
-    plugins: [
-      {
-        name: 'photons',
-        description: `Complete collection of ${manifest.photons?.length || 0} Photon MCP servers`,
-        source: './',
-        strict: false,
-        hooks: [
-          './.claude-plugin/hooks.json'
-        ],
-        mcpServers
-      }
-    ]
+    plugins
   };
 
   const outputPath = path.join(pluginDir, 'marketplace.json');
