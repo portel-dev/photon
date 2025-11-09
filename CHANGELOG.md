@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0](https://github.com/portel-dev/photon/compare/v1.0.0...v1.1.0) (2025-11-09)
+
+### Features
+
+* add --claude-code flag to sync marketplace command ([1940535](https://github.com/portel-dev/photon/commit/1940535f5ed3c61378889280a8affe81b8fed7ac))
+* add Claude Code integration section to README template ([eb0bd09](https://github.com/portel-dev/photon/commit/eb0bd093ccefdea63cc977d3c362c2aa6bd272a4))
+* add photon marketplace init command with automatic git hooks ([0600756](https://github.com/portel-dev/photon/commit/06007567b72dab82e28b83f652bc1ecc73f22c45))
+* generate individual plugin for each photon ([1d3c50c](https://github.com/portel-dev/photon/commit/1d3c50c5db048e892bb735bd5b1f3deff316acfb))
+
+### Bug Fixes
+
+* ensure owner field is always present in Claude Code plugin manifest ([2740c03](https://github.com/portel-dev/photon/commit/2740c036899acb3acf2b42fa492d679f2d2af7cf))
+* switch npm badges from shields.io to badgen.net ([1f7e544](https://github.com/portel-dev/photon/commit/1f7e5440e6664d1d548ac08837f2d8e2381ae35c))
+* update contact email from contact@portel.dev to arul@luracast.com ([96a195d](https://github.com/portel-dev/photon/commit/96a195dd21d57539d9a51116d2de93b9744c3518))
+* use absolute path for CLI in tests to work after cd operations ([54ca674](https://github.com/portel-dev/photon/commit/54ca674c76a41bfe1a82f8e6ba453b9fc44d97a9))
+
 ## [Unreleased]
 
 ### Changed
