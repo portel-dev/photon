@@ -574,9 +574,18 @@ photon sync marketplace
 
 # Sync specific directory
 photon sync marketplace ./my-marketplace
+
+# Generate Claude Code plugin files too
+photon sync marketplace --claude-code
 ```
 
-Used when creating your own marketplace. See [Marketplace System](#marketplace-system).
+**Options:**
+- `--claude-code` - Also generate Claude Code plugin files (`.claude-plugin/`)
+- `--name <name>` - Override marketplace name
+- `--description <desc>` - Set marketplace description
+- `--owner <owner>` - Set owner name
+
+Used when creating your own marketplace. See [Marketplace System](#marketplace-system) and [Claude Code Plugins](#claude-code-plugins).
 
 #### `photon audit [name]`
 Security audit of photon dependencies.
@@ -619,8 +628,8 @@ photon search slack
 mkdir company-photons && cd company-photons
 cp ~/.photon/*.photon.ts .
 
-# 2. Generate marketplace manifest
-photon sync marketplace
+# 2. Generate marketplace manifest (and optionally Claude Code plugin)
+photon sync marketplace --claude-code
 
 # 3. Push to GitHub/Git
 git init
@@ -628,7 +637,7 @@ git add .
 git commit -m "Initial marketplace"
 git push origin main
 
-# 4. Team members install
+# 4. Team members install (via CLI or Claude Code)
 photon marketplace add company/photons
 photon add internal-crm
 photon add analytics-db
@@ -640,6 +649,9 @@ photon add analytics-db
 - 📦 **Easy**: Single-file photons are trivial to maintain
 - 🎯 **Focused**: Build exact tools for your workflows
 - 📊 **Traceable**: Git-based versioning and attribution
+- 🔌 **Dual Distribution**: With `--claude-code`, also works as Claude Code plugin
+
+> **Tip:** Use `--claude-code` flag to enable installation via both Photon CLI and Claude Code plugin manager. See [Claude Code Plugins](#claude-code-plugins) for details.
 
 ### Manage Marketplaces
 
@@ -660,6 +672,120 @@ photon marketplace remove <name>
 # Search across all marketplaces
 photon search <keyword>
 ```
+
+---
+
+## Claude Code Plugins
+
+Photon marketplaces can be automatically published as **Claude Code plugins**, enabling users to install individual photons directly from Claude Code's plugin manager.
+
+### Why Dual Distribution?
+
+One marketplace, two distribution channels:
+
+**Via Photon CLI:**
+```bash
+photon add filesystem
+photon add git
+```
+
+**Via Claude Code Plugin:**
+```bash
+/plugin marketplace add your-org/your-marketplace
+/plugin install filesystem@your-marketplace
+/plugin install git@your-marketplace
+```
+
+**Benefits:**
+- 🎯 **Granular Installation**: Claude Code users can install only the photons they need
+- 🔄 **Auto-Sync**: Plugin stays in sync with your marketplace
+- ⚡ **Zero Config**: Photon CLI auto-installs on first use
+- 🛡️ **Secure**: Credentials never shared with AI (interactive setup available)
+- 📦 **Same Source**: One marketplace serves both CLI and plugin users
+
+### Generate Plugin Files
+
+When creating your marketplace, add the `--claude-code` flag:
+
+```bash
+# In your marketplace directory
+photon sync marketplace --claude-code
+```
+
+This generates:
+- `.claude-plugin/marketplace.json` - Plugin manifest with individual photon entries
+- `.claude-plugin/hooks.json` - SessionStart hook to auto-install Photon CLI
+- `.claude-plugin/scripts/check-photon.sh` - Auto-installer script
+- `.claude-plugin/scripts/setup-photon.sh` - Interactive credential setup tool
+
+### What Gets Generated
+
+**Individual Plugins:** Each photon becomes a separate installable plugin in Claude Code:
+
+```json
+{
+  "name": "your-marketplace",
+  "plugins": [
+    {
+      "name": "filesystem",
+      "description": "Filesystem - File and directory operations",
+      "mcpServers": {
+        "filesystem": {
+          "command": "photon",
+          "args": ["mcp", "filesystem"]
+        }
+      }
+    }
+    // ... one entry per photon
+  ]
+}
+```
+
+**Auto-Install Hook:** When users install your plugin, Claude Code automatically:
+1. Checks if `photon` CLI is installed
+2. Installs it globally via npm if missing
+3. Makes all photon tools available immediately
+
+### Example: Official Photons Marketplace
+
+The [official photons marketplace](https://github.com/portel-dev/photons) uses this approach:
+
+```bash
+# In the photons repo
+photon sync marketplace --claude-code
+git commit -m "chore: update marketplace"
+git push
+```
+
+Users can then install via Claude Code:
+```bash
+/plugin marketplace add portel-dev/photons
+/plugin install knowledge-graph@photons-marketplace
+/plugin install git@photons-marketplace
+```
+
+### Automated Git Hooks
+
+Add this to your `.git/hooks/pre-commit` to auto-sync:
+
+```bash
+#!/bin/bash
+photon sync marketplace --claude-code
+git add .marketplace/ .claude-plugin/ README.md *.md
+```
+
+Now your marketplace AND plugin files stay in sync automatically.
+
+### Distribution Strategy
+
+**Recommended approach:**
+
+1. **Commit both** `.marketplace/` and `.claude-plugin/` to your repo
+2. **Single command** keeps them in sync
+3. **Users choose** their preferred installation method
+4. **Same photons**, whether via CLI or Claude Code
+
+**Result:** Maximum reach with minimal maintenance.
 
 ---
 
