@@ -864,10 +864,17 @@ sync
   .option('--name <name>', 'Marketplace name')
   .option('--description <desc>', 'Marketplace description')
   .option('--owner <owner>', 'Owner name')
+  .option('--claude-code', 'Generate Claude Code plugin files')
   .description('Generate/sync marketplace manifest and documentation')
   .action(async (dirPath: string, options: any) => {
     try {
       await performMarketplaceSync(dirPath, options);
+
+      // Generate Claude Code plugin if requested
+      if (options.claudeCode) {
+        const { generateClaudeCodePlugin } = await import('./claude-code-plugin.js');
+        await generateClaudeCodePlugin(dirPath, options);
+      }
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       if (process.env.DEBUG) {
@@ -938,17 +945,17 @@ marketplace
       // Create pre-commit hook
       const preCommitHook = `#!/bin/bash
 # Pre-commit hook: Auto-sync marketplace manifest before commit
-# This ensures .marketplace/photons.json is always up-to-date
+# This ensures .marketplace/photons.json and .claude-plugin/ are always up-to-date
 
 # Check if any .photon.ts files or marketplace files are being committed
-if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/'; then
+if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/|\\.claude-plugin/'; then
   echo "🔄 Syncing marketplace manifest..."
 
-  # Run photon sync marketplace
-  if photon sync marketplace; then
+  # Run photon sync marketplace with --claude-code to generate plugin files
+  if photon sync marketplace --claude-code; then
     # Stage the generated files
-    git add .marketplace/photons.json README.md *.md 2>/dev/null
-    echo "✅ Marketplace synced and staged"
+    git add .marketplace/photons.json README.md *.md .claude-plugin/ 2>/dev/null
+    echo "✅ Marketplace and Claude Code plugin synced and staged"
   else
     echo "❌ Failed to sync marketplace"
     exit 1
