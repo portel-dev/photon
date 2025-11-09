@@ -101,10 +101,10 @@ async function generateMarketplaceJson(
     name: `${manifest.name}-marketplace`,
     owner: options.owner ? {
       name: options.owner,
-      email: 'contact@portel.dev'
+      email: 'arul@luracast.com'
     } : (manifest.owner || {
       name: 'Portel',
-      email: 'contact@portel.dev'
+      email: 'arul@luracast.com'
     }),
     metadata: {
       description: manifest.description || options.description || `Official ${manifest.name} MCP servers`,
