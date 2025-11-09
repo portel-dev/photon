@@ -25,7 +25,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '1.0.0';
+  private static readonly TEMPLATE_VERSION = '1.1.0';
 
   constructor(private workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -228,7 +228,15 @@ export class TemplateManager {
 
 > **Singular focus. Precise target.**
 
-\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`Photons are single-file TypeScript classes that run as [MCP servers](https://modelcontextprotocol.io/introduction). Add them to your favorite AI assistant using the [Photon runtime](https://github.com/portel-dev/photon).\n\n\`)}\${$if(marketplaceName === 'photons', \`## 🏛️ Official Marketplace
+\${$if(marketplaceDescription, \`\${marketplaceDescription}\n\n\`, \`**Photons** are single-file TypeScript MCP servers that supercharge AI assistants with focused capabilities. Each photon delivers ONE thing exceptionally well - from filesystem operations to cloud integrations.
+
+Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction), photons are:
+- 📦 **One-command install** via [Photon CLI](https://github.com/portel-dev/photon)
+- 🎯 **Laser-focused** on singular capabilities
+- ⚡ **Zero-config** with auto-dependency management
+- 🔌 **Universal** - works with Claude Desktop, Claude Code, and any MCP client
+
+\`)}\${$if(marketplaceName === 'photons', \`## 🏛️ Official Marketplace
 
 This is the **official Photon marketplace** maintained by Portel. It comes pre-configured with Photon - no manual setup needed.
 
@@ -298,6 +306,56 @@ Output (paste directly into your MCP client config):
 Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
 
 **That's it!** Your AI assistant now has \${photons.length} focused tools at its fingertips.
+
+---
+
+## 🎨 Claude Code Integration
+
+This marketplace is also available as a **Claude Code plugin**, enabling seamless installation of individual photons directly from Claude Code's plugin manager.
+
+### Install as Claude Code Plugin
+
+\\\`\\\`\\\`bash
+# In Claude Code, run:
+/plugin marketplace add portel-dev/photons
+\\\`\\\`\\\`
+
+Once added, you can install individual photons:
+
+\\\`\\\`\\\`bash
+# Install specific photons you need
+/plugin install filesystem@photons-marketplace
+/plugin install git@photons-marketplace
+/plugin install knowledge-graph@photons-marketplace
+\\\`\\\`\\\`
+
+### Benefits of Claude Code Plugin
+
+- **🎯 Granular Installation**: Install only the photons you need
+- **🔄 Auto-Updates**: Plugin stays synced with marketplace
+- **⚡ Zero Config**: Photon CLI auto-installs on first use
+- **🛡️ Secure**: No credentials shared with AI (interactive setup available)
+- **📦 Individual MCPs**: Each photon is a separate installable plugin
+
+### How This Plugin Is Built
+
+This marketplace doubles as a Claude Code plugin through automatic generation:
+
+\\\`\\\`\\\`bash
+# Generate marketplace AND Claude Code plugin files
+photon sync marketplace --claude-code
+\\\`\\\`\\\`
+
+This single command:
+1. Scans all \\\`.photon.ts\\\` files
+2. Generates \\\`.marketplace/photons.json\\\` manifest
+3. Creates \\\`.claude-plugin/marketplace.json\\\` for Claude Code
+4. Generates documentation for each photon
+5. Creates auto-install hooks for seamless setup
+
+**Result**: One source of truth, two distribution channels (Photon CLI + Claude Code).
+
+---
 
 ## ⚛️ What Are Photons?
 
