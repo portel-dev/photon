@@ -1,8 +1,8 @@
 
 ![Photon Logo](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-logo.png)
 
-[![npm version](https://img.shields.io/npm/v/@portel/photon.svg)](https://www.npmjs.com/package/@portel/photon)
-[![npm downloads](https://img.shields.io/npm/dm/@portel/photon.svg)](https://www.npmjs.com/package/@portel/photon)
+[![npm version](https://badgen.net/npm/v/@portel/photon)](https://www.npmjs.com/package/@portel/photon)
+[![npm downloads](https://badgen.net/npm/dm/@portel/photon)](https://www.npmjs.com/package/@portel/photon)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
 
 # Photon
