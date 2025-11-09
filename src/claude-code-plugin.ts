@@ -68,7 +68,8 @@ async function generateMarketplaceJson(
   const plugins: any[] = [];
 
   for (const photon of manifest.photons || []) {
-    const serverName = `photon-${photon.name}`;
+    const pluginName = photon.name;  // Clean plugin name
+    const serverName = `photon-${photon.name}`;  // Prefixed MCP server name for uniqueness
 
     // Get constructor params to determine env vars
     const envVars = await extractEnvVars(photon);
@@ -83,8 +84,8 @@ async function generateMarketplaceJson(
     }
 
     plugins.push({
-      name: serverName,
-      description: photon.description || `${photon.name} photon MCP server`,
+      name: pluginName,
+      description: photon.description || `${photon.name} MCP server`,
       source: './',
       strict: false,
       hooks: [
