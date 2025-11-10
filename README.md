@@ -15,21 +15,22 @@ Photon TS files are Single file. Zero boilerplate. Pure business logic.
 
 ## TL;DR
 
-**Traditional development is broken**, creating two major problems:
+**The Problem with MCPs Today:**
 
-1. **Human Friction**: Developers waste hours on boilerplate, config files, and dependency management.
-2. **AI Friction**: AI agents hallucinate because they can't understand logic scattered across a complex, multi-file codebase.
+- Popular MCPs don't exactly match your specific requirements
+- **Security risk**: Malicious MCPs can steal your data through prompt injection—not just credentials
+- Scattered across 4-6 files, making security audits impractical
+- Too complex to fork and customize safely
 
-**Photon solves both** with the **"One File, Full Context"** paradigm. It turns a single TypeScript class into a production-ready, AI-native MCP server.
+**Photon's Solution:** Single-file TypeScript format. Pure business logic, zero boilerplate. Fork-first design where every `.photon.ts` is trivial to audit and customize.
+
+Think of it like **NPM and Node, but for MCP**.
 
 ### The Photon Ecosystem Flywheel
 
 ![Photon Ecosystem](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-ecosystem.png)
 
-1. **Generate**: An AI agent, using the photon-skill, generates a complete `.photon.ts` file from a single prompt.
-2. **Run**: The `@portel/photon` runtime instantly executes that single file as a live server, automatically handling compilation, dependencies, and hot-reloading.
-3. **Share**: Developers share their new `.photon.ts` files on the photons marketplace.
-4. **Discover**: The community discovers and uses these tools, which in turn provides more examples for the AI, making the entire ecosystem smarter.
+The ecosystem creates a virtuous cycle: AI generates photons → Runtime executes them → Community shares → AI gets smarter.
 
 ---
 
@@ -142,6 +143,18 @@ photon mcp my-jira  # Works immediately
 - Customize business logic
 - Merge multiple photons
 - Experiment without breaking originals
+
+### 🔒 Security Through Transparency
+
+Prompt injection attacks are the new supply-chain threat. A malicious MCP can manipulate AI responses to exfiltrate your entire conversation history—not just credentials.
+
+**One file = one audit:**
+- Read 40 lines, understand everything
+- No hidden code scattered across imports
+- Fork and verify in minutes, not hours
+- Trust through transparency, not reputation
+
+When you can't trust a photon, you can **safely fork and audit it**. Traditional MCPs with scattered logic? Nearly impossible to verify.
 
 ### 📦 Zero-Friction Dependencies
 
