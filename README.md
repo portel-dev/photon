@@ -13,6 +13,26 @@ Photon TS files are Single file. Zero boilerplate. Pure business logic.
 
 ---
 
+## TL;DR
+
+**Traditional development is broken**, creating two major problems:
+
+1. **Human Friction**: Developers waste hours on boilerplate, config files, and dependency management.
+2. **AI Friction**: AI agents hallucinate because they can't understand logic scattered across a complex, multi-file codebase.
+
+**Photon solves both** with the **"One File, Full Context"** paradigm. It turns a single TypeScript class into a production-ready, AI-native MCP server.
+
+### The Photon Ecosystem Flywheel
+
+![Photon Ecosystem](https://raw.githubusercontent.com/portel-dev/photon/refs/heads/main/assets/photon-ecosystem.png)
+
+1. **Generate**: An AI agent, using the photon-skill, generates a complete `.photon.ts` file from a single prompt.
+2. **Run**: The `@portel/photon` runtime instantly executes that single file as a live server, automatically handling compilation, dependencies, and hot-reloading.
+3. **Share**: Developers share their new `.photon.ts` files on the photons marketplace.
+4. **Discover**: The community discovers and uses these tools, which in turn provides more examples for the AI, making the entire ecosystem smarter.
+
+---
+
 ## The Problem
 
 Traditional MCP servers scatter your logic across 4-6 files:
