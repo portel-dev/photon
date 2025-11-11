@@ -74,11 +74,16 @@ export class SchemaExtractor {
 
         // Extract descriptions from JSDoc
         const paramDocs = this.extractParamDocs(jsdoc);
+        const paramConstraints = this.extractParamConstraints(jsdoc);
 
-        // Merge descriptions into properties
+        // Merge descriptions and constraints into properties
         Object.keys(properties).forEach(key => {
           if (paramDocs.has(key)) {
             properties[key].description = paramDocs.get(key);
+          }
+          if (paramConstraints.has(key)) {
+            const constraints = paramConstraints.get(key)!;
+            this.applyConstraints(properties[key], constraints);
           }
         });
 
@@ -527,6 +532,7 @@ export class SchemaExtractor {
 
   /**
    * Extract parameter descriptions from JSDoc @param tags
+   * Also removes constraint tags from descriptions
    */
   private extractParamDocs(jsdocContent: string): Map<string, string> {
     const paramDocs = new Map<string, string>();
@@ -535,10 +541,77 @@ export class SchemaExtractor {
     let match;
     while ((match = paramRegex.exec(jsdocContent)) !== null) {
       const [, paramName, description] = match;
-      paramDocs.set(paramName, description.trim());
+      // Remove constraint tags from description
+      const cleanDesc = description
+        .replace(/\{@min\s+[^}]+\}/g, '')
+        .replace(/\{@max\s+[^}]+\}/g, '')
+        .trim();
+      paramDocs.set(paramName, cleanDesc);
     }
 
     return paramDocs;
+  }
+
+  /**
+   * Extract parameter constraints from JSDoc @param tags
+   * Supports {@min value} and {@max value} inline tags
+   */
+  private extractParamConstraints(jsdocContent: string): Map<string, { min?: number; max?: number }> {
+    const constraints = new Map<string, { min?: number; max?: number }>();
+    const paramRegex = /@param\s+(\w+)\s+(.+)/g;
+
+    let match;
+    while ((match = paramRegex.exec(jsdocContent)) !== null) {
+      const [, paramName, description] = match;
+      const paramConstraints: { min?: number; max?: number } = {};
+
+      // Extract {@min value}
+      const minMatch = description.match(/\{@min\s+(-?\d+(?:\.\d+)?)\}/);
+      if (minMatch) {
+        paramConstraints.min = parseFloat(minMatch[1]);
+      }
+
+      // Extract {@max value}
+      const maxMatch = description.match(/\{@max\s+(-?\d+(?:\.\d+)?)\}/);
+      if (maxMatch) {
+        paramConstraints.max = parseFloat(maxMatch[1]);
+      }
+
+      if (paramConstraints.min !== undefined || paramConstraints.max !== undefined) {
+        constraints.set(paramName, paramConstraints);
+      }
+    }
+
+    return constraints;
+  }
+
+  /**
+   * Apply constraints (min/max) to a schema property
+   * Handles both simple types and anyOf schemas
+   */
+  private applyConstraints(schema: any, constraints: { min?: number; max?: number }) {
+    // If schema has anyOf, apply constraints to number types within anyOf
+    if (schema.anyOf) {
+      schema.anyOf.forEach((subSchema: any) => {
+        if (subSchema.type === 'number' && !subSchema.enum) {
+          if (constraints.min !== undefined) {
+            subSchema.minimum = constraints.min;
+          }
+          if (constraints.max !== undefined) {
+            subSchema.maximum = constraints.max;
+          }
+        }
+      });
+    }
+    // If schema is a direct number type, apply constraints
+    else if (schema.type === 'number' && !schema.enum) {
+      if (constraints.min !== undefined) {
+        schema.minimum = constraints.min;
+      }
+      if (constraints.max !== undefined) {
+        schema.maximum = constraints.max;
+      }
+    }
   }
 
   /**

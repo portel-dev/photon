@@ -192,6 +192,50 @@ async function runTests() {
     console.log('✅ Mixed unions generate optimized anyOf');
   }
 
+  // Test 10: JSDoc constraints with {@min} and {@max} tags
+  {
+    const source = `
+      /**
+       * Set volume level
+       * @param level Volume percentage {@min 0} {@max 100}
+       */
+      async setVolume(params: { level: number }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.level.type, 'number', 'Should be number type');
+    assert.equal(schema.properties.level.minimum, 0, 'Should have minimum constraint');
+    assert.equal(schema.properties.level.maximum, 100, 'Should have maximum constraint');
+    assert.equal(schema.properties.level.description, 'Volume percentage', 'Constraint tags should be removed from description');
+    console.log('✅ JSDoc constraints with {@min} {@max}');
+  }
+
+  // Test 11: Constraints applied to mixed unions
+  {
+    const source = `
+      /**
+       * Control volume
+       * @param level Volume level or adjustment {@min 0} {@max 100}
+       */
+      async volume(params?: { level?: number | '+1' | '-1' }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.notEqual(schema.properties.level.anyOf, undefined, 'Should have anyOf');
+
+    // Find the number schema in anyOf
+    const numberSchema = schema.properties.level.anyOf.find((s: any) => s.type === 'number' && !s.enum);
+    assert.notEqual(numberSchema, undefined, 'Should have number type in anyOf');
+    assert.equal(numberSchema.minimum, 0, 'Number type should have minimum');
+    assert.equal(numberSchema.maximum, 100, 'Number type should have maximum');
+
+    console.log('✅ Constraints on mixed unions');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 
