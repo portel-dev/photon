@@ -225,6 +225,13 @@ export class SchemaExtractor {
 
     // Handle union types
     if (ts.isUnionTypeNode(typeNode)) {
+      // Check if this is a union of literals that can be converted to enum
+      const enumValues = this.extractEnumFromUnion(typeNode, sourceFile);
+      if (enumValues) {
+        return enumValues;
+      }
+
+      // Otherwise use anyOf
       schema.anyOf = typeNode.types.map(t => this.typeNodeToSchema(t, sourceFile));
       return schema;
     }
@@ -316,6 +323,70 @@ export class SchemaExtractor {
     }
 
     return schema;
+  }
+
+  /**
+   * Extract enum values from a union of literal types
+   * Returns a proper enum schema if all types are literals of the same kind
+   * Returns null if the union contains non-literals or mixed types
+   */
+  private extractEnumFromUnion(unionNode: ts.UnionTypeNode, sourceFile: ts.SourceFile): any | null {
+    const stringValues: string[] = [];
+    const numberValues: number[] = [];
+    const booleanValues: boolean[] = [];
+    let hasNonLiteral = false;
+
+    for (const typeNode of unionNode.types) {
+      if (ts.isLiteralTypeNode(typeNode)) {
+        const literal = typeNode.literal;
+
+        if (ts.isStringLiteral(literal)) {
+          stringValues.push(literal.text);
+        } else if (ts.isNumericLiteral(literal)) {
+          numberValues.push(parseFloat(literal.text));
+        } else if (literal.kind === ts.SyntaxKind.TrueKeyword) {
+          booleanValues.push(true);
+        } else if (literal.kind === ts.SyntaxKind.FalseKeyword) {
+          booleanValues.push(false);
+        } else {
+          hasNonLiteral = true;
+          break;
+        }
+      } else {
+        hasNonLiteral = true;
+        break;
+      }
+    }
+
+    // If we found non-literals or mixed types, return null
+    if (hasNonLiteral) {
+      return null;
+    }
+
+    // Return proper enum schema based on what we found
+    if (stringValues.length > 0 && numberValues.length === 0 && booleanValues.length === 0) {
+      return {
+        type: 'string',
+        enum: stringValues,
+      };
+    }
+
+    if (numberValues.length > 0 && stringValues.length === 0 && booleanValues.length === 0) {
+      return {
+        type: 'number',
+        enum: numberValues,
+      };
+    }
+
+    if (booleanValues.length > 0 && stringValues.length === 0 && numberValues.length === 0) {
+      return {
+        type: 'boolean',
+        enum: booleanValues,
+      };
+    }
+
+    // Mixed literal types - can't create a clean enum
+    return null;
   }
 
   /**
