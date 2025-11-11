@@ -1782,9 +1782,10 @@ program
 
 // CLI command: directly invoke photon methods
 program
-  .command('cli <photon> [method] [args...]')
+  .command('cli <photon> [method] [args...]', { hidden: false })
   .description('Run photon methods directly from the command line')
   .allowUnknownOption()
+  .helpOption(false) // Disable default help so we can handle it ourselves
   .action(async (photon: string, method: string | undefined, args: string[]) => {
     const { listMethods, runMethod } = await import('./photon-cli-runner.js');
 
