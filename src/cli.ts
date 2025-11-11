@@ -1798,6 +1798,31 @@ program
     }
   });
 
+// Alias commands: create CLI shortcuts for photons
+program
+  .command('alias <photon> [alias-name]')
+  .description('Create a CLI alias for a photon (e.g., "lg-remote" instead of "photon cli lg-remote")')
+  .action(async (photon: string, aliasName: string | undefined) => {
+    const { createAlias } = await import('./cli-alias.js');
+    await createAlias(photon, aliasName);
+  });
+
+program
+  .command('unalias <alias-name>')
+  .description('Remove a CLI alias')
+  .action(async (aliasName: string) => {
+    const { removeAlias } = await import('./cli-alias.js');
+    await removeAlias(aliasName);
+  });
+
+program
+  .command('aliases')
+  .description('List all CLI aliases')
+  .action(async () => {
+    const { listAliases } = await import('./cli-alias.js');
+    await listAliases();
+  });
+
 program.parse();
 
 /**
