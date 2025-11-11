@@ -541,10 +541,14 @@ export class SchemaExtractor {
     let match;
     while ((match = paramRegex.exec(jsdocContent)) !== null) {
       const [, paramName, description] = match;
-      // Remove constraint tags from description
+      // Remove all constraint tags from description
       const cleanDesc = description
         .replace(/\{@min\s+[^}]+\}/g, '')
         .replace(/\{@max\s+[^}]+\}/g, '')
+        .replace(/\{@pattern\s+[^}]+\}/g, '')
+        .replace(/\{@format\s+[^}]+\}/g, '')
+        .replace(/\{@default\s+[^}]+\}/g, '')
+        .replace(/\s+/g, ' ')  // Collapse multiple spaces
         .trim();
       paramDocs.set(paramName, cleanDesc);
     }
@@ -554,30 +558,55 @@ export class SchemaExtractor {
 
   /**
    * Extract parameter constraints from JSDoc @param tags
-   * Supports {@min value} and {@max value} inline tags
+   * Supports inline tags: {@min}, {@max}, {@pattern}, {@format}, {@default}
    */
-  private extractParamConstraints(jsdocContent: string): Map<string, { min?: number; max?: number }> {
-    const constraints = new Map<string, { min?: number; max?: number }>();
+  private extractParamConstraints(jsdocContent: string): Map<string, any> {
+    const constraints = new Map<string, any>();
     const paramRegex = /@param\s+(\w+)\s+(.+)/g;
 
     let match;
     while ((match = paramRegex.exec(jsdocContent)) !== null) {
       const [, paramName, description] = match;
-      const paramConstraints: { min?: number; max?: number } = {};
+      const paramConstraints: any = {};
 
-      // Extract {@min value}
+      // Extract {@min value} - works for numbers, strings, arrays
       const minMatch = description.match(/\{@min\s+(-?\d+(?:\.\d+)?)\}/);
       if (minMatch) {
         paramConstraints.min = parseFloat(minMatch[1]);
       }
 
-      // Extract {@max value}
+      // Extract {@max value} - works for numbers, strings, arrays
       const maxMatch = description.match(/\{@max\s+(-?\d+(?:\.\d+)?)\}/);
       if (maxMatch) {
         paramConstraints.max = parseFloat(maxMatch[1]);
       }
 
-      if (paramConstraints.min !== undefined || paramConstraints.max !== undefined) {
+      // Extract {@pattern regex}
+      const patternMatch = description.match(/\{@pattern\s+([^}]+)\}/);
+      if (patternMatch) {
+        paramConstraints.pattern = patternMatch[1].trim();
+      }
+
+      // Extract {@format formatName}
+      const formatMatch = description.match(/\{@format\s+([^}]+)\}/);
+      if (formatMatch) {
+        paramConstraints.format = formatMatch[1].trim();
+      }
+
+      // Extract {@default value}
+      const defaultMatch = description.match(/\{@default\s+([^}]+)\}/);
+      if (defaultMatch) {
+        const defaultValue = defaultMatch[1].trim();
+        // Try to parse as JSON for numbers, booleans, objects, arrays
+        try {
+          paramConstraints.default = JSON.parse(defaultValue);
+        } catch {
+          // If not valid JSON, use as string
+          paramConstraints.default = defaultValue;
+        }
+      }
+
+      if (Object.keys(paramConstraints).length > 0) {
         constraints.set(paramName, paramConstraints);
       }
     }
@@ -586,31 +615,59 @@ export class SchemaExtractor {
   }
 
   /**
-   * Apply constraints (min/max) to a schema property
-   * Handles both simple types and anyOf schemas
+   * Apply constraints to a schema property based on type
+   * Handles: min/max (contextual), pattern, format, default
+   * Works with both simple types and anyOf schemas
    */
-  private applyConstraints(schema: any, constraints: { min?: number; max?: number }) {
-    // If schema has anyOf, apply constraints to number types within anyOf
-    if (schema.anyOf) {
-      schema.anyOf.forEach((subSchema: any) => {
-        if (subSchema.type === 'number' && !subSchema.enum) {
-          if (constraints.min !== undefined) {
-            subSchema.minimum = constraints.min;
-          }
-          if (constraints.max !== undefined) {
-            subSchema.maximum = constraints.max;
-          }
+  private applyConstraints(schema: any, constraints: any) {
+    // Helper to apply constraints to a single schema based on type
+    const applyToSchema = (s: any) => {
+      if (s.enum) {
+        // Skip enum types
+        return;
+      }
+
+      // Apply min/max based on type
+      if (s.type === 'number') {
+        if (constraints.min !== undefined) {
+          s.minimum = constraints.min;
         }
-      });
-    }
-    // If schema is a direct number type, apply constraints
-    else if (schema.type === 'number' && !schema.enum) {
-      if (constraints.min !== undefined) {
-        schema.minimum = constraints.min;
+        if (constraints.max !== undefined) {
+          s.maximum = constraints.max;
+        }
+      } else if (s.type === 'string') {
+        if (constraints.min !== undefined) {
+          s.minLength = constraints.min;
+        }
+        if (constraints.max !== undefined) {
+          s.maxLength = constraints.max;
+        }
+        if (constraints.pattern !== undefined) {
+          s.pattern = constraints.pattern;
+        }
+        if (constraints.format !== undefined) {
+          s.format = constraints.format;
+        }
+      } else if (s.type === 'array') {
+        if (constraints.min !== undefined) {
+          s.minItems = constraints.min;
+        }
+        if (constraints.max !== undefined) {
+          s.maxItems = constraints.max;
+        }
       }
-      if (constraints.max !== undefined) {
-        schema.maximum = constraints.max;
+
+      // Apply default value (works for all types)
+      if (constraints.default !== undefined) {
+        s.default = constraints.default;
       }
+    };
+
+    // Apply to anyOf schemas or direct schema
+    if (schema.anyOf) {
+      schema.anyOf.forEach(applyToSchema);
+    } else {
+      applyToSchema(schema);
     }
   }
 

@@ -236,6 +236,133 @@ async function runTests() {
     console.log('✅ Constraints on mixed unions');
   }
 
+  // Test 12: String length constraints with {@min} {@max}
+  {
+    const source = `
+      /**
+       * Create username
+       * @param username Username {@min 3} {@max 20}
+       */
+      async createUser(params: { username: string }) {
+        return username;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.username.type, 'string', 'Should be string type');
+    assert.equal(schema.properties.username.minLength, 3, 'Should have minLength');
+    assert.equal(schema.properties.username.maxLength, 20, 'Should have maxLength');
+    console.log('✅ String length constraints');
+  }
+
+  // Test 13: String pattern constraint
+  {
+    const source = `
+      /**
+       * Set username
+       * @param username Username {@pattern ^[a-zA-Z0-9_]+$}
+       */
+      async setUsername(params: { username: string }) {
+        return username;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.username.pattern, '^[a-zA-Z0-9_]+$', 'Should have pattern');
+    console.log('✅ String pattern constraint');
+  }
+
+  // Test 14: String format constraint
+  {
+    const source = `
+      /**
+       * Send email
+       * @param email Email address {@format email}
+       * @param url Website {@format uri}
+       */
+      async sendEmail(params: { email: string; url: string }) {
+        return email;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.email.format, 'email', 'Should have email format');
+    assert.equal(schema.properties.url.format, 'uri', 'Should have uri format');
+    console.log('✅ String format constraint');
+  }
+
+  // Test 15: Array length constraints
+  {
+    const source = `
+      /**
+       * Upload files
+       * @param files File paths {@min 1} {@max 10}
+       */
+      async uploadFiles(params: { files: string[] }) {
+        return files;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.files.type, 'array', 'Should be array type');
+    assert.equal(schema.properties.files.minItems, 1, 'Should have minItems');
+    assert.equal(schema.properties.files.maxItems, 10, 'Should have maxItems');
+    console.log('✅ Array length constraints');
+  }
+
+  // Test 16: Default values
+  {
+    const source = `
+      /**
+       * Configure settings
+       * @param timeout Timeout in seconds {@default 30}
+       * @param enabled Enable feature {@default true}
+       * @param name Name {@default "default"}
+       */
+      async configure(params?: { timeout?: number; enabled?: boolean; name?: string }) {
+        return params;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.timeout.default, 30, 'Should have numeric default');
+    assert.equal(schema.properties.enabled.default, true, 'Should have boolean default');
+    assert.equal(schema.properties.name.default, 'default', 'Should have string default');
+    console.log('✅ Default values');
+  }
+
+  // Test 17: Combined constraints
+  {
+    const source = `
+      /**
+       * Create user account
+       * @param username Username {@min 3} {@max 20} {@pattern ^[a-zA-Z0-9_]+$}
+       * @param email Email {@format email}
+       * @param age Age {@min 13} {@max 120} {@default 18}
+       */
+      async createAccount(params: { username: string; email: string; age?: number }) {
+        return params;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+
+    // Username - multiple string constraints
+    assert.equal(schema.properties.username.minLength, 3, 'Username should have minLength');
+    assert.equal(schema.properties.username.maxLength, 20, 'Username should have maxLength');
+    assert.equal(schema.properties.username.pattern, '^[a-zA-Z0-9_]+$', 'Username should have pattern');
+
+    // Email - format only
+    assert.equal(schema.properties.email.format, 'email', 'Email should have format');
+
+    // Age - range with default
+    assert.equal(schema.properties.age.minimum, 13, 'Age should have minimum');
+    assert.equal(schema.properties.age.maximum, 120, 'Age should have maximum');
+    assert.equal(schema.properties.age.default, 18, 'Age should have default');
+
+    console.log('✅ Combined constraints');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 
