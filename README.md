@@ -139,6 +139,7 @@ photon mcp my-jira  # Works immediately
 ```
 
 **Use cases:**
+
 - Add company-specific authentication
 - Customize business logic
 - Merge multiple photons
@@ -149,6 +150,7 @@ photon mcp my-jira  # Works immediately
 Prompt injection attacks are the new supply-chain threat. A malicious MCP can manipulate AI responses to exfiltrate your entire conversation history—not just credentials.
 
 **One file = one audit:**
+
 - Read 40 lines, understand everything
 - No hidden code scattered across imports
 - Fork and verify in minutes, not hours
@@ -189,8 +191,27 @@ photon info
 # Install any photon (filesystem, git, postgres, mongodb, slack, etc.)
 photon add filesystem
 
-# Run as MCP server
-photon mcp filesystem
+# or else copy your own .photon.ts file to 
+# .photon folder in your user folder 
+
+# Call info command with mcp option
+photon info filesystem --mcp
+# Get client config json
+{
+  "filesystem": {
+    "command": "photon",
+    "args": [
+      "mcp",
+      "filesystem"
+    ],
+    "env": {
+      "FILESYSTEM_WORKDIR": "/Users/arul/Documents",
+      "FILESYSTEM_MAX_FILE_SIZE": "10485760",
+      "FILESYSTEM_ALLOW_HIDDEN": "false"
+    }
+  }
+}
+# Add to your client 
 ```
 
 ### Build Photons with AI
@@ -209,17 +230,6 @@ photon marketplace add your-org/your-photons
 # Install from your marketplace
 photon add your-custom-tool
 ```
-
-### Integrate with Your MCP Client
-
-```bash
-# Get configuration for any MCP client
-photon info filesystem --mcp
-```
-
-Add the output to your MCP client's config file. **Consult your client's documentation** for setup instructions.
-
-**MCP clients include:** Claude Desktop, Cursor, Zed, Continue, Cline, and more.
 
 ---
 
@@ -895,46 +905,6 @@ export default class MyPhoton {
   // Private helper (NOT exposed)
   async _helperMethod() {
     return "Internal logic only";
-  }
-}
-```
-
----
-
-## Integration with MCP Clients
-
-Photon works with **any MCP client**:
-
-- **Claude Desktop** (Anthropic)
-- **Cursor** (IDE)
-- **Zed** (IDE)
-- **Continue** (VS Code extension)
-- **Cline** (VS Code extension)
-- ... and more
-
-### Setup
-
-```bash
-# Get configuration for your MCP client
-photon info <photon-name> --mcp
-```
-
-**Consult your MCP client's documentation** for:
-- Config file location
-- Configuration format
-- Setup instructions
-
-Example output:
-```json
-{
-  "analytics": {
-    "command": "photon",
-    "args": ["mcp", "analytics"],
-    "env": {
-      "ANALYTICS_HOST": "localhost",
-      "ANALYTICS_DATABASE": "company",
-      "ANALYTICS_PASSWORD": "secret"
-    }
   }
 }
 ```

@@ -222,7 +222,8 @@ function formatDefaultValue(value: any): string {
     // Check if it's a function call expression
     if (value.includes('homedir()')) {
       // Replace homedir() with actual home directory
-      return value.replace(/join\(homedir\(\),\s*['"]([^'"]+)['"]\)/g, (_, folderName) => {
+      // Handle both path.join() and join()
+      return value.replace(/(?:path\.)?join\(homedir\(\),\s*['"]([^'"]+)['"]\)/g, (_, folderName) => {
         return path.join(os.homedir(), folderName);
       });
     }
