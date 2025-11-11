@@ -164,6 +164,34 @@ async function runTests() {
     console.log('✅ Non-literal unions use anyOf');
   }
 
+  // Test 9: Mixed unions (number + string literals) should generate optimized anyOf
+  {
+    const source = `
+      /**
+       * Set volume
+       * @param level Volume level (0-100) or relative adjustment
+       */
+      async volume(params?: { level?: number | '+1' | '-1' | '+2' | '-2' }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.notEqual(schema.properties.level.anyOf, undefined, 'Should have anyOf for mixed union');
+    assert.equal(schema.properties.level.anyOf.length, 2, 'Should have 2 anyOf entries (number + string enum)');
+
+    // Check that we have a number type
+    const hasNumberType = schema.properties.level.anyOf.some((s: any) => s.type === 'number' && !s.enum);
+    assert.equal(hasNumberType, true, 'Should have plain number type');
+
+    // Check that string literals are grouped into one enum
+    const stringEnums = schema.properties.level.anyOf.filter((s: any) => s.type === 'string' && s.enum);
+    assert.equal(stringEnums.length, 1, 'Should have exactly one string enum entry');
+    assert.deepEqual(stringEnums[0].enum, ['+1', '-1', '+2', '-2'], 'String literals should be grouped');
+
+    console.log('✅ Mixed unions generate optimized anyOf');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 

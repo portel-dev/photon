@@ -328,64 +328,96 @@ export class SchemaExtractor {
   /**
    * Extract enum values from a union of literal types
    * Returns a proper enum schema if all types are literals of the same kind
-   * Returns null if the union contains non-literals or mixed types
+   * Returns an optimized anyOf schema for mixed unions (e.g., number | '+1' | '-1')
+   * Returns null if the union should use standard anyOf processing
    */
   private extractEnumFromUnion(unionNode: ts.UnionTypeNode, sourceFile: ts.SourceFile): any | null {
-    const stringValues: string[] = [];
-    const numberValues: number[] = [];
-    const booleanValues: boolean[] = [];
-    let hasNonLiteral = false;
+    const stringLiterals: string[] = [];
+    const numberLiterals: number[] = [];
+    const booleanLiterals: boolean[] = [];
+    const nonLiteralTypes: ts.TypeNode[] = [];
 
+    // Categorize union members
     for (const typeNode of unionNode.types) {
       if (ts.isLiteralTypeNode(typeNode)) {
         const literal = typeNode.literal;
 
         if (ts.isStringLiteral(literal)) {
-          stringValues.push(literal.text);
+          stringLiterals.push(literal.text);
         } else if (ts.isNumericLiteral(literal)) {
-          numberValues.push(parseFloat(literal.text));
+          numberLiterals.push(parseFloat(literal.text));
         } else if (literal.kind === ts.SyntaxKind.TrueKeyword) {
-          booleanValues.push(true);
+          booleanLiterals.push(true);
         } else if (literal.kind === ts.SyntaxKind.FalseKeyword) {
-          booleanValues.push(false);
-        } else {
-          hasNonLiteral = true;
-          break;
+          booleanLiterals.push(false);
         }
       } else {
-        hasNonLiteral = true;
-        break;
+        nonLiteralTypes.push(typeNode);
       }
     }
 
-    // If we found non-literals or mixed types, return null
-    if (hasNonLiteral) {
-      return null;
+    // Case 1: All same-type literals - return simple enum
+    if (nonLiteralTypes.length === 0) {
+      if (stringLiterals.length > 0 && numberLiterals.length === 0 && booleanLiterals.length === 0) {
+        return {
+          type: 'string',
+          enum: stringLiterals,
+        };
+      }
+
+      if (numberLiterals.length > 0 && stringLiterals.length === 0 && booleanLiterals.length === 0) {
+        return {
+          type: 'number',
+          enum: numberLiterals,
+        };
+      }
+
+      if (booleanLiterals.length > 0 && stringLiterals.length === 0 && numberLiterals.length === 0) {
+        return {
+          type: 'boolean',
+          enum: booleanLiterals,
+        };
+      }
     }
 
-    // Return proper enum schema based on what we found
-    if (stringValues.length > 0 && numberValues.length === 0 && booleanValues.length === 0) {
-      return {
-        type: 'string',
-        enum: stringValues,
-      };
+    // Case 2: Mixed union with literals - create optimized anyOf
+    // Example: number | '+1' | '-1' → anyOf: [{ type: number }, { type: string, enum: ['+1', '-1'] }]
+    if (nonLiteralTypes.length > 0 && (stringLiterals.length > 0 || numberLiterals.length > 0 || booleanLiterals.length > 0)) {
+      const anyOf: any[] = [];
+
+      // Add non-literal types
+      for (const typeNode of nonLiteralTypes) {
+        anyOf.push(this.typeNodeToSchema(typeNode, sourceFile));
+      }
+
+      // Add grouped string literals
+      if (stringLiterals.length > 0) {
+        anyOf.push({
+          type: 'string',
+          enum: stringLiterals,
+        });
+      }
+
+      // Add grouped number literals
+      if (numberLiterals.length > 0) {
+        anyOf.push({
+          type: 'number',
+          enum: numberLiterals,
+        });
+      }
+
+      // Add grouped boolean literals
+      if (booleanLiterals.length > 0) {
+        anyOf.push({
+          type: 'boolean',
+          enum: booleanLiterals,
+        });
+      }
+
+      return { anyOf };
     }
 
-    if (numberValues.length > 0 && stringValues.length === 0 && booleanValues.length === 0) {
-      return {
-        type: 'number',
-        enum: numberValues,
-      };
-    }
-
-    if (booleanValues.length > 0 && stringValues.length === 0 && numberValues.length === 0) {
-      return {
-        type: 'boolean',
-        enum: booleanValues,
-      };
-    }
-
-    // Mixed literal types - can't create a clean enum
+    // Case 3: Complex union or mixed literal types - let standard anyOf handle it
     return null;
   }
 
