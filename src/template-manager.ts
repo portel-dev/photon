@@ -532,7 +532,7 @@ This photon provides **\${tools ? tools.length : 0}** tools:
 **Parameters:**
 
 \${each(tool.params, (p) => \`
-- **\\\`\${p.name}\\\`** (\${p.type}\${p.optional ? ', optional' : ''}) - \${p.description || 'No description'}
+- **\\\`\${p.name}\\\`** (\${p.type}\${p.optional ? ', optional' : ''})\${p.constraintsFormatted ? \` [\${p.constraintsFormatted}]\` : ''} - \${p.description || 'No description'}\${p.example ? \` (e.g., \\\`\${p.example}\\\`)\` : ''}
 \`)}
 \`)}
 
