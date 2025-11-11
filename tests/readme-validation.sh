@@ -140,35 +140,35 @@ else
 fi
 
 # ============================================================================
-# SECTION 4: Get Commands
+# SECTION 4: Info Commands
 # ============================================================================
 
-test_start "photon get should list Photons"
-if $PHOTON_CMD get > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD get 2>&1)
+test_start "photon info should list Photons"
+if $PHOTON_CMD info > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD info 2>&1)
     if echo "$OUTPUT" | grep -q "test-readme-calc"; then
         test_pass "Lists test-readme-calc Photon"
     else
         test_fail "Does not list test-readme-calc"
     fi
 else
-    test_fail "get command failed"
+    test_fail "info command failed"
 fi
 
-test_start "photon get <name> should show details"
-if $PHOTON_CMD get test-readme-calc > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD get test-readme-calc 2>&1)
+test_start "photon info <name> should show details"
+if $PHOTON_CMD info test-readme-calc > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD info test-readme-calc 2>&1)
     if echo "$OUTPUT" | grep -qi "tool\|method"; then
         test_pass "Shows photon details"
     else
         test_fail "Does not show details"
     fi
 else
-    test_fail "get <name> failed"
+    test_fail "info <name> failed"
 fi
 
-test_start "photon get <name> --mcp should generate config"
-if OUTPUT=$($PHOTON_CMD get test-readme-calc --mcp 2>&1); then
+test_start "photon info <name> --mcp should generate config"
+if OUTPUT=$($PHOTON_CMD info test-readme-calc --mcp 2>&1); then
     if echo "$OUTPUT" | grep -q "mcpServers"; then
         test_pass "Generates MCP config with mcpServers"
     else
@@ -180,18 +180,18 @@ if OUTPUT=$($PHOTON_CMD get test-readme-calc --mcp 2>&1); then
         test_fail "Config missing photon name"
     fi
 else
-    test_fail "get --mcp command failed"
+    test_fail "info --mcp command failed"
 fi
 
-test_start "photon get --mcp should generate config for all Photons"
-if OUTPUT=$($PHOTON_CMD get --mcp 2>&1); then
+test_start "photon info --mcp should generate config for all Photons"
+if OUTPUT=$($PHOTON_CMD info --mcp 2>&1); then
     if echo "$OUTPUT" | grep -q "mcpServers"; then
         test_pass "Generates config for all"
     else
         test_fail "Config generation failed"
     fi
 else
-    test_fail "get --mcp failed"
+    test_fail "info --mcp failed"
 fi
 
 # ============================================================================
