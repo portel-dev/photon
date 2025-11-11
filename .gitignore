@@ -11,3 +11,4 @@ coverage/
 .idea/
 CLAUDE.md
 ANNOUNCEMENT.md
+.release-it.json.backup
