@@ -832,7 +832,7 @@ photon validate my-tool
 
 **1. Generate config:**
 ```bash
-photon get my-tool --mcp
+photon info my-tool --mcp
 ```
 
 **Output:**

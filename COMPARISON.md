@@ -236,7 +236,7 @@ constructor(user_agent?: string, storage_path?: string) { }
 
 **Claude Desktop config (auto-generated):**
 ```bash
-npx @portel/photon get web-fetch --mcp
+npx @portel/photon info web-fetch --mcp
 ```
 
 ```json
