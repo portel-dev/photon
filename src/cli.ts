@@ -665,10 +665,10 @@ program
           console.log(`# Add to mcpServers in: ${configPath}\n`);
           console.log(JSON.stringify({ [name]: config }, null, 2));
         } else {
-          // Show Photon details
-          const { PhotonLoader } = await import('./loader.js');
-          const loader = new PhotonLoader(false); // quiet mode for inspection
-          const mcp = await loader.loadFile(filePath);
+          // Show Photon details using static analysis
+          const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
+          const extractor = new PhotonDocExtractor(filePath);
+          const photonMetadata = await extractor.extractFullMetadata();
 
           const { MarketplaceManager } = await import('./marketplace-manager.js');
           const manager = new MarketplaceManager();
@@ -689,32 +689,21 @@ program
             if (isModified) {
               console.error(`Status: ⚠️  Modified locally`);
             }
+          } else if (photonMetadata.version) {
+            console.error(`Version: ${photonMetadata.version}`);
           }
 
-          console.error(`Tools: ${mcp.tools.length}`);
-          console.error(`Templates: ${mcp.templates.length}`);
-          console.error(`Resources: ${mcp.statics.length}\n`);
+          if (photonMetadata.description) {
+            console.error(`Description: ${photonMetadata.description}`);
+          }
 
-          if (mcp.tools.length > 0) {
+          const toolCount = photonMetadata.tools?.length || 0;
+          console.error(`Tools: ${toolCount}\n`);
+
+          if (photonMetadata.tools && photonMetadata.tools.length > 0) {
             console.error('Tools:');
-            for (const tool of mcp.tools) {
+            for (const tool of photonMetadata.tools) {
               console.error(`  • ${tool.name}: ${tool.description || 'No description'}`);
-            }
-            console.error('');
-          }
-
-          if (mcp.templates.length > 0) {
-            console.error('Templates:');
-            for (const template of mcp.templates) {
-              console.error(`  • ${template.name}: ${template.description || 'No description'}`);
-            }
-            console.error('');
-          }
-
-          if (mcp.statics.length > 0) {
-            console.error('Resources:');
-            for (const resource of mcp.statics) {
-              console.error(`  • ${resource.uri}: ${resource.name || 'No name'}`);
             }
             console.error('');
           }
