@@ -11,6 +11,7 @@ import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { SchemaExtractor } from './schema-extractor.js';
 import { resolvePhotonPath } from './path-resolver.js';
+import { PhotonLoader } from './loader.js';
 
 interface MethodInfo {
   name: string;
@@ -256,54 +257,14 @@ export async function runMethod(
       process.exit(1);
     }
 
-    // Load and instantiate the photon
+    // Load the photon using PhotonLoader (handles dependencies and compilation)
     console.error(`🚀 Loading ${photonName}...`);
-
-    // Load constructor parameters from environment variables
-    const constructorArgs: any[] = [];
-    const extractor = new SchemaExtractor();
-    const source = await fs.readFile(resolvedPath, 'utf-8');
-    const constructorParams = extractor.extractConstructorParams(source);
-
-    for (const param of constructorParams) {
-      const envVarName = toEnvVarName(mcpName, param.name);
-      const value = process.env[envVarName];
-
-      if (!value && !param.isOptional) {
-        console.error(`❌ Missing required environment variable: ${envVarName}`);
-        console.error(`   Set it with: export ${envVarName}="value"`);
-        process.exit(1);
-      }
-
-      constructorArgs.push(value);
-    }
-
-    // Import the photon class
-    const fileUrl = pathToFileURL(resolvedPath).href;
-    const module = await import(fileUrl);
-    const PhotonClass = module.default;
-
-    if (!PhotonClass) {
-      console.error(`❌ No default export found in ${resolvedPath}`);
-      process.exit(1);
-    }
-
-    // Instantiate
-    const instance = new PhotonClass(...constructorArgs);
-
-    // Call onInitialize if it exists
-    if (typeof instance.onInitialize === 'function') {
-      await instance.onInitialize();
-    }
+    const loader = new PhotonLoader(false); // verbose=false for CLI mode
+    const photonInstance = await loader.loadFile(resolvedPath);
 
     // Call the method
     console.error(`📞 Calling ${methodName}...`);
-    const result = await instance[methodName](parsedArgs);
-
-    // Call onShutdown if it exists
-    if (typeof instance.onShutdown === 'function') {
-      await instance.onShutdown();
-    }
+    const result = await loader.executeTool(photonInstance, methodName, parsedArgs);
 
     // Display result
     console.log('\n✅ Result:\n');
