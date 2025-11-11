@@ -169,7 +169,60 @@ function parseValue(value: string): any {
 }
 
 /**
- * List all methods in a photon
+ * Print help for a specific method
+ */
+function printMethodHelp(photonName: string, method: MethodInfo): void {
+  console.log(`\nNAME:`);
+  console.log(`    ${method.name} - ${method.description || 'No description'}\n`);
+
+  console.log(`USAGE:`);
+  const requiredParams = method.params.filter(p => !p.optional);
+  const optionalParams = method.params.filter(p => p.optional);
+
+  let usage = `    photon cli ${photonName} ${method.name}`;
+  if (requiredParams.length > 0) {
+    usage += ' ' + requiredParams.map(p => `--${p.name} <value>`).join(' ');
+  }
+  if (optionalParams.length > 0) {
+    usage += ' [options]';
+  }
+  console.log(usage + '\n');
+
+  if (method.params.length > 0) {
+    if (requiredParams.length > 0) {
+      console.log(`REQUIRED:`);
+      for (const param of requiredParams) {
+        console.log(`    --${param.name}`);
+        if (param.description) {
+          console.log(`        ${param.description}`);
+        }
+      }
+      console.log('');
+    }
+
+    if (optionalParams.length > 0) {
+      console.log(`OPTIONS:`);
+      for (const param of optionalParams) {
+        console.log(`    --${param.name}`);
+        if (param.description) {
+          console.log(`        ${param.description}`);
+        }
+      }
+      console.log('');
+    }
+  }
+
+  console.log(`EXAMPLE:`);
+  if (requiredParams.length > 0) {
+    const exampleParams = requiredParams.map(p => `--${p.name} <value>`).join(' ');
+    console.log(`    photon cli ${photonName} ${method.name} ${exampleParams}\n`);
+  } else {
+    console.log(`    photon cli ${photonName} ${method.name}\n`);
+  }
+}
+
+/**
+ * List all methods in a photon (standard CLI help format)
  */
 export async function listMethods(photonName: string): Promise<void> {
   try {
@@ -183,19 +236,38 @@ export async function listMethods(photonName: string): Promise<void> {
 
     const methods = await extractMethods(resolvedPath);
 
-    console.log(`\n📋 Available methods in ${photonName}:\n`);
+    // Print usage
+    console.log(`\nUSAGE:`);
+    console.log(`    photon cli ${photonName} <command> [options]\n`);
+
+    // Print commands
+    console.log(`COMMANDS:`);
+
+    // Find longest method name for alignment
+    const maxLength = Math.max(...methods.map(m => m.name.length));
 
     for (const method of methods) {
-      console.log(`  ${method.name}`);
-      if (method.description) {
-        console.log(`    ${method.description}`);
-      }
-      if (method.params.length > 0) {
-        console.log(`    Parameters:`);
-        for (const param of method.params) {
-          const optional = param.optional ? ' (optional)' : '';
-          const desc = param.description ? ` - ${param.description}` : '';
-          console.log(`      • ${param.name}${optional}${desc}`);
+      const padding = ' '.repeat(maxLength - method.name.length + 4);
+      const description = method.description || 'No description';
+      console.log(`    ${method.name}${padding}${description}`);
+    }
+
+    // Print footer
+    console.log(`\nFor detailed parameter information, run:`);
+    console.log(`    photon cli ${photonName} <command> --help\n`);
+
+    // Print examples if there are methods
+    if (methods.length > 0) {
+      console.log(`EXAMPLES:`);
+      // Show first 3 methods as examples
+      const exampleMethods = methods.slice(0, 3);
+      for (const method of exampleMethods) {
+        const requiredParams = method.params.filter(p => !p.optional);
+        if (requiredParams.length > 0) {
+          const paramStr = requiredParams.map(p => `--${p.name} <value>`).join(' ');
+          console.log(`    photon cli ${photonName} ${method.name} ${paramStr}`);
+        } else {
+          console.log(`    photon cli ${photonName} ${method.name}`);
         }
       }
       console.log('');
@@ -234,8 +306,14 @@ export async function runMethod(
     if (!method) {
       console.error(`❌ Method '${methodName}' not found in ${photonName}`);
       console.error(`\nAvailable methods: ${methods.map(m => m.name).join(', ')}`);
-      console.error(`\nRun 'photon cli ${photonName}' to see all methods with parameters`);
+      console.error(`\nRun 'photon cli ${photonName}' to see all methods`);
       process.exit(1);
+    }
+
+    // Check for --help flag
+    if (args.includes('--help') || args.includes('-h')) {
+      printMethodHelp(photonName, method);
+      return;
     }
 
     // Parse arguments
