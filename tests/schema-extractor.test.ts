@@ -406,6 +406,111 @@ async function runTests() {
     console.log('✅ Array with multiple constraints');
   }
 
+  // Test 20: Example values (single and multiple)
+  {
+    const source = `
+      /**
+       * Search users
+       * @param query Search query {@example "john doe"} {@example "jane smith"}
+       * @param limit Results per page {@example 20}
+       * @param active Active users only {@example true}
+       */
+      async searchUsers(params: { query: string; limit?: number; active?: boolean }) {
+        return query;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.deepEqual(schema.properties.query.examples, ['john doe', 'jane smith'], 'Should have multiple string examples');
+    assert.deepEqual(schema.properties.limit.examples, [20], 'Should have numeric example');
+    assert.deepEqual(schema.properties.active.examples, [true], 'Should have boolean example');
+    console.log('✅ Example values');
+  }
+
+  // Test 21: multipleOf constraint
+  {
+    const source = `
+      /**
+       * Set brightness
+       * @param level Brightness level {@min 0} {@max 100} {@multipleOf 5}
+       */
+      async setBrightness(params: { level: number }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.level.type, 'number', 'Should be number type');
+    assert.equal(schema.properties.level.minimum, 0, 'Should have minimum');
+    assert.equal(schema.properties.level.maximum, 100, 'Should have maximum');
+    assert.equal(schema.properties.level.multipleOf, 5, 'Should have multipleOf');
+    console.log('✅ multipleOf constraint');
+  }
+
+  // Test 22: deprecated constraint (boolean and with message)
+  {
+    const source = `
+      /**
+       * Update user
+       * @param userId User ID {@deprecated}
+       * @param username Username {@deprecated Use updateUserV2 instead}
+       */
+      async updateUser(params: { userId: string; username: string }) {
+        return userId;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.userId.deprecated, true, 'Should have deprecated=true');
+    assert.equal(schema.properties.username.deprecated, 'Use updateUserV2 instead', 'Should have deprecated message');
+    console.log('✅ deprecated constraint');
+  }
+
+  // Test 23: readOnly and writeOnly constraints
+  {
+    const source = `
+      /**
+       * Create user
+       * @param id User ID {@readOnly}
+       * @param password Password {@writeOnly} {@min 8}
+       * @param name Name
+       */
+      async createUser(params: { id?: string; password: string; name: string }) {
+        return id;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.id.readOnly, true, 'Should have readOnly');
+    assert.equal(schema.properties.password.writeOnly, true, 'Should have writeOnly');
+    assert.equal(schema.properties.password.minLength, 8, 'Should also have minLength');
+    assert.equal(schema.properties.name.readOnly, undefined, 'Should not have readOnly');
+    assert.equal(schema.properties.name.writeOnly, undefined, 'Should not have writeOnly');
+    console.log('✅ readOnly and writeOnly constraints');
+  }
+
+  // Test 24: All constraints combined
+  {
+    const source = `
+      /**
+       * Comprehensive test
+       * @param brightness Brightness {@min 0} {@max 100} {@multipleOf 5} {@default 50} {@example 25} {@example 75}
+       */
+      async comprehensive(params?: { brightness?: number }) {
+        return brightness;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.brightness.type, 'number', 'Should be number type');
+    assert.equal(schema.properties.brightness.minimum, 0, 'Should have minimum');
+    assert.equal(schema.properties.brightness.maximum, 100, 'Should have maximum');
+    assert.equal(schema.properties.brightness.multipleOf, 5, 'Should have multipleOf');
+    assert.equal(schema.properties.brightness.default, 50, 'Should have default');
+    assert.deepEqual(schema.properties.brightness.examples, [25, 75], 'Should have examples');
+    console.log('✅ All constraints combined');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 
