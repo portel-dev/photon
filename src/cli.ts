@@ -708,7 +708,16 @@ program
             console.error('');
           }
 
-          console.error(`Run with: photon mcp ${name} --dev`);
+          // Show appropriate run command based on whether it's from marketplace or local
+          if (metadata && !isModified) {
+            console.error(`Run with: photon mcp ${name}`);
+            console.error(`To customize: Copy to a new name and run with --dev for hot reload`);
+          } else if (metadata && isModified) {
+            console.error(`Run with: photon mcp ${name} --dev`);
+            console.error(`Note: Modified from marketplace version - consider renaming to avoid upgrade conflicts`);
+          } else {
+            console.error(`Run with: photon mcp ${name} --dev`);
+          }
         }
         return;
       }
@@ -1470,7 +1479,8 @@ program
         console.error(`Version: ${selectedMetadata.version}`);
       }
       console.error(`Location: ${filePath}`);
-      console.error(`Run with: photon mcp ${name} --dev`);
+      console.error(`\nRun with: photon mcp ${name}`);
+      console.error(`\nTo customize: Copy to a new name and run with --dev for hot reload`);
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       process.exit(1);
