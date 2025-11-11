@@ -15,6 +15,8 @@ interface ToolParam {
   type: string;
   optional: boolean;
   description: string;
+  constraintsFormatted?: string;
+  example?: string;
 }
 
 interface Tool {
@@ -245,6 +247,77 @@ export class PhotonDocExtractor {
   }
 
   /**
+   * Parse inline JSDoc constraint tags from parameter description
+   * Extracts tags like {@min 1}, {@max 100}, {@format email}, {@example test}
+   * Returns cleaned description and formatted constraints string
+   */
+  private parseInlineJSDocTags(description: string): { description: string; constraintsFormatted?: string; example?: string } {
+    const constraints: string[] = [];
+    let cleanDesc = description;
+    let example: string | undefined;
+
+    // Extract {@min N}
+    const minMatch = cleanDesc.match(/\{@min\s+(\d+)\}/);
+    if (minMatch) {
+      constraints.push(`min: ${minMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@min\s+\d+\}\s*/g, '');
+    }
+
+    // Extract {@max N}
+    const maxMatch = cleanDesc.match(/\{@max\s+(\d+)\}/);
+    if (maxMatch) {
+      constraints.push(`max: ${maxMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@max\s+\d+\}\s*/g, '');
+    }
+
+    // Extract {@format type}
+    const formatMatch = cleanDesc.match(/\{@format\s+([a-z-]+)\}/);
+    if (formatMatch) {
+      constraints.push(`format: ${formatMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@format\s+[a-z-]+\}\s*/g, '');
+    }
+
+    // Extract {@pattern regex}
+    const patternMatch = cleanDesc.match(/\{@pattern\s+([^}]+)\}/);
+    if (patternMatch) {
+      constraints.push(`pattern: ${patternMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@pattern\s+[^}]+\}\s*/g, '');
+    }
+
+    // Extract {@example value} - handle nested braces in JSON examples
+    const exampleStart = cleanDesc.indexOf('{@example ');
+    if (exampleStart !== -1) {
+      const contentStart = exampleStart + '{@example '.length;
+      let depth = 0;
+      let i = contentStart;
+
+      // Find the closing } by counting braces
+      while (i < cleanDesc.length) {
+        if (cleanDesc[i] === '{') depth++;
+        else if (cleanDesc[i] === '}') {
+          if (depth === 0) {
+            // Found the closing brace of the {@example} tag
+            example = cleanDesc.substring(contentStart, i).trim();
+            cleanDesc = cleanDesc.substring(0, exampleStart) + cleanDesc.substring(i + 1);
+            break;
+          }
+          depth--;
+        }
+        i++;
+      }
+    }
+
+    // Clean up extra whitespace
+    cleanDesc = cleanDesc.trim();
+
+    return {
+      description: cleanDesc,
+      constraintsFormatted: constraints.length > 0 ? constraints.join(', ') : undefined,
+      example,
+    };
+  }
+
+  /**
    * Parse a single tool method from its JSDoc content
    */
   private parseToolMethodFromJSDoc(jsdoc: string, methodName: string): Tool | null {
@@ -268,27 +341,43 @@ export class PhotonDocExtractor {
       const paramName = paramMatch[1];
       const paramDesc = paramMatch[2].trim();
 
+      // Parse inline JSDoc tags
+      const parsed = this.parseInlineJSDocTags(paramDesc);
+
       // Try to extract type and optional info from description
       // Format: "Param description (optional)" or "Param description (default: value)"
-      const optional = /\(optional\)/i.test(paramDesc) || /\(default:/i.test(paramDesc);
+      let cleanDesc = parsed.description;
+      const optional = /\(optional\)/i.test(cleanDesc) || /\(default:/i.test(cleanDesc);
+      cleanDesc = cleanDesc.replace(/\(optional\)/gi, '').replace(/\(default:.*?\)/gi, '').trim();
 
       params.push({
         name: paramName,
         type: 'any', // Type extraction from JSDoc would need more parsing
         optional,
-        description: paramDesc.replace(/\(optional\)/gi, '').replace(/\(default:.*?\)/gi, '').trim(),
+        description: cleanDesc,
+        constraintsFormatted: parsed.constraintsFormatted,
+        example: parsed.example,
       });
     }
 
-    // Look for example in JSDoc or method body
-    const exampleMatch = jsdoc.match(/@example\s+([\s\S]+?)(?=\n\s*\*\s*@|\n\s*\*\/)/);
-    const example = exampleMatch
-      ? exampleMatch[1]
-          .split('\n')
-          .map(line => line.replace(/^\s*\*\s?/, ''))
-          .join('\n')
-          .trim()
-      : undefined;
+    // Look for method-level @example tag (not inline {@example} in params)
+    // Method-level examples should be on their own line and contain actual code
+    const exampleMatch = jsdoc.match(/\n\s*\*\s*@example\s+([\s\S]+?)(?=\n\s*\*\s*@|\n\s*\*\/)/);
+    let example: string | undefined;
+
+    if (exampleMatch) {
+      const exampleText = exampleMatch[1]
+        .split('\n')
+        .map(line => line.replace(/^\s*\*\s?/, ''))
+        .join('\n')
+        .trim();
+
+      // Only use it if it looks like actual code (not just a simple value from inline tag)
+      // Ignore if it's just a single word or ends with }
+      if (exampleText.length > 20 || exampleText.includes('(') || exampleText.includes('{')) {
+        example = exampleText;
+      }
+    }
 
     return {
       name: methodName,
