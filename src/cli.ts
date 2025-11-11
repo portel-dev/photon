@@ -1780,6 +1780,23 @@ program
     }
   });
 
+// CLI command: directly invoke photon methods
+program
+  .command('cli <photon> [method] [args...]')
+  .description('Run photon methods directly from the command line')
+  .allowUnknownOption()
+  .action(async (photon: string, method: string | undefined, args: string[]) => {
+    const { listMethods, runMethod } = await import('./photon-cli-runner.js');
+
+    if (!method) {
+      // List all methods
+      await listMethods(photon);
+    } else {
+      // Run specific method
+      await runMethod(photon, method, args);
+    }
+  });
+
 program.parse();
 
 /**
