@@ -248,7 +248,7 @@ export default class ConfigTest {
 EOF
 
 if $PHOTON_CMD --working-dir "$TEST_DIR" validate config-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" get config-test 2>&1)
+    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" info config-test 2>&1)
     if echo "$OUTPUT" | grep -q "CONFIG_TEST_API_KEY"; then
         test_pass "Env var CONFIG_TEST_API_KEY detected"
     else
