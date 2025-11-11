@@ -255,7 +255,7 @@ function getConfigPath(): string {
 
 /**
  * Check if photon is installed globally
- * @returns Path to global photon if found, null otherwise
+ * @returns "photon" if available globally (cross-platform), null otherwise
  */
 async function getGlobalPhotonPath(): Promise<string | null> {
   const { execFile } = await import('child_process');
@@ -273,7 +273,9 @@ async function getGlobalPhotonPath(): Promise<string | null> {
         const { stdout: versionOutput } = await execFileAsync(photonPath, ['--version']);
         // If it outputs a version, it's likely our photon
         if (versionOutput.trim()) {
-          return photonPath;
+          // Return "photon" instead of full path for cross-platform compatibility
+          // The shell will resolve it from PATH
+          return 'photon';
         }
       } catch {
         // Version check failed, might not be our photon
