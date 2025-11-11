@@ -108,6 +108,62 @@ async function runTests() {
     console.log('✅ Default URI generation');
   }
 
+  // Test 6: Enum generation from string literal unions
+  {
+    const source = `
+      /**
+       * Perform action
+       * @param action The action to perform
+       */
+      async performAction(params: { action: 'create' | 'update' | 'delete' }) {
+        return action;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    assert.equal(result.tools.length, 1, 'Should have 1 tool');
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.action.type, 'string', 'Should have string type');
+    assert.deepEqual(schema.properties.action.enum, ['create', 'update', 'delete'], 'Should have enum array');
+    assert.equal(schema.properties.action.anyOf, undefined, 'Should not have anyOf');
+    console.log('✅ String literal union to enum');
+  }
+
+  // Test 7: Enum generation from number literal unions
+  {
+    const source = `
+      /**
+       * Set level
+       * @param level The level to set
+       */
+      async setLevel(params: { level: 1 | 2 | 3 }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.level.type, 'number', 'Should have number type');
+    assert.deepEqual(schema.properties.level.enum, [1, 2, 3], 'Should have numeric enum array');
+    console.log('✅ Number literal union to enum');
+  }
+
+  // Test 8: Non-literal unions should still use anyOf
+  {
+    const source = `
+      /**
+       * Process value
+       * @param value The value to process
+       */
+      async processValue(params: { value: string | number }) {
+        return value;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.notEqual(schema.properties.value.anyOf, undefined, 'Should have anyOf for non-literal union');
+    assert.equal(schema.properties.value.enum, undefined, 'Should not have enum for non-literal union');
+    console.log('✅ Non-literal unions use anyOf');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 
