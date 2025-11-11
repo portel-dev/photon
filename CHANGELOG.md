@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.2.0] - 2025-11-11
+
+### Features
+
+* **Unified info command** - `photon info` now shows both installed AND available photons from marketplaces
+  - `photon info` - Lists all installed photons with marketplace availability in tree structure
+  - `photon info <name>` - Shows details for photon (installed or available)
+  - Tree format clearly shows which marketplace offers what photons
+  - Install status marked with ✓ for easy identification
+
+* **Smart global detection** - Automatically detects and uses global photon installation
+  - Uses `photon` command if installed globally (cross-platform)
+  - Falls back to `npx @portel/photon` if not installed globally
+  - No manual configuration needed
+
+* **Smart --dev guidance** - Contextual recommendations based on photon origin
+  - Marketplace photons: Run without --dev, suggests copying to customize
+  - Modified marketplace photons: Run with --dev, warns about upgrade conflicts
+  - Local/custom photons: Run with --dev for hot reload
+
+### Bug Fixes
+
+* **Static analysis** - Use PhotonDocExtractor for `info` command to avoid instantiation errors
+  - No longer requires constructor parameters to view photon details
+  - Works for any photon regardless of configuration requirements
+
+* **Cross-platform compatibility** - Use `photon` command instead of full path
+  - Generated MCP configs now use `"command": "photon"` instead of platform-specific paths
+  - Works consistently across macOS, Linux, and Windows
+
+### Changed
+
+* **Command renamed** - `photon get` → `photon info` for clarity
+  - More intuitive naming (info shows information, add downloads)
+  - Removed duplicate marketplace `info` command (now unified)
+  - All documentation updated to reflect new command
+
+### Tests
+
+* Updated all test suites to use `info` command
+* All tests passing (schema, marketplace, loader, server, integration, README validation)
+
 ## [1.1.0](https://github.com/portel-dev/photon/compare/v1.0.0...v1.1.0) (2025-11-09)
 
 ### Features
@@ -22,12 +64,12 @@
 
 **CLI Structure Overhaul:**
 - `photon <name>` → `photon mcp <name>` - More explicit MCP server invocation
-- `photon list` → `photon get` - Follows kubectl/gh CLI patterns
-- `photon list --config` → `photon get <name> --mcp` - Generate MCP config
-- `photon get` - List all Photons
-- `photon get <name>` - Show Photon details with metadata
-- `photon get --mcp` - MCP config for all Photons
-- `photon get <name> --mcp` - MCP config for one Photon
+- `photon list` → `photon info` - Unified command for local and marketplace info
+- `photon list --config` → `photon info <name> --mcp` - Generate MCP config
+- `photon info` - List all Photons (local + marketplace availability)
+- `photon info <name>` - Show Photon details with metadata
+- `photon info --mcp` - MCP config for all Photons
+- `photon info <name> --mcp` - MCP config for one Photon
 
 **Marketplace System (replacing Registry):**
 - `photon registry:*` → `photon marketplace *` - Simpler, clearer naming
@@ -42,7 +84,7 @@
 - Installation metadata stored in `~/.photon/.metadata.json`
 - Track marketplace source, version, installation date for each Photon
 - SHA-256 hash calculation for modification detection
-- `photon get <name>` shows version, marketplace, and modification status
+- `photon info <name>` shows version, marketplace, and modification status
 - ⚠️ Modified indicator when file hash doesn't match original
 
 **Commands:**

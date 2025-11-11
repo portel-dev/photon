@@ -184,7 +184,7 @@ The [**official Photon marketplace**](https://github.com/portel-dev/photons) com
 
 ```bash
 # Browse all photons
-photon get
+photon info
 
 # Install any photon (filesystem, git, postgres, mongodb, slack, etc.)
 photon add filesystem
@@ -214,7 +214,7 @@ photon add your-custom-tool
 
 ```bash
 # Get configuration for any MCP client
-photon get filesystem --mcp
+photon info filesystem --mcp
 ```
 
 Add the output to your MCP client's config file. **Consult your client's documentation** for setup instructions.
@@ -303,7 +303,7 @@ Production-ready photons from **[portel-dev/photons](https://github.com/portel-d
 
 Browse and install:
 ```bash
-photon get            # See all available photons
+photon info            # See all available photons
 photon add postgres   # Install any photon
 photon search git     # Search by keyword
 ```
@@ -455,18 +455,18 @@ photon mcp calculator --config
 
 ### Inspect & Configure
 
-#### `photon get [name]`
+#### `photon info [name]`
 List all photons or show details for a specific one.
 
 ```bash
 # List all installed photons
-photon get
+photon info
 
 # Show details for one photon
-photon get calculator
+photon info calculator
 
 # Get MCP client configuration
-photon get calculator --mcp
+photon info calculator --mcp
 ```
 
 **Options:**
@@ -916,7 +916,7 @@ Photon works with **any MCP client**:
 
 ```bash
 # Get configuration for your MCP client
-photon get <photon-name> --mcp
+photon info <photon-name> --mcp
 ```
 
 **Consult your MCP client's documentation** for:
