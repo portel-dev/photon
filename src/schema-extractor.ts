@@ -603,20 +603,20 @@ export class SchemaExtractor {
         paramConstraints.max = parseFloat(maxMatch[1]);
       }
 
-      // Extract {@pattern regex}
-      const patternMatch = description.match(/\{@pattern\s+([^}]+)\}/);
+      // Extract {@pattern regex} - use lookahead to match until tag-closing }
+      const patternMatch = description.match(/\{@pattern\s+(.+?)\}(?=\s|$|{@)/);
       if (patternMatch) {
         paramConstraints.pattern = patternMatch[1].trim();
       }
 
-      // Extract {@format formatName}
-      const formatMatch = description.match(/\{@format\s+([^}]+)\}/);
+      // Extract {@format formatName} - use lookahead to match until tag-closing }
+      const formatMatch = description.match(/\{@format\s+(.+?)\}(?=\s|$|{@)/);
       if (formatMatch) {
         paramConstraints.format = formatMatch[1].trim();
       }
 
-      // Extract {@default value}
-      const defaultMatch = description.match(/\{@default\s+([^}]+)\}/);
+      // Extract {@default value} - use lookahead to match until tag-closing }
+      const defaultMatch = description.match(/\{@default\s+(.+?)\}(?=\s|$|{@)/);
       if (defaultMatch) {
         const defaultValue = defaultMatch[1].trim();
         // Try to parse as JSON for numbers, booleans, objects, arrays
@@ -633,8 +633,8 @@ export class SchemaExtractor {
         paramConstraints.unique = true;
       }
 
-      // Extract {@example value} - supports multiple examples
-      const exampleMatches = description.matchAll(/\{@example\s+([^}]+)\}/g);
+      // Extract {@example value} - supports multiple examples, use lookahead
+      const exampleMatches = description.matchAll(/\{@example\s+(.+?)\}(?=\s|$|{@)/g);
       const examples: any[] = [];
       for (const exampleMatch of exampleMatches) {
         const exampleValue = exampleMatch[1].trim();
@@ -656,20 +656,29 @@ export class SchemaExtractor {
         paramConstraints.multipleOf = parseFloat(multipleOfMatch[1]);
       }
 
-      // Extract {@deprecated message}
-      const deprecatedMatch = description.match(/\{@deprecated(?:\s+([^}]+))?\}/);
+      // Extract {@deprecated message} - use lookahead to match until tag-closing }
+      const deprecatedMatch = description.match(/\{@deprecated(?:\s+(.+?))?\}(?=\s|$|{@)/);
       if (deprecatedMatch) {
         paramConstraints.deprecated = deprecatedMatch[1]?.trim() || true;
       }
 
-      // Extract {@readOnly}
-      if (description.match(/\{@readOnly\s*\}/)) {
-        paramConstraints.readOnly = true;
-      }
+      // Extract {@readOnly} and {@writeOnly} - track which comes last
+      // They are mutually exclusive, so last one wins
+      const readOnlyMatch = description.match(/\{@readOnly\s*\}/);
+      const writeOnlyMatch = description.match(/\{@writeOnly\s*\}/);
 
-      // Extract {@writeOnly}
-      if (description.match(/\{@writeOnly\s*\}/)) {
-        paramConstraints.writeOnly = true;
+      if (readOnlyMatch || writeOnlyMatch) {
+        // Find positions to determine which comes last
+        const readOnlyPos = readOnlyMatch ? description.indexOf(readOnlyMatch[0]) : -1;
+        const writeOnlyPos = writeOnlyMatch ? description.indexOf(writeOnlyMatch[0]) : -1;
+
+        if (readOnlyPos > writeOnlyPos) {
+          paramConstraints.readOnly = true;
+          paramConstraints.writeOnly = false; // Explicitly clear the other
+        } else if (writeOnlyPos > readOnlyPos) {
+          paramConstraints.writeOnly = true;
+          paramConstraints.readOnly = false; // Explicitly clear the other
+        }
       }
 
       if (Object.keys(paramConstraints).length > 0) {
