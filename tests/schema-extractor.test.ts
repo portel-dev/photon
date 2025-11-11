@@ -511,6 +511,64 @@ async function runTests() {
     console.log('✅ All constraints combined');
   }
 
+  // Test 25: Extract readonly from TypeScript
+  {
+    const source = `
+      /**
+       * Update resource
+       * @param id Resource ID
+       * @param name Resource name
+       */
+      async updateResource(params: { readonly id: string; name: string }) {
+        return id;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.id.readOnly, true, 'Should extract readOnly from TS readonly modifier');
+    assert.equal(schema.properties.name.readOnly, undefined, 'Should not have readOnly on non-readonly property');
+    console.log('✅ Extract readonly from TypeScript');
+  }
+
+  // Test 26: JSDoc overrides TypeScript readonly
+  {
+    const source = `
+      /**
+       * Update with override
+       * @param id Resource ID {@writeOnly}
+       * @param name Resource name {@readOnly}
+       */
+      async updateOverride(params: { readonly id: string; name: string }) {
+        return id;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    // JSDoc writeOnly should override TS readonly
+    assert.equal(schema.properties.id.writeOnly, true, 'JSDoc writeOnly should be set');
+    assert.equal(schema.properties.id.readOnly, undefined, 'TS readonly should be overridden by JSDoc writeOnly');
+    // JSDoc readOnly should be set even without TS readonly
+    assert.equal(schema.properties.name.readOnly, true, 'JSDoc readOnly should be set');
+    console.log('✅ JSDoc overrides TypeScript readonly');
+  }
+
+  // Test 27: TypeScript readonly without JSDoc override
+  {
+    const source = `
+      /**
+       * Simple readonly test
+       * @param id Resource ID
+       */
+      async simpleReadonly(params: { readonly id: string }) {
+        return id;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.id.readOnly, true, 'Should preserve TS readonly when no JSDoc override');
+    console.log('✅ TypeScript readonly without JSDoc override');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 

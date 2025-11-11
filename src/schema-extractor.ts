@@ -81,6 +81,14 @@ export class SchemaExtractor {
           if (paramDocs.has(key)) {
             properties[key].description = paramDocs.get(key);
           }
+
+          // Apply TypeScript-extracted metadata (before JSDoc, so JSDoc can override)
+          if (properties[key]._tsReadOnly) {
+            properties[key].readOnly = true;
+            delete properties[key]._tsReadOnly; // Clean up internal marker
+          }
+
+          // Apply JSDoc constraints (takes precedence over TypeScript)
           if (paramConstraints.has(key)) {
             const constraints = paramConstraints.get(key)!;
             this.applyConstraints(properties[key], constraints);
@@ -194,6 +202,7 @@ export class SchemaExtractor {
 
   /**
    * Build JSON schema from TypeScript type node
+   * Extracts: type, optional, readonly
    */
   private buildSchemaFromType(typeNode: ts.TypeNode, sourceFile: ts.SourceFile): { properties: Record<string, any>, required: string[] } {
     const properties: Record<string, any> = {};
@@ -205,6 +214,7 @@ export class SchemaExtractor {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText(sourceFile);
           const isOptional = member.questionToken !== undefined;
+          const isReadonly = member.modifiers?.some(m => m.kind === ts.SyntaxKind.ReadonlyKeyword) || false;
 
           if (!isOptional) {
             required.push(propName);
@@ -214,6 +224,11 @@ export class SchemaExtractor {
             properties[propName] = this.typeNodeToSchema(member.type, sourceFile);
           } else {
             properties[propName] = { type: 'object' };
+          }
+
+          // Add readonly from TypeScript (JSDoc can override)
+          if (isReadonly) {
+            properties[propName]._tsReadOnly = true;
           }
         }
       });
@@ -731,11 +746,16 @@ export class SchemaExtractor {
       if (constraints.deprecated !== undefined) {
         s.deprecated = constraints.deprecated === true ? true : constraints.deprecated;
       }
+
+      // readOnly and writeOnly are mutually exclusive
+      // JSDoc takes precedence over TypeScript
       if (constraints.readOnly === true) {
         s.readOnly = true;
+        delete s.writeOnly; // Clear writeOnly if readOnly is set
       }
       if (constraints.writeOnly === true) {
         s.writeOnly = true;
+        delete s.readOnly; // Clear readOnly if writeOnly is set
       }
     };
 
