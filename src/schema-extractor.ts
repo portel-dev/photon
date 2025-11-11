@@ -549,6 +549,11 @@ export class SchemaExtractor {
         .replace(/\{@format\s+[^}]+\}/g, '')
         .replace(/\{@default\s+[^}]+\}/g, '')
         .replace(/\{@unique(?:Items)?\s*\}/g, '')
+        .replace(/\{@example\s+[^}]+\}/g, '')
+        .replace(/\{@multipleOf\s+[^}]+\}/g, '')
+        .replace(/\{@deprecated(?:\s+[^}]+)?\}/g, '')
+        .replace(/\{@readOnly\s*\}/g, '')
+        .replace(/\{@writeOnly\s*\}/g, '')
         .replace(/\s+/g, ' ')  // Collapse multiple spaces
         .trim();
       paramDocs.set(paramName, cleanDesc);
@@ -559,7 +564,8 @@ export class SchemaExtractor {
 
   /**
    * Extract parameter constraints from JSDoc @param tags
-   * Supports inline tags: {@min}, {@max}, {@pattern}, {@format}, {@default}, {@unique}
+   * Supports inline tags: {@min}, {@max}, {@pattern}, {@format}, {@default}, {@unique},
+   * {@example}, {@multipleOf}, {@deprecated}, {@readOnly}, {@writeOnly}
    */
   private extractParamConstraints(jsdocContent: string): Map<string, any> {
     const constraints = new Map<string, any>();
@@ -612,6 +618,45 @@ export class SchemaExtractor {
         paramConstraints.unique = true;
       }
 
+      // Extract {@example value} - supports multiple examples
+      const exampleMatches = description.matchAll(/\{@example\s+([^}]+)\}/g);
+      const examples: any[] = [];
+      for (const exampleMatch of exampleMatches) {
+        const exampleValue = exampleMatch[1].trim();
+        // Try to parse as JSON
+        try {
+          examples.push(JSON.parse(exampleValue));
+        } catch {
+          // If not valid JSON, use as string
+          examples.push(exampleValue);
+        }
+      }
+      if (examples.length > 0) {
+        paramConstraints.examples = examples;
+      }
+
+      // Extract {@multipleOf value} - for numbers
+      const multipleOfMatch = description.match(/\{@multipleOf\s+(-?\d+(?:\.\d+)?)\}/);
+      if (multipleOfMatch) {
+        paramConstraints.multipleOf = parseFloat(multipleOfMatch[1]);
+      }
+
+      // Extract {@deprecated message}
+      const deprecatedMatch = description.match(/\{@deprecated(?:\s+([^}]+))?\}/);
+      if (deprecatedMatch) {
+        paramConstraints.deprecated = deprecatedMatch[1]?.trim() || true;
+      }
+
+      // Extract {@readOnly}
+      if (description.match(/\{@readOnly\s*\}/)) {
+        paramConstraints.readOnly = true;
+      }
+
+      // Extract {@writeOnly}
+      if (description.match(/\{@writeOnly\s*\}/)) {
+        paramConstraints.writeOnly = true;
+      }
+
       if (Object.keys(paramConstraints).length > 0) {
         constraints.set(paramName, paramConstraints);
       }
@@ -622,14 +667,21 @@ export class SchemaExtractor {
 
   /**
    * Apply constraints to a schema property based on type
-   * Handles: min/max (contextual), pattern, format, default, unique
+   * Handles: min/max (contextual), pattern, format, default, unique,
+   * examples, multipleOf, deprecated, readOnly, writeOnly
    * Works with both simple types and anyOf schemas
    */
   private applyConstraints(schema: any, constraints: any) {
     // Helper to apply constraints to a single schema based on type
     const applyToSchema = (s: any) => {
       if (s.enum) {
-        // Skip enum types
+        // Skip enum types for most constraints (but still apply deprecated, examples, etc.)
+        if (constraints.examples !== undefined) {
+          s.examples = constraints.examples;
+        }
+        if (constraints.deprecated !== undefined) {
+          s.deprecated = constraints.deprecated === true ? true : constraints.deprecated;
+        }
         return;
       }
 
@@ -640,6 +692,9 @@ export class SchemaExtractor {
         }
         if (constraints.max !== undefined) {
           s.maximum = constraints.max;
+        }
+        if (constraints.multipleOf !== undefined) {
+          s.multipleOf = constraints.multipleOf;
         }
       } else if (s.type === 'string') {
         if (constraints.min !== undefined) {
@@ -666,15 +721,36 @@ export class SchemaExtractor {
         }
       }
 
-      // Apply default value (works for all types)
+      // Apply type-agnostic constraints
       if (constraints.default !== undefined) {
         s.default = constraints.default;
+      }
+      if (constraints.examples !== undefined) {
+        s.examples = constraints.examples;
+      }
+      if (constraints.deprecated !== undefined) {
+        s.deprecated = constraints.deprecated === true ? true : constraints.deprecated;
+      }
+      if (constraints.readOnly === true) {
+        s.readOnly = true;
+      }
+      if (constraints.writeOnly === true) {
+        s.writeOnly = true;
       }
     };
 
     // Apply to anyOf schemas or direct schema
     if (schema.anyOf) {
       schema.anyOf.forEach(applyToSchema);
+
+      // For deprecated/examples that apply to the whole property (not individual types)
+      // Apply them at the top level too
+      if (constraints.deprecated !== undefined) {
+        schema.deprecated = constraints.deprecated === true ? true : constraints.deprecated;
+      }
+      if (constraints.examples !== undefined) {
+        schema.examples = constraints.examples;
+      }
     } else {
       applyToSchema(schema);
     }
