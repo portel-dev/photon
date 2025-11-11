@@ -569,7 +569,213 @@ async function runTests() {
     console.log('✅ TypeScript readonly without JSDoc override');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed!');
+  // Test 28: Nested objects
+  {
+    const source = `
+      /**
+       * Create user with address
+       * @param name User name
+       * @param address User address
+       */
+      async createUser(params: {
+        name: string;
+        address: { street: string; city: string; zip: number }
+      }) {
+        return name;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.name.type, 'string', 'Should have name as string');
+    assert.equal(schema.properties.address.type, 'object', 'Should have address as object');
+    assert.notEqual(schema.properties.address.properties, undefined, 'Nested object should have properties');
+    assert.equal(schema.properties.address.properties.street.type, 'string', 'Nested street should be string');
+    assert.equal(schema.properties.address.properties.city.type, 'string', 'Nested city should be string');
+    assert.equal(schema.properties.address.properties.zip.type, 'number', 'Nested zip should be number');
+    console.log('✅ Nested objects');
+  }
+
+  // Test 29: Nullable types (string | null)
+  {
+    const source = `
+      /**
+       * Update bio
+       * @param bio Biography (can be null to clear)
+       */
+      async updateBio(params: { bio: string | null }) {
+        return bio;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.notEqual(schema.properties.bio.anyOf, undefined, 'Nullable should have anyOf');
+    const types = schema.properties.bio.anyOf.map((s: any) => s.type);
+    assert.ok(types.includes('string'), 'Should include string type');
+    console.log('✅ Nullable types (string | null)');
+  }
+
+  // Test 30: Conflicting constraints (readOnly + writeOnly)
+  {
+    const source = `
+      /**
+       * Conflicting test
+       * @param field1 Field with readOnly first {@readOnly} {@writeOnly}
+       * @param field2 Field with writeOnly first {@writeOnly} {@readOnly}
+       */
+      async conflictTest(params: { field1: string; field2: string }) {
+        return field1;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    // Last one wins: writeOnly should win for field1
+    assert.equal(schema.properties.field1.writeOnly, true, 'Last constraint should win (writeOnly)');
+    assert.equal(schema.properties.field1.readOnly, undefined, 'Should not have readOnly when writeOnly is set');
+    // Last one wins: readOnly should win for field2
+    assert.equal(schema.properties.field2.readOnly, true, 'Last constraint should win (readOnly)');
+    assert.equal(schema.properties.field2.writeOnly, undefined, 'Should not have writeOnly when readOnly is set');
+    console.log('✅ Conflicting constraints (last wins)');
+  }
+
+  // Test 31: Array of complex types
+  {
+    const source = `
+      /**
+       * Set users
+       * @param users List of users
+       */
+      async setUsers(params: { users: Array<{ name: string; age: number }> }) {
+        return users;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.users.type, 'array', 'Should be array type');
+    assert.notEqual(schema.properties.users.items, undefined, 'Array should have items schema');
+    // Items should be an object type (may not have full nested schema extraction)
+    console.log('✅ Array of complex types');
+  }
+
+  // Test 32: Multiple examples (more than 2)
+  {
+    const source = `
+      /**
+       * Search with many examples
+       * @param query Query {@example "john"} {@example "jane"} {@example "bob"} {@example "alice"}
+       */
+      async search(params: { query: string }) {
+        return query;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.deepEqual(schema.properties.query.examples, ['john', 'jane', 'bob', 'alice'], 'Should support multiple examples');
+    console.log('✅ Multiple examples (4)');
+  }
+
+  // Test 33: Escaped characters in pattern
+  {
+    const source = `
+      /**
+       * Phone number validation
+       * @param phone Phone number {@pattern ^\\d{3}-\\d{4}$}
+       */
+      async validatePhone(params: { phone: string }) {
+        return phone;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.phone.pattern, '^\\d{3}-\\d{4}$', 'Should preserve escaped characters');
+    console.log('✅ Escaped characters in pattern');
+  }
+
+  // Test 34: Edge case - negative constraints
+  {
+    const source = `
+      /**
+       * Temperature
+       * @param celsius Temperature {@min -273.15} {@max 1000}
+       */
+      async setTemp(params: { celsius: number }) {
+        return celsius;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.celsius.minimum, -273.15, 'Should support negative min');
+    assert.equal(schema.properties.celsius.maximum, 1000, 'Should support large max');
+    console.log('✅ Negative and large constraint values');
+  }
+
+  // Test 35: Empty object parameter
+  {
+    const source = `
+      /**
+       * No params method
+       */
+      async noParams(params: {}) {
+        return true;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.type, 'object', 'Should have object type');
+    assert.deepEqual(schema.properties, {}, 'Should have empty properties');
+    assert.equal(schema.required, undefined, 'Should not have required array');
+    console.log('✅ Empty object parameter');
+  }
+
+  // Test 36: Very long enum list
+  {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => `'${l}'`).join(' | ');
+    const source = `
+      async selectLetter(params: { letter: ${letters} }) {
+        return letter;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.letter.type, 'string', 'Should be string type');
+    assert.equal(schema.properties.letter.enum.length, 26, 'Should have all 26 letters');
+    console.log('✅ Very long enum list (26 values)');
+  }
+
+  // Test 37: Invalid JSON in default (should use as string)
+  {
+    const source = `
+      /**
+       * Test invalid JSON
+       * @param value Value {@default not-json-123}
+       */
+      async test(params?: { value?: string }) {
+        return value;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.value.default, 'not-json-123', 'Should use invalid JSON as string');
+    console.log('✅ Invalid JSON in default (fallback to string)');
+  }
+
+  // Test 38: Decimal multipleOf
+  {
+    const source = `
+      /**
+       * Precise value
+       * @param amount Amount {@min 0} {@max 100} {@multipleOf 0.01}
+       */
+      async setAmount(params: { amount: number }) {
+        return amount;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.amount.multipleOf, 0.01, 'Should support decimal multipleOf');
+    console.log('✅ Decimal multipleOf');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (38 tests)');
 }
 
 // Run if executed directly
