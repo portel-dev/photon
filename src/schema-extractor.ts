@@ -548,6 +548,7 @@ export class SchemaExtractor {
         .replace(/\{@pattern\s+[^}]+\}/g, '')
         .replace(/\{@format\s+[^}]+\}/g, '')
         .replace(/\{@default\s+[^}]+\}/g, '')
+        .replace(/\{@unique(?:Items)?\s*\}/g, '')
         .replace(/\s+/g, ' ')  // Collapse multiple spaces
         .trim();
       paramDocs.set(paramName, cleanDesc);
@@ -558,7 +559,7 @@ export class SchemaExtractor {
 
   /**
    * Extract parameter constraints from JSDoc @param tags
-   * Supports inline tags: {@min}, {@max}, {@pattern}, {@format}, {@default}
+   * Supports inline tags: {@min}, {@max}, {@pattern}, {@format}, {@default}, {@unique}
    */
   private extractParamConstraints(jsdocContent: string): Map<string, any> {
     const constraints = new Map<string, any>();
@@ -606,6 +607,11 @@ export class SchemaExtractor {
         }
       }
 
+      // Extract {@unique} or {@uniqueItems} - for arrays
+      if (description.match(/\{@unique(?:Items)?\s*\}/)) {
+        paramConstraints.unique = true;
+      }
+
       if (Object.keys(paramConstraints).length > 0) {
         constraints.set(paramName, paramConstraints);
       }
@@ -616,7 +622,7 @@ export class SchemaExtractor {
 
   /**
    * Apply constraints to a schema property based on type
-   * Handles: min/max (contextual), pattern, format, default
+   * Handles: min/max (contextual), pattern, format, default, unique
    * Works with both simple types and anyOf schemas
    */
   private applyConstraints(schema: any, constraints: any) {
@@ -654,6 +660,9 @@ export class SchemaExtractor {
         }
         if (constraints.max !== undefined) {
           s.maxItems = constraints.max;
+        }
+        if (constraints.unique === true) {
+          s.uniqueItems = true;
         }
       }
 
