@@ -1,10 +1,10 @@
 # Photon Naming Conventions
 
-Clean, consistent naming is crucial for photons, especially when used as CLI tools. This guide establishes conventions to make photons intuitive and easy to use.
+Clean, consistent naming makes photons intuitive across all use cases: MCP servers, CLI tools, and programmatic usage.
 
 ## Why Naming Matters
 
-When used as CLI tools, photon names directly impact user experience:
+Concise, well-chosen names improve usability across all targets:
 
 ```bash
 # ❌ Bad: Redundant and verbose
@@ -44,7 +44,7 @@ export default class Time {
 
 ### 2. **Keep Methods Concise**
 
-CLI commands should be short and memorable.
+Short, memorable names are easier to use and understand.
 
 ```typescript
 // ❌ Bad - Too verbose
@@ -327,13 +327,13 @@ Before finalizing a photon, ask:
 - [ ] Do I avoid repeating the photon name in methods?
 - [ ] Do I use standard verbs (get, set, list, create, update, delete)?
 - [ ] Are enum values consistently lowercase/kebab-case?
-- [ ] Would this read naturally as a CLI command?
+- [ ] Would this read naturally when called?
 - [ ] Are parameter names clear and unabbreviated?
 - [ ] Do singular/plural forms make sense?
 
 ## Testing Your Names
 
-Test your naming by saying the full CLI command out loud:
+Test your naming by using it in different contexts:
 
 ```bash
 # Does it flow naturally?
@@ -352,8 +352,7 @@ photon cli docker listDockerContainers                 # ❌ No
 1. **Be concise** - Short method names are better
 2. **Avoid redundancy** - Photon name provides context
 3. **Use standard verbs** - Stick to CRUD operations
-4. **Think CLI-first** - Imagine the command-line usage
-5. **Be consistent** - Follow patterns across photons
-6. **Test it out loud** - Does it sound natural?
+4. **Be consistent** - Follow patterns across photons
+5. **Test in context** - Try it in MCP, CLI, and code
 
-Remember: Good naming makes photons a joy to use both as MCP servers and CLI tools!
+Remember: Good naming makes photons intuitive across all use cases!
