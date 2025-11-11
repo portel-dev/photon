@@ -254,6 +254,40 @@ function getConfigPath(): string {
 }
 
 /**
+ * Check if photon is installed globally
+ * @returns Path to global photon if found, null otherwise
+ */
+async function getGlobalPhotonPath(): Promise<string | null> {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+
+  try {
+    const command = process.platform === 'win32' ? 'where' : 'which';
+    const { stdout } = await execFileAsync(command, ['photon']);
+    const photonPath = stdout.trim().split('\n')[0]; // Take first match
+
+    if (photonPath) {
+      // Verify it's actually the @portel/photon package by checking version
+      try {
+        const { stdout: versionOutput } = await execFileAsync(photonPath, ['--version']);
+        // If it outputs a version, it's likely our photon
+        if (versionOutput.trim()) {
+          return photonPath;
+        }
+      } catch {
+        // Version check failed, might not be our photon
+        return null;
+      }
+    }
+  } catch {
+    // which/where command failed, photon not in PATH
+  }
+
+  return null;
+}
+
+/**
  * Validate configuration for an MCP
  */
 async function validateConfiguration(filePath: string, mcpName: string): Promise<void> {
@@ -610,11 +644,20 @@ program
             env[envVarName] = defaultDisplay;
           }
 
-          const config = {
-            command: 'npx',
-            args: ['@portel/photon', 'mcp', name],
-            ...(Object.keys(env).length > 0 && { env }),
-          };
+          // Check for global photon installation
+          const globalPhotonPath = await getGlobalPhotonPath();
+
+          const config = globalPhotonPath
+            ? {
+                command: globalPhotonPath,
+                args: ['mcp', name],
+                ...(Object.keys(env).length > 0 && { env }),
+              }
+            : {
+                command: 'npx',
+                args: ['@portel/photon', 'mcp', name],
+                ...(Object.keys(env).length > 0 && { env }),
+              };
 
           // Get OS-specific config path
           const configPath = getConfigPath();
@@ -686,6 +729,9 @@ program
         // MCP config mode for all Photons
         const allConfigs: Record<string, any> = {};
 
+        // Check for global photon installation once
+        const globalPhotonPath = await getGlobalPhotonPath();
+
         for (const mcpName of mcps) {
           const filePath = await resolvePhotonPath(mcpName, workingDir);
           if (!filePath) continue;
@@ -700,11 +746,17 @@ program
             env[envVarName] = defaultDisplay;
           }
 
-          allConfigs[mcpName] = {
-            command: 'npx',
-            args: ['@portel/photon', 'mcp', mcpName],
-            ...(Object.keys(env).length > 0 && { env }),
-          };
+          allConfigs[mcpName] = globalPhotonPath
+            ? {
+                command: globalPhotonPath,
+                args: ['mcp', mcpName],
+                ...(Object.keys(env).length > 0 && { env }),
+              }
+            : {
+                command: 'npx',
+                args: ['@portel/photon', 'mcp', mcpName],
+                ...(Object.keys(env).length > 0 && { env }),
+              };
         }
 
         // Get OS-specific config path
