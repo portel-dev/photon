@@ -363,6 +363,49 @@ async function runTests() {
     console.log('✅ Combined constraints');
   }
 
+  // Test 18: Array uniqueItems constraint
+  {
+    const source = `
+      /**
+       * Set tags
+       * @param tags Unique tags {@unique}
+       * @param ids Unique IDs {@uniqueItems}
+       */
+      async setTags(params: { tags: string[]; ids: number[] }) {
+        return tags;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.tags.type, 'array', 'Should be array type');
+    assert.equal(schema.properties.tags.uniqueItems, true, 'Should have uniqueItems with {@unique}');
+    assert.equal(schema.properties.ids.uniqueItems, true, 'Should have uniqueItems with {@uniqueItems}');
+    assert.equal(schema.properties.tags.description, 'Unique tags', 'Should remove {@unique} from description');
+    assert.equal(schema.properties.ids.description, 'Unique IDs', 'Should remove {@uniqueItems} from description');
+    console.log('✅ Array uniqueItems constraint');
+  }
+
+  // Test 19: Array with multiple constraints
+  {
+    const source = `
+      /**
+       * Add tags
+       * @param tags Tags {@min 1} {@max 5} {@unique}
+       */
+      async addTags(params: { tags: string[] }) {
+        return tags;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.tags.type, 'array', 'Should be array type');
+    assert.equal(schema.properties.tags.minItems, 1, 'Should have minItems');
+    assert.equal(schema.properties.tags.maxItems, 5, 'Should have maxItems');
+    assert.equal(schema.properties.tags.uniqueItems, true, 'Should have uniqueItems');
+    assert.equal(schema.properties.tags.description, 'Tags', 'Should remove all constraint tags');
+    console.log('✅ Array with multiple constraints');
+  }
+
   console.log('\n✅ All Schema Extractor tests passed!');
 }
 
