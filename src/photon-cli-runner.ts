@@ -25,6 +25,7 @@ interface MethodInfo {
     description?: string;
   }[];
   description?: string;
+  format?: 'primitive' | 'table' | 'tree' | 'list' | 'none';
 }
 
 /**
@@ -104,6 +105,10 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       }
     }
 
+    // Extract format hint from @format tag
+    const formatMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|none)/i);
+    const format = formatMatch ? formatMatch[1].toLowerCase() as MethodInfo['format'] : undefined;
+
     // Extract parameters
     const params: MethodInfo['params'] = [];
     const paramRegex = /@param\s+(\w+)\s+(.+?)(?=\n\s*\*\s*@|\n\s*\*\/|\n\s*$)/gs;
@@ -137,6 +142,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       name: methodName,
       params,
       description,
+      ...(format ? { format } : {}),
     });
   }
 
@@ -195,9 +201,256 @@ function extractObjectProperties(typeStr: string): Map<string, { type: string; o
 }
 
 /**
+ * Detect format type from data structure
+ */
+function detectFormat(data: any): 'primitive' | 'table' | 'tree' | 'list' | 'none' {
+  // null/undefined = none
+  if (data === null || data === undefined) {
+    return 'none';
+  }
+
+  // Primitive types
+  if (typeof data === 'string' || typeof data === 'number' || typeof data === 'boolean') {
+    return 'primitive';
+  }
+
+  // Array handling
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      return 'list';
+    }
+
+    // Check first element to determine list vs table
+    const firstItem = data[0];
+
+    // Array of primitives = list
+    if (typeof firstItem !== 'object' || firstItem === null) {
+      return 'list';
+    }
+
+    // Array of flat objects = table
+    if (isFlatObject(firstItem)) {
+      return 'table';
+    }
+
+    // Array of nested objects = tree
+    return 'tree';
+  }
+
+  // Single object
+  if (typeof data === 'object') {
+    // Flat object = table
+    if (isFlatObject(data)) {
+      return 'table';
+    }
+
+    // Nested object = tree
+    return 'tree';
+  }
+
+  // Default fallback
+  return 'none';
+}
+
+/**
+ * Check if an object is flat (no nested objects or arrays)
+ */
+function isFlatObject(obj: any): boolean {
+  if (typeof obj !== 'object' || obj === null) {
+    return false;
+  }
+
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'object' && value !== null) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Render primitive value
+ */
+function renderPrimitive(value: any): void {
+  if (typeof value === 'boolean') {
+    console.log(value ? 'Yes' : 'No');
+  } else {
+    console.log(value);
+  }
+}
+
+/**
+ * Render list (array of primitives)
+ */
+function renderList(data: any[]): void {
+  if (data.length === 0) {
+    console.log('(empty)');
+    return;
+  }
+
+  data.forEach(item => {
+    console.log(`  • ${item}`);
+  });
+}
+
+/**
+ * Render table (flat object or array of flat objects)
+ */
+function renderTable(data: any): void {
+  // Single flat object - show as key-value pairs
+  if (!Array.isArray(data)) {
+    const entries = Object.entries(data).filter(
+      ([key, value]) => !(key === 'returnValue' && value === true)
+    );
+
+    const maxKeyLength = Math.max(...entries.map(([k]) => formatKey(k).length));
+
+    for (const [key, value] of entries) {
+      const formattedKey = formatKey(key);
+      const padding = ' '.repeat(maxKeyLength - formattedKey.length);
+      console.log(`  ${formattedKey}${padding}  ${formatValue(value)}`);
+    }
+    return;
+  }
+
+  // Array of flat objects - show as table
+  if (data.length === 0) {
+    console.log('(empty)');
+    return;
+  }
+
+  // Get all unique keys across all objects
+  const allKeys = Array.from(
+    new Set(data.flatMap(obj => Object.keys(obj)))
+  ).filter(k => k !== 'returnValue');
+
+  if (allKeys.length === 0) {
+    console.log('(no data)');
+    return;
+  }
+
+  // Calculate column widths
+  const columnWidths = new Map<string, number>();
+  for (const key of allKeys) {
+    const headerWidth = formatKey(key).length;
+    const maxValueWidth = Math.max(
+      ...data.map(obj => String(formatValue(obj[key] ?? '')).length)
+    );
+    columnWidths.set(key, Math.max(headerWidth, maxValueWidth));
+  }
+
+  // Print header
+  const headerParts = allKeys.map(key => {
+    const formattedKey = formatKey(key);
+    const width = columnWidths.get(key)!;
+    return formattedKey.padEnd(width);
+  });
+  console.log('  ' + headerParts.join('  '));
+
+  // Print separator
+  const separatorParts = allKeys.map(key => {
+    const width = columnWidths.get(key)!;
+    return '─'.repeat(width);
+  });
+  console.log('  ' + separatorParts.join('  '));
+
+  // Print rows
+  for (const row of data) {
+    const rowParts = allKeys.map(key => {
+      const value = formatValue(row[key] ?? '');
+      const width = columnWidths.get(key)!;
+      return String(value).padEnd(width);
+    });
+    console.log('  ' + rowParts.join('  '));
+  }
+}
+
+/**
+ * Render tree (nested/hierarchical structure)
+ */
+function renderTree(data: any, indent: string = ''): void {
+  // Array of objects
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      console.log(`${indent}(empty)`);
+      return;
+    }
+
+    data.forEach((item, index) => {
+      if (typeof item === 'object' && item !== null) {
+        console.log(`${indent}[${index}]`);
+        renderTree(item, indent + '  ');
+      } else {
+        console.log(`${indent}• ${item}`);
+      }
+    });
+    return;
+  }
+
+  // Object
+  if (typeof data === 'object' && data !== null) {
+    const entries = Object.entries(data).filter(
+      ([key, value]) => !(key === 'returnValue' && value === true)
+    );
+
+    for (const [key, value] of entries) {
+      const formattedKey = formatKey(key);
+
+      if (value === null || value === undefined) {
+        console.log(`${indent}${formattedKey}: (none)`);
+      } else if (Array.isArray(value)) {
+        console.log(`${indent}${formattedKey}:`);
+        renderTree(value, indent + '  ');
+      } else if (typeof value === 'object') {
+        console.log(`${indent}${formattedKey}:`);
+        renderTree(value, indent + '  ');
+      } else {
+        console.log(`${indent}${formattedKey}: ${formatValue(value)}`);
+      }
+    }
+    return;
+  }
+
+  // Primitive (shouldn't happen but handle it)
+  console.log(`${indent}${formatValue(data)}`);
+}
+
+/**
+ * Render none format (operation with no data)
+ */
+function renderNone(): void {
+  console.log('✅ Done');
+}
+
+/**
+ * Format a key for display (camelCase to Title Case)
+ */
+function formatKey(key: string): string {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+}
+
+/**
+ * Format a value for display
+ */
+function formatValue(value: any): string | number | boolean {
+  if (value === null || value === undefined) {
+    return '(none)';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  return value;
+}
+
+/**
  * Format output for display to the user
  */
-function formatOutput(result: any): void {
+function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): void {
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
     console.log('❌ Error:', result.error || result.message || 'Unknown error');
@@ -211,9 +464,10 @@ function formatOutput(result: any): void {
       console.log('✅', result.message);
     }
 
-    // If there's data, format it nicely
-    if (result.data) {
-      formatData(result.data);
+    // Determine what data to format
+    let dataToFormat: any;
+    if (result.data !== undefined) {
+      dataToFormat = result.data;
     } else {
       // Check if there are other fields besides success, message, error
       const otherFields = Object.keys(result).filter(
@@ -221,95 +475,54 @@ function formatOutput(result: any): void {
       );
 
       if (otherFields.length > 0) {
-        // There are other fields to display
-        const dataToShow: any = {};
-        otherFields.forEach(k => dataToShow[k] = result[k]);
-        formatData(dataToShow);
-      } else if (!result.message) {
-        // Success with no message or data
-        console.log('✅ Done');
+        dataToFormat = {};
+        otherFields.forEach(k => dataToFormat[k] = result[k]);
+      } else {
+        // No data to format
+        if (!result.message) {
+          renderNone();
+        }
+        return;
       }
     }
+
+    // Format the data using hint or detection
+    formatDataWithHint(dataToFormat, formatHint);
     return;
   }
 
   // Handle plain data without success wrapper
   if (result !== undefined && result !== null) {
-    formatData(result);
+    formatDataWithHint(result, formatHint);
   } else {
-    console.log('✅ Done');
+    renderNone();
   }
 }
 
 /**
- * Format data for display
+ * Format data using format hint or auto-detection
  */
-function formatData(data: any): void {
-  // Handle arrays
-  if (Array.isArray(data)) {
-    if (data.length === 0) {
-      console.log('(empty)');
-    } else {
-      data.forEach((item, index) => {
-        if (typeof item === 'object') {
-          console.log(`[${index}]`);
-          formatObject(item, '  ');
-        } else {
-          console.log(`  ${item}`);
-        }
-      });
-    }
-    return;
-  }
+function formatDataWithHint(data: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): void {
+  // Use hint if provided, otherwise detect
+  const format = formatHint || detectFormat(data);
 
-  // Handle objects
-  if (typeof data === 'object') {
-    formatObject(data);
-    return;
-  }
-
-  // Handle primitives
-  console.log(data);
-}
-
-/**
- * Format an object for display
- */
-function formatObject(obj: any, indent: string = ''): void {
-  // Skip returnValue if it's just true
-  const entries = Object.entries(obj).filter(
-    ([key, value]) => !(key === 'returnValue' && value === true)
-  );
-
-  for (const [key, value] of entries) {
-    // Format key nicely (camelCase to Title Case)
-    const formattedKey = key
-      // Split on capital letters but keep consecutive capitals together
-      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .replace(/^./, str => str.toUpperCase())
-      .trim();
-
-    if (value === null || value === undefined) {
-      console.log(`${indent}${formattedKey}: (none)`);
-    } else if (typeof value === 'boolean') {
-      console.log(`${indent}${formattedKey}: ${value ? 'Yes' : 'No'}`);
-    } else if (Array.isArray(value)) {
-      console.log(`${indent}${formattedKey}:`);
-      value.forEach((item, index) => {
-        if (typeof item === 'object') {
-          console.log(`${indent}  [${index}]`);
-          formatObject(item, indent + '    ');
-        } else {
-          console.log(`${indent}  - ${item}`);
-        }
-      });
-    } else if (typeof value === 'object') {
-      console.log(`${indent}${formattedKey}:`);
-      formatObject(value, indent + '  ');
-    } else {
-      console.log(`${indent}${formattedKey}: ${value}`);
-    }
+  // Apply appropriate renderer
+  switch (format) {
+    case 'primitive':
+      renderPrimitive(data);
+      break;
+    case 'list':
+      renderList(Array.isArray(data) ? data : [data]);
+      break;
+    case 'table':
+      renderTable(data);
+      break;
+    case 'tree':
+      renderTree(data);
+      break;
+    case 'none':
+      renderNone();
+      break;
   }
 }
 
@@ -451,6 +664,10 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
       }
       console.log('');
     }
+
+    console.log(`GLOBAL OPTIONS:`);
+    console.log(`    --json`);
+    console.log(`        Output raw JSON instead of formatted text\n`);
   }
 
   console.log(`EXAMPLE:`);
@@ -557,8 +774,12 @@ export async function runMethod(
       return;
     }
 
+    // Check for --json flag
+    const jsonOutput = args.includes('--json');
+    const filteredArgs = args.filter(arg => arg !== '--json');
+
     // Parse arguments
-    const parsedArgs = parseCliArgs(args, method.params);
+    const parsedArgs = parseCliArgs(filteredArgs, method.params);
 
     // Validate required parameters
     const missing: string[] = [];
@@ -623,7 +844,11 @@ export async function runMethod(
 
     // Display result
     console.log();
-    formatOutput(result);
+    if (jsonOutput) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      formatOutput(result, method.format);
+    }
 
   } catch (error: any) {
     console.error(`❌ Error: ${error.message}`);

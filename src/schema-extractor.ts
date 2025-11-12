@@ -125,10 +125,12 @@ export class SchemaExtractor {
         }
         // Otherwise, it's a regular tool
         else {
+          const format = this.extractFormat(jsdoc);
           tools.push({
             name: methodName,
             description,
             inputSchema,
+            ...(format ? { format } : {}),
           });
         }
       };
@@ -806,6 +808,18 @@ export class SchemaExtractor {
   private extractStaticURI(jsdocContent: string): string | null {
     const match = jsdocContent.match(/@Static\s+([\w:\/\{\}\-_.]+)/i);
     return match ? match[1].trim() : null;
+  }
+
+  /**
+   * Extract format hint from @format tag
+   * Example: @format table
+   */
+  private extractFormat(jsdocContent: string): 'primitive' | 'table' | 'tree' | 'list' | 'none' | undefined {
+    const match = jsdocContent.match(/@format\s+(primitive|table|tree|list|none)/i);
+    if (match) {
+      return match[1].toLowerCase() as 'primitive' | 'table' | 'tree' | 'list' | 'none';
+    }
+    return undefined;
   }
 
   /**
