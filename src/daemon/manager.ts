@@ -9,7 +9,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn, ChildProcess } from 'child_process';
+import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
+
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PHOTON_DIR = path.join(os.homedir(), '.photon');
 const DAEMON_DIR = path.join(PHOTON_DIR, 'daemons');
