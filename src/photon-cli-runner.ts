@@ -610,6 +610,12 @@ function parseCliArgs(
  * Coerce a string value to the expected type
  */
 function coerceValue(value: string, expectedType: string): any {
+  // Preserve strings starting with + or - for relative adjustments
+  // Must check BEFORE JSON.parse because JSON.parse("-3") returns -3 (number)
+  if (expectedType === 'number' && (value.startsWith('+') || value.startsWith('-'))) {
+    return value;
+  }
+
   // Try to parse as JSON first (handles objects, arrays, true/false)
   try {
     const parsed = JSON.parse(value);
@@ -635,7 +641,11 @@ function coerceToType(value: any, expectedType: string): any {
 
     case 'number':
       // Handle: 42, "42", 3.14, "3.14"
+      // BUT preserve strings starting with + or - (relative adjustments)
       if (typeof value === 'number') return value;
+      if (typeof value === 'string' && (value.startsWith('+') || value.startsWith('-'))) {
+        return value; // Keep as string for relative adjustments
+      }
       const num = Number(value);
       return isNaN(num) ? value : num;
 
