@@ -1787,6 +1787,41 @@ program
   .allowUnknownOption()
   .helpOption(false) // Disable default help so we can handle it ourselves
   .action(async (photon: string, method: string | undefined, args: string[]) => {
+    // Handle help flag
+    if (photon === '--help' || photon === '-h') {
+      console.log(`USAGE:
+    photon cli <photon-name> [method] [args...]
+
+DESCRIPTION:
+    Run photon methods directly from the command line. Photons provide
+    a CLI interface automatically based on their exported methods.
+
+EXAMPLES:
+    # List all methods for a photon
+    photon cli lg-remote
+
+    # Call a method with no parameters
+    photon cli lg-remote status
+
+    # Call a method with parameters
+    photon cli lg-remote volume 50
+    photon cli lg-remote volume +5
+    photon cli lg-remote volume --level=-3
+
+    # Get method-specific help
+    photon cli lg-remote volume --help
+
+    # Output raw JSON instead of formatted text
+    photon cli lg-remote status --json
+
+SEE ALSO:
+    photon info           List all installed photons
+    photon add <name>     Install a photon from marketplace
+    photon alias          Create CLI shortcuts for photons
+`);
+      return;
+    }
+
     const { listMethods, runMethod } = await import('./photon-cli-runner.js');
 
     if (!method) {
