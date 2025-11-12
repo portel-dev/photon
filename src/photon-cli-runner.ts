@@ -476,12 +476,13 @@ function formatValue(value: any): string | number | boolean {
 
 /**
  * Format output for display to the user
+ * @returns true if successful, false if error
  */
-function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): void {
+function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): boolean {
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
     console.log('❌ Error:', result.error || result.message || 'Unknown error');
-    return;
+    return false;
   }
 
   // Handle success responses with data
@@ -509,13 +510,13 @@ function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' |
         if (!result.message) {
           renderNone();
         }
-        return;
+        return true;
       }
     }
 
     // Format the data using hint or detection
     formatDataWithHint(dataToFormat, formatHint);
-    return;
+    return true;
   }
 
   // Handle plain data without success wrapper
@@ -524,6 +525,8 @@ function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' |
   } else {
     renderNone();
   }
+
+  return true;
 }
 
 /**
@@ -876,8 +879,15 @@ export async function runMethod(
     // Display result
     if (jsonOutput) {
       console.log(JSON.stringify(result, null, 2));
+      // Check for errors in JSON output too
+      if (result && typeof result === 'object' && result.success === false) {
+        process.exit(1);
+      }
     } else {
-      formatOutput(result, method.format);
+      const success = formatOutput(result, method.format);
+      if (!success) {
+        process.exit(1);
+      }
     }
 
   } catch (error: any) {
