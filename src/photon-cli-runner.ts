@@ -12,6 +12,9 @@ import { pathToFileURL } from 'url';
 import { SchemaExtractor } from './schema-extractor.js';
 import { resolvePhotonPath } from './path-resolver.js';
 import { PhotonLoader } from './loader.js';
+import { PhotonDocExtractor } from './photon-doc-extractor.js';
+import { isDaemonRunning, startDaemon } from './daemon/manager.js';
+import { sendCommand, pingDaemon } from './daemon/client.js';
 
 interface MethodInfo {
   name: string;
@@ -453,14 +456,50 @@ export async function runMethod(
       process.exit(1);
     }
 
-    // Load the photon using PhotonLoader (handles dependencies and compilation)
-    console.error(`🚀 Loading ${photonName}...`);
-    const loader = new PhotonLoader(false); // verbose=false for CLI mode
-    const photonInstance = await loader.loadFile(resolvedPath);
+    // Check if photon is stateful
+    const extractor = new PhotonDocExtractor(resolvedPath);
+    const metadata = await extractor.extractFullMetadata();
 
-    // Call the method
-    console.error(`📞 Calling ${methodName}...`);
-    const result = await loader.executeTool(photonInstance, methodName, parsedArgs);
+    let result: any;
+
+    if (metadata.stateful) {
+      // STATEFUL PATH: Use daemon
+      console.error(`🚀 Loading ${photonName}...`);
+
+      // Check if daemon is running
+      if (!isDaemonRunning(photonName)) {
+        console.error(`[daemon] Starting daemon for ${photonName}...`);
+        await startDaemon(photonName, resolvedPath);
+
+        // Wait for daemon to be ready
+        let ready = false;
+        for (let i = 0; i < 10; i++) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (await pingDaemon(photonName)) {
+            ready = true;
+            break;
+          }
+        }
+
+        if (!ready) {
+          console.error(`❌ Failed to start daemon for ${photonName}`);
+          process.exit(1);
+        }
+      }
+
+      // Send command to daemon
+      console.error(`📞 Calling ${methodName}...`);
+      result = await sendCommand(photonName, methodName, parsedArgs);
+    } else {
+      // STATELESS PATH: Direct execution
+      console.error(`🚀 Loading ${photonName}...`);
+      const loader = new PhotonLoader(false); // verbose=false for CLI mode
+      const photonInstance = await loader.loadFile(resolvedPath);
+
+      // Call the method
+      console.error(`📞 Calling ${methodName}...`);
+      result = await loader.executeTool(photonInstance, methodName, parsedArgs);
+    }
 
     // Display result
     console.log('\n✅ Result:\n');

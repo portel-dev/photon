@@ -38,6 +38,8 @@ export interface PhotonMetadata {
   setupInstructions?: string;
   tools?: Tool[];
   dependencies?: string;
+  stateful?: boolean;
+  idleTimeout?: number;
   hash: string;
 }
 
@@ -62,6 +64,9 @@ export class PhotonDocExtractor {
   async extractFullMetadata(): Promise<Omit<PhotonMetadata, 'hash'>> {
     this.content = await fs.readFile(this.filePath, 'utf-8');
 
+    const statefulTag = this.extractTag('stateful');
+    const idleTimeoutTag = this.extractTag('idleTimeout');
+
     return {
       name: this.extractName(),
       version: this.extractTag('version') || '1.0.0',
@@ -74,6 +79,8 @@ export class PhotonDocExtractor {
       setupInstructions: this.extractSetupInstructions(),
       tools: await this.extractTools(),
       dependencies: this.extractTag('dependencies'),
+      stateful: statefulTag === 'true',
+      idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
     };
   }
 
