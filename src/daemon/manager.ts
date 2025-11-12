@@ -95,11 +95,13 @@ export function getDaemonStatus(photonName: string): DaemonStatus {
 /**
  * Start daemon for a photon
  */
-export async function startDaemon(photonName: string, photonPath: string): Promise<void> {
+export async function startDaemon(photonName: string, photonPath: string, quiet: boolean = false): Promise<void> {
   ensureDaemonDir();
 
   if (isDaemonRunning(photonName)) {
-    console.error(`[daemon] Daemon already running for ${photonName}`);
+    if (!quiet) {
+      console.error(`[daemon] Daemon already running for ${photonName}`);
+    }
     return;
   }
 
@@ -131,7 +133,9 @@ export async function startDaemon(photonName: string, photonPath: string): Promi
   // Write PID file
   fs.writeFileSync(pidFile, child.pid!.toString());
 
-  console.error(`[daemon] Started daemon for ${photonName} (PID: ${child.pid})`);
+  if (!quiet) {
+    console.error(`[daemon] Started daemon for ${photonName} (PID: ${child.pid})`);
+  }
 
   // Wait a bit for daemon to initialize
   await new Promise(resolve => setTimeout(resolve, 500));

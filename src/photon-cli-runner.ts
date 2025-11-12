@@ -298,23 +298,45 @@ function renderList(data: any[]): void {
  * Render table (flat object or array of flat objects)
  */
 function renderTable(data: any): void {
-  // Single flat object - show as key-value pairs
+  // Single flat object - show as bordered key-value table
   if (!Array.isArray(data)) {
     const entries = Object.entries(data).filter(
       ([key, value]) => !(key === 'returnValue' && value === true)
     );
 
-    const maxKeyLength = Math.max(...entries.map(([k]) => formatKey(k).length));
-
-    for (const [key, value] of entries) {
-      const formattedKey = formatKey(key);
-      const padding = ' '.repeat(maxKeyLength - formattedKey.length);
-      console.log(`  ${formattedKey}${padding}  ${formatValue(value)}`);
+    if (entries.length === 0) {
+      console.log('(empty)');
+      return;
     }
+
+    const maxKeyLength = Math.max(...entries.map(([k]) => formatKey(k).length));
+    const maxValueLength = Math.max(...entries.map(([_, v]) => String(formatValue(v)).length));
+
+    // Top border
+    console.log(`┌─${'─'.repeat(maxKeyLength)}─┬─${'─'.repeat(maxValueLength)}─┐`);
+
+    // Rows
+    for (let i = 0; i < entries.length; i++) {
+      const [key, value] = entries[i];
+      const formattedKey = formatKey(key);
+      const formattedValue = String(formatValue(value));
+      const keyPadding = ' '.repeat(maxKeyLength - formattedKey.length);
+      const valuePadding = ' '.repeat(maxValueLength - formattedValue.length);
+
+      console.log(`│ ${formattedKey}${keyPadding} │ ${formattedValue}${valuePadding} │`);
+
+      // Add separator between rows (not after last row)
+      if (i < entries.length - 1) {
+        console.log(`├─${'─'.repeat(maxKeyLength)}─┼─${'─'.repeat(maxValueLength)}─┤`);
+      }
+    }
+
+    // Bottom border
+    console.log(`└─${'─'.repeat(maxKeyLength)}─┴─${'─'.repeat(maxValueLength)}─┘`);
     return;
   }
 
-  // Array of flat objects - show as table
+  // Array of flat objects - show as bordered table
   if (data.length === 0) {
     console.log('(empty)');
     return;
@@ -340,30 +362,35 @@ function renderTable(data: any): void {
     columnWidths.set(key, Math.max(headerWidth, maxValueWidth));
   }
 
-  // Print header
+  // Top border
+  const topBorderParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
+  console.log('┌' + topBorderParts.join('┬') + '┐');
+
+  // Header
   const headerParts = allKeys.map(key => {
     const formattedKey = formatKey(key);
     const width = columnWidths.get(key)!;
-    return formattedKey.padEnd(width);
+    return ' ' + formattedKey.padEnd(width) + ' ';
   });
-  console.log('  ' + headerParts.join('  '));
+  console.log('│' + headerParts.join('│') + '│');
 
-  // Print separator
-  const separatorParts = allKeys.map(key => {
-    const width = columnWidths.get(key)!;
-    return '─'.repeat(width);
-  });
-  console.log('  ' + separatorParts.join('  '));
+  // Header separator
+  const separatorParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
+  console.log('├' + separatorParts.join('┼') + '┤');
 
-  // Print rows
+  // Rows
   for (const row of data) {
     const rowParts = allKeys.map(key => {
       const value = formatValue(row[key] ?? '');
       const width = columnWidths.get(key)!;
-      return String(value).padEnd(width);
+      return ' ' + String(value).padEnd(width) + ' ';
     });
-    console.log('  ' + rowParts.join('  '));
+    console.log('│' + rowParts.join('│') + '│');
   }
+
+  // Bottom border
+  const bottomBorderParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
+  console.log('└' + bottomBorderParts.join('┴') + '┘');
 }
 
 /**
@@ -805,12 +832,9 @@ export async function runMethod(
 
     if (metadata.stateful) {
       // STATEFUL PATH: Use daemon
-      console.error(`🚀 Loading ${photonName}...`);
-
       // Check if daemon is running
       if (!isDaemonRunning(photonName)) {
-        console.error(`[daemon] Starting daemon for ${photonName}...`);
-        await startDaemon(photonName, resolvedPath);
+        await startDaemon(photonName, resolvedPath, true); // quiet mode
 
         // Wait for daemon to be ready
         let ready = false;
@@ -829,21 +853,17 @@ export async function runMethod(
       }
 
       // Send command to daemon
-      console.error(`📞 Calling ${methodName}...`);
       result = await sendCommand(photonName, methodName, parsedArgs);
     } else {
       // STATELESS PATH: Direct execution
-      console.error(`🚀 Loading ${photonName}...`);
       const loader = new PhotonLoader(false); // verbose=false for CLI mode
       const photonInstance = await loader.loadFile(resolvedPath);
 
       // Call the method
-      console.error(`📞 Calling ${methodName}...`);
       result = await loader.executeTool(photonInstance, methodName, parsedArgs);
     }
 
     // Display result
-    console.log();
     if (jsonOutput) {
       console.log(JSON.stringify(result, null, 2));
     } else {
