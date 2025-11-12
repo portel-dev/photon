@@ -178,9 +178,10 @@ function extractObjectProperties(typeStr: string): Map<string, { type: string; o
   const props = new Map<string, { type: string; optional: boolean }>();
 
   // Find all object type definitions: { prop?: type } or { prop: type }
-  const objectMatches = typeStr.matchAll(/\{\s*(\w+)(\??):\s*([^}]+)\}/g);
+  // Match individual properties within object type: prop?: type or prop: type
+  const propMatches = typeStr.matchAll(/(\w+)(\??):\s*([^;,}]+)/g);
 
-  for (const match of objectMatches) {
+  for (const match of propMatches) {
     const propName = match[1];
     const isOptional = match[2] === '?';
     const propType = match[3].trim();

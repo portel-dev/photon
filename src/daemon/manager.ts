@@ -115,9 +115,13 @@ export async function startDaemon(photonName: string, photonPath: string): Promi
   // The daemon server will be a separate Node process running the photon
   const daemonScript = path.join(__dirname, 'server.js');
 
+  // Log daemon output to file for debugging
+  const logFile = path.join(DAEMON_DIR, `${photonName}.log`);
+  const logStream = fs.openSync(logFile, 'a');
+
   const child = spawn(process.execPath, [daemonScript, photonName, photonPath, socketPath], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', logStream, logStream],
     env: { ...process.env, PHOTON_DAEMON: 'true' },
   });
 
