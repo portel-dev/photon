@@ -245,8 +245,169 @@ photon add your-custom-tool
 | **Dependencies** | Manual npm install | Auto-installed from @dependencies |
 | **Hot Reload** | Configure yourself | Built-in with --dev |
 | **AI Context** | Scattered | Single file |
+| **CLI Interface** | Write separate code | Automatic from same code |
 
 [See detailed comparison →](COMPARISON.md)
+
+---
+
+## CLI Interface
+
+Every photon automatically provides a beautiful CLI interface with zero additional code. The same business logic that powers your MCP tools becomes instantly available from the terminal.
+
+### Quick Example
+
+```bash
+# List all methods
+photon cli lg-remote
+
+# Call methods with natural syntax
+photon cli lg-remote volume 50
+photon cli lg-remote volume +5
+photon cli lg-remote channel 7
+photon cli lg-remote app netflix
+
+# Get method help
+photon cli lg-remote volume --help
+```
+
+### Beautiful Output Formats
+
+Photon automatically formats output based on data structure:
+
+**Tables** - Key-value pairs and flat objects:
+```bash
+$ photon cli lg-remote volume
+┌─────────┬────┐
+│ volume  │ 45 │
+├─────────┼────┤
+│ muted   │ no │
+├─────────┼────┤
+│ maxVol  │ 100│
+└─────────┴────┘
+```
+
+**Lists** - Arrays of items:
+```bash
+$ photon cli lg-remote apps
+• Netflix (netflix)
+• YouTube (youtube.leanback.v4)
+• HDMI1 (com.webos.app.hdmi1)
+• Disney+ (disney)
+```
+
+**Trees** - Hierarchical data (shown as formatted JSON)
+**Primitives** - Simple values displayed directly
+
+### Format System
+
+Photon uses a smart format system with 5 standard types:
+
+1. **`primitive`** - String, number, boolean
+2. **`table`** - Flat object or array of flat objects
+3. **`tree`** - Nested/hierarchical data
+4. **`list`** - Array of simple items
+5. **`none`** - No return value (void operations)
+
+**Hint the format** (optional):
+```typescript
+/**
+ * Get current volume
+ * @format table
+ */
+async volume() {
+  return this._request('ssap://audio/getVolume');
+}
+```
+
+**Auto-detection**: If no `@format` tag is provided, Photon automatically detects the best format based on the return value structure.
+
+### CLI Command Reference
+
+#### `photon cli <photon-name> [method] [args...]`
+
+**List all methods:**
+```bash
+photon cli lg-remote
+```
+
+**Call a method:**
+```bash
+# No parameters
+photon cli lg-remote status
+
+# Single parameter
+photon cli lg-remote volume 50
+
+# Multiple parameters
+photon cli lg-remote search query "breaking bad" limit 10
+
+# Relative adjustments
+photon cli lg-remote volume +5
+photon cli lg-remote channel +1
+```
+
+**Get method help:**
+```bash
+photon cli lg-remote volume --help
+```
+
+**Raw JSON output:**
+```bash
+photon cli lg-remote volume --json
+```
+
+### One Codebase, Multiple Interfaces
+
+The beauty of Photon's design: **improvements to business logic automatically work across all interfaces**.
+
+Write your logic once:
+```typescript
+async volume(params?: { level?: number | string } | number | string) {
+  // Handle relative adjustments
+  if (typeof level === 'string' && level.startsWith('+')) {
+    const delta = parseInt(level);
+    const current = await this._getCurrentVolume();
+    const newVolume = current + delta;
+    await this._setVolume(newVolume);
+  }
+  // ... rest of logic
+  return this._getCurrentVolume(); // Always return current state
+}
+```
+
+**Works everywhere:**
+- ✅ **MCP**: Claude Desktop, Cursor, etc.
+- ✅ **CLI**: `photon cli lg-remote volume +5`
+- ✅ **Future interfaces**: HTTP, WebSocket, etc.
+
+### Context-Aware Error Messages
+
+Photons can provide helpful, context-aware errors:
+
+```bash
+$ photon cli lg-remote channels
+❌ Error: TV channels not available. Currently on HDMI1.
+   Switch to a TV tuner input to access channels.
+```
+
+The same error quality appears in MCP tools—because it's the same code.
+
+### Exit Codes
+
+The CLI properly returns exit codes for automation:
+- **0**: Success
+- **1**: Error (tool execution failed, invalid parameters, etc.)
+
+Perfect for shell scripts and CI/CD:
+```bash
+if photon cli lg-remote volume 50; then
+  echo "Volume set successfully"
+else
+  echo "Failed to set volume"
+  exit 1
+fi
+```
 
 ---
 
@@ -462,6 +623,55 @@ photon mcp calculator --config
 - `--dev` - Enable hot reload for development
 - `--validate` - Validate configuration without running server
 - `--config` - Show configuration template and exit
+
+#### `photon cli <photon-name> [method] [args...]`
+Run photon methods directly from the command line.
+
+```bash
+# List all available methods
+photon cli calculator
+
+# Call a method with arguments
+photon cli calculator add 5 10
+
+# Get method-specific help
+photon cli calculator add --help
+
+# Output raw JSON instead of formatted output
+photon cli calculator add 5 10 --json
+```
+
+**Arguments:**
+- Arguments are automatically coerced to expected types (string, number, boolean)
+- Strings starting with `+` or `-` are preserved for relative adjustments
+- Arrays and objects can be passed as JSON strings
+
+**Options:**
+- `--help` - Show help for the photon or specific method
+- `--json` - Output raw JSON instead of formatted output
+
+**Exit Codes:**
+- `0` - Success
+- `1` - Error (invalid arguments, execution failure, etc.)
+
+**Examples:**
+
+```bash
+# Smart home control
+photon cli lg-remote volume 50
+photon cli lg-remote volume +5      # Relative adjustment
+photon cli lg-remote channel 7
+photon cli lg-remote app netflix
+
+# Database queries
+photon cli postgres query "SELECT * FROM users LIMIT 10"
+
+# File operations
+photon cli filesystem read-file path "/home/user/document.txt"
+
+# Git operations
+photon cli git commit message "feat: add new feature"
+```
 
 ### Inspect & Configure
 
@@ -1032,18 +1242,19 @@ photon upgrade <name> # Update specific photon
 
 ## Roadmap
 
-### ✅ Version 1.0 - MCP Servers (Available Now)
+### ✅ MCP Servers & CLI Interface (Available Now)
 
+**MCP Servers:**
 Build and run photons as MCP servers for AI assistants. Works with Claude Desktop, Cursor, Zed, Continue, Cline, and any MCP-compatible client.
 
-### 🔮 Future Versions
+**CLI Interface:**
+Run photon methods directly from the command line with beautiful formatted output. Every photon automatically becomes a CLI tool with zero additional code.
 
-Photon's framework-agnostic design enables future deployment targets:
+**Write once, deploy everywhere:** The same business logic powers both your MCP tools and CLI commands.
 
-- **CLI tools** - Run photons as terminal commands
-- **More targets** - Additional deployment options as the ecosystem grows
+---
 
-**The vision:** Write focused business logic once. As Photon evolves, deploy it to multiple targets.
+Photon's framework-agnostic design enables future deployment targets. More on the way.
 
 ---
 
