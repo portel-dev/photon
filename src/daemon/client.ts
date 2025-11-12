@@ -60,11 +60,12 @@ export async function sendCommand(
           if (response.id === requestId) {
             responseReceived = true;
             clearTimeout(timeout);
-            client.end();
 
             if (response.type === 'error') {
+              client.destroy();
               reject(new Error(response.error || 'Unknown error'));
             } else {
+              client.destroy();
               resolve(response.data);
             }
           }
@@ -76,11 +77,13 @@ export async function sendCommand(
 
     client.on('error', (error) => {
       clearTimeout(timeout);
+      client.destroy();
       reject(new Error(`Connection error: ${error.message}`));
     });
 
     client.on('end', () => {
       clearTimeout(timeout);
+      client.destroy();
       if (!responseReceived) {
         reject(new Error('Connection closed before receiving response'));
       }
@@ -118,7 +121,7 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 
         if (response.id === requestId && response.type === 'pong') {
           clearTimeout(timeout);
-          client.end();
+          client.destroy();
           resolve(true);
         }
       } catch (error) {
@@ -128,11 +131,13 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 
     client.on('error', () => {
       clearTimeout(timeout);
+      client.destroy();
       resolve(false);
     });
 
     client.on('end', () => {
       clearTimeout(timeout);
+      client.destroy();
       resolve(false);
     });
   });
