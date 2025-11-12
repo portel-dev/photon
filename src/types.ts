@@ -20,6 +20,7 @@ export interface ExtractedSchema {
     properties: Record<string, any>;
     required?: string[];
   };
+  format?: 'primitive' | 'table' | 'tree' | 'list' | 'none';
 }
 
 export interface PhotonMCPClass {
