@@ -195,6 +195,125 @@ function extractObjectProperties(typeStr: string): Map<string, { type: string; o
 }
 
 /**
+ * Format output for display to the user
+ */
+function formatOutput(result: any): void {
+  // Handle error responses
+  if (result && typeof result === 'object' && result.success === false) {
+    console.log('❌ Error:', result.error || result.message || 'Unknown error');
+    return;
+  }
+
+  // Handle success responses with data
+  if (result && typeof result === 'object' && result.success === true) {
+    // If there's a message, show it
+    if (result.message) {
+      console.log('✅', result.message);
+    }
+
+    // If there's data, format it nicely
+    if (result.data) {
+      formatData(result.data);
+    } else {
+      // Check if there are other fields besides success, message, error
+      const otherFields = Object.keys(result).filter(
+        k => k !== 'success' && k !== 'message' && k !== 'error'
+      );
+
+      if (otherFields.length > 0) {
+        // There are other fields to display
+        const dataToShow: any = {};
+        otherFields.forEach(k => dataToShow[k] = result[k]);
+        formatData(dataToShow);
+      } else if (!result.message) {
+        // Success with no message or data
+        console.log('✅ Done');
+      }
+    }
+    return;
+  }
+
+  // Handle plain data without success wrapper
+  if (result !== undefined && result !== null) {
+    formatData(result);
+  } else {
+    console.log('✅ Done');
+  }
+}
+
+/**
+ * Format data for display
+ */
+function formatData(data: any): void {
+  // Handle arrays
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      console.log('(empty)');
+    } else {
+      data.forEach((item, index) => {
+        if (typeof item === 'object') {
+          console.log(`[${index}]`);
+          formatObject(item, '  ');
+        } else {
+          console.log(`  ${item}`);
+        }
+      });
+    }
+    return;
+  }
+
+  // Handle objects
+  if (typeof data === 'object') {
+    formatObject(data);
+    return;
+  }
+
+  // Handle primitives
+  console.log(data);
+}
+
+/**
+ * Format an object for display
+ */
+function formatObject(obj: any, indent: string = ''): void {
+  // Skip returnValue if it's just true
+  const entries = Object.entries(obj).filter(
+    ([key, value]) => !(key === 'returnValue' && value === true)
+  );
+
+  for (const [key, value] of entries) {
+    // Format key nicely (camelCase to Title Case)
+    const formattedKey = key
+      // Split on capital letters but keep consecutive capitals together
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, str => str.toUpperCase())
+      .trim();
+
+    if (value === null || value === undefined) {
+      console.log(`${indent}${formattedKey}: (none)`);
+    } else if (typeof value === 'boolean') {
+      console.log(`${indent}${formattedKey}: ${value ? 'Yes' : 'No'}`);
+    } else if (Array.isArray(value)) {
+      console.log(`${indent}${formattedKey}:`);
+      value.forEach((item, index) => {
+        if (typeof item === 'object') {
+          console.log(`${indent}  [${index}]`);
+          formatObject(item, indent + '    ');
+        } else {
+          console.log(`${indent}  - ${item}`);
+        }
+      });
+    } else if (typeof value === 'object') {
+      console.log(`${indent}${formattedKey}:`);
+      formatObject(value, indent + '  ');
+    } else {
+      console.log(`${indent}${formattedKey}: ${value}`);
+    }
+  }
+}
+
+/**
  * Parse CLI arguments into method parameters
  */
 function parseCliArgs(
@@ -503,8 +622,8 @@ export async function runMethod(
     }
 
     // Display result
-    console.log('\n✅ Result:\n');
-    console.log(JSON.stringify(result, null, 2));
+    console.log();
+    formatOutput(result);
 
   } catch (error: any) {
     console.error(`❌ Error: ${error.message}`);
