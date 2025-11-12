@@ -73,17 +73,31 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
           .trim()
       : undefined;
 
-    // Parse TypeScript parameter types from method signature
+    // Parse TypeScript parameter types and optionality from method signature
     const tsParamTypes = new Map<string, string>();
+    const tsParamOptional = new Map<string, boolean>();
     if (methodParams.trim()) {
-      // Simple extraction: params?: { mute?: boolean } | boolean
-      const paramTypeMatch = methodParams.match(/(\w+)\??:\s*(.+)/);
+      // Extract: params?: { mute?: boolean } | boolean
+      const paramTypeMatch = methodParams.match(/(\w+)(\??):\s*(.+)/);
       if (paramTypeMatch) {
-        const paramName = paramTypeMatch[1];
-        const paramType = paramTypeMatch[2].trim();
+        const tsParamName = paramTypeMatch[1];
+        const isParamOptional = paramTypeMatch[2] === '?';
+        const paramType = paramTypeMatch[3].trim();
+
         // Extract base type (handle unions like "{ mute?: boolean } | boolean")
         const baseType = extractBaseType(paramType);
-        tsParamTypes.set(paramName, baseType);
+
+        // Store type for both the TS param name and any inner property names
+        tsParamTypes.set(tsParamName, baseType);
+        tsParamOptional.set(tsParamName, isParamOptional);
+
+        // Also extract inner object properties: { mute?: boolean }
+        const innerProps = extractObjectProperties(paramType);
+        for (const [propName, propInfo] of innerProps) {
+          tsParamTypes.set(propName, propInfo.type);
+          // If the parent param is optional, inner properties are also optional
+          tsParamOptional.set(propName, isParamOptional || propInfo.optional);
+        }
       }
     }
 
@@ -103,7 +117,10 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
         .replace(/\(default:.*?\)/gi, '')
         .trim();
 
-      const optional = /\(optional\)/i.test(paramDesc) || /\(default:/i.test(paramDesc);
+      // Check optional from TypeScript signature first, fallback to JSDoc
+      const tsOptional = tsParamOptional.get(paramName);
+      const jsdocOptional = /\(optional\)/i.test(paramDesc) || /\(default:/i.test(paramDesc);
+      const optional = tsOptional !== undefined ? tsOptional : jsdocOptional;
 
       params.push({
         name: paramName,
@@ -146,6 +163,31 @@ function extractBaseType(typeStr: string): string {
   }
 
   return 'any';
+}
+
+/**
+ * Extract object property types from TypeScript type annotation
+ * Examples:
+ *   "{ mute?: boolean } | boolean" -> [["mute", { type: "boolean", optional: true }]]
+ *   "{ level?: number | string }" -> [["level", { type: "number", optional: true }]]
+ */
+function extractObjectProperties(typeStr: string): Map<string, { type: string; optional: boolean }> {
+  const props = new Map<string, { type: string; optional: boolean }>();
+
+  // Find all object type definitions: { prop?: type } or { prop: type }
+  const objectMatches = typeStr.matchAll(/\{\s*(\w+)(\??):\s*([^}]+)\}/g);
+
+  for (const match of objectMatches) {
+    const propName = match[1];
+    const isOptional = match[2] === '?';
+    const propType = match[3].trim();
+
+    // Extract base type from the property type (handles unions)
+    const baseType = extractBaseType(propType);
+    props.set(propName, { type: baseType, optional: isOptional });
+  }
+
+  return props;
 }
 
 /**
