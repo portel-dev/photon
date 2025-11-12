@@ -33,10 +33,11 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const methods: MethodInfo[] = [];
 
   // Extract methods using the schema extractor
-  const methodMatches = source.matchAll(/async\s+(\w+)\s*\([^)]*\)/g);
+  const methodMatches = source.matchAll(/async\s+(\w+)\s*\(([^)]*)\)/g);
 
   for (const match of methodMatches) {
     const methodName = match[1];
+    const methodParams = match[2];
 
     // Skip private methods and lifecycle hooks
     if (
@@ -72,6 +73,20 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
           .trim()
       : undefined;
 
+    // Parse TypeScript parameter types from method signature
+    const tsParamTypes = new Map<string, string>();
+    if (methodParams.trim()) {
+      // Simple extraction: params?: { mute?: boolean } | boolean
+      const paramTypeMatch = methodParams.match(/(\w+)\??:\s*(.+)/);
+      if (paramTypeMatch) {
+        const paramName = paramTypeMatch[1];
+        const paramType = paramTypeMatch[2].trim();
+        // Extract base type (handle unions like "{ mute?: boolean } | boolean")
+        const baseType = extractBaseType(paramType);
+        tsParamTypes.set(paramName, baseType);
+      }
+    }
+
     // Extract parameters
     const params: MethodInfo['params'] = [];
     const paramRegex = /@param\s+(\w+)\s+(.+?)(?=\n\s*\*\s*@|\n\s*\*\/|\n\s*$)/gs;
@@ -92,7 +107,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
 
       params.push({
         name: paramName,
-        type: 'any',
+        type: tsParamTypes.get(paramName) || 'any',
         optional,
         description: cleanDesc,
       });
@@ -109,6 +124,31 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
 }
 
 /**
+ * Extract base type from TypeScript type annotation
+ * Examples:
+ *   "boolean | number" -> "boolean"
+ *   "{ mute?: boolean } | boolean" -> "boolean"
+ *   "string" -> "string"
+ */
+function extractBaseType(typeStr: string): string {
+  // Handle object types: { mute?: boolean } -> look for type inside
+  const objectMatch = typeStr.match(/\{\s*\w+\??\s*:\s*(\w+)/);
+  if (objectMatch) {
+    return objectMatch[1];
+  }
+
+  // Handle unions: boolean | number -> take first primitive type
+  const unionTypes = typeStr.split('|').map(t => t.trim());
+  for (const type of unionTypes) {
+    if (/^(boolean|number|string)/.test(type)) {
+      return type;
+    }
+  }
+
+  return 'any';
+}
+
+/**
  * Parse CLI arguments into method parameters
  */
 function parseCliArgs(
@@ -116,6 +156,9 @@ function parseCliArgs(
   params: MethodInfo['params']
 ): Record<string, any> {
   const result: Record<string, any> = {};
+
+  // Create a map of param names to types for quick lookup
+  const paramTypes = new Map(params.map(p => [p.name, p.type]));
 
   // Handle both positional and --flag style arguments
   let positionalIndex = 0;
@@ -131,13 +174,15 @@ function parseCliArgs(
         // --key=value format
         const key = arg.substring(2, eqIndex);
         const value = arg.substring(eqIndex + 1);
-        result[key] = parseValue(value);
+        const expectedType = paramTypes.get(key) || 'any';
+        result[key] = coerceValue(value, expectedType);
       } else {
         // --key value format (next arg is the value)
         const key = arg.substring(2);
         i++;
         if (i < args.length) {
-          result[key] = parseValue(args[i]);
+          const expectedType = paramTypes.get(key) || 'any';
+          result[key] = coerceValue(args[i], expectedType);
         } else {
           // Boolean flag
           result[key] = true;
@@ -146,7 +191,8 @@ function parseCliArgs(
     } else {
       // Positional argument
       if (positionalIndex < params.length) {
-        result[params[positionalIndex].name] = parseValue(arg);
+        const param = params[positionalIndex];
+        result[param.name] = coerceValue(arg, param.type);
         positionalIndex++;
       }
     }
@@ -156,15 +202,45 @@ function parseCliArgs(
 }
 
 /**
- * Parse a string value into appropriate type
+ * Coerce a string value to the expected type
  */
-function parseValue(value: string): any {
-  // Try to parse as JSON first (handles objects, arrays, numbers, booleans)
+function coerceValue(value: string, expectedType: string): any {
+  // Try to parse as JSON first (handles objects, arrays, true/false)
   try {
-    return JSON.parse(value);
+    const parsed = JSON.parse(value);
+    // If we got a value and need to coerce it
+    return coerceToType(parsed, expectedType);
   } catch {
-    // Return as string if not valid JSON
-    return value;
+    // Not valid JSON, coerce the string directly
+    return coerceToType(value, expectedType);
+  }
+}
+
+/**
+ * Coerce a value to a specific type
+ */
+function coerceToType(value: any, expectedType: string): any {
+  switch (expectedType) {
+    case 'boolean':
+      // Handle: true, false, 1, 0, "1", "0", "true", "false"
+      if (typeof value === 'boolean') return value;
+      if (value === 1 || value === '1' || value === 'true') return true;
+      if (value === 0 || value === '0' || value === 'false') return false;
+      return Boolean(value);
+
+    case 'number':
+      // Handle: 42, "42", 3.14, "3.14"
+      if (typeof value === 'number') return value;
+      const num = Number(value);
+      return isNaN(num) ? value : num;
+
+    case 'string':
+      // Always convert to string
+      return String(value);
+
+    default:
+      // For 'any' or unknown types, return as-is
+      return value;
   }
 }
 
