@@ -799,6 +799,13 @@ export async function runMethod(
 
     // Extract methods to validate
     const methods = await extractMethods(resolvedPath);
+
+    // Check if methodName itself is --help (e.g., photon cli test-cli-calc --help)
+    if (methodName === '--help' || methodName === '-h') {
+      await listMethods(photonName);
+      return;
+    }
+
     const method = methods.find(m => m.name === methodName);
 
     if (!method) {
@@ -808,7 +815,7 @@ export async function runMethod(
       process.exit(1);
     }
 
-    // Check for --help flag
+    // Check for --help flag in args (e.g., photon cli test-cli-calc add --help)
     if (args.includes('--help') || args.includes('-h')) {
       printMethodHelp(photonName, method);
       return;
