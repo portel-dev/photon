@@ -905,11 +905,20 @@ export async function runMethod(
     }
 
   } catch (error: any) {
-    console.error(`❌ Error: ${error.message}`);
-    if (error.stack) {
-      console.error('\nStack trace:');
-      console.error(error.stack);
+    // User-friendly error messages without stack traces
+    const errorMsg = error.message || 'Unknown error occurred';
+
+    // Provide helpful context based on error type
+    if (errorMsg.includes('timeout')) {
+      console.log('❌ Request timed out. The TV may be unreachable or the operation took too long.');
+      console.log('💡 Check that your TV is on and connected to the network.');
+    } else if (errorMsg.includes('Connection error') || errorMsg.includes('Connection closed')) {
+      console.log('❌ Failed to communicate with the TV.');
+      console.log('💡 Try reconnecting with: photon cli lg-remote connect --ip <tv-ip>');
+    } else {
+      console.log(`❌ ${errorMsg}`);
     }
+
     process.exit(1);
   }
 }
