@@ -1,5 +1,79 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* **CLI Interface** - Every photon automatically becomes a CLI tool with beautiful formatted output
+  - `photon cli <name>` - List all methods for a photon
+  - `photon cli <name> <method> [args...]` - Call methods directly from command line
+  - `--help` flag for photon-level and method-level help
+  - `--json` flag for raw JSON output
+  - Natural syntax with positional arguments
+  - Proper exit codes (0 for success, 1 for error)
+
+* **Format System** - Smart output formatting with 5 standard types
+  - `@format primitive` - String, number, boolean values
+  - `@format table` - Bordered tables for flat objects
+  - `@format tree` - Hierarchical data with indentation
+  - `@format list` - Bullet-pointed arrays
+  - `@format none` - Void operations
+  - Auto-detection when no @format tag provided
+
+* **Beautified Output** - Professional CLI presentation
+  - Unicode box-drawing characters for tables (┌─┬─┐)
+  - Bullet points for lists
+  - Indented trees for nested data
+  - Clean, minimal output (no progress logs unless errors)
+
+* **Stateful Daemon Architecture** - Long-running photon processes with IPC
+  - Daemons automatically start when needed
+  - Unix domain sockets for fast IPC
+  - Shared state across multiple CLI calls
+  - Daemon management commands
+
+* **CLI Aliases** - Run photons as standalone commands (cross-platform)
+  - Automatic alias creation for each photon
+  - Direct invocation: `lg-remote volume 50`
+  - Works on Windows, macOS, and Linux
+
+* **Type Coercion** - Automatic argument type conversion
+  - Strings → numbers/booleans based on method signature
+  - Preserves +/- prefixes for relative adjustments
+  - JSON parsing for complex types
+
+### Bug Fixes
+
+* **Exit codes** - CLI now returns proper exit codes for automation/CI/CD
+* **--help flag** - Fixed to work at photon level (`photon cli <name> --help`)
+* **Relative adjustments** - Preserve +/- prefix in CLI arguments (e.g., `volume +5`)
+* **Error messages** - Extract and display user-friendly error messages
+* **Daemon pairing** - Fixed CLI pairing flow and exit behavior
+* **ES modules** - Use import.meta.url instead of __dirname
+
+### Documentation
+
+* **Comprehensive CLI docs** - Added CLI Interface section to README
+  - Quick examples with real output
+  - Format system explanation
+  - CLI command reference
+  - "One Codebase, Multiple Interfaces" philosophy
+  - Context-aware error messages
+  - Exit codes for automation
+* **Updated roadmap** - Highlight MCP + CLI availability
+* **Examples** - Real-world CLI usage examples
+
+### Tests
+
+* **CLI test suite** - 17 comprehensive tests for CLI functionality
+  - Method listing and invocation
+  - Format detection and rendering
+  - Relative adjustments
+  - Error handling and exit codes
+  - Help flags
+  - Type coercion
+* All 106 tests passing across all suites
+
 ## [1.2.0] - 2025-11-11
 
 ### Features
