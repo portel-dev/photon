@@ -481,7 +481,14 @@ function formatValue(value: any): string | number | boolean {
 function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): boolean {
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
-    console.log('❌ Error:', result.error || result.message || 'Unknown error');
+    const errorMsg = result.error || result.message || 'Unknown error';
+    console.log(`❌ ${errorMsg}`);
+
+    // Show hint if available
+    if (result.hint) {
+      console.log(`💡 ${result.hint}`);
+    }
+
     return false;
   }
 
