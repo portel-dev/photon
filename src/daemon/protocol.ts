@@ -10,6 +10,8 @@
 export interface DaemonRequest {
   type: 'command' | 'ping' | 'shutdown';
   id: string;
+  sessionId?: string; // Client session identifier for isolation
+  clientType?: 'cli' | 'mcp' | 'code-mode'; // Client type for debugging
   method?: string;
   args?: Record<string, any>;
 }
@@ -34,4 +36,16 @@ export interface DaemonStatus {
   startTime?: number;
   lastActivity?: number;
   photonName: string;
+  activeSessions?: number;
+}
+
+/**
+ * Session information
+ */
+export interface PhotonSession {
+  id: string;
+  instance: any;
+  createdAt: number;
+  lastActivity: number;
+  clientType?: string;
 }

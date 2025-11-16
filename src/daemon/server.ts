@@ -12,7 +12,7 @@
 
 import * as net from 'net';
 import * as fs from 'fs';
-import { PhotonLoader } from '../loader.js';
+import { SessionManager } from './session-manager.js';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 
 // Command line args: photonName photonPath socketPath
@@ -25,35 +25,28 @@ if (!photonName || !photonPath || !socketPath) {
   process.exit(1);
 }
 
-let photonInstance: any = null;
-let loader: PhotonLoader | null = null;
-let lastActivity = Date.now();
-let idleTimeout = -1; // Default: no timeout
+let sessionManager: SessionManager | null = null;
+let idleTimeout = 600000; // 10 minutes default
 let idleTimer: NodeJS.Timeout | null = null;
 
 /**
- * Load the photon
+ * Initialize session manager
  */
-async function loadPhoton(): Promise<void> {
+async function initializeSessionManager(): Promise<void> {
   try {
-    console.error(`[daemon-server] Loading photon: ${photonName}`);
+    console.error(`[daemon-server] Initializing session manager for: ${photonName}`);
 
-    loader = new PhotonLoader(false); // verbose = false
-    photonInstance = await loader.loadFile(photonPath);
+    sessionManager = new SessionManager(photonPath, photonName, idleTimeout);
 
-    // Extract idle timeout from photon metadata if available
-    // For now, we'll use a default. This can be enhanced to read from JSDoc
-    idleTimeout = 600000; // 10 minutes default
-
-    console.error(`[daemon-server] Photon loaded successfully`);
-    console.error(`[daemon-server] Idle timeout: ${idleTimeout === -1 ? 'disabled' : `${idleTimeout}ms`}`);
+    console.error(`[daemon-server] Session manager initialized`);
+    console.error(`[daemon-server] Session timeout: ${idleTimeout}ms`);
 
     // Start idle timer if timeout is set
     if (idleTimeout > 0) {
       startIdleTimer();
     }
   } catch (error: any) {
-    console.error(`[daemon-server] Failed to load photon: ${error.message}`);
+    console.error(`[daemon-server] Failed to initialize session manager: ${error.message}`);
     process.exit(1);
   }
 }
@@ -71,9 +64,18 @@ function startIdleTimer(): void {
   }
 
   idleTimer = setTimeout(() => {
+    if (!sessionManager) return;
+
+    const lastActivity = sessionManager.getLastActivity();
     const idleTime = Date.now() - lastActivity;
-    console.error(`[daemon-server] Idle timeout reached (${idleTime}ms). Shutting down.`);
-    shutdown();
+
+    if (idleTime >= idleTimeout) {
+      console.error(`[daemon-server] Idle timeout reached (${idleTime}ms). Shutting down.`);
+      shutdown();
+    } else {
+      // Restart timer with remaining time
+      startIdleTimer();
+    }
   }, idleTimeout);
 }
 
@@ -81,7 +83,6 @@ function startIdleTimer(): void {
  * Reset idle timer (called on each activity)
  */
 function resetIdleTimer(): void {
-  lastActivity = Date.now();
   startIdleTimer();
 }
 
@@ -117,11 +118,26 @@ async function handleRequest(request: DaemonRequest): Promise<DaemonResponse> {
       };
     }
 
-    try {
-      console.error(`[daemon-server] Executing: ${request.method}`);
+    if (!sessionManager) {
+      return {
+        type: 'error',
+        id: request.id,
+        error: 'Session manager not initialized',
+      };
+    }
 
-      const result = await loader!.executeTool(
-        photonInstance,
+    try {
+      // Get or create session for this client
+      const session = await sessionManager.getOrCreateSession(
+        request.sessionId,
+        request.clientType
+      );
+
+      console.error(`[daemon-server] Executing: ${request.method} (session: ${session.id})`);
+
+      // Execute method on session's photon instance using loader
+      const result = await sessionManager.loader.executeTool(
+        session.instance,
         request.method,
         request.args || {}
       );
@@ -219,6 +235,11 @@ function shutdown(): void {
     clearTimeout(idleTimer);
   }
 
+  // Destroy session manager
+  if (sessionManager) {
+    sessionManager.destroy();
+  }
+
   // Clean up socket file (Unix only)
   if (fs.existsSync(socketPath) && process.platform !== 'win32') {
     try {
@@ -233,6 +254,6 @@ function shutdown(): void {
 
 // Main execution
 (async () => {
-  await loadPhoton();
+  await initializeSessionManager();
   startServer();
 })();
