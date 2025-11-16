@@ -6,8 +6,13 @@
  */
 
 import * as net from 'net';
+import * as crypto from 'crypto';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getSocketPath } from './manager.js';
+
+// Generate session ID for this process
+// This ensures all commands from the same terminal session share the same photon instance
+const SESSION_ID = process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 
 /**
  * Send command to daemon and wait for response
@@ -37,6 +42,8 @@ export async function sendCommand(
       const request: DaemonRequest = {
         type: 'command',
         id: requestId,
+        sessionId: SESSION_ID,
+        clientType: 'cli',
         method,
         args,
       };
