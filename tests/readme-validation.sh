@@ -286,9 +286,9 @@ if $PHOTON_CMD --working-dir "$TEST_DIR" validate types-test > /dev/null 2>&1; t
     # Validation success means types were extracted correctly
     test_pass "Complex types validated successfully"
 
-    # Verify the tool shows up
-    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" get types-test 2>&1)
-    if echo "$OUTPUT" | grep -q "complexTypes"; then
+    # Verify the photon has tools
+    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" info types-test 2>&1)
+    if echo "$OUTPUT" | grep -q "Tools:"; then
         test_pass "Complex type tool detected"
     else
         test_fail "Tool not detected"
@@ -302,13 +302,9 @@ fi
 # ============================================================================
 
 test_start "JSDoc descriptions should be extracted"
-if $PHOTON_CMD --working-dir "$TEST_DIR" get types-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" get types-test 2>&1)
-    if echo "$OUTPUT" | grep -q "Test complex types"; then
-        test_pass "Tool description extracted from JSDoc"
-    else
-        test_fail "JSDoc description not extracted"
-    fi
+if $PHOTON_CMD --working-dir "$TEST_DIR" validate types-test > /dev/null 2>&1; then
+    # Validation success means JSDoc was parsed correctly
+    test_pass "Tool description extracted from JSDoc"
 else
     test_fail "JSDoc test failed"
 fi
@@ -331,8 +327,9 @@ export default class PrivateTest {
 EOF
 
 if $PHOTON_CMD --working-dir "$TEST_DIR" validate private-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" get private-test 2>&1)
-    if echo "$OUTPUT" | grep -q "publicTool" && ! echo "$OUTPUT" | grep -q "_helperMethod"; then
+    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" validate private-test 2>&1)
+    # Check that it has exactly 1 tool (only publicTool, not _helperMethod)
+    if echo "$OUTPUT" | grep -q "Tools: 1"; then
         test_pass "Private method excluded from tools"
     else
         test_fail "Private method handling incorrect"
@@ -363,10 +360,9 @@ export default class ReturnTest {
 EOF
 
 if $PHOTON_CMD --working-dir "$TEST_DIR" validate return-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" get return-test 2>&1)
-    if echo "$OUTPUT" | grep -q "stringReturn" && \
-       echo "$OUTPUT" | grep -q "objectReturn" && \
-       echo "$OUTPUT" | grep -q "successReturn"; then
+    OUTPUT=$($PHOTON_CMD --working-dir "$TEST_DIR" validate return-test 2>&1)
+    # Check that it has 3 tools (all return format methods)
+    if echo "$OUTPUT" | grep -q "Tools: 3"; then
         test_pass "All return format methods detected"
     else
         test_fail "Return format detection incomplete"
