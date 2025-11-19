@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.3.0](https://github.com/portel-dev/photon/compare/v1.2.0...v1.3.0) (2025-11-19)
+
+### Features
+
+* add [@format](https://github.com/format) tag system for structured output rendering ([b824088](https://github.com/portel-dev/photon/commit/b8240888c53308c25dd45c491a4ca529480a7f78))
+* add {[@unique](https://github.com/unique)} constraint for array uniqueItems ([d643ed6](https://github.com/portel-dev/photon/commit/d643ed6732c48e28ae987531e1d4204481deaeb9))
+* add advanced JSDoc constraints - example, multipleOf, deprecated, readOnly/writeOnly ([7194f17](https://github.com/portel-dev/photon/commit/7194f172bc65e53a868327f41256330468bde751))
+* add beautified table rendering with borders and clean output ([502e9bb](https://github.com/portel-dev/photon/commit/502e9bb0108891a960cd4ea6758bf758977bb7f8))
+* add CLI aliases to run photons as standalone commands ([c5de92b](https://github.com/portel-dev/photon/commit/c5de92b0e521b748a3e2007f708b3a649ec83979))
+* add comprehensive CLI documentation and tests ([2d5ba17](https://github.com/portel-dev/photon/commit/2d5ba17760babde8d1a72736c83ee0c5c181025c))
+* add comprehensive JSDoc constraint support ([ddd537f](https://github.com/portel-dev/photon/commit/ddd537ff082065eb337290379cb5cd1d09866f4e))
+* add direct CLI invocation for photon methods ([81e4be4](https://github.com/portel-dev/photon/commit/81e4be4d299fc25768c3c82640a4ff54e5122bad))
+* add JSDoc constraint tags {[@min](https://github.com/min)} and {[@max](https://github.com/max)} ([d76092c](https://github.com/portel-dev/photon/commit/d76092c65fcaf2dc75791cf83c21f5bbf88b44fa))
+* extract readonly from TypeScript with JSDoc precedence ([5a0f1a1](https://github.com/portel-dev/photon/commit/5a0f1a101998279d233b3025a03e5e3fbae16a18))
+* format CLI output for better readability ([de70721](https://github.com/portel-dev/photon/commit/de707212dd33af96726fe4b1c8c5bbcca84bb721))
+* generate proper JSON Schema enum arrays for literal unions ([1718188](https://github.com/portel-dev/photon/commit/171818820f8711a92add5f1409c8f6a3c648372b))
+* implement session management for daemon isolation ([bae22d6](https://github.com/portel-dev/photon/commit/bae22d6125cfcd5af210123fa4118409b26811cb))
+* implement stateful photon daemon architecture ([783e1cc](https://github.com/portel-dev/photon/commit/783e1cc511e2601bbb8f5b57e54310a5d6579a83))
+* improve CLI error messages with hints ([837d47e](https://github.com/portel-dev/photon/commit/837d47e4594c4b5cd86c21fc3361bccf6b2b03a3))
+* improve CLI help to follow standard conventions ([76ba48e](https://github.com/portel-dev/photon/commit/76ba48efcad43db17d161b7fbfdabae52b6325fa))
+* optimize anyOf schemas for mixed type unions ([3281f2f](https://github.com/portel-dev/photon/commit/3281f2f301c7c973b6b4675e24bc4d777536919e))
+
+### Bug Fixes
+
+* add type coercion for CLI arguments based on method signatures ([a2125e0](https://github.com/portel-dev/photon/commit/a2125e02b0d120656070b703370f81e702520eef))
+* critical CLI bugs - exit codes and --help ([6ee6da7](https://github.com/portel-dev/photon/commit/6ee6da782fa680f83bb866753ee2280e65d464cb))
+* daemon CLI pairing flow and exit behavior ([83a3233](https://github.com/portel-dev/photon/commit/83a3233f6a9147e9a150cbe36af5b2c97b3cab36))
+* detect optional parameters from TypeScript signatures ([8481df6](https://github.com/portel-dev/photon/commit/8481df6580e152133dd92acf39b8bf1803b9ef5c))
+* make CLI aliases truly cross-platform ([1e541c2](https://github.com/portel-dev/photon/commit/1e541c2e571c711cb18aaa18c9dfcc1056a7316d))
+* preserve +/- prefix for relative adjustments in CLI arguments ([38edba4](https://github.com/portel-dev/photon/commit/38edba474f29c54fbbc3fa8c18949e6c2a06ebe4))
+* properly format JSDoc constraint tags in generated documentation ([d3f07f4](https://github.com/portel-dev/photon/commit/d3f07f4012753fb2b384fa575b7959b8e2fd79fa))
+* remove 'path.' prefix from MCP config default values ([2ab0d30](https://github.com/portel-dev/photon/commit/2ab0d30fa1153513a50e038945dc7855cad23505))
+* remove stack traces from CLI error output ([c3bf1e2](https://github.com/portel-dev/photon/commit/c3bf1e2e5ee4e73a0eec157e7a0c927ddd1de82a))
+* update tests for CLI changes ([3557c10](https://github.com/portel-dev/photon/commit/3557c10569bbef94f523cfef69bacd4553a9cbef))
+* use absolute path for lg-remote credentials file ([76e2357](https://github.com/portel-dev/photon/commit/76e2357341c7e044405b0c527318150968ef9963))
+* use import.meta.url instead of __dirname for ES modules ([ccabd24](https://github.com/portel-dev/photon/commit/ccabd24e13322a5f3e39ce5f761ed954aa895386))
+* use PhotonLoader for CLI to share dependency cache with MCP ([f8246e3](https://github.com/portel-dev/photon/commit/f8246e3b94dcfd3e1714052dc6b480200dcd78eb))
+
 ## [Unreleased]
 
 ### Features
