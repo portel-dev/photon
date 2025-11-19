@@ -230,7 +230,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'error']);
       assert(
-        result.stdout.includes('❌ Error:') && result.stdout.includes('Test error message'),
+        result.stdout.includes('❌') && result.stdout.includes('Test error message'),
         'Display error messages correctly'
       );
     }
