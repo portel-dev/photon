@@ -2,7 +2,7 @@
  * Tests for Schema Extractor - Template and Static detection
  */
 
-import { SchemaExtractor } from '../src/schema-extractor.js';
+import { SchemaExtractor } from '@portel/photon-core';
 import { strict as assert } from 'assert';
 
 // Simple test runner
