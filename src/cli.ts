@@ -15,8 +15,7 @@ import * as readline from 'readline';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
 import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
-import { SchemaExtractor } from './schema-extractor.js';
-import { ConstructorParam } from './types.js';
+import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
@@ -1621,7 +1620,7 @@ program
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
-      const { DependencyManager } = await import('./dependency-manager.js');
+      const { DependencyManager } = await import('@portel/photon-core');
       const { SecurityScanner } = await import('./security-scanner.js');
 
       const depManager = new DependencyManager();

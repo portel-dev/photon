@@ -8,11 +8,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
-import { PhotonMCP } from './base.js';
-import { SchemaExtractor } from './schema-extractor.js';
-import { PhotonMCPClass, PhotonMCPClassExtended, PhotonTool, TemplateInfo, StaticInfo } from './types.js';
+import { PhotonMCP, SchemaExtractor, DependencyManager, ConstructorParam, PhotonMCPClass, PhotonMCPClassExtended, PhotonTool, TemplateInfo, StaticInfo } from '@portel/photon-core';
 import * as os from 'os';
-import { DependencyManager } from './dependency-manager.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -413,7 +410,7 @@ export class PhotonLoader {
   /**
    * Extract constructor parameters from source file
    */
-  private async extractConstructorParams(filePath: string): Promise<import('./types.js').ConstructorParam[]> {
+  private async extractConstructorParams(filePath: string): Promise<ConstructorParam[]> {
     try {
       const source = await fs.readFile(filePath, 'utf-8');
       const extractor = new SchemaExtractor();
@@ -428,7 +425,7 @@ export class PhotonLoader {
    * Resolve constructor arguments from environment variables
    */
   private resolveConstructorArgs(
-    params: import('./types.js').ConstructorParam[],
+    params: ConstructorParam[],
     mcpName: string
   ): { values: any[]; configError: string | null } {
     const values: any[] = [];
@@ -497,7 +494,7 @@ export class PhotonLoader {
   private enhanceConstructorError(
     error: Error,
     mcpName: string,
-    constructorParams: import('./types.js').ConstructorParam[],
+    constructorParams: ConstructorParam[],
     configError: string | null
   ): Error {
     const originalMessage = error.message;
