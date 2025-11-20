@@ -19,7 +19,7 @@ import {
   ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { PhotonLoader } from './loader.js';
-import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from './types.js';
+import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
 
 export interface PhotonServerOptions {
   filePath: string;

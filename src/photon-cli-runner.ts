@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { SchemaExtractor } from './schema-extractor.js';
+import { SchemaExtractor } from '@portel/photon-core';
 import { resolvePhotonPath } from './path-resolver.js';
 import { PhotonLoader } from './loader.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';

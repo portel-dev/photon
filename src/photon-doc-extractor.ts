@@ -1,5 +1,5 @@
 import * as fs from 'fs/promises';
-import { SchemaExtractor } from './schema-extractor.js';
+import { SchemaExtractor } from '@portel/photon-core';
 
 interface ConfigParam {
   name: string;
