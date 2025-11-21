@@ -613,6 +613,7 @@ program
   .description('Show installed and available Photons')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
+      const { formatOutput, printInfo, printError, printHeader, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global/parent options
       const parentOpts = command.parent?.opts() || {};
       const workingDir = parentOpts.workingDir || DEFAULT_WORKING_DIR;
@@ -633,8 +634,8 @@ program
         if (asMcp) {
           // MCP config only works for installed photons
           if (!isInstalled) {
-            console.error(`❌ '${name}' is not installed`);
-            console.error(`Install with: photon add ${name}`);
+            printError(`'${name}' is not installed`);
+            printInfo(`Install with: photon add ${name}`);
             process.exit(1);
           }
 
@@ -682,46 +683,53 @@ program
             const metadata = await manager.getPhotonInstallMetadata(fileName);
             const isModified = metadata ? await manager.isPhotonModified(filePath!, fileName) : false;
 
-            console.error(`INSTALLED IN ${workingDir}:`);
-            console.error(`  📦 ${name}${photonMetadata.version ? ` (v${photonMetadata.version})` : ''}`);
-            console.error(`  Location: ${filePath}`);
+            printInfo(`Installed in ${workingDir}:\n`);
+
+            // Build info as tree structure
+            const infoData: Record<string, any> = {
+              name: name,
+              version: photonMetadata.version || '-',
+              location: filePath,
+            };
 
             if (photonMetadata.description) {
-              console.error(`  Description: ${photonMetadata.description}`);
+              infoData.description = photonMetadata.description;
             }
 
             if (metadata) {
-              console.error(`  Installed: ${new Date(metadata.installedAt).toLocaleDateString()}`);
+              infoData.installed = new Date(metadata.installedAt).toLocaleDateString();
+              infoData.source = metadata.marketplace;
               if (isModified) {
-                console.error(`  Status: ⚠️  Modified locally`);
+                infoData.status = 'modified locally';
               }
             }
 
             const toolCount = photonMetadata.tools?.length || 0;
             if (toolCount > 0) {
-              console.error(`  Tools: ${toolCount}`);
+              infoData.tools = toolCount;
             }
 
-            console.error('');
+            formatOutput(infoData, 'tree');
 
+            console.log('');
             // Show appropriate run command
             if (metadata && !isModified) {
-              console.error(`  Run with: photon mcp ${name}`);
-              console.error(`  To customize: Copy to a new name and run with --dev for hot reload`);
+              printInfo(`Run with: photon mcp ${name}`);
+              printInfo(`To customize: Copy to a new name and run with --dev for hot reload`);
             } else if (metadata && isModified) {
-              console.error(`  Run with: photon mcp ${name} --dev`);
-              console.error(`  Note: Modified from marketplace - consider renaming to avoid upgrade conflicts`);
+              printInfo(`Run with: photon mcp ${name} --dev`);
+              printInfo(`Note: Modified from marketplace - consider renaming to avoid upgrade conflicts`);
             } else {
-              console.error(`  Run with: photon mcp ${name} --dev`);
+              printInfo(`Run with: photon mcp ${name} --dev`);
             }
-            console.error('');
+            console.log('');
           }
 
           // Show marketplace availability in tree format
           const searchResults = await manager.search(name);
 
           if (searchResults.size > 0) {
-            console.error('AVAILABLE IN MARKETPLACES:');
+            printInfo('Available in marketplaces:\n');
 
             // Get all sources for this specific photon
             const sources = searchResults.get(name);
@@ -730,19 +738,23 @@ program
               const fileName = `${name}.photon.ts`;
               const installMetadata = await manager.getPhotonInstallMetadata(fileName);
 
-              // Group by marketplace
+              // Build marketplace data as tree
+              const marketplaceData: Record<string, any> = {};
               for (const source of sources) {
                 const isCurrentlyInstalled = installMetadata?.marketplace === source.marketplace.name;
-                const mark = isCurrentlyInstalled ? ' ✓ currently installed' : '';
                 const version = source.metadata?.version || 'unknown';
-
-                console.error(`  ${source.marketplace.name} (${source.marketplace.repo})`);
-                console.error(`    └─ ${name} (v${version})${mark}`);
+                marketplaceData[source.marketplace.name] = {
+                  version,
+                  source: source.marketplace.repo,
+                  status: isCurrentlyInstalled ? 'installed' : '-',
+                };
               }
+
+              formatOutput(marketplaceData, 'tree');
             }
           } else if (!isInstalled) {
-            console.error(`❌ '${name}' not found locally or in any marketplace`);
-            console.error(`Tip: Use 'photon search <query>' to find similar MCPs`);
+            printError(`'${name}' not found locally or in any marketplace`);
+            printInfo(`Tip: Use 'photon search <query>' to find similar MCPs`);
             process.exit(1);
           }
         }
@@ -794,9 +806,11 @@ program
 
       // Normal list mode - show both installed and available
 
-      // Show installed photons
+      // Show installed photons as table
       if (mcps.length > 0) {
-        console.error(`INSTALLED IN ${workingDir} (${mcps.length}):`);
+        printInfo(`Installed in ${workingDir} (${mcps.length}):\n`);
+
+        const tableData: Array<{ name: string; version: string; source: string; status: string }> = [];
 
         for (const mcpName of mcps) {
           const fileName = `${mcpName}.photon.ts`;
@@ -808,56 +822,72 @@ program
           if (metadata) {
             // Has metadata - show version and status
             const isModified = await manager.isPhotonModified(filePath, fileName);
-            const modifiedMark = isModified ? ' ⚠️  modified' : '';
-
-            console.error(`  📦 ${mcpName} (v${metadata.version} from ${metadata.marketplace})${modifiedMark}`);
+            tableData.push({
+              name: mcpName,
+              version: metadata.version,
+              source: metadata.marketplace,
+              status: isModified ? 'modified' : STATUS.OK,
+            });
           } else {
             // No metadata - local or pre-metadata Photon
-            console.error(`  📦 ${mcpName}`);
+            tableData.push({
+              name: mcpName,
+              version: '-',
+              source: 'local',
+              status: STATUS.OK,
+            });
           }
         }
-        console.error('');
+
+        formatOutput(tableData, 'table');
+        console.log('');
       } else {
-        console.error(`No photons installed in ${workingDir}`);
-        console.error(`Install with: photon add <name>\n`);
+        printInfo(`No photons installed in ${workingDir}`);
+        printInfo(`Install with: photon add <name>\n`);
       }
 
       // Show marketplace availability in tree format
-      console.error('AVAILABLE IN MARKETPLACES:');
+      printInfo('Available in marketplaces:\n');
 
       const marketplaces = manager.getAll().filter(m => m.enabled);
       const counts = await manager.getMarketplaceCounts();
 
+      // Build marketplace tree
+      const marketplaceTree: Record<string, any> = {};
+
       for (const marketplace of marketplaces) {
         const count = counts.get(marketplace.name) || 0;
         if (count > 0) {
-          console.error(`  ${marketplace.name} (${marketplace.repo})`);
-
           // Get a few sample photons from this marketplace
           const manifest = await manager['getCachedManifest'](marketplace.name);
           if (manifest && manifest.photons) {
             const samples = manifest.photons.slice(0, 3);
+            const photonList: Record<string, string> = {};
 
-            samples.forEach((photon, idx) => {
-              const isLast = idx === samples.length - 1 && samples.length === count;
-              const branch = isLast ? '└─' : '├─';
-              const installedMark = mcps.includes(photon.name) ? ' ✓ installed' : '';
-              console.error(`    ${branch} ${photon.name} (v${photon.version})${installedMark}`);
+            samples.forEach((photon) => {
+              const installedMark = mcps.includes(photon.name) ? ' (installed)' : '';
+              photonList[photon.name] = `v${photon.version}${installedMark}`;
             });
 
             if (count > 3) {
-              console.error(`    └─ ... (${count - 3} more)`);
+              photonList['...'] = `${count - 3} more`;
             }
+
+            marketplaceTree[`${marketplace.name} (${marketplace.repo})`] = photonList;
           }
         } else {
-          console.error(`  ${marketplace.name} (${marketplace.repo}) - no manifest`);
+          marketplaceTree[marketplace.name] = 'no manifest';
         }
       }
 
-      console.error(`\nDetails: photon info <name>`);
-      console.error(`MCP config: photon info <name> --mcp`);
+      formatOutput(marketplaceTree, 'tree');
+
+      console.log('');
+      printInfo(`Details: photon info <name>`);
+      printInfo(`MCP config: photon info <name> --mcp`);
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });

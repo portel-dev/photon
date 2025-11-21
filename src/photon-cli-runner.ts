@@ -15,6 +15,16 @@ import { PhotonLoader } from './loader.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
+import {
+  formatOutput as baseFormatOutput,
+  detectFormat,
+  renderPrimitive,
+  renderList,
+  renderTable,
+  renderTree,
+  renderNone,
+  OutputFormat,
+} from './cli-formatter.js';
 
 interface MethodInfo {
   name: string;
@@ -25,7 +35,7 @@ interface MethodInfo {
     description?: string;
   }[];
   description?: string;
-  format?: 'primitive' | 'table' | 'tree' | 'list' | 'none';
+  format?: OutputFormat;
 }
 
 /**
@@ -107,7 +117,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
 
     // Extract format hint from @format tag
     const formatMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|none)/i);
-    const format = formatMatch ? formatMatch[1].toLowerCase() as MethodInfo['format'] : undefined;
+    const format = formatMatch ? formatMatch[1].toLowerCase() as OutputFormat : undefined;
 
     // Extract parameters
     const params: MethodInfo['params'] = [];
@@ -201,292 +211,19 @@ function extractObjectProperties(typeStr: string): Map<string, { type: string; o
 }
 
 /**
- * Detect format type from data structure
- */
-function detectFormat(data: any): 'primitive' | 'table' | 'tree' | 'list' | 'none' {
-  // null/undefined = none
-  if (data === null || data === undefined) {
-    return 'none';
-  }
-
-  // Primitive types
-  if (typeof data === 'string' || typeof data === 'number' || typeof data === 'boolean') {
-    return 'primitive';
-  }
-
-  // Array handling
-  if (Array.isArray(data)) {
-    if (data.length === 0) {
-      return 'list';
-    }
-
-    // Check first element to determine list vs table
-    const firstItem = data[0];
-
-    // Array of primitives = list
-    if (typeof firstItem !== 'object' || firstItem === null) {
-      return 'list';
-    }
-
-    // Array of flat objects = table
-    if (isFlatObject(firstItem)) {
-      return 'table';
-    }
-
-    // Array of nested objects = tree
-    return 'tree';
-  }
-
-  // Single object
-  if (typeof data === 'object') {
-    // Flat object = table
-    if (isFlatObject(data)) {
-      return 'table';
-    }
-
-    // Nested object = tree
-    return 'tree';
-  }
-
-  // Default fallback
-  return 'none';
-}
-
-/**
- * Check if an object is flat (no nested objects or arrays)
- */
-function isFlatObject(obj: any): boolean {
-  if (typeof obj !== 'object' || obj === null) {
-    return false;
-  }
-
-  for (const value of Object.values(obj)) {
-    if (typeof value === 'object' && value !== null) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Render primitive value
- */
-function renderPrimitive(value: any): void {
-  if (typeof value === 'boolean') {
-    console.log(value ? 'Yes' : 'No');
-  } else {
-    console.log(value);
-  }
-}
-
-/**
- * Render list (array of primitives)
- */
-function renderList(data: any[]): void {
-  if (data.length === 0) {
-    console.log('(empty)');
-    return;
-  }
-
-  data.forEach(item => {
-    console.log(`  • ${item}`);
-  });
-}
-
-/**
- * Render table (flat object or array of flat objects)
- */
-function renderTable(data: any): void {
-  // Single flat object - show as bordered key-value table
-  if (!Array.isArray(data)) {
-    const entries = Object.entries(data).filter(
-      ([key, value]) => !(key === 'returnValue' && value === true)
-    );
-
-    if (entries.length === 0) {
-      console.log('(empty)');
-      return;
-    }
-
-    const maxKeyLength = Math.max(...entries.map(([k]) => formatKey(k).length));
-    const maxValueLength = Math.max(...entries.map(([_, v]) => String(formatValue(v)).length));
-
-    // Top border
-    console.log(`┌─${'─'.repeat(maxKeyLength)}─┬─${'─'.repeat(maxValueLength)}─┐`);
-
-    // Rows
-    for (let i = 0; i < entries.length; i++) {
-      const [key, value] = entries[i];
-      const formattedKey = formatKey(key);
-      const formattedValue = String(formatValue(value));
-      const keyPadding = ' '.repeat(maxKeyLength - formattedKey.length);
-      const valuePadding = ' '.repeat(maxValueLength - formattedValue.length);
-
-      console.log(`│ ${formattedKey}${keyPadding} │ ${formattedValue}${valuePadding} │`);
-
-      // Add separator between rows (not after last row)
-      if (i < entries.length - 1) {
-        console.log(`├─${'─'.repeat(maxKeyLength)}─┼─${'─'.repeat(maxValueLength)}─┤`);
-      }
-    }
-
-    // Bottom border
-    console.log(`└─${'─'.repeat(maxKeyLength)}─┴─${'─'.repeat(maxValueLength)}─┘`);
-    return;
-  }
-
-  // Array of flat objects - show as bordered table
-  if (data.length === 0) {
-    console.log('(empty)');
-    return;
-  }
-
-  // Get all unique keys across all objects
-  const allKeys = Array.from(
-    new Set(data.flatMap(obj => Object.keys(obj)))
-  ).filter(k => k !== 'returnValue');
-
-  if (allKeys.length === 0) {
-    console.log('(no data)');
-    return;
-  }
-
-  // Calculate column widths
-  const columnWidths = new Map<string, number>();
-  for (const key of allKeys) {
-    const headerWidth = formatKey(key).length;
-    const maxValueWidth = Math.max(
-      ...data.map(obj => String(formatValue(obj[key] ?? '')).length)
-    );
-    columnWidths.set(key, Math.max(headerWidth, maxValueWidth));
-  }
-
-  // Top border
-  const topBorderParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
-  console.log('┌' + topBorderParts.join('┬') + '┐');
-
-  // Header
-  const headerParts = allKeys.map(key => {
-    const formattedKey = formatKey(key);
-    const width = columnWidths.get(key)!;
-    return ' ' + formattedKey.padEnd(width) + ' ';
-  });
-  console.log('│' + headerParts.join('│') + '│');
-
-  // Header separator
-  const separatorParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
-  console.log('├' + separatorParts.join('┼') + '┤');
-
-  // Rows
-  for (const row of data) {
-    const rowParts = allKeys.map(key => {
-      const value = formatValue(row[key] ?? '');
-      const width = columnWidths.get(key)!;
-      return ' ' + String(value).padEnd(width) + ' ';
-    });
-    console.log('│' + rowParts.join('│') + '│');
-  }
-
-  // Bottom border
-  const bottomBorderParts = allKeys.map(key => '─'.repeat(columnWidths.get(key)! + 2));
-  console.log('└' + bottomBorderParts.join('┴') + '┘');
-}
-
-/**
- * Render tree (nested/hierarchical structure)
- */
-function renderTree(data: any, indent: string = ''): void {
-  // Array of objects
-  if (Array.isArray(data)) {
-    if (data.length === 0) {
-      console.log(`${indent}(empty)`);
-      return;
-    }
-
-    data.forEach((item, index) => {
-      if (typeof item === 'object' && item !== null) {
-        console.log(`${indent}[${index}]`);
-        renderTree(item, indent + '  ');
-      } else {
-        console.log(`${indent}• ${item}`);
-      }
-    });
-    return;
-  }
-
-  // Object
-  if (typeof data === 'object' && data !== null) {
-    const entries = Object.entries(data).filter(
-      ([key, value]) => !(key === 'returnValue' && value === true)
-    );
-
-    for (const [key, value] of entries) {
-      const formattedKey = formatKey(key);
-
-      if (value === null || value === undefined) {
-        console.log(`${indent}${formattedKey}: (none)`);
-      } else if (Array.isArray(value)) {
-        console.log(`${indent}${formattedKey}:`);
-        renderTree(value, indent + '  ');
-      } else if (typeof value === 'object') {
-        console.log(`${indent}${formattedKey}:`);
-        renderTree(value, indent + '  ');
-      } else {
-        console.log(`${indent}${formattedKey}: ${formatValue(value)}`);
-      }
-    }
-    return;
-  }
-
-  // Primitive (shouldn't happen but handle it)
-  console.log(`${indent}${formatValue(data)}`);
-}
-
-/**
- * Render none format (operation with no data)
- */
-function renderNone(): void {
-  console.log('✅ Done');
-}
-
-/**
- * Format a key for display (camelCase to Title Case)
- */
-function formatKey(key: string): string {
-  return key
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/^./, str => str.toUpperCase())
-    .trim();
-}
-
-/**
- * Format a value for display
- */
-function formatValue(value: any): string | number | boolean {
-  if (value === null || value === undefined) {
-    return '(none)';
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'Yes' : 'No';
-  }
-  return value;
-}
-
-/**
- * Format output for display to the user
+ * Format output for display to the user (with error handling)
+ * Wraps the base formatter with success/error response handling
  * @returns true if successful, false if error
  */
-function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): boolean {
+function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
     const errorMsg = result.error || result.message || 'Unknown error';
-    console.log(`❌ ${errorMsg}`);
+    console.log(`✗ ${errorMsg}`);
 
     // Show hint if available
     if (result.hint) {
-      console.log(`💡 ${result.hint}`);
+      console.log(`Hint: ${result.hint}`);
     }
 
     return false;
@@ -496,7 +233,7 @@ function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' |
   if (result && typeof result === 'object' && result.success === true) {
     // If there's a message, show it
     if (result.message) {
-      console.log('✅', result.message);
+      console.log('✓', result.message);
     }
 
     // Determine what data to format
@@ -522,45 +259,18 @@ function formatOutput(result: any, formatHint?: 'primitive' | 'table' | 'tree' |
     }
 
     // Format the data using hint or detection
-    formatDataWithHint(dataToFormat, formatHint);
+    baseFormatOutput(dataToFormat, formatHint);
     return true;
   }
 
   // Handle plain data without success wrapper
   if (result !== undefined && result !== null) {
-    formatDataWithHint(result, formatHint);
+    baseFormatOutput(result, formatHint);
   } else {
     renderNone();
   }
 
   return true;
-}
-
-/**
- * Format data using format hint or auto-detection
- */
-function formatDataWithHint(data: any, formatHint?: 'primitive' | 'table' | 'tree' | 'list' | 'none'): void {
-  // Use hint if provided, otherwise detect
-  const format = formatHint || detectFormat(data);
-
-  // Apply appropriate renderer
-  switch (format) {
-    case 'primitive':
-      renderPrimitive(data);
-      break;
-    case 'list':
-      renderList(Array.isArray(data) ? data : [data]);
-      break;
-    case 'table':
-      renderTable(data);
-      break;
-    case 'tree':
-      renderTree(data);
-      break;
-    case 'none':
-      renderNone();
-      break;
-  }
 }
 
 /**
