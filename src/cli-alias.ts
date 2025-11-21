@@ -177,21 +177,24 @@ export async function removeAlias(aliasName: string): Promise<void> {
  */
 export async function listAliases(): Promise<void> {
   try {
+    const { formatOutput, printInfo, printWarning } = await import('./cli-formatter.js');
+
     if (!existsSync(ALIAS_DIR)) {
-      console.log('No aliases created yet.');
-      console.log(`\nCreate one with: photon alias <photon-name>`);
+      printInfo('No aliases created yet.');
+      printInfo('Create one with: photon alias <photon-name>');
       return;
     }
 
     const files = await fs.readdir(ALIAS_DIR);
 
     if (files.length === 0) {
-      console.log('No aliases created yet.');
-      console.log(`\nCreate one with: photon alias <photon-name>`);
+      printInfo('No aliases created yet.');
+      printInfo('Create one with: photon alias <photon-name>');
       return;
     }
 
-    console.log(`\nCLI Aliases (${ALIAS_DIR}):\n`);
+    // Build table data
+    const tableData: Array<{ alias: string; photon: string }> = [];
 
     for (const file of files) {
       const aliasPath = path.join(ALIAS_DIR, file);
@@ -205,21 +208,24 @@ export async function listAliases(): Promise<void> {
 
         // Display name without .cmd extension on Windows
         const displayName = file.replace(/\.cmd$/, '');
-        console.log(`    ${displayName} → photon cli ${photonName}`);
+        tableData.push({ alias: displayName, photon: photonName });
       }
     }
 
-    console.log('');
+    printInfo(`CLI Aliases (${tableData.length}):\n`);
+    formatOutput(tableData, 'table');
 
     // Check if bin directory is in PATH
     const pathEnv = process.env.PATH || '';
     const paths = pathEnv.split(PATH_SEPARATOR);
 
     if (!paths.includes(ALIAS_DIR)) {
+      printWarning(`${ALIAS_DIR} is not in your PATH`);
       await checkAndInstructPath();
     }
   } catch (error: any) {
-    console.error(`❌ Error: ${error.message}`);
+    const { printError } = await import('./cli-formatter.js');
+    printError(error.message);
     process.exit(1);
   }
 }
