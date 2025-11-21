@@ -870,44 +870,48 @@ program
   .action(async (query: string) => {
     try {
       const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const { formatOutput, printInfo, printError } = await import('./cli-formatter.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
       // Auto-update stale caches
       const updated = await manager.autoUpdateStaleCaches();
       if (updated) {
-        console.error('🔄 Refreshed marketplace data...\n');
+        printInfo('Refreshed marketplace data...\n');
       }
 
-      console.error(`Searching for '${query}' in marketplaces...`);
+      printInfo(`Searching for '${query}' in marketplaces...`);
 
       const results = await manager.search(query);
 
       if (results.size === 0) {
-        console.error(`❌ No results found for '${query}'`);
-        console.error(`Tip: Run 'photon marketplace update' to manually refresh marketplace data`);
+        printError(`No results found for '${query}'`);
+        printInfo(`Tip: Run 'photon marketplace update' to manually refresh marketplace data`);
         return;
       }
 
-      console.error('');
+      // Build table data from search results
+      const tableData: any[] = [];
       for (const [mcpName, entries] of results) {
         for (const entry of entries) {
-          if (entry.metadata) {
-            console.error(`  📦 ${mcpName} (v${entry.metadata.version})`);
-            console.error(`     ${entry.metadata.description}`);
-            console.error(`     ${entry.marketplace.name} (${entry.marketplace.repo})`);
-            if (entry.metadata.tags && entry.metadata.tags.length > 0) {
-              console.error(`     Tags: ${entry.metadata.tags.join(', ')}`);
-            }
-          } else {
-            console.error(`  📦 ${mcpName}`);
-            console.error(`     ✓ ${entry.marketplace.name} (${entry.marketplace.repo})`);
-          }
+          tableData.push({
+            name: mcpName,
+            version: entry.metadata?.version || '-',
+            description: entry.metadata?.description
+              ? entry.metadata.description.substring(0, 50) + (entry.metadata.description.length > 50 ? '...' : '')
+              : '-',
+            marketplace: entry.marketplace.name,
+          });
         }
       }
-      console.error('');
+
+      console.log('');
+      formatOutput(tableData, 'table');
+      printInfo(`\nInstall with: photon add <name>`);
+
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1097,38 +1101,35 @@ marketplace
   .action(async () => {
     try {
       const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const { formatOutput, printInfo, STATUS } = await import('./cli-formatter.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
       const marketplaces = manager.getAll();
 
       if (marketplaces.length === 0) {
-        console.error('No marketplaces configured');
+        printInfo('No marketplaces configured');
+        printInfo('Add one with: photon marketplace add portel-dev/photons');
         return;
       }
 
       // Get MCP counts
       const counts = await manager.getMarketplaceCounts();
 
-      console.error(`Configured marketplaces (${marketplaces.length}):\n`);
+      // Build table data
+      const tableData = marketplaces.map(m => ({
+        name: m.name,
+        source: m.source || m.repo || '-',
+        photons: counts.get(m.name) || 0,
+        status: m.enabled ? STATUS.OK : STATUS.OFF,
+      }));
 
-      for (const marketplace of marketplaces) {
-        const status = marketplace.enabled ? '✅' : '❌';
-        const count = counts.get(marketplace.name) || 0;
-        const countStr = count > 0 ? `${count} available` : 'no manifest';
+      printInfo(`Configured marketplaces (${marketplaces.length}):\n`);
+      formatOutput(tableData, 'table');
 
-        console.error(`  ${status} ${marketplace.name}`);
-        console.error(`     ${marketplace.repo}`);
-        console.error(`     ${countStr}`);
-        if (marketplace.lastUpdated) {
-          const date = new Date(marketplace.lastUpdated);
-          console.error(`     Updated ${date.toLocaleDateString()}`);
-        }
-      }
-
-      console.error('');
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1566,6 +1567,7 @@ program
   .description('Upgrade MCP(s) from marketplaces')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
+      const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global options
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
 
@@ -1578,100 +1580,124 @@ program
         const filePath = await resolvePhotonPath(name, workingDir);
 
         if (!filePath) {
-          console.error(`❌ MCP not found: ${name}`);
-          console.error(`Searched in: ${workingDir}`);
+          printError(`MCP not found: ${name}`);
+          printInfo(`Searched in: ${workingDir}`);
           process.exit(1);
         }
 
-        console.error(`Checking ${name} for updates...`);
+        printInfo(`Checking ${name} for updates...`);
         const versionInfo = await checker.checkForUpdate(name, filePath);
 
         if (!versionInfo.local) {
-          console.error(`⚠️  Could not determine local version`);
+          printWarning('Could not determine local version');
           return;
         }
 
         if (!versionInfo.remote) {
-          console.error(`⚠️  Not found in any marketplace. This might be a local-only MCP.`);
+          printWarning('Not found in any marketplace. This might be a local-only MCP.');
           return;
         }
 
         if (options.check) {
-          if (versionInfo.needsUpdate) {
-            console.error(`🔄 Update available: ${versionInfo.local} → ${versionInfo.remote}`);
-          } else {
-            console.error(`✅ Already up to date (${versionInfo.local})`);
-          }
+          const tableData = [{
+            name,
+            local: versionInfo.local,
+            remote: versionInfo.remote,
+            status: versionInfo.needsUpdate ? STATUS.UPDATE : STATUS.OK,
+          }];
+          formatOutput(tableData, 'table');
           return;
         }
 
         if (!versionInfo.needsUpdate) {
-          console.error(`✅ Already up to date (${versionInfo.local})`);
+          printSuccess(`Already up to date (${versionInfo.local})`);
           return;
         }
 
-        console.error(`🔄 Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
+        printInfo(`Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
 
         const success = await checker.updateMCP(name, filePath);
 
         if (success) {
-          console.error(`✅ Successfully upgraded ${name} to ${versionInfo.remote}`);
+          printSuccess(`Successfully upgraded ${name} to ${versionInfo.remote}`);
         } else {
-          console.error(`❌ Failed to upgrade ${name}`);
+          printError(`Failed to upgrade ${name}`);
           process.exit(1);
         }
       } else {
         // Check/upgrade all MCPs
-        console.error(`Checking all MCPs in ${workingDir}...\n`);
+        printInfo(`Checking all MCPs in ${workingDir}...\n`);
         const updates = await checker.checkAllUpdates(workingDir);
 
         if (updates.size === 0) {
-          console.error(`No MCPs found`);
+          printInfo('No MCPs found');
           return;
         }
 
         const needsUpdate: string[] = [];
 
-        for (const [mcpName, info] of updates) {
-          const status = checker.formatVersionInfo(info);
+        // Build table data
+        const tableData: Array<{ name: string; local: string; remote: string; status: string }> = [];
 
+        for (const [mcpName, info] of updates) {
           if (info.needsUpdate) {
-            console.error(`  🔄 ${mcpName}: ${status}`);
             needsUpdate.push(mcpName);
+            tableData.push({
+              name: mcpName,
+              local: info.local || '-',
+              remote: info.remote || '-',
+              status: STATUS.UPDATE,
+            });
           } else if (info.local && info.remote) {
-            console.error(`  ✅ ${mcpName}: ${status}`);
+            tableData.push({
+              name: mcpName,
+              local: info.local,
+              remote: info.remote,
+              status: STATUS.OK,
+            });
           } else {
-            console.error(`  📦 ${mcpName}: ${status}`);
+            tableData.push({
+              name: mcpName,
+              local: info.local || '-',
+              remote: info.remote || 'local only',
+              status: STATUS.UNKNOWN,
+            });
           }
         }
 
+        formatOutput(tableData, 'table');
+
         if (needsUpdate.length === 0) {
-          console.error(`\nAll MCPs are up to date!`);
+          console.log('');
+          printSuccess('All MCPs are up to date!');
           return;
         }
 
         if (options.check) {
-          console.error(`\n${needsUpdate.length} MCP(s) have updates available`);
-          console.error(`Run 'photon upgrade' to upgrade all`);
+          console.log('');
+          printInfo(`${needsUpdate.length} MCP(s) have updates available`);
+          printInfo(`Run 'photon upgrade' to upgrade all`);
           return;
         }
 
         // Upgrade all that need updates
-        console.error(`\nUpgrading ${needsUpdate.length} MCP(s)...`);
+        console.log('');
+        printInfo(`Upgrading ${needsUpdate.length} MCP(s)...`);
 
         for (const mcpName of needsUpdate) {
           const filePath = path.join(workingDir, `${mcpName}.photon.ts`);
           const success = await checker.updateMCP(mcpName, filePath);
 
           if (success) {
-            console.error(`✅ Upgraded ${mcpName}`);
+            printSuccess(`Upgraded ${mcpName}`);
           } else {
-            console.error(`❌ Failed to upgrade ${mcpName}`);
+            printError(`Failed to upgrade ${mcpName}`);
           }
         }
       }
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1796,49 +1822,58 @@ program
   .action(async () => {
     try {
       const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const { formatOutput, printInfo, printSuccess, printWarning, printError } = await import('./cli-formatter.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      console.error('🔍 Scanning for MCP conflicts across marketplaces...\n');
+      printInfo('Scanning for MCP conflicts across marketplaces...\n');
 
       const conflicts = await manager.detectAllConflicts();
 
       if (conflicts.size === 0) {
-        console.error('✅ No conflicts detected');
-        console.error('\nAll MCPs are uniquely available from single marketplaces.');
+        printSuccess('No conflicts detected');
+        printInfo('All MCPs are uniquely available from single marketplaces.');
         return;
       }
 
-      console.error(`⚠️  Found ${conflicts.size} MCP(s) in multiple marketplaces:\n`);
+      printWarning(`Found ${conflicts.size} MCP(s) in multiple marketplaces:\n`);
+
+      // Build tree data for conflicts
+      const treeData: Record<string, any> = {};
 
       for (const [mcpName, sources] of conflicts) {
-        console.error(`📦 ${mcpName}`);
+        const mcpEntry: Record<string, any> = {};
 
-        sources.forEach(source => {
+        for (const source of sources) {
           const version = source.metadata?.version || 'unknown';
-          const description = source.metadata?.description || '';
-          console.error(`   → ${source.marketplace.name} (v${version})`);
-          if (description) {
-            console.error(`     ${description.substring(0, 60)}${description.length > 60 ? '...' : ''}`);
-          }
-        });
-
-        // Show recommendation
-        const conflict = await manager.checkConflict(mcpName);
-        if (conflict.recommendation) {
-          console.error(`   💡 Recommended: ${conflict.recommendation}`);
+          const description = source.metadata?.description
+            ? source.metadata.description.substring(0, 50) + (source.metadata.description.length > 50 ? '...' : '')
+            : '-';
+          mcpEntry[source.marketplace.name] = {
+            version,
+            description,
+          };
         }
 
-        console.error('');
+        // Check for recommendation
+        const conflict = await manager.checkConflict(mcpName);
+        if (conflict.recommendation) {
+          mcpEntry['recommended'] = conflict.recommendation;
+        }
+
+        treeData[mcpName] = mcpEntry;
       }
 
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('\n💡 Tip: Use --marketplace flag to specify which to use:');
-      console.error('   photon add <name> --marketplace <marketplace-name>');
-      console.error('\nOr disable marketplaces you don\'t need:');
-      console.error('   photon marketplace disable <marketplace-name>');
+      formatOutput(treeData, 'tree');
+
+      console.log('');
+      printInfo('Tip: Use --marketplace flag to specify which to use:');
+      printInfo('  photon add <name> --marketplace <marketplace-name>');
+      printInfo('Or disable marketplaces you don\'t need:');
+      printInfo('  photon marketplace disable <marketplace-name>');
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1930,66 +1965,87 @@ program
   .description('Run diagnostics on photon environment and installations')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
+      const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } = await import('./cli-formatter.js');
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
       let issuesFound = 0;
 
-      console.error('🔍 Running Photon diagnostics...\n');
+      printInfo('Running Photon diagnostics...\n');
+
+      // Build diagnostic data
+      const diagnostics: Record<string, any> = {};
 
       // Check Node version
-      console.error('📦 Node.js');
       const nodeVersion = process.version;
       const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
-      if (majorVersion >= 18) {
-        console.error(`   ✅ ${nodeVersion} (supported)`);
-      } else {
-        console.error(`   ❌ ${nodeVersion} (requires Node.js 18+)`);
-        issuesFound++;
-      }
+      diagnostics['Node.js'] = {
+        version: nodeVersion,
+        status: majorVersion >= 18 ? STATUS.OK : STATUS.ERROR,
+        note: majorVersion >= 18 ? 'supported' : 'requires Node.js 18+',
+      };
+      if (majorVersion < 18) issuesFound++;
 
       // Check npm/npx
-      console.error('\n📦 Package Manager');
       try {
         const { execSync } = await import('child_process');
         const npmVersion = execSync('npm --version', { encoding: 'utf-8' }).trim();
-        console.error(`   ✅ npm ${npmVersion}`);
+        diagnostics['Package Manager'] = {
+          npm: npmVersion,
+          status: STATUS.OK,
+        };
       } catch {
-        console.error(`   ❌ npm not found`);
+        diagnostics['Package Manager'] = {
+          npm: 'not found',
+          status: STATUS.ERROR,
+        };
         issuesFound++;
       }
 
       // Check working directory
-      console.error('\n📁 Working Directory');
       try {
         await fs.access(workingDir);
         const stats = await fs.stat(workingDir);
         if (stats.isDirectory()) {
-          console.error(`   ✅ ${workingDir} (exists)`);
-
-          // Count photons
           const mcps = await listPhotonMCPs(workingDir);
-          console.error(`   ℹ️  ${mcps.length} photon(s) installed`);
+          diagnostics['Working Directory'] = {
+            path: workingDir,
+            status: STATUS.OK,
+            photons: mcps.length,
+          };
         } else {
-          console.error(`   ❌ ${workingDir} is not a directory`);
+          diagnostics['Working Directory'] = {
+            path: workingDir,
+            status: STATUS.ERROR,
+            note: 'not a directory',
+          };
           issuesFound++;
         }
       } catch {
-        console.error(`   ⚠️  ${workingDir} does not exist (will be created on first use)`);
+        diagnostics['Working Directory'] = {
+          path: workingDir,
+          status: STATUS.UNKNOWN,
+          note: 'will be created on first use',
+        };
       }
 
       // Check cache directory
-      console.error('\n🗂️  Cache Directory');
       const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
       try {
         await fs.access(cacheDir);
         const files = await fs.readdir(cacheDir);
-        console.error(`   ✅ ${cacheDir}`);
-        console.error(`   ℹ️  ${files.length} cached file(s)`);
+        diagnostics['Cache Directory'] = {
+          path: cacheDir,
+          status: STATUS.OK,
+          cachedFiles: files.length,
+        };
       } catch {
-        console.error(`   ℹ️  ${cacheDir} (will be created on first use)`);
+        diagnostics['Cache Directory'] = {
+          path: cacheDir,
+          status: STATUS.UNKNOWN,
+          note: 'will be created on first use',
+        };
       }
 
       // Check marketplaces
-      console.error('\n🛒 Marketplaces');
       try {
         const { MarketplaceManager } = await import('./marketplace-manager.js');
         const manager = new MarketplaceManager();
@@ -1998,39 +2054,49 @@ program
         const enabled = marketplaces.filter(m => m.enabled);
 
         if (enabled.length > 0) {
-          console.error(`   ✅ ${enabled.length} enabled marketplace(s)`);
-          enabled.forEach(m => {
-            console.error(`      • ${m.name}`);
-          });
+          diagnostics['Marketplaces'] = {
+            enabled: enabled.length,
+            status: STATUS.OK,
+            sources: enabled.map(m => m.name),
+          };
         } else {
-          console.error(`   ⚠️  No marketplaces enabled`);
-          console.error(`      Add one with: photon marketplace add portel-dev/photons`);
+          diagnostics['Marketplaces'] = {
+            enabled: 0,
+            status: STATUS.UNKNOWN,
+            note: 'Add one with: photon marketplace add portel-dev/photons',
+          };
         }
       } catch (error: any) {
-        console.error(`   ❌ Error loading marketplaces: ${error.message}`);
+        diagnostics['Marketplaces'] = {
+          status: STATUS.ERROR,
+          error: error.message,
+        };
         issuesFound++;
       }
 
       // Check specific photon if provided
       if (name) {
-        console.error(`\n🔬 Photon: ${name}`);
+        const photonDiag: Record<string, any> = {};
 
         const filePath = await resolvePhotonPath(name, workingDir);
         if (!filePath) {
-          console.error(`   ❌ Photon not found`);
+          photonDiag['location'] = 'not found';
+          photonDiag['status'] = STATUS.ERROR;
           issuesFound++;
         } else {
-          console.error(`   ✅ Found at ${filePath}`);
+          photonDiag['location'] = filePath;
+          photonDiag['status'] = STATUS.OK;
 
           // Check if it compiles
           try {
             const source = await fs.readFile(filePath, 'utf-8');
             const extractor = new SchemaExtractor();
             const params = extractor.extractConstructorParams(source);
-            console.error(`   ✅ Syntax valid`);
-            console.error(`   ℹ️  ${params.length} constructor parameter(s)`);
+            photonDiag['syntax'] = STATUS.OK;
+            photonDiag['constructorParams'] = params.length;
           } catch (error: any) {
-            console.error(`   ❌ Syntax error: ${error.message}`);
+            photonDiag['syntax'] = STATUS.ERROR;
+            photonDiag['syntaxError'] = error.message;
             issuesFound++;
           }
 
@@ -2038,9 +2104,9 @@ program
           const cachedFile = path.join(cacheDir, `${name}.js`);
           try {
             await fs.access(cachedFile);
-            console.error(`   ✅ Compiled cache exists`);
+            photonDiag['cache'] = STATUS.OK;
           } catch {
-            console.error(`   ℹ️  No compiled cache (will be created on first run)`);
+            photonDiag['cache'] = 'not cached yet';
           }
 
           // Check dependencies
@@ -2049,29 +2115,31 @@ program
             const depManager = new DependencyManager();
             const dependencies = await depManager.extractDependencies(filePath);
             if (dependencies.length > 0) {
-              console.error(`   ℹ️  ${dependencies.length} dependenc${dependencies.length === 1 ? 'y' : 'ies'}:`);
-              dependencies.forEach(dep => {
-                console.error(`      • ${dep.name}@${dep.version}`);
-              });
+              photonDiag['dependencies'] = dependencies.map(dep => `${dep.name}@${dep.version}`);
             } else {
-              console.error(`   ℹ️  No dependencies`);
+              photonDiag['dependencies'] = 'none';
             }
           } catch (error: any) {
-            console.error(`   ⚠️  Could not check dependencies: ${error.message}`);
+            photonDiag['dependencies'] = `error: ${error.message}`;
           }
         }
+
+        diagnostics[`Photon: ${name}`] = photonDiag;
       }
 
+      formatOutput(diagnostics, 'tree');
+
       // Summary
-      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('');
       if (issuesFound === 0) {
-        console.error('\n✅ No issues found! Photon environment is healthy.');
+        printSuccess('No issues found! Photon environment is healthy.');
       } else {
-        console.error(`\n⚠️  Found ${issuesFound} issue(s). Please address the items marked with ❌ above.`);
+        printWarning(`Found ${issuesFound} issue(s). Please address the items marked with '${STATUS.ERROR}' above.`);
         process.exit(1);
       }
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
