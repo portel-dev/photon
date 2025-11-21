@@ -608,6 +608,8 @@ program
   .command('info')
   .argument('[name]', 'Photon name to show details for (shows all if omitted)')
   .option('--mcp', 'Output as MCP server configuration')
+  .alias('list')
+  .alias('ls')
   .description('Show installed and available Photons')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
@@ -1494,11 +1496,73 @@ program
     }
   });
 
+// Remove command: remove an installed photon
+program
+  .command('remove')
+  .argument('<name>', 'MCP name to remove')
+  .alias('rm')
+  .option('--keep-cache', 'Keep compiled cache for this photon')
+  .description('Remove an installed photon')
+  .action(async (name: string, options: any, command: Command) => {
+    try {
+      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+
+      // Find the photon file
+      const filePath = await resolvePhotonPath(name, workingDir);
+
+      if (!filePath) {
+        console.error(`❌ Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see installed photons`);
+        process.exit(1);
+      }
+
+      console.error(`Removing ${name}...`);
+
+      // Remove the .photon.ts file
+      await fs.unlink(filePath);
+      console.error(`✅ Removed ${name}.photon.ts`);
+
+      // Remove install metadata
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+      const fileName = `${name}.photon.ts`;
+      await manager.removeInstallMetadata(fileName);
+
+      // Clear compiled cache unless --keep-cache
+      if (!options.keepCache) {
+        const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+        const cachedFiles = [
+          path.join(cacheDir, `${name}.js`),
+          path.join(cacheDir, `${name}.js.map`),
+        ];
+
+        for (const cachedFile of cachedFiles) {
+          try {
+            await fs.unlink(cachedFile);
+          } catch {
+            // Ignore if cache doesn't exist
+          }
+        }
+        console.error(`✅ Cleared cache`);
+      }
+
+      console.error(`\n✅ Successfully removed ${name}`);
+      console.error(`To reinstall: photon add ${name}`);
+
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
 // Upgrade command: update MCPs from marketplace
 program
   .command('upgrade')
   .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
   .option('--check', 'Check for updates without upgrading')
+  .alias('up')
   .description('Upgrade MCP(s) from marketplaces')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
@@ -1773,6 +1837,239 @@ program
       console.error('   photon add <name> --marketplace <marketplace-name>');
       console.error('\nOr disable marketplaces you don\'t need:');
       console.error('   photon marketplace disable <marketplace-name>');
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// Clear-cache command: clear compiled photon cache
+program
+  .command('clear-cache')
+  .argument('[name]', 'MCP name to clear cache for (clears all if omitted)')
+  .alias('clean')
+  .description('Clear compiled photon cache')
+  .action(async (name: string | undefined, options: any, command: Command) => {
+    try {
+      const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+
+      if (name) {
+        // Clear cache for specific photon
+        const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+        const filePath = await resolvePhotonPath(name, workingDir);
+
+        if (!filePath) {
+          console.error(`❌ Photon not found: ${name}`);
+          console.error(`Tip: Use 'photon info' to see installed photons`);
+          process.exit(1);
+        }
+
+        console.error(`🗑️  Clearing cache for ${name}...`);
+
+        const cachedFiles = [
+          path.join(cacheDir, `${name}.js`),
+          path.join(cacheDir, `${name}.js.map`),
+        ];
+
+        let cleared = false;
+        for (const cachedFile of cachedFiles) {
+          try {
+            await fs.unlink(cachedFile);
+            cleared = true;
+          } catch {
+            // Ignore if file doesn't exist
+          }
+        }
+
+        if (cleared) {
+          console.error(`✅ Cleared cache for ${name}`);
+        } else {
+          console.error(`ℹ️  No cache found for ${name}`);
+        }
+      } else {
+        // Clear all cache
+        console.error('🗑️  Clearing all compiled photon cache...');
+
+        try {
+          const files = await fs.readdir(cacheDir);
+          let count = 0;
+
+          for (const file of files) {
+            const filePath = path.join(cacheDir, file);
+            try {
+              await fs.unlink(filePath);
+              count++;
+            } catch {
+              // Ignore errors
+            }
+          }
+
+          if (count > 0) {
+            console.error(`✅ Cleared ${count} cached file(s)`);
+          } else {
+            console.error(`ℹ️  Cache is already empty`);
+          }
+        } catch (error: any) {
+          if (error.code === 'ENOENT') {
+            console.error(`ℹ️  No cache directory found`);
+          } else {
+            throw error;
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// Doctor command: diagnose photon environment
+program
+  .command('doctor')
+  .argument('[name]', 'Photon name to diagnose (checks environment if omitted)')
+  .description('Run diagnostics on photon environment and installations')
+  .action(async (name: string | undefined, options: any, command: Command) => {
+    try {
+      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      let issuesFound = 0;
+
+      console.error('🔍 Running Photon diagnostics...\n');
+
+      // Check Node version
+      console.error('📦 Node.js');
+      const nodeVersion = process.version;
+      const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
+      if (majorVersion >= 18) {
+        console.error(`   ✅ ${nodeVersion} (supported)`);
+      } else {
+        console.error(`   ❌ ${nodeVersion} (requires Node.js 18+)`);
+        issuesFound++;
+      }
+
+      // Check npm/npx
+      console.error('\n📦 Package Manager');
+      try {
+        const { execSync } = await import('child_process');
+        const npmVersion = execSync('npm --version', { encoding: 'utf-8' }).trim();
+        console.error(`   ✅ npm ${npmVersion}`);
+      } catch {
+        console.error(`   ❌ npm not found`);
+        issuesFound++;
+      }
+
+      // Check working directory
+      console.error('\n📁 Working Directory');
+      try {
+        await fs.access(workingDir);
+        const stats = await fs.stat(workingDir);
+        if (stats.isDirectory()) {
+          console.error(`   ✅ ${workingDir} (exists)`);
+
+          // Count photons
+          const mcps = await listPhotonMCPs(workingDir);
+          console.error(`   ℹ️  ${mcps.length} photon(s) installed`);
+        } else {
+          console.error(`   ❌ ${workingDir} is not a directory`);
+          issuesFound++;
+        }
+      } catch {
+        console.error(`   ⚠️  ${workingDir} does not exist (will be created on first use)`);
+      }
+
+      // Check cache directory
+      console.error('\n🗂️  Cache Directory');
+      const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+      try {
+        await fs.access(cacheDir);
+        const files = await fs.readdir(cacheDir);
+        console.error(`   ✅ ${cacheDir}`);
+        console.error(`   ℹ️  ${files.length} cached file(s)`);
+      } catch {
+        console.error(`   ℹ️  ${cacheDir} (will be created on first use)`);
+      }
+
+      // Check marketplaces
+      console.error('\n🛒 Marketplaces');
+      try {
+        const { MarketplaceManager } = await import('./marketplace-manager.js');
+        const manager = new MarketplaceManager();
+        await manager.initialize();
+        const marketplaces = manager.getAll();
+        const enabled = marketplaces.filter(m => m.enabled);
+
+        if (enabled.length > 0) {
+          console.error(`   ✅ ${enabled.length} enabled marketplace(s)`);
+          enabled.forEach(m => {
+            console.error(`      • ${m.name}`);
+          });
+        } else {
+          console.error(`   ⚠️  No marketplaces enabled`);
+          console.error(`      Add one with: photon marketplace add portel-dev/photons`);
+        }
+      } catch (error: any) {
+        console.error(`   ❌ Error loading marketplaces: ${error.message}`);
+        issuesFound++;
+      }
+
+      // Check specific photon if provided
+      if (name) {
+        console.error(`\n🔬 Photon: ${name}`);
+
+        const filePath = await resolvePhotonPath(name, workingDir);
+        if (!filePath) {
+          console.error(`   ❌ Photon not found`);
+          issuesFound++;
+        } else {
+          console.error(`   ✅ Found at ${filePath}`);
+
+          // Check if it compiles
+          try {
+            const source = await fs.readFile(filePath, 'utf-8');
+            const extractor = new SchemaExtractor();
+            const params = extractor.extractConstructorParams(source);
+            console.error(`   ✅ Syntax valid`);
+            console.error(`   ℹ️  ${params.length} constructor parameter(s)`);
+          } catch (error: any) {
+            console.error(`   ❌ Syntax error: ${error.message}`);
+            issuesFound++;
+          }
+
+          // Check cache
+          const cachedFile = path.join(cacheDir, `${name}.js`);
+          try {
+            await fs.access(cachedFile);
+            console.error(`   ✅ Compiled cache exists`);
+          } catch {
+            console.error(`   ℹ️  No compiled cache (will be created on first run)`);
+          }
+
+          // Check dependencies
+          try {
+            const { DependencyManager } = await import('@portel/photon-core');
+            const depManager = new DependencyManager();
+            const dependencies = await depManager.extractDependencies(filePath);
+            if (dependencies.length > 0) {
+              console.error(`   ℹ️  ${dependencies.length} dependenc${dependencies.length === 1 ? 'y' : 'ies'}:`);
+              dependencies.forEach(dep => {
+                console.error(`      • ${dep.name}@${dep.version}`);
+              });
+            } else {
+              console.error(`   ℹ️  No dependencies`);
+            }
+          } catch (error: any) {
+            console.error(`   ⚠️  Could not check dependencies: ${error.message}`);
+          }
+        }
+      }
+
+      // Summary
+      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      if (issuesFound === 0) {
+        console.error('\n✅ No issues found! Photon environment is healthy.');
+      } else {
+        console.error(`\n⚠️  Found ${issuesFound} issue(s). Please address the items marked with ❌ above.`);
+        process.exit(1);
+      }
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       process.exit(1);
