@@ -1554,13 +1554,6 @@ program
       await fs.unlink(filePath);
       console.error(`✅ Removed ${name}.photon.ts`);
 
-      // Remove install metadata
-      const { MarketplaceManager } = await import('./marketplace-manager.js');
-      const manager = new MarketplaceManager();
-      await manager.initialize();
-      const fileName = `${name}.photon.ts`;
-      await manager.removeInstallMetadata(fileName);
-
       // Clear compiled cache unless --keep-cache
       if (!options.keepCache) {
         const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
