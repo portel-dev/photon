@@ -17,11 +17,6 @@ import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
 import {
   formatOutput as baseFormatOutput,
-  detectFormat,
-  renderPrimitive,
-  renderList,
-  renderTable,
-  renderTree,
   renderNone,
   OutputFormat,
 } from './cli-formatter.js';

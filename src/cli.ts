@@ -613,7 +613,7 @@ program
   .description('Show installed and available Photons')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const { formatOutput, printInfo, printError, printHeader, STATUS } = await import('./cli-formatter.js');
+      const { formatOutput, printInfo, printError, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global/parent options
       const parentOpts = command.parent?.opts() || {};
       const workingDir = parentOpts.workingDir || DEFAULT_WORKING_DIR;
@@ -1536,23 +1536,24 @@ program
   .description('Remove an installed photon')
   .action(async (name: string, options: any, command: Command) => {
     try {
+      const { printInfo, printSuccess, printError } = await import('./cli-formatter.js');
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
 
       // Find the photon file
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`❌ Photon not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see installed photons`);
+        printError(`Photon not found: ${name}`);
+        printInfo(`Searched in: ${workingDir}`);
+        printInfo(`Tip: Use 'photon info' to see installed photons`);
         process.exit(1);
       }
 
-      console.error(`Removing ${name}...`);
+      printInfo(`Removing ${name}...`);
 
       // Remove the .photon.ts file
       await fs.unlink(filePath);
-      console.error(`✅ Removed ${name}.photon.ts`);
+      printSuccess(`Removed ${name}.photon.ts`);
 
       // Clear compiled cache unless --keep-cache
       if (!options.keepCache) {
@@ -1569,14 +1570,16 @@ program
             // Ignore if cache doesn't exist
           }
         }
-        console.error(`✅ Cleared cache`);
+        printSuccess(`Cleared cache`);
       }
 
-      console.error(`\n✅ Successfully removed ${name}`);
-      console.error(`To reinstall: photon add ${name}`);
+      console.log('');
+      printSuccess(`Successfully removed ${name}`);
+      printInfo(`To reinstall: photon add ${name}`);
 
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1845,7 +1848,7 @@ program
   .action(async () => {
     try {
       const { MarketplaceManager } = await import('./marketplace-manager.js');
-      const { formatOutput, printInfo, printSuccess, printWarning, printError } = await import('./cli-formatter.js');
+      const { formatOutput, printInfo, printSuccess, printWarning } = await import('./cli-formatter.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
@@ -1909,6 +1912,7 @@ program
   .description('Clear compiled photon cache')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
+      const { printInfo, printSuccess, printError } = await import('./cli-formatter.js');
       const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
 
       if (name) {
@@ -1917,12 +1921,12 @@ program
         const filePath = await resolvePhotonPath(name, workingDir);
 
         if (!filePath) {
-          console.error(`❌ Photon not found: ${name}`);
-          console.error(`Tip: Use 'photon info' to see installed photons`);
+          printError(`Photon not found: ${name}`);
+          printInfo(`Tip: Use 'photon info' to see installed photons`);
           process.exit(1);
         }
 
-        console.error(`🗑️  Clearing cache for ${name}...`);
+        printInfo(`Clearing cache for ${name}...`);
 
         const cachedFiles = [
           path.join(cacheDir, `${name}.js`),
@@ -1940,13 +1944,13 @@ program
         }
 
         if (cleared) {
-          console.error(`✅ Cleared cache for ${name}`);
+          printSuccess(`Cleared cache for ${name}`);
         } else {
-          console.error(`ℹ️  No cache found for ${name}`);
+          printInfo(`No cache found for ${name}`);
         }
       } else {
         // Clear all cache
-        console.error('🗑️  Clearing all compiled photon cache...');
+        printInfo('Clearing all compiled photon cache...');
 
         try {
           const files = await fs.readdir(cacheDir);
@@ -1963,20 +1967,21 @@ program
           }
 
           if (count > 0) {
-            console.error(`✅ Cleared ${count} cached file(s)`);
+            printSuccess(`Cleared ${count} cached file(s)`);
           } else {
-            console.error(`ℹ️  Cache is already empty`);
+            printInfo(`Cache is already empty`);
           }
         } catch (error: any) {
           if (error.code === 'ENOENT') {
-            console.error(`ℹ️  No cache directory found`);
+            printInfo(`No cache directory found`);
           } else {
             throw error;
           }
         }
       }
     } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
       process.exit(1);
     }
   });
@@ -1988,7 +1993,7 @@ program
   .description('Run diagnostics on photon environment and installations')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } = await import('./cli-formatter.js');
+      const { formatOutput, printInfo, printSuccess, printWarning, STATUS } = await import('./cli-formatter.js');
       const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
       let issuesFound = 0;
 
