@@ -184,7 +184,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'operations']);
       assert(
-        result.stdout.includes('•') && result.stdout.includes('add') && result.exitCode === 0,
+        result.stdout.includes('*') && result.stdout.includes('add') && result.exitCode === 0,
         'Format list with bullet points'
       );
     }
@@ -202,7 +202,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'adjust', '+5']);
       assert(
-        result.stdout.includes('+5') && result.stdout.includes('Yes') && result.exitCode === 0,
+        result.stdout.includes('+5') && result.stdout.includes('yes') && result.exitCode === 0,
         'Preserve + prefix for relative adjustments'
       );
     }
@@ -211,7 +211,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'adjust', '-3']);
       assert(
-        result.stdout.includes('-3') && result.stdout.includes('Yes') && result.exitCode === 0,
+        result.stdout.includes('-3') && result.stdout.includes('yes') && result.exitCode === 0,
         'Preserve - prefix for relative adjustments'
       );
     }
@@ -230,7 +230,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'error']);
       assert(
-        result.stdout.includes('❌') && result.stdout.includes('Test error message'),
+        result.stdout.includes('✗') && result.stdout.includes('Test error message'),
         'Display error messages correctly'
       );
     }

@@ -7,7 +7,7 @@
 
 # Photon
 
-**Runtime that turns single-file TypeScript classes into production-ready MCP servers.**
+**Universal runtime that turns single-file TypeScript into MCP server, CLI, and more.**
 
 Photon TS files are Single file. Zero boilerplate. Pure business logic.
 
@@ -25,6 +25,21 @@ Photon TS files are Single file. Zero boilerplate. Pure business logic.
 **Photon's Solution:** Single-file TypeScript format. Pure business logic, zero boilerplate. Fork-first design where every `.photon.ts` is trivial to audit and customize.
 
 Think of it like **NPM and Node, but for MCP**.
+
+### Write Once, Use Everywhere
+
+The same `.photon.ts` file automatically becomes:
+- 🤖 **MCP Server** - Tools for Claude Desktop, Cursor, and AI assistants
+- 💻 **CLI Tool** - Beautiful command-line interface for humans
+- 🔌 **Platform Integrations** - NCP, Lumina, and future runtimes
+
+```bash
+# Same file, multiple interfaces:
+photon mcp analytics              # Run as MCP server for AI
+photon cli analytics revenue      # Use as CLI tool for humans
+```
+
+**Zero extra code. Pure business logic. Infinite deployment targets.**
 
 ### The Photon Ecosystem Flywheel
 
@@ -102,6 +117,28 @@ export default class Analytics {
 ```
 
 **40 lines. One file. Production-ready.**
+
+### Use It Everywhere
+
+That single file now works as both an **MCP server** and a **CLI tool**:
+
+```bash
+# As an MCP server (for AI assistants)
+photon mcp analytics
+# → Claude Desktop can now call revenue() as a tool
+
+# As a CLI (for humans)
+photon cli analytics revenue --startDate 2024-01-01 --endDate 2024-12-31
+# → Beautiful formatted output:
+# ┌────────────┬──────────┐
+# │ Date       │ Revenue  │
+# ├────────────┼──────────┤
+# │ 2024-01-01 │ $12,450  │
+# │ 2024-01-02 │ $15,320  │
+# └────────────┴──────────┘
+```
+
+**Same code. Same logic. Two interfaces. Zero duplication.**
 
 ---
 
@@ -246,6 +283,7 @@ photon add your-custom-tool
 | **Hot Reload** | Configure yourself | Built-in with --dev |
 | **AI Context** | Scattered | Single file |
 | **CLI Interface** | Write separate code | Automatic from same code |
+| **Deployment Targets** | MCP only | MCP, CLI, NCP, Lumina, APIs... |
 
 [See detailed comparison →](COMPARISON.md)
 
@@ -1251,6 +1289,46 @@ Build and run photons as MCP servers for AI assistants. Works with Claude Deskto
 Run photon methods directly from the command line with beautiful formatted output. Every photon automatically becomes a CLI tool with zero additional code.
 
 **Write once, deploy everywhere:** The same business logic powers both your MCP tools and CLI commands.
+
+### 🔌 Ecosystem Integrations
+
+Photon files are first-class citizens across multiple platforms:
+
+#### NCP - Intelligent MCP Orchestration
+
+[NCP](https://github.com/portel-dev/ncp) runs as an MCP client hosting many MCPs intelligently, while acting as an MCP server for any client. Photon files integrate seamlessly as context providers.
+
+```bash
+# Photons work natively with NCP
+ncp add analytics.photon.ts
+```
+
+NCP enables sophisticated MCP orchestration patterns, and `.photon.ts` files are designed to work seamlessly in this environment.
+
+#### Lumina - Anything API Server *(Coming Soon)*
+
+Turn any photon into a production API endpoint with zero configuration.
+
+```bash
+# Same photon, now an HTTP API
+lumina serve analytics.photon.ts
+# → POST /revenue with JSON params
+# → GET /status
+# → Full REST API from your photon methods
+```
+
+Lumina will make photons available as HTTP/WebSocket endpoints, enabling web apps, mobile clients, and traditional API consumers to use the same business logic.
+
+#### Future Platforms
+
+The `.photon.ts` format is designed to be consumed by any runtime:
+- WebSocket servers
+- Serverless functions (AWS Lambda, Cloudflare Workers)
+- Native desktop applications
+- Browser extensions
+- GraphQL servers
+
+**One file. Many platforms. Pure business logic.**
 
 ---
 
