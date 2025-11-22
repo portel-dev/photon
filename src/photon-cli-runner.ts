@@ -110,9 +110,27 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       }
     }
 
-    // Extract format hint from @format tag
-    const formatMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|none)/i);
-    const format = formatMatch ? formatMatch[1].toLowerCase() as OutputFormat : undefined;
+    // Extract format hint from @format tag (structural and content formats)
+    let format: OutputFormat | undefined;
+
+    // Match structural formats
+    const structuralMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|none)/i);
+    if (structuralMatch) {
+      format = structuralMatch[1].toLowerCase() as OutputFormat;
+    }
+    // Match content formats
+    else {
+      const contentMatch = jsdoc.match(/@format\s+(json|markdown|yaml|xml|html)/i);
+      if (contentMatch) {
+        format = contentMatch[1].toLowerCase() as OutputFormat;
+      } else {
+        // Match code format (with optional language)
+        const codeMatch = jsdoc.match(/@format\s+code(?::(\w+))?/i);
+        if (codeMatch) {
+          format = codeMatch[1] ? `code:${codeMatch[1]}` as OutputFormat : 'code';
+        }
+      }
+    }
 
     // Extract parameters
     const params: MethodInfo['params'] = [];
