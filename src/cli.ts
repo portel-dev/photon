@@ -579,12 +579,16 @@ Package Management:
 
 Maintenance:
   update                  Refresh marketplace indexes & check CLI version
-  init <name>             Create a new photon from template
   doctor [name]           Diagnose environment and installations
+
+Development:
+  maker new <name>        Create a new photon from template
+  maker validate <name>   Validate photon syntax and schemas
+  maker sync              Generate marketplace manifest
+  maker init              Initialize marketplace with git hooks
 
 Advanced:
   marketplace             Manage marketplace sources
-  maker                   Commands for marketplace creators
   alias <photon>          Create CLI shortcuts for photons
 
 Run 'photon <command> --help' for detailed usage.
@@ -721,105 +725,6 @@ program
     }
   });
 
-// Init command: create a new .photon.ts from template
-program
-  .command('init', { hidden: true })
-  .argument('<name>', 'Name for the new Photon MCP')
-  .description('Create a new .photon.ts from template')
-  .action(async (name: string, options: any, command: Command) => {
-    try {
-      // Get working directory from global options
-      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
-
-      // Ensure working directory exists
-      await ensureWorkingDir(workingDir);
-
-      const fileName = `${name}.photon.ts`;
-      const filePath = path.join(workingDir, fileName);
-
-      // Check if file already exists
-      try {
-        await fs.access(filePath);
-        console.error(`❌ File already exists: ${filePath}`);
-        process.exit(1);
-      } catch {
-        // File doesn't exist, good
-      }
-
-      // Read template
-      const templatePath = path.join(__dirname, '..', 'templates', 'photon.template.ts');
-      let template: string;
-
-      try {
-        template = await fs.readFile(templatePath, 'utf-8');
-      } catch {
-        // Fallback inline template if file not found
-        template = getInlineTemplate();
-      }
-
-      // Replace placeholders
-      // Convert kebab-case to PascalCase for class name
-      const className = name
-        .split(/[-_]/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join('');
-      const content = template
-        .replace(/TemplateName/g, className)
-        .replace(/template-name/g, name);
-
-      // Write file
-      await fs.writeFile(filePath, content, 'utf-8');
-
-      console.error(`✅ Created ${fileName} in ${workingDir}`);
-      console.error(`Run with: photon mcp ${name} --dev`);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      process.exit(1);
-    }
-  });
-
-// Validate command: check syntax and schemas
-program
-  .command('validate', { hidden: true })
-  .argument('<name>', 'MCP name (without .photon.ts extension)')
-  .description('Validate syntax and schemas without running')
-  .action(async (name: string, options: any, command: Command) => {
-    try {
-      // Get working directory from global options
-      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
-
-      // Resolve file path from name in working directory
-      const filePath = await resolvePhotonPath(name, workingDir);
-
-      if (!filePath) {
-        console.error(`❌ MCP not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see available MCPs`);
-        process.exit(1);
-      }
-
-      console.error(`Validating ${path.basename(filePath)}...\n`);
-
-      // Import loader and try to load
-      const { PhotonLoader } = await import('./loader.js');
-      const loader = new PhotonLoader(false); // quiet mode for inspection
-
-      const mcp = await loader.loadFile(filePath);
-
-      console.error(`✅ Valid Photon MCP`);
-      console.error(`Name: ${mcp.name}`);
-      console.error(`Tools: ${mcp.tools.length}`);
-
-      for (const tool of mcp.tools) {
-        console.error(`  - ${tool.name}: ${tool.description}`);
-      }
-
-      process.exit(0);
-    } catch (error: any) {
-      console.error(`❌ Validation failed: ${error.message}`);
-      process.exit(1);
-    }
-  });
 
 // Info command: show installed and available Photons
 program
@@ -1174,11 +1079,112 @@ program
     }
   });
 
-// Maker command: commands for marketplace creators/publishers
+// Maker command: commands for photon creators/publishers
 const maker = program
   .command('maker', { hidden: true })
-  .description('Commands for creating and publishing photon marketplaces');
+  .description('Commands for creating photons and marketplaces');
 
+// maker new: create a new photon from template
+maker
+  .command('new')
+  .argument('<name>', 'Name for the new photon')
+  .description('Create a new photon from template')
+  .action(async (name: string, options: any, command: Command) => {
+    try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Ensure working directory exists
+      await ensureWorkingDir(workingDir);
+
+      const fileName = `${name}.photon.ts`;
+      const filePath = path.join(workingDir, fileName);
+
+      // Check if file already exists
+      try {
+        await fs.access(filePath);
+        console.error(`❌ File already exists: ${filePath}`);
+        process.exit(1);
+      } catch {
+        // File doesn't exist, good
+      }
+
+      // Read template
+      const templatePath = path.join(__dirname, '..', 'templates', 'photon.template.ts');
+      let template: string;
+
+      try {
+        template = await fs.readFile(templatePath, 'utf-8');
+      } catch {
+        // Fallback inline template if file not found
+        template = getInlineTemplate();
+      }
+
+      // Replace placeholders
+      // Convert kebab-case to PascalCase for class name
+      const className = name
+        .split(/[-_]/)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join('');
+      const content = template
+        .replace(/TemplateName/g, className)
+        .replace(/template-name/g, name);
+
+      // Write file
+      await fs.writeFile(filePath, content, 'utf-8');
+
+      console.error(`✅ Created ${fileName} in ${workingDir}`);
+      console.error(`Run with: photon mcp ${name} --dev`);
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// maker validate: validate photon syntax and schemas
+maker
+  .command('validate')
+  .argument('<name>', 'Photon name (without .photon.ts extension)')
+  .description('Validate photon syntax and schemas')
+  .action(async (name: string, options: any, command: Command) => {
+    try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve file path from name in working directory
+      const filePath = await resolvePhotonPath(name, workingDir);
+
+      if (!filePath) {
+        console.error(`❌ Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see available photons`);
+        process.exit(1);
+      }
+
+      console.error(`Validating ${path.basename(filePath)}...\n`);
+
+      // Import loader and try to load
+      const { PhotonLoader } = await import('./loader.js');
+      const loader = new PhotonLoader(false); // quiet mode for inspection
+
+      const mcp = await loader.loadFile(filePath);
+
+      console.error(`✅ Valid Photon`);
+      console.error(`Name: ${mcp.name}`);
+      console.error(`Tools: ${mcp.tools.length}`);
+
+      for (const tool of mcp.tools) {
+        console.error(`  - ${tool.name}: ${tool.description}`);
+      }
+
+      process.exit(0);
+    } catch (error: any) {
+      console.error(`❌ Validation failed: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+// maker sync: generate marketplace manifest
 maker
   .command('sync')
   .option('--dir <path>', 'Directory to sync (defaults to current directory)')
@@ -2364,7 +2370,7 @@ program
 
 // All known commands for "did you mean" suggestions
 const knownCommands = [
-  'mcp', 'init', 'validate', 'info', 'list', 'ls', 'search',
+  'mcp', 'info', 'list', 'ls', 'search',
   'add', 'remove', 'rm', 'upgrade', 'up', 'update',
   'audit', 'conflicts', 'clear-cache', 'clean', 'doctor',
   'cli', 'alias', 'unalias', 'aliases',
@@ -2373,7 +2379,7 @@ const knownCommands = [
 
 const knownSubcommands: Record<string, string[]> = {
   marketplace: ['list', 'add', 'remove', 'enable', 'disable', 'update'],
-  maker: ['sync', 'init'],
+  maker: ['new', 'validate', 'sync', 'init'],
 };
 
 /**
