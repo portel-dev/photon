@@ -235,6 +235,114 @@ async function performMarketplaceSync(
 }
 
 /**
+ * Initialize a marketplace with git hooks
+ */
+async function performMarketplaceInit(
+  dirPath: string,
+  options: { name?: string; description?: string; owner?: string }
+): Promise<void> {
+  const absolutePath = path.resolve(dirPath);
+
+  // Check if directory exists
+  if (!existsSync(absolutePath)) {
+    await fs.mkdir(absolutePath, { recursive: true });
+    console.error(`📁 Created directory: ${absolutePath}`);
+  }
+
+  // Check if it's a git repository
+  const gitDir = path.join(absolutePath, '.git');
+  if (!existsSync(gitDir)) {
+    console.error('⚠️  Not a git repository. Initialize with: git init');
+    process.exit(1);
+  }
+
+  // Create .githooks directory
+  const hooksDir = path.join(absolutePath, '.githooks');
+  await fs.mkdir(hooksDir, { recursive: true });
+
+  // Create pre-commit hook
+  const preCommitHook = `#!/bin/bash
+# Pre-commit hook: Auto-sync marketplace manifest before commit
+# This ensures .marketplace/photons.json and .claude-plugin/ are always up-to-date
+
+# Check if any .photon.ts files or marketplace files are being committed
+if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/|\\.claude-plugin/'; then
+  echo "🔄 Syncing marketplace manifest..."
+
+  # Run photon maker sync with --claude-code to generate plugin files
+  if photon maker sync --dir . --claude-code; then
+    # Stage the generated files
+    git add .marketplace/photons.json README.md *.md .claude-plugin/ 2>/dev/null
+    echo "✅ Marketplace and Claude Code plugin synced and staged"
+  else
+    echo "❌ Failed to sync marketplace"
+    exit 1
+  fi
+fi
+
+exit 0
+`;
+
+  const preCommitPath = path.join(hooksDir, 'pre-commit');
+  await fs.writeFile(preCommitPath, preCommitHook, { mode: 0o755 });
+  console.error('✅ Created .githooks/pre-commit');
+
+  // Create setup script
+  const setupScript = `#!/bin/bash
+# Setup script to install git hooks for this marketplace
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+HOOKS_DIR="$REPO_ROOT/.git/hooks"
+SOURCE_HOOKS="$REPO_ROOT/.githooks"
+
+echo "🔧 Installing git hooks for Photon marketplace..."
+
+# Copy pre-commit hook
+if [ -f "$SOURCE_HOOKS/pre-commit" ]; then
+  cp "$SOURCE_HOOKS/pre-commit" "$HOOKS_DIR/pre-commit"
+  chmod +x "$HOOKS_DIR/pre-commit"
+  echo "✅ Installed pre-commit hook (auto-syncs marketplace manifest)"
+else
+  echo "❌ pre-commit hook not found"
+  exit 1
+fi
+
+echo ""
+echo "✅ Git hooks installed successfully!"
+echo ""
+echo "The pre-commit hook will automatically run 'photon maker sync'"
+echo "whenever you commit changes to .photon.ts files."
+`;
+
+  const setupPath = path.join(hooksDir, 'setup.sh');
+  await fs.writeFile(setupPath, setupScript, { mode: 0o755 });
+  console.error('✅ Created .githooks/setup.sh');
+
+  // Install hooks to .git/hooks
+  const gitHooksDir = path.join(absolutePath, '.git', 'hooks');
+  const gitPreCommitPath = path.join(gitHooksDir, 'pre-commit');
+  await fs.writeFile(gitPreCommitPath, preCommitHook, { mode: 0o755 });
+  console.error('✅ Installed hooks to .git/hooks');
+
+  // Create .marketplace directory
+  const marketplaceDir = path.join(absolutePath, '.marketplace');
+  await fs.mkdir(marketplaceDir, { recursive: true });
+  console.error('✅ Created .marketplace directory');
+
+  // Run initial sync (don't filter installed for marketplace repos)
+  console.error('\n🔄 Running initial marketplace sync...\n');
+  await performMarketplaceSync(absolutePath, options);
+
+  console.error('\n✅ Marketplace initialized successfully!');
+  console.error('\nNext steps:');
+  console.error('1. Add your .photon.ts files to this directory');
+  console.error('2. Commit your changes (hooks will auto-sync)');
+  console.error('3. Push to GitHub to share your marketplace');
+  console.error('\nContributors can setup hooks with:');
+  console.error('  bash .githooks/setup.sh');
+}
+
+/**
  * Format default value for display in config
  */
 function formatDefaultValue(value: any): string {
@@ -381,7 +489,7 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
 /**
  * Show configuration template for an MCP
  */
-async function showConfigTemplate(filePath: string, mcpName: string): Promise<void> {
+async function showConfigTemplate(filePath: string, mcpName: string, workingDir: string = DEFAULT_WORKING_DIR): Promise<void> {
   console.log(`📋 Configuration template for: ${mcpName}\n`);
 
   const params = await extractConstructorParams(filePath);
@@ -418,11 +526,14 @@ async function showConfigTemplate(filePath: string, mcpName: string): Promise<vo
     }
   });
 
+  const needsWorkingDir = workingDir !== DEFAULT_WORKING_DIR;
   const config = {
     mcpServers: {
       [mcpName]: {
         command: 'npx',
-        args: ['@portel/photon', 'mcp', mcpName],
+        args: needsWorkingDir
+          ? ['@portel/photon', 'mcp', mcpName, '--working-dir', workingDir]
+          : ['@portel/photon', 'mcp', mcpName],
         env: envExample,
       },
     },
@@ -450,6 +561,64 @@ program
   .description('Universal runtime for single-file TypeScript programs')
   .version(version)
   .option('--working-dir <dir>', 'Working directory for Photons (default: ~/.photon)', DEFAULT_WORKING_DIR);
+
+// Update command: refresh marketplace indexes and check for CLI updates
+program
+  .command('update')
+  .description('Update marketplace indexes and check for CLI updates')
+  .action(async () => {
+    try {
+      const { printInfo, printSuccess, printWarning } = await import('./cli-formatter.js');
+
+      // Update all marketplace caches
+      printInfo('Refreshing marketplace indexes...\n');
+
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager();
+      await manager.initialize();
+
+      const results = await manager.updateAllCaches();
+
+      for (const [marketplaceName, success] of results) {
+        if (success) {
+          printSuccess(`${marketplaceName}`);
+        } else {
+          printWarning(`${marketplaceName} (no manifest)`);
+        }
+      }
+
+      const successCount = Array.from(results.values()).filter(Boolean).length;
+      console.log('');
+      printInfo(`Updated ${successCount}/${results.size} marketplaces`);
+
+      // Check for CLI updates
+      console.log('');
+      printInfo('Checking for Photon CLI updates...');
+
+      try {
+        const { execSync } = await import('child_process');
+        const latestVersion = execSync('npm view @portel/photon version', {
+          encoding: 'utf-8',
+          timeout: 10000,
+        }).trim();
+
+        if (latestVersion && latestVersion !== version) {
+          console.log('');
+          printWarning(`New Photon version available: ${version} → ${latestVersion}`);
+          printInfo(`Update with: npm install -g @portel/photon`);
+        } else {
+          printSuccess(`Photon CLI is up to date (${version})`);
+        }
+      } catch {
+        printWarning('Could not check for CLI updates');
+      }
+
+    } catch (error: any) {
+      const { printError } = await import('./cli-formatter.js');
+      printError(error.message);
+      process.exit(1);
+    }
+  });
 
 // MCP Runtime: run a .photon.ts file as MCP server
 program
@@ -482,7 +651,7 @@ program
 
       // Handle --config flag
       if (options.config) {
-        await showConfigTemplate(filePath, name);
+        await showConfigTemplate(filePath, name, workingDir);
         return;
       }
 
@@ -673,16 +842,21 @@ program
 
           // Check for global photon installation
           const globalPhotonPath = await getGlobalPhotonPath();
+          const needsWorkingDir = workingDir !== DEFAULT_WORKING_DIR;
 
           const config = globalPhotonPath
             ? {
                 command: globalPhotonPath,
-                args: ['mcp', name],
+                args: needsWorkingDir
+                  ? ['mcp', name, '--working-dir', workingDir]
+                  : ['mcp', name],
                 ...(Object.keys(env).length > 0 && { env }),
               }
             : {
                 command: 'npx',
-                args: ['@portel/photon', 'mcp', name],
+                args: needsWorkingDir
+                  ? ['@portel/photon', 'mcp', name, '--working-dir', workingDir]
+                  : ['@portel/photon', 'mcp', name],
                 ...(Object.keys(env).length > 0 && { env }),
               };
 
@@ -789,6 +963,7 @@ program
 
         // Check for global photon installation once
         const globalPhotonPath = await getGlobalPhotonPath();
+        const needsWorkingDir = workingDir !== DEFAULT_WORKING_DIR;
 
         for (const mcpName of mcps) {
           const filePath = await resolvePhotonPath(mcpName, workingDir);
@@ -807,12 +982,16 @@ program
           allConfigs[mcpName] = globalPhotonPath
             ? {
                 command: globalPhotonPath,
-                args: ['mcp', mcpName],
+                args: needsWorkingDir
+                  ? ['mcp', mcpName, '--working-dir', workingDir]
+                  : ['mcp', mcpName],
                 ...(Object.keys(env).length > 0 && { env }),
               }
             : {
                 command: 'npx',
-                args: ['@portel/photon', 'mcp', mcpName],
+                args: needsWorkingDir
+                  ? ['@portel/photon', 'mcp', mcpName, '--working-dir', workingDir]
+                  : ['@portel/photon', 'mcp', mcpName],
                 ...(Object.keys(env).length > 0 && { env }),
               };
         }
@@ -1011,143 +1190,8 @@ maker
   .description('Initialize a directory as a Photon marketplace with git hooks')
   .action(async (options: any) => {
     try {
-      const fsLib = await import('fs/promises');
-      const { existsSync: exists } = await import('fs');
-      const pathLib = await import('path');
-
       const dirPath = options.dir || '.';
-      const absolutePath = pathLib.resolve(dirPath);
-
-      // Check if directory exists
-      if (!exists(absolutePath)) {
-        await fsLib.mkdir(absolutePath, { recursive: true });
-        console.error(`📁 Created directory: ${absolutePath}`);
-      }
-
-      // Check if it's a git repository
-      const gitDir = pathLib.join(absolutePath, '.git');
-      if (!exists(gitDir)) {
-        console.error('⚠️  Not a git repository. Initialize with: git init');
-        process.exit(1);
-      }
-
-      // Create .githooks directory
-      const hooksDir = pathLib.join(absolutePath, '.githooks');
-      await fsLib.mkdir(hooksDir, { recursive: true });
-
-      // Create pre-commit hook
-      const preCommitHook = `#!/bin/bash
-# Pre-commit hook: Auto-sync marketplace manifest before commit
-# This ensures .marketplace/photons.json and .claude-plugin/ are always up-to-date
-
-# Check if any .photon.ts files or marketplace files are being committed
-if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/|\\.claude-plugin/'; then
-  echo "🔄 Syncing marketplace manifest..."
-
-  # Run photon maker sync with --claude-code to generate plugin files
-  if photon maker sync --dir . --claude-code; then
-    # Stage the generated files
-    git add .marketplace/photons.json README.md *.md .claude-plugin/ 2>/dev/null
-    echo "✅ Marketplace and Claude Code plugin synced and staged"
-  else
-    echo "❌ Failed to sync marketplace"
-    exit 1
-  fi
-fi
-
-exit 0
-`;
-
-      const preCommitPath = pathLib.join(hooksDir, 'pre-commit');
-      await fsLib.writeFile(preCommitPath, preCommitHook, { mode: 0o755 });
-      console.error('✅ Created .githooks/pre-commit');
-
-      // Create setup script
-      const setupScript = `#!/bin/bash
-# Setup script to install git hooks for this marketplace
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-HOOKS_DIR="$REPO_ROOT/.git/hooks"
-SOURCE_HOOKS="$REPO_ROOT/.githooks"
-
-echo "🔧 Installing git hooks for Photon marketplace..."
-
-# Copy pre-commit hook
-if [ -f "$SOURCE_HOOKS/pre-commit" ]; then
-  cp "$SOURCE_HOOKS/pre-commit" "$HOOKS_DIR/pre-commit"
-  chmod +x "$HOOKS_DIR/pre-commit"
-  echo "✅ Installed pre-commit hook (auto-syncs marketplace manifest)"
-else
-  echo "❌ pre-commit hook not found"
-  exit 1
-fi
-
-echo ""
-echo "✅ Git hooks installed successfully!"
-echo ""
-echo "The pre-commit hook will automatically run 'photon maker sync'"
-echo "whenever you commit changes to .photon.ts files."
-`;
-
-      const setupPath = pathLib.join(hooksDir, 'setup.sh');
-      await fsLib.writeFile(setupPath, setupScript, { mode: 0o755 });
-      console.error('✅ Created .githooks/setup.sh');
-
-      // Install hooks to .git/hooks
-      const gitHooksDir = pathLib.join(absolutePath, '.git', 'hooks');
-      const gitPreCommitPath = pathLib.join(gitHooksDir, 'pre-commit');
-      await fsLib.writeFile(gitPreCommitPath, preCommitHook, { mode: 0o755 });
-      console.error('✅ Installed hooks to .git/hooks');
-
-      // Create .marketplace directory
-      const marketplaceDir = pathLib.join(absolutePath, '.marketplace');
-      await fsLib.mkdir(marketplaceDir, { recursive: true });
-      console.error('✅ Created .marketplace directory');
-
-      // Run initial sync (don't filter installed for marketplace repos)
-      console.error('\n🔄 Running initial marketplace sync...\n');
-      await performMarketplaceSync(absolutePath, options);
-
-      console.error('\n✅ Marketplace initialized successfully!');
-      console.error('\nNext steps:');
-      console.error('1. Add your .photon.ts files to this directory');
-      console.error('2. Commit your changes (hooks will auto-sync)');
-      console.error('3. Push to GitHub to share your marketplace');
-      console.error('\nContributors can setup hooks with:');
-      console.error('  bash .githooks/setup.sh');
-
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
-        console.error(error.stack);
-      }
-      process.exit(1);
-    }
-  });
-
-// Sync command: synchronize local resources (deprecated, kept for backwards compatibility)
-const sync = program
-  .command('sync')
-  .description('Synchronize local resources');
-
-sync
-  .command('marketplace', { hidden: true })
-  .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
-  .option('--name <name>', 'Marketplace name')
-  .option('--description <desc>', 'Marketplace description')
-  .option('--owner <owner>', 'Owner name')
-  .option('--claude-code', 'Generate Claude Code plugin files')
-  .description('(Deprecated: use "photon maker sync") Generate/sync marketplace manifest and documentation')
-  .action(async (dirPath: string, options: any) => {
-    console.error('⚠️  Note: "photon sync marketplace" is deprecated. Use "photon maker sync --dir <path>" instead.\n');
-    try {
-      await performMarketplaceSync(dirPath, options);
-
-      // Generate Claude Code plugin if requested
-      if (options.claudeCode) {
-        const { generateClaudeCodePlugin } = await import('./claude-code-plugin.js');
-        await generateClaudeCodePlugin(dirPath, options);
-      }
+      await performMarketplaceInit(dirPath, options);
     } catch (error: any) {
       console.error(`❌ Error: ${error.message}`);
       if (process.env.DEBUG) {
@@ -1161,150 +1205,6 @@ sync
 const marketplace = program
   .command('marketplace')
   .description('Manage MCP marketplaces');
-
-marketplace
-  .command('sync', { hidden: true })
-  .argument('[path]', 'Directory containing Photons (defaults to current directory)', '.')
-  .option('--name <name>', 'Marketplace name')
-  .option('--description <desc>', 'Marketplace description')
-  .option('--owner <owner>', 'Owner name')
-  .description('(Deprecated: use "photon maker sync") Generate/sync marketplace manifest and documentation')
-  .action(async (dirPath: string, options: any) => {
-    console.error('⚠️  Note: "photon marketplace sync" is deprecated. Use "photon maker sync --dir <path>" instead.\n');
-    try {
-      await performMarketplaceSync(dirPath, options);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
-        console.error(error.stack);
-      }
-      process.exit(1);
-    }
-  });
-
-// Initialize a new marketplace with git hooks (deprecated)
-marketplace
-  .command('init', { hidden: true })
-  .argument('[path]', 'Directory to initialize as marketplace (defaults to current directory)', '.')
-  .option('--name <name>', 'Marketplace name')
-  .option('--description <desc>', 'Marketplace description')
-  .option('--owner <owner>', 'Owner name')
-  .description('(Deprecated: use "photon maker init") Initialize a directory as a Photon marketplace with git hooks')
-  .action(async (dirPath: string, options: any) => {
-    console.error('⚠️  Note: "photon marketplace init" is deprecated. Use "photon maker init --dir <path>" instead.\n');
-    try {
-      const fs = await import('fs/promises');
-      const { existsSync } = await import('fs');
-      const path = await import('path');
-
-      const absolutePath = path.resolve(dirPath);
-
-      // Check if directory exists
-      if (!existsSync(absolutePath)) {
-        await fs.mkdir(absolutePath, { recursive: true });
-        console.error(`📁 Created directory: ${absolutePath}`);
-      }
-
-      // Check if it's a git repository
-      const gitDir = path.join(absolutePath, '.git');
-      if (!existsSync(gitDir)) {
-        console.error('⚠️  Not a git repository. Initialize with: git init');
-        process.exit(1);
-      }
-
-      // Create .githooks directory
-      const hooksDir = path.join(absolutePath, '.githooks');
-      await fs.mkdir(hooksDir, { recursive: true });
-
-      // Create pre-commit hook
-      const preCommitHook = `#!/bin/bash
-# Pre-commit hook: Auto-sync marketplace manifest before commit
-# This ensures .marketplace/photons.json and .claude-plugin/ are always up-to-date
-
-# Check if any .photon.ts files or marketplace files are being committed
-if git diff --cached --name-only | grep -qE '\\.photon\\.ts$|\\.marketplace/|\\.claude-plugin/'; then
-  echo "🔄 Syncing marketplace manifest..."
-
-  # Run photon sync marketplace with --claude-code to generate plugin files
-  if photon sync marketplace --claude-code; then
-    # Stage the generated files
-    git add .marketplace/photons.json README.md *.md .claude-plugin/ 2>/dev/null
-    echo "✅ Marketplace and Claude Code plugin synced and staged"
-  else
-    echo "❌ Failed to sync marketplace"
-    exit 1
-  fi
-fi
-
-exit 0
-`;
-
-      const preCommitPath = path.join(hooksDir, 'pre-commit');
-      await fs.writeFile(preCommitPath, preCommitHook, { mode: 0o755 });
-      console.error('✅ Created .githooks/pre-commit');
-
-      // Create setup script
-      const setupScript = `#!/bin/bash
-# Setup script to install git hooks for this marketplace
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-HOOKS_DIR="$REPO_ROOT/.git/hooks"
-SOURCE_HOOKS="$REPO_ROOT/.githooks"
-
-echo "🔧 Installing git hooks for Photon marketplace..."
-
-# Copy pre-commit hook
-if [ -f "$SOURCE_HOOKS/pre-commit" ]; then
-  cp "$SOURCE_HOOKS/pre-commit" "$HOOKS_DIR/pre-commit"
-  chmod +x "$HOOKS_DIR/pre-commit"
-  echo "✅ Installed pre-commit hook (auto-syncs marketplace manifest)"
-else
-  echo "❌ pre-commit hook not found"
-  exit 1
-fi
-
-echo ""
-echo "✅ Git hooks installed successfully!"
-echo ""
-echo "The pre-commit hook will automatically run 'photon sync marketplace'"
-echo "whenever you commit changes to .photon.ts files."
-`;
-
-      const setupPath = path.join(hooksDir, 'setup.sh');
-      await fs.writeFile(setupPath, setupScript, { mode: 0o755 });
-      console.error('✅ Created .githooks/setup.sh');
-
-      // Install hooks to .git/hooks
-      const gitHooksDir = path.join(absolutePath, '.git', 'hooks');
-      const gitPreCommitPath = path.join(gitHooksDir, 'pre-commit');
-      await fs.writeFile(gitPreCommitPath, preCommitHook, { mode: 0o755 });
-      console.error('✅ Installed hooks to .git/hooks');
-
-      // Create .marketplace directory
-      const marketplaceDir = path.join(absolutePath, '.marketplace');
-      await fs.mkdir(marketplaceDir, { recursive: true });
-      console.error('✅ Created .marketplace directory');
-
-      // Run initial sync
-      console.error('\n🔄 Running initial marketplace sync...\n');
-      await performMarketplaceSync(dirPath, options);
-
-      console.error('\n✅ Marketplace initialized successfully!');
-      console.error('\nNext steps:');
-      console.error('1. Add your .photon.ts files to this directory');
-      console.error('2. Commit your changes (hooks will auto-sync)');
-      console.error('3. Push to GitHub to share your marketplace');
-      console.error('\nContributors can setup hooks with:');
-      console.error('  bash .githooks/setup.sh');
-
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
-        console.error(error.stack);
-      }
-      process.exit(1);
-    }
-  });
 
 marketplace
   .command('list')
@@ -2430,6 +2330,100 @@ program
     const { listAliases } = await import('./cli-alias.js');
     await listAliases();
   });
+
+// All known commands for "did you mean" suggestions
+const knownCommands = [
+  'mcp', 'init', 'validate', 'info', 'list', 'ls', 'search',
+  'add', 'remove', 'rm', 'upgrade', 'up', 'update',
+  'audit', 'conflicts', 'clear-cache', 'clean', 'doctor',
+  'cli', 'alias', 'unalias', 'aliases',
+  'marketplace', 'maker',
+];
+
+const knownSubcommands: Record<string, string[]> = {
+  marketplace: ['list', 'add', 'remove', 'enable', 'disable', 'update'],
+  maker: ['sync', 'init'],
+};
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Find closest matching command
+ */
+function findClosestCommand(input: string, commands: string[]): string | null {
+  let closest: string | null = null;
+  let minDistance = Infinity;
+
+  for (const cmd of commands) {
+    const distance = levenshteinDistance(input.toLowerCase(), cmd.toLowerCase());
+    // Only suggest if distance is small enough (max 3 edits for short commands, proportional for longer)
+    const maxDistance = Math.max(2, Math.floor(cmd.length / 2));
+    if (distance < minDistance && distance <= maxDistance) {
+      minDistance = distance;
+      closest = cmd;
+    }
+  }
+
+  return closest;
+}
+
+// Handle unknown commands with "did you mean" suggestions
+program.on('command:*', async (operands) => {
+  const { printError, printInfo } = await import('./cli-formatter.js');
+  const unknownCommand = operands[0];
+
+  printError(`Unknown command: ${unknownCommand}`);
+
+  // Check if it's a subcommand typo for a known parent
+  const args = process.argv.slice(2);
+  const parentIndex = args.findIndex(arg => knownSubcommands[arg]);
+
+  if (parentIndex !== -1 && parentIndex < args.indexOf(unknownCommand)) {
+    const parent = args[parentIndex];
+    const suggestion = findClosestCommand(unknownCommand, knownSubcommands[parent]);
+    if (suggestion) {
+      printInfo(`Did you mean: photon ${parent} ${suggestion}`);
+    }
+  } else {
+    // Check for top-level command typo
+    const suggestion = findClosestCommand(unknownCommand, knownCommands);
+    if (suggestion) {
+      printInfo(`Did you mean: photon ${suggestion}`);
+    }
+  }
+
+  console.log('');
+  printInfo(`Run 'photon --help' for usage`);
+  process.exit(1);
+});
 
 program.parse();
 
