@@ -76,12 +76,12 @@ fi
 # SECTION 2: Quick Start - Init Command
 # ============================================================================
 
-# Note: photon init creates files in ~/.photon/ by default, not current directory
+# Note: photon maker new creates files in ~/.photon/ by default, not current directory
 # Clean up any existing test file first
 rm -f ~/.photon/test-readme-calc.photon.ts
 
-test_start "photon init should create .photon.ts file in ~/.photon/"
-if $PHOTON_CMD init test-readme-calc > /dev/null 2>&1; then
+test_start "photon maker new should create .photon.ts file in ~/.photon/"
+if $PHOTON_CMD maker new test-readme-calc > /dev/null 2>&1; then
     if [ -f ~/.photon/test-readme-calc.photon.ts ]; then
         test_pass "test-readme-calc.photon.ts created in ~/.photon/"
     else
@@ -109,9 +109,9 @@ if [ -f ~/.photon/test-readme-calc.photon.ts ]; then
     fi
 fi
 
-test_start "photon init with --dir should create file in custom directory"
+test_start "photon maker new with --dir should create file in custom directory"
 cd "$TEST_DIR"
-if $PHOTON_CMD --dir "$TEST_DIR" init local-calc > /dev/null 2>&1; then
+if $PHOTON_CMD --dir "$TEST_DIR" maker new local-calc > /dev/null 2>&1; then
     if [ -f "$TEST_DIR/local-calc.photon.ts" ]; then
         test_pass "File created in custom working directory"
     else
@@ -125,15 +125,15 @@ fi
 # SECTION 3: Validation Command
 # ============================================================================
 
-test_start "photon validate should validate successfully"
-if $PHOTON_CMD validate test-readme-calc > /dev/null 2>&1; then
+test_start "photon maker validate should validate successfully"
+if $PHOTON_CMD maker validate test-readme-calc > /dev/null 2>&1; then
     test_pass "Validation successful"
 else
     test_fail "Validation failed"
 fi
 
-test_start "photon --dir validate should work"
-if $PHOTON_CMD --dir "$TEST_DIR" validate local-calc > /dev/null 2>&1; then
+test_start "photon --dir maker validate should work"
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate local-calc > /dev/null 2>&1; then
     test_pass "Validation with dir successful"
 else
     test_fail "Validation with dir failed"
@@ -201,7 +201,7 @@ fi
 test_start "photon --dir should work with custom directory"
 CUSTOM_DIR="$TEST_DIR/custom-mcps"
 mkdir -p "$CUSTOM_DIR"
-if $PHOTON_CMD --dir "$CUSTOM_DIR" init test-mcp > /dev/null 2>&1; then
+if $PHOTON_CMD --dir "$CUSTOM_DIR" maker new test-mcp > /dev/null 2>&1; then
     if [ -f "$CUSTOM_DIR/test-mcp.photon.ts" ]; then
         test_pass "Created file in custom directory"
     else
@@ -247,7 +247,7 @@ export default class ConfigTest {
 }
 EOF
 
-if $PHOTON_CMD --dir "$TEST_DIR" validate config-test > /dev/null 2>&1; then
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate config-test > /dev/null 2>&1; then
     OUTPUT=$($PHOTON_CMD --dir "$TEST_DIR" info config-test --mcp 2>&1)
     if echo "$OUTPUT" | grep -q "CONFIG_TEST_API_KEY"; then
         test_pass "Env var CONFIG_TEST_API_KEY detected"
@@ -282,7 +282,7 @@ export default class TypesTest {
 }
 EOF
 
-if $PHOTON_CMD --dir "$TEST_DIR" validate types-test > /dev/null 2>&1; then
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate types-test > /dev/null 2>&1; then
     # Validation success means types were extracted correctly
     test_pass "Complex types validated successfully"
 
@@ -302,7 +302,7 @@ fi
 # ============================================================================
 
 test_start "JSDoc descriptions should be extracted"
-if $PHOTON_CMD --dir "$TEST_DIR" validate types-test > /dev/null 2>&1; then
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate types-test > /dev/null 2>&1; then
     # Validation success means JSDoc was parsed correctly
     test_pass "Tool description extracted from JSDoc"
 else
@@ -326,8 +326,8 @@ export default class PrivateTest {
 }
 EOF
 
-if $PHOTON_CMD --dir "$TEST_DIR" validate private-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --dir "$TEST_DIR" validate private-test 2>&1)
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate private-test > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD --dir "$TEST_DIR" maker validate private-test 2>&1)
     # Check that it has exactly 1 tool (only publicTool, not _helperMethod)
     if echo "$OUTPUT" | grep -q "Tools: 1"; then
         test_pass "Private method excluded from tools"
@@ -359,8 +359,8 @@ export default class ReturnTest {
 }
 EOF
 
-if $PHOTON_CMD --dir "$TEST_DIR" validate return-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --dir "$TEST_DIR" validate return-test 2>&1)
+if $PHOTON_CMD --dir "$TEST_DIR" maker validate return-test > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD --dir "$TEST_DIR" maker validate return-test 2>&1)
     # Check that it has 3 tools (all return format methods)
     if echo "$OUTPUT" | grep -q "Tools: 3"; then
         test_pass "All return format methods detected"
