@@ -532,7 +532,7 @@ async function showConfigTemplate(filePath: string, mcpName: string, workingDir:
       [mcpName]: {
         command: 'npx',
         args: needsWorkingDir
-          ? ['@portel/photon', 'mcp', mcpName, '--working-dir', workingDir]
+          ? ['@portel/photon', 'mcp', mcpName, '--dir', workingDir]
           : ['@portel/photon', 'mcp', mcpName],
         env: envExample,
       },
@@ -560,7 +560,7 @@ program
   .name('photon')
   .description('Universal runtime for single-file TypeScript programs')
   .version(version)
-  .option('--working-dir <dir>', 'Working directory for Photons (default: ~/.photon)', DEFAULT_WORKING_DIR)
+  .option('--dir <path>', 'Photon directory (default: ~/.photon)', DEFAULT_WORKING_DIR)
   .configureHelp({
     sortSubcommands: false,
     sortOptions: false,
@@ -659,7 +659,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
 
       // Resolve file path from name in working directory
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -729,7 +729,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
 
       // Ensure working directory exists
       await ensureWorkingDir(workingDir);
@@ -786,7 +786,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
 
       // Resolve file path from name in working directory
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -834,7 +834,7 @@ program
       const { formatOutput, printInfo, printError, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global/parent options
       const parentOpts = command.parent?.opts() || {};
-      const workingDir = parentOpts.workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = parentOpts.dir || DEFAULT_WORKING_DIR;
       const asMcp = options.mcp || false;
 
       const mcps = await listPhotonMCPs(workingDir);
@@ -876,14 +876,14 @@ program
             ? {
                 command: globalPhotonPath,
                 args: needsWorkingDir
-                  ? ['mcp', name, '--working-dir', workingDir]
+                  ? ['mcp', name, '--dir', workingDir]
                   : ['mcp', name],
                 ...(Object.keys(env).length > 0 && { env }),
               }
             : {
                 command: 'npx',
                 args: needsWorkingDir
-                  ? ['@portel/photon', 'mcp', name, '--working-dir', workingDir]
+                  ? ['@portel/photon', 'mcp', name, '--dir', workingDir]
                   : ['@portel/photon', 'mcp', name],
                 ...(Object.keys(env).length > 0 && { env }),
               };
@@ -1011,14 +1011,14 @@ program
             ? {
                 command: globalPhotonPath,
                 args: needsWorkingDir
-                  ? ['mcp', mcpName, '--working-dir', workingDir]
+                  ? ['mcp', mcpName, '--dir', workingDir]
                   : ['mcp', mcpName],
                 ...(Object.keys(env).length > 0 && { env }),
               }
             : {
                 command: 'npx',
                 args: needsWorkingDir
-                  ? ['@portel/photon', 'mcp', mcpName, '--working-dir', workingDir]
+                  ? ['@portel/photon', 'mcp', mcpName, '--dir', workingDir]
                   : ['@portel/photon', 'mcp', mcpName],
                 ...(Object.keys(env).length > 0 && { env }),
               };
@@ -1432,7 +1432,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
       await ensureWorkingDir(workingDir);
 
       const { MarketplaceManager } = await import('./marketplace-manager.js');
@@ -1646,7 +1646,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       const { printInfo, printSuccess, printError } = await import('./cli-formatter.js');
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
 
       // Find the photon file
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -1704,7 +1704,7 @@ program
     try {
       const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global options
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
 
       const { VersionChecker } = await import('./version-checker.js');
       const checker = new VersionChecker();
@@ -1844,7 +1844,7 @@ program
   .description('Security audit of MCP dependencies')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
       const { DependencyManager } = await import('@portel/photon-core');
       const { SecurityScanner } = await import('./security-scanner.js');
 
@@ -2026,7 +2026,7 @@ program
 
       if (name) {
         // Clear cache for specific photon
-        const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+        const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
         const filePath = await resolvePhotonPath(name, workingDir);
 
         if (!filePath) {
@@ -2103,7 +2103,7 @@ program
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
       const { formatOutput, printInfo, printSuccess, printWarning, STATUS } = await import('./cli-formatter.js');
-      const workingDir = command.parent?.opts().workingDir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
       let issuesFound = 0;
 
       printInfo('Running Photon diagnostics...\n');
