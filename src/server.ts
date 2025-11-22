@@ -91,15 +91,26 @@ export class PhotonServer {
       try {
         const result = await this.loader.executeTool(this.mcp, toolName, args || {});
 
-        // Normalize result to MCP tool response format
-        return {
-          content: [
-            {
-              type: 'text',
-              text: this.formatResult(result),
-            },
-          ],
+        // Find the tool to get its outputFormat
+        const tool = this.mcp.tools.find(t => t.name === toolName);
+        const outputFormat = tool?.outputFormat;
+
+        // Build content with optional mimeType annotation
+        const content: any = {
+          type: 'text',
+          text: this.formatResult(result),
         };
+
+        // Add mimeType annotation if outputFormat is a content type
+        if (outputFormat) {
+          const { formatToMimeType } = await import('./cli-formatter.js');
+          const mimeType = formatToMimeType(outputFormat);
+          if (mimeType) {
+            content.annotations = { mimeType };
+          }
+        }
+
+        return { content: [content] };
       } catch (error: any) {
         // Format error for AI consumption
         return this.formatError(error, toolName, args);
