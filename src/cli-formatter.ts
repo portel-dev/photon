@@ -350,6 +350,7 @@ export function formatValue(value: any): string | number | boolean {
 export const STATUS = {
   OK: 'ok',
   UPDATE: 'update',
+  WARN: 'warn',
   ERROR: '!',
   OFF: 'off',
   UNKNOWN: '?',

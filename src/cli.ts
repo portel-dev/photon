@@ -1385,48 +1385,6 @@ marketplace
     }
   });
 
-marketplace
-  .command('update')
-  .argument('[name]', 'Marketplace name to update (updates all if omitted)')
-  .description('Update marketplace metadata from remote')
-  .action(async (name: string | undefined) => {
-    try {
-      const { MarketplaceManager } = await import('./marketplace-manager.js');
-      const manager = new MarketplaceManager();
-      await manager.initialize();
-
-      if (name) {
-        // Update specific marketplace
-        console.error(`Updating ${name}...`);
-        const success = await manager.updateMarketplaceCache(name);
-
-        if (success) {
-          console.error(`✅ Updated ${name}`);
-        } else {
-          console.error(`❌ Failed to update ${name} (not found or no manifest)`);
-          process.exit(1);
-        }
-      } else {
-        // Update all enabled marketplaces
-        console.error(`Updating all marketplaces...\n`);
-        const results = await manager.updateAllCaches();
-
-        for (const [marketplaceName, success] of results) {
-          if (success) {
-            console.error(`  ✅ ${marketplaceName}`);
-          } else {
-            console.error(`  ⚠️  ${marketplaceName} (no manifest)`);
-          }
-        }
-
-        const successCount = Array.from(results.values()).filter(Boolean).length;
-        console.error(`\nUpdated ${successCount}/${results.size} marketplaces`);
-      }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      process.exit(1);
-    }
-  });
 
 // Add command: add MCP from marketplace
 program
@@ -1843,181 +1801,6 @@ program
     }
   });
 
-// Audit command: security scan for MCP dependencies
-program
-  .command('audit', { hidden: true })
-  .argument('[name]', 'MCP name to audit (audits all if omitted)')
-  .description('Security audit of MCP dependencies')
-  .action(async (name: string | undefined, options: any, command: Command) => {
-    try {
-      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
-      const { DependencyManager } = await import('@portel/photon-core');
-      const { SecurityScanner } = await import('./security-scanner.js');
-
-      const depManager = new DependencyManager();
-      const scanner = new SecurityScanner();
-
-      if (name) {
-        // Audit single MCP
-        const filePath = await resolvePhotonPath(name, workingDir);
-
-        if (!filePath) {
-          console.error(`❌ MCP not found: ${name}`);
-          process.exit(1);
-        }
-
-        console.error(`🔍 Auditing dependencies for: ${name}\n`);
-
-        const dependencies = await depManager.extractDependencies(filePath);
-
-        if (dependencies.length === 0) {
-          console.error('✅ No dependencies to audit');
-          return;
-        }
-
-        const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
-        const result = await scanner.auditMCP(name, depStrings);
-
-        console.error(scanner.formatAuditResult(result));
-
-        if (result.totalVulnerabilities > 0) {
-          console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.error('Vulnerabilities found:');
-
-          result.dependencies.forEach(dep => {
-            if (dep.hasVulnerabilities) {
-              console.error(`\n📦 ${dep.dependency}@${dep.version}`);
-              dep.vulnerabilities.forEach(vuln => {
-                const symbol = scanner.getSeveritySymbol(vuln.severity);
-                console.error(`   ${symbol} ${vuln.severity.toUpperCase()}: ${vuln.title}`);
-                if (vuln.url) {
-                  console.error(`      ${vuln.url}`);
-                }
-              });
-            }
-          });
-
-          console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.error('\n💡 To fix vulnerabilities:');
-          console.error(`   1. Update dependency versions in @dependencies JSDoc tag`);
-          console.error(`   2. Clear cache: photon clear-cache`);
-          console.error(`   3. Restart MCP to reinstall with new versions`);
-
-          if (result.criticalCount > 0 || result.highCount > 0) {
-            process.exit(1);
-          }
-        }
-      } else {
-        // Audit all MCPs
-        console.error('🔍 Auditing all MCPs...\n');
-
-        const mcps = await listPhotonMCPs(workingDir);
-
-        if (mcps.length === 0) {
-          console.error('No MCPs found');
-          return;
-        }
-
-        let totalVulnerabilities = 0;
-        let mcpsWithVulnerabilities = 0;
-
-        for (const mcp of mcps) {
-          const mcpPath = path.join(workingDir, mcp);
-          const mcpName = path.basename(mcp, '.photon.ts');
-          const dependencies = await depManager.extractDependencies(mcpPath);
-
-          if (dependencies.length === 0) {
-            console.error(`✅ ${mcpName}: No dependencies`);
-            continue;
-          }
-
-          const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
-          const result = await scanner.auditMCP(mcpName, depStrings);
-
-          console.error(scanner.formatAuditResult(result));
-
-          if (result.totalVulnerabilities > 0) {
-            totalVulnerabilities += result.totalVulnerabilities;
-            mcpsWithVulnerabilities++;
-          }
-        }
-
-        console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.error(`\nSummary: ${totalVulnerabilities} vulnerabilities in ${mcpsWithVulnerabilities}/${mcps.length} MCPs`);
-
-        if (totalVulnerabilities > 0) {
-          console.error('\nRun: photon audit <name>  # for detailed vulnerability info');
-          process.exit(1);
-        }
-      }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      process.exit(1);
-    }
-  });
-
-// Conflicts command: show MCPs available in multiple marketplaces
-program
-  .command('conflicts', { hidden: true })
-  .description('Show MCPs available in multiple marketplaces')
-  .action(async () => {
-    try {
-      const { MarketplaceManager } = await import('./marketplace-manager.js');
-      const { formatOutput, printInfo, printSuccess, printWarning } = await import('./cli-formatter.js');
-      const manager = new MarketplaceManager();
-      await manager.initialize();
-
-      printInfo('Scanning for MCP conflicts across marketplaces...\n');
-
-      const conflicts = await manager.detectAllConflicts();
-
-      if (conflicts.size === 0) {
-        printSuccess('No conflicts detected');
-        printInfo('All MCPs are uniquely available from single marketplaces.');
-        return;
-      }
-
-      printWarning(`Found ${conflicts.size} MCP(s) in multiple marketplaces:\n`);
-
-      // Build tree data for conflicts
-      const treeData: Record<string, any> = {};
-
-      for (const [mcpName, sources] of conflicts) {
-        const mcpEntry: Record<string, any> = {};
-
-        for (const source of sources) {
-          const version = source.metadata?.version || 'unknown';
-          const description = source.metadata?.description
-            ? source.metadata.description.substring(0, 50) + (source.metadata.description.length > 50 ? '...' : '')
-            : '-';
-          mcpEntry[source.marketplace.name] = {
-            version,
-            description,
-          };
-        }
-
-        // Check for recommendation
-        const conflict = await manager.checkConflict(mcpName);
-        if (conflict.recommendation) {
-          mcpEntry['recommended'] = conflict.recommendation;
-        }
-
-        treeData[mcpName] = mcpEntry;
-      }
-
-      formatOutput(treeData, 'tree');
-
-      console.log('');
-      printInfo('Tip: Use --marketplace flag to specify which to use:');
-      printInfo('  photon add <name> --marketplace <marketplace-name>');
-      printInfo('Or disable marketplaces you don\'t need:');
-      printInfo('  photon marketplace disable <marketplace-name>');
-    } catch (error: any) {
-      const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
-      process.exit(1);
-    }
-  });
 
 // Clear-cache command: clear compiled photon cache
 program
@@ -2188,20 +1971,33 @@ program
         };
       }
 
-      // Check marketplaces
+      // Check marketplaces and conflicts
+      let manager: any;
       try {
         const { MarketplaceManager } = await import('./marketplace-manager.js');
-        const manager = new MarketplaceManager();
+        manager = new MarketplaceManager();
         await manager.initialize();
         const marketplaces = manager.getAll();
-        const enabled = marketplaces.filter(m => m.enabled);
+        const enabled = marketplaces.filter((m: any) => m.enabled);
 
         if (enabled.length > 0) {
-          diagnostics['Marketplaces'] = {
-            enabled: enabled.length,
-            status: STATUS.OK,
-            sources: enabled.map(m => m.name),
-          };
+          // Check for conflicts
+          const conflicts = await manager.detectAllConflicts();
+          if (conflicts.size > 0) {
+            diagnostics['Marketplaces'] = {
+              enabled: enabled.length,
+              status: STATUS.WARN,
+              sources: enabled.map((m: any) => m.name),
+              conflicts: `${conflicts.size} photon(s) in multiple marketplaces`,
+            };
+            issuesFound++;
+          } else {
+            diagnostics['Marketplaces'] = {
+              enabled: enabled.length,
+              status: STATUS.OK,
+              sources: enabled.map((m: any) => m.name),
+            };
+          }
         } else {
           diagnostics['Marketplaces'] = {
             enabled: 0,
@@ -2252,15 +2048,34 @@ program
             photonDiag['cache'] = 'not cached yet';
           }
 
-          // Check dependencies
+          // Check dependencies and security
           try {
             const { DependencyManager } = await import('@portel/photon-core');
             const depManager = new DependencyManager();
             const dependencies = await depManager.extractDependencies(filePath);
             if (dependencies.length > 0) {
               photonDiag['dependencies'] = dependencies.map(dep => `${dep.name}@${dep.version}`);
+
+              // Security audit
+              try {
+                const { SecurityScanner } = await import('./security-scanner.js');
+                const scanner = new SecurityScanner();
+                const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
+                const result = await scanner.auditMCP(name, depStrings);
+
+                if (result.totalVulnerabilities > 0) {
+                  photonDiag['security'] = STATUS.ERROR;
+                  photonDiag['vulnerabilities'] = `${result.totalVulnerabilities} (${result.criticalCount} critical, ${result.highCount} high)`;
+                  issuesFound++;
+                } else {
+                  photonDiag['security'] = STATUS.OK;
+                }
+              } catch {
+                photonDiag['security'] = 'could not check';
+              }
             } else {
               photonDiag['dependencies'] = 'none';
+              photonDiag['security'] = STATUS.OK;
             }
           } catch (error: any) {
             photonDiag['dependencies'] = `error: ${error.message}`;
@@ -2372,13 +2187,13 @@ program
 const knownCommands = [
   'mcp', 'info', 'list', 'ls', 'search',
   'add', 'remove', 'rm', 'upgrade', 'up', 'update',
-  'audit', 'conflicts', 'clear-cache', 'clean', 'doctor',
+  'clear-cache', 'clean', 'doctor',
   'cli', 'alias', 'unalias', 'aliases',
   'marketplace', 'maker',
 ];
 
 const knownSubcommands: Record<string, string[]> = {
-  marketplace: ['list', 'add', 'remove', 'enable', 'disable', 'update'],
+  marketplace: ['list', 'add', 'remove', 'enable', 'disable'],
   maker: ['new', 'validate', 'sync', 'init'],
 };
 
