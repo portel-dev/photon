@@ -560,11 +560,39 @@ program
   .name('photon')
   .description('Universal runtime for single-file TypeScript programs')
   .version(version)
-  .option('--working-dir <dir>', 'Working directory for Photons (default: ~/.photon)', DEFAULT_WORKING_DIR);
+  .option('--working-dir <dir>', 'Working directory for Photons (default: ~/.photon)', DEFAULT_WORKING_DIR)
+  .configureHelp({
+    sortSubcommands: false,
+    sortOptions: false,
+  })
+  .addHelpText('after', `
+Runtime Commands:
+  mcp <name>              Run a photon as MCP server (for AI assistants)
+  cli <photon> [method]   Run photon methods from command line
+
+Package Management:
+  add <name>              Install a photon from marketplace
+  remove <name>           Remove an installed photon
+  upgrade [name]          Upgrade photon(s) to latest version
+  search <query>          Search marketplaces for photons
+  info [name]             Show installed photons and details
+
+Maintenance:
+  update                  Refresh marketplace indexes & check CLI version
+  init <name>             Create a new photon from template
+  doctor [name]           Diagnose environment and installations
+
+Advanced:
+  marketplace             Manage marketplace sources
+  maker                   Commands for marketplace creators
+  alias <photon>          Create CLI shortcuts for photons
+
+Run 'photon <command> --help' for detailed usage.
+`);
 
 // Update command: refresh marketplace indexes and check for CLI updates
 program
-  .command('update')
+  .command('update', { hidden: true })
   .description('Update marketplace indexes and check for CLI updates')
   .action(async () => {
     try {
@@ -622,7 +650,7 @@ program
 
 // MCP Runtime: run a .photon.ts file as MCP server
 program
-  .command('mcp')
+  .command('mcp', { hidden: true })
   .argument('<name>', 'MCP name (without .photon.ts extension)')
   .description('Run a Photon as MCP server')
   .option('--dev', 'Enable development mode with hot reload')
@@ -695,7 +723,7 @@ program
 
 // Init command: create a new .photon.ts from template
 program
-  .command('init')
+  .command('init', { hidden: true })
   .argument('<name>', 'Name for the new Photon MCP')
   .description('Create a new .photon.ts from template')
   .action(async (name: string, options: any, command: Command) => {
@@ -752,7 +780,7 @@ program
 
 // Validate command: check syntax and schemas
 program
-  .command('validate')
+  .command('validate', { hidden: true })
   .argument('<name>', 'MCP name (without .photon.ts extension)')
   .description('Validate syntax and schemas without running')
   .action(async (name: string, options: any, command: Command) => {
@@ -795,7 +823,7 @@ program
 
 // Info command: show installed and available Photons
 program
-  .command('info')
+  .command('info', { hidden: true })
   .argument('[name]', 'Photon name to show details for (shows all if omitted)')
   .option('--mcp', 'Output as MCP server configuration')
   .alias('list')
@@ -1094,7 +1122,7 @@ program
 
 // Search command: search for MCPs across marketplaces
 program
-  .command('search')
+  .command('search', { hidden: true })
   .argument('<query>', 'MCP name or keyword to search for')
   .description('Search for MCP in all enabled marketplaces')
   .action(async (query: string) => {
@@ -1148,7 +1176,7 @@ program
 
 // Maker command: commands for marketplace creators/publishers
 const maker = program
-  .command('maker')
+  .command('maker', { hidden: true })
   .description('Commands for creating and publishing photon marketplaces');
 
 maker
@@ -1203,7 +1231,7 @@ maker
 
 // Marketplace command: manage MCP marketplaces
 const marketplace = program
-  .command('marketplace')
+  .command('marketplace', { hidden: true })
   .description('Manage MCP marketplaces');
 
 marketplace
@@ -1396,7 +1424,7 @@ marketplace
 
 // Add command: add MCP from marketplace
 program
-  .command('add')
+  .command('add', { hidden: true })
   .argument('<name>', 'MCP name to add')
   .option('--marketplace <name>', 'Specific marketplace to use')
   .option('-y, --yes', 'Automatically select first suggestion without prompting')
@@ -1610,7 +1638,7 @@ program
 
 // Remove command: remove an installed photon
 program
-  .command('remove')
+  .command('remove', { hidden: true })
   .argument('<name>', 'MCP name to remove')
   .alias('rm')
   .option('--keep-cache', 'Keep compiled cache for this photon')
@@ -1667,7 +1695,7 @@ program
 
 // Upgrade command: update MCPs from marketplace
 program
-  .command('upgrade')
+  .command('upgrade', { hidden: true })
   .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
   .option('--check', 'Check for updates without upgrading')
   .alias('up')
@@ -1811,7 +1839,7 @@ program
 
 // Audit command: security scan for MCP dependencies
 program
-  .command('audit')
+  .command('audit', { hidden: true })
   .argument('[name]', 'MCP name to audit (audits all if omitted)')
   .description('Security audit of MCP dependencies')
   .action(async (name: string | undefined, options: any, command: Command) => {
@@ -1924,7 +1952,7 @@ program
 
 // Conflicts command: show MCPs available in multiple marketplaces
 program
-  .command('conflicts')
+  .command('conflicts', { hidden: true })
   .description('Show MCPs available in multiple marketplaces')
   .action(async () => {
     try {
@@ -1987,7 +2015,7 @@ program
 
 // Clear-cache command: clear compiled photon cache
 program
-  .command('clear-cache')
+  .command('clear-cache', { hidden: true })
   .argument('[name]', 'MCP name to clear cache for (clears all if omitted)')
   .alias('clean')
   .description('Clear compiled photon cache')
@@ -2069,7 +2097,7 @@ program
 
 // Doctor command: diagnose photon environment
 program
-  .command('doctor')
+  .command('doctor', { hidden: true })
   .argument('[name]', 'Photon name to diagnose (checks environment if omitted)')
   .description('Run diagnostics on photon environment and installations')
   .action(async (name: string | undefined, options: any, command: Command) => {
@@ -2255,7 +2283,7 @@ program
 
 // CLI command: directly invoke photon methods
 program
-  .command('cli <photon> [method] [args...]', { hidden: false })
+  .command('cli <photon> [method] [args...]', { hidden: true })
   .description('Run photon methods directly from the command line')
   .allowUnknownOption()
   .helpOption(false) // Disable default help so we can handle it ourselves
@@ -2308,15 +2336,18 @@ SEE ALSO:
 
 // Alias commands: create CLI shortcuts for photons
 program
-  .command('alias <photon> [alias-name]')
-  .description('Create a CLI alias for a photon (e.g., "lg-remote" instead of "photon cli lg-remote")')
+  .command('alias', { hidden: true })
+  .argument('<photon>', 'Photon to create alias for')
+  .argument('[alias-name]', 'Custom alias name (defaults to photon name)')
+  .description('Create a CLI alias for a photon')
   .action(async (photon: string, aliasName: string | undefined) => {
     const { createAlias } = await import('./cli-alias.js');
     await createAlias(photon, aliasName);
   });
 
 program
-  .command('unalias <alias-name>')
+  .command('unalias', { hidden: true })
+  .argument('<alias-name>', 'Alias to remove')
   .description('Remove a CLI alias')
   .action(async (aliasName: string) => {
     const { removeAlias } = await import('./cli-alias.js');
@@ -2324,7 +2355,7 @@ program
   });
 
 program
-  .command('aliases')
+  .command('aliases', { hidden: true })
   .description('List all CLI aliases')
   .action(async () => {
     const { listAliases } = await import('./cli-alias.js');
