@@ -10,6 +10,8 @@ import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { SchemaExtractor } from '@portel/photon-core';
+import chalk from 'chalk';
+import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
 import { PhotonLoader } from './loader.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
@@ -19,6 +21,7 @@ import {
   formatOutput as baseFormatOutput,
   renderNone,
   OutputFormat,
+  formatKey,
 } from './cli-formatter.js';
 
 interface MethodInfo {
@@ -31,6 +34,13 @@ interface MethodInfo {
   }[];
   description?: string;
   format?: OutputFormat;
+}
+
+interface MarkdownBlock {
+  title?: string;
+  markdown: string;
+  metadata: Record<string, string>;
+  hadFrontMatter: boolean;
 }
 
 /**
@@ -229,12 +239,13 @@ function extractObjectProperties(typeStr: string): Map<string, { type: string; o
  * @returns true if successful, false if error
  */
 function formatOutput(result: any, formatHint?: OutputFormat): boolean {
+  let hint = formatHint;
+
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
     const errorMsg = result.error || result.message || 'Unknown error';
     console.log(`✗ ${errorMsg}`);
 
-    // Show hint if available
     if (result.hint) {
       console.log(`Hint: ${result.hint}`);
     }
@@ -244,17 +255,32 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 
   // Handle success responses with data
   if (result && typeof result === 'object' && result.success === true) {
-    // If there's a message, show it
     if (result.message) {
       console.log('✓', result.message);
     }
 
-    // Determine what data to format
+    const markdownCandidateRaw = extractMarkdownContent(result);
+    const markdownInline = markdownCandidateRaw ? parseInlineFormat(markdownCandidateRaw) : null;
+    const markdownText = markdownInline ? markdownInline.text : markdownCandidateRaw;
+    const inlineMarkdownFormat = markdownInline?.format;
+
+    if (inlineMarkdownFormat && !hint) {
+      hint = inlineMarkdownFormat;
+    }
+
+    if (markdownText) {
+      const primaryBlock = buildMarkdownBlockFromPrepared(markdownText, { hint, inlineFormat: inlineMarkdownFormat });
+      if (primaryBlock) {
+        const metadata = extractMetadataFields(result);
+        renderMarkdownBlocks([primaryBlock], { additionalMetadata: metadata });
+        return true;
+      }
+    }
+
     let dataToFormat: any;
     if (result.data !== undefined) {
       dataToFormat = result.data;
     } else {
-      // Check if there are other fields besides success, message, error
       const otherFields = Object.keys(result).filter(
         k => k !== 'success' && k !== 'message' && k !== 'error'
       );
@@ -263,7 +289,6 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
         dataToFormat = {};
         otherFields.forEach(k => dataToFormat[k] = result[k]);
       } else {
-        // No data to format
         if (!result.message) {
           renderNone();
         }
@@ -271,14 +296,62 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
       }
     }
 
-    // Format the data using hint or detection
-    baseFormatOutput(dataToFormat, formatHint);
+    if (typeof dataToFormat === 'string') {
+      const inline = parseInlineFormat(dataToFormat);
+      if (inline) {
+        if (inline.format && !hint) {
+          hint = inline.format;
+        }
+        dataToFormat = inline.text;
+      }
+
+      const markdownBlock = buildMarkdownBlockFromPrepared(dataToFormat, { hint, inlineFormat: inline?.format });
+      if (markdownBlock) {
+        renderMarkdownBlocks([markdownBlock]);
+        return true;
+      }
+
+      dataToFormat = convertFrontMatterToMarkdown(dataToFormat).markdown;
+    }
+
+    const markdownCollection = buildMarkdownBlocksFromCollection(dataToFormat, hint);
+    if (markdownCollection) {
+      const metadata = extractMetadataFields(result);
+      renderMarkdownBlocks(markdownCollection, { additionalMetadata: metadata });
+      return true;
+    }
+
+    baseFormatOutput(dataToFormat, hint);
     return true;
   }
 
-  // Handle plain data without success wrapper
   if (result !== undefined && result !== null) {
-    baseFormatOutput(result, formatHint);
+    let payload: any = result;
+    if (typeof payload === 'string') {
+      const inline = parseInlineFormat(payload);
+      if (inline) {
+        if (inline.format && !hint) {
+          hint = inline.format;
+        }
+        payload = inline.text;
+      }
+
+      const standaloneBlock = buildMarkdownBlockFromPrepared(payload, { hint, inlineFormat: inline?.format });
+      if (standaloneBlock) {
+        renderMarkdownBlocks([standaloneBlock]);
+        return true;
+      }
+
+      payload = convertFrontMatterToMarkdown(payload).markdown;
+    }
+
+    const markdownCollection = buildMarkdownBlocksFromCollection(payload, hint);
+    if (markdownCollection) {
+      renderMarkdownBlocks(markdownCollection);
+      return true;
+    }
+
+    baseFormatOutput(payload, hint);
   } else {
     renderNone();
   }
@@ -390,6 +463,623 @@ function coerceToType(value: any, expectedType: string): any {
       // For 'any' or unknown types, return as-is
       return value;
   }
+}
+
+function looksLikeMarkdown(value: any): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (/^---\s*[\r\n]/.test(trimmed)) {
+    return true;
+  }
+
+  const blockPatterns: RegExp[] = [
+    /^#{1,6}\s+/m,
+    /^> /m,
+    /^\s*[-*+]\s+/m,
+    /^\s*\d+\.\s+/m,
+    /^```/m,
+    /(?:^|\n)(?:-{3,}|_{3,}|\*{3,})(?:\n|$)/m,
+  ];
+
+  if (blockPatterns.some(pattern => pattern.test(trimmed))) {
+    return true;
+  }
+
+  if (/\[.+?\]\(.+?\)/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+const stripAnsiRegex = /\u001b\[[0-9;]*m/g;
+
+function visibleLength(text: string): number {
+  return text.replace(stripAnsiRegex, '').length;
+}
+
+function renderMarkdownNicely(content: string): void {
+  const termWidth = process.stdout.columns || 80;
+  let rendered = content.replace(/\r/g, '');
+
+  // Normalize heading indentation
+  rendered = rendered.replace(/^[\t ]+(?=#{1,6}\s)/gm, '');
+
+  // Attach standalone emoji lines to following headings
+  rendered = rendered.replace(/^[ \t]*([^\w\s]{1,4})\s*\n([ \t]*#{1,6}\s+)(.+)$/gm, (_m, emoji, hashes, title) => {
+    return `${hashes}${emoji.trim()} ${title}`;
+  });
+
+  // Heuristic: Merge standalone emojis (or short lines) into the following header
+  // This fixes the "floating emoji" look by making them part of the header
+  rendered = rendered.replace(/(^|\n)([^\n]{1,5})\n+(#{1,6})\s+(.+)$/gm, (_m, prefix, icon, hashes, text) => {
+    return `${prefix}${hashes} ${icon.trim()} ${text}`;
+  });
+
+  // Convert Markdown tables to box-drawn tables
+  rendered = rendered.replace(/(^|\n)(\|[^\n]+\|\n\|[^\n]+\|\n(?:\|[^\n]+\|\n?)+)/g, (_m, prefix, block) => {
+    return `${prefix}${renderMarkdownTableBlock(block.trim())}`;
+  });
+
+  // Extract code blocks to prevent wrapping them
+  const codeBlocks: string[] = [];
+  rendered = rendered.replace(/```(\w*)\n([\s\S]*?)```/g, (match) => {
+    codeBlocks.push(match);
+    return `\u0000CODE${codeBlocks.length - 1}\u0000`;
+  });
+
+  // Wrap text paragraphs
+  rendered = rendered.split('\n').map(line => {
+    // Skip headers, placeholders, empty lines, lists, quotes
+    if (
+      line.startsWith('#') ||
+      line.includes('\u0000CODE') ||
+      !line.trim() ||
+      line.match(/^(\s*[-*+]|\s*\d+\.|>)/)
+    ) {
+      return line;
+    }
+    // Wrap plain text line
+    return wrapToWidth(line, termWidth).join('\n');
+  }).join('\n');
+
+  // Restore code blocks and highlight
+  rendered = rendered.replace(/\u0000CODE(\d+)\u0000/g, (_m, index) => {
+    const block = codeBlocks[parseInt(index)];
+    return block.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang, code) => {
+      const trimmedCode = code.trim();
+      if (lang && lang !== '') {
+        try {
+          return '\n' + highlight(trimmedCode, { language: lang, ignoreIllegals: true }) + '\n';
+        } catch {
+          return '\n' + chalk.gray(trimmedCode) + '\n';
+        }
+      }
+      return '\n' + chalk.gray(trimmedCode) + '\n';
+    });
+  });
+
+  rendered = rendered.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, url) =>
+    chalk.blueBright(text) + chalk.dim(` (${url})`)
+  );
+
+  rendered = rendered.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes, text) => {
+    const level = hashes.length;
+    const colorFn = level === 1 ? chalk.magenta.bold : level === 2 ? chalk.yellow.bold : chalk.cyan;
+    return colorFn(text.trim());
+  });
+
+  rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => chalk.dim('│ ') + chalk.italic(quote));
+  rendered = rendered.replace(/^---+$/gm, chalk.dim('─'.repeat(40)));
+  rendered = rendered.replace(/^- /gm, chalk.dim('  • '));
+  rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => chalk.dim(`  ${num}. `));
+  rendered = rendered.replace(/\*\*(.+?)\*\*/g, (_m, text) => chalk.bold(text));
+  rendered = rendered.replace(/\*(.+?)\*/g, (_m, text) => chalk.italic(text));
+  rendered = rendered.replace(/_(.+?)_/g, (_m, text) => chalk.italic(text));
+  rendered = rendered.replace(/`([^`]+)`/g, (_m, code) => chalk.cyan(code));
+
+  rendered = rendered.split('\n').map(line => line.trimEnd()).join('\n');
+  rendered = rendered.replace(/\n{3,}/g, '\n\n');
+  console.log(rendered.trim());
+}
+
+function convertFrontMatterToMarkdown(markdown: string): { markdown: string; metadata: Record<string, string>; hadFrontMatter: boolean } {
+  let text = markdown.replace(/^\uFEFF/, '').trimStart();
+  const metadata: Record<string, string> = {};
+  const fmRegex = /^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*/;
+  const tables: string[] = [];
+  let hadFrontMatter = false;
+
+  while (true) {
+    const match = fmRegex.exec(text);
+    if (!match) {
+      break;
+    }
+    hadFrontMatter = true;
+    const block = match[1];
+    const parsed = parseFrontMatter(block);
+    Object.assign(metadata, parsed);
+    if (Object.keys(parsed).length > 0) {
+      tables.push(frontMatterToTable(parsed));
+    }
+    text = text.slice(match[0].length).trimStart();
+  }
+
+  const prefix = tables.length > 0 ? tables.join('\n\n') + '\n\n' : '';
+  return { markdown: prefix + text, metadata, hadFrontMatter };
+}
+
+function frontMatterToTable(parsed: Record<string, string>): string {
+  const rows = Object.entries(parsed).map(([key, value]) => `| ${escapePipes(key)} | ${escapePipes(value)} |`).join('\n');
+  return [
+    '| Field | Value |',
+    '| --- | --- |',
+    rows,
+  ].join('\n');
+}
+
+function escapePipes(text: string): string {
+  return text.replace(/\|/g, '\\|');
+}
+
+function parseFrontMatter(block: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const stack: { indent: number; path: string[] }[] = [{ indent: -1, path: [] }];
+  const lines = block.split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) {
+      continue;
+    }
+    const match = /^([ \t]*)([^:\s]+):\s*(.*)$/.exec(rawLine);
+    if (!match) {
+      continue;
+    }
+    const indent = match[1].length;
+    const key = match[2];
+    const value = match[3].trim();
+
+    while (stack.length && indent <= stack[stack.length - 1].indent) {
+      stack.pop();
+    }
+
+    const parentPath = stack[stack.length - 1]?.path || [];
+    const currentPath = [...parentPath, key];
+    const flatKey = currentPath.join('.');
+
+    if (value) {
+      result[flatKey] = value.replace(/^['"]|['"]$/g, '');
+    }
+
+    stack.push({ indent, path: currentPath });
+  }
+
+  return result;
+}
+
+function parseInlineFormat(value: string): { format?: OutputFormat; text: string } | null {
+  const match = value.match(/^\{([a-z-]+(?::[\w-]+)?)\}\s*/i);
+  if (!match) {
+    return null;
+  }
+
+  const candidate = match[1].toLowerCase();
+  if (!isValidOutputFormat(candidate)) {
+    return { text: value.slice(match[0].length) };
+  }
+
+  return {
+    format: candidate as OutputFormat,
+    text: value.slice(match[0].length),
+  };
+}
+
+function buildMarkdownBlockFromPrepared(
+  text: string,
+  options: { hint?: OutputFormat; inlineFormat?: OutputFormat; title?: string }
+): MarkdownBlock | null {
+  const { markdown, metadata, hadFrontMatter } = convertFrontMatterToMarkdown(text);
+  const shouldRenderMarkdown =
+    options.inlineFormat === 'markdown' ||
+    options.hint === 'markdown' ||
+    hadFrontMatter ||
+    (!options.hint && !options.inlineFormat && looksLikeMarkdown(markdown));
+
+  if (!shouldRenderMarkdown) {
+    return null;
+  }
+
+  return {
+    title: options.title,
+    markdown,
+    metadata,
+    hadFrontMatter,
+  };
+}
+
+function buildMarkdownBlockFromRawValue(
+  value: any,
+  options: { hint?: OutputFormat; title?: string }
+): MarkdownBlock | null {
+  let raw: string | undefined;
+  if (typeof value === 'string') {
+    raw = value;
+  } else if (value && typeof value === 'object') {
+    raw = extractMarkdownContent(value);
+  }
+
+  if (!raw) {
+    return null;
+  }
+
+  const inline = parseInlineFormat(raw);
+  const text = inline ? inline.text : raw;
+  return buildMarkdownBlockFromPrepared(text, {
+    hint: options.hint,
+    inlineFormat: inline?.format,
+    title: options.title,
+  });
+}
+
+function buildMarkdownBlocksFromCollection(data: any, hint?: OutputFormat): MarkdownBlock[] | null {
+  if (Array.isArray(data) && data.length > 0) {
+    const blocks: MarkdownBlock[] = [];
+    for (let index = 0; index < data.length; index++) {
+      const block = buildMarkdownBlockFromRawValue(data[index], {
+        hint,
+        title: data.length > 1 ? chalk.cyan.bold(`Entry ${index + 1}`) : undefined,
+      });
+      if (!block) {
+        return null;
+      }
+      blocks.push(block);
+    }
+    return blocks;
+  }
+
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const entries = Object.entries(data);
+    if (!entries.length) {
+      return null;
+    }
+
+    const blocks: MarkdownBlock[] = [];
+    for (const [key, value] of entries) {
+      const block = buildMarkdownBlockFromRawValue(value, {
+        hint,
+        title: formatKey(key),
+      });
+      if (!block) {
+        return null;
+      }
+      blocks.push(block);
+    }
+    return blocks;
+  }
+
+  return null;
+}
+
+function renderMarkdownBlocks(
+  blocks: MarkdownBlock[],
+  options?: { additionalMetadata?: Record<string, string> }
+): void {
+  blocks.forEach((block, index) => {
+    if (index > 0) {
+      console.log('');
+    }
+
+    if (block.title) {
+      console.log(block.title);
+      console.log('');
+    }
+
+    renderMarkdownNicely(block.markdown);
+
+    const combinedMetadata = block.hadFrontMatter ? {} : { ...block.metadata };
+    if (index === 0 && options?.additionalMetadata) {
+      Object.assign(combinedMetadata, options.additionalMetadata);
+    }
+
+    if (Object.keys(combinedMetadata).length > 0) {
+      console.log('');
+      printMetadataTable(combinedMetadata);
+      console.log('');
+    }
+  });
+}
+
+function isValidOutputFormat(format: string): format is OutputFormat {
+  const knownFormats: Set<string> = new Set([
+    'primitive',
+    'table',
+    'tree',
+    'list',
+    'none',
+    'json',
+    'markdown',
+    'yaml',
+    'xml',
+    'html',
+    'code',
+  ]);
+  return knownFormats.has(format) || format.startsWith('code:');
+}
+
+function extractMarkdownContent(payload: any): string | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  if (typeof payload === 'string') {
+    return payload;
+  }
+
+  if (typeof payload === 'object') {
+    if (typeof payload.content === 'string') {
+      return payload.content;
+    }
+
+    if (Array.isArray(payload.content)) {
+      for (const chunk of payload.content) {
+        const text = extractMarkdownContent(chunk);
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    if (typeof payload.text === 'string') {
+      return payload.text;
+    }
+
+    if (Array.isArray(payload.contents)) {
+      for (const chunk of payload.contents) {
+        const text = extractMarkdownContent(chunk);
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    if (typeof payload.data === 'string') {
+      return payload.data;
+    }
+
+    if (Array.isArray(payload.data)) {
+      for (const chunk of payload.data) {
+        const text = extractMarkdownContent(chunk);
+        if (text) {
+          return text;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function stringifyMetadataValue(value: any): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (value === undefined || value === null) {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractMetadataFields(result: any): Record<string, string> {
+  if (!result || typeof result !== 'object') {
+    return {};
+  }
+
+  const metadata: Record<string, string> = {};
+  const skipKeys = new Set(['success', 'message', 'error', 'content', 'contents', 'text', 'data']);
+
+  for (const key of Object.keys(result)) {
+    if (skipKeys.has(key)) {
+      continue;
+    }
+
+    if (key === 'metadata' && typeof result.metadata === 'object' && result.metadata !== null) {
+      for (const [subKey, subValue] of Object.entries(result.metadata)) {
+        const formattedKey = `metadata.${subKey}`;
+        metadata[formattedKey] = stringifyMetadataValue(subValue);
+      }
+      continue;
+    }
+
+    metadata[key] = stringifyMetadataValue(result[key]);
+  }
+
+  return metadata;
+}
+
+function padAnsi(text: string, width: number): string {
+  const len = visibleLength(text);
+  if (len >= width) {
+    return text;
+  }
+  return text + ' '.repeat(width - len);
+}
+
+function wrapToWidth(text: string, width: number): string[] {
+  if (!width) {
+    return [text];
+  }
+
+  const lines: string[] = [];
+  for (const rawLine of text.split('\n')) {
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine) {
+      lines.push('');
+      continue;
+    }
+
+    let current = '';
+    for (const word of trimmedLine.split(' ')) {
+      if (word.length > width) {
+        if (current) {
+          lines.push(current);
+          current = '';
+        }
+        let remaining = word;
+        while (remaining.length > width) {
+          lines.push(remaining.slice(0, width));
+          remaining = remaining.slice(width);
+        }
+        current = remaining;
+        continue;
+      }
+
+      if (!current) {
+        current = word;
+        continue;
+      }
+      if (current.length + 1 + word.length > width) {
+        lines.push(current);
+        current = word;
+      } else {
+        current += ` ${word}`;
+      }
+    }
+
+    if (current) {
+      lines.push(current);
+    }
+  }
+
+  return lines.length > 0 ? lines : [''];
+}
+
+function printMetadataTable(metadata: Record<string, string>): void {
+  const entries = Object.entries(metadata);
+  if (!entries.length) {
+    return;
+  }
+
+  const rows = entries.map(([key, value]) => [formatKey(key), value]);
+  console.log(renderGenericTable(['Field', 'Value'], rows));
+}
+
+function renderMarkdownTableBlock(block: string): string {
+  const lines = block.split(/\n/).filter(Boolean);
+  if (lines.length < 2) {
+    return block;
+  }
+
+  const header = parseMarkdownTableRow(lines[0]);
+  if (!header.length) {
+    return block;
+  }
+
+  const separator = lines[1];
+  if (!/^\|?\s*:?-{2,}:?(.+\|\s*:?-{2,}:?)*\s*\|?$/.test(separator)) {
+    return block;
+  }
+
+  const rows = lines
+    .slice(2)
+    .map(parseMarkdownTableRow)
+    .filter(row => row.length === header.length);
+
+  if (!rows.length) {
+    return block;
+  }
+
+  return renderGenericTable(header, rows);
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => cell.trim());
+}
+
+function renderGenericTable(headers: string[], rows: string[][]): string {
+  if (!headers.length) {
+    return rows.map(row => row.join(' | ')).join('\n');
+  }
+
+  const termWidth = process.stdout.columns || 80;
+  const columns = headers.length;
+  const baseOverhead = 2 * columns + (columns - 1) + 2; // padding + connectors + borders
+  const maxAvailable = Math.max(columns, termWidth - baseOverhead);
+
+  const colWidths = headers.map(header => Math.max(visibleLength(header), 3));
+  rows.forEach(row => {
+    row.forEach((cell, idx) => {
+      const width = visibleLength(cell ?? '');
+      if (width > (colWidths[idx] || 0)) {
+        colWidths[idx] = width;
+      }
+    });
+  });
+
+  while (colWidths.reduce((sum, w) => sum + w, 0) > maxAvailable) {
+    let maxIdx = 0;
+    for (let i = 1; i < colWidths.length; i++) {
+      if (colWidths[i] > colWidths[maxIdx]) {
+        maxIdx = i;
+      }
+    }
+    if (colWidths[maxIdx] <= 8) {
+      break;
+    }
+    colWidths[maxIdx]--;
+  }
+
+  const wrappedRows = [headers, ...rows].map(row =>
+    row.map((cell, idx) => wrapToWidth(cell ?? '', colWidths[idx] || 1))
+  );
+
+  const horizontal = colWidths.map(width => '─'.repeat(width + 2));
+  const top = `┌${horizontal.join('┬')}┐`;
+  const mid = `├${horizontal.join('┼')}┤`;
+  const bottom = `└${horizontal.join('┴')}┘`;
+
+  const formatWrappedRow = (wrappedCells: string[][]): string[] => {
+    const maxLines = Math.max(...wrappedCells.map(cell => cell.length));
+    const lines: string[] = [];
+    for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
+      const parts = wrappedCells.map((cellLines, idx) => {
+        const content = cellLines[lineIdx] ?? '';
+        return padAnsi(content, colWidths[idx] || 1);
+      });
+      lines.push(`│ ${parts.join(' │ ')} │`);
+    }
+    return lines;
+  };
+
+  const output: string[] = [];
+  output.push(top);
+  const [headerWrapped, ...bodyWrapped] = wrappedRows;
+  output.push(...formatWrappedRow(headerWrapped));
+  output.push(mid);
+  bodyWrapped.forEach((row, idx) => {
+    output.push(...formatWrappedRow(row));
+    output.push(idx === bodyWrapped.length - 1 ? bottom : mid);
+  });
+
+  return output.join('\n');
 }
 
 /**
@@ -615,13 +1305,15 @@ export async function runMethod(
 
     // Display result
     if (jsonOutput) {
-      console.log(JSON.stringify(result, null, 2));
+      const jsonStr = JSON.stringify(result, null, 2);
+      baseFormatOutput(jsonStr, 'json');
       // Check for errors in JSON output too
       if (result && typeof result === 'object' && result.success === false) {
         process.exit(1);
       }
     } else {
-      const success = formatOutput(result, method.format);
+      const formatHint = method.format || (looksLikeMarkdown(result) ? 'markdown' : undefined);
+      const success = formatOutput(result, formatHint);
       if (!success) {
         process.exit(1);
       }
