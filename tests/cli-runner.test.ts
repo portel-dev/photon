@@ -86,6 +86,13 @@ export default class TestCalculator {
   }
 
   /**
+   * Markdown documentation snippet
+   */
+  async markdownDoc() {
+    return '# Documentation\\n\\n- Item one\\n- Item two\\n';
+  }
+
+  /**
    * Adjust value
    * @param value Value to adjust (supports +N and -N for relative adjustments)
    */
@@ -296,6 +303,15 @@ async function runTests() {
       assert(
         result.stdout.includes('50') && result.exitCode === 0,
         'Coerce string arguments to numbers'
+      );
+    }
+
+    // Test 19: Markdown rendering
+    {
+      const result = await runCLI(['cli', 'test-cli-calc', 'markdownDoc']);
+      assert(
+        result.stdout.includes('Documentation') && result.stdout.includes('• Item one'),
+        'Render markdown output nicely'
       );
     }
 
