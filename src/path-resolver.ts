@@ -1,22 +1,56 @@
-/**
- * Path Resolver for Photon MCPs
- *
- * Re-exports from @portel/photon-core for backward compatibility.
- * All path resolution logic is now in the core package.
- */
+import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
-export {
-  resolvePath,
-  listFiles,
-  ensureDir,
-  resolvePhotonPath,
-  listPhotonFiles,
-  ensurePhotonDir,
-  DEFAULT_PHOTON_DIR,
-  type ResolverOptions,
-} from '@portel/photon-core';
+export interface ResolverOptions {
+  dir?: string;
+}
 
-// Backward compatibility aliases
-export { DEFAULT_PHOTON_DIR as DEFAULT_WORKING_DIR } from '@portel/photon-core';
-export { listPhotonFiles as listPhotonMCPs } from '@portel/photon-core';
-export { ensurePhotonDir as ensureWorkingDir } from '@portel/photon-core';
+export const DEFAULT_PHOTON_DIR = path.join(os.homedir(), '.photon');
+export const DEFAULT_WORKING_DIR = DEFAULT_PHOTON_DIR;
+
+export async function resolvePath(relativePath: string, options?: ResolverOptions): Promise<string> {
+  const base = options?.dir || process.cwd();
+  return path.resolve(base, relativePath);
+}
+
+export async function listFiles(dir: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(dir);
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+export async function ensureDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+}
+
+export async function ensurePhotonDir(dir: string = DEFAULT_PHOTON_DIR): Promise<void> {
+  await ensureDir(dir);
+}
+
+export async function ensureWorkingDir(dir: string = DEFAULT_WORKING_DIR): Promise<void> {
+  await ensurePhotonDir(dir);
+}
+
+export async function listPhotonFiles(dir: string = DEFAULT_PHOTON_DIR): Promise<string[]> {
+  const files = await listFiles(dir);
+  return files
+    .filter(name => name.endsWith('.photon.ts'))
+    .map(name => name.replace(/\.photon\.ts$/, ''));
+}
+
+export async function listPhotonMCPs(dir: string = DEFAULT_PHOTON_DIR): Promise<string[]> {
+  return listPhotonFiles(dir);
+}
+
+export async function resolvePhotonPath(name: string, dir: string = DEFAULT_PHOTON_DIR): Promise<string | null> {
+  const candidate = path.join(dir, `${name}.photon.ts`);
+  if (existsSync(candidate)) {
+    return candidate;
+  }
+  return null;
+}
