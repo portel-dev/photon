@@ -11,6 +11,11 @@ import * as crypto from 'crypto';
 import { PhotonMCP, SchemaExtractor, DependencyManager, ConstructorParam, PhotonMCPClass, PhotonMCPClassExtended, PhotonTool, TemplateInfo, StaticInfo } from '@portel/photon-core';
 import * as os from 'os';
 
+interface DependencySpec {
+  name: string;
+  version: string;
+}
+
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
   private verbose: boolean;
@@ -30,6 +35,112 @@ export class PhotonLoader {
   }
 
   /**
+   * Directory where MCP-specific dependencies are cached
+   */
+  private getDependencyCacheDir(mcpName: string): string {
+    return path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
+  }
+
+  /**
+   * Path to metadata file describing installed dependencies
+   */
+  private getDependencyMetadataPath(mcpName: string): string {
+    return path.join(this.getDependencyCacheDir(mcpName), 'metadata.json');
+  }
+
+  private async readDependencyMetadata(mcpName: string): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
+    try {
+      const data = await fs.readFile(this.getDependencyMetadataPath(mcpName), 'utf-8');
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+
+  private dependenciesEqual(a: DependencySpec[] | undefined, b: DependencySpec[]): boolean {
+    if (!a) {
+      return b.length === 0;
+    }
+    if (a.length !== b.length) {
+      return false;
+    }
+    const normalize = (deps: DependencySpec[]) =>
+      deps.map(d => `${d.name}@${d.version}`).sort().join('|');
+    return normalize(a) === normalize(b);
+  }
+
+  private async writeDependencyMetadata(mcpName: string, hash: string, dependencies: DependencySpec[]): Promise<void> {
+    const metadataPath = this.getDependencyMetadataPath(mcpName);
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await fs.writeFile(metadataPath, JSON.stringify({ hash, dependencies }, null, 2), 'utf-8');
+  }
+
+  private async ensureDependenciesWithHash(
+    mcpName: string,
+    dependencies: DependencySpec[],
+    sourceHash: string
+  ): Promise<string | null> {
+    const metadata = await this.readDependencyMetadata(mcpName);
+    const hashMatches = metadata?.hash === sourceHash;
+    const depsMatch = metadata ? this.dependenciesEqual(metadata.dependencies, dependencies) : false;
+    const needsClear = Boolean(metadata && (!hashMatches || !depsMatch));
+
+    if (needsClear) {
+      this.log(`🔄 Dependencies changed for ${mcpName}, clearing cache`);
+      await this.dependencyManager.clearCache(mcpName);
+    }
+
+    let nodeModules: string | null = null;
+    if (dependencies.length > 0) {
+      nodeModules = await this.dependencyManager.ensureDependencies(mcpName, dependencies);
+    }
+
+    await this.writeDependencyMetadata(mcpName, sourceHash, dependencies);
+    return nodeModules;
+  }
+
+  private shouldRetryInstall(error: any): boolean {
+    const message = error?.message?.toString() || '';
+    return (
+      message.includes('Cannot find package') ||
+      message.includes('ERR_MODULE_NOT_FOUND') ||
+      message.includes('Cannot find module')
+    );
+  }
+
+  private static parseDependenciesFromSource(source: string): DependencySpec[] {
+    const deps: DependencySpec[] = [];
+    const regex = /@dependencies\s+([^\r\n]+)/g;
+    let match;
+    while ((match = regex.exec(source)) !== null) {
+      const entries = match[1].split(',').map(entry => entry.trim()).filter(Boolean);
+      for (const entry of entries) {
+        const atIndex = entry.lastIndexOf('@');
+        if (atIndex <= 0) {
+          continue;
+        }
+        const name = entry.slice(0, atIndex).trim();
+        const version = entry.slice(atIndex + 1).trim();
+        if (name && version) {
+          deps.push({ name, version });
+        }
+      }
+    }
+    return deps;
+  }
+
+  private static mergeDependencySpecs(existing: DependencySpec[], additional: DependencySpec[]): DependencySpec[] {
+    const map = new Map<string, string>();
+    for (const dep of existing) {
+      map.set(dep.name, dep.version);
+    }
+    for (const dep of additional) {
+      map.set(dep.name, dep.version);
+    }
+    return Array.from(map.entries()).map(([name, version]) => ({ name, version }));
+  }
+
+  /**
    * Load a single Photon MCP file
    */
   async loadFile(filePath: string): Promise<PhotonMCPClassExtended> {
@@ -42,27 +153,47 @@ export class PhotonLoader {
 
       // Convert file path to file:// URL for ESM imports
       let module: any;
+      let tsContent: string | undefined;
+      let dependencies: DependencySpec[] = [];
+      let sourceHash: string | undefined;
+      let mcpName = '';
 
       if (absolutePath.endsWith('.ts')) {
-        // Extract and install dependencies before compilation
-        const dependencies = await this.dependencyManager.extractDependencies(absolutePath);
-        const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+        tsContent = await fs.readFile(absolutePath, 'utf-8');
+        const extracted = await this.dependencyManager.extractDependencies(absolutePath);
+        const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
+        dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
+        mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+        sourceHash = crypto.createHash('sha256').update(tsContent).digest('hex');
 
         if (dependencies.length > 0) {
           this.log(`📦 Found ${dependencies.length} dependencies`);
-          await this.dependencyManager.ensureDependencies(mcpName, dependencies);
         }
 
-        // Compile TypeScript to JavaScript using esbuild
-        const cachedJsPath = await this.compileTypeScript(absolutePath, mcpName);
-        const cachedJsUrl = pathToFileURL(cachedJsPath).href;
+        await this.ensureDependenciesWithHash(mcpName, dependencies, sourceHash);
+      }
 
-        // Add cache busting to avoid stale imports
-        module = await import(`${cachedJsUrl}?t=${Date.now()}`);
-      } else {
-        // Regular JavaScript import
+      const importModule = async () => {
+        if (tsContent) {
+          const cachedJsPath = await this.compileTypeScript(absolutePath, mcpName, tsContent);
+          const cachedJsUrl = pathToFileURL(cachedJsPath).href;
+          return await import(`${cachedJsUrl}?t=${Date.now()}`);
+        }
         const fileUrl = pathToFileURL(absolutePath).href;
-        module = await import(`${fileUrl}?t=${Date.now()}`);
+        return await import(`${fileUrl}?t=${Date.now()}`);
+      };
+
+      try {
+        module = await importModule();
+      } catch (error: any) {
+        if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName) {
+          this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
+          await this.dependencyManager.clearCache(mcpName);
+          await this.ensureDependenciesWithHash(mcpName, dependencies, sourceHash);
+          module = await importModule();
+        } else {
+          throw error;
+        }
       }
 
       // Find the exported class
@@ -170,10 +301,9 @@ export class PhotonLoader {
   /**
    * Compile TypeScript file to JavaScript and cache it
    */
-  private async compileTypeScript(tsFilePath: string, mcpName: string): Promise<string> {
-    // Generate cache path based on file content hash
-    const tsContent = await fs.readFile(tsFilePath, 'utf-8');
-    const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
+  private async compileTypeScript(tsFilePath: string, mcpName: string, tsContent?: string): Promise<string> {
+    const source = tsContent ?? await fs.readFile(tsFilePath, 'utf-8');
+    const hash = crypto.createHash('sha256').update(source).digest('hex').slice(0, 16);
 
     // Store compiled files in the same directory as dependencies for module resolution
     const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
@@ -193,7 +323,7 @@ export class PhotonLoader {
     this.log(`Compiling ${path.basename(tsFilePath)} with esbuild...`);
 
     const esbuild = await import('esbuild');
-    const result = await esbuild.transform(tsContent, {
+    const result = await esbuild.transform(source, {
       loader: 'ts',
       format: 'esm',
       target: 'es2022',
