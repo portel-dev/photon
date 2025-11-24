@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.0](https://github.com/portel-dev/photon/compare/v1.3.0...v1.4.0) (2025-11-24)
+
+### Features
+
+* add content format support for CLI and MCP output ([477aae3](https://github.com/portel-dev/photon/commit/477aae3bc6b495bb787ac66b04f3312570780aef))
+* add hash-based dependency cache validation ([6706ea2](https://github.com/portel-dev/photon/commit/6706ea27d9cbfccaf87406521166799a77d70fc6))
+* add maker command namespace for marketplace creators ([774f6e6](https://github.com/portel-dev/photon/commit/774f6e6385adb9cd6845a8e259c1feaee8305d9b))
+* add missing CLI commands and improve command discoverability ([5f85a47](https://github.com/portel-dev/photon/commit/5f85a47644239bdac80462b7d9d0b6a96872d928))
+* add shared CLI output formatter for consistent table/tree formatting ([c5f81ee](https://github.com/portel-dev/photon/commit/c5f81eefb1ab5d9d79ca76c4624a64f618b78a82))
+* add syntax highlighting for --json flag output ([a1fcc92](https://github.com/portel-dev/photon/commit/a1fcc92955570bd08e4cd0e61fb0a49aab39c59b))
+* add update command and typo suggestions ([c060591](https://github.com/portel-dev/photon/commit/c060591d8e04f01a1218e4cce5395a4a069f8864))
+* migrate to @portel/photon-core for shared functionality ([91451b6](https://github.com/portel-dev/photon/commit/91451b68b220dbafdb6fd0e555349aa1318bfc04))
+
+### Bug Fixes
+
+* add type definitions and fix outputFormat access ([8c741e7](https://github.com/portel-dev/photon/commit/8c741e77cc9e24a11a1675671c001353aa789bd1))
+* address PR review feedback ([d926095](https://github.com/portel-dev/photon/commit/d92609588f8ccccb08032b282ac5228e3e054f52))
+* remove call to nonexistent removeInstallMetadata method ([9251121](https://github.com/portel-dev/photon/commit/9251121582bbedf30e49688e11e75f1b6a2371e4))
+* update test imports to use @portel/photon-core ([4a2efd3](https://github.com/portel-dev/photon/commit/4a2efd39db061bc729319c33cba587ff7304fd2b))
+
 ## [1.3.0](https://github.com/portel-dev/photon/compare/v1.2.0...v1.3.0) (2025-11-19)
 
 ### Features
