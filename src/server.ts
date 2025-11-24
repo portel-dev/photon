@@ -93,7 +93,7 @@ export class PhotonServer {
 
         // Find the tool to get its outputFormat
         const tool = this.mcp.tools.find(t => t.name === toolName);
-        const outputFormat = tool?.outputFormat;
+        const outputFormat = (tool as any)?.outputFormat;
 
         // Build content with optional mimeType annotation
         const content: any = {
