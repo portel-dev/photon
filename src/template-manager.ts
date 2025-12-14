@@ -343,7 +343,7 @@ This marketplace doubles as a Claude Code plugin through automatic generation:
 
 \\\`\\\`\\\`bash
 # Generate marketplace AND Claude Code plugin files
-photon sync marketplace --claude-code
+photon maker sync --claude-code
 \\\`\\\`\\\`
 
 This single command:
@@ -466,7 +466,7 @@ Create your own marketplace:
 mkdir company-photons && cd company-photons
 
 # 2. Generate marketplace
-photon sync marketplace
+photon maker sync
 
 # 3. Share with team
 git push origin main
