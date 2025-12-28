@@ -8,7 +8,27 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
-import { PhotonMCP, SchemaExtractor, DependencyManager, ConstructorParam, PhotonMCPClass, PhotonMCPClassExtended, PhotonTool, TemplateInfo, StaticInfo } from '@portel/photon-core';
+import {
+  PhotonMCP,
+  SchemaExtractor,
+  DependencyManager,
+  ConstructorParam,
+  PhotonMCPClass,
+  PhotonMCPClassExtended,
+  PhotonTool,
+  TemplateInfo,
+  StaticInfo,
+  // Generator utilities
+  isAsyncGenerator,
+  executeGenerator,
+  isInputYield,
+  type PhotonYield,
+  type InputProvider,
+  type OutputHandler,
+  // Elicit for fallback
+  prompt as elicitPrompt,
+  confirm as elicitConfirm,
+} from '@portel/photon-core';
 import * as os from 'os';
 
 interface DependencySpec {
@@ -809,6 +829,7 @@ Or run: photon ${mcpName} --config
 
   /**
    * Execute a tool on the loaded MCP instance
+   * Handles both regular async methods and async generators
    */
   async executeTool(mcp: PhotonMCPClass, toolName: string, parameters: any): Promise<any> {
     try {
@@ -828,11 +849,77 @@ Or run: photon ${mcpName} --config
           throw new Error(`Tool not found: ${toolName}`);
         }
 
-        return await method.call(mcp.instance, parameters);
+        const result = method.call(mcp.instance, parameters);
+
+        // Check if result is an async generator
+        if (isAsyncGenerator(result)) {
+          // Execute the generator with input/output handling
+          // Cast to expected type (generator methods should yield PhotonYield)
+          return await executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
+            inputProvider: this.createInputProvider(),
+            outputHandler: this.createOutputHandler(),
+          });
+        }
+
+        return await result;
       }
     } catch (error: any) {
       console.error(`Tool execution failed: ${toolName} - ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Create an input provider for generator yields
+   * Uses the global prompt handler or falls back to native dialogs
+   */
+  private createInputProvider(): InputProvider {
+    return async (yielded: PhotonYield) => {
+      if (!isInputYield(yielded)) return undefined;
+
+      if ('prompt' in yielded) {
+        // Use global prompt handler (set by CLI/MCP) or fallback to elicit
+        return await elicitPrompt(yielded.prompt, yielded.default);
+      }
+
+      if ('confirm' in yielded) {
+        return await elicitConfirm(yielded.confirm);
+      }
+
+      if ('select' in yielded) {
+        // For select, show options and get selection
+        // TODO: Implement select handling
+        const options = yielded.options.map((o: string | { value: string; label: string }) =>
+          typeof o === 'string' ? o : o.label
+        );
+        const result = await elicitPrompt(
+          `${yielded.select}\nOptions: ${options.join(', ')}`
+        );
+        return result;
+      }
+
+      return undefined;
+    };
+  }
+
+  /**
+   * Create an output handler for generator yields (progress, stream, log)
+   */
+  private createOutputHandler(): OutputHandler {
+    return (yielded: PhotonYield) => {
+      if ('progress' in yielded) {
+        console.error(`[progress] ${yielded.progress}% ${yielded.status || ''}`);
+      } else if ('stream' in yielded) {
+        // Stream data to stdout
+        if (typeof yielded.stream === 'string') {
+          process.stdout.write(yielded.stream);
+        } else {
+          console.log(JSON.stringify(yielded.stream));
+        }
+      } else if ('log' in yielded) {
+        const level = yielded.level || 'info';
+        console.error(`[${level}] ${yielded.log}`);
+      }
+    };
   }
 }

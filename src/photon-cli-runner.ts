@@ -9,7 +9,8 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { SchemaExtractor } from '@portel/photon-core';
+import { SchemaExtractor, setPromptHandler } from '@portel/photon-core';
+import * as readline from 'readline';
 import chalk from 'chalk';
 import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
@@ -52,7 +53,8 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const methods: MethodInfo[] = [];
 
   // Extract methods using the schema extractor
-  const methodMatches = source.matchAll(/async\s+(\w+)\s*\(([^)]*)\)/g);
+  // Also match async generator methods (async *methodName)
+  const methodMatches = source.matchAll(/async\s+\*?\s*(\w+)\s*\(([^)]*)\)/g);
 
   for (const match of methodMatches) {
     const methodName = match[1];
@@ -1204,6 +1206,25 @@ export async function runMethod(
   methodName: string,
   args: string[]
 ): Promise<void> {
+  // Set up readline prompt handler for CLI
+  setPromptHandler(async (message: string, defaultValue?: string) => {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const prompt = defaultValue
+        ? `${message} [${defaultValue}]: `
+        : `${message}: `;
+
+      rl.question(prompt, (answer) => {
+        rl.close();
+        resolve(answer || defaultValue || null);
+      });
+    });
+  });
+
   try {
     // Resolve photon path
     const resolvedPath = await resolvePhotonPath(photonName);
