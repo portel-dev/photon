@@ -3,10 +3,12 @@
  *
  * CLI client for communicating with daemon servers
  * Sends commands via Unix socket / named pipe and receives results
+ * Supports bidirectional prompts - daemon can request user input
  */
 
 import * as net from 'net';
 import * as crypto from 'crypto';
+import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getSocketPath } from './manager.js';
 
@@ -15,7 +17,29 @@ import { getSocketPath } from './manager.js';
 const SESSION_ID = process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 
 /**
+ * Prompt user for input using readline
+ */
+async function promptUser(message: string, defaultValue?: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const prompt = defaultValue
+      ? `${message} [${defaultValue}]: `
+      : `${message}: `;
+
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer || defaultValue || null);
+    });
+  });
+}
+
+/**
  * Send command to daemon and wait for response
+ * Handles bidirectional prompts - if daemon requests input, uses readline
  */
 export async function sendCommand(
   photonName: string,
@@ -36,7 +60,7 @@ export async function sendCommand(
         client.destroy();
         reject(new Error('Request timeout'));
       }
-    }, 30000); // 30 second timeout
+    }, 120000); // 2 minute timeout (longer for interactive prompts)
 
     client.on('connect', () => {
       const request: DaemonRequest = {
@@ -51,7 +75,7 @@ export async function sendCommand(
       client.write(JSON.stringify(request) + '\n');
     });
 
-    client.on('data', (chunk) => {
+    client.on('data', async (chunk) => {
       buffer += chunk.toString();
 
       // Process complete JSON messages (newline-delimited)
@@ -65,15 +89,47 @@ export async function sendCommand(
           const response: DaemonResponse = JSON.parse(line);
 
           if (response.id === requestId) {
-            responseReceived = true;
-            clearTimeout(timeout);
+            // Handle prompt request from daemon
+            if (response.type === 'prompt' && response.prompt) {
+              // Reset timeout while waiting for user input
+              clearTimeout(timeout);
 
-            if (response.type === 'error') {
-              client.destroy();
-              reject(new Error(response.error || 'Unknown error'));
-            } else {
+              // Get user input via readline
+              const userInput = await promptUser(
+                response.prompt.message,
+                response.prompt.default
+              );
+
+              // Send prompt response back to daemon
+              const promptResponse: DaemonRequest = {
+                type: 'prompt_response',
+                id: requestId,
+                promptValue: userInput,
+              };
+
+              client.write(JSON.stringify(promptResponse) + '\n');
+
+              // Restart timeout for next response
+              setTimeout(() => {
+                if (!responseReceived) {
+                  client.destroy();
+                  reject(new Error('Request timeout'));
+                }
+              }, 120000);
+            }
+            // Handle final result
+            else if (response.type === 'result') {
+              responseReceived = true;
+              clearTimeout(timeout);
               client.destroy();
               resolve(response.data);
+            }
+            // Handle error
+            else if (response.type === 'error') {
+              responseReceived = true;
+              clearTimeout(timeout);
+              client.destroy();
+              reject(new Error(response.error || 'Unknown error'));
             }
           }
         } catch (error: any) {

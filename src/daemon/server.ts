@@ -14,6 +14,10 @@ import * as net from 'net';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager.js';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
+import {
+  setPromptHandler,
+  type PromptHandler,
+} from '@portel/photon-core';
 
 // Command line args: photonName photonPath socketPath
 const photonName = process.argv[2];
@@ -28,6 +32,17 @@ if (!photonName || !photonPath || !socketPath) {
 let sessionManager: SessionManager | null = null;
 let idleTimeout = 600000; // 10 minutes default
 let idleTimer: NodeJS.Timeout | null = null;
+
+// Track pending prompts waiting for user input
+// Map: requestId -> { resolve, reject } for resolving prompt responses
+const pendingPrompts = new Map<string, {
+  resolve: (value: string | boolean | null) => void;
+  reject: (error: Error) => void;
+}>();
+
+// Current socket for sending prompts (set per-request)
+let currentSocket: net.Socket | null = null;
+let currentRequestId: string | null = null;
 
 /**
  * Initialize session manager
@@ -87,9 +102,37 @@ function resetIdleTimer(): void {
 }
 
 /**
+ * Create a prompt handler that sends prompts over the socket
+ */
+function createSocketPromptHandler(socket: net.Socket, requestId: string): PromptHandler {
+  return async (message: string, defaultValue?: string): Promise<string | null> => {
+    return new Promise((resolve, reject) => {
+      // Store the resolver for when we get the response
+      pendingPrompts.set(requestId, {
+        resolve: (value) => resolve(value as string | null),
+        reject,
+      });
+
+      // Send prompt request to client
+      const promptResponse: DaemonResponse = {
+        type: 'prompt',
+        id: requestId,
+        prompt: {
+          type: 'text',
+          message,
+          default: defaultValue,
+        },
+      };
+
+      socket.write(JSON.stringify(promptResponse) + '\n');
+    });
+  };
+}
+
+/**
  * Handle incoming command request
  */
-async function handleRequest(request: DaemonRequest): Promise<DaemonResponse> {
+async function handleRequest(request: DaemonRequest, socket: net.Socket): Promise<DaemonResponse | null> {
   resetIdleTimer();
 
   if (request.type === 'ping') {
@@ -107,6 +150,17 @@ async function handleRequest(request: DaemonRequest): Promise<DaemonResponse> {
       success: true,
       data: { message: 'Shutting down' },
     };
+  }
+
+  // Handle prompt response from client
+  if (request.type === 'prompt_response') {
+    const pending = pendingPrompts.get(request.id);
+    if (pending) {
+      pendingPrompts.delete(request.id);
+      pending.resolve(request.promptValue ?? null);
+    }
+    // Don't send a response back - the original command handler will respond
+    return null;
   }
 
   if (request.type === 'command') {
@@ -135,12 +189,18 @@ async function handleRequest(request: DaemonRequest): Promise<DaemonResponse> {
 
       console.error(`[daemon-server] Executing: ${request.method} (session: ${session.id})`);
 
+      // Set up socket-based prompt handler for this request
+      setPromptHandler(createSocketPromptHandler(socket, request.id));
+
       // Execute method on session's photon instance using loader
       const result = await sessionManager.loader.executeTool(
         session.instance,
         request.method,
         request.args || {}
       );
+
+      // Clear prompt handler after execution
+      setPromptHandler(null);
 
       return {
         type: 'result',
@@ -150,6 +210,9 @@ async function handleRequest(request: DaemonRequest): Promise<DaemonResponse> {
       };
     } catch (error: any) {
       console.error(`[daemon-server] Error executing ${request.method}: ${error.message}`);
+
+      // Clear prompt handler on error
+      setPromptHandler(null);
 
       return {
         type: 'error',
@@ -187,9 +250,12 @@ function startServer(): void {
 
         try {
           const request: DaemonRequest = JSON.parse(line);
-          const response = await handleRequest(request);
+          const response = await handleRequest(request, socket);
 
-          socket.write(JSON.stringify(response) + '\n');
+          // Only send response if handler returned one (null for prompt_response)
+          if (response !== null) {
+            socket.write(JSON.stringify(response) + '\n');
+          }
         } catch (error: any) {
           console.error(`[daemon-server] Error processing request: ${error.message}`);
           socket.write(JSON.stringify({
