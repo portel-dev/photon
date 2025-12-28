@@ -8,23 +8,32 @@
  * Message from CLI client to daemon server
  */
 export interface DaemonRequest {
-  type: 'command' | 'ping' | 'shutdown';
+  type: 'command' | 'ping' | 'shutdown' | 'prompt_response';
   id: string;
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode'; // Client type for debugging
   method?: string;
   args?: Record<string, any>;
+  /** Response to a prompt request */
+  promptValue?: string | boolean | null;
 }
 
 /**
  * Response from daemon server to CLI client
  */
 export interface DaemonResponse {
-  type: 'result' | 'error' | 'pong';
+  type: 'result' | 'error' | 'pong' | 'prompt';
   id: string;
   success?: boolean;
   data?: any;
   error?: string;
+  /** Prompt request details (when type === 'prompt') */
+  prompt?: {
+    type: 'text' | 'password' | 'confirm' | 'select';
+    message: string;
+    default?: string;
+    options?: Array<string | { value: string; label: string }>;
+  };
 }
 
 /**
