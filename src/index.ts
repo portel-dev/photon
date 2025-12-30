@@ -14,3 +14,13 @@ export * from '@portel/photon-core';
 export { PhotonLoader } from './loader.js';
 export { PhotonServer } from './server.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
+
+// Export MCP client for calling external MCPs from Photons
+export {
+  StandaloneMCPTransport,
+  StandaloneMCPClientFactory,
+  loadMCPConfig,
+  createStandaloneMCPClientFactory,
+  type MCPServerConfig,
+  type MCPConfig,
+} from './mcp-client.js';

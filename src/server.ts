@@ -20,6 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { PhotonLoader } from './loader.js';
 import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
+import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 
 export interface PhotonServerOptions {
   filePath: string;
@@ -31,6 +32,7 @@ export class PhotonServer {
   private mcp: PhotonMCPClassExtended | null = null;
   private server: Server;
   private options: PhotonServerOptions;
+  private mcpClientFactory: StandaloneMCPClientFactory | null = null;
 
   constructor(options: PhotonServerOptions) {
     this.options = options;
@@ -416,6 +418,19 @@ export class PhotonServer {
    */
   async start() {
     try {
+      // Initialize MCP client factory for enabling this.mcp() in Photons
+      // This allows Photons to call external MCPs via protocol
+      try {
+        this.mcpClientFactory = await createStandaloneMCPClientFactory(this.options.devMode);
+        const servers = await this.mcpClientFactory.listServers();
+        if (servers.length > 0) {
+          console.error(`MCP access enabled: ${servers.join(', ')}`);
+          this.loader.setMCPClientFactory(this.mcpClientFactory);
+        }
+      } catch (error: any) {
+        console.error(`Warning: Failed to load MCP config: ${error.message}`);
+      }
+
       // Load the Photon MCP file
       console.error(`Loading ${this.options.filePath}...`);
       this.mcp = await this.loader.loadFile(this.options.filePath);
@@ -445,6 +460,11 @@ export class PhotonServer {
       // Call lifecycle hook if present
       if (this.mcp?.instance?.onShutdown) {
         await this.mcp.instance.onShutdown();
+      }
+
+      // Disconnect MCP clients
+      if (this.mcpClientFactory) {
+        await this.mcpClientFactory.disconnect();
       }
 
       await this.server.close();
