@@ -1082,6 +1082,61 @@ Now your marketplace AND plugin files stay in sync automatically.
 
 ## Advanced Features
 
+### Calling External MCPs (`@mcp` Declarations)
+
+Photons can call external MCPs using the `@mcp` declaration syntax. Dependencies are auto-injected as instance properties:
+
+```typescript
+/**
+ * Project Manager - Combines GitHub and Jira
+ * @mcp github anthropics/mcp-server-github
+ * @mcp jira npm:@anthropic/mcp-server-jira
+ */
+export default class ProjectManager {
+  /**
+   * Sync GitHub issues to Jira
+   */
+  async syncIssues(params: { repo: string; project: string }) {
+    // this.github and this.jira are auto-injected!
+    const issues = await this.github.list_issues({ repo: params.repo });
+
+    for (const issue of issues) {
+      await this.jira.create_issue({
+        project: params.project,
+        summary: issue.title,
+        description: issue.body
+      });
+    }
+
+    return { synced: issues.length };
+  }
+}
+```
+
+**Source Formats (Marketplace-style):**
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| GitHub shorthand | `anthropics/mcp-server-github` | Runs via `npx -y @anthropics/mcp-server-github` |
+| npm package | `npm:@scope/package` | Runs via `npx -y @scope/package` |
+| HTTP URL | `http://localhost:3000/mcp` | Connects via SSE transport |
+| WebSocket | `ws://localhost:8080/mcp` | Connects via WebSocket transport |
+| Local path | `./my-local-mcp` | Runs via `node ./my-local-mcp` |
+
+**Multiple Transports:**
+
+```typescript
+/**
+ * @mcp github anthropics/mcp-server-github       // stdio (local process)
+ * @mcp api http://api.example.com/mcp            // SSE (HTTP)
+ * @mcp realtime ws://realtime.example.com/mcp    // WebSocket
+ */
+```
+
+The injected MCP clients support all official SDK transports: stdio, SSE, streamable-http, and websocket.
+
+---
+
 ### Lifecycle Hooks
 
 ```typescript
