@@ -428,9 +428,10 @@ export class PhotonLoader {
 
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
       if (descriptor && typeof descriptor.value === 'function') {
-        // Check if it's an async function
+        // Check if it's an async function or async generator
         const fn = descriptor.value;
-        if (fn.constructor.name === 'AsyncFunction') {
+        const ctorName = fn.constructor.name;
+        if (ctorName === 'AsyncFunction' || ctorName === 'AsyncGeneratorFunction') {
           return true;
         }
       }
