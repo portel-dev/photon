@@ -1235,6 +1235,93 @@ maker
     }
   });
 
+// maker diagram: generate Mermaid diagram for a Photon
+maker
+  .command('diagram <photon>')
+  .option('--dir <path>', 'Directory containing photon (defaults to current directory)')
+  .description('Generate Mermaid diagram for a Photon')
+  .action(async (photonName: string, options: any) => {
+    try {
+      const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
+
+      // Resolve photon path
+      const dirPath = options.dir || '.';
+      let photonPath = photonName;
+
+      // If not a path, look in the directory
+      if (!photonName.includes('/') && !photonName.includes('\\')) {
+        if (!photonName.endsWith('.photon.ts')) {
+          photonName = `${photonName}.photon.ts`;
+        }
+        photonPath = path.resolve(dirPath, photonName);
+      } else {
+        photonPath = path.resolve(photonName);
+      }
+
+      if (!existsSync(photonPath)) {
+        console.error(`❌ Photon not found: ${photonPath}`);
+        process.exit(1);
+      }
+
+      const extractor = new PhotonDocExtractor(photonPath);
+      const diagram = await extractor.generateDiagram();
+
+      // Output just the diagram (can be piped or copied)
+      console.log(diagram);
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      if (process.env.DEBUG) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+  });
+
+// maker diagrams: generate Mermaid diagrams for all Photons in a directory
+maker
+  .command('diagrams')
+  .option('--dir <path>', 'Directory to scan (defaults to current directory)')
+  .description('Generate Mermaid diagrams for all Photons in a directory')
+  .action(async (options: any) => {
+    try {
+      const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
+
+      const dirPath = path.resolve(options.dir || '.');
+      const files = await fs.readdir(dirPath);
+      const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+
+      if (photonFiles.length === 0) {
+        console.error('No .photon.ts files found');
+        process.exit(1);
+      }
+
+      console.error(`📦 Found ${photonFiles.length} photons\n`);
+
+      for (const file of photonFiles) {
+        const photonPath = path.join(dirPath, file);
+        const name = file.replace('.photon.ts', '');
+
+        try {
+          const extractor = new PhotonDocExtractor(photonPath);
+          const diagram = await extractor.generateDiagram();
+
+          console.log(`## ${name}\n`);
+          console.log('```mermaid');
+          console.log(diagram);
+          console.log('```\n');
+        } catch (err: any) {
+          console.error(`⚠️  Failed to generate diagram for ${name}: ${err.message}`);
+        }
+      }
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      if (process.env.DEBUG) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+  });
+
 // Marketplace command: manage MCP marketplaces
 const marketplace = program
   .command('marketplace', { hidden: true })
