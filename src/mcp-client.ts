@@ -1,32 +1,35 @@
 /**
- * Standalone MCP Client for Photon Runtime
+ * MCP Client for Photon Runtime
  *
- * Enables Photon classes to call external MCPs via the MCP protocol.
- * Unlike NCP (which routes through an orchestrator), this spawns and
- * manages MCP processes directly using stdio transport.
+ * Uses the official @modelcontextprotocol/sdk for connecting to MCP servers.
+ * Supports multiple transports:
+ * - stdio: Local processes (command + args)
+ * - sse: Server-Sent Events over HTTP
+ * - streamable-http: HTTP streaming
+ * - websocket: WebSocket connections
  *
- * Configuration is loaded from:
- * 1. Environment variable: PHOTON_MCP_CONFIG (path to JSON config)
- * 2. photon.mcp.json in current directory
- * 3. ~/.config/photon/mcp.json
+ * Configuration formats:
+ * 1. stdio (local process):
+ *    { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] }
  *
- * Config format (same as Claude Desktop):
- * {
- *   "mcpServers": {
- *     "github": {
- *       "command": "npx",
- *       "args": ["-y", "@modelcontextprotocol/server-github"],
- *       "env": { "GITHUB_TOKEN": "..." }
- *     }
- *   }
- * }
+ * 2. sse (HTTP SSE):
+ *    { "url": "http://localhost:3000/mcp", "transport": "sse" }
+ *
+ * 3. streamable-http:
+ *    { "url": "http://localhost:3000/mcp", "transport": "streamable-http" }
+ *
+ * 4. websocket:
+ *    { "url": "ws://localhost:3000/mcp", "transport": "websocket" }
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import * as readline from 'readline';
 import {
   MCPClient,
   MCPTransport,
@@ -40,13 +43,22 @@ import {
 } from '@portel/photon-core';
 
 /**
- * MCP Server configuration (Claude Desktop compatible format)
+ * MCP Server configuration
+ * Supports multiple transport types
  */
 export interface MCPServerConfig {
-  command: string;
+  // For stdio transport (local process)
+  command?: string;
   args?: string[];
-  env?: Record<string, string>;
   cwd?: string;
+  env?: Record<string, string>;
+
+  // For HTTP/WS transports
+  url?: string;
+  transport?: 'stdio' | 'sse' | 'streamable-http' | 'websocket';
+
+  // Authentication (for HTTP transports)
+  headers?: Record<string, string>;
 }
 
 /**
@@ -57,39 +69,13 @@ export interface MCPConfig {
 }
 
 /**
- * JSON-RPC message types
+ * Manages a single MCP server connection using official SDK
  */
-interface JsonRpcRequest {
-  jsonrpc: '2.0';
-  id: number;
-  method: string;
-  params?: any;
-}
-
-interface JsonRpcResponse {
-  jsonrpc: '2.0';
-  id: number;
-  result?: any;
-  error?: {
-    code: number;
-    message: string;
-    data?: any;
-  };
-}
-
-/**
- * Manages a single MCP server connection via stdio
- */
-class MCPConnection {
-  private process: ChildProcess | null = null;
-  private requestId = 0;
-  private pendingRequests: Map<number, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-  }> = new Map();
-  private initialized = false;
+class SDKMCPConnection {
+  private client: Client | null = null;
+  private transport: any = null;
   private tools: MCPToolInfo[] = [];
-  private readline: readline.Interface | null = null;
+  private initialized = false;
 
   constructor(
     private name: string,
@@ -104,78 +90,85 @@ class MCPConnection {
   }
 
   /**
-   * Start the MCP server process and initialize
+   * Create appropriate transport based on config
    */
-  async connect(): Promise<void> {
-    if (this.process) {
-      return; // Already connected
+  private createTransport(): any {
+    const transportType = this.config.transport || (this.config.command ? 'stdio' : 'sse');
+
+    switch (transportType) {
+      case 'stdio': {
+        if (!this.config.command) {
+          throw new Error(`stdio transport requires 'command' in config for ${this.name}`);
+        }
+        this.log(`Creating stdio transport: ${this.config.command} ${(this.config.args || []).join(' ')}`);
+        return new StdioClientTransport({
+          command: this.config.command,
+          args: this.config.args,
+          cwd: this.config.cwd,
+          env: this.config.env,
+        });
+      }
+
+      case 'sse': {
+        if (!this.config.url) {
+          throw new Error(`sse transport requires 'url' in config for ${this.name}`);
+        }
+        this.log(`Creating SSE transport: ${this.config.url}`);
+        return new SSEClientTransport(new URL(this.config.url), {
+          requestInit: this.config.headers ? { headers: this.config.headers } : undefined,
+        });
+      }
+
+      case 'streamable-http': {
+        if (!this.config.url) {
+          throw new Error(`streamable-http transport requires 'url' in config for ${this.name}`);
+        }
+        this.log(`Creating streamable HTTP transport: ${this.config.url}`);
+        return new StreamableHTTPClientTransport(new URL(this.config.url), {
+          requestInit: this.config.headers ? { headers: this.config.headers } : undefined,
+        });
+      }
+
+      case 'websocket': {
+        if (!this.config.url) {
+          throw new Error(`websocket transport requires 'url' in config for ${this.name}`);
+        }
+        this.log(`Creating WebSocket transport: ${this.config.url}`);
+        return new WebSocketClientTransport(new URL(this.config.url));
+      }
+
+      default:
+        throw new Error(`Unknown transport type: ${transportType}`);
     }
-
-    this.log(`Starting MCP server: ${this.config.command} ${(this.config.args || []).join(' ')}`);
-
-    // Spawn the MCP server process
-    this.process = spawn(this.config.command, this.config.args || [], {
-      cwd: this.config.cwd,
-      env: {
-        ...process.env,
-        ...this.config.env,
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    // Handle process errors
-    this.process.on('error', (error) => {
-      this.log(`Process error: ${error.message}`);
-      this.cleanup();
-    });
-
-    this.process.on('exit', (code, signal) => {
-      this.log(`Process exited with code ${code}, signal ${signal}`);
-      this.cleanup();
-    });
-
-    // Set up line-based reading from stdout
-    this.readline = readline.createInterface({
-      input: this.process.stdout!,
-      crlfDelay: Infinity,
-    });
-
-    this.readline.on('line', (line) => {
-      this.handleMessage(line);
-    });
-
-    // Log stderr for debugging
-    this.process.stderr?.on('data', (data) => {
-      this.log(`stderr: ${data.toString().trim()}`);
-    });
-
-    // Initialize the MCP protocol
-    await this.initialize();
   }
 
   /**
-   * Initialize MCP protocol (handshake)
+   * Connect to the MCP server
    */
-  private async initialize(): Promise<void> {
-    // Send initialize request
-    const initResult = await this.sendRequest('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {
-        roots: { listChanged: false },
-      },
-      clientInfo: {
+  async connect(): Promise<void> {
+    if (this.client) {
+      return; // Already connected
+    }
+
+    this.transport = this.createTransport();
+    this.client = new Client(
+      {
         name: 'photon-runtime',
         version: '1.0.0',
       },
-    });
+      {
+        capabilities: {
+          roots: { listChanged: false },
+        },
+      }
+    );
 
-    this.log(`Initialized: ${JSON.stringify(initResult.serverInfo)}`);
-
-    // Send initialized notification
-    this.sendNotification('notifications/initialized', {});
+    this.log('Connecting...');
+    await this.client.connect(this.transport);
+    this.log('Connected');
 
     // List available tools
-    const toolsResult = await this.sendRequest('tools/list', {});
+    const toolsResult = await this.client.listTools();
     this.tools = (toolsResult.tools || []).map((t: any) => ({
       name: t.name,
       description: t.description,
@@ -187,94 +180,20 @@ class MCPConnection {
   }
 
   /**
-   * Send a JSON-RPC request and wait for response
-   */
-  private sendRequest(method: string, params: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.process || !this.process.stdin) {
-        reject(new MCPNotConnectedError(this.name));
-        return;
-      }
-
-      const id = ++this.requestId;
-      const request: JsonRpcRequest = {
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      };
-
-      this.pendingRequests.set(id, { resolve, reject });
-
-      const message = JSON.stringify(request) + '\n';
-      this.process.stdin.write(message);
-    });
-  }
-
-  /**
-   * Send a JSON-RPC notification (no response expected)
-   */
-  private sendNotification(method: string, params: any): void {
-    if (!this.process || !this.process.stdin) {
-      return;
-    }
-
-    const notification = {
-      jsonrpc: '2.0',
-      method,
-      params,
-    };
-
-    const message = JSON.stringify(notification) + '\n';
-    this.process.stdin.write(message);
-  }
-
-  /**
-   * Handle incoming JSON-RPC message
-   */
-  private handleMessage(line: string): void {
-    try {
-      const message = JSON.parse(line) as JsonRpcResponse;
-
-      if ('id' in message && message.id !== undefined) {
-        // This is a response
-        const pending = this.pendingRequests.get(message.id);
-        if (pending) {
-          this.pendingRequests.delete(message.id);
-
-          if (message.error) {
-            pending.reject(new MCPError(
-              this.name,
-              `${message.error.message} (code: ${message.error.code})`
-            ));
-          } else {
-            pending.resolve(message.result);
-          }
-        }
-      }
-      // Ignore notifications from server for now
-    } catch (error) {
-      // Ignore malformed messages
-      this.log(`Malformed message: ${line}`);
-    }
-  }
-
-  /**
-   * Call a tool on this MCP server
+   * Call a tool
    */
   async callTool(toolName: string, parameters: Record<string, any>): Promise<MCPToolResult> {
-    if (!this.initialized) {
+    if (!this.client || !this.initialized) {
       throw new MCPNotConnectedError(this.name);
     }
 
     try {
-      const result = await this.sendRequest('tools/call', {
+      const result = await this.client.callTool({
         name: toolName,
         arguments: parameters,
       });
 
-      // Return in MCPToolResult format expected by photon-core
-      // The MCP protocol returns { content: [...], isError?: boolean }
+      // Convert to MCPToolResult format
       if (result?.content && Array.isArray(result.content)) {
         return {
           content: result.content.map((c: any) => ({
@@ -283,11 +202,10 @@ class MCPConnection {
             data: c.data,
             mimeType: c.mimeType,
           })),
-          isError: result.isError,
+          isError: result.isError as boolean | undefined,
         };
       }
 
-      // Fallback for unexpected response formats
       return {
         content: [{
           type: 'text',
@@ -301,7 +219,7 @@ class MCPConnection {
   }
 
   /**
-   * List tools available on this MCP server
+   * List available tools
    */
   listTools(): MCPToolInfo[] {
     return this.tools;
@@ -311,44 +229,28 @@ class MCPConnection {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.initialized && this.process !== null;
+    return this.initialized && this.client !== null;
   }
 
   /**
-   * Cleanup resources
-   */
-  private cleanup(): void {
-    this.initialized = false;
-    this.readline?.close();
-    this.readline = null;
-
-    // Reject all pending requests
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(new MCPNotConnectedError(this.name));
-    }
-    this.pendingRequests.clear();
-
-    this.process = null;
-  }
-
-  /**
-   * Disconnect and cleanup
+   * Disconnect
    */
   async disconnect(): Promise<void> {
-    if (this.process) {
+    if (this.client) {
       this.log('Disconnecting...');
-      this.process.kill();
-      this.cleanup();
+      await this.client.close();
+      this.client = null;
+      this.transport = null;
+      this.initialized = false;
     }
   }
 }
 
 /**
- * Standalone MCP Transport for Photon runtime
- * Spawns and manages MCP server processes directly
+ * Standalone MCP Transport using official SDK
  */
 export class StandaloneMCPTransport implements MCPTransport {
-  private connections: Map<string, MCPConnection> = new Map();
+  private connections: Map<string, SDKMCPConnection> = new Map();
 
   constructor(
     private config: MCPConfig,
@@ -364,71 +266,47 @@ export class StandaloneMCPTransport implements MCPTransport {
   /**
    * Get or create connection to an MCP server
    */
-  private async getConnection(mcpName: string): Promise<MCPConnection> {
+  private async getConnection(mcpName: string): Promise<SDKMCPConnection> {
     let connection = this.connections.get(mcpName);
 
     if (connection?.isConnected()) {
       return connection;
     }
 
-    // Check if server is configured
     const serverConfig = this.config.mcpServers[mcpName];
     if (!serverConfig) {
       throw new MCPNotConnectedError(mcpName);
     }
 
-    // Create and connect
-    connection = new MCPConnection(mcpName, serverConfig, this.verbose);
+    connection = new SDKMCPConnection(mcpName, serverConfig, this.verbose);
     await connection.connect();
     this.connections.set(mcpName, connection);
 
     return connection;
   }
 
-  /**
-   * Call a tool on an MCP server
-   */
-  async callTool(
-    mcpName: string,
-    toolName: string,
-    parameters: Record<string, any>
-  ): Promise<MCPToolResult> {
+  async callTool(mcpName: string, toolName: string, parameters: Record<string, any>): Promise<MCPToolResult> {
     const connection = await this.getConnection(mcpName);
     return connection.callTool(toolName, parameters);
   }
 
-  /**
-   * List tools available on an MCP server
-   */
   async listTools(mcpName: string): Promise<MCPToolInfo[]> {
     const connection = await this.getConnection(mcpName);
     return connection.listTools();
   }
 
-  /**
-   * Check if an MCP server is available/configured
-   */
   async isConnected(mcpName: string): Promise<boolean> {
-    // Check if configured
     if (!this.config.mcpServers[mcpName]) {
       return false;
     }
-
-    // Check if already connected
     const connection = this.connections.get(mcpName);
     return connection?.isConnected() ?? false;
   }
 
-  /**
-   * List all configured MCP servers
-   */
   listServers(): string[] {
     return Object.keys(this.config.mcpServers);
   }
 
-  /**
-   * Disconnect all MCP servers
-   */
   async disconnectAll(): Promise<void> {
     for (const connection of this.connections.values()) {
       await connection.disconnect();
@@ -438,7 +316,7 @@ export class StandaloneMCPTransport implements MCPTransport {
 }
 
 /**
- * Standalone MCP Client Factory for Photon runtime
+ * Standalone MCP Client Factory
  */
 export class StandaloneMCPClientFactory implements MCPClientFactory {
   private transport: StandaloneMCPTransport;
@@ -447,30 +325,18 @@ export class StandaloneMCPClientFactory implements MCPClientFactory {
     this.transport = new StandaloneMCPTransport(config, verbose);
   }
 
-  /**
-   * Create an MCP client for a specific server
-   */
   create(mcpName: string): MCPClient {
     return new MCPClient(mcpName, this.transport);
   }
 
-  /**
-   * List all configured MCP servers
-   */
   async listServers(): Promise<string[]> {
     return this.transport.listServers();
   }
 
-  /**
-   * Disconnect all servers
-   */
   async disconnect(): Promise<void> {
     await this.transport.disconnectAll();
   }
 
-  /**
-   * Get the underlying transport (for advanced use)
-   */
   getTransport(): StandaloneMCPTransport {
     return this.transport;
   }
@@ -480,7 +346,11 @@ export class StandaloneMCPClientFactory implements MCPClientFactory {
  * Resolve an MCP source to a runnable configuration
  * Handles: GitHub shorthand, npm packages, URLs, local paths
  */
-export function resolveMCPSource(name: string, source: string, sourceType: 'github' | 'npm' | 'url' | 'local'): MCPServerConfig {
+export function resolveMCPSource(
+  name: string,
+  source: string,
+  sourceType: 'github' | 'npm' | 'url' | 'local'
+): MCPServerConfig {
   switch (sourceType) {
     case 'npm': {
       // npm:@scope/package or npm:package
@@ -488,32 +358,42 @@ export function resolveMCPSource(name: string, source: string, sourceType: 'gith
       return {
         command: 'npx',
         args: ['-y', packageName],
+        transport: 'stdio',
       };
     }
 
     case 'github': {
       // GitHub shorthand: owner/repo
-      // Assumes the repo publishes to npm as @owner/repo or has npx support
-      // For now, we use npx with the assumption it's published to npm
-      // TODO: Support cloning and running directly
+      // Try to run via npx assuming it's published to npm
       return {
         command: 'npx',
-        args: ['-y', `@${source.replace('/', '/')}`],
+        args: ['-y', `@${source}`],
+        transport: 'stdio',
       };
     }
 
     case 'url': {
-      // Full URL - assume it's a git repo that can be run with npx
-      // TODO: Support cloning and running
-      throw new Error(`URL-based MCP sources not yet supported: ${source}`);
+      // Full URL - determine transport from protocol
+      if (source.startsWith('ws://') || source.startsWith('wss://')) {
+        return {
+          url: source,
+          transport: 'websocket',
+        };
+      }
+      // Default to SSE for HTTP URLs
+      return {
+        url: source,
+        transport: 'sse',
+      };
     }
 
     case 'local': {
-      // Local path - run directly with node or npx
+      // Local path - run directly with node
       const resolvedPath = source.replace(/^~/, process.env.HOME || '');
       return {
         command: 'node',
         args: [resolvedPath],
+        transport: 'stdio',
       };
     }
 
@@ -528,15 +408,10 @@ export function resolveMCPSource(name: string, source: string, sourceType: 'gith
 export async function loadMCPConfig(verbose: boolean = false): Promise<MCPConfig> {
   const log = verbose ? (msg: string) => console.error(`[MCPConfig] ${msg}`) : () => {};
 
-  // Priority order for config files
   const configPaths = [
-    // 1. Environment variable
     process.env.PHOTON_MCP_CONFIG,
-    // 2. Current directory
     path.join(process.cwd(), 'photon.mcp.json'),
-    // 3. User config directory
     path.join(os.homedir(), '.config', 'photon', 'mcp.json'),
-    // 4. Alternative user config
     path.join(os.homedir(), '.photon', 'mcp.json'),
   ].filter(Boolean) as string[];
 
@@ -545,21 +420,18 @@ export async function loadMCPConfig(verbose: boolean = false): Promise<MCPConfig
       const content = await fs.readFile(configPath, 'utf-8');
       const config = JSON.parse(content) as MCPConfig;
 
-      // Validate structure
       if (config.mcpServers && typeof config.mcpServers === 'object') {
         log(`Loaded MCP config from ${configPath}`);
         log(`Found ${Object.keys(config.mcpServers).length} MCP servers`);
         return config;
       }
     } catch (error: any) {
-      // File doesn't exist or invalid JSON - continue to next
       if (error.code !== 'ENOENT') {
         log(`Failed to load ${configPath}: ${error.message}`);
       }
     }
   }
 
-  // Return empty config if no config file found
   log('No MCP config found, MCP access will be unavailable');
   return { mcpServers: {} };
 }
