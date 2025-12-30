@@ -29,6 +29,8 @@ import {
   // Elicit for fallback
   prompt as elicitPrompt,
   confirm as elicitConfirm,
+  // MCP Client types
+  type MCPClientFactory,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -40,10 +42,18 @@ interface DependencySpec {
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
   private verbose: boolean;
+  private mcpClientFactory?: MCPClientFactory;
 
   constructor(verbose: boolean = false) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
+  }
+
+  /**
+   * Set MCP client factory for enabling this.mcp() in Photons
+   */
+  setMCPClientFactory(factory: MCPClientFactory): void {
+    this.mcpClientFactory = factory;
   }
 
   /**
@@ -250,6 +260,12 @@ export class PhotonLoader {
         instance._photonConfigError = configError;
         console.error(`⚠️  ${name} loaded with configuration warnings:`);
         console.error(configError);
+      }
+
+      // Inject MCP client factory if available (enables this.mcp() calls)
+      if (this.mcpClientFactory && typeof instance.setMCPFactory === 'function') {
+        instance.setMCPFactory(this.mcpClientFactory);
+        this.log(`Injected MCP factory into ${name}`);
       }
 
       // Call lifecycle hook if present with error handling
