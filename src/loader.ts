@@ -29,18 +29,16 @@ import {
   // Elicit for fallback
   prompt as elicitPrompt,
   confirm as elicitConfirm,
-  // MCP Client types
+  // MCP Client types and SDK transport
   type MCPClientFactory,
   type MCPDependency,
   createMCPProxy,
   MCPClient,
-} from '@portel/photon-core';
-import * as os from 'os';
-import {
-  StandaloneMCPClientFactory,
+  SDKMCPClientFactory,
   resolveMCPSource,
   type MCPConfig,
-} from './mcp-client.js';
+} from '@portel/photon-core';
+import * as os from 'os';
 
 interface DependencySpec {
   name: string;
@@ -1035,7 +1033,7 @@ Or run: photon ${mcpName} --config
 
     // Create factory for these MCPs
     const mcpConfig: MCPConfig = { mcpServers };
-    const factory = new StandaloneMCPClientFactory(mcpConfig, this.verbose);
+    const factory = new SDKMCPClientFactory(mcpConfig, this.verbose);
 
     // Inject each MCP as an instance property with proxy
     for (const dep of mcpDeps) {
