@@ -24,6 +24,22 @@ interface Tool {
   description: string;
   params: ToolParam[];
   example?: string;
+  isGenerator?: boolean;
+}
+
+type PhotonType = 'workflow' | 'streaming' | 'api';
+
+interface YieldStatement {
+  type: 'ask' | 'emit';
+  subtype: string; // 'confirm', 'select', 'text', 'status', 'progress', etc.
+  message?: string;
+  variable?: string; // Variable name if assigned
+}
+
+interface ExternalCall {
+  type: 'mcp' | 'photon';
+  name: string;
+  method: string;
 }
 
 export interface PhotonMetadata {
@@ -210,12 +226,13 @@ export class PhotonDocExtractor {
   private async extractTools(): Promise<Tool[]> {
     const tools: Tool[] = [];
 
-    // First, find all async methods
-    const methodRegex = /async\s+(\w+)\s*\([^)]*\)/g;
+    // Find all async methods (including generators with async *)
+    const methodRegex = /async\s+(\*?)\s*(\w+)\s*\([^)]*\)/g;
     let match;
 
     while ((match = methodRegex.exec(this.content)) !== null) {
-      const methodName = match[1];
+      const isGenerator = match[1] === '*';
+      const methodName = match[2];
       const methodIndex = match.index;
 
       // Skip private methods (starting with _) and lifecycle methods
@@ -246,6 +263,7 @@ export class PhotonDocExtractor {
       const jsdoc = jsdocMatch[1];
       const tool = this.parseToolMethodFromJSDoc(jsdoc, methodName);
       if (tool) {
+        tool.isGenerator = isGenerator;
         tools.push(tool);
       }
     }
@@ -392,5 +410,346 @@ export class PhotonDocExtractor {
       params,
       example,
     };
+  }
+
+  // ============================================
+  // DIAGRAM GENERATION
+  // ============================================
+
+  /**
+   * Generate a Mermaid diagram for this Photon
+   * Automatically detects the Photon type and generates appropriate diagram
+   */
+  async generateDiagram(): Promise<string> {
+    if (!this.content) {
+      this.content = await fs.readFile(this.filePath, 'utf-8');
+    }
+
+    const tools = await this.extractTools();
+    const photonType = this.detectPhotonType(tools);
+    const name = this.extractName();
+    const deps = this.extractDependencies();
+
+    switch (photonType) {
+      case 'workflow':
+        return this.generateWorkflowDiagram(name, tools, deps);
+      case 'streaming':
+        return this.generateStreamingDiagram(name, tools, deps);
+      default:
+        return this.generateApiSurfaceDiagram(name, tools, deps);
+    }
+  }
+
+  /**
+   * Detect the type of Photon based on its methods
+   */
+  private detectPhotonType(tools: Tool[]): PhotonType {
+    const hasGenerator = tools.some(t => t.isGenerator);
+    const hasAskEmit = this.hasAskEmitPatterns();
+
+    if (hasGenerator && hasAskEmit) return 'workflow';
+    if (hasGenerator) return 'streaming';
+    return 'api';
+  }
+
+  /**
+   * Check if content has ask/emit yield patterns
+   */
+  private hasAskEmitPatterns(): boolean {
+    return /yield\s*\{\s*(ask|emit)\s*:/.test(this.content);
+  }
+
+  /**
+   * Extract dependencies from JSDoc tags
+   */
+  private extractDependencies(): { mcps: string[]; photons: string[]; npm: string[] } {
+    const mcpsTag = this.extractTag('mcps');
+    const photonsTag = this.extractTag('photons');
+    const depsTag = this.extractTag('dependencies');
+
+    return {
+      mcps: mcpsTag ? mcpsTag.split(/[,\s]+/).filter(Boolean) : [],
+      photons: photonsTag ? photonsTag.split(/[,\s]+/).filter(Boolean) : [],
+      npm: depsTag ? depsTag.split(/[,\s]+/).map(d => d.split('@')[0]).filter(Boolean) : [],
+    };
+  }
+
+  /**
+   * Extract yield statements from content
+   */
+  private extractYieldStatements(): YieldStatement[] {
+    const yields: YieldStatement[] = [];
+
+    // Match: const varName = yield { ask: 'type', message: '...' }
+    // or: yield { emit: 'type', message: '...' }
+    const yieldRegex = /(?:const\s+(\w+)\s*(?::\s*\w+)?\s*=\s*)?yield\s*\{\s*(ask|emit)\s*:\s*['"](\w+)['"]\s*(?:,\s*message\s*:\s*[`'"]([^`'"]*)[`'"])?/g;
+
+    let match;
+    while ((match = yieldRegex.exec(this.content)) !== null) {
+      yields.push({
+        variable: match[1],
+        type: match[2] as 'ask' | 'emit',
+        subtype: match[3],
+        message: match[4],
+      });
+    }
+
+    return yields;
+  }
+
+  /**
+   * Extract MCP and Photon calls from content
+   */
+  private extractExternalCalls(): ExternalCall[] {
+    const calls: ExternalCall[] = [];
+
+    // Match: this.mcp('name').method() or await this.mcp('name').method()
+    const mcpRegex = /this\.mcp\(['"](\w+)['"]\)\.(\w+)/g;
+    let match;
+    while ((match = mcpRegex.exec(this.content)) !== null) {
+      calls.push({ type: 'mcp', name: match[1], method: match[2] });
+    }
+
+    // Match: this.photon('name').method() or yield* this.photon('name').method()
+    const photonRegex = /this\.photon\(['"](\w+)['"]\)\.(\w+)/g;
+    while ((match = photonRegex.exec(this.content)) !== null) {
+      calls.push({ type: 'photon', name: match[1], method: match[2] });
+    }
+
+    return calls;
+  }
+
+  /**
+   * Infer emoji based on method/tool name
+   */
+  private inferEmoji(name: string): string {
+    const lower = name.toLowerCase();
+    if (/^(read|get|fetch|load|find|query|search|list)/.test(lower)) return '📖';
+    if (/^(write|create|save|put|add|insert|set)/.test(lower)) return '✏️';
+    if (/^(delete|remove|drop|clear)/.test(lower)) return '🗑️';
+    if (/^(send|post|push|publish|notify)/.test(lower)) return '📤';
+    if (/^(update|modify|patch|edit)/.test(lower)) return '🔄';
+    if (/^(validate|check|verify|test)/.test(lower)) return '✅';
+    if (/^(config|setup|init)/.test(lower)) return '⚙️';
+    if (/^(run|execute|start|begin)/.test(lower)) return '▶️';
+    if (/^(stop|cancel|abort|end)/.test(lower)) return '⏹️';
+    if (/^(connect|login|auth)/.test(lower)) return '🔌';
+    if (/^(download|export)/.test(lower)) return '📥';
+    if (/^(upload|import)/.test(lower)) return '📤';
+    return '🔧';
+  }
+
+  /**
+   * Get emoji for ask type
+   */
+  private getAskEmoji(subtype: string): string {
+    switch (subtype) {
+      case 'confirm': return '🙋';
+      case 'select': return '📋';
+      case 'text': return '✏️';
+      case 'number': return '🔢';
+      case 'password': return '🔒';
+      case 'date': return '📅';
+      case 'file': return '📁';
+      default: return '❓';
+    }
+  }
+
+  /**
+   * Get emoji for emit type
+   */
+  private getEmitEmoji(subtype: string): string {
+    switch (subtype) {
+      case 'status': return '📢';
+      case 'progress': return '⏳';
+      case 'log': return '📝';
+      case 'toast': return '🎉';
+      case 'thinking': return '🧠';
+      case 'artifact': return '📊';
+      case 'stream': return '💬';
+      default: return '📣';
+    }
+  }
+
+  /**
+   * Generate API surface diagram for tool collection Photons
+   */
+  private generateApiSurfaceDiagram(
+    name: string,
+    tools: Tool[],
+    deps: { mcps: string[]; photons: string[]; npm: string[] }
+  ): string {
+    const lines: string[] = ['flowchart LR'];
+
+    // Main photon subgraph
+    lines.push(`    subgraph ${this.sanitizeId(name)}["📦 ${this.titleCase(name)}"]`);
+    lines.push('        direction TB');
+    lines.push('        PHOTON((🎯))');
+
+    tools.forEach((tool, i) => {
+      const emoji = this.inferEmoji(tool.name);
+      const id = `T${i}`;
+      lines.push(`        ${id}[${emoji} ${tool.name}]`);
+      lines.push(`        PHOTON --> ${id}`);
+    });
+
+    lines.push('    end');
+
+    // Dependencies subgraph (if any)
+    const hasDeps = deps.mcps.length > 0 || deps.photons.length > 0 || deps.npm.length > 0;
+    if (hasDeps) {
+      lines.push('');
+      lines.push('    subgraph deps["Dependencies"]');
+      lines.push('        direction TB');
+
+      deps.mcps.forEach((mcp, i) => {
+        lines.push(`        MCP${i}[🔌 ${mcp}]`);
+      });
+      deps.photons.forEach((photon, i) => {
+        lines.push(`        PHO${i}[📦 ${photon}]`);
+      });
+      deps.npm.forEach((pkg, i) => {
+        lines.push(`        NPM${i}[📚 ${pkg}]`);
+      });
+
+      lines.push('    end');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate streaming diagram for generator Photons without ask/emit
+   */
+  private generateStreamingDiagram(
+    name: string,
+    tools: Tool[],
+    deps: { mcps: string[]; photons: string[]; npm: string[] }
+  ): string {
+    // For streaming, show tools with streaming indicator
+    const lines: string[] = ['flowchart LR'];
+
+    lines.push(`    subgraph ${this.sanitizeId(name)}["📦 ${this.titleCase(name)}"]`);
+    lines.push('        direction TB');
+    lines.push('        PHOTON((🎯))');
+
+    tools.forEach((tool, i) => {
+      const emoji = tool.isGenerator ? '🌊' : this.inferEmoji(tool.name);
+      const id = `T${i}`;
+      const suffix = tool.isGenerator ? ' (stream)' : '';
+      lines.push(`        ${id}[${emoji} ${tool.name}${suffix}]`);
+      lines.push(`        PHOTON --> ${id}`);
+    });
+
+    lines.push('    end');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate workflow flowchart for Photons with ask/emit patterns
+   */
+  private generateWorkflowDiagram(
+    name: string,
+    tools: Tool[],
+    deps: { mcps: string[]; photons: string[]; npm: string[] }
+  ): string {
+    const yields = this.extractYieldStatements();
+    const externalCalls = this.extractExternalCalls();
+    const lines: string[] = ['flowchart TD'];
+
+    lines.push(`    subgraph ${this.sanitizeId(name)}["📦 ${this.titleCase(name)}"]`);
+    lines.push('        START([▶ Start])');
+
+    let prevNode = 'START';
+    let nodeCounter = 0;
+
+    // Process yields and calls in order they appear
+    for (const y of yields) {
+      const nodeId = `N${nodeCounter++}`;
+
+      if (y.type === 'emit') {
+        const emoji = this.getEmitEmoji(y.subtype);
+        const msg = y.message ? this.truncate(y.message, 30) : y.subtype;
+        lines.push(`        ${nodeId}[${emoji} ${msg}]`);
+        lines.push(`        ${prevNode} --> ${nodeId}`);
+        prevNode = nodeId;
+      } else if (y.type === 'ask') {
+        const emoji = this.getAskEmoji(y.subtype);
+        const msg = y.message ? this.truncate(y.message, 25) : y.subtype;
+        lines.push(`        ${nodeId}{${emoji} ${msg}}`);
+        lines.push(`        ${prevNode} --> ${nodeId}`);
+
+        // For confirm, add Yes/No branches
+        if (y.subtype === 'confirm') {
+          const cancelId = `N${nodeCounter++}`;
+          const continueId = `N${nodeCounter++}`;
+          lines.push(`        ${cancelId}([❌ Cancelled])`);
+          lines.push(`        ${nodeId} -->|No| ${cancelId}`);
+          lines.push(`        ${nodeId} -->|Yes| ${continueId}`);
+          // Create a dummy continue node for the flow
+          lines.push(`        ${continueId}[Continue]`);
+          prevNode = continueId;
+        } else {
+          prevNode = nodeId;
+        }
+      }
+    }
+
+    // Add external calls
+    for (const call of externalCalls) {
+      const nodeId = `N${nodeCounter++}`;
+      const emoji = call.type === 'mcp' ? '🔌' : '📦';
+      lines.push(`        ${nodeId}[${emoji} ${call.name}.${call.method}]`);
+      lines.push(`        ${prevNode} --> ${nodeId}`);
+      prevNode = nodeId;
+    }
+
+    // End node
+    lines.push(`        SUCCESS([✅ Success])`);
+    lines.push(`        ${prevNode} --> SUCCESS`);
+
+    lines.push('    end');
+
+    // Dependencies
+    const hasDeps = deps.mcps.length > 0 || deps.photons.length > 0;
+    if (hasDeps) {
+      lines.push('');
+      lines.push('    subgraph deps["Dependencies"]');
+      deps.mcps.forEach((mcp, i) => {
+        lines.push(`        DEP_MCP${i}[🔌 ${mcp}]`);
+      });
+      deps.photons.forEach((photon, i) => {
+        lines.push(`        DEP_PHO${i}[📦 ${photon}]`);
+      });
+      lines.push('    end');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Sanitize string for use as Mermaid node ID
+   */
+  private sanitizeId(str: string): string {
+    return str.replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  /**
+   * Convert kebab-case to Title Case
+   */
+  private titleCase(str: string): string {
+    return str
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  /**
+   * Truncate string to max length
+   */
+  private truncate(str: string, maxLen: number): string {
+    if (str.length <= maxLen) return str;
+    return str.slice(0, maxLen - 3) + '...';
   }
 }
