@@ -15,13 +15,10 @@ export { PhotonLoader } from './loader.js';
 export { PhotonServer } from './server.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
 
-// Export MCP client for calling external MCPs from Photons
+// Backward compatibility aliases for MCP client
+// (New names SDKMCPTransport, SDKMCPClientFactory are exported from photon-core)
 export {
   StandaloneMCPTransport,
   StandaloneMCPClientFactory,
-  loadMCPConfig,
   createStandaloneMCPClientFactory,
-  resolveMCPSource,
-  type MCPServerConfig,
-  type MCPConfig,
 } from './mcp-client.js';
