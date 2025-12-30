@@ -31,8 +31,16 @@ import {
   confirm as elicitConfirm,
   // MCP Client types
   type MCPClientFactory,
+  type MCPDependency,
+  createMCPProxy,
+  MCPClient,
 } from '@portel/photon-core';
 import * as os from 'os';
+import {
+  StandaloneMCPClientFactory,
+  resolveMCPSource,
+  type MCPConfig,
+} from './mcp-client.js';
 
 interface DependencySpec {
   name: string;
@@ -266,6 +274,11 @@ export class PhotonLoader {
       if (this.mcpClientFactory && typeof instance.setMCPFactory === 'function') {
         instance.setMCPFactory(this.mcpClientFactory);
         this.log(`Injected MCP factory into ${name}`);
+      }
+
+      // Extract and inject @mcp declared dependencies
+      if (tsContent) {
+        await this.injectMCPDependencies(instance, tsContent, name);
       }
 
       // Call lifecycle hook if present with error handling
@@ -977,5 +990,72 @@ Or run: photon ${mcpName} --config
           break;
       }
     };
+  }
+
+  /**
+   * Extract @mcp dependencies from source and inject them as instance properties
+   *
+   * This enables the pattern:
+   * ```typescript
+   * /**
+   *  * @mcp github anthropics/mcp-server-github
+   *  *\/
+   * export default class MyPhoton extends PhotonMCP {
+   *   async doSomething() {
+   *     const issues = await this.github.list_issues({ repo: 'owner/repo' });
+   *   }
+   * }
+   * ```
+   */
+  private async injectMCPDependencies(instance: any, source: string, photonName: string): Promise<void> {
+    const extractor = new SchemaExtractor();
+    const mcpDeps = extractor.extractMCPDependencies(source);
+
+    if (mcpDeps.length === 0) {
+      return;
+    }
+
+    this.log(`🔌 Found ${mcpDeps.length} @mcp dependencies`);
+
+    // Build MCP config from declarations
+    const mcpServers: Record<string, any> = {};
+    for (const dep of mcpDeps) {
+      try {
+        const config = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+        mcpServers[dep.name] = config;
+        this.log(`  - ${dep.name}: ${dep.source} (${dep.sourceType})`);
+      } catch (error: any) {
+        console.error(`⚠️  Failed to resolve MCP ${dep.name}: ${error.message}`);
+      }
+    }
+
+    if (Object.keys(mcpServers).length === 0) {
+      return;
+    }
+
+    // Create factory for these MCPs
+    const mcpConfig: MCPConfig = { mcpServers };
+    const factory = new StandaloneMCPClientFactory(mcpConfig, this.verbose);
+
+    // Inject each MCP as an instance property with proxy
+    for (const dep of mcpDeps) {
+      if (mcpServers[dep.name]) {
+        const client = factory.create(dep.name);
+        const proxy = createMCPProxy(client);
+
+        // Inject as instance property: this.github, this.fs, etc.
+        Object.defineProperty(instance, dep.name, {
+          value: proxy,
+          writable: false,
+          enumerable: true,
+          configurable: false,
+        });
+
+        this.log(`  ✅ Injected this.${dep.name}`);
+      }
+    }
+
+    // Store factory reference for cleanup
+    instance._mcpClientFactory = factory;
   }
 }
