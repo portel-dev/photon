@@ -18,10 +18,11 @@ import {
   PhotonTool,
   TemplateInfo,
   StaticInfo,
-  // Generator utilities
+  // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
   executeGenerator,
-  isInputYield,
+  type AskYield,
+  type EmitYield,
   type PhotonYield,
   type InputProvider,
   type OutputHandler,
@@ -870,55 +871,94 @@ Or run: photon ${mcpName} --config
   }
 
   /**
-   * Create an input provider for generator yields
-   * Uses the global prompt handler or falls back to native dialogs
+   * Create an input provider for generator ask yields
+   * Supports the new ask/emit pattern from photon-core 1.2.0
    */
   private createInputProvider(): InputProvider {
-    return async (yielded: PhotonYield) => {
-      if (!isInputYield(yielded)) return undefined;
+    return async (ask: AskYield): Promise<any> => {
+      switch (ask.ask) {
+        case 'text':
+        case 'password':
+          return await elicitPrompt(ask.message, 'default' in ask ? ask.default : undefined);
 
-      if ('prompt' in yielded) {
-        // Use global prompt handler (set by CLI/MCP) or fallback to elicit
-        return await elicitPrompt(yielded.prompt, yielded.default);
+        case 'confirm':
+          return await elicitConfirm(ask.message);
+
+        case 'select': {
+          const options = (ask.options || []).map((o: any) =>
+            typeof o === 'string' ? o : o.label
+          );
+          const result = await elicitPrompt(
+            `${ask.message}\nOptions: ${options.join(', ')}`
+          );
+          return result;
+        }
+
+        case 'number': {
+          const result = await elicitPrompt(ask.message, ask.default?.toString());
+          return result ? parseFloat(result) : ask.default ?? 0;
+        }
+
+        case 'date': {
+          const result = await elicitPrompt(ask.message, ask.default);
+          return result || ask.default || new Date().toISOString();
+        }
+
+        case 'file':
+          // File selection not supported in CLI readline
+          console.error(`⚠️ File selection not supported in CLI: ${ask.message}`);
+          return null;
+
+        default:
+          console.error(`⚠️ Unknown ask type: ${(ask as any).ask}`);
+          return undefined;
       }
-
-      if ('confirm' in yielded) {
-        return await elicitConfirm(yielded.confirm);
-      }
-
-      if ('select' in yielded) {
-        // For select, show options and get selection
-        // TODO: Implement select handling
-        const options = yielded.options.map((o: string | { value: string; label: string }) =>
-          typeof o === 'string' ? o : o.label
-        );
-        const result = await elicitPrompt(
-          `${yielded.select}\nOptions: ${options.join(', ')}`
-        );
-        return result;
-      }
-
-      return undefined;
     };
   }
 
   /**
-   * Create an output handler for generator yields (progress, stream, log)
+   * Create an output handler for generator emit yields
+   * Supports the new ask/emit pattern from photon-core 1.2.0
    */
   private createOutputHandler(): OutputHandler {
-    return (yielded: PhotonYield) => {
-      if ('progress' in yielded) {
-        console.error(`[progress] ${yielded.progress}% ${yielded.status || ''}`);
-      } else if ('stream' in yielded) {
-        // Stream data to stdout
-        if (typeof yielded.stream === 'string') {
-          process.stdout.write(yielded.stream);
-        } else {
-          console.log(JSON.stringify(yielded.stream));
+    return (emit: EmitYield) => {
+      switch (emit.emit) {
+        case 'progress':
+          console.error(`[progress] ${Math.round(emit.value * 100)}%${emit.message ? ` - ${emit.message}` : ''}`);
+          break;
+
+        case 'status':
+          console.error(`[status] ${emit.message}`);
+          break;
+
+        case 'log': {
+          const level = emit.level || 'info';
+          console.error(`[${level}] ${emit.message}`);
+          break;
         }
-      } else if ('log' in yielded) {
-        const level = yielded.level || 'info';
-        console.error(`[${level}] ${yielded.log}`);
+
+        case 'toast':
+          console.error(`[${emit.type || 'info'}] ${emit.message}`);
+          break;
+
+        case 'thinking':
+          if (emit.active) {
+            console.error(`[thinking] Processing...`);
+          }
+          break;
+
+        case 'stream':
+          // Stream data to stdout
+          if (typeof emit.data === 'string') {
+            process.stdout.write(emit.data);
+          } else {
+            console.log(JSON.stringify(emit.data));
+          }
+          break;
+
+        case 'artifact':
+          console.error(`[artifact] ${emit.title || emit.type}: ${emit.mimeType}`);
+          break;
       }
     };
   }
