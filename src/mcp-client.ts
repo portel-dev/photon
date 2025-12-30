@@ -477,6 +477,52 @@ export class StandaloneMCPClientFactory implements MCPClientFactory {
 }
 
 /**
+ * Resolve an MCP source to a runnable configuration
+ * Handles: GitHub shorthand, npm packages, URLs, local paths
+ */
+export function resolveMCPSource(name: string, source: string, sourceType: 'github' | 'npm' | 'url' | 'local'): MCPServerConfig {
+  switch (sourceType) {
+    case 'npm': {
+      // npm:@scope/package or npm:package
+      const packageName = source.replace(/^npm:/, '');
+      return {
+        command: 'npx',
+        args: ['-y', packageName],
+      };
+    }
+
+    case 'github': {
+      // GitHub shorthand: owner/repo
+      // Assumes the repo publishes to npm as @owner/repo or has npx support
+      // For now, we use npx with the assumption it's published to npm
+      // TODO: Support cloning and running directly
+      return {
+        command: 'npx',
+        args: ['-y', `@${source.replace('/', '/')}`],
+      };
+    }
+
+    case 'url': {
+      // Full URL - assume it's a git repo that can be run with npx
+      // TODO: Support cloning and running
+      throw new Error(`URL-based MCP sources not yet supported: ${source}`);
+    }
+
+    case 'local': {
+      // Local path - run directly with node or npx
+      const resolvedPath = source.replace(/^~/, process.env.HOME || '');
+      return {
+        command: 'node',
+        args: [resolvedPath],
+      };
+    }
+
+    default:
+      throw new Error(`Unknown MCP source type: ${sourceType}`);
+  }
+}
+
+/**
  * Load MCP configuration from standard locations
  */
 export async function loadMCPConfig(verbose: boolean = false): Promise<MCPConfig> {

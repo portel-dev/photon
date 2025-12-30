@@ -21,6 +21,7 @@ export {
   StandaloneMCPClientFactory,
   loadMCPConfig,
   createStandaloneMCPClientFactory,
+  resolveMCPSource,
   type MCPServerConfig,
   type MCPConfig,
 } from './mcp-client.js';
