@@ -32,6 +32,8 @@ import {
   // MCP Client types and SDK transport
   type MCPClientFactory,
   type MCPDependency,
+  type PhotonDependency,
+  type ResolvedInjection,
   createMCPProxy,
   MCPClient,
   SDKMCPClientFactory,
@@ -49,6 +51,12 @@ export class PhotonLoader {
   private dependencyManager: DependencyManager;
   private verbose: boolean;
   private mcpClientFactory?: MCPClientFactory;
+  /** Cache of loaded Photon instances by source path */
+  private loadedPhotons: Map<string, PhotonMCPClassExtended> = new Map();
+  /** MCP clients cache - reuse connections */
+  private mcpClients: Map<string, any> = new Map();
+  /** SDK factory for MCP connections */
+  private sdkFactory?: SDKMCPClientFactory;
 
   constructor(verbose: boolean = false) {
     this.dependencyManager = new DependencyManager();
@@ -243,25 +251,25 @@ export class PhotonLoader {
       // Get MCP name
       const name = this.getMCPName(MCPClass);
 
-      // Extract constructor parameters from source
-      const constructorParams = await this.extractConstructorParams(absolutePath);
+      // Resolve all constructor injections using type-based detection
+      const { values, configError } = await this.resolveAllInjections(
+        tsContent || '',
+        name,
+        absolutePath
+      );
 
-      // Resolve values from environment variables
-      const { values, configError } = this.resolveConstructorArgs(constructorParams, name);
-
-      // Create instance with injected config
+      // Create instance with injected dependencies
       let instance;
       try {
         instance = new MCPClass(...values);
       } catch (error: any) {
         // Constructor threw an error (likely validation failure)
-        // Enhance the error message with config information
+        const constructorParams = await this.extractConstructorParams(absolutePath);
         const enhancedError = this.enhanceConstructorError(error, name, constructorParams, configError);
         throw enhancedError;
       }
 
       // Store config warning for later if there were missing params
-      // (constructor didn't throw, but params were missing - they had defaults)
       if (configError) {
         instance._photonConfigError = configError;
         console.error(`⚠️  ${name} loaded with configuration warnings:`);
@@ -272,11 +280,6 @@ export class PhotonLoader {
       if (this.mcpClientFactory && typeof instance.setMCPFactory === 'function') {
         instance.setMCPFactory(this.mcpClientFactory);
         this.log(`Injected MCP factory into ${name}`);
-      }
-
-      // Extract and inject @mcp declared dependencies
-      if (tsContent) {
-        await this.injectMCPDependencies(instance, tsContent, name);
       }
 
       // Call lifecycle hook if present with error handling
@@ -601,7 +604,201 @@ export class PhotonLoader {
   }
 
   /**
+   * Resolve all constructor injections using type-based detection
+   * - Primitives (string, number, boolean) → env var
+   * - Non-primitives matching @mcp → MCP client
+   * - Non-primitives matching @photon → Photon instance
+   */
+  private async resolveAllInjections(
+    source: string,
+    mcpName: string,
+    photonPath: string
+  ): Promise<{ values: any[]; configError: string | null }> {
+    const extractor = new SchemaExtractor();
+    const injections = extractor.resolveInjections(source, mcpName);
+
+    const values: any[] = [];
+    const missing: Array<{ paramName: string; envVarName: string; type: string }> = [];
+    const missingDeps: string[] = [];
+
+    for (const injection of injections) {
+      const { param, injectionType } = injection;
+
+      switch (injectionType) {
+        case 'env': {
+          // Inject from environment variable
+          const envVarName = injection.envVarName!;
+          const envValue = process.env[envVarName];
+
+          if (envValue !== undefined) {
+            values.push(this.parseEnvValue(envValue, param.type));
+          } else if (param.hasDefault || param.isOptional) {
+            values.push(undefined);
+          } else {
+            missing.push({
+              paramName: param.name,
+              envVarName,
+              type: param.type,
+            });
+            values.push(undefined);
+          }
+          break;
+        }
+
+        case 'mcp': {
+          // Inject MCP client
+          const mcpDep = injection.mcpDependency!;
+          try {
+            const client = await this.getMCPClient(mcpDep);
+            values.push(client);
+            this.log(`  ✅ Injected MCP: ${mcpDep.name} (${mcpDep.source})`);
+          } catch (error: any) {
+            this.log(`  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${error.message}`);
+            missingDeps.push(`@mcp ${mcpDep.name} ${mcpDep.source}`);
+            values.push(undefined);
+          }
+          break;
+        }
+
+        case 'photon': {
+          // Inject Photon instance
+          const photonDep = injection.photonDependency!;
+          try {
+            const photonInstance = await this.getPhotonInstance(photonDep, photonPath);
+            values.push(photonInstance);
+            this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
+          } catch (error: any) {
+            this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${error.message}`);
+            missingDeps.push(`@photon ${photonDep.name} ${photonDep.source}`);
+            values.push(undefined);
+          }
+          break;
+        }
+      }
+    }
+
+    // Build error message
+    let configError: string | null = null;
+    if (missing.length > 0 || missingDeps.length > 0) {
+      const parts: string[] = [];
+
+      if (missing.length > 0) {
+        parts.push(this.generateConfigErrorMessage(mcpName, missing));
+      }
+
+      if (missingDeps.length > 0) {
+        parts.push(
+          `Missing dependencies:\n` +
+          missingDeps.map(d => `  • ${d}`).join('\n') +
+          `\n\nEnsure these are configured in your Photon config.`
+        );
+      }
+
+      configError = parts.join('\n\n');
+    }
+
+    return { values, configError };
+  }
+
+  /**
+   * Get or create an MCP client for a dependency
+   */
+  private async getMCPClient(dep: MCPDependency): Promise<any> {
+    // Check cache first
+    if (this.mcpClients.has(dep.name)) {
+      return this.mcpClients.get(dep.name);
+    }
+
+    // Resolve MCP source to config
+    const serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+
+    // Build config with this MCP
+    const mcpConfig: MCPConfig = {
+      mcpServers: {
+        [dep.name]: serverConfig,
+      },
+    };
+
+    // Create a factory for this MCP
+    // Note: Each MCP gets its own factory for isolation
+    const factory = new SDKMCPClientFactory(mcpConfig, this.verbose);
+
+    // Create client and proxy
+    const client = factory.create(dep.name);
+    const proxy = createMCPProxy(client);
+
+    // Cache it
+    this.mcpClients.set(dep.name, proxy);
+
+    return proxy;
+  }
+
+  /**
+   * Get or load a Photon instance for a dependency
+   */
+  private async getPhotonInstance(dep: PhotonDependency, currentPhotonPath: string): Promise<any> {
+    // Resolve the Photon path
+    const resolvedPath = this.resolvePhotonPath(dep, currentPhotonPath);
+
+    // Check cache
+    if (this.loadedPhotons.has(resolvedPath)) {
+      return this.loadedPhotons.get(resolvedPath)!.instance;
+    }
+
+    // Load the Photon (recursive call)
+    this.log(`  📦 Loading Photon dependency: ${dep.name} from ${resolvedPath}`);
+    const loaded = await this.loadFile(resolvedPath);
+
+    // Cache it
+    this.loadedPhotons.set(resolvedPath, loaded);
+
+    return loaded.instance;
+  }
+
+  /**
+   * Resolve Photon dependency path based on source type
+   */
+  private resolvePhotonPath(dep: PhotonDependency, currentPhotonPath: string): string {
+    switch (dep.sourceType) {
+      case 'local':
+        // Relative to current Photon
+        if (dep.source.startsWith('./') || dep.source.startsWith('../')) {
+          return path.resolve(path.dirname(currentPhotonPath), dep.source);
+        }
+        return dep.source;
+
+      case 'marketplace':
+        // TODO: Resolve from configured marketplace
+        // For now, try common locations
+        const marketplacePaths = [
+          path.join(os.homedir(), '.photon', 'marketplace', `${dep.source}.photon.ts`),
+          path.join(process.cwd(), 'photons', `${dep.source}.photon.ts`),
+          path.join(process.cwd(), `${dep.source}.photon.ts`),
+        ];
+        for (const p of marketplacePaths) {
+          try {
+            require('fs').accessSync(p);
+            return p;
+          } catch {}
+        }
+        throw new Error(`Photon "${dep.source}" not found in marketplace. Available locations checked: ${marketplacePaths.join(', ')}`);
+
+      case 'github':
+        // TODO: Download from GitHub
+        throw new Error(`GitHub Photon source not yet implemented: ${dep.source}`);
+
+      case 'npm':
+        // TODO: Install from npm
+        throw new Error(`npm Photon source not yet implemented: ${dep.source}`);
+
+      default:
+        throw new Error(`Unknown Photon source type: ${dep.sourceType}`);
+    }
+  }
+
+  /**
    * Resolve constructor arguments from environment variables
+   * @deprecated Use resolveAllInjections instead
    */
   private resolveConstructorArgs(
     params: ConstructorParam[],
