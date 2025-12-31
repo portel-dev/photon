@@ -15,7 +15,15 @@ import * as readline from 'readline';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
 import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
-import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
+import {
+  SchemaExtractor,
+  ConstructorParam,
+  loadPhotonMCPConfig,
+  setMCPServerConfig,
+  resolveMCPSource,
+  type MCPDependency,
+  type MCPServerConfig,
+} from '@portel/photon-core';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
@@ -46,6 +54,193 @@ function toEnvVarName(mcpName: string, paramName: string): string {
     .toUpperCase()
     .replace(/^_/, '');
   return `${mcpPrefix}_${paramSuffix}`;
+}
+
+/**
+ * Setup MCP dependencies during photon installation
+ * Detects @mcp declarations and prompts user to configure missing ones
+ */
+async function setupMCPDependencies(
+  source: string,
+  photonName: string,
+  options: { skipPrompts?: boolean } = {}
+): Promise<{ configured: string[]; skipped: string[] }> {
+  const extractor = new SchemaExtractor();
+  const mcpDeps = extractor.extractMCPDependencies(source);
+
+  if (mcpDeps.length === 0) {
+    return { configured: [], skipped: [] };
+  }
+
+  // Load existing config
+  const config = await loadPhotonMCPConfig();
+  const configured: string[] = [];
+  const skipped: string[] = [];
+
+  // Check which MCPs need configuration
+  const unconfigured = mcpDeps.filter(dep => !config.mcpServers[dep.name]);
+
+  if (unconfigured.length === 0) {
+    console.error(`\n✓ All ${mcpDeps.length} MCP dependencies already configured`);
+    return { configured: mcpDeps.map(d => d.name), skipped: [] };
+  }
+
+  console.error(`\n📦 Found ${mcpDeps.length} MCP dependencies:`);
+  for (const dep of mcpDeps) {
+    const status = config.mcpServers[dep.name] ? '✓' : '○';
+    console.error(`   ${status} ${dep.name} (${dep.source})`);
+  }
+
+  if (options.skipPrompts) {
+    // Auto-configure all without prompting
+    for (const dep of unconfigured) {
+      const serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+      await setMCPServerConfig(dep.name, serverConfig);
+      configured.push(dep.name);
+    }
+    console.error(`\n✓ Auto-configured ${configured.length} MCP(s) in ~/.photon/mcp-servers.json`);
+    return { configured, skipped };
+  }
+
+  // Interactive setup for each unconfigured MCP
+  console.error(`\n${unconfigured.length} MCP(s) need configuration:\n`);
+
+  for (const dep of unconfigured) {
+    const shouldConfigure = await promptYesNo(
+      `Configure ${dep.name}? (${dep.source})`,
+      true
+    );
+
+    if (!shouldConfigure) {
+      skipped.push(dep.name);
+      console.error(`   Skipped ${dep.name}`);
+      continue;
+    }
+
+    // Generate default config from @mcp source
+    const serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+
+    // Ask for environment variables
+    const envVars = await promptEnvVars(dep.name, serverConfig);
+    if (Object.keys(envVars).length > 0) {
+      serverConfig.env = { ...serverConfig.env, ...envVars };
+    }
+
+    // Save to config
+    await setMCPServerConfig(dep.name, serverConfig);
+    configured.push(dep.name);
+    console.error(`   ✓ Configured ${dep.name}`);
+  }
+
+  if (configured.length > 0) {
+    console.error(`\n✓ Saved ${configured.length} MCP(s) to ~/.photon/mcp-servers.json`);
+  }
+
+  if (skipped.length > 0) {
+    console.error(`\n⚠️  Skipped MCPs can be configured later with:`);
+    console.error(`   photon config mcp <name>`);
+  }
+
+  return { configured, skipped };
+}
+
+/**
+ * Prompt for yes/no with default
+ */
+async function promptYesNo(message: string, defaultYes: boolean = true): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  const hint = defaultYes ? '[Y/n]' : '[y/N]';
+
+  return new Promise((resolve) => {
+    rl.question(`${message} ${hint}: `, (answer) => {
+      rl.close();
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === '') {
+        resolve(defaultYes);
+      } else {
+        resolve(trimmed === 'y' || trimmed === 'yes');
+      }
+    });
+  });
+}
+
+/**
+ * Prompt for environment variables for an MCP
+ */
+async function promptEnvVars(
+  mcpName: string,
+  serverConfig: MCPServerConfig
+): Promise<Record<string, string>> {
+  const envVars: Record<string, string> = {};
+
+  // Common env var patterns based on MCP name
+  const commonPatterns: Record<string, string[]> = {
+    slack: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID'],
+    github: ['GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'],
+    filesystem: [], // No tokens needed
+    postgres: ['POSTGRES_CONNECTION_STRING', 'DATABASE_URL'],
+    sqlite: [], // No tokens needed
+    brave: ['BRAVE_API_KEY'],
+    fetch: [], // No tokens needed
+    memory: [], // No tokens needed
+    puppeteer: [], // No tokens needed
+    google: ['GOOGLE_API_KEY'],
+    openai: ['OPENAI_API_KEY'],
+    anthropic: ['ANTHROPIC_API_KEY'],
+  };
+
+  // Find matching pattern
+  const lowerName = mcpName.toLowerCase();
+  let suggestedVars: string[] = [];
+
+  for (const [pattern, vars] of Object.entries(commonPatterns)) {
+    if (lowerName.includes(pattern)) {
+      suggestedVars = vars;
+      break;
+    }
+  }
+
+  if (suggestedVars.length === 0) {
+    // No known env vars needed
+    return envVars;
+  }
+
+  console.error(`\n   Environment variables for ${mcpName}:`);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  for (const varName of suggestedVars) {
+    const existingValue = process.env[varName];
+    const hint = existingValue ? ` (found in env)` : '';
+
+    const value = await new Promise<string>((resolve) => {
+      rl.question(`   ${varName}${hint}: `, (answer) => {
+        resolve(answer.trim());
+      });
+    });
+
+    if (value) {
+      // Store as reference if it looks like an env var reference
+      if (value.startsWith('$')) {
+        envVars[varName] = value.replace('$', '${') + '}';
+      } else {
+        envVars[varName] = value;
+      }
+    } else if (existingValue) {
+      // Use env var reference
+      envVars[varName] = `\${${varName}}`;
+    }
+  }
+
+  rl.close();
+  return envVars;
 }
 
 /**
@@ -1479,6 +1674,7 @@ program
   .argument('<name>', 'MCP name to add')
   .option('--marketplace <name>', 'Specific marketplace to use')
   .option('-y, --yes', 'Automatically select first suggestion without prompting')
+  .option('--skip-mcp-setup', 'Skip MCP dependency configuration')
   .description('Add an MCP from a marketplace')
   .action(async (name: string, options: any, command: Command) => {
     try {
@@ -1679,6 +1875,20 @@ program
         console.error(`Version: ${selectedMetadata.version}`);
       }
       console.error(`Location: ${filePath}`);
+
+      // Setup MCP dependencies if present
+      if (!options.skipMcpSetup) {
+        const { configured, skipped } = await setupMCPDependencies(content, name, {
+          skipPrompts: options.yes,
+        });
+
+        if (skipped.length > 0) {
+          console.error(`\n⚠️  Some MCPs were not configured. Run:`);
+          console.error(`   photon mcp ${name}`);
+          console.error(`   to see configuration requirements.`);
+        }
+      }
+
       console.error(`\nRun with: photon mcp ${name}`);
       console.error(`\nTo customize: Copy to a new name and run with --dev for hot reload`);
     } catch (error: any) {
