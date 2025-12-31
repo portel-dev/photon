@@ -39,6 +39,12 @@ import {
   SDKMCPClientFactory,
   resolveMCPSource,
   type MCPConfig,
+  // Photon runtime configuration
+  loadPhotonMCPConfig,
+  getMCPServerConfig,
+  resolveEnvVars,
+  type PhotonMCPConfig,
+  type MCPServerConfig,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -57,10 +63,27 @@ export class PhotonLoader {
   private mcpClients: Map<string, any> = new Map();
   /** SDK factory for MCP connections */
   private sdkFactory?: SDKMCPClientFactory;
+  /** Cached MCP config from ~/.photon/mcp-servers.json */
+  private mcpConfig?: PhotonMCPConfig;
 
   constructor(verbose: boolean = false) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
+  }
+
+  /**
+   * Load MCP configuration from ~/.photon/mcp-servers.json
+   * Called lazily on first MCP injection
+   */
+  private async ensureMCPConfig(): Promise<PhotonMCPConfig> {
+    if (!this.mcpConfig) {
+      this.mcpConfig = await loadPhotonMCPConfig();
+      const serverCount = Object.keys(this.mcpConfig.mcpServers).length;
+      if (serverCount > 0) {
+        this.log(`Loaded ${serverCount} MCP servers from config`);
+      }
+    }
+    return this.mcpConfig;
   }
 
   /**
@@ -702,6 +725,10 @@ export class PhotonLoader {
 
   /**
    * Get or create an MCP client for a dependency
+   *
+   * Resolution order:
+   * 1. Check ~/.photon/mcp-servers.json for configured server
+   * 2. Fall back to resolving from @mcp declaration source
    */
   private async getMCPClient(dep: MCPDependency): Promise<any> {
     // Check cache first
@@ -709,8 +736,19 @@ export class PhotonLoader {
       return this.mcpClients.get(dep.name);
     }
 
-    // Resolve MCP source to config
-    const serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+    // Try to get config from ~/.photon/mcp-servers.json first
+    const photonConfig = await this.ensureMCPConfig();
+    let serverConfig: MCPServerConfig;
+
+    if (photonConfig.mcpServers[dep.name]) {
+      // Use pre-configured server from mcp-servers.json
+      serverConfig = resolveEnvVars(photonConfig.mcpServers[dep.name]);
+      this.log(`  Using configured MCP: ${dep.name} from mcp-servers.json`);
+    } else {
+      // Fall back to resolving from @mcp declaration
+      serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
+      this.log(`  Resolving MCP: ${dep.name} from @mcp declaration (${dep.source})`);
+    }
 
     // Build config with this MCP
     const mcpConfig: MCPConfig = {
