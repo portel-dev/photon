@@ -36,6 +36,9 @@ import {
   type ResolvedInjection,
   createMCPProxy,
   MCPClient,
+  MCPConfigurationError,
+  type MissingMCPInfo,
+  type MCPSourceType,
   SDKMCPClientFactory,
   resolveMCPSource,
   type MCPConfig,
@@ -631,6 +634,8 @@ export class PhotonLoader {
    * - Primitives (string, number, boolean) → env var
    * - Non-primitives matching @mcp → MCP client
    * - Non-primitives matching @photon → Photon instance
+   *
+   * Throws MCPConfigurationError if MCP dependencies are missing
    */
   private async resolveAllInjections(
     source: string,
@@ -641,8 +646,9 @@ export class PhotonLoader {
     const injections = extractor.resolveInjections(source, mcpName);
 
     const values: any[] = [];
-    const missing: Array<{ paramName: string; envVarName: string; type: string }> = [];
-    const missingDeps: string[] = [];
+    const missingEnvVars: Array<{ paramName: string; envVarName: string; type: string }> = [];
+    const missingMCPs: MissingMCPInfo[] = [];
+    const missingPhotons: string[] = [];
 
     for (const injection of injections) {
       const { param, injectionType } = injection;
@@ -658,7 +664,7 @@ export class PhotonLoader {
           } else if (param.hasDefault || param.isOptional) {
             values.push(undefined);
           } else {
-            missing.push({
+            missingEnvVars.push({
               paramName: param.name,
               envVarName,
               type: param.type,
@@ -676,8 +682,19 @@ export class PhotonLoader {
             values.push(client);
             this.log(`  ✅ Injected MCP: ${mcpDep.name} (${mcpDep.source})`);
           } catch (error: any) {
+            // If it's already an MCPConfigurationError, re-throw it directly
+            if (error instanceof MCPConfigurationError) {
+              throw error;
+            }
+
             this.log(`  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${error.message}`);
-            missingDeps.push(`@mcp ${mcpDep.name} ${mcpDep.source}`);
+            missingMCPs.push({
+              name: mcpDep.name,
+              source: mcpDep.source,
+              sourceType: mcpDep.sourceType as MCPSourceType,
+              declaredIn: path.basename(photonPath),
+              originalError: error.message,
+            });
             values.push(undefined);
           }
           break;
@@ -692,7 +709,7 @@ export class PhotonLoader {
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
           } catch (error: any) {
             this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${error.message}`);
-            missingDeps.push(`@photon ${photonDep.name} ${photonDep.source}`);
+            missingPhotons.push(`@photon ${photonDep.name} ${photonDep.source}: ${error.message}`);
             values.push(undefined);
           }
           break;
@@ -700,20 +717,26 @@ export class PhotonLoader {
       }
     }
 
-    // Build error message
+    // Throw MCPConfigurationError immediately if MCP dependencies are missing
+    // This provides actionable guidance to users
+    if (missingMCPs.length > 0) {
+      throw new MCPConfigurationError(missingMCPs);
+    }
+
+    // Build config error for env vars and photon dependencies
     let configError: string | null = null;
-    if (missing.length > 0 || missingDeps.length > 0) {
+    if (missingEnvVars.length > 0 || missingPhotons.length > 0) {
       const parts: string[] = [];
 
-      if (missing.length > 0) {
-        parts.push(this.generateConfigErrorMessage(mcpName, missing));
+      if (missingEnvVars.length > 0) {
+        parts.push(this.generateConfigErrorMessage(mcpName, missingEnvVars));
       }
 
-      if (missingDeps.length > 0) {
+      if (missingPhotons.length > 0) {
         parts.push(
-          `Missing dependencies:\n` +
-          missingDeps.map(d => `  • ${d}`).join('\n') +
-          `\n\nEnsure these are configured in your Photon config.`
+          `Missing Photon dependencies:\n` +
+          missingPhotons.map(d => `  • ${d}`).join('\n') +
+          `\n\nEnsure these Photons are installed and accessible.`
         );
       }
 
@@ -729,6 +752,8 @@ export class PhotonLoader {
    * Resolution order:
    * 1. Check ~/.photon/mcp-servers.json for configured server
    * 2. Fall back to resolving from @mcp declaration source
+   *
+   * Validates connection on first use - throws MCPConfigurationError if connection fails
    */
   private async getMCPClient(dep: MCPDependency): Promise<any> {
     // Check cache first
@@ -739,10 +764,12 @@ export class PhotonLoader {
     // Try to get config from ~/.photon/mcp-servers.json first
     const photonConfig = await this.ensureMCPConfig();
     let serverConfig: MCPServerConfig;
+    let isFromConfig = false;
 
     if (photonConfig.mcpServers[dep.name]) {
       // Use pre-configured server from mcp-servers.json
       serverConfig = resolveEnvVars(photonConfig.mcpServers[dep.name]);
+      isFromConfig = true;
       this.log(`  Using configured MCP: ${dep.name} from mcp-servers.json`);
     } else {
       // Fall back to resolving from @mcp declaration
@@ -764,6 +791,35 @@ export class PhotonLoader {
     // Create client and proxy
     const client = factory.create(dep.name);
     const proxy = createMCPProxy(client);
+
+    // Validate connection by attempting to list tools
+    // This catches configuration errors early (missing env vars, wrong command, etc.)
+    try {
+      this.log(`  Connecting to MCP: ${dep.name}...`);
+      await client.list();
+      this.log(`  ✅ Connected to MCP: ${dep.name}`);
+    } catch (error: any) {
+      const errorMsg = error.message || 'Unknown connection error';
+
+      // If not configured in mcp-servers.json, throw configuration error
+      if (!isFromConfig) {
+        throw new MCPConfigurationError([{
+          name: dep.name,
+          source: dep.source,
+          sourceType: dep.sourceType as MCPSourceType,
+          originalError: errorMsg,
+        }]);
+      }
+
+      // If configured but failed, provide more specific error
+      throw new Error(
+        `MCP "${dep.name}" is configured but failed to connect: ${errorMsg}\n` +
+        `Check your ~/.photon/mcp-servers.json configuration and ensure:\n` +
+        `  • The command/URL is correct\n` +
+        `  • Required environment variables are set\n` +
+        `  • The MCP server is accessible`
+      );
+    }
 
     // Cache it
     this.mcpClients.set(dep.name, proxy);
