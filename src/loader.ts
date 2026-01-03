@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'fs/promises';
+import { accessSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
@@ -865,15 +866,18 @@ export class PhotonLoader {
         // TODO: Resolve from configured marketplace
         // For now, try common locations
         const marketplacePaths = [
+          path.join(os.homedir(), '.photon', `${dep.source}.photon.ts`),
           path.join(os.homedir(), '.photon', 'marketplace', `${dep.source}.photon.ts`),
           path.join(process.cwd(), 'photons', `${dep.source}.photon.ts`),
           path.join(process.cwd(), `${dep.source}.photon.ts`),
         ];
         for (const p of marketplacePaths) {
           try {
-            require('fs').accessSync(p);
+            accessSync(p);
             return p;
-          } catch {}
+          } catch {
+            // Continue to next path
+          }
         }
         throw new Error(`Photon "${dep.source}" not found in marketplace. Available locations checked: ${marketplacePaths.join(', ')}`);
 
