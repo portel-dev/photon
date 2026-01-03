@@ -99,6 +99,221 @@ class ProgressRenderer {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ELICITATION HANDLERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Handle form-based elicitation (MCP-aligned)
+ * Renders a multi-field form in CLI using readline
+ */
+async function handleFormElicitation(ask: {
+  message: string;
+  schema: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
+  console.log(`\n📝 ${ask.message}\n`);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  const question = (prompt: string): Promise<string> => {
+    return new Promise((resolve) => {
+      rl.question(prompt, (answer) => resolve(answer));
+    });
+  };
+
+  const result: Record<string, any> = {};
+  const required = ask.schema.required || [];
+
+  for (const [key, prop] of Object.entries(ask.schema.properties)) {
+    const title = prop.title || key;
+    const isRequired = required.includes(key);
+    const reqMark = isRequired ? '*' : '';
+    const defaultVal = prop.default !== undefined ? ` [${prop.default}]` : '';
+
+    let value: any;
+
+    // Handle different property types
+    if (prop.type === 'boolean') {
+      const answer = await question(`${title}${reqMark} (y/n)${defaultVal}: `);
+      if (answer === '' && prop.default !== undefined) {
+        value = prop.default;
+      } else {
+        value = answer.toLowerCase().startsWith('y');
+      }
+    } else if (prop.enum || prop.oneOf) {
+      // Single select
+      const options = prop.oneOf
+        ? prop.oneOf.map((o: any) => ({ value: o.const, label: o.title }))
+        : prop.enum.map((e: string) => ({ value: e, label: e }));
+
+      console.log(`${title}${reqMark}:`);
+      options.forEach((opt: any, i: number) => {
+        const isDefault = opt.value === prop.default ? ' (default)' : '';
+        console.log(`  ${i + 1}. ${opt.label}${isDefault}`);
+      });
+
+      const answer = await question(`Choose (1-${options.length})${defaultVal}: `);
+      const idx = parseInt(answer) - 1;
+      if (idx >= 0 && idx < options.length) {
+        value = options[idx].value;
+      } else if (answer === '' && prop.default !== undefined) {
+        value = prop.default;
+      } else {
+        value = options[0].value;
+      }
+    } else if (prop.type === 'array') {
+      // Multi-select
+      const items = prop.items?.anyOf || prop.items?.enum?.map((e: string) => ({ const: e, title: e }));
+      if (items) {
+        console.log(`${title}${reqMark} (comma-separated numbers):`);
+        items.forEach((item: any, i: number) => {
+          const label = item.title || item.const || item;
+          console.log(`  ${i + 1}. ${label}`);
+        });
+
+        const answer = await question(`Choose: `);
+        const indices = answer.split(',').map((s: string) => parseInt(s.trim()) - 1);
+        value = indices
+          .filter((idx: number) => idx >= 0 && idx < items.length)
+          .map((idx: number) => items[idx].const || items[idx]);
+
+        if (value.length === 0 && prop.default) {
+          value = prop.default;
+        }
+      } else {
+        value = prop.default || [];
+      }
+    } else if (prop.type === 'number' || prop.type === 'integer') {
+      const answer = await question(`${title}${reqMark}${defaultVal}: `);
+      if (answer === '' && prop.default !== undefined) {
+        value = prop.default;
+      } else {
+        value = prop.type === 'integer' ? parseInt(answer) : parseFloat(answer);
+        if (isNaN(value)) value = prop.default ?? 0;
+      }
+    } else {
+      // String or default
+      const format = prop.format ? ` (${prop.format})` : '';
+      const answer = await question(`${title}${reqMark}${format}${defaultVal}: `);
+      value = answer || prop.default || '';
+    }
+
+    result[key] = value;
+  }
+
+  rl.close();
+  console.log('');
+
+  return { action: 'accept', content: result };
+}
+
+/**
+ * Handle URL-based elicitation (OAuth flows)
+ * Opens URL in browser and waits for user confirmation
+ */
+async function handleUrlElicitation(ask: {
+  message: string;
+  url: string;
+}): Promise<{ action: 'accept' | 'decline' | 'cancel' }> {
+  console.log(`\n🔗 ${ask.message}`);
+  console.log(`   URL: ${ask.url}\n`);
+
+  // Open URL in default browser
+  const platform = process.platform;
+  const openCommand =
+    platform === 'darwin' ? 'open' :
+    platform === 'win32' ? 'start' : 'xdg-open';
+
+  try {
+    const { exec } = await import('child_process');
+    exec(`${openCommand} "${ask.url}"`);
+  } catch (error) {
+    console.log(`   (Please open the URL manually in your browser)`);
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  return new Promise((resolve) => {
+    rl.question('Press Enter when done (or type "cancel" to abort): ', (answer) => {
+      rl.close();
+      if (answer.toLowerCase() === 'cancel') {
+        resolve({ action: 'cancel' });
+      } else {
+        resolve({ action: 'accept' });
+      }
+    });
+  });
+}
+
+/**
+ * Handle select elicitation with options
+ */
+async function handleSelectElicitation(ask: {
+  message: string;
+  options: Array<string | { value: string; label: string; description?: string }>;
+  multi?: boolean;
+  default?: string | string[];
+}): Promise<string | string[]> {
+  console.log(`\n${ask.message}`);
+
+  const options = ask.options.map((opt) =>
+    typeof opt === 'string' ? { value: opt, label: opt } : opt
+  );
+
+  options.forEach((opt, i) => {
+    const isDefault = ask.default === opt.value || (Array.isArray(ask.default) && ask.default.includes(opt.value));
+    const defaultMark = isDefault ? ' ✓' : '';
+    const desc = opt.description ? ` - ${opt.description}` : '';
+    console.log(`  ${i + 1}. ${opt.label}${desc}${defaultMark}`);
+  });
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  return new Promise((resolve) => {
+    const prompt = ask.multi
+      ? `Choose (comma-separated, 1-${options.length}): `
+      : `Choose (1-${options.length}): `;
+
+    rl.question(prompt, (answer) => {
+      rl.close();
+
+      if (ask.multi) {
+        if (answer.trim() === '') {
+          resolve(Array.isArray(ask.default) ? ask.default : []);
+        } else {
+          const indices = answer.split(',').map((s) => parseInt(s.trim()) - 1);
+          const values = indices
+            .filter((idx) => idx >= 0 && idx < options.length)
+            .map((idx) => options[idx].value);
+          resolve(values);
+        }
+      } else {
+        const idx = parseInt(answer) - 1;
+        if (idx >= 0 && idx < options.length) {
+          resolve(options[idx].value);
+        } else if (answer.trim() === '' && ask.default) {
+          resolve(ask.default as string);
+        } else {
+          resolve(options[0].value);
+        }
+      }
+    });
+  });
+}
+
 /**
  * Extract constructor parameters from a Photon MCP file
  */
@@ -2696,6 +2911,21 @@ program
             // Clear progress before asking for input
             progress.done();
 
+            // Handle form-based elicitation (MCP-aligned)
+            if (ask.ask === 'form') {
+              return handleFormElicitation(ask as any);
+            }
+
+            // Handle URL elicitation (OAuth flows)
+            if (ask.ask === 'url') {
+              return handleUrlElicitation(ask as any);
+            }
+
+            // Handle select with options
+            if (ask.ask === 'select') {
+              return handleSelectElicitation(ask as any);
+            }
+
             const rl = readline.createInterface({
               input: process.stdin,
               output: process.stderr,
@@ -2920,6 +3150,21 @@ program
           resume: true,
           inputProvider: async (ask) => {
             progress.done();
+
+            // Handle form-based elicitation (MCP-aligned)
+            if (ask.ask === 'form') {
+              return handleFormElicitation(ask as any);
+            }
+
+            // Handle URL elicitation (OAuth flows)
+            if (ask.ask === 'url') {
+              return handleUrlElicitation(ask as any);
+            }
+
+            // Handle select with options
+            if (ask.ask === 'select') {
+              return handleSelectElicitation(ask as any);
+            }
 
             const rl = readline.createInterface({
               input: process.stdin,
