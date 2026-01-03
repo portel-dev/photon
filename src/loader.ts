@@ -19,6 +19,11 @@ import {
   PhotonTool,
   TemplateInfo,
   StaticInfo,
+  // Asset types (MCP Apps support)
+  type PhotonAssets,
+  type UIAsset,
+  type PromptAsset,
+  type ResourceAsset,
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
   executeGenerator,
@@ -328,10 +333,16 @@ export class PhotonLoader {
       // Extract tools, templates, and statics (with schema override support)
       const { tools, templates, statics } = await this.extractTools(MCPClass, absolutePath);
 
+      // Extract assets from source and discover asset folder
+      const assets = await this.discoverAssets(absolutePath, tsContent || '');
+
       const counts = [
         tools.length > 0 ? `${tools.length} tools` : null,
         templates.length > 0 ? `${templates.length} templates` : null,
         statics.length > 0 ? `${statics.length} statics` : null,
+        assets && (assets.ui.length > 0 || assets.prompts.length > 0 || assets.resources.length > 0)
+          ? `${assets.ui.length + assets.prompts.length + assets.resources.length} assets`
+          : null,
       ].filter(Boolean).join(', ');
 
       this.log(`✅ Loaded: ${name} (${counts})`);
@@ -343,6 +354,7 @@ export class PhotonLoader {
         templates,
         statics,
         instance,
+        assets,
       };
     } catch (error: any) {
       console.error(`❌ Failed to load ${filePath}: ${error.message}`);
@@ -1351,5 +1363,204 @@ Or run: photon ${mcpName} --config
 
     // Store factory reference for cleanup
     instance._mcpClientFactory = factory;
+  }
+
+  /**
+   * Discover and extract assets from a Photon file
+   *
+   * Convention:
+   * - Asset folder: {photon-name}/ next to {photon-name}.photon.ts
+   * - Example: my-tool.photon.ts → my-tool/ (contains ui/, prompts/, resources/)
+   *
+   * Assets are declared via JSDoc annotations:
+   * - @ui <id> <path> - UI templates for MCP Apps
+   * - @prompt <id> <path> - Static prompts
+   * - @resource <id> <path> - Static resources
+   */
+  private async discoverAssets(photonPath: string, source: string): Promise<PhotonAssets | undefined> {
+    const extractor = new SchemaExtractor();
+    const dir = path.dirname(photonPath);
+    const basename = path.basename(photonPath, '.photon.ts');
+
+    // Convention: asset folder has same name as photon (without .photon.ts)
+    const assetFolder = path.join(dir, basename);
+
+    // Check if asset folder exists
+    let folderExists = false;
+    try {
+      const stat = await fs.stat(assetFolder);
+      folderExists = stat.isDirectory();
+    } catch {
+      // Folder doesn't exist
+    }
+
+    // Extract assets from source annotations
+    const assets = extractor.extractAssets(source, folderExists ? assetFolder : undefined);
+
+    // If no assets declared and no folder, skip
+    if (!folderExists && assets.ui.length === 0 && assets.prompts.length === 0 && assets.resources.length === 0) {
+      return undefined;
+    }
+
+    // Resolve paths for declared assets
+    if (folderExists) {
+      // Resolve UI assets
+      for (const ui of assets.ui) {
+        ui.resolvedPath = path.resolve(assetFolder, ui.path.replace(/^\.\//, ''));
+        if (await this.fileExists(ui.resolvedPath)) {
+          this.log(`  📄 UI: ${ui.id} → ${ui.path}`);
+        } else {
+          console.warn(`⚠️  UI asset not found: ${ui.path}`);
+        }
+      }
+
+      // Resolve prompt assets
+      for (const prompt of assets.prompts) {
+        prompt.resolvedPath = path.resolve(assetFolder, prompt.path.replace(/^\.\//, ''));
+        if (await this.fileExists(prompt.resolvedPath)) {
+          this.log(`  📝 Prompt: ${prompt.id} → ${prompt.path}`);
+        } else {
+          console.warn(`⚠️  Prompt asset not found: ${prompt.path}`);
+        }
+      }
+
+      // Resolve resource assets
+      for (const resource of assets.resources) {
+        resource.resolvedPath = path.resolve(assetFolder, resource.path.replace(/^\.\//, ''));
+        if (await this.fileExists(resource.resolvedPath)) {
+          this.log(`  📦 Resource: ${resource.id} → ${resource.path}`);
+        } else {
+          console.warn(`⚠️  Resource asset not found: ${resource.path}`);
+        }
+      }
+
+      // Also auto-discover assets from folder structure if not explicitly declared
+      await this.autoDiscoverAssets(assetFolder, assets);
+    }
+
+    return assets;
+  }
+
+  /**
+   * Auto-discover assets from folder structure
+   * Scans ui/, prompts/, resources/ subdirectories
+   */
+  private async autoDiscoverAssets(assetFolder: string, assets: PhotonAssets): Promise<void> {
+    const extractor = new SchemaExtractor();
+
+    // Auto-discover UI files
+    const uiDir = path.join(assetFolder, 'ui');
+    if (await this.fileExists(uiDir)) {
+      try {
+        const files = await fs.readdir(uiDir);
+        for (const file of files) {
+          const id = path.basename(file, path.extname(file));
+          // Skip if already declared
+          if (!assets.ui.find(u => u.id === id)) {
+            const resolvedPath = path.join(uiDir, file);
+            assets.ui.push({
+              id,
+              path: `./ui/${file}`,
+              resolvedPath,
+              mimeType: this.getMimeType(file),
+            });
+            this.log(`  📄 UI (auto): ${id} → ./ui/${file}`);
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+
+    // Auto-discover prompt files
+    const promptsDir = path.join(assetFolder, 'prompts');
+    if (await this.fileExists(promptsDir)) {
+      try {
+        const files = await fs.readdir(promptsDir);
+        for (const file of files) {
+          if (file.endsWith('.md') || file.endsWith('.txt')) {
+            const id = path.basename(file, path.extname(file));
+            // Skip if already declared
+            if (!assets.prompts.find(p => p.id === id)) {
+              const resolvedPath = path.join(promptsDir, file);
+              assets.prompts.push({
+                id,
+                path: `./prompts/${file}`,
+                resolvedPath,
+              });
+              this.log(`  📝 Prompt (auto): ${id} → ./prompts/${file}`);
+            }
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+
+    // Auto-discover resource files
+    const resourcesDir = path.join(assetFolder, 'resources');
+    if (await this.fileExists(resourcesDir)) {
+      try {
+        const files = await fs.readdir(resourcesDir);
+        for (const file of files) {
+          const id = path.basename(file, path.extname(file));
+          // Skip if already declared
+          if (!assets.resources.find(r => r.id === id)) {
+            const resolvedPath = path.join(resourcesDir, file);
+            assets.resources.push({
+              id,
+              path: `./resources/${file}`,
+              resolvedPath,
+              mimeType: this.getMimeType(file),
+            });
+            this.log(`  📦 Resource (auto): ${id} → ./resources/${file}`);
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+  }
+
+  /**
+   * Check if a file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get MIME type from file extension
+   */
+  private getMimeType(filename: string): string {
+    const ext = path.extname(filename).toLowerCase().slice(1);
+    const mimeTypes: Record<string, string> = {
+      'html': 'text/html',
+      'htm': 'text/html',
+      'css': 'text/css',
+      'js': 'application/javascript',
+      'mjs': 'application/javascript',
+      'jsx': 'text/jsx',
+      'ts': 'text/typescript',
+      'tsx': 'text/tsx',
+      'json': 'application/json',
+      'yaml': 'application/yaml',
+      'yml': 'application/yaml',
+      'xml': 'application/xml',
+      'md': 'text/markdown',
+      'txt': 'text/plain',
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'gif': 'image/gif',
+      'svg': 'image/svg+xml',
+      'webp': 'image/webp',
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
   }
 }
