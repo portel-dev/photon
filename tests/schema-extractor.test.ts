@@ -775,7 +775,128 @@ async function runTests() {
     console.log('✅ Decimal multipleOf');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (38 tests)');
+  // ═══════════════════════════════════════════════════════════════════
+  // ASSET EXTRACTION TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Test 39: UI asset extraction
+  {
+    const source = `
+      /**
+       * Preferences Photon
+       * @ui settings ./ui/settings.html
+       * @ui theme-preview ./ui/theme-preview.html
+       */
+      export default class Prefs extends PhotonMCP {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.ui.length, 2, 'Should detect 2 UI assets');
+    assert.equal(assets.ui[0].id, 'settings', 'First UI id should be settings');
+    assert.equal(assets.ui[0].path, './ui/settings.html', 'First UI path should be ./ui/settings.html');
+    assert.equal(assets.ui[1].id, 'theme-preview', 'Second UI id should be theme-preview');
+    console.log('✅ UI asset extraction');
+  }
+
+  // Test 40: Prompt asset extraction
+  {
+    const source = `
+      /**
+       * Test Photon
+       * @prompt welcome ./prompts/welcome.md
+       * @prompt error-msg ./prompts/error.md
+       */
+      export default class Test extends PhotonMCP {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.prompts.length, 2, 'Should detect 2 prompt assets');
+    assert.equal(assets.prompts[0].id, 'welcome', 'First prompt id should be welcome');
+    assert.equal(assets.prompts[1].id, 'error-msg', 'Second prompt id should be error-msg');
+    console.log('✅ Prompt asset extraction');
+  }
+
+  // Test 41: Resource asset extraction
+  {
+    const source = `
+      /**
+       * Test Photon
+       * @resource defaults ./resources/defaults.json
+       * @resource schema /absolute/path/schema.json
+       */
+      export default class Test extends PhotonMCP {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.resources.length, 2, 'Should detect 2 resource assets');
+    assert.equal(assets.resources[0].id, 'defaults', 'First resource id should be defaults');
+    assert.equal(assets.resources[0].path, './resources/defaults.json', 'Should have relative path');
+    assert.equal(assets.resources[1].path, '/absolute/path/schema.json', 'Should have absolute path');
+    console.log('✅ Resource asset extraction');
+  }
+
+  // Test 42: Mixed asset types
+  {
+    const source = `
+      /**
+       * Full Photon
+       * @ui form ./ui/form.html
+       * @prompt greeting ./prompts/greeting.md
+       * @resource config ./resources/config.json
+       */
+      export default class Full extends PhotonMCP {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.ui.length, 1, 'Should have 1 UI asset');
+    assert.equal(assets.prompts.length, 1, 'Should have 1 prompt asset');
+    assert.equal(assets.resources.length, 1, 'Should have 1 resource asset');
+    console.log('✅ Mixed asset types extraction');
+  }
+
+  // Test 43: Invalid paths should not match (no ./ or / prefix)
+  {
+    const source = `
+      /**
+       * Test Photon
+       * @ui settings ui/settings.html
+       * This is a @ui reference that should not match
+       */
+      export default class Test extends PhotonMCP {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.ui.length, 0, 'Should not match paths without ./ or / prefix');
+    console.log('✅ Invalid paths rejected');
+  }
+
+  // Test 44: JSDoc closing should not match as path
+  {
+    const source = `
+      /**
+       * Test method
+       * @ui settings
+       */
+      async editSettings() {}
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.ui.length, 0, 'Method-level @ui without path should not be a declaration');
+    console.log('✅ Method-level @ui (no path) not treated as declaration');
+  }
+
+  // Test 45: No assets when none declared
+  {
+    const source = `
+      /**
+       * Simple Photon with no assets
+       */
+      export default class Simple extends PhotonMCP {
+        async doSomething() { return true; }
+      }
+    `;
+    const assets = extractor.extractAssets(source);
+    assert.equal(assets.ui.length, 0, 'Should have no UI assets');
+    assert.equal(assets.prompts.length, 0, 'Should have no prompt assets');
+    assert.equal(assets.resources.length, 0, 'Should have no resource assets');
+    console.log('✅ No assets when none declared');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (45 tests)');
 }
 
 // Run if executed directly

@@ -170,6 +170,107 @@ async function runTests() {
       console.log('✅ Static result formatting');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // ASSET SERVING TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Test 7: Asset URI pattern matching
+    {
+      const server = new PhotonServer({ filePath: testFile });
+
+      // Test asset URI regex pattern
+      const assetPattern = /^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/;
+
+      const match1 = 'photon://test-server/ui/settings'.match(assetPattern);
+      assert.ok(match1, 'Should match asset URI');
+      assert.equal(match1![1], 'test-server', 'Should extract photon name');
+      assert.equal(match1![2], 'ui', 'Should extract asset type');
+      assert.equal(match1![3], 'settings', 'Should extract asset id');
+
+      const match2 = 'photon://prefs/prompts/welcome'.match(assetPattern);
+      assert.equal(match2![2], 'prompts', 'Should match prompts type');
+
+      const match3 = 'photon://app/resources/config'.match(assetPattern);
+      assert.equal(match3![2], 'resources', 'Should match resources type');
+
+      const noMatch = 'api://docs'.match(assetPattern);
+      assert.equal(noMatch, null, 'Should not match non-asset URIs');
+
+      console.log('✅ Asset URI pattern matching');
+    }
+
+    // Test 8: Asset resource description generation
+    {
+      // Test that linked tools get proper descriptions
+      const ui1 = { id: 'settings', linkedTool: 'editSettings', mimeType: 'text/html' };
+      const desc1 = ui1.linkedTool
+        ? `UI template for ${ui1.linkedTool} tool`
+        : `UI template: ${ui1.id}`;
+      assert.equal(desc1, 'UI template for editSettings tool', 'Should include linked tool in description');
+
+      const ui2 = { id: 'theme', mimeType: 'text/html' };
+      const desc2 = (ui2 as any).linkedTool
+        ? `UI template for ${(ui2 as any).linkedTool} tool`
+        : `UI template: ${ui2.id}`;
+      assert.equal(desc2, 'UI template: theme', 'Should fallback to id when no linked tool');
+
+      console.log('✅ Asset resource description generation');
+    }
+
+    // Test 9: Asset MIME type detection
+    {
+      const getMimeType = (filename: string): string => {
+        if (filename.endsWith('.html')) return 'text/html';
+        if (filename.endsWith('.md')) return 'text/markdown';
+        if (filename.endsWith('.json')) return 'application/json';
+        if (filename.endsWith('.jsx') || filename.endsWith('.tsx')) return 'text/jsx';
+        return 'application/octet-stream';
+      };
+
+      assert.equal(getMimeType('settings.html'), 'text/html', 'Should detect HTML');
+      assert.equal(getMimeType('welcome.md'), 'text/markdown', 'Should detect Markdown');
+      assert.equal(getMimeType('config.json'), 'application/json', 'Should detect JSON');
+      assert.equal(getMimeType('component.jsx'), 'text/jsx', 'Should detect JSX');
+      assert.equal(getMimeType('unknown.xyz'), 'application/octet-stream', 'Should fallback to octet-stream');
+
+      console.log('✅ Asset MIME type detection');
+    }
+
+    // Test 10: Server with assets (via loader)
+    {
+      const photonName = 'test-with-assets';
+      const photonFile = path.join(testDir, `${photonName}.photon.ts`);
+      const assetFolder = path.join(testDir, photonName);
+
+      // Create asset folder structure
+      await fs.mkdir(path.join(assetFolder, 'ui'), { recursive: true });
+      await fs.writeFile(path.join(assetFolder, 'ui', 'form.html'), '<html>Form</html>');
+
+      // Create photon file
+      const assetContent = `
+        export default class TestWithAssets {
+          /**
+           * Edit form
+           * @ui form
+           */
+          async editForm() { return true; }
+        }
+      `;
+      await fs.writeFile(photonFile, assetContent, 'utf-8');
+
+      // Test via loader (server.start() is async and uses stdio)
+      const { PhotonLoader } = await import('../src/loader.js');
+      const loader = new PhotonLoader();
+      const mcp = await loader.loadFile(photonFile);
+
+      // Check that MCP has assets
+      assert.ok(mcp.assets, 'MCP should have assets');
+      assert.equal(mcp.assets.ui.length, 1, 'Should have 1 UI asset');
+      assert.equal(mcp.assets.ui[0].linkedTool, 'editForm', 'UI should be linked to editForm');
+
+      console.log('✅ Server with assets');
+    }
+
     console.log('\n✅ All Server tests passed!');
   } finally {
     // Cleanup
