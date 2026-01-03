@@ -18,6 +18,7 @@ import {
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import * as fs from 'fs/promises';
 import { PhotonLoader } from './loader.js';
 import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
@@ -172,14 +173,51 @@ export class PhotonServer {
       // Only return resources with static URIs (no {parameters})
       const staticResources = this.mcp.statics.filter(s => !this.isUriTemplate(s.uri));
 
-      return {
-        resources: staticResources.map(static_ => ({
-          uri: static_.uri,
-          name: static_.name,
-          description: static_.description,
-          mimeType: static_.mimeType || 'text/plain',
-        })),
-      };
+      const resources = staticResources.map(static_ => ({
+        uri: static_.uri,
+        name: static_.name,
+        description: static_.description,
+        mimeType: static_.mimeType || 'text/plain',
+      }));
+
+      // Add assets from asset folder (UI, prompts, resources)
+      if (this.mcp.assets) {
+        const photonName = this.mcp.name;
+
+        // Add UI assets
+        for (const ui of this.mcp.assets.ui) {
+          resources.push({
+            uri: `photon://${photonName}/ui/${ui.id}`,
+            name: `ui:${ui.id}`,
+            description: ui.linkedTool
+              ? `UI template for ${ui.linkedTool} tool`
+              : `UI template: ${ui.id}`,
+            mimeType: ui.mimeType || 'text/html',
+          });
+        }
+
+        // Add prompt assets
+        for (const prompt of this.mcp.assets.prompts) {
+          resources.push({
+            uri: `photon://${photonName}/prompts/${prompt.id}`,
+            name: `prompt:${prompt.id}`,
+            description: prompt.description || `Prompt template: ${prompt.id}`,
+            mimeType: 'text/markdown',
+          });
+        }
+
+        // Add resource assets
+        for (const resource of this.mcp.assets.resources) {
+          resources.push({
+            uri: `photon://${photonName}/resources/${resource.id}`,
+            name: `resource:${resource.id}`,
+            description: resource.description || `Static resource: ${resource.id}`,
+            mimeType: resource.mimeType || 'application/octet-stream',
+          });
+        }
+      }
+
+      return { resources };
     });
 
     // Handle resources/templates/list (parameterized URIs)
@@ -208,6 +246,55 @@ export class PhotonServer {
       }
 
       const { uri } = request.params;
+
+      // Check if this is an asset URI (photon://{name}/{type}/{id})
+      const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
+      if (assetMatch && this.mcp.assets) {
+        const [, photonName, assetType, assetId] = assetMatch;
+
+        // Find the asset by type and id
+        let resolvedPath: string | undefined;
+        let mimeType: string = 'text/plain';
+
+        if (assetType === 'ui') {
+          const ui = this.mcp.assets.ui.find(u => u.id === assetId);
+          if (ui) {
+            resolvedPath = ui.resolvedPath;
+            mimeType = ui.mimeType || 'text/html';
+          }
+        } else if (assetType === 'prompts') {
+          const prompt = this.mcp.assets.prompts.find(p => p.id === assetId);
+          if (prompt) {
+            resolvedPath = prompt.resolvedPath;
+            mimeType = 'text/markdown';
+          }
+        } else if (assetType === 'resources') {
+          const resource = this.mcp.assets.resources.find(r => r.id === assetId);
+          if (resource) {
+            resolvedPath = resource.resolvedPath;
+            mimeType = resource.mimeType || 'application/octet-stream';
+          }
+        }
+
+        if (resolvedPath) {
+          try {
+            const content = await fs.readFile(resolvedPath, 'utf-8');
+            return {
+              contents: [
+                {
+                  uri,
+                  mimeType,
+                  text: content,
+                },
+              ],
+            };
+          } catch (error: any) {
+            throw new Error(`Failed to read asset: ${error.message}`);
+          }
+        }
+
+        throw new Error(`Asset not found: ${uri}`);
+      }
 
       // Find the static resource by URI
       const static_ = this.mcp.statics.find(s => s.uri === uri || this.matchUriPattern(s.uri, uri));
