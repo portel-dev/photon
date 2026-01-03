@@ -1394,17 +1394,16 @@ Or run: photon ${mcpName} --config
       // Folder doesn't exist
     }
 
-    // Extract assets from source annotations
+    // Extract explicit asset declarations from source annotations
     const assets = extractor.extractAssets(source, folderExists ? assetFolder : undefined);
 
-    // If no assets declared and no folder, skip
+    // If no folder exists and no explicit declarations, skip
     if (!folderExists && assets.ui.length === 0 && assets.prompts.length === 0 && assets.resources.length === 0) {
       return undefined;
     }
 
-    // Resolve paths for declared assets
     if (folderExists) {
-      // Resolve UI assets
+      // Resolve paths for explicitly declared assets
       for (const ui of assets.ui) {
         ui.resolvedPath = path.resolve(assetFolder, ui.path.replace(/^\.\//, ''));
         if (await this.fileExists(ui.resolvedPath)) {
@@ -1414,7 +1413,6 @@ Or run: photon ${mcpName} --config
         }
       }
 
-      // Resolve prompt assets
       for (const prompt of assets.prompts) {
         prompt.resolvedPath = path.resolve(assetFolder, prompt.path.replace(/^\.\//, ''));
         if (await this.fileExists(prompt.resolvedPath)) {
@@ -1424,7 +1422,6 @@ Or run: photon ${mcpName} --config
         }
       }
 
-      // Resolve resource assets
       for (const resource of assets.resources) {
         resource.resolvedPath = path.resolve(assetFolder, resource.path.replace(/^\.\//, ''));
         if (await this.fileExists(resource.resolvedPath)) {
@@ -1434,11 +1431,34 @@ Or run: photon ${mcpName} --config
         }
       }
 
-      // Also auto-discover assets from folder structure if not explicitly declared
+      // Auto-discover assets from folder structure (convention-based)
       await this.autoDiscoverAssets(assetFolder, assets);
+
+      // Apply method-level @ui links AFTER auto-discovery
+      // This allows linking auto-discovered UI to specific tools
+      this.applyMethodUILinks(source, assets);
     }
 
     return assets;
+  }
+
+  /**
+   * Apply method-level @ui annotations to link UI assets to tools
+   * Called after auto-discovery so all UI assets are available
+   */
+  private applyMethodUILinks(source: string, assets: PhotonAssets): void {
+    // Match method JSDoc with @ui annotation: /** ... @ui <id> ... */ async methodName
+    const methodUiRegex = /\/\*\*[\s\S]*?@ui\s+(\w[\w-]*)[\s\S]*?\*\/\s*(?:async\s+)?\*?\s*(\w+)/g;
+
+    let match;
+    while ((match = methodUiRegex.exec(source)) !== null) {
+      const [, uiId, methodName] = match;
+      const asset = assets.ui.find(u => u.id === uiId);
+      if (asset && !asset.linkedTool) {
+        asset.linkedTool = methodName;
+        this.log(`  🔗 UI ${uiId} → ${methodName}`);
+      }
+    }
   }
 
   /**
