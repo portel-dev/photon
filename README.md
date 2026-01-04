@@ -692,6 +692,28 @@ photon cli calculator add 5 10 --json
 - `0` - Success
 - `1` - Error (invalid arguments, execution failure, etc.)
 
+**Resuming Workflows:**
+
+Long-running workflows that use checkpoints can be resumed if interrupted:
+
+```bash
+# First run - workflow gets interrupted
+photon cli report-generator generate week 52
+# Output: Starting workflow...
+#         [Step 1/3] Collecting data...
+#         ^C (interrupted)
+#         Run ID: run_abc123_xyz
+
+# Resume from where it left off
+photon cli report-generator generate week 52 --resume run_abc123_xyz
+# Output: Resuming from step 2 of workflow...
+#         [Step 2/3] Analyzing data...
+#         [Step 3/3] Generating report...
+#         Done!
+```
+
+Workflows automatically become stateful when they yield checkpoints. See [Stateful Workflows](https://github.com/portel-dev/photon-core#stateful-workflows-checkpoint-pattern) for implementation details.
+
 **Examples:**
 
 ```bash
