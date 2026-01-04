@@ -64,6 +64,67 @@ interface DependencySpec {
   version: string;
 }
 
+/**
+ * Inline progress renderer for CLI
+ * Shows progress bar with animation on a single line
+ */
+class ProgressRenderer {
+  private lastLength = 0;
+  private spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  private spinnerIndex = 0;
+  private isActive = false;
+
+  /**
+   * Render progress inline (overwrites current line)
+   */
+  render(value: number, message?: string): void {
+    this.isActive = true;
+    const pct = Math.round(value * 100);
+    const barWidth = 20;
+    const filled = Math.round(value * barWidth);
+    const empty = barWidth - filled;
+
+    // Progress bar: [████████░░░░░░░░░░░░]
+    const bar = '█'.repeat(filled) + '░'.repeat(empty);
+    const spinner = pct < 100 ? this.spinnerFrames[this.spinnerIndex++ % this.spinnerFrames.length] : '✓';
+
+    const text = `${spinner} [${bar}] ${pct.toString().padStart(3)}%${message ? ` ${message}` : ''}`;
+
+    // Clear previous line and write new content
+    this.clearLine();
+    process.stderr.write(text);
+    this.lastLength = text.length;
+  }
+
+  /**
+   * Clear the progress line
+   */
+  clearLine(): void {
+    if (this.lastLength > 0) {
+      process.stderr.write('\r' + ' '.repeat(this.lastLength) + '\r');
+    }
+  }
+
+  /**
+   * End progress display (clears the line)
+   */
+  done(): void {
+    if (this.isActive) {
+      this.clearLine();
+      this.isActive = false;
+      this.lastLength = 0;
+    }
+  }
+
+  /**
+   * Print a status message (clears progress first)
+   */
+  status(message: string): void {
+    this.done();
+    console.error(`ℹ ${message}`);
+  }
+}
+
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
   private verbose: boolean;
@@ -76,6 +137,8 @@ export class PhotonLoader {
   private sdkFactory?: SDKMCPClientFactory;
   /** Cached MCP config from ~/.photon/mcp-servers.json */
   private mcpConfig?: PhotonMCPConfig;
+  /** Progress renderer for inline CLI animation */
+  private progressRenderer = new ProgressRenderer();
 
   constructor(verbose: boolean = false) {
     this.dependencyManager = new DependencyManager();
@@ -1295,36 +1358,52 @@ Or run: photon ${mcpName} --config
   /**
    * Create an output handler for generator emit yields
    * Supports the new ask/emit pattern from photon-core 1.2.0
+   * Uses inline progress animation for CLI
    */
   private createOutputHandler(): OutputHandler {
     return (emit: EmitYield) => {
       switch (emit.emit) {
         case 'progress':
-          console.error(`[progress] ${Math.round(emit.value * 100)}%${emit.message ? ` - ${emit.message}` : ''}`);
+          // Use inline progress bar with spinner animation
+          this.progressRenderer.render(emit.value, emit.message);
+          // Clear progress line when complete
+          if (emit.value >= 1) {
+            this.progressRenderer.done();
+          }
           break;
 
         case 'status':
-          console.error(`[status] ${emit.message}`);
+          // Status clears progress and prints message
+          this.progressRenderer.status(emit.message);
           break;
 
         case 'log': {
+          // Logs clear progress first to avoid overlap
+          this.progressRenderer.done();
           const level = emit.level || 'info';
-          console.error(`[${level}] ${emit.message}`);
+          const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ';
+          console.error(`${prefix} ${emit.message}`);
           break;
         }
 
         case 'toast':
-          console.error(`[${emit.type || 'info'}] ${emit.message}`);
+          this.progressRenderer.done();
+          const icon = emit.type === 'error' ? '❌' : emit.type === 'warning' ? '⚠️' : emit.type === 'success' ? '✅' : 'ℹ';
+          console.error(`${icon} ${emit.message}`);
           break;
 
         case 'thinking':
           if (emit.active) {
-            console.error(`[thinking] Processing...`);
+            // Show thinking as indeterminate progress
+            this.progressRenderer.render(0, 'Processing...');
+          } else {
+            this.progressRenderer.done();
           }
           break;
 
         case 'stream':
-          // Stream data to stdout
+          // Stream clears progress first
+          this.progressRenderer.done();
           if (typeof emit.data === 'string') {
             process.stdout.write(emit.data);
           } else {
@@ -1333,7 +1412,8 @@ Or run: photon ${mcpName} --config
           break;
 
         case 'artifact':
-          console.error(`[artifact] ${emit.title || emit.type}: ${emit.mimeType}`);
+          this.progressRenderer.done();
+          console.error(`📦 ${emit.title || emit.type}: ${emit.mimeType}`);
           break;
       }
     };
