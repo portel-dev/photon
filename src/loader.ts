@@ -1296,6 +1296,8 @@ Or run: photon ${mcpName} --config
           _stateful: true,
           runId: execResult.runId,
           resumed: execResult.resumed,
+          resumedFromStep: execResult.resumedFromStep,
+          checkpointsCompleted: execResult.checkpointsCompleted,
           status: execResult.status,
           result: execResult.result,
         };
