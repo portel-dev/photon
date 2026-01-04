@@ -1264,7 +1264,20 @@ export async function runMethod(
 
     // Check for --json flag
     const jsonOutput = args.includes('--json');
-    const filteredArgs = args.filter(arg => arg !== '--json');
+
+    // Check for --resume <runId> flag
+    let resumeRunId: string | undefined;
+    const resumeIndex = args.indexOf('--resume');
+    if (resumeIndex !== -1 && args[resumeIndex + 1]) {
+      resumeRunId = args[resumeIndex + 1];
+    }
+
+    // Filter out special flags before parsing method args
+    const filteredArgs = args.filter((arg, i) =>
+      arg !== '--json' &&
+      arg !== '--resume' &&
+      (resumeIndex === -1 || i !== resumeIndex + 1)
+    );
 
     // Parse arguments
     const parsedArgs = parseCliArgs(filteredArgs, method.params);
@@ -1320,23 +1333,38 @@ export async function runMethod(
       const loader = new PhotonLoader(false); // verbose=false for CLI mode
       const photonInstance = await loader.loadFile(resolvedPath);
 
-      // Call the method
-      result = await loader.executeTool(photonInstance, methodName, parsedArgs);
+      // Call the method (with optional resume)
+      result = await loader.executeTool(photonInstance, methodName, parsedArgs, { resumeRunId });
     }
+
+    // Check if this was a stateful workflow execution
+    const isStateful = result && typeof result === 'object' && result._stateful === true;
+    const actualResult = isStateful ? result.result : result;
 
     // Display result
     if (jsonOutput) {
-      const jsonStr = JSON.stringify(result, null, 2);
+      // For JSON output, include workflow metadata if stateful
+      const outputData = isStateful ? { ...result, result: actualResult } : actualResult;
+      const jsonStr = JSON.stringify(outputData, null, 2);
       baseFormatOutput(jsonStr, 'json');
       // Check for errors in JSON output too
-      if (result && typeof result === 'object' && result.success === false) {
+      if (actualResult && typeof actualResult === 'object' && actualResult.success === false) {
         process.exit(1);
       }
     } else {
-      const formatHint = method.format || (looksLikeMarkdown(result) ? 'markdown' : undefined);
-      const success = formatOutput(result, formatHint);
+      const formatHint = method.format || (looksLikeMarkdown(actualResult) ? 'markdown' : undefined);
+      const success = formatOutput(actualResult, formatHint);
       if (!success) {
         process.exit(1);
+      }
+
+      // Show workflow info after result for stateful workflows
+      if (isStateful && result.runId) {
+        console.log('');
+        console.log('─'.repeat(50));
+        console.log(`📋 Workflow Run: ${result.runId}`);
+        console.log(`   Status: ${result.status}${result.resumed ? ' (resumed)' : ''}`);
+        console.log(`   To resume if interrupted: photon cli ${photonName} ${methodName} --resume ${result.runId}`);
       }
     }
 

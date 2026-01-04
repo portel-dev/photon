@@ -98,10 +98,14 @@ export class PhotonServer {
         const tool = this.mcp.tools.find(t => t.name === toolName);
         const outputFormat = (tool as any)?.outputFormat;
 
+        // Check if this was a stateful workflow execution
+        const isStateful = result && typeof result === 'object' && result._stateful === true;
+        const actualResult = isStateful ? result.result : result;
+
         // Build content with optional mimeType annotation
         const content: any = {
           type: 'text',
-          text: this.formatResult(result),
+          text: this.formatResult(actualResult),
         };
 
         // Add mimeType annotation if outputFormat is a content type
@@ -111,6 +115,18 @@ export class PhotonServer {
           if (mimeType) {
             content.annotations = { mimeType };
           }
+        }
+
+        // For stateful workflows, add run ID as a separate content block
+        // This allows the AI to inform the user about the workflow run
+        if (isStateful && result.runId) {
+          const workflowInfo = {
+            type: 'text',
+            text: `\n\n---\n📋 **Workflow Run**: ${result.runId}\n` +
+                  `Status: ${result.status}${result.resumed ? ' (resumed)' : ''}\n` +
+                  `This is a stateful workflow. To resume if interrupted, use run ID: ${result.runId}`,
+          };
+          return { content: [content, workflowInfo] };
         }
 
         return { content: [content] };
