@@ -26,12 +26,14 @@ import {
   type ResourceAsset,
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
-  executeGenerator,
   type AskYield,
   type EmitYield,
   type PhotonYield,
   type InputProvider,
   type OutputHandler,
+  // Implicit stateful execution (auto-detect checkpoint yields)
+  maybeStatefulExecute,
+  type MaybeStatefulResult,
   // Elicit for fallback
   prompt as elicitPrompt,
   confirm as elicitConfirm,
@@ -1166,8 +1168,22 @@ Or run: photon ${mcpName} --config
   /**
    * Execute a tool on the loaded MCP instance
    * Handles both regular async methods and async generators
+   *
+   * For generators with checkpoint yields, automatically uses stateful execution
+   * with JSONL persistence. The run ID is returned in the result for stateful workflows.
+   *
+   * @param mcp - The loaded Photon MCP
+   * @param toolName - Name of the tool to execute
+   * @param parameters - Input parameters for the tool
+   * @param options - Optional execution options
+   * @returns Tool result, or wrapped result with runId for stateful workflows
    */
-  async executeTool(mcp: PhotonMCPClass, toolName: string, parameters: any): Promise<any> {
+  async executeTool(
+    mcp: PhotonMCPClass,
+    toolName: string,
+    parameters: any,
+    options?: { resumeRunId?: string }
+  ): Promise<any> {
     try {
       // Check for configuration errors before executing tool
       if (mcp.instance._photonConfigError) {
@@ -1176,29 +1192,54 @@ Or run: photon ${mcpName} --config
 
       // Check if instance has PhotonMCP's executeTool method
       if (typeof mcp.instance.executeTool === 'function') {
+        // PhotonMCP base class handles execution
         return await mcp.instance.executeTool(toolName, parameters);
-      } else {
-        // Plain class - call method directly
-        const method = mcp.instance[toolName];
-
-        if (!method || typeof method !== 'function') {
-          throw new Error(`Tool not found: ${toolName}`);
-        }
-
-        const result = method.call(mcp.instance, parameters);
-
-        // Check if result is an async generator
-        if (isAsyncGenerator(result)) {
-          // Execute the generator with input/output handling
-          // Cast to expected type (generator methods should yield PhotonYield)
-          return await executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
-            inputProvider: this.createInputProvider(),
-            outputHandler: this.createOutputHandler(),
-          });
-        }
-
-        return await result;
       }
+
+      // Plain class - call method directly with implicit stateful support
+      const method = mcp.instance[toolName];
+
+      if (!method || typeof method !== 'function') {
+        throw new Error(`Tool not found: ${toolName}`);
+      }
+
+      // Create a generator factory for maybeStatefulExecute
+      // This allows re-execution on resume
+      const generatorFn = () => method.call(mcp.instance, parameters);
+
+      // Use maybeStatefulExecute for all executions
+      // It handles both regular async and generators, detecting checkpoint yields
+      const execResult = await maybeStatefulExecute(generatorFn, {
+        photon: mcp.name,
+        tool: toolName,
+        params: parameters,
+        inputProvider: this.createInputProvider(),
+        outputHandler: this.createOutputHandler(),
+        resumeRunId: options?.resumeRunId,
+      });
+
+      // If there was an error, throw it
+      if (execResult.error) {
+        const error = new Error(execResult.error);
+        if (execResult.runId) {
+          (error as any).runId = execResult.runId;
+        }
+        throw error;
+      }
+
+      // For stateful workflows, wrap result with metadata
+      if (execResult.isStateful && execResult.runId) {
+        return {
+          _stateful: true,
+          runId: execResult.runId,
+          resumed: execResult.resumed,
+          status: execResult.status,
+          result: execResult.result,
+        };
+      }
+
+      // For ephemeral execution, return result directly
+      return execResult.result;
     } catch (error: any) {
       console.error(`Tool execution failed: ${toolName} - ${error.message}`);
       throw error;
