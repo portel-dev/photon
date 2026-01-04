@@ -1374,18 +1374,14 @@ export async function runMethod(
     }
 
   } catch (error: any) {
-    // User-friendly error messages without stack traces
-    const errorMsg = error.message || 'Unknown error occurred';
+    // Check for custom user-facing message from photon
+    // Photons can throw: throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
+    const userMessage = error.userMessage || error.message || 'Unknown error occurred';
+    const hint = error.hint;
 
-    // Provide helpful context based on error type
-    if (errorMsg.includes('timeout')) {
-      console.log('❌ Request timed out. The TV may be unreachable or the operation took too long.');
-      console.log('💡 Check that your TV is on and connected to the network.');
-    } else if (errorMsg.includes('Connection error') || errorMsg.includes('Connection closed')) {
-      console.log('❌ Failed to communicate with the TV.');
-      console.log('💡 Try reconnecting with: photon cli lg-remote connect --ip <tv-ip>');
-    } else {
-      console.log(`❌ ${errorMsg}`);
+    console.error(`❌ ${userMessage}`);
+    if (hint) {
+      console.error(`💡 ${hint}`);
     }
 
     process.exit(1);
