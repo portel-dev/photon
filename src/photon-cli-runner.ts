@@ -1333,6 +1333,11 @@ export async function runMethod(
       const loader = new PhotonLoader(false); // verbose=false for CLI mode
       const photonInstance = await loader.loadFile(resolvedPath);
 
+      // Print resume message before execution
+      if (resumeRunId) {
+        console.log(`Resuming workflow ${resumeRunId}...`);
+      }
+
       // Call the method (with optional resume)
       result = await loader.executeTool(photonInstance, methodName, parsedArgs, { resumeRunId });
     }
@@ -1358,13 +1363,13 @@ export async function runMethod(
         process.exit(1);
       }
 
-      // Show workflow info after result for stateful workflows
+      // Show run ID for stateful workflows
       if (isStateful && result.runId) {
         console.log('');
-        console.log('─'.repeat(50));
-        console.log(`📋 Workflow Run: ${result.runId}`);
-        console.log(`   Status: ${result.status}${result.resumed ? ' (resumed)' : ''}`);
-        console.log(`   To resume if interrupted: photon cli ${photonName} ${methodName} --resume ${result.runId}`);
+        if (result.resumed && result.resumedFromStep !== undefined) {
+          console.log(`Resumed from step ${result.resumedFromStep}, completed ${result.checkpointsCompleted} checkpoints`);
+        }
+        console.log(`Run ID: ${result.runId}`);
       }
     }
 
