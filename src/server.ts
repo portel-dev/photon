@@ -91,11 +91,23 @@ export class PhotonServer {
       }
 
       return {
-        tools: this.mcp.tools.map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        })),
+        tools: this.mcp.tools.map(tool => {
+          const toolDef: any = {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          };
+
+          // Add _meta with outputTemplate if tool has linked UI
+          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+          if (linkedUI) {
+            toolDef._meta = {
+              outputTemplate: `photon://${this.mcp!.name}/ui/${linkedUI.id}`,
+            };
+          }
+
+          return toolDef;
+        }),
       };
     });
 
@@ -756,11 +768,23 @@ export class PhotonServer {
     sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
       if (!this.mcp) return { tools: [] };
       return {
-        tools: this.mcp.tools.map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        })),
+        tools: this.mcp.tools.map(tool => {
+          const toolDef: any = {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          };
+
+          // Add _meta with outputTemplate if tool has linked UI
+          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+          if (linkedUI) {
+            toolDef._meta = {
+              outputTemplate: `photon://${this.mcp!.name}/ui/${linkedUI.id}`,
+            };
+          }
+
+          return toolDef;
+        }),
       };
     });
 
