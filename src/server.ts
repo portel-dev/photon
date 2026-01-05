@@ -2,10 +2,12 @@
  * Photon MCP Server
  *
  * Wraps a .photon.ts file as an MCP server using @modelcontextprotocol/sdk
+ * Supports both stdio and SSE transports
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -19,14 +21,26 @@ import {
   ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 
+export type TransportType = 'stdio' | 'sse';
+
 export interface PhotonServerOptions {
   filePath: string;
   devMode?: boolean;
+  transport?: TransportType;
+  port?: number;
 }
+
+// SSE session record for managing multiple clients
+type SSESession = {
+  server: Server;
+  transport: SSEServerTransport;
+};
 
 export class PhotonServer {
   private loader: PhotonLoader;
@@ -34,6 +48,8 @@ export class PhotonServer {
   private server: Server;
   private options: PhotonServerOptions;
   private mcpClientFactory: StandaloneMCPClientFactory | null = null;
+  private httpServer: ReturnType<typeof createServer> | null = null;
+  private sseSessions: Map<string, SSESession> = new Map();
 
   constructor(options: PhotonServerOptions) {
     this.options = options;
@@ -538,11 +554,14 @@ export class PhotonServer {
       console.error(`Loading ${this.options.filePath}...`);
       this.mcp = await this.loader.loadFile(this.options.filePath);
 
-      // Connect to stdio transport
-      const transport = new StdioServerTransport();
-      await this.server.connect(transport);
+      // Start with the appropriate transport
+      const transport = this.options.transport || 'stdio';
 
-      console.error(`Server started: ${this.mcp.name}`);
+      if (transport === 'sse') {
+        await this.startSSE();
+      } else {
+        await this.startStdio();
+      }
 
       // In dev mode, we could set up file watching here
       if (this.options.devMode) {
@@ -553,6 +572,395 @@ export class PhotonServer {
       console.error(error.stack);
       process.exit(1);
     }
+  }
+
+  /**
+   * Start server with stdio transport
+   */
+  private async startStdio() {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    console.error(`Server started: ${this.mcp!.name}`);
+  }
+
+  /**
+   * Start server with SSE transport (HTTP)
+   */
+  private async startSSE() {
+    const port = this.options.port || 3000;
+    const ssePath = '/mcp';
+    const messagesPath = '/mcp/messages';
+
+    this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      if (!req.url) {
+        res.writeHead(400).end('Missing URL');
+        return;
+      }
+
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+      // Handle CORS preflight
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.end();
+        return;
+      }
+
+      // SSE connection endpoint
+      if (req.method === 'GET' && url.pathname === ssePath) {
+        await this.handleSSEConnection(res, messagesPath);
+        return;
+      }
+
+      // Message posting endpoint
+      if (req.method === 'POST' && url.pathname === messagesPath) {
+        await this.handleSSEMessage(req, res, url);
+        return;
+      }
+
+      // Health check / info endpoint
+      if (req.method === 'GET' && url.pathname === '/') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          name: this.mcp?.name || 'photon-mcp',
+          transport: 'sse',
+          endpoints: {
+            sse: `http://localhost:${port}${ssePath}`,
+            messages: `http://localhost:${port}${messagesPath}`,
+          },
+          tools: this.mcp?.tools.length || 0,
+          assets: this.mcp?.assets ? {
+            ui: this.mcp.assets.ui.length,
+            prompts: this.mcp.assets.prompts.length,
+            resources: this.mcp.assets.resources.length,
+          } : null,
+        }));
+        return;
+      }
+
+      res.writeHead(404).end('Not Found');
+    });
+
+    this.httpServer.on('clientError', (err: Error, socket) => {
+      console.error('HTTP client error:', err.message);
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    });
+
+    await new Promise<void>((resolve) => {
+      this.httpServer!.listen(port, () => {
+        console.error(`\n🚀 ${this.mcp!.name} MCP server (SSE)`);
+        console.error(`   http://localhost:${port}`);
+        console.error(`\n   Endpoints:`);
+        console.error(`   SSE stream:  GET  http://localhost:${port}${ssePath}`);
+        console.error(`   Messages:    POST http://localhost:${port}${messagesPath}?sessionId=...`);
+        console.error('');
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Handle new SSE connection
+   */
+  private async handleSSEConnection(res: ServerResponse, messagesPath: string) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Create a new MCP server instance for this session
+    const sessionServer = new Server(
+      {
+        name: this.mcp?.name || 'photon-mcp',
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          tools: { listChanged: true },
+          prompts: { listChanged: true },
+          resources: { listChanged: true },
+        },
+      }
+    );
+
+    // Copy handlers to the session server
+    this.setupSessionHandlers(sessionServer);
+
+    // Create SSE transport
+    const transport = new SSEServerTransport(messagesPath, res);
+    const sessionId = transport.sessionId;
+
+    // Store session
+    this.sseSessions.set(sessionId, { server: sessionServer, transport });
+
+    // Clean up on close
+    transport.onclose = async () => {
+      this.sseSessions.delete(sessionId);
+      await sessionServer.close();
+    };
+
+    transport.onerror = (error) => {
+      console.error(`SSE transport error (${sessionId}):`, error);
+    };
+
+    try {
+      await sessionServer.connect(transport);
+      console.error(`SSE client connected: ${sessionId}`);
+    } catch (error) {
+      this.sseSessions.delete(sessionId);
+      console.error('Failed to establish SSE connection:', error);
+      if (!res.headersSent) {
+        res.writeHead(500).end('Failed to establish SSE connection');
+      }
+    }
+  }
+
+  /**
+   * Handle incoming SSE message
+   */
+  private async handleSSEMessage(req: IncomingMessage, res: ServerResponse, url: URL) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    const sessionId = url.searchParams.get('sessionId');
+
+    if (!sessionId) {
+      res.writeHead(400).end('Missing sessionId query parameter');
+      return;
+    }
+
+    const session = this.sseSessions.get(sessionId);
+
+    if (!session) {
+      res.writeHead(404).end('Unknown session');
+      return;
+    }
+
+    try {
+      await session.transport.handlePostMessage(req, res);
+    } catch (error) {
+      console.error('Failed to process message:', error);
+      if (!res.headersSent) {
+        res.writeHead(500).end('Failed to process message');
+      }
+    }
+  }
+
+  /**
+   * Set up handlers for a session-specific MCP server
+   * This duplicates handlers from the main server to each session
+   */
+  private setupSessionHandlers(sessionServer: Server) {
+    // Handle tools/list
+    sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
+      if (!this.mcp) return { tools: [] };
+      return {
+        tools: this.mcp.tools.map(tool => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        })),
+      };
+    });
+
+    // Handle tools/call
+    sessionServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (!this.mcp) throw new Error('MCP not loaded');
+      const { name: toolName, arguments: args } = request.params;
+      try {
+        const result = await this.loader.executeTool(this.mcp, toolName, args || {});
+        const tool = this.mcp.tools.find(t => t.name === toolName);
+        const outputFormat = (tool as any)?.outputFormat;
+
+        const isStateful = result && typeof result === 'object' && result._stateful === true;
+        const actualResult = isStateful ? result.result : result;
+
+        const content: any = {
+          type: 'text',
+          text: this.formatResult(actualResult),
+        };
+
+        if (outputFormat) {
+          const { formatToMimeType } = await import('./cli-formatter.js');
+          const mimeType = formatToMimeType(outputFormat);
+          if (mimeType) {
+            content.annotations = { mimeType };
+          }
+        }
+
+        const response: any = { content: [content] };
+        if (isStateful) {
+          response._meta = { runId: result.runId, status: result.status };
+        }
+        return response;
+      } catch (error: any) {
+        return this.formatError(error, toolName, args);
+      }
+    });
+
+    // Handle prompts/list
+    sessionServer.setRequestHandler(ListPromptsRequestSchema, async () => {
+      if (!this.mcp) return { prompts: [] };
+      return {
+        prompts: this.mcp.templates.map(template => ({
+          name: template.name,
+          description: template.description,
+          arguments: template.inputSchema?.properties
+            ? Object.entries(template.inputSchema.properties).map(([name, schema]: [string, any]) => ({
+                name,
+                description: schema.description || '',
+                required: template.inputSchema?.required?.includes(name) || false,
+              }))
+            : [],
+        })),
+      };
+    });
+
+    // Handle prompts/get
+    sessionServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      if (!this.mcp) throw new Error('MCP not loaded');
+      const { name: promptName, arguments: args } = request.params;
+      try {
+        const result = await this.loader.executeTool(this.mcp, promptName, args || {});
+        return this.formatTemplateResult(result);
+      } catch (error: any) {
+        throw new Error(`Failed to get prompt: ${error.message}`);
+      }
+    });
+
+    // Handle resources/list
+    sessionServer.setRequestHandler(ListResourcesRequestSchema, async () => {
+      if (!this.mcp) return { resources: [] };
+      const resources: any[] = [];
+
+      // Add static resources
+      for (const static_ of this.mcp.statics) {
+        if (!this.isUriTemplate(static_.uri)) {
+          resources.push({
+            uri: static_.uri,
+            name: static_.name,
+            description: static_.description,
+            mimeType: static_.mimeType,
+          });
+        }
+      }
+
+      // Add asset resources
+      if (this.mcp.assets) {
+        for (const ui of this.mcp.assets.ui) {
+          resources.push({
+            uri: `photon://${this.mcp.name}/${ui.id}`,
+            name: `ui:${ui.id}`,
+            description: ui.linkedTool
+              ? `UI template for ${ui.linkedTool} tool`
+              : `UI template: ${ui.id}`,
+            mimeType: ui.mimeType || 'text/html',
+          });
+        }
+        for (const prompt of this.mcp.assets.prompts) {
+          resources.push({
+            uri: `photon://${this.mcp.name}/prompts/${prompt.id}`,
+            name: `prompt:${prompt.id}`,
+            description: prompt.description || `Prompt template: ${prompt.id}`,
+            mimeType: 'text/markdown',
+          });
+        }
+        for (const resource of this.mcp.assets.resources) {
+          resources.push({
+            uri: `photon://${this.mcp.name}/resources/${resource.id}`,
+            name: `resource:${resource.id}`,
+            description: `Static resource: ${resource.id}`,
+            mimeType: resource.mimeType || 'application/json',
+          });
+        }
+      }
+
+      return { resources };
+    });
+
+    // Handle resources/templates/list
+    sessionServer.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+      if (!this.mcp) return { resourceTemplates: [] };
+      return {
+        resourceTemplates: this.mcp.statics
+          .filter(static_ => this.isUriTemplate(static_.uri))
+          .map(static_ => ({
+            uriTemplate: static_.uri,
+            name: static_.name,
+            description: static_.description,
+            mimeType: static_.mimeType,
+          })),
+      };
+    });
+
+    // Handle resources/read
+    sessionServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      if (!this.mcp) throw new Error('MCP not loaded');
+      const { uri } = request.params;
+
+      // Check for asset URI
+      const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
+      if (assetMatch && this.mcp.assets) {
+        return this.handleAssetRead(uri, assetMatch);
+      }
+
+      // Handle static resources
+      return this.handleStaticRead(uri);
+    });
+  }
+
+  /**
+   * Handle asset read (for both stdio and SSE handlers)
+   */
+  private async handleAssetRead(uri: string, assetMatch: RegExpMatchArray) {
+    const [, photonName, assetType, assetId] = assetMatch;
+
+    let resolvedPath: string | undefined;
+    let mimeType: string = 'text/plain';
+
+    if (assetType === 'ui') {
+      const ui = this.mcp!.assets!.ui.find(u => u.id === assetId);
+      if (ui) {
+        resolvedPath = ui.resolvedPath;
+        mimeType = ui.mimeType || 'text/html';
+      }
+    } else if (assetType === 'prompts') {
+      const prompt = this.mcp!.assets!.prompts.find(p => p.id === assetId);
+      if (prompt) {
+        resolvedPath = prompt.resolvedPath;
+        mimeType = 'text/markdown';
+      }
+    } else if (assetType === 'resources') {
+      const resource = this.mcp!.assets!.resources.find(r => r.id === assetId);
+      if (resource) {
+        resolvedPath = resource.resolvedPath;
+        mimeType = resource.mimeType || 'application/octet-stream';
+      }
+    }
+
+    if (resolvedPath) {
+      const content = await fs.readFile(resolvedPath, 'utf-8');
+      return {
+        contents: [{ uri, mimeType, text: content }],
+      };
+    }
+
+    throw new Error(`Asset not found: ${uri}`);
+  }
+
+  /**
+   * Handle static resource read (for both stdio and SSE handlers)
+   */
+  private async handleStaticRead(uri: string) {
+    const static_ = this.mcp!.statics.find(s => s.uri === uri || this.matchUriPattern(s.uri, uri));
+    if (!static_) {
+      throw new Error(`Resource not found: ${uri}`);
+    }
+
+    const params = this.parseUriParams(static_.uri, uri);
+    const result = await this.loader.executeTool(this.mcp!, static_.name, params);
+    return this.formatStaticResult(result, static_.mimeType);
   }
 
   /**
@@ -568,6 +976,20 @@ export class PhotonServer {
       // Disconnect MCP clients
       if (this.mcpClientFactory) {
         await this.mcpClientFactory.disconnect();
+      }
+
+      // Close SSE sessions
+      for (const [sessionId, session] of this.sseSessions) {
+        await session.server.close();
+      }
+      this.sseSessions.clear();
+
+      // Close HTTP server if running
+      if (this.httpServer) {
+        await new Promise<void>((resolve) => {
+          this.httpServer!.close(() => resolve());
+        });
+        this.httpServer = null;
       }
 
       await this.server.close();

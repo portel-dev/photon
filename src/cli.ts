@@ -1072,6 +1072,8 @@ program
   .option('--dev', 'Enable development mode with hot reload')
   .option('--validate', 'Validate configuration without running server')
   .option('--config', 'Show configuration template and exit')
+  .option('--transport <type>', 'Transport type: stdio (default) or sse', 'stdio')
+  .option('--port <number>', 'Port for SSE transport (default: 3000)', '3000')
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
@@ -1099,10 +1101,20 @@ program
         return;
       }
 
+      // Validate transport option
+      const transport = options.transport as 'stdio' | 'sse';
+      if (transport !== 'stdio' && transport !== 'sse') {
+        console.error(`❌ Invalid transport: ${options.transport}`);
+        console.error('Valid options: stdio, sse');
+        process.exit(1);
+      }
+
       // Start MCP server
       const server = new PhotonServer({
         filePath,
         devMode: options.dev,
+        transport,
+        port: parseInt(options.port, 10),
       });
 
       // Handle shutdown signals
