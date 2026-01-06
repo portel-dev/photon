@@ -1,0 +1,381 @@
+/**
+ * Photon MCP Worker for Cloudflare
+ * Auto-generated - do not edit directly
+ */
+
+// @ts-ignore - Will be replaced during build
+import PhotonClass from './photon';
+
+interface Env {
+  // Add your environment variables here
+  [key: string]: string | undefined;
+}
+
+type SSESession = {
+  writer: WritableStreamDefaultWriter<Uint8Array>;
+  encoder: TextEncoder;
+};
+
+const sessions = new Map<string, SSESession>();
+
+// Tool definitions extracted at build time
+// @ts-ignore - Will be replaced during build
+const TOOL_DEFINITIONS: any[] = __TOOL_DEFINITIONS__;
+const PHOTON_NAME = '__PHOTON_NAME__';
+const DEV_MODE = __DEV_MODE__;
+
+// Instantiate photon
+let photonInstance: InstanceType<typeof PhotonClass> | null = null;
+
+function getPhoton(env: Env): InstanceType<typeof PhotonClass> {
+  if (!photonInstance) {
+    // Pass env vars as constructor params if needed
+    photonInstance = new PhotonClass();
+  }
+  return photonInstance;
+}
+
+// MCP JSON-RPC handler
+async function handleMCPRequest(request: any, env: Env): Promise<any> {
+  const { method, params, id } = request;
+  const photon = getPhoton(env);
+
+  switch (method) {
+    case 'initialize':
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: PHOTON_NAME, version: '1.0.0' },
+        },
+      };
+
+    case 'tools/list':
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: { tools: TOOL_DEFINITIONS },
+      };
+
+    case 'tools/call': {
+      const { name, arguments: args } = params;
+      try {
+        const method = (photon as any)[name];
+        if (typeof method !== 'function') {
+          throw new Error(`Unknown tool: ${name}`);
+        }
+        const result = await method.call(photon, args || {});
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          },
+        };
+      } catch (error: any) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true,
+          },
+        };
+      }
+    }
+
+    case 'notifications/initialized':
+    case 'ping':
+      return { jsonrpc: '2.0', id, result: {} };
+
+    default:
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: `Method not found: ${method}` },
+      };
+  }
+}
+
+// SSE stream handler
+async function handleSSE(request: Request, env: Env): Promise<Response> {
+  const sessionId = crypto.randomUUID();
+  const encoder = new TextEncoder();
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  sessions.set(sessionId, { writer, encoder });
+
+  // Send session ID
+  await writer.write(encoder.encode(`event: session\ndata: ${JSON.stringify({ sessionId })}\n\n`));
+
+  // Keep-alive
+  const interval = setInterval(async () => {
+    try {
+      await writer.write(encoder.encode(`: keepalive\n\n`));
+    } catch {
+      clearInterval(interval);
+    }
+  }, 30000);
+
+  // Cleanup on close
+  request.signal.addEventListener('abort', () => {
+    clearInterval(interval);
+    sessions.delete(sessionId);
+    writer.close().catch(() => {});
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+// Message handler for SSE
+async function handleMessage(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const sessionId = url.searchParams.get('sessionId');
+
+  if (!sessionId || !sessions.has(sessionId)) {
+    return new Response('Invalid session', { status: 400 });
+  }
+
+  const session = sessions.get(sessionId)!;
+  const body = await request.json();
+  const response = await handleMCPRequest(body, env);
+
+  // Send response via SSE
+  const data = `event: message\ndata: ${JSON.stringify(response)}\n\n`;
+  await session.writer.write(session.encoder.encode(data));
+
+  return new Response('OK', {
+    headers: { 'Access-Control-Allow-Origin': '*' },
+  });
+}
+
+// Playground HTML
+function getPlaygroundHTML(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${PHOTON_NAME} - Playground</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --bg: #0a0a0f; --card: #12121a; --border: #1e1e2e; --text: #e4e4e7; --muted: #71717a; --accent: #6366f1; --green: #22c55e; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header h1::before { content: ''; width: 8px; height: 8px; background: var(--green); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px var(--green); }
+    .badge { background: #f97316; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .container { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 57px); }
+    .sidebar { background: var(--card); border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; }
+    .tool { padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 8px; border: 1px solid var(--border); }
+    .tool:hover { border-color: var(--accent); }
+    .tool.active { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+    .tool-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .tool-desc { font-size: 12px; color: var(--muted); }
+    .main { padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .panel h3 { font-size: 14px; margin-bottom: 12px; color: var(--muted); }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .form-group input, .form-group select { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; }
+    .btn { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; white-space: pre-wrap; }
+    .preview { flex: 1; min-height: 300px; }
+    .preview iframe { width: 100%; height: 100%; border: none; border-radius: 6px; background: white; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${PHOTON_NAME}</h1>
+    <span class="badge">Cloudflare Workers</span>
+  </div>
+  <div class="container">
+    <div class="sidebar">
+      <div id="tools"></div>
+    </div>
+    <div class="main">
+      <div class="panel">
+        <h3>Parameters</h3>
+        <div id="params"></div>
+        <button class="btn" id="call" disabled>Call Tool</button>
+      </div>
+      <div class="panel">
+        <h3>Response</h3>
+        <pre id="response">Select a tool to get started</pre>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tools = ${JSON.stringify(TOOL_DEFINITIONS)};
+    let selectedTool = null;
+
+    function renderTools() {
+      const container = document.getElementById('tools');
+      container.innerHTML = tools.map(t => \`
+        <div class="tool" data-name="\${t.name}">
+          <div class="tool-name">\${t.name}</div>
+          <div class="tool-desc">\${t.description || ''}</div>
+        </div>
+      \`).join('');
+
+      container.querySelectorAll('.tool').forEach(el => {
+        el.onclick = () => selectTool(el.dataset.name);
+      });
+    }
+
+    function selectTool(name) {
+      selectedTool = tools.find(t => t.name === name);
+      document.querySelectorAll('.tool').forEach(el => el.classList.remove('active'));
+      document.querySelector(\`[data-name="\${name}"]\`).classList.add('active');
+      renderParams();
+      document.getElementById('call').disabled = false;
+    }
+
+    function renderParams() {
+      const container = document.getElementById('params');
+      const props = selectedTool?.inputSchema?.properties || {};
+      const required = selectedTool?.inputSchema?.required || [];
+
+      if (Object.keys(props).length === 0) {
+        container.innerHTML = '<p style="color: var(--muted); font-size: 13px;">No parameters required</p>';
+        return;
+      }
+
+      container.innerHTML = Object.entries(props).map(([key, schema]) => {
+        const req = required.includes(key) ? ' *' : '';
+        if (schema.enum) {
+          return \`<div class="form-group">
+            <label>\${key}\${req}</label>
+            <select name="\${key}">
+              <option value="">Select...</option>
+              \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
+            </select>
+          </div>\`;
+        }
+        const type = schema.type === 'number' ? 'number' : 'text';
+        return \`<div class="form-group">
+          <label>\${key}\${req}</label>
+          <input type="\${type}" name="\${key}" placeholder="\${schema.description || ''}">
+        </div>\`;
+      }).join('');
+    }
+
+    document.getElementById('call').onclick = async () => {
+      if (!selectedTool) return;
+      const form = document.getElementById('params');
+      const args = {};
+      form.querySelectorAll('input, select').forEach(el => {
+        if (el.value) {
+          args[el.name] = el.type === 'number' ? Number(el.value) : el.value;
+        }
+      });
+
+      document.getElementById('response').textContent = 'Calling...';
+
+      try {
+        const res = await fetch('/api/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: selectedTool.name, args })
+        });
+        const data = await res.json();
+        document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById('response').textContent = 'Error: ' + e.message;
+      }
+    };
+
+    renderTools();
+  </script>
+</body>
+</html>`;
+}
+
+// Main fetch handler
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    // CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      });
+    }
+
+    // Info endpoint
+    if (url.pathname === '/' && request.method === 'GET') {
+      return Response.json({
+        name: PHOTON_NAME,
+        transport: 'sse',
+        runtime: 'cloudflare-workers',
+        endpoints: {
+          sse: '/mcp',
+          messages: '/mcp/messages',
+          ...(DEV_MODE ? { playground: '/playground' } : {}),
+        },
+        tools: TOOL_DEFINITIONS.length,
+      });
+    }
+
+    // SSE endpoint
+    if (url.pathname === '/mcp' && request.method === 'GET') {
+      return handleSSE(request, env);
+    }
+
+    // Message endpoint
+    if (url.pathname === '/mcp/messages' && request.method === 'POST') {
+      return handleMessage(request, env);
+    }
+
+    // Dev-only endpoints
+    if (DEV_MODE) {
+      // Playground
+      if (url.pathname === '/playground') {
+        return new Response(getPlaygroundHTML(), {
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+
+      // API: List tools
+      if (url.pathname === '/api/tools') {
+        return Response.json({ tools: TOOL_DEFINITIONS });
+      }
+
+      // API: Call tool
+      if (url.pathname === '/api/call' && request.method === 'POST') {
+        const { tool, args } = await request.json();
+        const photon = getPhoton(env);
+        try {
+          const method = (photon as any)[tool];
+          if (typeof method !== 'function') {
+            throw new Error(`Unknown tool: ${tool}`);
+          }
+          const result = await method.call(photon, args || {});
+          return Response.json({ success: true, data: result });
+        } catch (error: any) {
+          return Response.json({ success: false, error: error.message }, { status: 500 });
+        }
+      }
+    }
+
+    return new Response('Not Found', { status: 404 });
+  },
+};
