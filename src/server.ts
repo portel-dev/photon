@@ -50,9 +50,11 @@ export class PhotonServer {
   private mcpClientFactory: StandaloneMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
   private sseSessions: Map<string, SSESession> = new Map();
+  private devMode: boolean;
 
   constructor(options: PhotonServerOptions) {
     this.options = options;
+    this.devMode = options.devMode || false;
     this.loader = new PhotonLoader(true); // verbose=true for server mode
 
     // Create MCP server instance
@@ -637,14 +639,17 @@ export class PhotonServer {
       // Health check / info endpoint
       if (req.method === 'GET' && url.pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
+        const endpoints: Record<string, string> = {
+          sse: `http://localhost:${port}${ssePath}`,
+          messages: `http://localhost:${port}${messagesPath}`,
+        };
+        if (this.devMode) {
+          endpoints.playground = `http://localhost:${port}/playground`;
+        }
         res.end(JSON.stringify({
           name: this.mcp?.name || 'photon-mcp',
           transport: 'sse',
-          endpoints: {
-            sse: `http://localhost:${port}${ssePath}`,
-            messages: `http://localhost:${port}${messagesPath}`,
-            playground: `http://localhost:${port}/playground`,
-          },
+          endpoints,
           tools: this.mcp?.tools.length || 0,
           assets: this.mcp?.assets ? {
             ui: this.mcp.assets.ui.length,
@@ -655,15 +660,17 @@ export class PhotonServer {
         return;
       }
 
-      // Playground - interactive test UI
-      if (req.method === 'GET' && url.pathname === '/playground') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(this.getPlaygroundHTML(port));
-        return;
-      }
+      // Playground & API - only in dev mode
+      if (this.devMode) {
+        // Playground - interactive test UI
+        if (req.method === 'GET' && url.pathname === '/playground') {
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(this.getPlaygroundHTML(port));
+          return;
+        }
 
-      // API: List tools
-      if (req.method === 'GET' && url.pathname === '/api/tools') {
+        // API: List tools
+        if (req.method === 'GET' && url.pathname === '/api/tools') {
         res.writeHead(200, {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
@@ -727,6 +734,7 @@ export class PhotonServer {
         res.writeHead(404).end('UI not found');
         return;
       }
+      } // end devMode block
 
       res.writeHead(404).end('Not Found');
     });
@@ -738,10 +746,12 @@ export class PhotonServer {
 
     await new Promise<void>((resolve) => {
       this.httpServer!.listen(port, () => {
-        console.error(`\n🚀 ${this.mcp!.name} MCP server (SSE)`);
+        console.error(`\n🚀 ${this.mcp!.name} MCP server (SSE${this.devMode ? ' - DEV' : ''})`);
         console.error(`   http://localhost:${port}`);
         console.error(`\n   Endpoints:`);
-        console.error(`   Playground:  http://localhost:${port}/playground`);
+        if (this.devMode) {
+          console.error(`   Playground:  http://localhost:${port}/playground`);
+        }
         console.error(`   SSE stream:  GET  http://localhost:${port}${ssePath}`);
         console.error(`   Messages:    POST http://localhost:${port}${messagesPath}?sessionId=...`);
         console.error('');
