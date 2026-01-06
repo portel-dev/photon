@@ -1154,13 +1154,26 @@ program
 program
   .command('deploy')
   .argument('<target>', 'Deployment target: cloudflare (or cf)')
-  .argument('<photon>', 'Path to .photon.ts file')
+  .argument('<name>', 'Photon name (without .photon.ts extension)')
   .option('--dev', 'Enable playground in deployment')
   .option('--dry-run', 'Generate project without deploying')
   .option('--output <dir>', 'Output directory for generated project')
   .description('Deploy a Photon to cloud platforms')
-  .action(async (target: string, photonPath: string, options: any) => {
+  .action(async (target: string, name: string, options: any, command: Command) => {
     try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve file path from name
+      const photonPath = await resolvePhotonPath(name, workingDir);
+
+      if (!photonPath) {
+        console.error(`❌ Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see available photons`);
+        process.exit(1);
+      }
+
       const normalizedTarget = target.toLowerCase();
 
       if (normalizedTarget === 'cloudflare' || normalizedTarget === 'cf') {
@@ -1186,11 +1199,24 @@ program
 // Dev command: run local Cloudflare dev server
 program
   .command('cf-dev')
-  .argument('<photon>', 'Path to .photon.ts file')
+  .argument('<name>', 'Photon name (without .photon.ts extension)')
   .option('--output <dir>', 'Output directory for generated project')
   .description('Run Photon locally with Cloudflare Workers dev server')
-  .action(async (photonPath: string, options: any) => {
+  .action(async (name: string, options: any) => {
     try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve file path from name
+      const photonPath = await resolvePhotonPath(name, workingDir);
+
+      if (!photonPath) {
+        console.error(`❌ Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see available photons`);
+        process.exit(1);
+      }
+
       const { devCloudflare } = await import('./deploy/cloudflare.js');
       await devCloudflare({
         photonPath,
