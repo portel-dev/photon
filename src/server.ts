@@ -643,6 +643,7 @@ export class PhotonServer {
           endpoints: {
             sse: `http://localhost:${port}${ssePath}`,
             messages: `http://localhost:${port}${messagesPath}`,
+            playground: `http://localhost:${port}/playground`,
           },
           tools: this.mcp?.tools.length || 0,
           assets: this.mcp?.assets ? {
@@ -651,6 +652,79 @@ export class PhotonServer {
             resources: this.mcp.assets.resources.length,
           } : null,
         }));
+        return;
+      }
+
+      // Playground - interactive test UI
+      if (req.method === 'GET' && url.pathname === '/playground') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(this.getPlaygroundHTML(port));
+        return;
+      }
+
+      // API: List tools
+      if (req.method === 'GET' && url.pathname === '/api/tools') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        const tools = this.mcp?.tools.map(tool => {
+          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+          return {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            ui: linkedUI ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` } : null,
+          };
+        }) || [];
+        res.end(JSON.stringify({ tools }));
+        return;
+      }
+
+      // API: Call tool
+      if (req.method === 'POST' && url.pathname === '/api/call') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Type', 'application/json');
+
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+          try {
+            const { tool, args } = JSON.parse(body);
+            const result = await this.loader.executeTool(this.mcp!, tool, args || {});
+            const isStateful = result && typeof result === 'object' && result._stateful === true;
+            res.writeHead(200);
+            res.end(JSON.stringify({
+              success: true,
+              data: isStateful ? result.result : result,
+            }));
+          } catch (error: any) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ success: false, error: error.message }));
+          }
+        });
+        return;
+      }
+
+      // API: Get UI template
+      if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
+        const uiId = url.pathname.replace('/api/ui/', '');
+        const ui = this.mcp?.assets?.ui.find(u => u.id === uiId);
+
+        if (ui?.resolvedPath) {
+          try {
+            const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+            res.writeHead(200, {
+              'Content-Type': 'text/html',
+              'Access-Control-Allow-Origin': '*',
+            });
+            res.end(content);
+            return;
+          } catch (e) {
+            // Fall through to 404
+          }
+        }
+        res.writeHead(404).end('UI not found');
         return;
       }
 
@@ -667,12 +741,408 @@ export class PhotonServer {
         console.error(`\n🚀 ${this.mcp!.name} MCP server (SSE)`);
         console.error(`   http://localhost:${port}`);
         console.error(`\n   Endpoints:`);
+        console.error(`   Playground:  http://localhost:${port}/playground`);
         console.error(`   SSE stream:  GET  http://localhost:${port}${ssePath}`);
         console.error(`   Messages:    POST http://localhost:${port}${messagesPath}?sessionId=...`);
         console.error('');
         resolve();
       });
     });
+  }
+
+  /**
+   * Generate playground HTML for interactive testing
+   */
+  private getPlaygroundHTML(port: number): string {
+    const name = this.mcp?.name || 'photon-mcp';
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${name} - Playground</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0a0a0f;
+      --card: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --green: #22c55e;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header h1::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--green);
+    }
+    .badge {
+      background: var(--accent);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .container {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: calc(100vh - 57px);
+    }
+    .sidebar {
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .sidebar h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .tool-item {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tool-item:hover, .tool-item.active {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.1);
+    }
+    .tool-name {
+      font-weight: 500;
+      font-size: 14px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool-name .ui-badge {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--green);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .tool-desc {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .main {
+      display: flex;
+      flex-direction: column;
+    }
+    .toolbar {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .toolbar h3 {
+      font-size: 16px;
+      flex: 1;
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #5558e3;
+    }
+    .btn-secondary {
+      background: var(--border);
+      color: var(--text);
+    }
+    .content {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+    .panel {
+      background: var(--bg);
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .panel-header {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .json-output {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .ui-frame {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      height: 100%;
+    }
+    .ui-frame iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      text-align: center;
+      padding: 40px;
+    }
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${name}</h1>
+    <span class="badge">Playground</span>
+  </div>
+  <div class="container">
+    <div class="sidebar">
+      <h2>Tools</h2>
+      <div id="tools-list">Loading...</div>
+    </div>
+    <div class="main">
+      <div class="toolbar">
+        <h3 id="selected-tool">Select a tool</h3>
+        <button class="btn btn-primary" id="run-btn" disabled>Run</button>
+      </div>
+      <div class="content">
+        <div class="panel">
+          <div class="panel-header">Input / Output</div>
+          <div id="params-form"></div>
+          <div style="margin-top: 20px">
+            <div class="panel-header">Response</div>
+            <div class="json-output" id="output">// Response will appear here</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">UI Preview</div>
+          <div class="ui-frame" id="ui-preview">
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18M9 21V9" />
+              </svg>
+              <p>Run a tool with linked UI to see preview</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let tools = [];
+    let selectedTool = null;
+
+    async function loadTools() {
+      const res = await fetch('/api/tools');
+      const data = await res.json();
+      tools = data.tools;
+      renderToolsList();
+    }
+
+    function renderToolsList() {
+      const container = document.getElementById('tools-list');
+      container.innerHTML = tools.map(t => \`
+        <div class="tool-item" data-tool="\${t.name}">
+          <div class="tool-name">
+            \${t.name}
+            \${t.ui ? '<span class="ui-badge">UI</span>' : ''}
+          </div>
+          <div class="tool-desc">\${t.description || 'No description'}</div>
+        </div>
+      \`).join('');
+
+      container.querySelectorAll('.tool-item').forEach(el => {
+        el.addEventListener('click', () => selectTool(el.dataset.tool));
+      });
+    }
+
+    function selectTool(name) {
+      selectedTool = tools.find(t => t.name === name);
+      document.querySelectorAll('.tool-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.tool === name);
+      });
+      document.getElementById('selected-tool').textContent = name;
+      document.getElementById('run-btn').disabled = false;
+      renderParamsForm();
+    }
+
+    function renderParamsForm() {
+      const container = document.getElementById('params-form');
+      const props = selectedTool.inputSchema?.properties || {};
+      const required = selectedTool.inputSchema?.required || [];
+
+      if (Object.keys(props).length === 0) {
+        container.innerHTML = '<p style="color: var(--muted); font-size: 13px;">No parameters required</p>';
+        return;
+      }
+
+      container.innerHTML = Object.entries(props).map(([name, schema]) => {
+        const isRequired = required.includes(name);
+        if (schema.enum) {
+          return \`
+            <div class="form-group">
+              <label>\${name}\${isRequired ? ' *' : ''}</label>
+              <select name="\${name}">
+                \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
+              </select>
+            </div>
+          \`;
+        }
+        return \`
+          <div class="form-group">
+            <label>\${name}\${isRequired ? ' *' : ''}</label>
+            <input type="\${schema.type === 'number' ? 'number' : 'text'}" name="\${name}" placeholder="\${schema.description || ''}" />
+          </div>
+        \`;
+      }).join('');
+    }
+
+    async function runTool() {
+      if (!selectedTool) return;
+
+      const btn = document.getElementById('run-btn');
+      btn.innerHTML = '<span class="loading"></span>';
+      btn.disabled = true;
+
+      const args = {};
+      document.querySelectorAll('#params-form input, #params-form select').forEach(el => {
+        if (el.value) {
+          const schema = selectedTool.inputSchema?.properties?.[el.name];
+          args[el.name] = schema?.type === 'number' ? Number(el.value) : el.value;
+        }
+      });
+
+      try {
+        const res = await fetch('/api/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: selectedTool.name, args }),
+        });
+        const result = await res.json();
+
+        document.getElementById('output').textContent = JSON.stringify(result.data, null, 2);
+
+        // If tool has linked UI, render it
+        if (selectedTool.ui) {
+          const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
+          let html = await uiRes.text();
+          // Inject data into the HTML
+          html = html.replace('window.__MCP_DATA__', JSON.stringify(result.data));
+          const blob = new Blob([html], { type: 'text/html' });
+          document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
+        }
+      } catch (err) {
+        document.getElementById('output').textContent = 'Error: ' + err.message;
+      }
+
+      btn.innerHTML = 'Run';
+      btn.disabled = false;
+    }
+
+    document.getElementById('run-btn').addEventListener('click', runTool);
+    loadTools();
+  </script>
+</body>
+</html>`;
   }
 
   /**
