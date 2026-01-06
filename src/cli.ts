@@ -1439,12 +1439,28 @@ program
               }
             }
 
-            const toolCount = photonMetadata.tools?.length || 0;
-            if (toolCount > 0) {
-              infoData.tools = toolCount;
+            const tools = photonMetadata.tools || [];
+            if (tools.length > 0) {
+              infoData.tools = tools.length;
             }
 
             formatOutput(infoData, 'tree');
+
+            // Show tool list
+            if (tools.length > 0) {
+              console.log('');
+              printInfo('Methods:');
+              for (const tool of tools) {
+                // Take only first sentence of description
+                let desc = '';
+                if (tool.description) {
+                  // Split on period followed by space, double space, or newline
+                  const firstSentence = tool.description.split(/\.(?:\s|$)|  |\n/)[0].trim();
+                  desc = firstSentence ? ` - ${firstSentence}` : '';
+                }
+                console.log(`  ${tool.name}${desc}`);
+              }
+            }
 
             console.log('');
             // Show appropriate run command
