@@ -1423,7 +1423,7 @@ program
             // Build info as tree structure
             const infoData: Record<string, any> = {
               name: name,
-              version: photonMetadata.version || '-',
+              version: photonMetadata.version || '1.0.0',
               location: filePath,
             };
 
@@ -1588,7 +1588,7 @@ program
             // No metadata - local or pre-metadata Photon
             tableData.push({
               name: mcpName,
-              version: '-',
+              version: '1.0.0',
               source: 'local',
               status: STATUS.OK,
             });
@@ -1682,7 +1682,7 @@ program
         for (const entry of entries) {
           tableData.push({
             name: mcpName,
-            version: entry.metadata?.version || '-',
+            version: entry.metadata?.version || '1.0.0',
             description: entry.metadata?.description
               ? entry.metadata.description.substring(0, 50) + (entry.metadata.description.length > 50 ? '...' : '')
               : '-',
