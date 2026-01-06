@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as os from 'os';
+import * as net from 'net';
 import * as readline from 'readline';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
@@ -31,6 +32,39 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 import { ProgressRenderer } from './shared/progress-renderer.js';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PORT UTILITIES
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check if a port is available
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    // Listen on all interfaces (same as http.createServer default)
+    server.listen(port);
+  });
+}
+
+/**
+ * Find an available port starting from the given port
+ */
+async function findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available port found between ${startPort} and ${startPort + maxAttempts - 1}`);
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ELICITATION HANDLERS
@@ -1136,6 +1170,76 @@ program
         watcher.start();
 
         // Clean up watcher on shutdown
+        process.on('SIGINT', async () => {
+          await watcher.stop();
+        });
+        process.on('SIGTERM', async () => {
+          await watcher.stop();
+        });
+      }
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+
+// Serve command: quick SSE server with auto port detection
+program
+  .command('serve')
+  .argument('<name>', 'Photon name (without .photon.ts extension)')
+  .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
+  .option('--dev', 'Enable development mode with hot reload and playground')
+  .description('Run Photon as HTTP server with SSE transport (auto port detection)')
+  .action(async (name: string, options: any) => {
+    try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve file path from name
+      const filePath = await resolvePhotonPath(name, workingDir);
+
+      if (!filePath) {
+        console.error(`❌ Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see available photons`);
+        process.exit(1);
+      }
+
+      // Find available port
+      const startPort = parseInt(options.port, 10);
+      const port = await findAvailablePort(startPort);
+
+      if (port !== startPort) {
+        console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
+      }
+
+      // Start SSE server
+      const server = new PhotonServer({
+        filePath,
+        devMode: options.dev,
+        transport: 'sse',
+        port,
+      });
+
+      // Handle shutdown signals
+      const shutdown = async () => {
+        console.error('\nShutting down...');
+        await server.stop();
+        process.exit(0);
+      };
+
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+
+      // Start the server
+      await server.start();
+
+      // Start file watcher in dev mode
+      if (options.dev) {
+        const watcher = new FileWatcher(server, filePath);
+        watcher.start();
+
         process.on('SIGINT', async () => {
           await watcher.stop();
         });
