@@ -1,0 +1,9 @@
+name = "__PHOTON_NAME__"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+
+# Uncomment to add environment variables
+# [vars]
+# API_KEY = "your-api-key"
+
+# For secrets, use: wrangler secret put SECRET_NAME

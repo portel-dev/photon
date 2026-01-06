@@ -12,3 +12,4 @@ coverage/
 CLAUDE.md
 ANNOUNCEMENT.md
 .release-it.json.backup
+.cf-*

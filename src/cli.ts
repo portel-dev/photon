@@ -1150,6 +1150,59 @@ program
   });
 
 
+// Deploy command: deploy Photon to cloud platforms
+program
+  .command('deploy')
+  .argument('<target>', 'Deployment target: cloudflare (or cf)')
+  .argument('<photon>', 'Path to .photon.ts file')
+  .option('--dev', 'Enable playground in deployment')
+  .option('--dry-run', 'Generate project without deploying')
+  .option('--output <dir>', 'Output directory for generated project')
+  .description('Deploy a Photon to cloud platforms')
+  .action(async (target: string, photonPath: string, options: any) => {
+    try {
+      const normalizedTarget = target.toLowerCase();
+
+      if (normalizedTarget === 'cloudflare' || normalizedTarget === 'cf') {
+        const { deployToCloudflare } = await import('./deploy/cloudflare.js');
+        await deployToCloudflare({
+          photonPath,
+          devMode: options.dev,
+          dryRun: options.dryRun,
+          outputDir: options.output,
+        });
+      } else {
+        console.error(`❌ Unknown deployment target: ${target}`);
+        console.error('Supported targets: cloudflare (cf)');
+        process.exit(1);
+      }
+    } catch (error: any) {
+      console.error(`❌ Deployment failed: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+
+// Dev command: run local Cloudflare dev server
+program
+  .command('cf-dev')
+  .argument('<photon>', 'Path to .photon.ts file')
+  .option('--output <dir>', 'Output directory for generated project')
+  .description('Run Photon locally with Cloudflare Workers dev server')
+  .action(async (photonPath: string, options: any) => {
+    try {
+      const { devCloudflare } = await import('./deploy/cloudflare.js');
+      await devCloudflare({
+        photonPath,
+        outputDir: options.output,
+      });
+    } catch (error: any) {
+      console.error(`❌ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+
 // Info command: show installed and available Photons
 program
   .command('info', { hidden: true })
