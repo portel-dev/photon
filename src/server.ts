@@ -723,26 +723,78 @@ export class PhotonServer {
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
-          try {
-            const { tool, args } = JSON.parse(body);
+          let requestId = `run_${Date.now()}`;
 
-            // Create output handler that streams to SSE
-            const outputHandler = (emit: any) => {
-              const eventData = JSON.stringify(emit);
-              res.write(`event: emit\ndata: ${eventData}\n\n`);
+          const sendMessage = (message: Record<string, any>) => {
+            res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+          };
+
+          try {
+            const payload = JSON.parse(body || '{}');
+            const tool = payload.tool;
+            if (!tool) {
+              throw new Error('Tool name is required');
+            }
+            const args = payload.args || {};
+            const progressToken = payload.progressToken ?? `progress_${Date.now()}`;
+            requestId = payload.requestId || requestId;
+
+            const sendNotification = (method: string, params: Record<string, any>) => {
+              sendMessage({ jsonrpc: '2.0', method, params });
             };
 
-            const result = await this.loader.executeTool(this.mcp!, tool, args || {}, { outputHandler });
+            const reportProgress = (emit: any) => {
+              const rawValue = typeof emit?.value === 'number' ? emit.value : 0;
+              const percent = rawValue <= 1 ? rawValue * 100 : rawValue;
+              sendNotification('notifications/progress', {
+                progressToken,
+                progress: percent,
+                total: 100,
+                message: emit?.message || null,
+              });
+            };
+
+            const outputHandler = (emit: any) => {
+              if (!emit) return;
+              if (emit.emit === 'progress') {
+                reportProgress(emit);
+              } else if (emit.emit === 'status') {
+                sendNotification('notifications/status', {
+                  type: emit.type || 'info',
+                  message: emit.message || '',
+                });
+              } else {
+                sendNotification('notifications/emit', { event: emit });
+              }
+            };
+
+            sendNotification('notifications/status', {
+              type: 'info',
+              message: `Starting ${tool}`,
+            });
+
+            const result = await this.loader.executeTool(this.mcp!, tool, args, { outputHandler });
             const isStateful = result && typeof result === 'object' && result._stateful === true;
 
-            // Send final result
-            res.write(`event: result\ndata: ${JSON.stringify({
-              success: true,
-              data: isStateful ? result.result : result,
-            })}\n\n`);
+            sendMessage({
+              jsonrpc: '2.0',
+              id: requestId,
+              result: {
+                success: true,
+                data: isStateful ? result.result : result,
+              },
+            });
             res.end();
           } catch (error: any) {
-            res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+            const message = error?.message || 'Unknown error';
+            const errorPayload: Record<string, any> = {
+              jsonrpc: '2.0',
+              error: { code: -32000, message },
+            };
+            if (requestId) {
+              errorPayload.id = requestId;
+            }
+            sendMessage(errorPayload);
             res.end();
           }
         });
@@ -912,6 +964,7 @@ export class PhotonServer {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
     .toolbar {
       padding: 16px 24px;
@@ -1023,6 +1076,9 @@ export class PhotonServer {
     .form-note strong {
       color: var(--accent);
     }
+    #data-form-container {
+      margin-bottom: 16px;
+    }
     .json-output {
       background: var(--card);
       border: 1px solid var(--border);
@@ -1106,6 +1162,46 @@ export class PhotonServer {
     .status-bar .dot.success { background: var(--green); }
     .status-bar .dot.error { background: #ef4444; }
     .status-bar .dot.loading { background: var(--orange); animation: pulse 1s infinite; }
+    .ui-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 9, 15, 0.65);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+    }
+    .ui-overlay.active {
+      display: flex;
+    }
+    .overlay-card {
+      background: rgba(18, 20, 30, 0.9);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: 12px;
+      padding: 24px 32px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(10, 10, 15, 0.5);
+      max-width: 320px;
+    }
+    .overlay-spinner {
+      width: 36px;
+      height: 36px;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      animation: spin 0.8s linear infinite;
+    }
+    .overlay-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 6px;
+    }
+    .overlay-text {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.75);
+    }
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -1147,6 +1243,7 @@ export class PhotonServer {
       </div>
       <div class="tab-content" id="tab-data">
         <div class="panel">
+          <div id="data-form-container"></div>
           <div class="panel-header">Response Data</div>
           <div class="json-output" id="output">// Select a tool to see data</div>
         </div>
@@ -1155,6 +1252,13 @@ export class PhotonServer {
         <span class="dot" id="status-dot"></span>
         <span id="status-text">Ready</span>
       </div>
+      <div class="ui-overlay" id="execution-overlay">
+        <div class="overlay-card">
+          <div class="overlay-spinner"></div>
+          <div class="overlay-title" id="overlay-title">Preparing tool...</div>
+          <div class="overlay-text" id="overlay-text">Please wait while the tool runs.</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1162,6 +1266,22 @@ export class PhotonServer {
     let tools = [];
     let selectedTool = null;
     let lastResult = null;
+    let currentProgressToken = null;
+    let currentRequestId = null;
+
+    const overlayElement = document.getElementById('execution-overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayText = document.getElementById('overlay-text');
+
+    function showOverlay(title, text) {
+      overlayElement.classList.add('active');
+      overlayTitle.textContent = title || 'Working...';
+      overlayText.textContent = text || '';
+    }
+
+    function hideOverlay() {
+      overlayElement.classList.remove('active');
+    }
 
     async function loadTools() {
       const res = await fetch('/api/tools');
@@ -1187,6 +1307,19 @@ export class PhotonServer {
       });
     }
 
+    function setUIPreviewMessage(title, description) {
+      document.getElementById('ui-preview').innerHTML = \`
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 21V9" />
+          </svg>
+          <p style="font-weight: 600; color: var(--text);">\${title}</p>
+          \${description ? '<p style="margin-top: 6px; color: var(--muted); font-size: 13px;">' + description + '</p>' : ''}
+        </div>
+      \`;
+    }
+
     function selectTool(name) {
       selectedTool = tools.find(t => t.name === name);
       document.querySelectorAll('.tool-item').forEach(el => {
@@ -1197,17 +1330,28 @@ export class PhotonServer {
       // Show tabs
       document.getElementById('tabs').style.display = 'flex';
 
+      // Clear previous forms/placeholders
+      setUIPreviewMessage('Select a tool to begin', 'Choose a tool from the left to see its UI preview.');
+      document.getElementById('data-form-container').innerHTML = '';
+
+      const hasUI = Boolean(selectedTool.ui);
+
       // Check if tool has required parameters
       const props = selectedTool.inputSchema?.properties || {};
       const required = selectedTool.inputSchema?.required || [];
       const hasRequiredParams = required.length > 0;
 
       if (hasRequiredParams) {
-        // Show form in UI tab
         showParamsForm();
-        switchTab('ui');
+        switchTab(hasUI ? 'ui' : 'data');
       } else {
-        // Auto-execute for no-param tools
+        if (hasUI) {
+          setUIPreviewMessage('Rendering preview', 'Running this tool to load the linked UI.');
+          switchTab('ui');
+        } else {
+          setUIPreviewMessage('No linked UI', 'This tool returns structured data. View the Data tab for output.');
+          switchTab('data');
+        }
         runTool();
       }
     }
@@ -1215,6 +1359,7 @@ export class PhotonServer {
     function showParamsForm() {
       const props = selectedTool.inputSchema?.properties || {};
       const required = selectedTool.inputSchema?.required || [];
+      const hasUI = Boolean(selectedTool.ui);
 
       const formHtml = \`
         <div style="padding: 20px; height: 100%; overflow-y: auto;">
@@ -1222,6 +1367,7 @@ export class PhotonServer {
             <strong>Input Parameters</strong><br>
             This form collects data that an AI would typically provide when calling this tool.
             Fill in the parameters and click Run to execute.
+            \${!hasUI ? '<br><br><em>This tool does not render a UI preview. Check the Data tab for results.</em>' : ''}
           </div>
           <div id="params-form">
             \${Object.entries(props).map(([name, schema]) => {
@@ -1261,7 +1407,12 @@ export class PhotonServer {
         </div>
       \`;
 
-      document.getElementById('ui-preview').innerHTML = formHtml;
+      if (hasUI) {
+        document.getElementById('ui-preview').innerHTML = formHtml;
+      } else {
+        document.getElementById('data-form-container').innerHTML = formHtml;
+        setUIPreviewMessage('No linked UI', 'This tool only returns data. Use the Data tab to view responses.');
+      }
     }
 
     function switchTab(tabName) {
@@ -1326,7 +1477,13 @@ export class PhotonServer {
     async function runTool() {
       if (!selectedTool) return;
 
+      const progressToken = 'progress_' + Date.now();
+      const requestId = 'req_' + Date.now();
+      currentProgressToken = progressToken;
+      currentRequestId = requestId;
+
       setStatus('loading', 'Executing ' + selectedTool.name + '...');
+      showOverlay('Executing ' + selectedTool.name, 'Starting tool...');
 
       const args = {};
       document.querySelectorAll('#params-form input, #params-form select, #params-form textarea').forEach(el => {
@@ -1342,49 +1499,39 @@ export class PhotonServer {
       try {
         const response = await fetch('/api/call-stream', {
           method: 'POST',
-          body: JSON.stringify({ tool: selectedTool.name, args }),
+          body: JSON.stringify({ tool: selectedTool.name, args, progressToken, requestId }),
         });
+
+        if (!response.ok || !response.body) {
+          throw new Error('Unable to start tool execution');
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let finished = false;
 
-        while (true) {
+        while (!finished) {
           const { done, value } = await reader.read();
           if (done) break;
           
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\\n\\n');
-          buffer = lines.pop(); // Keep the last incomplete chunk
+          const segments = buffer.split('\\n\\n');
+          buffer = segments.pop() || '';
           
-          for (const line of lines) {
-            if (line.startsWith('event: emit')) {
-              const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
-              if (dataLine) {
-                try {
-                  const emit = JSON.parse(dataLine.slice(6));
-                  if (emit.emit === 'progress') {
-                    setStatus('loading', emit.message || 'Processing...', emit.value);
-                  } else if (emit.emit === 'status') {
-                    setStatus('loading', emit.message);
-                  } else if (emit.emit === 'log') {
-                     // Optional: log logs
-                  }
-                } catch (e) { console.error('Error parsing emit:', e); }
-              }
-            } else if (line.startsWith('event: result')) {
-              const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
-              if (dataLine) {
-                const result = JSON.parse(dataLine.slice(6));
-                handleResult(result);
-              }
-            } else if (line.startsWith('event: error')) {
-               const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
-               if (dataLine) {
-                  const err = JSON.parse(dataLine.slice(6));
-                  setStatus('error', 'Error: ' + err.error);
-                  document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + err.error + '</span>';
-               }
+          for (const segment of segments) {
+            const dataLine = segment.split('\\n').find(line => line.startsWith('data: '));
+            if (!dataLine) continue;
+            let payload;
+            try {
+              payload = JSON.parse(dataLine.slice(6));
+            } catch (e) {
+              console.error('Invalid payload from server', e);
+              continue;
+            }
+            if (handleServerMessage(payload)) {
+              finished = true;
+              break;
             }
           }
         }
@@ -1393,6 +1540,58 @@ export class PhotonServer {
         switchTab('data');
         setStatus('error', 'Error: ' + err.message);
       }
+    }
+
+    function handleServerMessage(payload) {
+      if (!payload) {
+        return false;
+      }
+
+      if (payload.method === 'notifications/progress') {
+        const params = payload.params || {};
+        const total = typeof params.total === 'number' ? params.total : 100;
+        const rawProgress = typeof params.progress === 'number' ? params.progress : 0;
+        const ratio = total ? rawProgress / total : rawProgress;
+        const normalized = Math.max(0, Math.min(ratio <= 1 ? ratio : ratio / 100, 1));
+        const message = params.message || 'Processing...';
+        setStatus('loading', message, normalized);
+        showOverlay('Processing', message);
+        return false;
+      }
+
+      if (payload.method === 'notifications/status') {
+        const params = payload.params || {};
+        const statusType = params.type || 'info';
+        const message = params.message || 'Working...';
+        const target = statusType === 'success' ? 'success' : statusType === 'error' ? 'error' : 'loading';
+        setStatus(target, message);
+        if (statusType === 'error') {
+          showOverlay('Action needed', message);
+        }
+        return false;
+      }
+
+      if (payload.method === 'notifications/emit') {
+        const event = payload.params?.event;
+        if (event?.emit === 'status') {
+          setStatus('loading', event.message || 'Working...');
+        }
+        return false;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'id')) {
+        hideOverlay();
+        if (payload.error) {
+          document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + payload.error.message + '</span>';
+          switchTab('data');
+          setStatus('error', 'Error: ' + payload.error.message);
+        } else if (payload.result) {
+          handleResult(payload.result);
+        }
+        return true;
+      }
+
+      return false;
     }
 
     async function handleResult(result) {
@@ -1410,7 +1609,7 @@ export class PhotonServer {
         document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
         switchTab('ui');
       } else {
-        // No UI, show data tab
+        setUIPreviewMessage('No linked UI', 'This tool only returns data. View the Data tab for the response.');
         switchTab('data');
       }
 
