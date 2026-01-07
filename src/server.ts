@@ -1136,7 +1136,7 @@ export class PhotonServer {
           const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
           let html = await uiRes.text();
           // Inject data into the HTML
-          html = html.replace('window.__MCP_DATA__', JSON.stringify(result.data));
+          html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
           const blob = new Blob([html], { type: 'text/html' });
           document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
         }
