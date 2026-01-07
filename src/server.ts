@@ -1181,7 +1181,8 @@ export class PhotonServer {
       padding: 24px 32px;
       text-align: center;
       box-shadow: 0 20px 60px rgba(10, 10, 15, 0.5);
-      max-width: 320px;
+      max-width: 360px;
+      width: 100%;
     }
     .overlay-spinner {
       width: 36px;
@@ -1191,6 +1192,32 @@ export class PhotonServer {
       border-radius: 50%;
       margin: 0 auto 16px;
       animation: spin 0.8s linear infinite;
+    }
+    .overlay-progress {
+      display: none;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .overlay-progress-bar {
+      flex: 1;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .overlay-progress-fill {
+      height: 100%;
+      width: 0;
+      background: var(--accent);
+      border-radius: inherit;
+      transition: width 0.2s ease;
+    }
+    .overlay-progress-percent {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      min-width: 36px;
+      text-align: right;
     }
     .overlay-title {
       font-size: 16px;
@@ -1254,7 +1281,13 @@ export class PhotonServer {
       </div>
       <div class="ui-overlay" id="execution-overlay">
         <div class="overlay-card">
-          <div class="overlay-spinner"></div>
+          <div class="overlay-spinner" id="overlay-spinner"></div>
+          <div class="overlay-progress" id="overlay-progress">
+            <div class="overlay-progress-bar">
+              <div class="overlay-progress-fill" id="overlay-progress-fill"></div>
+            </div>
+            <div class="overlay-progress-percent" id="overlay-progress-percent">0%</div>
+          </div>
           <div class="overlay-title" id="overlay-title">Preparing tool...</div>
           <div class="overlay-text" id="overlay-text">Please wait while the tool runs.</div>
         </div>
@@ -1272,15 +1305,36 @@ export class PhotonServer {
     const overlayElement = document.getElementById('execution-overlay');
     const overlayTitle = document.getElementById('overlay-title');
     const overlayText = document.getElementById('overlay-text');
+    const overlaySpinner = document.getElementById('overlay-spinner');
+    const overlayProgress = document.getElementById('overlay-progress');
+    const overlayProgressFill = document.getElementById('overlay-progress-fill');
+    const overlayProgressPercent = document.getElementById('overlay-progress-percent');
 
-    function showOverlay(title, text) {
+    function showOverlay(title, text, progress = null) {
       overlayElement.classList.add('active');
       overlayTitle.textContent = title || 'Working...';
       overlayText.textContent = text || '';
+      updateOverlayProgress(progress);
     }
 
     function hideOverlay() {
       overlayElement.classList.remove('active');
+      updateOverlayProgress(null);
+    }
+
+    function updateOverlayProgress(progress) {
+      if (typeof progress === 'number' && !Number.isNaN(progress)) {
+        const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+        overlaySpinner.style.display = 'none';
+        overlayProgress.style.display = 'flex';
+        overlayProgressFill.style.width = percent + '%';
+        overlayProgressPercent.textContent = percent + '%';
+      } else {
+        overlaySpinner.style.display = 'block';
+        overlayProgress.style.display = 'none';
+        overlayProgressFill.style.width = '0%';
+        overlayProgressPercent.textContent = '';
+      }
     }
 
     async function loadTools() {
@@ -1555,7 +1609,7 @@ export class PhotonServer {
         const normalized = Math.max(0, Math.min(ratio <= 1 ? ratio : ratio / 100, 1));
         const message = params.message || 'Processing...';
         setStatus('loading', message, normalized);
-        showOverlay('Processing', message);
+        showOverlay('Processing', message, normalized);
         return false;
       }
 
