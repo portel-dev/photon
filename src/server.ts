@@ -713,6 +713,42 @@ export class PhotonServer {
         return;
       }
 
+      // API: Call tool with streaming progress (SSE)
+      if (req.method === 'POST' && url.pathname === '/api/call-stream') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+          try {
+            const { tool, args } = JSON.parse(body);
+
+            // Create output handler that streams to SSE
+            const outputHandler = (emit: any) => {
+              const eventData = JSON.stringify(emit);
+              res.write(`event: emit\ndata: ${eventData}\n\n`);
+            };
+
+            const result = await this.loader.executeTool(this.mcp!, tool, args || {}, { outputHandler });
+            const isStateful = result && typeof result === 'object' && result._stateful === true;
+
+            // Send final result
+            res.write(`event: result\ndata: ${JSON.stringify({
+              success: true,
+              data: isStateful ? result.result : result,
+            })}\n\n`);
+            res.end();
+          } catch (error: any) {
+            res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+            res.end();
+          }
+        });
+        return;
+      }
+
       // API: Get UI template
       if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
         const uiId = url.pathname.replace('/api/ui/', '');
@@ -1256,11 +1292,35 @@ export class PhotonServer {
       });
     }
 
-    function setStatus(status, text) {
+    function setStatus(status, text, progress = null) {
       const dot = document.getElementById('status-dot');
       const statusText = document.getElementById('status-text');
       dot.className = 'dot ' + status;
       statusText.textContent = text;
+      
+      // Remove existing progress bar if any
+      const existingBar = document.getElementById('status-progress');
+      if (existingBar) existingBar.remove();
+
+      if (progress !== null) {
+        const bar = document.createElement('div');
+        bar.id = 'status-progress';
+        bar.style.width = '100px';
+        bar.style.height = '4px';
+        bar.style.background = 'var(--border)';
+        bar.style.borderRadius = '2px';
+        bar.style.marginLeft = '12px';
+        bar.style.overflow = 'hidden';
+        
+        const fill = document.createElement('div');
+        fill.style.width = (progress * 100) + '%';
+        fill.style.height = '100%';
+        fill.style.background = 'var(--accent)';
+        fill.style.transition = 'width 0.2s';
+        
+        bar.appendChild(fill);
+        statusText.parentElement.appendChild(bar);
+      }
     }
 
     async function runTool() {
@@ -1276,37 +1336,85 @@ export class PhotonServer {
         }
       });
 
+      // Clear output
+      document.getElementById('output').textContent = '// Waiting for response...';
+
       try {
-        const res = await fetch('/api/call', {
+        const response = await fetch('/api/call-stream', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tool: selectedTool.name, args }),
         });
-        const result = await res.json();
-        lastResult = result.data;
 
-        // Update data tab with syntax highlighting
-        document.getElementById('output').innerHTML = syntaxHighlight(JSON.stringify(result.data, null, 2));
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        // If tool has linked UI, render it
-        if (selectedTool.ui) {
-          const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
-          let html = await uiRes.text();
-          html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
-          const blob = new Blob([html], { type: 'text/html' });
-          document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
-          switchTab('ui');
-        } else {
-          // No UI, show data tab
-          switchTab('data');
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\\n\\n');
+          buffer = lines.pop(); // Keep the last incomplete chunk
+          
+          for (const line of lines) {
+            if (line.startsWith('event: emit')) {
+              const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
+              if (dataLine) {
+                try {
+                  const emit = JSON.parse(dataLine.slice(6));
+                  if (emit.emit === 'progress') {
+                    setStatus('loading', emit.message || 'Processing...', emit.value);
+                  } else if (emit.emit === 'status') {
+                    setStatus('loading', emit.message);
+                  } else if (emit.emit === 'log') {
+                     // Optional: log logs
+                  }
+                } catch (e) { console.error('Error parsing emit:', e); }
+              }
+            } else if (line.startsWith('event: result')) {
+              const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
+              if (dataLine) {
+                const result = JSON.parse(dataLine.slice(6));
+                handleResult(result);
+              }
+            } else if (line.startsWith('event: error')) {
+               const dataLine = line.split('\\n').find(l => l.startsWith('data: '));
+               if (dataLine) {
+                  const err = JSON.parse(dataLine.slice(6));
+                  setStatus('error', 'Error: ' + err.error);
+                  document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + err.error + '</span>';
+               }
+            }
+          }
         }
-
-        setStatus('success', 'Completed successfully');
       } catch (err) {
         document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + err.message + '</span>';
         switchTab('data');
         setStatus('error', 'Error: ' + err.message);
       }
+    }
+
+    async function handleResult(result) {
+      lastResult = result.data;
+
+      // Update data tab with syntax highlighting
+      document.getElementById('output').innerHTML = syntaxHighlight(JSON.stringify(result.data, null, 2));
+
+      // If tool has linked UI, render it
+      if (selectedTool.ui) {
+        const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
+        let html = await uiRes.text();
+        html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
+        const blob = new Blob([html], { type: 'text/html' });
+        document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
+        switchTab('ui');
+      } else {
+        // No UI, show data tab
+        switchTab('data');
+      }
+
+      setStatus('success', 'Completed successfully');
     }
 
     // Tab switching
