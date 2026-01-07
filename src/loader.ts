@@ -25,6 +25,7 @@ import {
   type ResourceAsset,
   // Generator utilities (ask/emit pattern from 1.2.0)
   isAsyncGenerator,
+  executeGenerator,
   type AskYield,
   type EmitYield,
   type PhotonYield,
@@ -1185,7 +1186,7 @@ Or run: photon ${mcpName} --config
     mcp: PhotonMCPClass,
     toolName: string,
     parameters: any,
-    options?: { resumeRunId?: string }
+    options?: { resumeRunId?: string; outputHandler?: OutputHandler }
   ): Promise<any> {
     try {
       // Check for configuration errors before executing tool
@@ -1196,7 +1197,17 @@ Or run: photon ${mcpName} --config
       // Check if instance has PhotonMCP's executeTool method
       if (typeof mcp.instance.executeTool === 'function') {
         // PhotonMCP base class handles execution
-        return await mcp.instance.executeTool(toolName, parameters);
+        const outputHandler = options?.outputHandler || this.createOutputHandler();
+        const result = await mcp.instance.executeTool(toolName, parameters, { outputHandler });
+
+        // Handle generator result (if tool returns a generator)
+        if (isAsyncGenerator(result)) {
+          return executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
+            inputProvider: this.createInputProvider(),
+            outputHandler
+          });
+        }
+        return result;
       }
 
       // Plain class - call method directly with implicit stateful support
@@ -1217,7 +1228,7 @@ Or run: photon ${mcpName} --config
         tool: toolName,
         params: parameters,
         inputProvider: this.createInputProvider(),
-        outputHandler: this.createOutputHandler(),
+        outputHandler: options?.outputHandler || this.createOutputHandler(),
         resumeRunId: options?.resumeRunId,
       });
 
