@@ -781,6 +781,10 @@ export class PhotonServer {
       --muted: #71717a;
       --accent: #6366f1;
       --green: #22c55e;
+      --orange: #f97316;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+      --cyan: #06b6d4;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -871,6 +875,7 @@ export class PhotonServer {
     .main {
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
     .toolbar {
       padding: 16px 24px;
@@ -895,22 +900,44 @@ export class PhotonServer {
       background: var(--accent);
       color: white;
     }
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       background: #5558e3;
     }
-    .btn-secondary {
-      background: var(--border);
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    .tab {
+      padding: 12px 24px;
+      font-size: 14px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    .tab:hover {
       color: var(--text);
     }
-    .content {
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .tab-content {
       flex: 1;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1px;
-      background: var(--border);
+      overflow: hidden;
+      display: none;
+    }
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
     }
     .panel {
-      background: var(--bg);
+      flex: 1;
       padding: 20px;
       overflow-y: auto;
     }
@@ -930,7 +957,7 @@ export class PhotonServer {
       margin-bottom: 6px;
       color: var(--muted);
     }
-    .form-group input, .form-group select {
+    .form-group input, .form-group select, .form-group textarea {
       width: 100%;
       padding: 10px 12px;
       background: var(--card);
@@ -938,29 +965,52 @@ export class PhotonServer {
       border-radius: 6px;
       color: var(--text);
       font-size: 14px;
+      font-family: inherit;
     }
-    .form-group input:focus, .form-group select:focus {
+    .form-group textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
       outline: none;
       border-color: var(--accent);
+    }
+    .form-note {
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .form-note strong {
+      color: var(--accent);
     }
     .json-output {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 16px;
-      font-family: 'SF Mono', Monaco, monospace;
+      font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
       font-size: 13px;
       white-space: pre-wrap;
       overflow-x: auto;
-      max-height: 300px;
-      overflow-y: auto;
+      line-height: 1.5;
     }
+    .json-key { color: var(--cyan); }
+    .json-string { color: var(--green); }
+    .json-number { color: var(--orange); }
+    .json-boolean { color: var(--purple); }
+    .json-null { color: var(--muted); }
+    .json-bracket { color: var(--text); }
     .ui-frame {
+      flex: 1;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
-      height: 100%;
+      margin: 20px;
     }
     .ui-frame iframe {
       width: 100%;
@@ -983,17 +1033,49 @@ export class PhotonServer {
       margin-bottom: 16px;
       opacity: 0.5;
     }
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 10, 15, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
     .loading {
       display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--border);
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
+    .status-bar {
+      padding: 8px 16px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-bar .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .status-bar .dot.success { background: var(--green); }
+    .status-bar .dot.error { background: #ef4444; }
+    .status-bar .dot.loading { background: var(--orange); animation: pulse 1s infinite; }
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
   </style>
 </head>
@@ -1010,29 +1092,32 @@ export class PhotonServer {
     <div class="main">
       <div class="toolbar">
         <h3 id="selected-tool">Select a tool</h3>
-        <button class="btn btn-primary" id="run-btn" disabled>Run</button>
+        <button class="btn btn-primary" id="run-btn" disabled style="display: none;">Run</button>
       </div>
-      <div class="content">
-        <div class="panel">
-          <div class="panel-header">Input / Output</div>
-          <div id="params-form"></div>
-          <div style="margin-top: 20px">
-            <div class="panel-header">Response</div>
-            <div class="json-output" id="output">// Response will appear here</div>
+      <div class="tabs" id="tabs" style="display: none;">
+        <div class="tab active" data-tab="ui">UI</div>
+        <div class="tab" data-tab="data">Data</div>
+      </div>
+      <div class="tab-content active" id="tab-ui">
+        <div class="ui-frame" id="ui-preview">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18M9 21V9" />
+            </svg>
+            <p>Select a tool to begin</p>
           </div>
         </div>
+      </div>
+      <div class="tab-content" id="tab-data">
         <div class="panel">
-          <div class="panel-header">UI Preview</div>
-          <div class="ui-frame" id="ui-preview">
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M3 9h18M9 21V9" />
-              </svg>
-              <p>Run a tool with linked UI to see preview</p>
-            </div>
-          </div>
+          <div class="panel-header">Response Data</div>
+          <div class="json-output" id="output">// Select a tool to see data</div>
         </div>
+      </div>
+      <div class="status-bar">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">Ready</span>
       </div>
     </div>
   </div>
@@ -1040,6 +1125,7 @@ export class PhotonServer {
   <script>
     let tools = [];
     let selectedTool = null;
+    let lastResult = null;
 
     async function loadTools() {
       const res = await fetch('/api/tools');
@@ -1071,50 +1157,119 @@ export class PhotonServer {
         el.classList.toggle('active', el.dataset.tool === name);
       });
       document.getElementById('selected-tool').textContent = name;
-      document.getElementById('run-btn').disabled = false;
-      renderParamsForm();
+
+      // Show tabs
+      document.getElementById('tabs').style.display = 'flex';
+
+      // Check if tool has required parameters
+      const props = selectedTool.inputSchema?.properties || {};
+      const required = selectedTool.inputSchema?.required || [];
+      const hasRequiredParams = required.length > 0;
+
+      if (hasRequiredParams) {
+        // Show form in UI tab
+        showParamsForm();
+        switchTab('ui');
+      } else {
+        // Auto-execute for no-param tools
+        runTool();
+      }
     }
 
-    function renderParamsForm() {
-      const container = document.getElementById('params-form');
+    function showParamsForm() {
       const props = selectedTool.inputSchema?.properties || {};
       const required = selectedTool.inputSchema?.required || [];
 
-      if (Object.keys(props).length === 0) {
-        container.innerHTML = '<p style="color: var(--muted); font-size: 13px;">No parameters required</p>';
-        return;
-      }
-
-      container.innerHTML = Object.entries(props).map(([name, schema]) => {
-        const isRequired = required.includes(name);
-        if (schema.enum) {
-          return \`
-            <div class="form-group">
-              <label>\${name}\${isRequired ? ' *' : ''}</label>
-              <select name="\${name}">
-                \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
-              </select>
-            </div>
-          \`;
-        }
-        return \`
-          <div class="form-group">
-            <label>\${name}\${isRequired ? ' *' : ''}</label>
-            <input type="\${schema.type === 'number' ? 'number' : 'text'}" name="\${name}" placeholder="\${schema.description || ''}" />
+      const formHtml = \`
+        <div style="padding: 20px; height: 100%; overflow-y: auto;">
+          <div class="form-note">
+            <strong>Input Parameters</strong><br>
+            This form collects data that an AI would typically provide when calling this tool.
+            Fill in the parameters and click Run to execute.
           </div>
-        \`;
-      }).join('');
+          <div id="params-form">
+            \${Object.entries(props).map(([name, schema]) => {
+              const isRequired = required.includes(name);
+              const desc = schema.description || '';
+              if (schema.enum) {
+                return \`
+                  <div class="form-group">
+                    <label>\${name}\${isRequired ? ' *' : ''}</label>
+                    <select name="\${name}">
+                      <option value="">Select...</option>
+                      \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
+                    </select>
+                    \${desc ? \`<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">\${desc}</div>\` : ''}
+                  </div>
+                \`;
+              }
+              const inputType = schema.type === 'number' ? 'number' : 'text';
+              const isLongText = desc.length > 50 || name.toLowerCase().includes('content') || name.toLowerCase().includes('body');
+              if (isLongText && schema.type === 'string') {
+                return \`
+                  <div class="form-group">
+                    <label>\${name}\${isRequired ? ' *' : ''}</label>
+                    <textarea name="\${name}" placeholder="\${desc}"></textarea>
+                  </div>
+                \`;
+              }
+              return \`
+                <div class="form-group">
+                  <label>\${name}\${isRequired ? ' *' : ''}</label>
+                  <input type="\${inputType}" name="\${name}" placeholder="\${desc}" />
+                </div>
+              \`;
+            }).join('')}
+          </div>
+          <button class="btn btn-primary" onclick="runTool()" style="margin-top: 8px;">Run Tool</button>
+        </div>
+      \`;
+
+      document.getElementById('ui-preview').innerHTML = formHtml;
+    }
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabName));
+    }
+
+    function syntaxHighlight(json) {
+      if (typeof json !== 'string') {
+        json = JSON.stringify(json, null, 2);
+      }
+      return json.replace(/("(\\\\u[a-zA-Z0-9]{4}|\\\\[^u]|[^\\\\"])*"(\\s*:)?|\\b(true|false|null)\\b|-?\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?)/g, function (match) {
+        let cls = 'json-number';
+        if (/^"/.test(match)) {
+          if (/:$/.test(match)) {
+            cls = 'json-key';
+            match = match.slice(0, -1) + '</span><span class="json-bracket">:</span>';
+            return '<span class="' + cls + '">' + match;
+          } else {
+            cls = 'json-string';
+          }
+        } else if (/true|false/.test(match)) {
+          cls = 'json-boolean';
+        } else if (/null/.test(match)) {
+          cls = 'json-null';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+      });
+    }
+
+    function setStatus(status, text) {
+      const dot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      dot.className = 'dot ' + status;
+      statusText.textContent = text;
     }
 
     async function runTool() {
       if (!selectedTool) return;
 
-      const btn = document.getElementById('run-btn');
-      btn.innerHTML = '<span class="loading"></span>';
-      btn.disabled = true;
+      setStatus('loading', 'Executing ' + selectedTool.name + '...');
 
       const args = {};
-      document.querySelectorAll('#params-form input, #params-form select').forEach(el => {
+      document.querySelectorAll('#params-form input, #params-form select, #params-form textarea').forEach(el => {
         if (el.value) {
           const schema = selectedTool.inputSchema?.properties?.[el.name];
           args[el.name] = schema?.type === 'number' ? Number(el.value) : el.value;
@@ -1128,27 +1283,37 @@ export class PhotonServer {
           body: JSON.stringify({ tool: selectedTool.name, args }),
         });
         const result = await res.json();
+        lastResult = result.data;
 
-        document.getElementById('output').textContent = JSON.stringify(result.data, null, 2);
+        // Update data tab with syntax highlighting
+        document.getElementById('output').innerHTML = syntaxHighlight(JSON.stringify(result.data, null, 2));
 
         // If tool has linked UI, render it
         if (selectedTool.ui) {
           const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
           let html = await uiRes.text();
-          // Inject data into the HTML
           html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
           const blob = new Blob([html], { type: 'text/html' });
           document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
+          switchTab('ui');
+        } else {
+          // No UI, show data tab
+          switchTab('data');
         }
-      } catch (err) {
-        document.getElementById('output').textContent = 'Error: ' + err.message;
-      }
 
-      btn.innerHTML = 'Run';
-      btn.disabled = false;
+        setStatus('success', 'Completed successfully');
+      } catch (err) {
+        document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + err.message + '</span>';
+        switchTab('data');
+        setStatus('error', 'Error: ' + err.message);
+      }
     }
 
-    document.getElementById('run-btn').addEventListener('click', runTool);
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    });
+
     loadTools();
   </script>
 </body>
