@@ -7,6 +7,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import * as readline from 'readline';
+import { PHOTON_VERSION } from './version.js';
 
 interface MCPRequest {
   jsonrpc: '2.0';
@@ -125,7 +126,7 @@ export class MCPTestClient {
     return this.send('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: serverInfo || { name: 'test-client', version: '1.0.0' },
+      clientInfo: serverInfo || { name: 'test-client', version: PHOTON_VERSION },
     });
   }
 

@@ -9,6 +9,7 @@ import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { SchemaExtractor } from '@portel/photon-core';
+import { PHOTON_VERSION } from '../version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -117,7 +118,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Create package.json
   const packageJson = {
     name: photonName,
-    version: '1.0.0',
+    version: PHOTON_VERSION,
     private: true,
     scripts: {
       dev: 'wrangler dev',

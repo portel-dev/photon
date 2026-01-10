@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import * as crypto from 'crypto';
+import { createLogger, Logger } from './shared/logger.js';
 
 export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
@@ -135,6 +136,11 @@ export async function writeLocalMetadata(metadata: LocalMetadata): Promise<void>
 
 export class MarketplaceManager {
   private config: MarketplaceConfig = { marketplaces: [] };
+  private logger: Logger;
+
+  constructor(logger?: Logger) {
+    this.logger = logger ?? createLogger({ component: 'marketplace-manager', minimal: true });
+  }
 
   async initialize() {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
@@ -439,7 +445,8 @@ export class MarketplaceManager {
       }
     } catch (error) {
       // Marketplace doesn't have a manifest or fetch failed
-      console.error(`Failed to fetch manifest from ${marketplace.name}:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to fetch manifest from ${marketplace.name}: ${message}`);
     }
 
     return null;
