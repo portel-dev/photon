@@ -44,12 +44,9 @@ test_fail() {
     echo -e "  ${RED}✗ FAIL${NC} $1"
 }
 
-# Get photon command (either global or local)
+# Get photon command - always use local build for consistency
 # Use absolute path for dist/cli.js to work after cd operations
 PHOTON_CMD="node $REPO_ROOT/dist/cli.js"
-if command -v photon &> /dev/null; then
-    PHOTON_CMD="photon"
-fi
 
 echo -e "${BLUE}Using command:${NC} $PHOTON_CMD\n"
 
