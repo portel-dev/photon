@@ -58,3 +58,33 @@ export interface PhotonSession {
   lastActivity: number;
   clientType?: string;
 }
+
+/**
+ * Runtime validation for DaemonRequest
+ */
+export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const req = obj as Partial<DaemonRequest>;
+  
+  if (typeof req.id !== 'string') return false;
+  if (!['command', 'ping', 'shutdown', 'prompt_response'].includes(req.type as string)) return false;
+  
+  if (req.type === 'command') {
+    if (typeof req.method !== 'string') return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Runtime validation for DaemonResponse
+ */
+export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const res = obj as Partial<DaemonResponse>;
+  
+  if (typeof res.id !== 'string') return false;
+  if (!['result', 'error', 'pong', 'prompt'].includes(res.type as string)) return false;
+  
+  return true;
+}

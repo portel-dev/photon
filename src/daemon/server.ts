@@ -13,7 +13,7 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager.js';
-import { DaemonRequest, DaemonResponse } from './protocol.js';
+import { DaemonRequest, DaemonResponse, isValidDaemonRequest } from './protocol.js';
 import {
   setPromptHandler,
   type PromptHandler,
@@ -257,7 +257,19 @@ function startServer(): void {
         if (!line.trim()) continue;
 
         try {
-          const request: DaemonRequest = JSON.parse(line);
+          const parsed = JSON.parse(line);
+          
+          // Validate request structure
+          if (!isValidDaemonRequest(parsed)) {
+            socket.write(JSON.stringify({
+              type: 'error',
+              id: 'unknown',
+              error: 'Invalid request format',
+            }) + '\n');
+            continue;
+          }
+
+          const request: DaemonRequest = parsed;
           const response = await handleRequest(request, socket);
 
           // Only send response if handler returned one (null for prompt_response)
