@@ -8,6 +8,7 @@
 import { PhotonLoader } from '../loader.js';
 import { PhotonSession } from './protocol.js';
 import { Logger, createLogger } from '../shared/logger.js';
+import { getErrorMessage } from '../shared/error-handler.js';
 
 const DEFAULT_SESSION_ID = 'default';
 
@@ -61,8 +62,8 @@ export class SessionManager {
       this.logger.info('Session created', { sessionId: id, activeSessions: this.sessions.size });
 
       return session;
-    } catch (error: any) {
-      this.logger.error('Failed to create session', { sessionId: id, error: error.message });
+    } catch (error) {
+      this.logger.error('Failed to create session', { sessionId: id, error: getErrorMessage(error) });
       throw error;
     }
   }

@@ -12,6 +12,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
+import { getErrorMessage } from '../shared/error-handler.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -170,8 +171,8 @@ export function stopDaemon(photonName: string): void {
     }
 
     logger.info('Stopped daemon', { photon: photonName, pid });
-  } catch (error: any) {
-    logger.error('Error stopping daemon', { photon: photonName, error: error.message });
+  } catch (error) {
+    logger.error('Error stopping daemon', { photon: photonName, error: getErrorMessage(error) });
   }
 }
 

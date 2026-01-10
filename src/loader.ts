@@ -71,6 +71,7 @@ import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION } from './version.js';
 import { generateConfigErrorMessage, summarizeConstructorParams, toEnvVarName } from './shared/config-docs.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
+import { getErrorMessage, wrapError } from './shared/error-handler.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -384,7 +385,7 @@ export class PhotonLoader {
 
       try {
         module = await importModule();
-      } catch (error: any) {
+      } catch (error) {
         if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName && cacheKey) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
           await this.clearAllCaches(cacheKey);
@@ -416,10 +417,15 @@ export class PhotonLoader {
       let instance;
       try {
         instance = new MCPClass(...values);
-      } catch (error: any) {
+      } catch (error) {
         // Constructor threw an error (likely validation failure)
         const constructorParams = await this.extractConstructorParams(absolutePath);
-        const enhancedError = this.enhanceConstructorError(error, name, constructorParams, configError);
+        const enhancedError = this.enhanceConstructorError(
+          error instanceof Error ? error : new Error(String(error)),
+          name,
+          constructorParams,
+          configError
+        );
         throw enhancedError;
       }
 
@@ -440,14 +446,16 @@ export class PhotonLoader {
       if (instance.onInitialize) {
         try {
           await instance.onInitialize();
-        } catch (error: any) {
+        } catch (error) {
           const initError = new Error(
-            `Initialization failed for ${name}: ${error.message}\n` +
+            `Initialization failed for ${name}: ${getErrorMessage(error)}\n` +
             `\nThe onInitialize() lifecycle hook threw an error.\n` +
             `Check your constructor configuration and initialization logic.`
           );
           initError.name = 'PhotonInitializationError';
-          initError.stack = error.stack;
+          if (error instanceof Error && error.stack) {
+            initError.stack = error.stack;
+          }
           throw initError;
         }
       }
@@ -478,8 +486,8 @@ export class PhotonLoader {
         instance,
         assets,
       };
-    } catch (error: any) {
-      this.logger.error(`❌ Failed to load ${filePath}: ${error.message}`);
+    } catch (error) {
+      this.logger.error(`❌ Failed to load ${filePath}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -732,8 +740,8 @@ export class PhotonLoader {
         }
         throw jsonError;
       }
-    } catch (error: any) {
-      this.logger.warn(`⚠️  Failed to extract schemas: ${error.message}. Using basic tools.`);
+    } catch (error) {
+      this.logger.warn(`⚠️  Failed to extract schemas: ${getErrorMessage(error)}. Using basic tools.`);
 
       // Fallback: create basic tools without detailed schemas
       for (const methodName of methodNames) {
@@ -759,8 +767,8 @@ export class PhotonLoader {
       const source = await fs.readFile(filePath, 'utf-8');
       const extractor = new SchemaExtractor();
       return extractor.extractConstructorParams(source);
-    } catch (error: any) {
-      this.logger.warn(`Failed to extract constructor params: ${error.message}`);
+    } catch (error) {
+      this.logger.warn(`Failed to extract constructor params: ${getErrorMessage(error)}`);
       return [];
     }
   }
@@ -817,19 +825,19 @@ export class PhotonLoader {
             const client = await this.getMCPClient(mcpDep);
             values.push(client);
             this.log(`  ✅ Injected MCP: ${mcpDep.name} (${mcpDep.source})`);
-          } catch (error: any) {
+          } catch (error) {
             // If it's already an MCPConfigurationError, re-throw it directly
             if (error instanceof MCPConfigurationError) {
               throw error;
             }
 
-            this.log(`  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${error.message}`);
+            this.log(`  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${getErrorMessage(error)}`);
             missingMCPs.push({
               name: mcpDep.name,
               source: mcpDep.source,
               sourceType: mcpDep.sourceType as MCPSourceType,
               declaredIn: path.basename(photonPath),
-              originalError: error.message,
+              originalError: getErrorMessage(error),
             });
             values.push(undefined);
           }
@@ -843,9 +851,9 @@ export class PhotonLoader {
             const photonInstance = await this.getPhotonInstance(photonDep, photonPath);
             values.push(photonInstance);
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
-          } catch (error: any) {
-            this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${error.message}`);
-            missingPhotons.push(`@photon ${photonDep.name} ${photonDep.source}: ${error.message}`);
+          } catch (error) {
+            this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${getErrorMessage(error)}`);
+            missingPhotons.push(`@photon ${photonDep.name} ${photonDep.source}: ${getErrorMessage(error)}`);
             values.push(undefined);
           }
           break;
@@ -934,8 +942,8 @@ export class PhotonLoader {
       this.log(`  Connecting to MCP: ${dep.name}...`);
       await client.list();
       this.log(`  ✅ Connected to MCP: ${dep.name}`);
-    } catch (error: any) {
-      const errorMsg = error.message || 'Unknown connection error';
+    } catch (error) {
+      const errorMsg = getErrorMessage(error) || 'Unknown connection error';
 
       // If not configured in mcp-servers.json, throw configuration error
       if (!isFromConfig) {
@@ -1092,8 +1100,8 @@ export class PhotonLoader {
           result.metadata?.hash
         );
       }
-    } catch (error: any) {
-      this.log(`  ⚠️ Marketplace lookup failed for ${slug}: ${error.message}`);
+    } catch (error) {
+      this.log(`  ⚠️ Marketplace lookup failed for ${slug}: ${getErrorMessage(error)}`);
     }
 
     return null;
@@ -1116,8 +1124,8 @@ export class PhotonLoader {
         const content = await response.text();
         return await this.writePhotonCacheFile(`${marketplace.name}-${slug}`, content);
       }
-    } catch (error: any) {
-      this.log(`  ⚠️ Failed to fetch ${slug} from marketplace ${marketplace.name}: ${error.message}`);
+    } catch (error) {
+      this.log(`  ⚠️ Failed to fetch ${slug} from marketplace ${marketplace.name}: ${getErrorMessage(error)}`);
     }
 
     return null;
@@ -1356,7 +1364,7 @@ export class PhotonLoader {
     constructorParams: ConstructorParam[],
     configError: string | null
   ): Error {
-    const originalMessage = error.message;
+    const originalMessage = getErrorMessage(error);
 
     // Build detailed env var documentation with examples
     const { docs: envVarDocs, exampleEnv: envExample } = summarizeConstructorParams(constructorParams, mcpName);
@@ -1494,8 +1502,8 @@ Run: photon mcp ${mcpName} --config
 
       // For ephemeral execution, return result directly
       return execResult.result;
-    } catch (error: any) {
-      this.logger.error(`Tool execution failed: ${toolName} - ${error.message}`);
+    } catch (error) {
+      this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -1642,8 +1650,8 @@ Run: photon mcp ${mcpName} --config
         const config = resolveMCPSource(dep.name, dep.source, dep.sourceType);
         mcpServers[dep.name] = config;
         this.log(`  - ${dep.name}: ${dep.source} (${dep.sourceType})`);
-      } catch (error: any) {
-        this.logger.warn(`⚠️  Failed to resolve MCP ${dep.name}: ${error.message}`);
+      } catch (error) {
+        this.logger.warn(`⚠️  Failed to resolve MCP ${dep.name}: ${getErrorMessage(error)}`);
       }
     }
 

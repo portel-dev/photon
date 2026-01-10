@@ -38,6 +38,7 @@ import { renderSection } from './shared/cli-sections.js';
 import { runTask } from './shared/task-runner.js';
 import { LoggerOptions, normalizeLogLevel } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
+import { handleError, wrapError, getErrorMessage } from './shared/error-handler.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
@@ -67,9 +68,9 @@ function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOp
       level,
       json: Boolean(root.jsonLogs),
     };
-  } catch (error: any) {
-    printError(error.message);
-    process.exit(1);
+  } catch (error) {
+    handleError(error, { exitOnError: true });
+    throw error; // TypeScript doesn't know handleError exits
   }
 }
 
@@ -332,8 +333,8 @@ async function extractConstructorParams(filePath: string): Promise<ConstructorPa
     const source = await fs.readFile(filePath, 'utf-8');
     const extractor = new SchemaExtractor();
     return extractor.extractConstructorParams(source);
-  } catch (error: any) {
-    printError(`Failed to extract constructor params: ${error.message}`);
+  } catch (error) {
+    printError(`Failed to extract constructor params: ${getErrorMessage(error)}`);
     return [];
   }
 }
@@ -554,9 +555,9 @@ async function ensureGitignore(workingDir: string): Promise<void> {
 
     await fs.writeFile(gitignorePath, newContent, 'utf-8');
     console.error('   ✓ Added .marketplace/_templates/ to .gitignore');
-  } catch (error: any) {
+  } catch (error) {
     // Non-fatal - just warn
-    console.error(`   ⚠ Could not update .gitignore: ${error.message}`);
+    console.error(`   ⚠ Could not update .gitignore: ${getErrorMessage(error)}`);
   }
 }
 
@@ -1116,9 +1117,9 @@ program
           printSuccess(`Photon CLI is up to date (${version})`);
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -1204,8 +1205,8 @@ program
           await watcher.stop();
         });
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1276,8 +1277,8 @@ program
           await watcher.stop();
         });
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1322,8 +1323,8 @@ program
         console.error('Supported targets: cloudflare (cf)');
         process.exit(1);
       }
-    } catch (error: any) {
-      console.error(`❌ Deployment failed: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Deployment failed: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1355,8 +1356,8 @@ program
         photonPath,
         outputDir: options.output,
       });
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1628,9 +1629,9 @@ program
       console.log('');
       printInfo(`Details: photon info <name>`);
       printInfo(`MCP config: photon info <name> --mcp`);
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -1682,9 +1683,9 @@ program
       formatOutput(tableData, 'table');
       printInfo(`\nInstall with: photon add <name>`);
 
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -1745,8 +1746,8 @@ maker
 
       console.error(`✅ Created ${fileName} in ${workingDir}`);
       console.error(`Run with: photon mcp ${name} --dev`);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1788,8 +1789,8 @@ maker
       }
 
       process.exit(0);
-    } catch (error: any) {
-      console.error(`❌ Validation failed: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Validation failed: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1816,9 +1817,9 @@ maker
         const { generateClaudeCodePlugin } = await import('./claude-code-plugin.js');
         await generateClaudeCodePlugin(dirPath, options);
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
       process.exit(1);
@@ -1836,9 +1837,9 @@ maker
     try {
       const dirPath = options.dir || '.';
       await performMarketplaceInit(dirPath, options);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
       process.exit(1);
@@ -1878,9 +1879,9 @@ maker
 
       // Output just the diagram (can be piped or copied)
       console.log(diagram);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
       process.exit(1);
@@ -1923,9 +1924,9 @@ maker
           console.error(`⚠️  Failed to generate diagram for ${name}: ${err.message}`);
         }
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
-      if (process.env.DEBUG) {
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
       process.exit(1);
@@ -1969,9 +1970,9 @@ marketplace
       printInfo(`Configured marketplaces (${marketplaces.length}):\n`);
       formatOutput(tableData, 'table');
 
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -2004,8 +2005,8 @@ marketplace
         console.error(`Source: ${result.source}`);
         console.error(`Skipping duplicate addition`);
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2028,8 +2029,8 @@ marketplace
         console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2052,8 +2053,8 @@ marketplace
         console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2076,8 +2077,8 @@ marketplace
         console.error(`❌ Marketplace '${name}' not found`);
         process.exit(1);
       }
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2306,8 +2307,8 @@ program
 
       console.error(`\nRun with: photon mcp ${name}`);
       console.error(`\nTo customize: Copy to a new name and run with --dev for hot reload`);
-    } catch (error: any) {
-      console.error(`❌ Error: ${error.message}`);
+    } catch (error) {
+      console.error(`❌ Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2362,9 +2363,9 @@ program
       printSuccess(`Successfully removed ${name}`);
       printInfo(`To reinstall: photon add ${name}`);
 
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -2506,9 +2507,9 @@ program
           }
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -2581,17 +2582,17 @@ program
           } else {
             printInfo(`Cache is already empty`);
           }
-        } catch (error: any) {
-          if (error.code === 'ENOENT') {
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
             printInfo(`No cache directory found`);
           } else {
             throw error;
           }
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });
@@ -2712,8 +2713,8 @@ program
             suggestions.push('Resolve duplicate photons with: photon marketplace resolve');
           }
         }
-      } catch (error: any) {
-        diagnostics['Marketplaces'] = { status: STATUS.ERROR, error: error.message };
+      } catch (error) {
+        diagnostics['Marketplaces'] = { status: STATUS.ERROR, error: getErrorMessage(error) };
         suggestions.push('Marketplace config failed to load. Run photon marketplace list to debug.');
         issuesFound++;
       }
@@ -2771,9 +2772,9 @@ program
       } else {
         printWarning(`\nDetected ${issuesFound || suggestions.length} potential issue(s).`);
       }
-    } catch (error: any) {
+    } catch (error) {
       const { printError } = await import('./cli-formatter.js');
-      printError(error.message);
+      printError(getErrorMessage(error));
       process.exit(1);
     }
   });

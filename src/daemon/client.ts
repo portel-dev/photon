@@ -12,6 +12,7 @@ import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getSocketPath } from './manager.js';
 import { createLogger } from '../shared/logger.js';
+import { getErrorMessage } from '../shared/error-handler.js';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
@@ -134,8 +135,8 @@ export async function sendCommand(
               reject(new Error(response.error || 'Unknown error'));
             }
           }
-        } catch (error: any) {
-          logger.warn('Failed to parse daemon response', { error: error.message });
+        } catch (error) {
+          logger.warn('Failed to parse daemon response', { error: getErrorMessage(error) });
         }
       }
     });
@@ -143,7 +144,7 @@ export async function sendCommand(
     client.on('error', (error) => {
       clearTimeout(timeout);
       client.destroy();
-      reject(new Error(`Connection error: ${error.message}`));
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
     });
 
     client.on('end', () => {

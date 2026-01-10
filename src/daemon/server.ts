@@ -19,6 +19,7 @@ import {
   type PromptHandler,
 } from '@portel/photon-core';
 import { createLogger, Logger } from '../shared/logger.js';
+import { getErrorMessage } from '../shared/error-handler.js';
 
 // Command line args: photonName photonPath socketPath
 const photonName = process.argv[2];
@@ -67,8 +68,8 @@ async function initializeSessionManager(): Promise<void> {
     if (idleTimeout > 0) {
       startIdleTimer();
     }
-  } catch (error: any) {
-    logger.error('Failed to initialize session manager', { error: error.message });
+  } catch (error) {
+    logger.error('Failed to initialize session manager', { error: getErrorMessage(error) });
     process.exit(1);
   }
 }
@@ -215,8 +216,8 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
         success: true,
         data: result,
       };
-    } catch (error: any) {
-      logger.error('Error executing request', { method: request.method, error: error.message });
+    } catch (error) {
+      logger.error('Error executing request', { method: request.method, error: getErrorMessage(error) });
 
       // Clear prompt handler on error
       setPromptHandler(null);
@@ -224,7 +225,7 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
       return {
         type: 'error',
         id: request.id,
-        error: error.message,
+        error: getErrorMessage(error),
       };
     }
   }
@@ -263,12 +264,12 @@ function startServer(): void {
           if (response !== null) {
             socket.write(JSON.stringify(response) + '\n');
           }
-        } catch (error: any) {
-          logger.error('Error processing request', { error: error.message });
+        } catch (error) {
+          logger.error('Error processing request', { error: getErrorMessage(error) });
           socket.write(JSON.stringify({
             type: 'error',
             id: 'unknown',
-            error: error.message,
+            error: getErrorMessage(error),
           }) + '\n');
         }
       }
@@ -279,7 +280,7 @@ function startServer(): void {
     });
 
     socket.on('error', (error) => {
-      logger.warn('Socket error', { error: error.message });
+      logger.warn('Socket error', { error: getErrorMessage(error) });
     });
   });
 
@@ -288,7 +289,7 @@ function startServer(): void {
   });
 
   server.on('error', (error: any) => {
-    logger.error('Server error', { error: error.message });
+    logger.error('Server error', { error: getErrorMessage(error) });
     process.exit(1);
   });
 
