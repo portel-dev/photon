@@ -37,7 +37,7 @@ import { toEnvVarName } from './shared/config-docs.js';
 import { renderSection } from './shared/cli-sections.js';
 import { runTask } from './shared/task-runner.js';
 import { LoggerOptions, normalizeLogLevel } from './shared/logger.js';
-import { printHeader, printInfo, printWarning, printError } from './cli-formatter.js';
+import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
@@ -902,12 +902,13 @@ async function getGlobalPhotonPath(): Promise<string | null> {
  * Validate configuration for an MCP
  */
 async function validateConfiguration(filePath: string, mcpName: string): Promise<void> {
-  console.log(`🔍 Validating configuration for: ${mcpName}\n`);
+  cliHeading(`🔍 Validating configuration for: ${mcpName}`);
+  cliSpacer();
 
   const params = await extractConstructorParams(filePath);
 
   if (params.length === 0) {
-    console.log('✅ No configuration required');
+    printSuccess('No configuration required for this MCP.');
     return;
   }
 
@@ -924,14 +925,14 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
       results.push({
         name: param.name,
         envVar: envVarName,
-        status: '❌ MISSING (required)',
+        status: '❌ Missing (required)',
       });
     } else if (envValue) {
       results.push({
         name: param.name,
         envVar: envVarName,
-        status: '✅ SET',
-        value: envValue.length > 20 ? envValue.substring(0, 17) + '...' : envValue,
+        status: '✅ Set',
+        value: envValue.length > 20 ? `${envValue.substring(0, 17)}...` : envValue,
       });
     } else {
       results.push({
@@ -943,26 +944,22 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
     }
   }
 
-  // Print results
-  console.log('Configuration Status:\n');
+  printHeader('Configuration status');
   results.forEach(r => {
-    console.log(`  ${r.status} ${r.envVar}`);
+    printInfo(`  ${r.status} ${r.envVar}`);
     if (r.value) {
-      console.log(`     Value: ${r.value}`);
+      printInfo(`     Value: ${r.value}`);
     }
-    console.log();
   });
+  cliSpacer();
 
   if (hasErrors) {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('❌ Validation failed: Missing required environment variables');
-    console.log('\nRun: photon mcp ' + mcpName + ' --config');
-    console.log('     To see configuration template');
+    printError('Validation failed: Missing required environment variables.');
+    cliHint(`Run 'photon mcp ${mcpName} --config' to see the configuration template.`);
     process.exit(1);
   } else {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ Configuration valid!');
-    console.log('\nYou can now run: photon mcp ' + mcpName);
+    printSuccess('Configuration valid!');
+    cliHint(`Run: photon mcp ${mcpName}`);
   }
 }
 
@@ -970,33 +967,31 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
  * Show configuration template for an MCP
  */
 async function showConfigTemplate(filePath: string, mcpName: string, workingDir: string = DEFAULT_WORKING_DIR): Promise<void> {
-  console.log(`📋 Configuration template for: ${mcpName}\n`);
+  cliHeading(`📋 Configuration template for: ${mcpName}`);
+  cliSpacer();
 
   const params = await extractConstructorParams(filePath);
 
   if (params.length === 0) {
-    console.log('✅ No configuration required for this MCP');
+    printSuccess('No configuration required for this MCP.');
     return;
   }
 
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Environment Variables:\n');
-
+  printHeader('Environment variables');
   params.forEach(param => {
     const envVarName = toEnvVarName(mcpName, param.name);
     const isRequired = !param.isOptional && !param.hasDefault;
     const status = isRequired ? '[REQUIRED]' : '[OPTIONAL]';
 
-    console.log(`  ${envVarName} ${status}`);
-    console.log(`    Type: ${param.type}`);
+    printInfo(`  ${envVarName} ${status}`);
+    printInfo(`    Type: ${param.type}`);
     if (param.hasDefault) {
-      console.log(`    Default: ${formatDefaultValue(param.defaultValue)}`);
+      printInfo(`    Default: ${formatDefaultValue(param.defaultValue)}`);
     }
-    console.log();
+    cliSpacer();
   });
 
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Claude Desktop Configuration:\n');
+  printHeader('Claude Desktop configuration');
 
   const envExample: Record<string, string> = {};
   params.forEach(param => {
@@ -1020,9 +1015,9 @@ async function showConfigTemplate(filePath: string, mcpName: string, workingDir:
   };
 
   console.log(JSON.stringify(config, null, 2));
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`\nAdd this to: ${getConfigPath()}`);
-  console.log('\nValidate: photon mcp ' + mcpName + ' --validate');
+  cliSpacer();
+  cliHint(`Add this to: ${getConfigPath()}`);
+  cliHint(`Validate with: photon mcp ${mcpName} --validate`);
 }
 
 const version = PHOTON_VERSION;
