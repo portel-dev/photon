@@ -1448,11 +1448,16 @@ Run: photon mcp ${mcpName} --config
 
         // Handle generator result (if tool returns a generator)
         if (isAsyncGenerator(result)) {
-          return executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
+          const finalResult = await executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
             inputProvider: this.createInputProvider(),
             outputHandler
           });
+          // Clear any lingering progress
+          this.progressRenderer.done();
+          return finalResult;
         }
+        // Clear any lingering progress
+        this.progressRenderer.done();
         return result;
       }
 
@@ -1477,6 +1482,9 @@ Run: photon mcp ${mcpName} --config
         outputHandler: options?.outputHandler || this.createOutputHandler(),
         resumeRunId: options?.resumeRunId,
       });
+
+      // Clear any lingering progress
+      this.progressRenderer.done();
 
       // If there was an error, throw it
       if (execResult.error) {
@@ -1503,6 +1511,8 @@ Run: photon mcp ${mcpName} --config
       // For ephemeral execution, return result directly
       return execResult.result;
     } catch (error) {
+      // Clear progress on error too
+      this.progressRenderer.done();
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     }
@@ -1572,8 +1582,8 @@ Run: photon mcp ${mcpName} --config
           break;
 
         case 'status':
-          // Status clears progress and prints message
-          this.progressRenderer.status(emit.message);
+          // Status shows as ephemeral spinner (cleared when complete)
+          this.progressRenderer.showSpinner(emit.message);
           break;
 
         case 'log': {
