@@ -28,6 +28,7 @@ import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMes
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel, type LogRecord } from './shared/logger.js';
+import { getErrorMessage } from './shared/error-handler.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -206,7 +207,7 @@ export class PhotonServer {
         }
 
         return { content: [content] };
-      } catch (error: any) {
+      } catch (error) {
         // Format error for AI consumption
         return this.formatError(error, toolName, args);
       }
@@ -251,8 +252,8 @@ export class PhotonServer {
 
         // Handle Template/TemplateResponse return types
         return this.formatTemplateResult(result);
-      } catch (error: any) {
-        throw new Error(`Failed to get prompt: ${error.message}`);
+      } catch (error) {
+        throw new Error(`Failed to get prompt: ${getErrorMessage(error)}`);
       }
     });
 
@@ -380,8 +381,8 @@ export class PhotonServer {
                 },
               ],
             };
-          } catch (error: any) {
-            throw new Error(`Failed to read asset: ${error.message}`);
+          } catch (error) {
+            throw new Error(`Failed to read asset: ${getErrorMessage(error)}`);
           }
         }
 
@@ -403,8 +404,8 @@ export class PhotonServer {
 
         // Handle Static return type
         return this.formatStaticResult(result, static_.mimeType);
-      } catch (error: any) {
-        throw new Error(`Failed to read resource: ${error.message}`);
+      } catch (error) {
+        throw new Error(`Failed to read resource: ${getErrorMessage(error)}`);
       }
     });
   }
@@ -532,7 +533,7 @@ export class PhotonServer {
   private formatError(error: any, toolName: string, args: any): any {
     // Determine error type
     let errorType = 'runtime_error';
-    let errorMessage = error.message || String(error);
+    let errorMessage = getErrorMessage(error) || String(error);
     let suggestion = '';
 
     // Categorize common errors and provide suggestions
@@ -606,8 +607,8 @@ export class PhotonServer {
           this.log('info', `MCP access enabled: ${servers.join(', ')}`);
           this.loader.setMCPClientFactory(this.mcpClientFactory);
         }
-      } catch (error: any) {
-        this.log('warn', `Failed to load MCP config: ${error.message}`);
+      } catch (error) {
+        this.log('warn', `Failed to load MCP config: ${getErrorMessage(error)}`);
       }
 
       // Load the Photon MCP file
@@ -627,9 +628,9 @@ export class PhotonServer {
       if (this.options.devMode) {
         this.log('info', 'Dev mode enabled - hot reload active');
       }
-    } catch (error: any) {
-      this.log('error', `Failed to start server: ${error.message}`);
-      if (error.stack) {
+    } catch (error) {
+      this.log('error', `Failed to start server: ${getErrorMessage(error)}`);
+      if (error instanceof Error && error.stack) {
         this.log('debug', error.stack);
       }
       process.exit(1);
@@ -768,9 +769,9 @@ export class PhotonServer {
               success: true,
               data: isStateful ? result.result : result,
             }));
-          } catch (error: any) {
+          } catch (error) {
             res.writeHead(500);
-            res.end(JSON.stringify({ success: false, error: error.message }));
+            res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
           }
         });
         return;
@@ -848,8 +849,8 @@ export class PhotonServer {
               },
             });
             res.end();
-          } catch (error: any) {
-            const message = error?.message || 'Unknown error';
+          } catch (error) {
+            const message = getErrorMessage(error);
             const errorPayload: Record<string, any> = {
               jsonrpc: '2.0',
               error: { code: -32000, message },
@@ -1877,9 +1878,9 @@ export class PhotonServer {
       if (Object.prototype.hasOwnProperty.call(payload, 'id')) {
         hideOverlay();
         if (payload.error) {
-          document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + payload.error.message + '</span>';
+          document.getElementById('output').innerHTML = '<span style="color: #ef4444;">Error: ' + payload.getErrorMessage(error) + '</span>';
           switchTab('data');
-          setStatus('error', 'Error: ' + payload.error.message);
+          setStatus('error', 'Error: ' + payload.getErrorMessage(error));
         } else if (payload.result) {
           handleResult(payload.result);
         }
@@ -1964,18 +1965,18 @@ export class PhotonServer {
     transport.onerror = (error) => {
       this.log('warn', 'SSE transport error', {
         sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? getErrorMessage(error) : String(error),
       });
     };
 
     try {
       await sessionServer.connect(transport);
       this.log('info', 'SSE client connected', { sessionId });
-    } catch (error: any) {
+    } catch (error) {
       this.sseSessions.delete(sessionId);
       this.log('error', 'Failed to establish SSE connection', {
         sessionId,
-        error: error.message ?? String(error),
+        error: getErrorMessage(error) ?? String(error),
       });
       if (!res.headersSent) {
         res.writeHead(500).end('Failed to establish SSE connection');
@@ -2006,10 +2007,10 @@ export class PhotonServer {
 
     try {
       await session.transport.handlePostMessage(req, res);
-    } catch (error: any) {
+    } catch (error) {
       this.log('error', 'Failed to process SSE message', {
         sessionId,
-        error: error.message ?? String(error),
+        error: getErrorMessage(error) ?? String(error),
       });
       if (!res.headersSent) {
         res.writeHead(500).end('Failed to process message');
@@ -2076,7 +2077,7 @@ export class PhotonServer {
           response._meta = { runId: result.runId, status: result.status };
         }
         return response;
-      } catch (error: any) {
+      } catch (error) {
         return this.formatError(error, toolName, args);
       }
     });
@@ -2106,8 +2107,8 @@ export class PhotonServer {
       try {
         const result = await this.loader.executeTool(this.mcp, promptName, args || {});
         return this.formatTemplateResult(result);
-      } catch (error: any) {
-        throw new Error(`Failed to get prompt: ${error.message}`);
+      } catch (error) {
+        throw new Error(`Failed to get prompt: ${getErrorMessage(error)}`);
       }
     });
 
@@ -2281,8 +2282,8 @@ export class PhotonServer {
 
       await this.server.close();
       this.log('info', 'Server stopped');
-    } catch (error: any) {
-      this.log('error', 'Error stopping server', { error: error.message });
+    } catch (error) {
+      this.log('error', 'Error stopping server', { error: getErrorMessage(error) });
     }
   }
 
@@ -2415,16 +2416,16 @@ export class PhotonServer {
       await this.broadcastReloadStatus('info', 'Hot reload complete');
 
       this.log('info', 'Reload complete');
-    } catch (error: any) {
+    } catch (error) {
       this.reloadFailureCount++;
 
       this.log('error', 'Reload failed', {
         attempt: this.reloadFailureCount,
         maxAttempts: this.MAX_RELOAD_FAILURES,
-        error: error.message,
+        error: getErrorMessage(error),
       });
 
-      if (error.name === 'PhotonInitializationError') {
+      if (error instanceof Error && error.name === 'PhotonInitializationError') {
         this.log('warn', 'onInitialize lifecycle hook failed', {
           hints: [
             'Database connection failure',
@@ -2436,12 +2437,12 @@ export class PhotonServer {
       }
 
       this.lastReloadError = {
-        message: error.message,
-        stack: error.stack,
+        message: getErrorMessage(error),
+        stack: error instanceof Error ? error.stack : undefined,
         timestamp: Date.now(),
         attempts: this.reloadFailureCount,
       };
-      await this.broadcastReloadStatus('error', `Hot reload failed: ${error.message}`);
+      await this.broadcastReloadStatus('error', `Hot reload failed: ${getErrorMessage(error)}`);
 
       if (this.reloadFailureCount >= this.MAX_RELOAD_FAILURES) {
         this.log('error', 'Maximum reload failures reached', {
@@ -2487,9 +2488,9 @@ export class PhotonServer {
       } as any);
 
       this.log('debug', 'Sent list_changed notifications');
-    } catch (error: any) {
+    } catch (error) {
       // Notification sending is best-effort - don't fail reload if it fails
-      this.log('warn', 'Failed to send list_changed notifications', { error: error.message });
+      this.log('warn', 'Failed to send list_changed notifications', { error: getErrorMessage(error) });
     }
   }
 }

@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { resolvePhotonPath } from './path-resolver.js';
+import { getErrorMessage } from './shared/error-handler.js';
 
 const ALIAS_DIR = path.join(os.homedir(), '.photon', 'bin');
 const IS_WINDOWS = process.platform === 'win32';
@@ -54,8 +55,8 @@ export async function createAlias(photonName: string, aliasName?: string): Promi
 
     // Check if bin directory is in PATH and provide instructions
     await checkAndInstructPath();
-  } catch (error: any) {
-    console.error(`❌ Error: ${error.message}`);
+  } catch (error) {
+    console.error(`❌ Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -166,8 +167,8 @@ export async function removeAlias(aliasName: string): Promise<void> {
 
     await fs.unlink(aliasPath);
     console.log(`✅ Removed alias: ${aliasName}`);
-  } catch (error: any) {
-    console.error(`❌ Error: ${error.message}`);
+  } catch (error) {
+    console.error(`❌ Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -223,9 +224,9 @@ export async function listAliases(): Promise<void> {
       printWarning(`${ALIAS_DIR} is not in your PATH`);
       await checkAndInstructPath();
     }
-  } catch (error: any) {
+  } catch (error) {
     const { printError } = await import('./cli-formatter.js');
-    printError(error.message);
+    printError(getErrorMessage(error));
     process.exit(1);
   }
 }

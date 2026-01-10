@@ -24,6 +24,7 @@ import {
   OutputFormat,
   formatKey,
 } from './cli-formatter.js';
+import { getErrorMessage } from './shared/error-handler.js';
 
 interface MethodInfo {
   name: string;
@@ -1192,8 +1193,8 @@ export async function listMethods(photonName: string): Promise<void> {
       }
       console.log('');
     }
-  } catch (error: any) {
-    console.error(`❌ Error: ${error.message}`);
+  } catch (error) {
+    console.error(`❌ Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -1373,11 +1374,13 @@ export async function runMethod(
       }
     }
 
-  } catch (error: any) {
+  } catch (error) {
     // Check for custom user-facing message from photon
     // Photons can throw: throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
-    const userMessage = error.userMessage || error.message || 'Unknown error occurred';
-    const hint = error.hint;
+    const userMessage = (error && typeof error === 'object' && 'userMessage' in error && error.userMessage)
+      || getErrorMessage(error)
+      || 'Unknown error occurred';
+    const hint = error && typeof error === 'object' && 'hint' in error ? error.hint : undefined;
 
     console.error(`❌ ${userMessage}`);
     if (hint) {
