@@ -11,10 +11,12 @@ import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getSocketPath } from './manager.js';
+import { createLogger } from '../shared/logger.js';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
 const SESSION_ID = process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+const logger = createLogger({ component: 'daemon-client', minimal: true });
 
 /**
  * Prompt user for input using readline
@@ -133,7 +135,7 @@ export async function sendCommand(
             }
           }
         } catch (error: any) {
-          console.error(`[daemon-client] Error parsing response: ${error.message}`);
+          logger.warn('Failed to parse daemon response', { error: error.message });
         }
       }
     });

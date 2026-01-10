@@ -11,6 +11,7 @@ import * as os from 'os';
 import { spawn, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
+import { createLogger } from '../shared/logger.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,7 @@ const __dirname = path.dirname(__filename);
 
 const PHOTON_DIR = path.join(os.homedir(), '.photon');
 const DAEMON_DIR = path.join(PHOTON_DIR, 'daemons');
+const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
 /**
  * Ensure daemon directories exist
@@ -100,7 +102,7 @@ export async function startDaemon(photonName: string, photonPath: string, quiet:
 
   if (isDaemonRunning(photonName)) {
     if (!quiet) {
-      console.error(`[daemon] Daemon already running for ${photonName}`);
+      logger.warn('Daemon already running', { photon: photonName });
     }
     return;
   }
@@ -134,7 +136,7 @@ export async function startDaemon(photonName: string, photonPath: string, quiet:
   fs.writeFileSync(pidFile, child.pid!.toString());
 
   if (!quiet) {
-    console.error(`[daemon] Started daemon for ${photonName} (PID: ${child.pid})`);
+    logger.info('Started daemon', { photon: photonName, pid: child.pid });
   }
 
   // Wait a bit for daemon to initialize
@@ -149,7 +151,7 @@ export function stopDaemon(photonName: string): void {
   const socketPath = getSocketPath(photonName);
 
   if (!fs.existsSync(pidFile)) {
-    console.error(`[daemon] No daemon running for ${photonName}`);
+    logger.warn('No daemon running', { photon: photonName });
     return;
   }
 
@@ -167,9 +169,9 @@ export function stopDaemon(photonName: string): void {
       fs.unlinkSync(socketPath);
     }
 
-    console.error(`[daemon] Stopped daemon for ${photonName}`);
+    logger.info('Stopped daemon', { photon: photonName, pid });
   } catch (error: any) {
-    console.error(`[daemon] Error stopping daemon: ${error.message}`);
+    logger.error('Error stopping daemon', { photon: photonName, error: error.message });
   }
 }
 
