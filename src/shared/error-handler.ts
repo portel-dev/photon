@@ -13,7 +13,7 @@ export class PhotonError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly details?: Record<string, any>,
+    public readonly details?: Record<string, unknown>,
     public readonly suggestion?: string
   ) {
     super(message);
@@ -23,28 +23,28 @@ export class PhotonError extends Error {
 }
 
 export class ValidationError extends PhotonError {
-  constructor(message: string, details?: Record<string, any>, suggestion?: string) {
+  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
     super(message, 'VALIDATION_ERROR', details, suggestion);
     this.name = 'ValidationError';
   }
 }
 
 export class FileSystemError extends PhotonError {
-  constructor(message: string, details?: Record<string, any>, suggestion?: string) {
+  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
     super(message, 'FILE_SYSTEM_ERROR', details, suggestion);
     this.name = 'FileSystemError';
   }
 }
 
 export class NetworkError extends PhotonError {
-  constructor(message: string, details?: Record<string, any>, suggestion?: string) {
+  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
     super(message, 'NETWORK_ERROR', details, suggestion);
     this.name = 'NetworkError';
   }
 }
 
 export class ConfigurationError extends PhotonError {
-  constructor(message: string, details?: Record<string, any>, suggestion?: string) {
+  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
     super(message, 'CONFIGURATION_ERROR', details, suggestion);
     this.name = 'ConfigurationError';
   }
