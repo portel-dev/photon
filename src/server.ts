@@ -26,6 +26,15 @@ import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
+import { PHOTON_VERSION } from './version.js';
+import { createLogger, Logger, LoggerOptions, LogLevel, type LogRecord } from './shared/logger.js';
+
+export class HotReloadDisabledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HotReloadDisabledError';
+  }
+}
 
 export type TransportType = 'stdio' | 'sse';
 
@@ -34,6 +43,7 @@ export interface PhotonServerOptions {
   devMode?: boolean;
   transport?: TransportType;
   port?: number;
+  logOptions?: LoggerOptions;
 }
 
 // SSE session record for managing multiple clients
@@ -51,17 +61,41 @@ export class PhotonServer {
   private httpServer: ReturnType<typeof createServer> | null = null;
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
+  private hotReloadDisabled = false;
+  private lastReloadError?: { message: string; stack?: string; timestamp: number; attempts: number };
+  private statusClients: Set<ServerResponse> = new Set();
+  private currentStatus: { type: 'info' | 'success' | 'error' | 'warn'; message: string; timestamp: number } = {
+    type: 'info',
+    message: 'Ready',
+    timestamp: Date.now(),
+  };
+  private logger: Logger;
 
   constructor(options: PhotonServerOptions) {
     this.options = options;
     this.devMode = options.devMode || false;
-    this.loader = new PhotonLoader(true); // verbose=true for server mode
+
+    const baseLoggerOptions: LoggerOptions = {
+      component: 'photon-server',
+      scope: options.transport ?? 'stdio',
+      minimal: true,
+      ...options.logOptions,
+    };
+    if (!baseLoggerOptions.component) {
+      baseLoggerOptions.component = 'photon-server';
+    }
+    if (!baseLoggerOptions.scope) {
+      baseLoggerOptions.scope = this.devMode ? 'dev' : 'runtime';
+    }
+    this.logger = createLogger(baseLoggerOptions);
+
+    this.loader = new PhotonLoader(true, this.logger.child({ component: 'photon-loader', scope: 'loader' }));
 
     // Create MCP server instance
     this.server = new Server(
       {
         name: 'photon-mcp',
-        version: '1.0.0',
+        version: PHOTON_VERSION,
       },
       {
         capabilities: {
@@ -80,6 +114,18 @@ export class PhotonServer {
 
     // Set up protocol handlers
     this.setupHandlers();
+  }
+
+  public createScopedLogger(scope: string): Logger {
+    return this.logger.child({ scope });
+  }
+
+  public getLogger(): Logger {
+    return this.logger;
+  }
+
+  private log(level: LogLevel, message: string, meta?: Record<string, any>) {
+    this.logger.log(level, message, meta);
   }
 
   /**
@@ -530,9 +576,9 @@ export class PhotonServer {
     }
 
     // Log to stderr for debugging
-    console.error(`[Photon Error] ${toolName}: ${errorMessage}`);
+    this.log('error', `[Photon Error] ${toolName}: ${errorMessage}`);
     if (this.options.devMode && error.stack) {
-      console.error(error.stack);
+      this.log('debug', error.stack);
     }
 
     return {
@@ -557,15 +603,15 @@ export class PhotonServer {
         this.mcpClientFactory = await createStandaloneMCPClientFactory(this.options.devMode);
         const servers = await this.mcpClientFactory.listServers();
         if (servers.length > 0) {
-          console.error(`MCP access enabled: ${servers.join(', ')}`);
+          this.log('info', `MCP access enabled: ${servers.join(', ')}`);
           this.loader.setMCPClientFactory(this.mcpClientFactory);
         }
       } catch (error: any) {
-        console.error(`Warning: Failed to load MCP config: ${error.message}`);
+        this.log('warn', `Failed to load MCP config: ${error.message}`);
       }
 
       // Load the Photon MCP file
-      console.error(`Loading ${this.options.filePath}...`);
+      this.log('info', `Loading ${this.options.filePath}...`);
       this.mcp = await this.loader.loadFile(this.options.filePath);
 
       // Start with the appropriate transport
@@ -579,11 +625,13 @@ export class PhotonServer {
 
       // In dev mode, we could set up file watching here
       if (this.options.devMode) {
-        console.error('Dev mode enabled - hot reload active');
+        this.log('info', 'Dev mode enabled - hot reload active');
       }
     } catch (error: any) {
-      console.error(`Failed to start server: ${error.message}`);
-      console.error(error.stack);
+      this.log('error', `Failed to start server: ${error.message}`);
+      if (error.stack) {
+        this.log('debug', error.stack);
+      }
       process.exit(1);
     }
   }
@@ -594,7 +642,7 @@ export class PhotonServer {
   private async startStdio() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error(`Server started: ${this.mcp!.name}`);
+    this.log('info', `Server started: ${this.mcp!.name}`);
   }
 
   /**
@@ -671,21 +719,36 @@ export class PhotonServer {
 
         // API: List tools
         if (req.method === 'GET' && url.pathname === '/api/tools') {
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
-        const tools = this.mcp?.tools.map(tool => {
-          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
-          return {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            ui: linkedUI ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` } : null,
-          };
-        }) || [];
-        res.end(JSON.stringify({ tools }));
-        return;
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          const tools = this.mcp?.tools.map(tool => {
+            const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+            return {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+              ui: linkedUI ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` } : null,
+            };
+          }) || [];
+          res.end(JSON.stringify({ tools }));
+          return;
+        }
+
+        if (req.method === 'GET' && url.pathname === '/api/status') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify(this.buildStatusSnapshot()));
+          return;
+        }
+
+        if (req.method === 'GET' && url.pathname === '/api/status-stream') {
+          this.handleStatusStream(req, res);
+          return;
+        }
       }
 
       // API: Call tool
@@ -822,27 +885,28 @@ export class PhotonServer {
         res.writeHead(404).end('UI not found');
         return;
       }
-      } // end devMode block
 
       res.writeHead(404).end('Not Found');
     });
 
     this.httpServer.on('clientError', (err: Error, socket) => {
-      console.error('HTTP client error:', err.message);
+      this.log('warn', 'HTTP client error', { message: err.message });
       socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     });
 
     await new Promise<void>((resolve) => {
       this.httpServer!.listen(port, () => {
-        console.error(`\n🚀 ${this.mcp!.name} MCP server (SSE${this.devMode ? ' - DEV' : ''})`);
-        console.error(`   http://localhost:${port}`);
-        console.error(`\n   Endpoints:`);
-        if (this.devMode) {
-          console.error(`   Playground:  http://localhost:${port}/playground`);
-        }
-        console.error(`   SSE stream:  GET  http://localhost:${port}${ssePath}`);
-        console.error(`   Messages:    POST http://localhost:${port}${messagesPath}?sessionId=...`);
-        console.error('');
+        this.log('info', `${this.mcp!.name} MCP server listening`, {
+          transport: 'sse',
+          port,
+          devMode: this.devMode,
+        });
+        this.log('debug', 'SSE endpoints ready', {
+          baseUrl: `http://localhost:${port}`,
+          ssePath,
+          messagesPath,
+          playground: this.devMode ? `http://localhost:${port}/playground` : undefined,
+        });
         resolve();
       });
     });
@@ -914,6 +978,74 @@ export class PhotonServer {
       display: grid;
       grid-template-columns: 320px 1fr;
       height: calc(100vh - 57px);
+    }
+    .status-panel {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 15px 30px rgba(15, 23, 42, 0.08);
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-weight: 600;
+      background: #eef2ff;
+      color: var(--accent);
+    }
+    .status-pill.success {
+      background: #dcfce7;
+      color: #16a34a;
+    }
+    .status-pill.error {
+      background: #fee2e2;
+      color: #ef4444;
+    }
+    .status-pill.warn {
+      background: #fef3c7;
+      color: #d97706;
+    }
+    .status-detail {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .status-warnings {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      background: #fff7ed;
+      color: #b45309;
+      font-size: 13px;
+      display: none;
+    }
+    .status-grid {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(80px, 1fr));
+      gap: 12px;
+    }
+    .status-card {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #f8fafc;
+    }
+    .status-card-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .status-card-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
     }
     .sidebar {
       background: var(--card);
@@ -1153,15 +1285,17 @@ export class PhotonServer {
       align-items: center;
       gap: 8px;
     }
-    .status-bar .dot {
-      width: 6px;
-      height: 6px;
+    .dot {
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       background: var(--muted);
+      display: inline-block;
     }
-    .status-bar .dot.success { background: var(--green); }
-    .status-bar .dot.error { background: #ef4444; }
-    .status-bar .dot.loading { background: var(--orange); animation: pulse 1s infinite; }
+    .dot.success { background: var(--green); }
+    .dot.error { background: #ef4444; }
+    .dot.loading { background: var(--orange); animation: pulse 1s infinite; }
+    .dot.warn { background: #d97706; animation: pulse 1s infinite; }
     .ui-overlay {
       position: absolute;
       inset: 0;
@@ -1249,6 +1383,32 @@ export class PhotonServer {
       <div id="tools-list">Loading...</div>
     </div>
     <div class="main">
+      <div class="status-panel">
+        <div class="status-pill" id="status-pill">
+          <span class="dot loading" id="status-pill-dot"></span>
+          <span id="status-pill-text">Checking status…</span>
+        </div>
+        <div class="status-detail" id="status-detail">Initializing runtime…</div>
+        <div class="status-warnings" id="status-warning"></div>
+        <div class="status-grid">
+          <div class="status-card">
+            <div class="status-card-label">Methods</div>
+            <div class="status-card-value" id="summary-tools">0</div>
+          </div>
+          <div class="status-card">
+            <div class="status-card-label">Linked UI</div>
+            <div class="status-card-value" id="summary-ui">0</div>
+          </div>
+          <div class="status-card">
+            <div class="status-card-label">Prompts</div>
+            <div class="status-card-value" id="summary-prompts">0</div>
+          </div>
+          <div class="status-card">
+            <div class="status-card-label">Resources</div>
+            <div class="status-card-value" id="summary-resources">0</div>
+          </div>
+        </div>
+      </div>
       <div class="toolbar">
         <h3 id="selected-tool">Select a tool</h3>
         <button class="btn btn-primary" id="run-btn" disabled style="display: none;">Run</button>
@@ -1309,6 +1469,18 @@ export class PhotonServer {
     const overlayProgress = document.getElementById('overlay-progress');
     const overlayProgressFill = document.getElementById('overlay-progress-fill');
     const overlayProgressPercent = document.getElementById('overlay-progress-percent');
+    const statusElements = {
+      pill: document.getElementById('status-pill'),
+      pillDot: document.getElementById('status-pill-dot'),
+      pillText: document.getElementById('status-pill-text'),
+      detail: document.getElementById('status-detail'),
+      warning: document.getElementById('status-warning'),
+      summaryTools: document.getElementById('summary-tools'),
+      summaryUI: document.getElementById('summary-ui'),
+      summaryPrompts: document.getElementById('summary-prompts'),
+      summaryResources: document.getElementById('summary-resources'),
+    };
+    let statusSource = null;
 
     function showOverlay(title, text, progress = null) {
       overlayElement.classList.add('active');
@@ -1342,6 +1514,74 @@ export class PhotonServer {
       const data = await res.json();
       tools = data.tools;
       renderToolsList();
+    }
+
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        renderStatus(data);
+      } catch (error) {
+        if (statusElements.pill) {
+          statusElements.pill.className = 'status-pill warn';
+          statusElements.pillDot.className = 'dot warn';
+          statusElements.pillText.textContent = 'Status unavailable';
+          statusElements.detail.textContent = 'Unable to connect to Photon runtime.';
+        }
+      }
+    }
+
+    function subscribeStatus() {
+      if (statusSource) {
+        statusSource.close();
+      }
+      const source = new EventSource('/api/status-stream');
+      statusSource = source;
+      source.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          renderStatus(payload);
+        } catch (error) {
+          // ignore malformed payloads
+        }
+      };
+      source.onerror = () => {
+        source.close();
+        setTimeout(subscribeStatus, 3000);
+      };
+    }
+
+    function renderStatus(data) {
+      if (!data || !statusElements.pill) return;
+      const state = data.status || {};
+      const type = state.type || 'info';
+      statusElements.pill.className = 'status-pill ' + type;
+      const dotClass = type === 'success' ? 'dot success' : type === 'error' ? 'dot error' : type === 'warn' ? 'dot warn' : 'dot loading';
+      statusElements.pillDot.className = dotClass;
+      statusElements.pillText.textContent = state.message || 'Ready';
+
+      if (data.hotReloadDisabled) {
+        statusElements.detail.textContent = 'Hot reload paused after repeated errors. Restart dev server after fixing issues.';
+      } else if (data.devMode) {
+        statusElements.detail.textContent = 'Dev mode with hot reload and live playground.';
+      } else {
+        statusElements.detail.textContent = 'Standard runtime mode.';
+      }
+
+      const warnings = data.warnings || [];
+      if (warnings.length > 0) {
+        statusElements.warning.style.display = 'block';
+        statusElements.warning.innerHTML = warnings.map(w => '⚠️ ' + w).join('<br>');
+      } else {
+        statusElements.warning.style.display = 'none';
+        statusElements.warning.innerHTML = '';
+      }
+
+      const summary = data.summary || {};
+      statusElements.summaryTools.textContent = summary.toolCount ?? tools.length;
+      statusElements.summaryUI.textContent = summary.uiAssets?.length ?? 0;
+      statusElements.summaryPrompts.textContent = summary.promptCount ?? 0;
+      statusElements.summaryResources.textContent = summary.resourceCount ?? 0;
     }
 
     function renderToolsList() {
@@ -1500,7 +1740,8 @@ export class PhotonServer {
     function setStatus(status, text, progress = null) {
       const dot = document.getElementById('status-dot');
       const statusText = document.getElementById('status-text');
-      dot.className = 'dot ' + status;
+      const dotState = status === 'success' ? 'success' : status === 'error' ? 'error' : status === 'warn' ? 'warn' : 'loading';
+      dot.className = 'dot ' + dotState;
       statusText.textContent = text;
       
       // Remove existing progress bar if any
@@ -1676,6 +1917,8 @@ export class PhotonServer {
     });
 
     loadTools();
+    loadStatus();
+    subscribeStatus();
   </script>
 </body>
 </html>`;
@@ -1691,7 +1934,7 @@ export class PhotonServer {
     const sessionServer = new Server(
       {
         name: this.mcp?.name || 'photon-mcp',
-        version: '1.0.0',
+        version: PHOTON_VERSION,
       },
       {
         capabilities: {
@@ -1719,15 +1962,21 @@ export class PhotonServer {
     };
 
     transport.onerror = (error) => {
-      console.error(`SSE transport error (${sessionId}):`, error);
+      this.log('warn', 'SSE transport error', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     };
 
     try {
       await sessionServer.connect(transport);
-      console.error(`SSE client connected: ${sessionId}`);
-    } catch (error) {
+      this.log('info', 'SSE client connected', { sessionId });
+    } catch (error: any) {
       this.sseSessions.delete(sessionId);
-      console.error('Failed to establish SSE connection:', error);
+      this.log('error', 'Failed to establish SSE connection', {
+        sessionId,
+        error: error.message ?? String(error),
+      });
       if (!res.headersSent) {
         res.writeHead(500).end('Failed to establish SSE connection');
       }
@@ -1757,8 +2006,11 @@ export class PhotonServer {
 
     try {
       await session.transport.handlePostMessage(req, res);
-    } catch (error) {
-      console.error('Failed to process message:', error);
+    } catch (error: any) {
+      this.log('error', 'Failed to process SSE message', {
+        sessionId,
+        error: error.message ?? String(error),
+      });
       if (!res.headersSent) {
         res.writeHead(500).end('Failed to process message');
       }
@@ -2014,6 +2266,11 @@ export class PhotonServer {
       }
       this.sseSessions.clear();
 
+      for (const client of this.statusClients) {
+        client.end();
+      }
+      this.statusClients.clear();
+
       // Close HTTP server if running
       if (this.httpServer) {
         await new Promise<void>((resolve) => {
@@ -2023,9 +2280,90 @@ export class PhotonServer {
       }
 
       await this.server.close();
-      console.error('Server stopped');
+      this.log('info', 'Server stopped');
     } catch (error: any) {
-      console.error(`Error stopping server: ${error.message}`);
+      this.log('error', 'Error stopping server', { error: error.message });
+    }
+  }
+
+  private buildStatusSnapshot() {
+    const warnings: string[] = [];
+    const instance = this.mcp?.instance as any;
+    if (instance?._photonConfigError) {
+      warnings.push('Photon configuration incomplete. Check env vars and MCP credentials.');
+    }
+
+    const assets = this.mcp?.assets || { ui: [], prompts: [], resources: [] };
+    const tools = this.mcp?.tools || [];
+
+    return {
+      photon: this.mcp?.name || null,
+      devMode: this.devMode,
+      hotReloadDisabled: this.hotReloadDisabled,
+      lastReloadError: this.lastReloadError || null,
+      status: this.currentStatus,
+      warnings,
+      summary: {
+        toolCount: tools.length,
+        tools: tools.map(tool => ({
+          name: tool.name,
+          description: tool.description || '',
+          hasUI: Boolean(assets.ui?.some(ui => ui.linkedTool === tool.name)),
+        })),
+        uiAssets: (assets.ui || []).map(ui => ({ id: ui.id, linkedTool: ui.linkedTool })),
+        promptCount: assets.prompts?.length || 0,
+        resourceCount: assets.resources?.length || 0,
+      },
+    };
+  }
+
+  private handleStatusStream(_req: IncomingMessage, res: ServerResponse) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+
+    res.write(`data: ${JSON.stringify(this.buildStatusSnapshot())}\n\n`);
+    this.statusClients.add(res);
+
+    const cleanup = () => {
+      this.statusClients.delete(res);
+    };
+
+    res.on('close', cleanup);
+    res.on('error', cleanup);
+  }
+
+  private async broadcastReloadStatus(type: 'info' | 'warn' | 'error', message: string) {
+    this.currentStatus = { type, message, timestamp: Date.now() };
+    this.pushStatusUpdate();
+
+    const payload = {
+      method: 'notifications/status',
+      params: { type, message },
+    } as any;
+
+    try {
+      await this.server.notification(payload);
+    } catch {
+      // ignore
+    }
+
+    for (const session of this.sseSessions.values()) {
+      try {
+        await session.server.notification(payload);
+      } catch {
+        // ignore session errors
+      }
+    }
+  }
+
+  private pushStatusUpdate() {
+    const frame = `data: ${JSON.stringify(this.currentStatus)}\n\n`;
+    for (const client of this.statusClients) {
+      client.write(frame);
     }
   }
 
@@ -2043,8 +2381,12 @@ export class PhotonServer {
       this.reloadRetryTimeout = undefined;
     }
 
+    if (this.hotReloadDisabled) {
+      throw new HotReloadDisabledError('Hot reload temporarily disabled after repeated failures. Restart Photon or fix the errors to re-enable.');
+    }
+
     try {
-      console.error('🔄 Reloading...');
+      this.log('info', 'Reloading Photon');
 
       // Store old instance in case we need to rollback
       const oldInstance = this.mcp;
@@ -2054,7 +2396,7 @@ export class PhotonServer {
         try {
           await oldInstance.instance.onShutdown();
         } catch (shutdownError: any) {
-          console.error(`⚠️  Shutdown hook failed: ${shutdownError.message}`);
+          this.log('warn', 'Shutdown hook failed during reload', { error: shutdownError.message });
           // Continue with reload anyway
         }
       }
@@ -2065,45 +2407,61 @@ export class PhotonServer {
       // Success! Update instance and reset failure count
       this.mcp = newMcp;
       this.reloadFailureCount = 0;
+      this.hotReloadDisabled = false;
+      this.lastReloadError = undefined;
 
       // Send list_changed notifications to inform client of updates
       await this.notifyListsChanged();
+      await this.broadcastReloadStatus('info', 'Hot reload complete');
 
-      console.error('✅ Reload complete');
+      this.log('info', 'Reload complete');
     } catch (error: any) {
       this.reloadFailureCount++;
 
-      console.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.error(`❌ Reload failed (attempt ${this.reloadFailureCount}/${this.MAX_RELOAD_FAILURES})`);
-      console.error(`Error: ${error.message}`);
-      console.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      this.log('error', 'Reload failed', {
+        attempt: this.reloadFailureCount,
+        maxAttempts: this.MAX_RELOAD_FAILURES,
+        error: error.message,
+      });
 
       if (error.name === 'PhotonInitializationError') {
-        console.error(`\n💡 The onInitialize() lifecycle hook failed.`);
-        console.error(`   Common causes:`);
-        console.error(`   - Database connection failure`);
-        console.error(`   - API authentication error`);
-        console.error(`   - Missing environment variables`);
-        console.error(`   - Invalid configuration`);
+        this.log('warn', 'onInitialize lifecycle hook failed', {
+          hints: [
+            'Database connection failure',
+            'API authentication error',
+            'Missing environment variables',
+            'Invalid configuration',
+          ],
+        });
       }
+
+      this.lastReloadError = {
+        message: error.message,
+        stack: error.stack,
+        timestamp: Date.now(),
+        attempts: this.reloadFailureCount,
+      };
+      await this.broadcastReloadStatus('error', `Hot reload failed: ${error.message}`);
 
       if (this.reloadFailureCount >= this.MAX_RELOAD_FAILURES) {
-        console.error(`\n⚠️  Maximum reload failures reached (${this.MAX_RELOAD_FAILURES})`);
-        console.error(`   Keeping previous working version active.`);
-        console.error(`   Fix the errors and save the file again to retry.`);
-        console.error(`\n   Or restart the server: photon mcp <name> --dev`);
+        this.log('error', 'Maximum reload failures reached', {
+          maxAttempts: this.MAX_RELOAD_FAILURES,
+          action: 'keeping previous version active',
+        });
+        this.log('info', 'Server still running with previous version');
 
-        // Reset counter after cooling off
+        this.hotReloadDisabled = true;
         this.reloadFailureCount = 0;
-      } else {
-        // Schedule automatic retry
-        const retryDelay = Math.min(5000 * this.reloadFailureCount, 15000); // 5s, 10s, 15s max
-        console.error(`\n🔄 Will retry reload in ${retryDelay / 1000}s if file changes again...`);
-        console.error(`   Previous working version remains active.`);
+        throw new HotReloadDisabledError('Hot reload disabled after repeated failures. Restart Photon dev server once the errors are resolved.');
       }
 
-      // Keep the old instance running - it's still functional
-      console.error(`\n✓ Server still running with previous version`);
+      const retryDelay = Math.min(5000 * this.reloadFailureCount, 15000);
+      this.log('warn', 'Reload failed - waiting for next change', {
+        retrySeconds: retryDelay / 1000,
+      });
+      this.log('info', 'Server still running with previous version');
+
+      throw error;
     }
   }
 
@@ -2128,10 +2486,10 @@ export class PhotonServer {
         method: 'notifications/resources/list_changed',
       } as any);
 
-      console.error('Sent list_changed notifications');
+      this.log('debug', 'Sent list_changed notifications');
     } catch (error: any) {
       // Notification sending is best-effort - don't fail reload if it fails
-      console.error(`Warning: Failed to send list_changed notifications: ${error.message}`);
+      this.log('warn', 'Failed to send list_changed notifications', { error: error.message });
     }
   }
 }
