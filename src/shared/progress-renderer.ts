@@ -4,6 +4,9 @@
  *
  * Always writes to stderr to avoid interfering with stdout data
  */
+
+import * as readline from 'readline';
+
 export class ProgressRenderer {
   private lastLength = 0;
   private spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -16,10 +19,8 @@ export class ProgressRenderer {
    * The message updates in place and disappears when done
    */
   showSpinner(message: string): void {
-    // Clear previous content if active
-    if (this.isActive) {
-      this.clearLine();
-    }
+    // Always clear before showing new spinner
+    this.clearLine();
     this.isActive = true;
     this.updateSpinner(message);
   }
@@ -33,7 +34,6 @@ export class ProgressRenderer {
     const spinner = this.spinnerFrames[this.spinnerIndex % this.spinnerFrames.length];
     const text = `${spinner} ${message}`;
     
-    this.clearLine();
     process.stderr.write(text);
     this.lastLength = text.length;
     this.spinnerIndex++;
@@ -86,9 +86,10 @@ export class ProgressRenderer {
    * Clear the progress line
    */
   clearLine(): void {
-    if (this.lastLength > 0 || this.isActive) {
-      // Use ANSI escape: CR (carriage return) + clear to end of line
-      process.stderr.write('\r\x1b[K');
+    if ((this.lastLength > 0 || this.isActive) && process.stderr.isTTY) {
+      // Use readline's built-in methods for proper terminal handling
+      readline.clearLine(process.stderr, 0);
+      readline.cursorTo(process.stderr, 0);
       this.lastLength = 0;
     }
   }
