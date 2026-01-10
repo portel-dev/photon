@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import { SchemaExtractor } from '@portel/photon-core';
+import { PHOTON_VERSION } from './version.js';
 
 interface ConfigParam {
   name: string;
@@ -85,7 +86,7 @@ export class PhotonDocExtractor {
 
     return {
       name: this.extractName(),
-      version: this.extractTag('version') || '1.0.0',
+      version: this.extractTag('version') || PHOTON_VERSION,
       description: this.extractDescription(),
       author: this.extractTag('author'),
       license: this.extractTag('license'),

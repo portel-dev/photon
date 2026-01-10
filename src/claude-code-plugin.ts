@@ -7,6 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
+import { PHOTON_VERSION } from './version.js';
 
 /**
  * Generate Claude Code plugin files
@@ -108,7 +109,7 @@ async function generateMarketplaceJson(
     }),
     metadata: {
       description: manifest.description || options.description || `Official ${manifest.name} MCP servers`,
-      version: manifest.version || '1.0.0'
+      version: manifest.version || PHOTON_VERSION
     },
     plugins
   };
