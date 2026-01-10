@@ -6,24 +6,27 @@
 
 import chokidar, { type FSWatcher } from 'chokidar';
 import * as path from 'path';
-import { PhotonServer } from './server.js';
+import { PhotonServer, HotReloadDisabledError } from './server.js';
+import { Logger, createLogger } from './shared/logger.js';
 
 export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private server: PhotonServer;
   private filePath: string;
   private reloadTimeout: NodeJS.Timeout | null = null;
+  private logger: Logger;
 
-  constructor(server: PhotonServer, filePath: string) {
+  constructor(server: PhotonServer, filePath: string, logger?: Logger) {
     this.server = server;
     this.filePath = path.resolve(filePath);
+    this.logger = logger ?? createLogger({ component: 'file-watcher', scope: path.basename(filePath) });
   }
 
   /**
    * Start watching the file
    */
   start() {
-    console.error(`Watching ${path.basename(this.filePath)} for changes...`);
+    this.logger.info(`Watching ${path.basename(this.filePath)} for changes...`);
 
     this.watcher = chokidar.watch(this.filePath, {
       persistent: true,
@@ -40,7 +43,7 @@ export class FileWatcher {
 
     this.watcher.on('error', (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`Watcher error: ${message}`);
+      this.logger.warn(`Watcher error: ${message}`);
     });
   }
 
@@ -48,7 +51,7 @@ export class FileWatcher {
    * Handle file change event
    */
   private handleFileChange(changedPath: string) {
-    console.error(`♻️  File changed: ${path.basename(changedPath)}`);
+    this.logger.info(`File changed: ${path.basename(changedPath)}`);
 
     // Debounce rapid changes
     if (this.reloadTimeout) {
@@ -58,9 +61,14 @@ export class FileWatcher {
     this.reloadTimeout = setTimeout(async () => {
       try {
         await this.server.reload();
-        console.error('✅ Hot reload complete');
+        this.logger.info('Hot reload complete');
       } catch (error: any) {
-        console.error(`❌ Hot reload failed: ${error.message}`);
+        if (error instanceof HotReloadDisabledError) {
+          this.logger.error(error.message);
+          await this.stop();
+        } else {
+          this.logger.error(`Hot reload failed: ${error.message}`);
+        }
       }
     }, 200);
   }
@@ -79,6 +87,6 @@ export class FileWatcher {
       this.reloadTimeout = null;
     }
 
-    console.error('File watcher stopped');
+    this.logger.info('File watcher stopped');
   }
 }
