@@ -86,8 +86,10 @@ export class ProgressRenderer {
    * Clear the progress line
    */
   clearLine(): void {
-    if (this.lastLength > 0) {
-      process.stderr.write('\r' + ' '.repeat(this.lastLength) + '\r');
+    if (this.lastLength > 0 || this.isActive) {
+      // Use ANSI escape: CR (carriage return) + clear to end of line
+      process.stderr.write('\r\x1b[K');
+      this.lastLength = 0;
     }
   }
 
