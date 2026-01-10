@@ -208,6 +208,12 @@ export class PhotonServer {
 
         return { content: [content] };
       } catch (error) {
+        // Log error with context for debugging
+        this.log('error', 'Tool execution failed', {
+          tool: toolName,
+          error: getErrorMessage(error),
+          args: this.options.devMode ? args : undefined,
+        });
         // Format error for AI consumption
         return this.formatError(error, toolName, args);
       }
@@ -253,6 +259,10 @@ export class PhotonServer {
         // Handle Template/TemplateResponse return types
         return this.formatTemplateResult(result);
       } catch (error) {
+        this.log('error', 'Prompt execution failed', {
+          prompt: promptName,
+          error: getErrorMessage(error),
+        });
         throw new Error(`Failed to get prompt: ${getErrorMessage(error)}`);
       }
     });
@@ -382,6 +392,11 @@ export class PhotonServer {
               ],
             };
           } catch (error) {
+            this.log('error', 'Asset read failed', {
+              uri,
+              path: resolvedPath,
+              error: getErrorMessage(error),
+            });
             throw new Error(`Failed to read asset: ${getErrorMessage(error)}`);
           }
         }
@@ -405,6 +420,11 @@ export class PhotonServer {
         // Handle Static return type
         return this.formatStaticResult(result, static_.mimeType);
       } catch (error) {
+        this.log('error', 'Resource read failed', {
+          uri,
+          resource: static_.name,
+          error: getErrorMessage(error),
+        });
         throw new Error(`Failed to read resource: ${getErrorMessage(error)}`);
       }
     });

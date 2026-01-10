@@ -429,24 +429,38 @@ export class MarketplaceManager {
         }
       } else if (marketplace.sourceType === 'url') {
         // Direct URL - the source already points to photons.json
-        const response = await fetch(marketplace.source);
+        const url = marketplace.source;
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
 
         if (response.ok) {
           return await response.json() as MarketplaceManifest;
         }
       } else {
         // GitHub sources (github, git-ssh)
-        const manifestUrl = `${marketplace.url}/.marketplace/photons.json`;
-        const response = await fetch(manifestUrl);
+        const url = `${marketplace.url}/.marketplace/photons.json`;
+        const response = await fetch(url, {
+          // Add timeout to prevent hanging
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
 
         if (response.ok) {
           return await response.json() as MarketplaceManifest;
+        } else {
+          this.logger.warn(`Manifest fetch returned ${response.status} for ${marketplace.name}`);
         }
       }
     } catch (error) {
       // Marketplace doesn't have a manifest or fetch failed
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to fetch manifest from ${marketplace.name}: ${message}`);
+      this.logger.warn(`Failed to fetch manifest from ${marketplace.name}`, {
+        source: marketplace.source,
+        error: message,
+        hint: error instanceof Error && error.name === 'TimeoutError' 
+          ? 'Network timeout - check your internet connection'
+          : 'Marketplace may be unavailable',
+      });
     }
 
     return null;
