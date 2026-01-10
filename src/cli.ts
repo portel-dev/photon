@@ -32,6 +32,12 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 import { ProgressRenderer } from './shared/progress-renderer.js';
+import { PHOTON_VERSION } from './version.js';
+import { toEnvVarName } from './shared/config-docs.js';
+import { renderSection } from './shared/cli-sections.js';
+import { runTask } from './shared/task-runner.js';
+import { LoggerOptions, normalizeLogLevel } from './shared/logger.js';
+import { printHeader, printInfo, printWarning, printError } from './cli-formatter.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
@@ -53,6 +59,20 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
+function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOptions {
+  const root = command?.parent?.opts?.() ?? program.opts();
+  try {
+    const level = normalizeLogLevel(root.logLevel);
+    return {
+      level,
+      json: Boolean(root.jsonLogs),
+    };
+  } catch (error: any) {
+    printError(error.message);
+    process.exit(1);
+  }
+}
+
 /**
  * Find an available port starting from the given port
  */
@@ -64,6 +84,23 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
     }
   }
   throw new Error(`No available port found between ${startPort} and ${startPort + maxAttempts - 1}`);
+}
+
+function cliHeading(title: string): void {
+  console.log('');
+  printHeader(title);
+}
+
+function cliListItem(text: string): void {
+  printInfo(`  ${text}`);
+}
+
+function cliSpacer(): void {
+  console.log('');
+}
+
+function cliHint(message: string): void {
+  printWarning(message);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -82,7 +119,9 @@ async function handleFormElicitation(ask: {
     required?: string[];
   };
 }): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
-  console.log(`\n📝 ${ask.message}\n`);
+  cliHeading(`📝 ${ask.message}`);
+  cliHint('Press Enter to accept defaults. Fields marked * are required.');
+  cliSpacer();
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -120,10 +159,10 @@ async function handleFormElicitation(ask: {
         ? prop.oneOf.map((o: any) => ({ value: o.const, label: o.title }))
         : prop.enum.map((e: string) => ({ value: e, label: e }));
 
-      console.log(`${title}${reqMark}:`);
+      printInfo(`${title}${reqMark}:`);
       options.forEach((opt: any, i: number) => {
         const isDefault = opt.value === prop.default ? ' (default)' : '';
-        console.log(`  ${i + 1}. ${opt.label}${isDefault}`);
+        cliListItem(`${i + 1}. ${opt.label}${isDefault}`);
       });
 
       const answer = await question(`Choose (1-${options.length})${defaultVal}: `);
@@ -139,13 +178,13 @@ async function handleFormElicitation(ask: {
       // Multi-select
       const items = prop.items?.anyOf || prop.items?.enum?.map((e: string) => ({ const: e, title: e }));
       if (items) {
-        console.log(`${title}${reqMark} (comma-separated numbers):`);
+        printInfo(`${title}${reqMark} (comma-separated numbers):`);
         items.forEach((item: any, i: number) => {
           const label = item.title || item.const || item;
-          console.log(`  ${i + 1}. ${label}`);
+          cliListItem(`${i + 1}. ${label}`);
         });
 
-        const answer = await question(`Choose: `);
+        const answer = await question('Choose: ');
         const indices = answer.split(',').map((s: string) => parseInt(s.trim()) - 1);
         value = indices
           .filter((idx: number) => idx >= 0 && idx < items.length)
@@ -173,10 +212,11 @@ async function handleFormElicitation(ask: {
     }
 
     result[key] = value;
+    cliSpacer();
   }
 
   rl.close();
-  console.log('');
+  cliSpacer();
 
   return { action: 'accept', content: result };
 }
@@ -189,8 +229,10 @@ async function handleUrlElicitation(ask: {
   message: string;
   url: string;
 }): Promise<{ action: 'accept' | 'decline' | 'cancel' }> {
-  console.log(`\n🔗 ${ask.message}`);
-  console.log(`   URL: ${ask.url}\n`);
+  cliHeading(`🔗 ${ask.message}`);
+  printInfo(`URL: ${ask.url}`);
+  cliHint('Opening your default browser...');
+  cliSpacer();
 
   // Open URL in default browser
   const platform = process.platform;
@@ -202,7 +244,7 @@ async function handleUrlElicitation(ask: {
     const { exec } = await import('child_process');
     exec(`${openCommand} "${ask.url}"`);
   } catch (error) {
-    console.log(`   (Please open the URL manually in your browser)`);
+    cliHint('Please open the URL manually in your browser.');
   }
 
   const rl = readline.createInterface({
@@ -231,7 +273,7 @@ async function handleSelectElicitation(ask: {
   multi?: boolean;
   default?: string | string[];
 }): Promise<string | string[]> {
-  console.log(`\n${ask.message}`);
+  cliHeading(ask.message);
 
   const options = ask.options.map((opt) =>
     typeof opt === 'string' ? { value: opt, label: opt } : opt
@@ -241,8 +283,9 @@ async function handleSelectElicitation(ask: {
     const isDefault = ask.default === opt.value || (Array.isArray(ask.default) && ask.default.includes(opt.value));
     const defaultMark = isDefault ? ' ✓' : '';
     const desc = opt.description ? ` - ${opt.description}` : '';
-    console.log(`  ${i + 1}. ${opt.label}${desc}${defaultMark}`);
+    cliListItem(`${i + 1}. ${opt.label}${desc}${defaultMark}`);
   });
+  cliSpacer();
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -290,7 +333,7 @@ async function extractConstructorParams(filePath: string): Promise<ConstructorPa
     const extractor = new SchemaExtractor();
     return extractor.extractConstructorParams(source);
   } catch (error: any) {
-    console.error(`Failed to extract constructor params: ${error.message}`);
+    printError(`Failed to extract constructor params: ${error.message}`);
     return [];
   }
 }
@@ -298,15 +341,6 @@ async function extractConstructorParams(filePath: string): Promise<ConstructorPa
 /**
  * Convert MCP name and parameter name to environment variable name
  */
-function toEnvVarName(mcpName: string, paramName: string): string {
-  const mcpPrefix = mcpName.toUpperCase().replace(/-/g, '_');
-  const paramSuffix = paramName
-    .replace(/([A-Z])/g, '_$1')
-    .toUpperCase()
-    .replace(/^_/, '');
-  return `${mcpPrefix}_${paramSuffix}`;
-}
-
 /**
  * Setup MCP dependencies during photon installation
  * Detects @mcp declarations and prompts user to configure missing ones
@@ -629,7 +663,7 @@ async function performMarketplaceSync(
   const baseName = path.basename(resolvedPath);
   const manifest = {
     name: options.name || baseName,
-    version: '1.0.0',
+    version: PHOTON_VERSION,
     description: options.description || undefined,
     owner: options.owner ? {
       name: options.owner,
@@ -991,14 +1025,7 @@ async function showConfigTemplate(filePath: string, mcpName: string, workingDir:
   console.log('\nValidate: photon mcp ' + mcpName + ' --validate');
 }
 
-// Get version from package.json
-let version = '1.0.0';
-try {
-  const packageJson = require('../package.json');
-  version = packageJson.version;
-} catch {
-  // Fallback version
-}
+const version = PHOTON_VERSION;
 
 const program = new Command();
 
@@ -1007,6 +1034,8 @@ program
   .description('Universal runtime for single-file TypeScript programs')
   .version(version)
   .option('--dir <path>', 'Photon directory (default: ~/.photon)', DEFAULT_WORKING_DIR)
+  .option('--log-level <level>', 'Set log verbosity (error|warn|info|debug)', 'info')
+  .option('--json-logs', 'Emit newline-delimited JSON logs for runtime output')
   .configureHelp({
     sortSubcommands: false,
     sortOptions: false,
@@ -1046,51 +1075,52 @@ program
   .description('Update marketplace indexes and check for CLI updates')
   .action(async () => {
     try {
-      const { printInfo, printSuccess, printWarning } = await import('./cli-formatter.js');
-
-      // Update all marketplace caches
-      printInfo('Refreshing marketplace indexes...\n');
-
+      const { printInfo, printSuccess, printWarning, printHeader } = await import('./cli-formatter.js');
       const { MarketplaceManager } = await import('./marketplace-manager.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
 
-      const results = await manager.updateAllCaches();
+      const results = await runTask('Refreshing marketplace indexes', async () => {
+        return manager.updateAllCaches();
+      });
 
-      for (const [marketplaceName, success] of results) {
+      console.log('');
+      const entries = Array.from(results.entries());
+      let successCount = 0;
+      for (const [marketplaceName, success] of entries) {
         if (success) {
-          printSuccess(`${marketplaceName}`);
+          printSuccess(marketplaceName);
+          successCount++;
         } else {
           printWarning(`${marketplaceName} (no manifest)`);
         }
       }
+      printInfo(`\nUpdated ${successCount}/${entries.length} marketplaces`);
 
-      const successCount = Array.from(results.values()).filter(Boolean).length;
-      console.log('');
-      printInfo(`Updated ${successCount}/${results.size} marketplaces`);
-
-      // Check for CLI updates
-      console.log('');
-      printInfo('Checking for Photon CLI updates...');
-
+      let latestVersion: string | null = null;
       try {
-        const { execSync } = await import('child_process');
-        const latestVersion = execSync('npm view @portel/photon version', {
-          encoding: 'utf-8',
-          timeout: 10000,
-        }).trim();
+        latestVersion = await runTask('Checking for Photon CLI updates', async () => {
+          const { execSync } = await import('child_process');
+          return execSync('npm view @portel/photon version', {
+            encoding: 'utf-8',
+            timeout: 10000,
+          }).trim();
+        });
+      } catch {
+        printWarning('\nCould not check for CLI updates');
+      }
 
-        if (latestVersion && latestVersion !== version) {
-          console.log('');
-          printWarning(`New Photon version available: ${version} → ${latestVersion}`);
+      if (latestVersion) {
+        console.log('');
+        if (latestVersion !== version) {
+          printHeader('Update available');
+          printWarning(`Current: ${version}`);
+          printInfo(`Latest:  ${latestVersion}`);
           printInfo(`Update with: npm install -g @portel/photon`);
         } else {
           printSuccess(`Photon CLI is up to date (${version})`);
         }
-      } catch {
-        printWarning('Could not check for CLI updates');
       }
-
     } catch (error: any) {
       const { printError } = await import('./cli-formatter.js');
       printError(error.message);
@@ -1112,6 +1142,7 @@ program
     try {
       // Get working directory from global options
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const logOptions = getLogOptionsFromCommand(command);
 
       // Resolve file path from name in working directory
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -1149,6 +1180,7 @@ program
         devMode: options.dev,
         transport,
         port: parseInt(options.port, 10),
+        logOptions: { ...logOptions, scope: transport },
       });
 
       // Handle shutdown signals
@@ -1166,7 +1198,7 @@ program
 
       // Start file watcher in dev mode
       if (options.dev) {
-        const watcher = new FileWatcher(server, filePath);
+        const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
         watcher.start();
 
         // Clean up watcher on shutdown
@@ -1191,10 +1223,11 @@ program
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
   .option('--dev', 'Enable development mode with hot reload and playground')
   .description('Run Photon as HTTP server with SSE transport (auto port detection)')
-  .action(async (name: string, options: any) => {
+  .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const logOptions = getLogOptionsFromCommand(command);
 
       // Resolve file path from name
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -1220,6 +1253,7 @@ program
         devMode: options.dev,
         transport: 'sse',
         port,
+        logOptions: { ...logOptions, scope: 'sse' },
       });
 
       // Handle shutdown signals
@@ -1237,7 +1271,7 @@ program
 
       // Start file watcher in dev mode
       if (options.dev) {
-        const watcher = new FileWatcher(server, filePath);
+        const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
         watcher.start();
 
         process.on('SIGINT', async () => {
@@ -1343,7 +1377,7 @@ program
   .description('Show installed and available Photons')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const { formatOutput, printInfo, printError, STATUS } = await import('./cli-formatter.js');
+      const { formatOutput, printInfo, printError, printHeader, STATUS } = await import('./cli-formatter.js');
       // Get working directory from global/parent options
       const parentOpts = command.parent?.opts() || {};
       const workingDir = parentOpts.dir || DEFAULT_WORKING_DIR;
@@ -1406,103 +1440,60 @@ program
           console.log(`# Add to mcpServers in: ${configPath}\n`);
           console.log(JSON.stringify({ [name]: config }, null, 2));
         } else {
-          // Show info for specific photon - both local and marketplace
-
-          // Show local installation if present
           if (isInstalled) {
             const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
             const extractor = new PhotonDocExtractor(filePath!);
             const photonMetadata = await extractor.extractFullMetadata();
-
             const fileName = `${name}.photon.ts`;
             const metadata = await manager.getPhotonInstallMetadata(fileName);
             const isModified = metadata ? await manager.isPhotonModified(filePath!, fileName) : false;
 
-            printInfo(`Installed in ${workingDir}:\n`);
-
-            // Build info as tree structure
-            const infoData: Record<string, any> = {
-              name: name,
-              version: photonMetadata.version || '1.0.0',
-              location: filePath,
-            };
+            const installDetails: string[] = [
+              `Location: ${filePath}`,
+              `Version: ${photonMetadata.version || PHOTON_VERSION}`,
+              metadata ? `Source: ${metadata.marketplace}` : 'Source: local',
+              metadata ? `Installed: ${new Date(metadata.installedAt).toLocaleString()}` : null,
+              isModified ? 'Status: modified locally' : 'Status: clean',
+            ].filter(Boolean) as string[];
+            renderSection('Installation', installDetails);
 
             if (photonMetadata.description) {
-              infoData.description = photonMetadata.description;
-            }
-
-            if (metadata) {
-              infoData.installed = new Date(metadata.installedAt).toLocaleDateString();
-              infoData.source = metadata.marketplace;
-              if (isModified) {
-                infoData.status = 'modified locally';
-              }
+              renderSection('Description', [photonMetadata.description]);
             }
 
             const tools = photonMetadata.tools || [];
             if (tools.length > 0) {
-              infoData.tools = tools.length;
+              console.log(`Tools: ${tools.length}`);
+              renderSection('Methods', tools.map(tool => {
+                const desc = tool.description ? tool.description.split(/\.(?:\s|$)|  |\n/)[0].trim() : '';
+                return desc ? `${tool.name} — ${desc}` : tool.name;
+              }));
             }
 
-            formatOutput(infoData, 'tree');
-
-            // Show tool list
-            if (tools.length > 0) {
-              console.log('');
-              printInfo('Methods:');
-              for (const tool of tools) {
-                // Take only first sentence of description
-                let desc = '';
-                if (tool.description) {
-                  // Split on period followed by space, double space, or newline
-                  const firstSentence = tool.description.split(/\.(?:\s|$)|  |\n/)[0].trim();
-                  desc = firstSentence ? ` - ${firstSentence}` : '';
-                }
-                console.log(`  ${tool.name}${desc}`);
-              }
-            }
-
-            console.log('');
-            // Show appropriate run command
-            if (metadata && !isModified) {
-              printInfo(`Run with: photon mcp ${name}`);
-              printInfo(`To customize: Copy to a new name and run with --dev for hot reload`);
-            } else if (metadata && isModified) {
-              printInfo(`Run with: photon mcp ${name} --dev`);
-              printInfo(`Note: Modified from marketplace - consider renaming to avoid upgrade conflicts`);
-            } else {
-              printInfo(`Run with: photon mcp ${name} --dev`);
-            }
-            console.log('');
+            const usageLines = metadata && !isModified
+              ? [`photon mcp ${name}`, `Customize: photon mcp ${name} --dev`]
+              : [`photon mcp ${name} --dev`];
+            renderSection('Usage', usageLines);
+          } else {
+            renderSection('Installation', [
+              `Status: not installed in ${workingDir}`,
+              `Install with: photon add ${name}`,
+            ]);
           }
 
-          // Show marketplace availability in tree format
+          // Show marketplace availability
           const searchResults = await manager.search(name);
+          const sources = searchResults.get(name) || [];
 
-          if (searchResults.size > 0) {
-            printInfo('Available in marketplaces:\n');
-
-            // Get all sources for this specific photon
-            const sources = searchResults.get(name);
-            if (sources && sources.length > 0) {
-              // Get local installation info to mark which one is installed
-              const fileName = `${name}.photon.ts`;
-              const installMetadata = await manager.getPhotonInstallMetadata(fileName);
-
-              // Build marketplace data as tree
-              const marketplaceData: Record<string, any> = {};
-              for (const source of sources) {
-                const isCurrentlyInstalled = installMetadata?.marketplace === source.marketplace.name;
-                const version = source.metadata?.version || 'unknown';
-                marketplaceData[source.marketplace.name] = {
-                  version,
-                  source: source.marketplace.repo,
-                  status: isCurrentlyInstalled ? 'installed' : '-',
-                };
-              }
-
-              formatOutput(marketplaceData, 'tree');
-            }
+          if (sources.length > 0) {
+            const fileName = `${name}.photon.ts`;
+            const installMetadata = await manager.getPhotonInstallMetadata(fileName);
+            const marketplaceLines = sources.map(source => {
+              const version = source.metadata?.version || 'unknown';
+              const mark = installMetadata?.marketplace === source.marketplace.name ? ' (installed)' : '';
+              return `${source.marketplace.name} · v${version}${mark}`;
+            });
+            renderSection('Marketplace sources', marketplaceLines);
           } else if (!isInstalled) {
             printError(`'${name}' not found locally or in any marketplace`);
             printInfo(`Tip: Use 'photon search <query>' to find similar MCPs`);
@@ -1564,7 +1555,7 @@ program
 
       // Show installed photons as table
       if (mcps.length > 0) {
-        printInfo(`Installed in ${workingDir} (${mcps.length}):\n`);
+        printHeader(`Installed · ${workingDir}`);
 
         const tableData: Array<{ name: string; version: string; source: string; status: string }> = [];
 
@@ -1588,7 +1579,7 @@ program
             // No metadata - local or pre-metadata Photon
             tableData.push({
               name: mcpName,
-              version: '1.0.0',
+              version: PHOTON_VERSION,
               source: 'local',
               status: STATUS.OK,
             });
@@ -1598,12 +1589,13 @@ program
         formatOutput(tableData, 'table');
         console.log('');
       } else {
-        printInfo(`No photons installed in ${workingDir}`);
+        printHeader(`Installed · ${workingDir}`);
+        printInfo('No photons installed');
         printInfo(`Install with: photon add <name>\n`);
       }
 
       // Show marketplace availability in tree format
-      printInfo('Available in marketplaces:\n');
+      printHeader('Marketplace availability');
 
       const marketplaces = manager.getAll().filter(m => m.enabled);
       const counts = await manager.getMarketplaceCounts();
@@ -1682,7 +1674,7 @@ program
         for (const entry of entries) {
           tableData.push({
             name: mcpName,
-            version: entry.metadata?.version || '1.0.0',
+            version: entry.metadata?.version || PHOTON_VERSION,
             description: entry.metadata?.description
               ? entry.metadata.description.substring(0, 50) + (entry.metadata.description.length > 50 ? '...' : '')
               : '-',
@@ -2611,214 +2603,178 @@ program
 
 // Doctor command: diagnose photon environment
 program
-  .command('doctor', { hidden: true })
+  .command('doctor')
   .argument('[name]', 'Photon name to diagnose (checks environment if omitted)')
-  .description('Run diagnostics on photon environment and installations')
+  .description('Run diagnostics on photon environment, ports, and configuration')
+  .option('--port <number>', 'Port to check for availability', '3000')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const { formatOutput, printInfo, printSuccess, printWarning, STATUS } = await import('./cli-formatter.js');
+      const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } = await import('./cli-formatter.js');
       const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
+      const diagnostics: Record<string, any> = {};
+      const suggestions: string[] = [];
       let issuesFound = 0;
 
-      printInfo('Running Photon diagnostics...\n');
+      printHeader('Photon Doctor');
+      printInfo('Running environment checks...\n');
 
-      // Build diagnostic data
-      const diagnostics: Record<string, any> = {};
-
-      // Check Node version
+      // Node runtime
       const nodeVersion = process.version;
       const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
       diagnostics['Node.js'] = {
         version: nodeVersion,
         status: majorVersion >= 18 ? STATUS.OK : STATUS.ERROR,
-        note: majorVersion >= 18 ? 'supported' : 'requires Node.js 18+',
+        note: majorVersion >= 18 ? 'supported runtime' : 'Photon requires Node.js 18+',
       };
-      if (majorVersion < 18) issuesFound++;
+      if (majorVersion < 18) {
+        issuesFound++;
+        suggestions.push('Upgrade to Node.js 18+ (https://nodejs.org).');
+      }
 
-      // Check npm/npx
+      // npm availability
       try {
         const { execSync } = await import('child_process');
         const npmVersion = execSync('npm --version', { encoding: 'utf-8' }).trim();
-        diagnostics['Package Manager'] = {
-          npm: npmVersion,
-          status: STATUS.OK,
-        };
+        diagnostics['Package manager'] = { npm: npmVersion, status: STATUS.OK };
       } catch {
-        diagnostics['Package Manager'] = {
-          npm: 'not found',
-          status: STATUS.ERROR,
-        };
+        diagnostics['Package manager'] = { npm: 'not found', status: STATUS.ERROR };
         issuesFound++;
+        suggestions.push('Install npm / npx so Photon can install dependencies.');
       }
 
-      // Check working directory
+      // Working directory health
       try {
         await fs.access(workingDir);
         const stats = await fs.stat(workingDir);
         if (stats.isDirectory()) {
           const mcps = await listPhotonMCPs(workingDir);
-          diagnostics['Working Directory'] = {
+          diagnostics['Working directory'] = {
             path: workingDir,
             status: STATUS.OK,
             photons: mcps.length,
           };
         } else {
-          diagnostics['Working Directory'] = {
+          diagnostics['Working directory'] = {
             path: workingDir,
             status: STATUS.ERROR,
-            note: 'not a directory',
+            note: 'Not a directory',
           };
           issuesFound++;
+          suggestions.push(`Fix working directory: rm ${workingDir} && mkdir -p ${workingDir}`);
         }
       } catch {
-        diagnostics['Working Directory'] = {
+        diagnostics['Working directory'] = {
           path: workingDir,
-          status: STATUS.UNKNOWN,
-          note: 'will be created on first use',
+          status: STATUS.WARN,
+          note: 'Will be created on first use',
         };
       }
 
-      // Check cache directory
+      // Cache directory insight
       const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
       try {
         await fs.access(cacheDir);
         const files = await fs.readdir(cacheDir);
-        diagnostics['Cache Directory'] = {
-          path: cacheDir,
-          status: STATUS.OK,
-          cachedFiles: files.length,
-        };
+        diagnostics['Cache directory'] = { path: cacheDir, status: STATUS.OK, cachedFiles: files.length };
       } catch {
-        diagnostics['Cache Directory'] = {
-          path: cacheDir,
-          status: STATUS.UNKNOWN,
-          note: 'will be created on first use',
-        };
+        diagnostics['Cache directory'] = { path: cacheDir, status: STATUS.UNKNOWN, note: 'Created on demand' };
       }
 
-      // Check marketplaces and conflicts
-      let manager: any;
+      // Port availability
+      const port = parseInt(options.port, 10);
+      const available = await isPortAvailable(port);
+      diagnostics['Ports'] = {
+        port,
+        status: available ? STATUS.OK : STATUS.ERROR,
+        note: available ? 'Available' : 'In use by another process',
+      };
+      if (!available) {
+        issuesFound++;
+        suggestions.push(`Port ${port} is busy. Run Photon with '--port ${port + 1}' or stop the conflicting service.`);
+      }
+
+      // Marketplace configuration
       try {
         const { MarketplaceManager } = await import('./marketplace-manager.js');
-        manager = new MarketplaceManager();
+        const manager = new MarketplaceManager();
         await manager.initialize();
-        const marketplaces = manager.getAll();
-        const enabled = marketplaces.filter((m: any) => m.enabled);
-
-        if (enabled.length > 0) {
-          // Check for conflicts
-          const conflicts = await manager.detectAllConflicts();
-          if (conflicts.size > 0) {
-            diagnostics['Marketplaces'] = {
-              enabled: enabled.length,
-              status: STATUS.WARN,
-              sources: enabled.map((m: any) => m.name),
-              conflicts: `${conflicts.size} photon(s) in multiple marketplaces`,
-            };
-            issuesFound++;
-          } else {
-            diagnostics['Marketplaces'] = {
-              enabled: enabled.length,
-              status: STATUS.OK,
-              sources: enabled.map((m: any) => m.name),
-            };
-          }
-        } else {
+        const enabled = manager.getAll().filter(m => m.enabled);
+        if (enabled.length === 0) {
           diagnostics['Marketplaces'] = {
-            enabled: 0,
-            status: STATUS.UNKNOWN,
-            note: 'Add one with: photon marketplace add portel-dev/photons',
+            status: STATUS.WARN,
+            note: 'No marketplaces configured. Add one with: photon marketplace add portel-dev/photons',
           };
+          suggestions.push('Add at least one marketplace so you can install community photons.');
+        } else {
+          const conflicts = await manager.detectAllConflicts();
+          diagnostics['Marketplaces'] = {
+            status: conflicts.size > 0 ? STATUS.WARN : STATUS.OK,
+            enabled: enabled.map(m => m.name),
+            conflicts: conflicts.size,
+          };
+          if (conflicts.size > 0) {
+            issuesFound++;
+            suggestions.push('Resolve duplicate photons with: photon marketplace resolve');
+          }
         }
       } catch (error: any) {
-        diagnostics['Marketplaces'] = {
-          status: STATUS.ERROR,
-          error: error.message,
-        };
+        diagnostics['Marketplaces'] = { status: STATUS.ERROR, error: error.message };
+        suggestions.push('Marketplace config failed to load. Run photon marketplace list to debug.');
         issuesFound++;
       }
 
-      // Check specific photon if provided
+      // Photon-specific checks
       if (name) {
-        const photonDiag: Record<string, any> = {};
-
+        const photonSection: Record<string, any> = {};
         const filePath = await resolvePhotonPath(name, workingDir);
         if (!filePath) {
-          photonDiag['location'] = 'not found';
-          photonDiag['status'] = STATUS.ERROR;
+          photonSection.status = STATUS.ERROR;
+          photonSection.note = `Not installed in ${workingDir}`;
+          suggestions.push(`Install ${name} with: photon add ${name}`);
           issuesFound++;
         } else {
-          photonDiag['location'] = filePath;
-          photonDiag['status'] = STATUS.OK;
-
-          // Check if it compiles
-          try {
-            const source = await fs.readFile(filePath, 'utf-8');
-            const extractor = new SchemaExtractor();
-            const params = extractor.extractConstructorParams(source);
-            photonDiag['syntax'] = STATUS.OK;
-            photonDiag['constructorParams'] = params.length;
-          } catch (error: any) {
-            photonDiag['syntax'] = STATUS.ERROR;
-            photonDiag['syntaxError'] = error.message;
-            issuesFound++;
+          photonSection.status = STATUS.OK;
+          photonSection.path = filePath;
+          const params = await extractConstructorParams(filePath);
+          if (params.length > 0) {
+            photonSection.environment = params.map(param => {
+              const envVar = toEnvVarName(name, param.name);
+              const value = process.env[envVar];
+              const ok = Boolean(value) || param.isOptional || param.hasDefault;
+              if (!ok) {
+                issuesFound++;
+                suggestions.push(`Set ${envVar} for ${name} (e.g. export ${envVar}=value).`);
+              }
+              return {
+                name: envVar,
+                status: ok ? STATUS.OK : STATUS.ERROR,
+                value: value ? 'configured' : param.hasDefault ? `default: ${formatDefaultValue(param.defaultValue)}` : 'missing',
+              };
+            });
           }
 
-          // Check cache
           const cachedFile = path.join(cacheDir, `${name}.js`);
           try {
             await fs.access(cachedFile);
-            photonDiag['cache'] = STATUS.OK;
+            photonSection.cache = { status: STATUS.OK, note: 'Warm' };
           } catch {
-            photonDiag['cache'] = 'not cached yet';
-          }
-
-          // Check dependencies and security
-          try {
-            const { DependencyManager } = await import('@portel/photon-core');
-            const depManager = new DependencyManager();
-            const dependencies = await depManager.extractDependencies(filePath);
-            if (dependencies.length > 0) {
-              photonDiag['dependencies'] = dependencies.map(dep => `${dep.name}@${dep.version}`);
-
-              // Security audit
-              try {
-                const { SecurityScanner } = await import('./security-scanner.js');
-                const scanner = new SecurityScanner();
-                const depStrings = dependencies.map(d => `${d.name}@${d.version}`);
-                const result = await scanner.auditMCP(name, depStrings);
-
-                if (result.totalVulnerabilities > 0) {
-                  photonDiag['security'] = STATUS.ERROR;
-                  photonDiag['vulnerabilities'] = `${result.totalVulnerabilities} (${result.criticalCount} critical, ${result.highCount} high)`;
-                  issuesFound++;
-                } else {
-                  photonDiag['security'] = STATUS.OK;
-                }
-              } catch {
-                photonDiag['security'] = 'could not check';
-              }
-            } else {
-              photonDiag['dependencies'] = 'none';
-              photonDiag['security'] = STATUS.OK;
-            }
-          } catch (error: any) {
-            photonDiag['dependencies'] = `error: ${error.message}`;
+            photonSection.cache = { status: STATUS.WARN, note: 'Not compiled yet (first run will compile)' };
           }
         }
-
-        diagnostics[`Photon: ${name}`] = photonDiag;
+        diagnostics[`Photon: ${name}`] = photonSection;
       }
 
       formatOutput(diagnostics, 'tree');
 
-      // Summary
-      console.log('');
-      if (issuesFound === 0) {
-        printSuccess('No issues found! Photon environment is healthy.');
+      if (suggestions.length > 0) {
+        printHeader('Suggested fixes');
+        suggestions.forEach((tip, idx) => console.log(` ${idx + 1}. ${tip}`));
+      }
+
+      if (issuesFound === 0 && suggestions.length === 0) {
+        printSuccess('\nAll checks passed!');
       } else {
-        printWarning(`Found ${issuesFound} issue(s). Please address the items marked with '${STATUS.ERROR}' above.`);
-        process.exit(1);
+        printWarning(`\nDetected ${issuesFound || suggestions.length} potential issue(s).`);
       }
     } catch (error: any) {
       const { printError } = await import('./cli-formatter.js');
