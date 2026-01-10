@@ -284,6 +284,101 @@ async function runTests() {
       console.log('✅ Explicit @ui declaration with path');
     }
 
+    // Test 9: Marketplace source normalization with hints
+    {
+      const subject: any = new PhotonLoader();
+      const normalized = await subject.normalizeMarketplaceSource('community/custom.photon.ts');
+      assert.equal(normalized.slug, 'custom', 'Slug should strip extensions');
+      assert.equal(normalized.fileName, 'custom.photon.ts', 'File name should use slug');
+      assert.equal(normalized.marketplaceHint, 'community', 'Should capture marketplace hint');
+      console.log('✅ Marketplace source normalization with hints');
+    }
+
+    // Test 10: resolveMarketplacePhoton falls back to cached download when needed
+    {
+      const subject: any = new PhotonLoader();
+      const currentDir = path.join(testDir, 'parent');
+      await fs.mkdir(currentDir, { recursive: true });
+      const currentPhoton = path.join(currentDir, 'parent.photon.ts');
+      await fs.writeFile(currentPhoton, 'export default class Parent {}');
+
+      const cachedPath = path.join(testDir, 'cached', 'child.photon.ts');
+      await fs.mkdir(path.dirname(cachedPath), { recursive: true });
+      await fs.writeFile(cachedPath, 'export default class RemoteChild {}');
+
+      const originalPathExists = subject.pathExists;
+      subject.pathExists = async () => false;
+      subject.fetchPhotonFromMarketplace = async () => cachedPath;
+
+      const resolved = await subject.resolvePhotonPath({
+        name: 'child',
+        source: 'community/child-photon',
+        sourceType: 'marketplace',
+      }, currentPhoton);
+
+      assert.equal(resolved, cachedPath, 'Should return cached marketplace path when local search fails');
+      subject.pathExists = originalPathExists;
+      console.log('✅ Marketplace photon resolution falls back to cached download');
+    }
+
+    // Test 11: fetchGithubPhoton caches downloaded file
+    {
+      const subject: any = new PhotonLoader();
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => ({
+        ok: true,
+        text: async () => 'export default class GithubPhoton {}',
+      }) as any;
+
+      let capturedLabel = '';
+      let capturedContent = '';
+      subject.writePhotonCacheFile = async (label: string, content: string) => {
+        capturedLabel = label;
+        capturedContent = content;
+        const outPath = path.join(testDir, 'github-cache', `${label}.photon.ts`);
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
+        await fs.writeFile(outPath, content, 'utf-8');
+        return outPath;
+      };
+
+      const dep = {
+        name: 'ghPhoton',
+        source: 'portel-dev/photon-examples/examples/basic.photon.ts',
+        sourceType: 'github',
+      };
+
+      const resultPath = await subject.fetchGithubPhoton(dep);
+      assert.ok(resultPath.endsWith('.photon.ts'), 'GitHub fetch should write photon file');
+      assert.ok(capturedLabel.includes('portel-dev'), 'Cache label should include repo owner');
+      assert.ok(capturedContent.includes('GithubPhoton'), 'Cached content should match response');
+
+      globalThis.fetch = originalFetch;
+      console.log('✅ GitHub photon fetching caches result');
+    }
+
+    // Test 12: resolveNpmPhoton installs package into cache directory
+    {
+      const subject: any = new PhotonLoader();
+      const spec = `test-photon-package@1.0.0-${Date.now()}`;
+      const dep = { name: 'npmPhoton', source: `npm:${spec}`, sourceType: 'npm' };
+      const sanitized = subject.sanitizeCacheLabel(spec);
+      const cacheDir = path.join(os.homedir(), '.photon', '.cache', 'npm', sanitized);
+
+      subject.ensureNpmPackageInstalled = async (_cacheDir: string, _packageSpec: string, packageName: string) => {
+        const pkgRoot = path.join(cacheDir, 'node_modules', packageName);
+        await fs.mkdir(pkgRoot, { recursive: true });
+        await fs.writeFile(path.join(pkgRoot, 'index.photon.ts'), 'export default class NpmPhoton {}');
+      };
+
+      const resolved = await subject.resolveNpmPhoton(dep);
+      assert.ok(resolved.endsWith('.photon.ts'), 'npm photon resolution should return photon path');
+      const fileContent = await fs.readFile(resolved, 'utf-8');
+      assert.ok(fileContent.includes('NpmPhoton'), 'Resolved npm photon should match stub content');
+
+      await fs.rm(cacheDir, { recursive: true, force: true });
+      console.log('✅ npm photon resolution installs into temp cache');
+    }
+
     console.log('\n✅ All Loader tests passed!');
   } finally {
     // Cleanup
