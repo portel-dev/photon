@@ -258,6 +258,21 @@ Use the [**photon-skill**](https://github.com/portel-dev/photon-skill) for Claud
 - AI understands complete context in one file
 - Zero boilerplate, just business logic
 
+### Diagnose your environment
+
+Keep your runtime healthy:
+
+```bash
+# Full environment & port check
+photon doctor
+photon doctor jira  # adds env-var + cache diagnostics for `jira`
+
+# Structured logs for MCP servers
+photon mcp jira --log-level debug --json-logs
+```
+
+`photon doctor` surfaces Node/npm health, working-directory status, marketplace conflicts, port availability, and Photon-specific env recommendations with actionable fixes.
+
 ### Add Your Own Marketplace
 
 ```bash
