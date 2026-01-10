@@ -5,9 +5,11 @@
  */
 
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
+import { spawn } from 'child_process';
 import {
   PhotonMCP,
   SchemaExtractor,
@@ -65,6 +67,10 @@ interface DependencySpec {
 }
 
 import { ProgressRenderer } from './shared/progress-renderer.js';
+import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
+import { PHOTON_VERSION } from './version.js';
+import { generateConfigErrorMessage, summarizeConstructorParams, toEnvVarName } from './shared/config-docs.js';
+import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -80,10 +86,15 @@ export class PhotonLoader {
   private mcpConfig?: PhotonMCPConfig;
   /** Progress renderer for inline CLI animation */
   private progressRenderer = new ProgressRenderer();
+  /** Marketplace manager for resolving remote Photons */
+  private marketplaceManager?: MarketplaceManager;
+  private marketplaceManagerPromise?: Promise<MarketplaceManager>;
+  private logger: Logger;
 
-  constructor(verbose: boolean = false) {
+  constructor(verbose: boolean = false, logger?: Logger) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
+    this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
   }
 
   /**
@@ -101,6 +112,22 @@ export class PhotonLoader {
     return this.mcpConfig;
   }
 
+  private async getMarketplaceManager(): Promise<MarketplaceManager> {
+    if (this.marketplaceManager) {
+      return this.marketplaceManager;
+    }
+    if (!this.marketplaceManagerPromise) {
+      this.marketplaceManagerPromise = (async () => {
+        const managerLogger = this.logger.child({ component: 'marketplace-manager' });
+        const manager = new MarketplaceManager(managerLogger);
+        await manager.initialize();
+        return manager;
+      })();
+    }
+    this.marketplaceManager = await this.marketplaceManagerPromise;
+    return this.marketplaceManager;
+  }
+
   /**
    * Set MCP client factory for enabling this.mcp() in Photons
    */
@@ -111,32 +138,105 @@ export class PhotonLoader {
   /**
    * Log message only if verbose mode is enabled
    */
-  private log(message: string): void {
+  private log(message: string, meta?: Record<string, any>): void {
     if (this.verbose) {
-      console.error(message);
+      this.logger.info(message, meta);
     }
   }
 
   /**
+   * Generate deterministic cache key for an MCP + photon path
+   */
+  private getCacheKey(mcpName: string, photonPath: string): string {
+    const normalized = path.resolve(photonPath);
+    const hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
+    return `${mcpName}-${hash}`;
+  }
+ 
+  private getPhotonCacheDir(): string {
+    return path.join(os.homedir(), '.photon', '.cache', 'photons');
+  }
+ 
+  private sanitizeCacheLabel(label: string): string {
+    return label.replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+ 
+  private async writePhotonCacheFile(label: string, content: string, hashHint?: string): Promise<string> {
+    const cacheDir = this.getPhotonCacheDir();
+    await fs.mkdir(cacheDir, { recursive: true });
+    const hash = hashHint
+      ? hashHint.replace(/^sha256:/, '').slice(0, 12)
+      : crypto.createHash('sha256').update(content).digest('hex').slice(0, 12);
+    const safeLabel = this.sanitizeCacheLabel(label);
+    const cachePath = path.join(cacheDir, `${safeLabel}.${hash}.photon.ts`);
+    await fs.writeFile(cachePath, content, 'utf-8');
+    return cachePath;
+  }
+ 
+  private async runCommand(command: string, args: string[], cwd: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, {
+        cwd,
+        stdio: 'inherit',
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
+        }
+      });
+    });
+  }
+ 
+  /**
    * Directory where MCP-specific dependencies are cached
    */
-  private getDependencyCacheDir(mcpName: string): string {
-    return path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
+  private getDependencyCacheDir(cacheKey: string): string {
+    return path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', cacheKey);
+  }
+
+  private getBuildCacheDir(cacheKey: string): string {
+    return path.join(this.getDependencyCacheDir(cacheKey), '.build');
+  }
+
+  private async clearBuildCache(cacheKey: string): Promise<void> {
+    const buildDir = this.getBuildCacheDir(cacheKey);
+    await fs.rm(buildDir, { recursive: true, force: true });
+  }
+
+  private async clearDependencyCache(cacheKey: string): Promise<void> {
+    await this.dependencyManager.clearCache(cacheKey);
+  }
+
+  private async clearAllCaches(cacheKey: string): Promise<void> {
+    await this.clearDependencyCache(cacheKey);
+    await this.clearBuildCache(cacheKey);
   }
 
   /**
    * Path to metadata file describing installed dependencies
    */
-  private getDependencyMetadataPath(mcpName: string): string {
-    return path.join(this.getDependencyCacheDir(mcpName), 'metadata.json');
+  private getDependencyMetadataPath(cacheKey: string): string {
+    return path.join(this.getDependencyCacheDir(cacheKey), 'metadata.json');
   }
 
-  private async readDependencyMetadata(mcpName: string): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
+  private async readDependencyMetadata(cacheKey: string): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
     try {
-      const data = await fs.readFile(this.getDependencyMetadataPath(mcpName), 'utf-8');
+      const data = await fs.readFile(this.getDependencyMetadataPath(cacheKey), 'utf-8');
       return JSON.parse(data);
     } catch {
       return null;
+    }
+  }
+
+  private async pathExists(targetPath: string): Promise<boolean> {
+    try {
+      await fs.access(targetPath);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -152,33 +252,47 @@ export class PhotonLoader {
     return normalize(a) === normalize(b);
   }
 
-  private async writeDependencyMetadata(mcpName: string, hash: string, dependencies: DependencySpec[]): Promise<void> {
-    const metadataPath = this.getDependencyMetadataPath(mcpName);
+  private async writeDependencyMetadata(cacheKey: string, hash: string, dependencies: DependencySpec[], photonPath?: string): Promise<void> {
+    const metadataPath = this.getDependencyMetadataPath(cacheKey);
     await fs.mkdir(path.dirname(metadataPath), { recursive: true });
-    await fs.writeFile(metadataPath, JSON.stringify({ hash, dependencies }, null, 2), 'utf-8');
+    await fs.writeFile(
+      metadataPath,
+      JSON.stringify({ hash, dependencies, photonPath: photonPath ? path.resolve(photonPath) : undefined }, null, 2),
+      'utf-8'
+    );
   }
 
   private async ensureDependenciesWithHash(
+    cacheKey: string,
     mcpName: string,
     dependencies: DependencySpec[],
-    sourceHash: string
+    sourceHash: string,
+    photonPath?: string
   ): Promise<string | null> {
-    const metadata = await this.readDependencyMetadata(mcpName);
+    const metadata = await this.readDependencyMetadata(cacheKey);
     const hashMatches = metadata?.hash === sourceHash;
     const depsMatch = metadata ? this.dependenciesEqual(metadata.dependencies, dependencies) : false;
     const needsClear = Boolean(metadata && (!hashMatches || !depsMatch));
 
     if (needsClear) {
-      this.log(`🔄 Dependencies changed for ${mcpName}, clearing cache`);
-      await this.dependencyManager.clearCache(mcpName);
+      const depDir = this.getDependencyCacheDir(cacheKey);
+      const buildDir = this.getBuildCacheDir(cacheKey);
+      this.log(`🔄 Dependencies changed for ${mcpName} (${cacheKey}), clearing caches`, {
+        dependencyCache: depDir,
+        buildCache: buildDir,
+      });
+      await this.clearAllCaches(cacheKey);
     }
 
     let nodeModules: string | null = null;
     if (dependencies.length > 0) {
-      nodeModules = await this.dependencyManager.ensureDependencies(mcpName, dependencies);
+      nodeModules = await this.dependencyManager.ensureDependencies(cacheKey, dependencies);
+      if (nodeModules) {
+        this.log(`📦 Dependencies ready for ${mcpName}`, { nodeModules });
+      }
     }
 
-    await this.writeDependencyMetadata(mcpName, sourceHash, dependencies);
+    await this.writeDependencyMetadata(cacheKey, sourceHash, dependencies, photonPath);
     return nodeModules;
   }
 
@@ -240,6 +354,7 @@ export class PhotonLoader {
       let dependencies: DependencySpec[] = [];
       let sourceHash: string | undefined;
       let mcpName = '';
+      let cacheKey: string | null = null;
 
       if (absolutePath.endsWith('.ts')) {
         tsContent = await fs.readFile(absolutePath, 'utf-8');
@@ -247,18 +362,19 @@ export class PhotonLoader {
         const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
         mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+        cacheKey = this.getCacheKey(mcpName, absolutePath);
         sourceHash = crypto.createHash('sha256').update(tsContent).digest('hex');
 
         if (dependencies.length > 0) {
           this.log(`📦 Found ${dependencies.length} dependencies`);
         }
 
-        await this.ensureDependenciesWithHash(mcpName, dependencies, sourceHash);
+        await this.ensureDependenciesWithHash(cacheKey!, mcpName, dependencies, sourceHash, absolutePath);
       }
 
       const importModule = async () => {
         if (tsContent) {
-          const cachedJsPath = await this.compileTypeScript(absolutePath, mcpName, tsContent);
+          const cachedJsPath = await this.compileTypeScript(absolutePath, cacheKey!, tsContent);
           const cachedJsUrl = pathToFileURL(cachedJsPath).href;
           return await import(`${cachedJsUrl}?t=${Date.now()}`);
         }
@@ -269,10 +385,10 @@ export class PhotonLoader {
       try {
         module = await importModule();
       } catch (error: any) {
-        if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName) {
+        if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName && cacheKey) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
-          await this.dependencyManager.clearCache(mcpName);
-          await this.ensureDependenciesWithHash(mcpName, dependencies, sourceHash);
+          await this.clearAllCaches(cacheKey);
+          await this.ensureDependenciesWithHash(cacheKey, mcpName, dependencies, sourceHash, absolutePath);
           module = await importModule();
         } else {
           throw error;
@@ -310,8 +426,8 @@ export class PhotonLoader {
       // Store config warning for later if there were missing params
       if (configError) {
         instance._photonConfigError = configError;
-        console.error(`⚠️  ${name} loaded with configuration warnings:`);
-        console.error(configError);
+        this.logger.warn(`⚠️  ${name} loaded with configuration warnings:`);
+        this.logger.warn(String(configError));
       }
 
       // Inject MCP client factory if available (enables this.mcp() calls)
@@ -363,7 +479,7 @@ export class PhotonLoader {
         assets,
       };
     } catch (error: any) {
-      console.error(`❌ Failed to load ${filePath}: ${error.message}`);
+      this.logger.error(`❌ Failed to load ${filePath}: ${error.message}`);
       throw error;
     }
   }
@@ -380,9 +496,10 @@ export class PhotonLoader {
       const tsContent = await fs.readFile(absolutePath, 'utf-8');
       const hash = crypto.createHash('sha256').update(tsContent).digest('hex').slice(0, 16);
       const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
-      const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
+      const cacheKey = this.getCacheKey(mcpName, absolutePath);
+      const buildDir = this.getBuildCacheDir(cacheKey);
       const fileName = path.basename(absolutePath, '.ts');
-      const cachedJsPath = path.join(cacheDir, `${fileName}.${hash}.mjs`);
+      const cachedJsPath = path.join(buildDir, `${fileName}.${hash}.mjs`);
 
       try {
         await fs.unlink(cachedJsPath);
@@ -397,19 +514,19 @@ export class PhotonLoader {
   /**
    * Compile TypeScript file to JavaScript and cache it
    */
-  private async compileTypeScript(tsFilePath: string, mcpName: string, tsContent?: string): Promise<string> {
+  private async compileTypeScript(tsFilePath: string, cacheKey: string, tsContent?: string): Promise<string> {
     const source = tsContent ?? await fs.readFile(tsFilePath, 'utf-8');
     const hash = crypto.createHash('sha256').update(source).digest('hex').slice(0, 16);
 
-    // Store compiled files in the same directory as dependencies for module resolution
-    const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'dependencies', mcpName);
+    // Store compiled files in dedicated build cache directory
+    const cacheDir = this.getBuildCacheDir(cacheKey);
     const fileName = path.basename(tsFilePath, '.ts');
     const cachedJsPath = path.join(cacheDir, `${fileName}.${hash}.mjs`);
 
     // Check if cached version exists
     try {
       await fs.access(cachedJsPath);
-      this.log(`Using cached compiled version`);
+      this.log(`Using cached compiled version`, { cachedJsPath });
       return cachedJsPath;
     } catch {
       // Cache miss - compile it
@@ -431,7 +548,7 @@ export class PhotonLoader {
 
     // Write compiled JavaScript to cache
     await fs.writeFile(cachedJsPath, result.code, 'utf-8');
-    this.log(`Compiled and cached`);
+    this.log(`Compiled and cached`, { cachedJsPath });
 
     return cachedJsPath;
   }
@@ -616,7 +733,7 @@ export class PhotonLoader {
         throw jsonError;
       }
     } catch (error: any) {
-      console.error(`⚠️  Failed to extract schemas: ${error.message}. Using basic tools.`);
+      this.logger.warn(`⚠️  Failed to extract schemas: ${error.message}. Using basic tools.`);
 
       // Fallback: create basic tools without detailed schemas
       for (const methodName of methodNames) {
@@ -643,7 +760,7 @@ export class PhotonLoader {
       const extractor = new SchemaExtractor();
       return extractor.extractConstructorParams(source);
     } catch (error: any) {
-      console.error(`Failed to extract constructor params: ${error.message}`);
+      this.logger.warn(`Failed to extract constructor params: ${error.message}`);
       return [];
     }
   }
@@ -748,7 +865,7 @@ export class PhotonLoader {
       const parts: string[] = [];
 
       if (missingEnvVars.length > 0) {
-        parts.push(this.generateConfigErrorMessage(mcpName, missingEnvVars));
+        parts.push(generateConfigErrorMessage(mcpName, missingEnvVars));
       }
 
       if (missingPhotons.length > 0) {
@@ -874,42 +991,304 @@ export class PhotonLoader {
   private async resolvePhotonPath(dep: PhotonDependency, currentPhotonPath: string): Promise<string> {
     switch (dep.sourceType) {
       case 'local':
-        // Relative to current Photon
         if (dep.source.startsWith('./') || dep.source.startsWith('../')) {
           return path.resolve(path.dirname(currentPhotonPath), dep.source);
         }
         return dep.source;
 
       case 'marketplace':
-        // TODO: Resolve from configured marketplace
-        // For now, try common locations
-        const marketplacePaths = [
-          path.join(os.homedir(), '.photon', `${dep.source}.photon.ts`),
-          path.join(os.homedir(), '.photon', 'marketplace', `${dep.source}.photon.ts`),
-          path.join(process.cwd(), 'photons', `${dep.source}.photon.ts`),
-          path.join(process.cwd(), `${dep.source}.photon.ts`),
-        ];
-        for (const p of marketplacePaths) {
-          try {
-            await fs.access(p);
-            return p;
-          } catch {
-            // Continue to next path
-          }
-        }
-        throw new Error(`Photon "${dep.source}" not found in marketplace. Available locations checked: ${marketplacePaths.join(', ')}`);
+        return await this.resolveMarketplacePhoton(dep, currentPhotonPath);
 
       case 'github':
-        // TODO: Download from GitHub
-        throw new Error(`GitHub Photon source not yet implemented: ${dep.source}`);
+        return await this.fetchGithubPhoton(dep);
 
       case 'npm':
-        // TODO: Install from npm
-        throw new Error(`npm Photon source not yet implemented: ${dep.source}`);
+        return await this.resolveNpmPhoton(dep);
 
       default:
         throw new Error(`Unknown Photon source type: ${dep.sourceType}`);
     }
+  }
+
+  private async resolveMarketplacePhoton(dep: PhotonDependency, currentPhotonPath: string): Promise<string> {
+    const { slug, fileName, marketplaceHint } = this.normalizeMarketplaceSource(dep.source);
+    const photonDir = path.dirname(currentPhotonPath);
+    const candidates = [
+      path.resolve(photonDir, fileName),
+      path.resolve(photonDir, 'photons', fileName),
+      path.resolve(photonDir, 'templates', fileName),
+      path.join(process.cwd(), fileName),
+      path.join(process.cwd(), 'photons', fileName),
+      path.join(process.cwd(), 'templates', fileName),
+      path.join(os.homedir(), '.photon', fileName),
+      path.join(os.homedir(), '.photon', 'photons', fileName),
+      path.join(os.homedir(), '.photon', 'marketplace', fileName),
+    ];
+
+    for (const candidate of candidates) {
+      if (await this.pathExists(candidate)) {
+        return candidate;
+      }
+    }
+
+    const downloaded = await this.fetchPhotonFromMarketplace(slug, marketplaceHint);
+    if (downloaded) {
+      return downloaded;
+    }
+
+    throw new Error(
+      `Photon "${dep.source}" not found in local paths or configured marketplaces. ` +
+      `Checked: ${candidates.join(', ')}`
+    );
+  }
+
+  private normalizeMarketplaceSource(source: string): { slug: string; fileName: string; marketplaceHint?: string } {
+    let slugSource = source;
+    let marketplaceHint: string | undefined;
+
+    if (source.includes('/')) {
+      const [hint, rest] = source.split('/', 2);
+      if (hint && rest) {
+        marketplaceHint = hint;
+        slugSource = rest;
+      }
+    }
+
+    const slug = slugSource
+      .replace(/\.photon\.ts$/, '')
+      .replace(/\.photon$/, '')
+      .replace(/\.ts$/, '')
+      .trim();
+
+    const normalizedSlug = slug || slugSource.replace(/[\\/]/g, '-');
+    const fileName = `${normalizedSlug}.photon.ts`;
+    return { slug: normalizedSlug, fileName, marketplaceHint };
+  }
+
+  private async fetchPhotonFromMarketplace(slug: string, marketplaceHint?: string): Promise<string | null> {
+    try {
+      const manager = await this.getMarketplaceManager();
+      try {
+        await manager.autoUpdateStaleCaches();
+      } catch {
+        // Best effort; stale caches are acceptable
+      }
+
+      if (marketplaceHint) {
+        const hinted = manager.get(marketplaceHint);
+        if (hinted) {
+          const hintedPath = await this.fetchPhotonFromSpecificMarketplace(hinted, slug);
+          if (hintedPath) {
+            return hintedPath;
+          }
+        }
+      }
+
+      const result = await manager.fetchMCP(slug);
+      if (result?.content) {
+        return await this.writePhotonCacheFile(
+          `${result.marketplace.name}-${slug}`,
+          result.content,
+          result.metadata?.hash
+        );
+      }
+    } catch (error: any) {
+      this.log(`  ⚠️ Marketplace lookup failed for ${slug}: ${error.message}`);
+    }
+
+    return null;
+  }
+
+  private async fetchPhotonFromSpecificMarketplace(marketplace: Marketplace, slug: string): Promise<string | null> {
+    try {
+      if (marketplace.sourceType === 'local') {
+        const localPath = marketplace.url.replace('file://', '');
+        const photonPath = path.join(localPath, `${slug}.photon.ts`);
+        if (await this.pathExists(photonPath)) {
+          return photonPath;
+        }
+        return null;
+      }
+
+      const baseUrl = marketplace.url.replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/${slug}.photon.ts`);
+      if (response.ok) {
+        const content = await response.text();
+        return await this.writePhotonCacheFile(`${marketplace.name}-${slug}`, content);
+      }
+    } catch (error: any) {
+      this.log(`  ⚠️ Failed to fetch ${slug} from marketplace ${marketplace.name}: ${error.message}`);
+    }
+
+    return null;
+  }
+
+  private async fetchGithubPhoton(dep: PhotonDependency): Promise<string> {
+    const info = this.parseGithubSource(dep);
+    const url = `https://raw.githubusercontent.com/${info.owner}/${info.repo}/${info.ref}/${info.filePath}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download Photon from GitHub (${dep.source}): HTTP ${response.status}`);
+    }
+    const content = await response.text();
+    const label = `${info.owner}-${info.repo}-${info.filePath.replace(/[\\/]/g, '_')}`;
+    return await this.writePhotonCacheFile(label, content);
+  }
+
+  private parseGithubSource(dep: PhotonDependency): { owner: string; repo: string; ref: string; filePath: string } {
+    let source = dep.source
+      .replace(/^github:/, '')
+      .replace(/^https?:\/\/github\.com\//, '')
+      .replace(/^git@github\.com:/, '')
+      .replace(/\.git$/, '');
+
+    const parts = source.split('/');
+    if (parts.length < 2) {
+      throw new Error(`Invalid GitHub source: ${dep.source}`);
+    }
+
+    const owner = parts.shift()!;
+    let repoPart = parts.shift()!;
+    let ref = 'main';
+
+    const repoRefMatch = repoPart.match(/([^@]+)@(.+)/);
+    if (repoRefMatch) {
+      repoPart = repoRefMatch[1];
+      ref = repoRefMatch[2];
+    }
+
+    if (parts[0] === 'blob' && parts.length >= 2) {
+      parts.shift();
+      ref = parts.shift()!;
+    }
+
+    let filePath: string;
+    if (parts.length === 0) {
+      const slug = dep.name
+        .replace(/([A-Z])/g, '-$1')
+        .toLowerCase()
+        .replace(/^-/, '');
+      filePath = `${slug || 'photon'}.photon.ts`;
+    } else {
+      filePath = parts.join('/');
+      if (!filePath.endsWith('.ts')) {
+        filePath = filePath.endsWith('.photon')
+          ? `${filePath}.ts`
+          : `${filePath}.photon.ts`;
+      }
+    }
+
+    return { owner, repo: repoPart, ref, filePath };
+  }
+
+  private async resolveNpmPhoton(dep: PhotonDependency): Promise<string> {
+    const { packageSpec, packageName, filePath } = this.parseNpmSource(dep.source);
+    const cacheDir = path.join(os.homedir(), '.photon', '.cache', 'npm', this.sanitizeCacheLabel(packageSpec));
+    await fs.mkdir(cacheDir, { recursive: true });
+    await this.ensureNpmPackageInstalled(cacheDir, packageSpec, packageName);
+
+    const packageRoot = this.getPackageInstallPath(cacheDir, packageName);
+    if (!(await this.pathExists(packageRoot))) {
+      throw new Error(`npm package "${packageSpec}" did not install correctly.`);
+    }
+
+    if (filePath) {
+      const normalized = filePath.replace(/^\//, '');
+      const explicitCandidates = [
+        path.join(packageRoot, normalized),
+      ];
+      if (!normalized.endsWith('.ts')) {
+        explicitCandidates.push(path.join(packageRoot, `${normalized}.photon.ts`));
+      }
+      for (const candidate of explicitCandidates) {
+        if (await this.pathExists(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    const discovered = await this.findPhotonFile(packageRoot);
+    if (discovered) {
+      return discovered;
+    }
+
+    throw new Error(`Unable to locate a .photon.ts file within npm package ${packageSpec}.`);
+  }
+
+  private parseNpmSource(source: string): { packageSpec: string; packageName: string; filePath?: string } {
+    let cleaned = source.replace(/^npm:/, '');
+    const [specPart, filePath] = cleaned.split('#', 2);
+    return {
+      packageSpec: specPart,
+      packageName: this.extractPackageName(specPart),
+      filePath,
+    };
+  }
+
+  private extractPackageName(spec: string): string {
+    if (spec.startsWith('@')) {
+      const idx = spec.indexOf('@', 1);
+      return idx === -1 ? spec : spec.slice(0, idx);
+    }
+    const idx = spec.indexOf('@');
+    return idx === -1 ? spec : spec.slice(0, idx);
+  }
+
+  private getPackageInstallPath(cacheDir: string, packageName: string): string {
+    if (packageName.startsWith('@')) {
+      const segments = packageName.split('/');
+      return path.join(cacheDir, 'node_modules', segments[0], segments[1] || '');
+    }
+    return path.join(cacheDir, 'node_modules', packageName);
+  }
+
+  private async ensureNpmPackageInstalled(cacheDir: string, packageSpec: string, packageName: string): Promise<void> {
+    const packageJsonPath = path.join(cacheDir, 'package.json');
+    if (!(await this.pathExists(packageJsonPath))) {
+      const pkgName = `photon-npm-${this.sanitizeCacheLabel(packageSpec)}`;
+      await fs.writeFile(packageJsonPath, JSON.stringify({ name: pkgName, version: PHOTON_VERSION }, null, 2), 'utf-8');
+    }
+
+    const packageRoot = this.getPackageInstallPath(cacheDir, packageName);
+    if (await this.pathExists(packageRoot)) {
+      return;
+    }
+
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    await this.runCommand(npmCmd, ['install', packageSpec, '--omit=dev', '--silent', '--no-save'], cacheDir);
+  }
+
+  private async findPhotonFile(dir: string, depth = 0): Promise<string | null> {
+    if (depth > 4) {
+      return null;
+    }
+
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.photon.ts')) {
+        return path.join(dir, entry.name);
+      }
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git') {
+          continue;
+        }
+        const child = await this.findPhotonFile(path.join(dir, entry.name), depth + 1);
+        if (child) {
+          return child;
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -924,7 +1303,7 @@ export class PhotonLoader {
     const missing: Array<{ paramName: string; envVarName: string; type: string }> = [];
 
     for (const param of params) {
-      const envVarName = this.toEnvVarName(mcpName, param.name);
+      const envVarName = toEnvVarName(mcpName, param.name);
       const envValue = process.env[envVarName];
 
       if (envValue !== undefined) {
@@ -946,24 +1325,12 @@ export class PhotonLoader {
     }
 
     const configError = missing.length > 0
-      ? this.generateConfigErrorMessage(mcpName, missing)
+      ? generateConfigErrorMessage(mcpName, missing)
       : null;
 
     return { values, configError };
   }
 
-  /**
-   * Convert MCP name and parameter name to environment variable name
-   * Example: filesystem, workdir → FILESYSTEM_WORKDIR
-   */
-  private toEnvVarName(mcpName: string, paramName: string): string {
-    const mcpPrefix = mcpName.toUpperCase().replace(/-/g, '_');
-    const paramSuffix = paramName
-      .replace(/([A-Z])/g, '_$1')
-      .toUpperCase()
-      .replace(/^_/, '');
-    return `${mcpPrefix}_${paramSuffix}`;
-  }
 
   /**
    * Parse environment variable value based on TypeScript type
@@ -992,34 +1359,7 @@ export class PhotonLoader {
     const originalMessage = error.message;
 
     // Build detailed env var documentation with examples
-    const envVarDocs = constructorParams.map(param => {
-      const envVarName = this.toEnvVarName(mcpName, param.name);
-      const required = !param.isOptional && !param.hasDefault;
-      const status = required ? '[REQUIRED]' : '[OPTIONAL]';
-
-      // Generate helpful example values based on type and name
-      const exampleValue = this.generateExampleValue(param.name, param.type);
-      const defaultInfo = param.hasDefault
-        ? ` (default: ${JSON.stringify(param.defaultValue)})`
-        : '';
-
-      let line = `  • ${envVarName} ${status}`;
-      line += `\n    Type: ${param.type}${defaultInfo}`;
-      if (exampleValue) {
-        line += `\n    Example: ${envVarName}="${exampleValue}"`;
-      }
-
-      return line;
-    }).join('\n\n');
-
-    // Build example config with placeholder values
-    const envExample: Record<string, string> = {};
-    constructorParams.forEach(param => {
-      const envVarName = this.toEnvVarName(mcpName, param.name);
-      if (!param.isOptional && !param.hasDefault) {
-        envExample[envVarName] = this.generateExampleValue(param.name, param.type) || `your-${param.name}`;
-      }
-    });
+    const { docs: envVarDocs, exampleEnv: envExample } = summarizeConstructorParams(constructorParams, mcpName);
 
     const enhancedMessage = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1065,109 +1405,7 @@ Run: photon mcp ${mcpName} --config
     return enhanced;
   }
 
-  /**
-   * Generate helpful example values based on parameter name and type
-   */
-  private generateExampleValue(paramName: string, paramType: string): string | null {
-    const lowerName = paramName.toLowerCase();
 
-    // API keys and tokens
-    if (lowerName.includes('apikey') || lowerName.includes('api_key')) {
-      return 'sk_your_api_key_here';
-    }
-    if (lowerName.includes('token') || lowerName.includes('secret')) {
-      return 'your_secret_token';
-    }
-
-    // URLs and endpoints
-    if (lowerName.includes('url') || lowerName.includes('endpoint')) {
-      return 'https://api.example.com';
-    }
-    if (lowerName.includes('host') || lowerName.includes('server')) {
-      return 'localhost';
-    }
-
-    // Ports
-    if (lowerName.includes('port')) {
-      return '5432';
-    }
-
-    // Database
-    if (lowerName.includes('database') || lowerName.includes('db')) {
-      return 'my_database';
-    }
-    if (lowerName.includes('user') || lowerName.includes('username')) {
-      return 'admin';
-    }
-    if (lowerName.includes('password')) {
-      return 'your_secure_password';
-    }
-
-    // Paths
-    if (lowerName.includes('path') || lowerName.includes('dir')) {
-      return '/path/to/directory';
-    }
-
-    // Common names
-    if (lowerName.includes('name')) {
-      return 'my-service';
-    }
-    if (lowerName.includes('region')) {
-      return 'us-east-1';
-    }
-
-    // Type-based defaults
-    if (paramType === 'boolean') {
-      return 'true';
-    }
-    if (paramType === 'number') {
-      return '3000';
-    }
-
-    return null;
-  }
-
-  /**
-   * Generate user-friendly configuration error message
-   */
-  private generateConfigErrorMessage(
-    mcpName: string,
-    missing: Array<{ paramName: string; envVarName: string; type: string }>
-  ): string {
-    const envVarList = missing.map(m => `  • ${m.envVarName} (${m.paramName}: ${m.type})`).join('\n');
-
-    const exampleEnv = Object.fromEntries(
-      missing.map(m => [m.envVarName, `<your-${m.paramName}>`])
-    );
-
-    return `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️  Configuration Warning: ${mcpName} MCP
-
-Missing required environment variables:
-${envVarList}
-
-Tools will fail until configuration is fixed.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-To fix, add environment variables to your MCP client config:
-
-{
-  "mcpServers": {
-    "${mcpName}": {
-      "command": "npx",
-      "args": ["@portel/photon", "${mcpName}"],
-      "env": ${JSON.stringify(exampleEnv, null, 8).replace(/\n/g, '\n      ')}
-    }
-  }
-}
-
-Or run: photon ${mcpName} --config
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`.trim();
-  }
 
   /**
    * Execute a tool on the loaded MCP instance
@@ -1257,7 +1495,7 @@ Or run: photon ${mcpName} --config
       // For ephemeral execution, return result directly
       return execResult.result;
     } catch (error: any) {
-      console.error(`Tool execution failed: ${toolName} - ${error.message}`);
+      this.logger.error(`Tool execution failed: ${toolName} - ${error.message}`);
       throw error;
     }
   }
@@ -1298,11 +1536,11 @@ Or run: photon ${mcpName} --config
 
         case 'file':
           // File selection not supported in CLI readline
-          console.error(`⚠️ File selection not supported in CLI: ${ask.message}`);
+          this.logger.warn(`⚠️ File selection not supported in CLI: ${ask.message}`);
           return null;
 
         default:
-          console.error(`⚠️ Unknown ask type: ${(ask as any).ask}`);
+          this.logger.warn(`⚠️ Unknown ask type: ${(ask as any).ask}`);
           return undefined;
       }
     };
@@ -1333,16 +1571,16 @@ Or run: photon ${mcpName} --config
         case 'log': {
           // Logs clear progress first to avoid overlap
           this.progressRenderer.done();
-          const level = emit.level || 'info';
+          const level = (emit.level || 'info') as LogLevel;
           const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ';
-          console.error(`${prefix} ${emit.message}`);
+          this.logger[level](`${prefix} ${emit.message}`);
           break;
         }
 
         case 'toast':
           this.progressRenderer.done();
           const icon = emit.type === 'error' ? '❌' : emit.type === 'warning' ? '⚠️' : emit.type === 'success' ? '✅' : 'ℹ';
-          console.error(`${icon} ${emit.message}`);
+          this.logger.info(`${icon} ${emit.message}`);
           break;
 
         case 'thinking':
@@ -1366,7 +1604,7 @@ Or run: photon ${mcpName} --config
 
         case 'artifact':
           this.progressRenderer.done();
-          console.error(`📦 ${emit.title || emit.type}: ${emit.mimeType}`);
+          this.logger.info(`📦 ${emit.title || emit.type}: ${emit.mimeType}`);
           break;
       }
     };
@@ -1405,7 +1643,7 @@ Or run: photon ${mcpName} --config
         mcpServers[dep.name] = config;
         this.log(`  - ${dep.name}: ${dep.source} (${dep.sourceType})`);
       } catch (error: any) {
-        console.error(`⚠️  Failed to resolve MCP ${dep.name}: ${error.message}`);
+        this.logger.warn(`⚠️  Failed to resolve MCP ${dep.name}: ${error.message}`);
       }
     }
 
@@ -1483,7 +1721,7 @@ Or run: photon ${mcpName} --config
         if (await this.fileExists(ui.resolvedPath)) {
           this.log(`  📄 UI: ${ui.id} → ${ui.path}`);
         } else {
-          console.warn(`⚠️  UI asset not found: ${ui.path}`);
+          this.logger.warn(`⚠️  UI asset not found: ${ui.path}`);
         }
       }
 
@@ -1492,7 +1730,7 @@ Or run: photon ${mcpName} --config
         if (await this.fileExists(prompt.resolvedPath)) {
           this.log(`  📝 Prompt: ${prompt.id} → ${prompt.path}`);
         } else {
-          console.warn(`⚠️  Prompt asset not found: ${prompt.path}`);
+          this.logger.warn(`⚠️  Prompt asset not found: ${prompt.path}`);
         }
       }
 
@@ -1501,7 +1739,7 @@ Or run: photon ${mcpName} --config
         if (await this.fileExists(resource.resolvedPath)) {
           this.log(`  📦 Resource: ${resource.id} → ${resource.path}`);
         } else {
-          console.warn(`⚠️  Resource asset not found: ${resource.path}`);
+          this.logger.warn(`⚠️  Resource asset not found: ${resource.path}`);
         }
       }
 
