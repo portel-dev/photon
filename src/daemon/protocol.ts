@@ -4,6 +4,8 @@
  * Defines message types for IPC communication between CLI client and daemon server
  */
 
+import type { PhotonMCPClass } from '@portel/photon-core';
+
 /**
  * Message from CLI client to daemon server
  */
@@ -13,7 +15,7 @@ export interface DaemonRequest {
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode'; // Client type for debugging
   method?: string;
-  args?: Record<string, any>;
+  args?: Record<string, unknown>;
   /** Response to a prompt request */
   promptValue?: string | boolean | null;
 }
@@ -25,7 +27,7 @@ export interface DaemonResponse {
   type: 'result' | 'error' | 'pong' | 'prompt';
   id: string;
   success?: boolean;
-  data?: any;
+  data?: unknown;
   error?: string;
   /** Prompt request details (when type === 'prompt') */
   prompt?: {
@@ -53,7 +55,7 @@ export interface DaemonStatus {
  */
 export interface PhotonSession {
   id: string;
-  instance: any;
+  instance: PhotonMCPClass;
   createdAt: number;
   lastActivity: number;
   clientType?: string;

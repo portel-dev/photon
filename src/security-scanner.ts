@@ -10,6 +10,18 @@ import * as fs from 'fs/promises';
 
 const execAsync = promisify(exec);
 
+interface NpmAuditVulnerability {
+  severity: 'info' | 'low' | 'moderate' | 'high' | 'critical';
+  name?: string;
+  url?: string;
+  via?: Array<string | unknown>;
+  range?: string;
+}
+
+interface NpmAuditData {
+  vulnerabilities?: Record<string, NpmAuditVulnerability>;
+}
+
 export interface VulnerabilityInfo {
   severity: 'info' | 'low' | 'moderate' | 'high' | 'critical';
   title: string;
@@ -105,7 +117,7 @@ export class SecurityScanner {
         vulnerabilities,
         hasVulnerabilities: vulnerabilities.length > 0,
       };
-    } catch (error: any) {
+    } catch (error) {
       // If npm audit fails or directory doesn't exist, assume no vulnerabilities
       // (dependency might not be installed yet)
       return {
@@ -120,7 +132,7 @@ export class SecurityScanner {
   /**
    * Extract relevant vulnerabilities from npm audit output
    */
-  private extractVulnerabilities(auditData: any, packageName: string): VulnerabilityInfo[] {
+  private extractVulnerabilities(auditData: NpmAuditData, packageName: string): VulnerabilityInfo[] {
     const vulnerabilities: VulnerabilityInfo[] = [];
 
     if (!auditData.vulnerabilities) {
@@ -129,17 +141,15 @@ export class SecurityScanner {
 
     // npm audit v7+ format
     for (const [vulnPackage, vulnData] of Object.entries(auditData.vulnerabilities)) {
-      const vuln = vulnData as any;
-
       // Check if this vulnerability affects our target package
-      if (vulnPackage === packageName || vuln.via?.includes(packageName)) {
+      if (vulnPackage === packageName || vulnData.via?.includes(packageName)) {
 
         vulnerabilities.push({
-          severity: vuln.severity || 'moderate',
-          title: vuln.name || vulnPackage,
-          url: vuln.url,
-          via: vuln.via?.filter((v: any) => typeof v === 'string'),
-          range: vuln.range,
+          severity: vulnData.severity || 'moderate',
+          title: vulnData.name || vulnPackage,
+          url: vulnData.url,
+          via: vulnData.via?.filter((v): v is string => typeof v === 'string'),
+          range: vulnData.range,
         });
       }
     }
