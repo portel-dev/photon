@@ -260,3 +260,95 @@ export function trySync<T>(
     throw wrapError(error, context, suggestion);
   }
 }
+
+/**
+ * Retry an async operation with exponential backoff
+ */
+export async function retry<T>(
+  fn: () => Promise<T>,
+  options: {
+    maxAttempts?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    backoffFactor?: number;
+    context?: string;
+    retryIf?: (error: unknown) => boolean;
+  } = {}
+): Promise<T> {
+  const {
+    maxAttempts = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    backoffFactor = 2,
+    context,
+    retryIf = () => true,
+  } = options;
+
+  let lastError: unknown;
+  let delay = initialDelay;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry if condition not met
+      if (!retryIf(error)) {
+        throw wrapError(error, context, `Operation failed and is not retryable`);
+      }
+
+      // Don't retry on last attempt
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Exponential backoff
+      delay = Math.min(delay * backoffFactor, maxDelay);
+    }
+  }
+
+  throw wrapError(
+    lastError,
+    context,
+    `Operation failed after ${maxAttempts} attempts`
+  );
+}
+
+/**
+ * Check if an error is retryable (network/transient errors)
+ */
+export function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  
+  const message = error.message.toLowerCase();
+  const name = error.name.toLowerCase();
+  
+  // Network errors
+  if (
+    message.includes('econnrefused') ||
+    message.includes('econnreset') ||
+    message.includes('etimedout') ||
+    message.includes('timeout') ||
+    message.includes('network') ||
+    name === 'timeouterror' ||
+    name === 'networkerror'
+  ) {
+    return true;
+  }
+
+  // Rate limiting
+  if (message.includes('rate limit') || message.includes('too many requests')) {
+    return true;
+  }
+
+  // Service unavailable
+  if (message.includes('503') || message.includes('service unavailable')) {
+    return true;
+  }
+
+  return false;
+}

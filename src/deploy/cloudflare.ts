@@ -170,8 +170,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   try {
     execSync('npm install', { cwd: outputDir, stdio: 'pipe' });
   } catch (error) {
-    console.error('  Failed to install dependencies');
-    throw error;
+    console.error('  ❌ Failed to install dependencies');
+    console.error(`     Error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error('     💡 Check your npm installation and network connection');
+    throw new Error(`Dependency installation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   // Check for wrangler authentication
