@@ -18,14 +18,21 @@ import {
   setPromptHandler,
   type PromptHandler,
 } from '@portel/photon-core';
+import { createLogger, Logger } from '../shared/logger.js';
 
 // Command line args: photonName photonPath socketPath
 const photonName = process.argv[2];
 const photonPath = process.argv[3];
 const socketPath = process.argv[4];
 
+const logger: Logger = createLogger({
+  component: 'daemon-server',
+  scope: photonName || 'unknown',
+  minimal: true,
+});
+
 if (!photonName || !photonPath || !socketPath) {
-  console.error('[daemon-server] Missing required arguments');
+  logger.error('Missing required arguments');
   process.exit(1);
 }
 
@@ -49,19 +56,19 @@ let currentRequestId: string | null = null;
  */
 async function initializeSessionManager(): Promise<void> {
   try {
-    console.error(`[daemon-server] Initializing session manager for: ${photonName}`);
+    logger.info(`Initializing session manager for ${photonName}`);
 
-    sessionManager = new SessionManager(photonPath, photonName, idleTimeout);
+    sessionManager = new SessionManager(photonPath, photonName, idleTimeout, logger.child({ scope: 'session' }));
 
-    console.error(`[daemon-server] Session manager initialized`);
-    console.error(`[daemon-server] Session timeout: ${idleTimeout}ms`);
+    logger.info('Session manager initialized');
+    logger.info('Session timeout configured', { timeoutMs: idleTimeout });
 
     // Start idle timer if timeout is set
     if (idleTimeout > 0) {
       startIdleTimer();
     }
   } catch (error: any) {
-    console.error(`[daemon-server] Failed to initialize session manager: ${error.message}`);
+    logger.error('Failed to initialize session manager', { error: error.message });
     process.exit(1);
   }
 }
@@ -85,7 +92,7 @@ function startIdleTimer(): void {
     const idleTime = Date.now() - lastActivity;
 
     if (idleTime >= idleTimeout) {
-      console.error(`[daemon-server] Idle timeout reached (${idleTime}ms). Shutting down.`);
+      logger.warn('Idle timeout reached, shutting down', { idleTime });
       shutdown();
     } else {
       // Restart timer with remaining time
@@ -187,7 +194,7 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
         request.clientType
       );
 
-      console.error(`[daemon-server] Executing: ${request.method} (session: ${session.id})`);
+      logger.info('Executing request', { method: request.method, sessionId: session.id });
 
       // Set up socket-based prompt handler for this request
       setPromptHandler(createSocketPromptHandler(socket, request.id));
@@ -209,7 +216,7 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
         data: result,
       };
     } catch (error: any) {
-      console.error(`[daemon-server] Error executing ${request.method}: ${error.message}`);
+      logger.error('Error executing request', { method: request.method, error: error.message });
 
       // Clear prompt handler on error
       setPromptHandler(null);
@@ -234,7 +241,7 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
  */
 function startServer(): void {
   const server = net.createServer((socket) => {
-    console.error('[daemon-server] Client connected');
+    logger.info('Client connected');
 
     let buffer = '';
 
@@ -257,7 +264,7 @@ function startServer(): void {
             socket.write(JSON.stringify(response) + '\n');
           }
         } catch (error: any) {
-          console.error(`[daemon-server] Error processing request: ${error.message}`);
+          logger.error('Error processing request', { error: error.message });
           socket.write(JSON.stringify({
             type: 'error',
             id: 'unknown',
@@ -268,21 +275,20 @@ function startServer(): void {
     });
 
     socket.on('end', () => {
-      console.error('[daemon-server] Client disconnected');
+      logger.info('Client disconnected');
     });
 
     socket.on('error', (error) => {
-      console.error(`[daemon-server] Socket error: ${error.message}`);
+      logger.warn('Socket error', { error: error.message });
     });
   });
 
   server.listen(socketPath, () => {
-    console.error(`[daemon-server] Listening on ${socketPath}`);
-    console.error(`[daemon-server] PID: ${process.pid}`);
+    logger.info('Listening for connections', { socketPath, pid: process.pid });
   });
 
   server.on('error', (error: any) => {
-    console.error(`[daemon-server] Server error: ${error.message}`);
+    logger.error('Server error', { error: error.message });
     process.exit(1);
   });
 
@@ -295,7 +301,7 @@ function startServer(): void {
  * Shutdown daemon
  */
 function shutdown(): void {
-  console.error('[daemon-server] Shutting down...');
+  logger.info('Shutting down daemon');
 
   if (idleTimer) {
     clearTimeout(idleTimer);

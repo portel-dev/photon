@@ -7,6 +7,7 @@
 
 import { PhotonLoader } from '../loader.js';
 import { PhotonSession } from './protocol.js';
+import { Logger, createLogger } from '../shared/logger.js';
 
 const DEFAULT_SESSION_ID = 'default';
 
@@ -17,12 +18,14 @@ export class SessionManager {
   public loader: PhotonLoader; // Public to allow executeTool access
   private sessionTimeout: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private logger: Logger;
 
-  constructor(photonPath: string, photonName: string, sessionTimeout: number = 600000) {
+  constructor(photonPath: string, photonName: string, sessionTimeout: number = 600000, logger?: Logger) {
     this.photonPath = photonPath;
     this.photonName = photonName;
     this.sessionTimeout = sessionTimeout;
-    this.loader = new PhotonLoader(false); // verbose = false
+    this.logger = logger ?? createLogger({ component: 'session-manager', scope: photonName, minimal: true });
+    this.loader = new PhotonLoader(false, this.logger.child({ component: 'photon-loader', scope: photonName }));
 
     // Start periodic cleanup
     this.startCleanup();
@@ -41,7 +44,7 @@ export class SessionManager {
     }
 
     // Create new session
-    console.error(`[session-manager] Creating new session: ${id} (${clientType || 'unknown'})`);
+    this.logger.info(`Creating new session: ${id}`, { clientType: clientType || 'unknown' });
 
     try {
       const instance = await this.loader.loadFile(this.photonPath);
@@ -55,11 +58,11 @@ export class SessionManager {
       };
 
       this.sessions.set(id, session);
-      console.error(`[session-manager] Session created. Active sessions: ${this.sessions.size}`);
+      this.logger.info('Session created', { sessionId: id, activeSessions: this.sessions.size });
 
       return session;
     } catch (error: any) {
-      console.error(`[session-manager] Failed to create session: ${error.message}`);
+      this.logger.error('Failed to create session', { sessionId: id, error: error.message });
       throw error;
     }
   }
@@ -89,7 +92,7 @@ export class SessionManager {
       const idleTime = now - session.lastActivity;
 
       if (idleTime > this.sessionTimeout) {
-        console.error(`[session-manager] Session ${id} expired (idle ${idleTime}ms)`);
+        this.logger.warn('Session expired due to inactivity', { sessionId: id, idleTime });
         expiredSessions.push(id);
       }
     }
@@ -100,7 +103,10 @@ export class SessionManager {
     }
 
     if (expiredSessions.length > 0) {
-      console.error(`[session-manager] Cleaned up ${expiredSessions.length} sessions. Active: ${this.sessions.size}`);
+      this.logger.info('Cleaned up expired sessions', {
+        removed: expiredSessions.length,
+        activeSessions: this.sessions.size,
+      });
     }
   }
 
@@ -123,7 +129,7 @@ export class SessionManager {
       this.cleanupInterval = null;
     }
 
-    console.error(`[session-manager] Destroying ${this.sessions.size} active sessions`);
+    this.logger.warn('Destroying active sessions', { activeSessions: this.sessions.size });
     this.sessions.clear();
   }
 
