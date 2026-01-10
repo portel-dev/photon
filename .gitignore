@@ -13,3 +13,5 @@ CLAUDE.md
 ANNOUNCEMENT.md
 .release-it.json.backup
 .cf-*
+test-github.ts
+*-credentials.json
