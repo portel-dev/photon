@@ -749,9 +749,8 @@ export class PhotonServer {
         return;
       }
 
-      // Playground & API - only in dev mode
+      // Playground and API endpoints - only in dev mode
       if (this.devMode) {
-        // Playground - interactive test UI
         if (req.method === 'GET' && url.pathname === '/playground') {
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(this.getPlaygroundHTML(port));
