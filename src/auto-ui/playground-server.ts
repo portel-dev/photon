@@ -47,12 +47,16 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
       const extractor = new SchemaExtractor();
       const schemas = await extractor.extractFromFile(photonPath);
       
-      const methods: MethodInfo[] = schemas.map((schema: any) => ({
-        name: schema.name,
-        description: schema.description || '',
-        params: schema.parameters || { type: 'object', properties: {}, required: [] },
-        returns: schema.returns || { type: 'object' }
-      }));
+      // Filter out lifecycle methods (onInitialize, etc)
+      const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+      const methods: MethodInfo[] = schemas
+        .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+        .map((schema: any) => ({
+          name: schema.name,
+          description: schema.description || '',
+          params: schema.parameters || { type: 'object', properties: {}, required: [] },
+          returns: schema.returns || { type: 'object' }
+        }));
 
       photons.push({
         name,
@@ -439,7 +443,7 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
           <form id="method-form">
             <div id="form-fields"></div>
             <button type="submit" class="btn btn-primary" id="invoke-btn">
-              Invoke
+              <span id="invoke-label">Invoke</span>
             </button>
           </form>
           <div id="result-ui" style="display: none;"></div>
@@ -510,6 +514,10 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
       const properties = currentMethod.params.properties || {};
       const required = currentMethod.params.required || [];
 
+      // Update button label with method name (capitalize first letter)
+      const invokeLabel = document.getElementById('invoke-label');
+      invokeLabel.textContent = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
+
       fields.innerHTML = Object.entries(properties).map(([name, schema]) => {
         const isRequired = required.includes(name);
         const type = schema.type === 'number' ? 'number' : 'text';
@@ -572,7 +580,7 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
         alert('Error: ' + error.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Invoke';
+        btn.querySelector('#invoke-label').textContent = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
       }
     });
 
