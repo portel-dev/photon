@@ -1294,6 +1294,43 @@ program
     }
   });
 
+// Playground command: interactive UI for all photons
+program
+  .command('playground')
+  .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
+  .description('Launch interactive playground for all installed photons')
+  .action(async (options: any, command: Command) => {
+    try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      
+      // Find available port
+      const startPort = parseInt(options.port, 10);
+      const port = await findAvailablePort(startPort);
+
+      if (port !== startPort) {
+        console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
+      }
+
+      // Import and start playground server
+      const { startPlaygroundServer } = await import('./auto-ui/playground-server.js');
+      await startPlaygroundServer(workingDir, port);
+
+      // Handle shutdown signals
+      const shutdown = () => {
+        console.error('\nShutting down playground...');
+        process.exit(0);
+      };
+
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+
+    } catch (error) {
+      logger.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
 
 // Deploy command: deploy Photon to cloud platforms
 program

@@ -753,11 +753,27 @@ export class PhotonServer {
       if (this.devMode) {
         if (req.method === 'GET' && url.pathname === '/playground') {
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(this.getPlaygroundHTML(port));
+          res.end(await this.getPlaygroundHTML(port));
           return;
         }
 
-        // API: List tools
+        // API: List all photons
+        if (req.method === 'GET' && url.pathname === '/api/photons') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          try {
+            const photons = await this.listAllPhotons();
+            res.end(JSON.stringify({ photons }));
+          } catch (error) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: getErrorMessage(error) }));
+          }
+          return;
+        }
+
+        // API: List tools (for compatibility, now returns current photon)
         if (req.method === 'GET' && url.pathname === '/api/tools') {
           res.writeHead(200, {
             'Content-Type': 'application/json',
@@ -953,9 +969,41 @@ export class PhotonServer {
   }
 
   /**
+   * List all photons in the .photon directory
+   */
+  private async listAllPhotons() {
+    const { listPhotonFiles, DEFAULT_PHOTON_DIR } = await import('./path-resolver.js');
+    const photonFiles = await listPhotonFiles();
+    
+    const photons = await Promise.all(
+      photonFiles.map(async (file) => {
+        try {
+          const loader = new PhotonLoader(this.devMode, this.logger.child({ component: 'photon-loader', scope: 'discovery' }));
+          const mcp = await loader.loadFile(file);
+          return {
+            name: mcp.name,
+            description: mcp.description,
+            file: file.replace(DEFAULT_PHOTON_DIR + '/', ''),
+            tools: mcp.tools.map(tool => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+            })),
+          };
+        } catch (error) {
+          this.log('warn', `Failed to load photon: ${file}`, { error: getErrorMessage(error) });
+          return null;
+        }
+      })
+    );
+
+    return photons.filter(p => p !== null);
+  }
+
+  /**
    * Generate playground HTML for interactive testing
    */
-  private getPlaygroundHTML(port: number): string {
+  private async getPlaygroundHTML(port: number): Promise<string> {
     const name = this.mcp?.name || 'photon-mcp';
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1493,8 +1541,10 @@ export class PhotonServer {
   </div>
 
   <script>
+    let photons = [];
     let tools = [];
     let selectedTool = null;
+    let selectedPhoton = null;
     let lastResult = null;
     let currentProgressToken = null;
     let currentRequestId = null;
@@ -1547,9 +1597,15 @@ export class PhotonServer {
     }
 
     async function loadTools() {
-      const res = await fetch('/api/tools');
+      const res = await fetch('/api/photons');
       const data = await res.json();
-      tools = data.tools;
+      photons = data.photons;
+      // Flatten all tools from all photons
+      tools = photons.flatMap(p => p.tools.map(t => ({
+        ...t,
+        photon: p.name,
+        photonFile: p.file
+      })));
       renderToolsList();
     }
 
@@ -1623,19 +1679,61 @@ export class PhotonServer {
 
     function renderToolsList() {
       const container = document.getElementById('tools-list');
-      container.innerHTML = tools.map(t => \`
-        <div class="tool-item" data-tool="\${t.name}">
-          <div class="tool-name">
-            \${t.name}
-            \${t.ui ? '<span class="ui-badge">UI</span>' : ''}
+      if (photons.length === 0) {
+        container.innerHTML = '<div style="color: var(--muted); padding: 12px; text-align: center;">No photons found</div>';
+        return;
+      }
+      
+      container.innerHTML = photons.map(photon => {
+        const toolsHtml = photon.tools.map(t => \`
+          <div class="tool-item" data-tool="\${t.name}" data-photon="\${photon.name}">
+            <div class="tool-name">
+              \${t.name}
+              \${t.ui ? '<span class="ui-badge">UI</span>' : ''}
+            </div>
+            <div class="tool-desc">\${t.description || 'No description'}</div>
           </div>
-          <div class="tool-desc">\${t.description || 'No description'}</div>
-        </div>
-      \`).join('');
+        \`).join('');
+        
+        return \`
+          <div class="photon-group">
+            <div class="photon-header" data-photon="\${photon.name}">
+              <span class="photon-toggle">▶</span>
+              <span class="photon-name">\${photon.name}</span>
+              <span class="photon-count">\${photon.tools.length}</span>
+            </div>
+            <div class="photon-tools collapsed">
+              \${toolsHtml}
+            </div>
+          </div>
+        \`;
+      }).join('');
 
-      container.querySelectorAll('.tool-item').forEach(el => {
-        el.addEventListener('click', () => selectTool(el.dataset.tool));
+      // Add click handlers for photon headers
+      container.querySelectorAll('.photon-header').forEach(el => {
+        el.addEventListener('click', () => {
+          const toolsDiv = el.nextElementSibling;
+          const toggle = el.querySelector('.photon-toggle');
+          toolsDiv.classList.toggle('collapsed');
+          toggle.textContent = toolsDiv.classList.contains('collapsed') ? '▶' : '▼';
+        });
       });
+      
+      // Add click handlers for tools
+      container.querySelectorAll('.tool-item').forEach(el => {
+        el.addEventListener('click', () => {
+          selectedPhoton = el.dataset.photon;
+          selectTool(el.dataset.tool);
+        });
+      });
+      
+      // Auto-expand first photon
+      const firstToggle = container.querySelector('.photon-toggle');
+      const firstTools = container.querySelector('.photon-tools');
+      if (firstToggle && firstTools) {
+        firstTools.classList.remove('collapsed');
+        firstToggle.textContent = '▼';
+      }
     }
 
     function setUIPreviewMessage(title, description) {
