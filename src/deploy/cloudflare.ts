@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from '../version.js';
+import { logger } from '../shared/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -53,7 +54,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const filename = path.basename(absolutePath);
   const photonName = filename.replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
 
-  console.log(`\n📦 Preparing ${photonName} for Cloudflare Workers...\n`);
+  logger.info(`Preparing ${photonName} for Cloudflare Workers...`);
 
   // Create output directory
   const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
@@ -61,7 +62,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   await fs.mkdir(path.join(outputDir, 'src'), { recursive: true });
 
   // Extract tool definitions using SchemaExtractor
-  console.log('  Extracting tool definitions...');
+  logger.debug('Extracting tool definitions...');
   const extractor = new SchemaExtractor();
   const sourceCode = await fs.readFile(absolutePath, 'utf-8');
   const extracted = extractor.extractFromSource(sourceCode);
@@ -72,7 +73,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     inputSchema: tool.inputSchema,
   }));
 
-  console.log(`  Found ${toolDefs.length} tools`);
+  logger.info(`Found ${toolDefs.length} tools`);
 
   // Read worker template
   const packageRoot = getPackageRoot();
@@ -153,36 +154,36 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     JSON.stringify(tsconfig, null, 2)
   );
 
-  console.log(`\n✅ Project generated at: ${outputDir}\n`);
+  logger.info(`Project generated at: ${outputDir}`);
 
   if (dryRun) {
-    console.log('  Dry run - skipping deployment');
-    console.log('\n  To deploy manually:');
-    console.log(`    cd ${outputDir}`);
-    console.log('    npm install');
-    console.log('    npm run dev      # Local development');
-    console.log('    npm run deploy   # Deploy to Cloudflare');
+    logger.info('Dry run - skipping deployment');
+    logger.info('\nTo deploy manually:');
+    logger.info(`  cd ${outputDir}`);
+    logger.info('  npm install');
+    logger.info('  npm run dev      # Local development');
+    logger.info('  npm run deploy   # Deploy to Cloudflare');
     return;
   }
 
   // Check if wrangler is available
-  console.log('  Installing dependencies...');
+  logger.info('Installing dependencies...');
   try {
     execSync('npm install', { cwd: outputDir, stdio: 'pipe' });
   } catch (error) {
-    console.error('  ❌ Failed to install dependencies');
-    console.error(`     Error: ${error instanceof Error ? error.message : String(error)}`);
-    console.error('     💡 Check your npm installation and network connection');
+    logger.error('Failed to install dependencies');
+    logger.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error('💡 Check your npm installation and network connection');
     throw new Error(`Dependency installation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   // Check for wrangler authentication
-  console.log('  Checking Cloudflare authentication...');
+  logger.info('Checking Cloudflare authentication...');
   try {
     execSync('npx wrangler whoami', { cwd: outputDir, stdio: 'pipe' });
   } catch {
-    console.log('\n  ⚠️  Not logged in to Cloudflare');
-    console.log('  Running: wrangler login\n');
+    logger.warn('Not logged in to Cloudflare');
+    logger.info('Running: wrangler login');
 
     // Run wrangler login interactively
     const login = spawn('npx', ['wrangler', 'login'], {
@@ -199,7 +200,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   }
 
   // Deploy
-  console.log('\n  Deploying to Cloudflare Workers...\n');
+  logger.info('Deploying to Cloudflare Workers...');
 
   const deploy = spawn('npx', ['wrangler', 'deploy'], {
     cwd: outputDir,
@@ -209,11 +210,11 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   await new Promise<void>((resolve, reject) => {
     deploy.on('close', (code) => {
       if (code === 0) {
-        console.log('\n✅ Deployment complete!');
-        console.log(`\n  Your MCP server is live at:`);
-        console.log(`  https://${photonName}.<your-subdomain>.workers.dev`);
+        logger.info('Deployment complete!');
+        logger.info(`\nYour MCP server is live at:`);
+        logger.info(`https://${photonName}.<your-subdomain>.workers.dev`);
         if (devMode) {
-          console.log(`\n  Playground: https://${photonName}.<your-subdomain>.workers.dev/playground`);
+          logger.info(`\nPlayground: https://${photonName}.<your-subdomain>.workers.dev/playground`);
         }
         resolve();
       } else {
@@ -230,10 +231,10 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
   const photonName = path.basename(options.photonPath).replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
   const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
 
-  console.log('\n  Installing dependencies...');
+  logger.info('Installing dependencies...');
   execSync('npm install', { cwd: outputDir, stdio: 'pipe' });
 
-  console.log('\n  Starting local Cloudflare Workers dev server...\n');
+  logger.info('Starting local Cloudflare Workers dev server...');
 
   const dev = spawn('npx', ['wrangler', 'dev'], {
     cwd: outputDir,

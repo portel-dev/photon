@@ -153,3 +153,6 @@ export function normalizeLogLevel(input?: string | null): LogLevel {
   }
   throw new Error(`Invalid log level: ${input}. Use error | warn | info | debug.`);
 }
+
+// Default logger instance for convenience
+export const logger = createLogger();
