@@ -25,6 +25,7 @@ import {
   formatKey,
 } from './cli-formatter.js';
 import { getErrorMessage } from './shared/error-handler.js';
+import { logger } from './shared/logger.js';
 
 interface MethodInfo {
   name: string;
@@ -1150,7 +1151,7 @@ export async function listMethods(photonName: string): Promise<void> {
     const resolvedPath = await resolvePhotonPath(photonName);
 
     if (!resolvedPath) {
-      console.error(`❌ Photon '${photonName}' not found`);
+      logger.error(`Photon '${photonName}' not found`);
       console.error(`\nMake sure the photon is installed in ~/.photon/`);
       process.exit(1);
     }
@@ -1194,7 +1195,7 @@ export async function listMethods(photonName: string): Promise<void> {
       console.log('');
     }
   } catch (error) {
-    console.error(`❌ Error: ${getErrorMessage(error)}`);
+    logger.error(`Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -1231,7 +1232,7 @@ export async function runMethod(
     const resolvedPath = await resolvePhotonPath(photonName);
 
     if (!resolvedPath) {
-      console.error(`❌ Photon '${photonName}' not found`);
+      logger.error(`Photon '${photonName}' not found`);
       console.error(`\nMake sure the photon is installed in ~/.photon/`);
       process.exit(1);
     }
@@ -1251,7 +1252,7 @@ export async function runMethod(
     const method = methods.find(m => m.name === methodName);
 
     if (!method) {
-      console.error(`❌ Method '${methodName}' not found in ${photonName}`);
+      logger.error(`Method '${methodName}' not found in ${photonName}`);
       console.error(`\nAvailable methods: ${methods.map(m => m.name).join(', ')}`);
       console.error(`\nRun 'photon cli ${photonName}' to see all methods`);
       process.exit(1);
@@ -1292,7 +1293,7 @@ export async function runMethod(
     }
 
     if (missing.length > 0) {
-      console.error(`❌ Missing required parameters: ${missing.join(', ')}`);
+      logger.error(`Missing required parameters: ${missing.join(', ')}`);
       console.error(`\nUsage: photon cli ${photonName} ${methodName} ${method.params.map(p =>
         p.optional ? `[--${p.name}]` : `--${p.name} <value>`
       ).join(' ')}`);
@@ -1322,7 +1323,7 @@ export async function runMethod(
         }
 
         if (!ready) {
-          console.error(`❌ Failed to start daemon for ${photonName}`);
+          logger.error(`Failed to start daemon for ${photonName}`);
           process.exit(1);
         }
       }
@@ -1382,7 +1383,7 @@ export async function runMethod(
       || 'Unknown error occurred';
     const hint = error && typeof error === 'object' && 'hint' in error ? error.hint : undefined;
 
-    console.error(`❌ ${userMessage}`);
+    logger.error(`${userMessage}`);
     if (hint) {
       console.error(`💡 ${hint}`);
     }
