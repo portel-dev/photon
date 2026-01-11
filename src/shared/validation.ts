@@ -321,3 +321,122 @@ export function oneOf<T>(fieldName: string, allowed: T[]): Validator<T> {
     return createResult(true);
   };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FILE SYSTEM VALIDATORS
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Validate path exists (async)
+ */
+export function pathExists(fieldName: string): Validator<string> {
+  return (value: string) => {
+    // This is a synchronous validator, actual FS check should be done separately
+    if (!value || value.trim().length === 0) {
+      return createResult(false, [`${fieldName} path cannot be empty`]);
+    }
+    return createResult(true);
+  };
+}
+
+/**
+ * Validate file extension
+ */
+export function hasExtension(
+  fieldName: string,
+  extensions: string[]
+): Validator<string> {
+  return (value: string) => {
+    const ext = value.split('.').pop()?.toLowerCase();
+    if (!ext || !extensions.includes(ext)) {
+      return createResult(false, [
+        `${fieldName} must have one of these extensions: ${extensions.join(', ')}`,
+      ]);
+    }
+    return createResult(true);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TYPE GUARD UTILITIES
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Assert value is not null or undefined
+ */
+export function assertDefined<T>(
+  value: T | null | undefined,
+  fieldName: string
+): asserts value is T {
+  if (value === null || value === undefined) {
+    throw new ValidationError(
+      `${fieldName} is required`,
+      { value },
+      'Provide a valid value'
+    );
+  }
+}
+
+/**
+ * Assert value is a string
+ */
+export function assertString(
+  value: unknown,
+  fieldName: string
+): asserts value is string {
+  if (!isString(value)) {
+    throw new ValidationError(
+      `${fieldName} must be a string, got ${typeof value}`,
+      { value },
+      'Provide a string value'
+    );
+  }
+}
+
+/**
+ * Assert value is a number
+ */
+export function assertNumber(
+  value: unknown,
+  fieldName: string
+): asserts value is number {
+  if (!isNumber(value)) {
+    throw new ValidationError(
+      `${fieldName} must be a number, got ${typeof value}`,
+      { value },
+      'Provide a numeric value'
+    );
+  }
+}
+
+/**
+ * Assert value is an object
+ */
+export function assertObject(
+  value: unknown,
+  fieldName: string
+): asserts value is Record<string, unknown> {
+  if (!isObject(value)) {
+    throw new ValidationError(
+      `${fieldName} must be an object, got ${typeof value}`,
+      { value },
+      'Provide an object value'
+    );
+  }
+}
+
+/**
+ * Assert value is an array
+ */
+export function assertArray(
+  value: unknown,
+  fieldName: string
+): asserts value is unknown[] {
+  if (!isArray(value)) {
+    throw new ValidationError(
+      `${fieldName} must be an array, got ${typeof value}`,
+      { value },
+      'Provide an array value'
+    );
+  }
+}
