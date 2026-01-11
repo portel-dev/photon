@@ -1842,7 +1842,7 @@ export class PhotonServer {
             try {
               payload = JSON.parse(dataLine.slice(6));
             } catch (e) {
-              console.error('Invalid payload from server', e);
+              this.logger.error('Invalid payload from server', { error: getErrorMessage(e) });
               continue;
             }
             if (handleServerMessage(payload)) {

@@ -1622,7 +1622,7 @@ Run: photon mcp ${mcpName} --config
           if (typeof emit.data === 'string') {
             process.stdout.write(emit.data);
           } else {
-            console.log(JSON.stringify(emit.data));
+            process.stdout.write(JSON.stringify(emit.data));
           }
           break;
 
