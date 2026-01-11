@@ -580,7 +580,8 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
         alert('Error: ' + error.message);
       } finally {
         btn.disabled = false;
-        btn.querySelector('#invoke-label').textContent = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
+        const label = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
+        btn.innerHTML = '<span id="invoke-label">' + label + '</span>';
       }
     });
 
