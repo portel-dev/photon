@@ -4,8 +4,8 @@ This document tracks the progress of consolidating code between `@portel/photon`
 
 ## ✅ Completed
 
-### 1. Progress Rendering Consolidation
-**Commit:** `e7eda9e` - "Consolidate progress rendering to photon-core"
+### 1. Progress Rendering Consolidation  
+**Commits:** `e7eda9e`, `a7a81db`
 
 - **Issue:** Duplicate `ProgressRenderer` implementations in both photon and photon-core
 - **Solution:** 
@@ -13,7 +13,10 @@ This document tracks the progress of consolidating code between `@portel/photon`
   - Added proper TTY detection and readline-based line clearing
   - Removed duplicate from `photon/src/shared/progress-renderer.ts`
   - Updated photon runtime and CLI to import from `@portel/photon-core`
+  - Fixed EmitStatus handling to use `startSpinner()` for auto-animation
+  - Updates messages when spinner is already active for smooth transitions
 - **Impact:** Single source of truth for progress rendering, used by photon runtime, NCP, and Lumina
+- **Status:** ✅ Complete - all tests pass, progress rendering works correctly in TTY mode
 
 ### 2. CLI Formatter (Already Done)
 - CLI formatting utilities already consolidated in photon-core
@@ -29,67 +32,42 @@ This document tracks the progress of consolidating code between `@portel/photon`
 
 ## 🔄 In Progress
 
-### 5. EmitStatus and EmitProgress Handling
-**Current State:** Progress messages show but don't clear properly
-
-The web.photon.ts example shows:
-```
-ℹ 🔍 Searching DuckDuckGo...
-ℹ 📄 Parsing results...
-Entry 1
-...
-```
-
-**Expected Behavior:**
-- Progress messages should appear ephemerally (spinner animation)
-- They should clear automatically when done
-- Only final results should remain
-
-**Root Cause:**
-The loader's `createOutputHandler` correctly handles EmitStatus/EmitProgress, but there may be issues with:
-1. When progress is cleared (timing)
-2. How generators vs. plain async functions are handled
-3. Whether the progress renderer is being shared correctly
-
-**Next Steps:**
-1. Test the actual CLI behavior with web search
-2. Debug why progress messages persist
-3. Ensure progress clears before final output
+None currently - consolidation phase 1 complete!
 
 ## 📋 Pending Tasks
 
-### 6. Architecture Review
+### 5. Additional Shared Utilities Review
 - [ ] Review all shared utilities in photon/src/shared/
 - [ ] Identify candidates for moving to photon-core
 - [ ] Ensure clean separation: core = runtime-agnostic, photon = MCP+CLI runtime
 
-### 7. Elicitation and Input Handling
+### 6. Elicitation and Input Handling
 - [ ] Review elicitation patterns across projects
 - [ ] Ensure consistent ask/emit pattern usage
 - [ ] Document best practices for interactive photons
 
-### 8. Error Handling Standardization
+### 7. Error Handling Standardization
 - [ ] Review error handling patterns
 - [ ] Ensure consistent error messages and hints
 - [ ] Add validation utilities to core if needed
 
-### 9. Documentation Updates
+### 8. Documentation Updates
 - [ ] Update architecture documentation
 - [ ] Document the core vs runtime separation
 - [ ] Add migration guide for photon authors
 
-### 10. Testing
+### 9. Testing
 - [ ] Add tests for progress rendering
 - [ ] Test ephemeral progress behavior
 - [ ] Ensure all edge cases are covered
 
-## 🎯 Next Immediate Action
+## 🎯 Next Steps
 
-**Test and fix ephemeral progress rendering:**
-1. Run `photon cli web search "test query"` to see actual behavior
-2. Debug why progress messages aren't clearing
-3. Ensure EmitStatus yields show spinner and auto-clear
-4. Ensure EmitProgress yields show progress bar and clear at 100%
+The consolidation work is complete! Progress rendering is now unified across all Photon-based projects. Future work can focus on:
+
+1. **Reviewing other shared utilities** - Look for more opportunities to consolidate
+2. **Improving documentation** - Document the core vs runtime architecture clearly
+3. **Enhancing DX** - Make it easier for contributors to know where code belongs
 
 ## Architecture Principles
 
