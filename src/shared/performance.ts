@@ -118,7 +118,7 @@ export class PerformanceMonitor {
 /**
  * Simple memoization decorator for functions
  */
-export function memoize<T extends (...args: any[]) => any>(
+export function memoize<T extends (...args: never[]) => unknown>(
   fn: T,
   options: { ttl?: number; maxSize?: number } = {}
 ): T {
@@ -133,7 +133,7 @@ export function memoize<T extends (...args: any[]) => any>(
       return cached.value;
     }
 
-    const value = fn(...args);
+    const value = fn(...args) as ReturnType<T>;
     
     // Evict oldest if at capacity
     if (cache.size >= maxSize) {
@@ -151,7 +151,7 @@ export function memoize<T extends (...args: any[]) => any>(
 /**
  * Debounce a function
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   fn: T,
   delayMs: number
 ): (...args: Parameters<T>) => void {
@@ -170,7 +170,7 @@ export function debounce<T extends (...args: any[]) => any>(
 /**
  * Throttle a function
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   fn: T,
   delayMs: number
 ): (...args: Parameters<T>) => void {
