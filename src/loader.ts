@@ -1489,9 +1489,9 @@ Run: photon mcp ${mcpName} --config
 
       // If there was an error, throw it
       if (execResult.error) {
-        const error = new Error(execResult.error);
+        const error = new Error(execResult.error) as Error & { runId?: string };
         if (execResult.runId) {
-          (error as any).runId = execResult.runId;
+          error.runId = execResult.runId;
         }
         throw error;
       }
@@ -1558,9 +1558,11 @@ Run: photon mcp ${mcpName} --config
           this.logger.warn(`⚠️ File selection not supported in CLI: ${ask.message}`);
           return null;
 
-        default:
-          this.logger.warn(`⚠️ Unknown ask type: ${(ask as any).ask}`);
+        default: {
+          const unknownAsk = ask as { ask?: string };
+          this.logger.warn(`⚠️ Unknown ask type: ${unknownAsk.ask || 'unknown'}`);
           return undefined;
+        }
       }
     };
   }

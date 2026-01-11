@@ -173,7 +173,7 @@ export class PhotonServer {
 
         // Find the tool to get its outputFormat
         const tool = this.mcp.tools.find(t => t.name === toolName);
-        const outputFormat = (tool as any)?.outputFormat;
+        const outputFormat = tool?.outputFormat;
 
         // Check if this was a stateful workflow execution
         const isStateful = result && typeof result === 'object' && result._stateful === true;
@@ -231,7 +231,7 @@ export class PhotonServer {
           description: template.description,
           arguments: Object.entries(template.inputSchema.properties || {}).map(([name, schema]) => ({
             name,
-            description: (schema as any).description || '',
+            description: (typeof schema === 'object' && schema && 'description' in schema ? schema.description as string : '') || '',
             required: template.inputSchema.required?.includes(name) || false,
           })),
         })),
@@ -2074,7 +2074,7 @@ export class PhotonServer {
       try {
         const result = await this.loader.executeTool(this.mcp, toolName, args || {});
         const tool = this.mcp.tools.find(t => t.name === toolName);
-        const outputFormat = (tool as any)?.outputFormat;
+        const outputFormat = tool?.outputFormat;
 
         const isStateful = result && typeof result === 'object' && result._stateful === true;
         const actualResult = isStateful ? result.result : result;
@@ -2309,8 +2309,8 @@ export class PhotonServer {
 
   private buildStatusSnapshot() {
     const warnings: string[] = [];
-    const instance = this.mcp?.instance as any;
-    if (instance?._photonConfigError) {
+    const instance = this.mcp?.instance;
+    if (instance && '_photonConfigError' in instance && instance._photonConfigError) {
       warnings.push('Photon configuration incomplete. Check env vars and MCP credentials.');
     }
 
@@ -2364,7 +2364,7 @@ export class PhotonServer {
     const payload = {
       method: 'notifications/status',
       params: { type, message },
-    } as any;
+    };
 
     try {
       await this.server.notification(payload);
@@ -2495,17 +2495,17 @@ export class PhotonServer {
       // Send tools list changed notification
       await this.server.notification({
         method: 'notifications/tools/list_changed',
-      } as any);
+      });
 
       // Send prompts list changed notification
       await this.server.notification({
         method: 'notifications/prompts/list_changed',
-      } as any);
+      });
 
       // Send resources list changed notification
       await this.server.notification({
         method: 'notifications/resources/list_changed',
-      } as any);
+      });
 
       this.log('debug', 'Sent list_changed notifications');
     } catch (error) {
