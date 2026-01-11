@@ -511,32 +511,39 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
 
     function renderForm() {
       const fields = document.getElementById('form-fields');
-      const properties = currentMethod.params.properties || {};
-      const required = currentMethod.params.required || [];
+      const properties = currentMethod.params?.properties || {};
+      const required = currentMethod.params?.required || [];
 
       // Update button label with method name (capitalize first letter)
       const invokeLabel = document.getElementById('invoke-label');
       invokeLabel.textContent = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
 
-      fields.innerHTML = Object.entries(properties).map(([name, schema]) => {
-        const isRequired = required.includes(name);
-        const type = schema.type === 'number' ? 'number' : 'text';
-        
-        return \`
-          <div class="form-group">
-            <label>
-              \${name}
-              \${isRequired ? '<span style="color: red;">*</span>' : ''}
-            </label>
-            <input 
-              type="\${type}" 
-              name="\${name}" 
-              placeholder="\${schema.description || ''}"
-              \${isRequired ? 'required' : ''}
-            />
-          </div>
-        \`;
-      }).join('');
+      const fieldEntries = Object.entries(properties);
+      
+      if (fieldEntries.length === 0) {
+        fields.innerHTML = '<p style="color: #666; font-size: 14px;">No parameters required</p>';
+      } else {
+        fields.innerHTML = fieldEntries.map(([name, schema]) => {
+          const isRequired = required.includes(name);
+          const type = schema.type === 'number' ? 'number' : 'text';
+          
+          return \`
+            <div class="form-group">
+              <label>
+                \${name}
+                \${isRequired ? '<span style="color: red;">*</span>' : ''}
+                \${schema.description ? '<span style="color: #666; font-weight: normal; font-size: 12px;"> - \${schema.description}</span>' : ''}
+              </label>
+              <input 
+                type="\${type}" 
+                name="\${name}" 
+                placeholder="Enter \${name}"
+                \${isRequired ? 'required' : ''}
+              />
+            </div>
+          \`;
+        }).join('');
+      }
 
       document.getElementById('result-ui').style.display = 'none';
       document.getElementById('result-data').textContent = 'No data yet';
@@ -549,8 +556,12 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
       const formData = new FormData(e.target);
       const params = {};
       for (const [key, value] of formData.entries()) {
-        const schema = currentMethod.params.properties[key];
-        params[key] = schema.type === 'number' ? Number(value) : value;
+        const schema = currentMethod.params?.properties?.[key];
+        if (schema?.type === 'number') {
+          params[key] = Number(value);
+        } else {
+          params[key] = value;
+        }
       }
 
       const btn = document.getElementById('invoke-btn');
@@ -589,9 +600,11 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
       const resultUI = document.getElementById('result-ui');
       const resultData = document.getElementById('result-data');
 
-      resultUI.style.display = 'block';
+      // Update Data tab
       resultData.textContent = JSON.stringify(currentResult, null, 2);
 
+      // Update UI tab - clear spinner and show result
+      resultUI.style.display = 'block';
       resultUI.innerHTML = \`
         <div class="result-container">
           <h3>Result</h3>
@@ -601,19 +614,45 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
     }
 
     function formatResult(result) {
+      // Handle arrays
       if (Array.isArray(result)) {
-        if (result.length === 0) return '<p>Empty array</p>';
-        if (result[0].text) {
-          // Markdown content
-          return result.map(item => item.text).join('\\n\\n');
+        if (result.length === 0) {
+          return '<p style="color: #666;">Empty result</p>';
         }
-        return '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+        
+        // Check if it's markdown content (has .text property)
+        if (result[0]?.text) {
+          return '<div style="line-height: 1.6;">' + 
+            result.map(item => {
+              // Simple markdown rendering
+              let text = item.text || '';
+              // Convert markdown links to HTML
+              text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #3498db;">$1</a>');
+              // Convert bold
+              text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+              return '<p>' + text + '</p>';
+            }).join('') + 
+            '</div>';
+        }
+        
+        // Regular array - format as list
+        return '<ul style="list-style: none; padding: 0;">' + 
+          result.map(item => {
+            if (typeof item === 'object') {
+              return '<li style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;"><pre style="margin: 0;">' + 
+                JSON.stringify(item, null, 2) + '</pre></li>';
+            }
+            return '<li style="margin: 5px 0;">' + String(item) + '</li>';
+          }).join('') + 
+          '</ul>';
       }
       
-      if (typeof result === 'object') {
-        return '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+      // Handle objects
+      if (typeof result === 'object' && result !== null) {
+        return '<pre style="margin: 0;">' + JSON.stringify(result, null, 2) + '</pre>';
       }
       
+      // Handle primitives
       return '<p>' + String(result) + '</p>';
     }
 
