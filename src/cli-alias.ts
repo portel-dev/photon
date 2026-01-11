@@ -13,6 +13,7 @@ import * as os from 'os';
 import { existsSync } from 'fs';
 import { resolvePhotonPath } from './path-resolver.js';
 import { getErrorMessage } from './shared/error-handler.js';
+import { logger } from './shared/logger.js';
 
 const ALIAS_DIR = path.join(os.homedir(), '.photon', 'bin');
 const IS_WINDOWS = process.platform === 'win32';
@@ -26,8 +27,8 @@ export async function createAlias(photonName: string, aliasName?: string): Promi
     // Verify photon exists
     const photonPath = await resolvePhotonPath(photonName);
     if (!photonPath) {
-      console.error(`❌ Photon '${photonName}' not found`);
-      console.error(`\nInstall it first with: photon add ${photonName}`);
+      logger.error(`Photon '${photonName}' not found`);
+      logger.info(`Install it first with: photon add ${photonName}`);
       process.exit(1);
     }
 
@@ -47,16 +48,16 @@ export async function createAlias(photonName: string, aliasName?: string): Promi
       await createUnixAlias(cmdName, photonName, photonCmd);
     }
 
-    console.log(`✅ Created alias: ${cmdName}`);
-    console.log(`\nYou can now run:`);
-    console.log(`    ${cmdName} <command> [options]`);
-    console.log(`\nInstead of:`);
-    console.log(`    photon cli ${photonName} <command> [options]`);
+    logger.info(`Created alias: ${cmdName}`);
+    logger.info(`\nYou can now run:`);
+    logger.info(`  ${cmdName} <command> [options]`);
+    logger.info(`\nInstead of:`);
+    logger.info(`  photon cli ${photonName} <command> [options]`);
 
     // Check if bin directory is in PATH and provide instructions
     await checkAndInstructPath();
   } catch (error) {
-    console.error(`❌ Error: ${getErrorMessage(error)}`);
+    logger.error(`Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -69,8 +70,8 @@ async function createUnixAlias(cmdName: string, photonName: string, photonCmd: s
 
   // Check if alias already exists
   if (existsSync(aliasPath)) {
-    console.error(`⚠️  Alias '${cmdName}' already exists`);
-    console.error(`\nRemove it first with: photon unalias ${cmdName}`);
+    logger.warn(`Alias '${cmdName}' already exists`);
+    logger.info(`Remove it first with: photon unalias ${cmdName}`);
     process.exit(1);
   }
 
@@ -90,8 +91,8 @@ async function createWindowsAlias(cmdName: string, photonName: string, photonCmd
 
   // Check if alias already exists
   if (existsSync(aliasPath)) {
-    console.error(`⚠️  Alias '${cmdName}' already exists`);
-    console.error(`\nRemove it first with: photon unalias ${cmdName}`);
+    logger.warn(`Alias '${cmdName}' already exists`);
+    logger.info(`Remove it first with: photon unalias ${cmdName}`);
     process.exit(1);
   }
 
@@ -115,16 +116,16 @@ async function checkAndInstructPath(): Promise<void> {
     return;
   }
 
-  console.log(`\n⚠️  ${ALIAS_DIR} is not in your PATH`);
+  logger.warn(`${ALIAS_DIR} is not in your PATH`);
 
   if (IS_WINDOWS) {
-    console.log(`\nTo add it permanently, run this in PowerShell (as Administrator):`);
-    console.log(`    [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${ALIAS_DIR}", "User")`);
-    console.log(`\nOr add it manually:`);
-    console.log(`    1. Open "Environment Variables" in Windows settings`);
-    console.log(`    2. Edit the "Path" variable for your user`);
-    console.log(`    3. Add: ${ALIAS_DIR}`);
-    console.log(`    4. Restart your terminal`);
+    logger.info(`\nTo add it permanently, run this in PowerShell (as Administrator):`);
+    logger.info(`  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${ALIAS_DIR}", "User")`);
+    logger.info(`\nOr add it manually:`);
+    logger.info(`  1. Open "Environment Variables" in Windows settings`);
+    logger.info(`  2. Edit the "Path" variable for your user`);
+    logger.info(`  3. Add: ${ALIAS_DIR}`);
+    logger.info(`  4. Restart your terminal`);
   } else {
     // Detect shell
     const shell = process.env.SHELL || '';
@@ -136,10 +137,10 @@ async function checkAndInstructPath(): Promise<void> {
       configFile = '~/.config/fish/config.fish';
     }
 
-    console.log(`\nAdd this to your ${configFile}:`);
-    console.log(`    export PATH="$PATH:${ALIAS_DIR}"`);
-    console.log(`\nThen reload your shell:`);
-    console.log(`    source ${configFile}`);
+    logger.info(`\nAdd this to your ${configFile}:`);
+    logger.info(`  export PATH="$PATH:${ALIAS_DIR}"`);
+    logger.info(`\nThen reload your shell:`);
+    logger.info(`  source ${configFile}`);
   }
 }
 
@@ -161,14 +162,14 @@ export async function removeAlias(aliasName: string): Promise<void> {
     }
 
     if (!aliasPath) {
-      console.error(`❌ Alias '${aliasName}' not found`);
+      logger.error(`Alias '${aliasName}' not found`);
       process.exit(1);
     }
 
     await fs.unlink(aliasPath);
-    console.log(`✅ Removed alias: ${aliasName}`);
+    logger.info(`Removed alias: ${aliasName}`);
   } catch (error) {
-    console.error(`❌ Error: ${getErrorMessage(error)}`);
+    logger.error(`Error: ${getErrorMessage(error)}`);
     process.exit(1);
   }
 }
