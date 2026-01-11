@@ -36,7 +36,7 @@ import { PHOTON_VERSION } from './version.js';
 import { toEnvVarName } from './shared/config-docs.js';
 import { renderSection } from './shared/cli-sections.js';
 import { runTask } from './shared/task-runner.js';
-import { LoggerOptions, normalizeLogLevel } from './shared/logger.js';
+import { LoggerOptions, normalizeLogLevel, logger } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
 import { handleError, wrapError, getErrorMessage } from './shared/error-handler.js';
 
@@ -572,7 +572,7 @@ async function performMarketplaceSync(
   const isDefaultDir = resolvedPath === DEFAULT_WORKING_DIR;
 
   if (!existsSync(resolvedPath)) {
-    console.error(`❌ Directory not found: ${resolvedPath}`);
+    logger.error(`Directory not found: ${resolvedPath}`);
     process.exit(1);
   }
 
@@ -602,7 +602,7 @@ async function performMarketplaceSync(
   }
 
   if (photonFiles.length === 0) {
-    console.error(`❌ No .photon.ts files found in ${resolvedPath}`);
+    logger.error(`No .photon.ts files found in ${resolvedPath}`);
     process.exit(1);
   }
 
@@ -1144,7 +1144,7 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`❌ MCP not found: ${name}`);
+        logger.error(`MCP not found: ${name}`);
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon info' to see available MCPs`);
         process.exit(1);
@@ -1165,7 +1165,7 @@ program
       // Validate transport option
       const transport = options.transport as 'stdio' | 'sse';
       if (transport !== 'stdio' && transport !== 'sse') {
-        console.error(`❌ Invalid transport: ${options.transport}`);
+        logger.error(`Invalid transport: ${options.transport}`);
         console.error('Valid options: stdio, sse');
         process.exit(1);
       }
@@ -1206,7 +1206,7 @@ program
         });
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1229,7 +1229,7 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`❌ Photon not found: ${name}`);
+        logger.error(`Photon not found: ${name}`);
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon info' to see available photons`);
         process.exit(1);
@@ -1278,7 +1278,7 @@ program
         });
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1302,7 +1302,7 @@ program
       const photonPath = await resolvePhotonPath(name, workingDir);
 
       if (!photonPath) {
-        console.error(`❌ Photon not found: ${name}`);
+        logger.error(`Photon not found: ${name}`);
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon info' to see available photons`);
         process.exit(1);
@@ -1319,12 +1319,12 @@ program
           outputDir: options.output,
         });
       } else {
-        console.error(`❌ Unknown deployment target: ${target}`);
+        logger.error(`Unknown deployment target: ${target}`);
         console.error('Supported targets: cloudflare (cf)');
         process.exit(1);
       }
     } catch (error) {
-      console.error(`❌ Deployment failed: ${getErrorMessage(error)}`);
+      logger.error(`Deployment failed: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1345,7 +1345,7 @@ program
       const photonPath = await resolvePhotonPath(name, workingDir);
 
       if (!photonPath) {
-        console.error(`❌ Photon not found: ${name}`);
+        logger.error(`Photon not found: ${name}`);
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon info' to see available photons`);
         process.exit(1);
@@ -1357,7 +1357,7 @@ program
         outputDir: options.output,
       });
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1714,7 +1714,7 @@ maker
       // Check if file already exists
       try {
         await fs.access(filePath);
-        console.error(`❌ File already exists: ${filePath}`);
+        logger.error(`File already exists: ${filePath}`);
         process.exit(1);
       } catch {
         // File doesn't exist, good
@@ -1747,7 +1747,7 @@ maker
       console.error(`✅ Created ${fileName} in ${workingDir}`);
       console.error(`Run with: photon mcp ${name} --dev`);
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1766,7 +1766,7 @@ maker
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        console.error(`❌ Photon not found: ${name}`);
+        logger.error(`Photon not found: ${name}`);
         console.error(`Searched in: ${workingDir}`);
         console.error(`Tip: Use 'photon info' to see available photons`);
         process.exit(1);
@@ -1790,7 +1790,7 @@ maker
 
       process.exit(0);
     } catch (error) {
-      console.error(`❌ Validation failed: ${getErrorMessage(error)}`);
+      logger.error(`Validation failed: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1818,7 +1818,7 @@ maker
         await generateClaudeCodePlugin(dirPath, options);
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
@@ -1838,7 +1838,7 @@ maker
       const dirPath = options.dir || '.';
       await performMarketplaceInit(dirPath, options);
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
@@ -1870,7 +1870,7 @@ maker
       }
 
       if (!existsSync(photonPath)) {
-        console.error(`❌ Photon not found: ${photonPath}`);
+        logger.error(`Photon not found: ${photonPath}`);
         process.exit(1);
       }
 
@@ -1880,7 +1880,7 @@ maker
       // Output just the diagram (can be piped or copied)
       console.log(diagram);
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
@@ -1925,7 +1925,7 @@ maker
         }
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
@@ -2006,7 +2006,7 @@ marketplace
         console.error(`Skipping duplicate addition`);
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2026,11 +2026,11 @@ marketplace
       if (removed) {
         console.error(`✅ Removed marketplace: ${name}`);
       } else {
-        console.error(`❌ Marketplace '${name}' not found`);
+        logger.error(`Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2050,11 +2050,11 @@ marketplace
       if (success) {
         console.error(`✅ Enabled marketplace: ${name}`);
       } else {
-        console.error(`❌ Marketplace '${name}' not found`);
+        logger.error(`Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2074,11 +2074,11 @@ marketplace
       if (success) {
         console.error(`✅ Disabled marketplace: ${name}`);
       } else {
-        console.error(`❌ Marketplace '${name}' not found`);
+        logger.error(`Marketplace '${name}' not found`);
         process.exit(1);
       }
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -2106,7 +2106,7 @@ program
       let conflict = await manager.checkConflict(name, options.marketplace);
 
       if (!conflict.sources || conflict.sources.length === 0) {
-        console.error(`❌ MCP '${name}' not found in any enabled marketplace\n`);
+        logger.error(`MCP '${name}' not found in any enabled marketplace\n`);
 
         // Search for similar names
         const searchResults = await manager.search(name);
@@ -2182,7 +2182,7 @@ program
           // Re-check for conflicts with the new name
           conflict = await manager.checkConflict(name, options.marketplace);
           if (!conflict.sources || conflict.sources.length === 0) {
-            console.error(`❌ MCP '${name}' is no longer available`);
+            logger.error(`MCP '${name}' is no longer available`);
             process.exit(1);
           }
         } else {
@@ -2271,7 +2271,7 @@ program
       // Fetch content from selected marketplace
       const result = await manager.fetchMCP(name);
       if (!result) {
-        console.error(`❌ Failed to fetch MCP content`);
+        logger.error(`Failed to fetch MCP content`);
         process.exit(1);
       }
       const content = result.content;
@@ -2308,7 +2308,7 @@ program
       console.error(`\nRun with: photon mcp ${name}`);
       console.error(`\nTo customize: Copy to a new name and run with --dev for hot reload`);
     } catch (error) {
-      console.error(`❌ Error: ${getErrorMessage(error)}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
