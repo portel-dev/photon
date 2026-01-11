@@ -65,6 +65,7 @@
   },
   "devDependencies": {
     "@release-it/conventional-changelog": "^10.0.1",
+    "@types/inquirer": "^9.0.9",
     "@types/node": "^22.10.2",
     "autocannon": "^8.0.0",
     "clinic": "^13.0.0",
