@@ -1268,17 +1268,11 @@ export class PhotonServer {
     .json-boolean { color: var(--purple); }
     .json-null { color: var(--muted); }
     .json-bracket { color: var(--text); }
-    .ui-frame {
-      flex: 1;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-      margin: 20px;
+    #ui-preview {
+      min-height: 200px;
     }
-    .ui-frame iframe {
+    #ui-preview iframe {
       width: 100%;
-      height: 100%;
       border: none;
     }
     .empty-state {
@@ -1458,21 +1452,24 @@ export class PhotonServer {
         <div class="tab" data-tab="data">Data</div>
       </div>
       <div class="tab-content active" id="tab-ui">
-        <div class="ui-frame" id="ui-preview">
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M3 9h18M9 21V9" />
-            </svg>
-            <p>Select a tool to begin</p>
+        <div class="panel">
+          <div id="ui-form-container"></div>
+          <div class="panel-header" id="ui-results-header" style="display: none;">Results</div>
+          <div id="ui-preview">
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18M9 21V9" />
+              </svg>
+              <p>Select a tool and fill the form to see results</p>
+            </div>
           </div>
         </div>
       </div>
       <div class="tab-content" id="tab-data">
         <div class="panel">
-          <div id="data-form-container"></div>
-          <div class="panel-header">Response Data</div>
-          <div class="json-output" id="output">// Select a tool to see data</div>
+          <div class="panel-header">Raw JSON Data</div>
+          <div class="json-output" id="output">// Run a tool to see raw JSON data</div>
         </div>
       </div>
       <div class="status-bar">
@@ -1665,8 +1662,8 @@ export class PhotonServer {
       document.getElementById('tabs').style.display = 'flex';
 
       // Clear previous forms/placeholders
-      setUIPreviewMessage('Select a tool to begin', 'Choose a tool from the left to see its UI preview.');
-      document.getElementById('data-form-container').innerHTML = '';
+      setUIPreviewMessage('Fill the form to see results', 'Enter parameters below and run the tool.');
+      document.getElementById('ui-form-container').innerHTML = '';
 
       const hasUI = Boolean(selectedTool.ui);
 
@@ -1675,17 +1672,14 @@ export class PhotonServer {
       const required = selectedTool.inputSchema?.required || [];
       const hasRequiredParams = required.length > 0;
 
+      // Always switch to UI tab and show form
+      switchTab('ui');
+      
       if (hasRequiredParams) {
         showParamsForm();
-        switchTab(hasUI ? 'ui' : 'data');
       } else {
-        if (hasUI) {
-          setUIPreviewMessage('Rendering preview', 'Running this tool to load the linked UI.');
-          switchTab('ui');
-        } else {
-          setUIPreviewMessage('No linked UI', 'This tool returns structured data. View the Data tab for output.');
-          switchTab('data');
-        }
+        // Auto-run for tools with no params
+        setUIPreviewMessage('Running tool...', 'Loading results...');
         runTool();
       }
     }
@@ -1693,60 +1687,51 @@ export class PhotonServer {
     function showParamsForm() {
       const props = selectedTool.inputSchema?.properties || {};
       const required = selectedTool.inputSchema?.required || [];
-      const hasUI = Boolean(selectedTool.ui);
 
       const formHtml = \`
-        <div style="padding: 20px; height: 100%; overflow-y: auto;">
-          <div class="form-note">
-            <strong>Input Parameters</strong><br>
-            This form collects data that an AI would typically provide when calling this tool.
-            Fill in the parameters and click Run to execute.
-            \${!hasUI ? '<br><br><em>This tool does not render a UI preview. Check the Data tab for results.</em>' : ''}
-          </div>
-          <div id="params-form">
-            \${Object.entries(props).map(([name, schema]) => {
-              const isRequired = required.includes(name);
-              const desc = schema.description || '';
-              if (schema.enum) {
-                return \`
-                  <div class="form-group">
-                    <label>\${name}\${isRequired ? ' *' : ''}</label>
-                    <select name="\${name}">
-                      <option value="">Select...</option>
-                      \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
-                    </select>
-                    \${desc ? \`<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">\${desc}</div>\` : ''}
-                  </div>
-                \`;
-              }
-              const inputType = schema.type === 'number' ? 'number' : 'text';
-              const isLongText = desc.length > 50 || name.toLowerCase().includes('content') || name.toLowerCase().includes('body');
-              if (isLongText && schema.type === 'string') {
-                return \`
-                  <div class="form-group">
-                    <label>\${name}\${isRequired ? ' *' : ''}</label>
-                    <textarea name="\${name}" placeholder="\${desc}"></textarea>
-                  </div>
-                \`;
-              }
+        <div class="form-note">
+          <strong>Input Parameters</strong><br>
+          Fill in the parameters below and click Run to execute the tool.
+        </div>
+        <div id="params-form">
+          \${Object.entries(props).map(([name, schema]) => {
+            const isRequired = required.includes(name);
+            const desc = schema.description || '';
+            if (schema.enum) {
               return \`
                 <div class="form-group">
                   <label>\${name}\${isRequired ? ' *' : ''}</label>
-                  <input type="\${inputType}" name="\${name}" placeholder="\${desc}" />
+                  <select name="\${name}">
+                    <option value="">Select...</option>
+                    \${schema.enum.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
+                  </select>
+                  \${desc ? \`<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">\${desc}</div>\` : ''}
                 </div>
               \`;
-            }).join('')}
-          </div>
-          <button class="btn btn-primary" onclick="runTool()" style="margin-top: 8px;">Run Tool</button>
+            }
+            const inputType = schema.type === 'number' ? 'number' : 'text';
+            const isLongText = desc.length > 50 || name.toLowerCase().includes('content') || name.toLowerCase().includes('body');
+            if (isLongText && schema.type === 'string') {
+              return \`
+                <div class="form-group">
+                  <label>\${name}\${isRequired ? ' *' : ''}</label>
+                  <textarea name="\${name}" placeholder="\${desc}"></textarea>
+                </div>
+              \`;
+            }
+            return \`
+              <div class="form-group">
+                <label>\${name}\${isRequired ? ' *' : ''}</label>
+                <input type="\${inputType}" name="\${name}" placeholder="\${desc}" />
+              </div>
+            \`;
+          }).join('')}
         </div>
+        <button class="btn btn-primary" onclick="runTool()" style="margin-top: 16px;">Run Tool</button>
       \`;
 
-      if (hasUI) {
-        document.getElementById('ui-preview').innerHTML = formHtml;
-      } else {
-        document.getElementById('data-form-container').innerHTML = formHtml;
-        setUIPreviewMessage('No linked UI', 'This tool only returns data. Use the Data tab to view responses.');
-      }
+      // Always render form in UI tab
+      document.getElementById('ui-form-container').innerHTML = formHtml;
     }
 
     function switchTab(tabName) {
@@ -1935,20 +1920,66 @@ export class PhotonServer {
       // Update data tab with syntax highlighting
       document.getElementById('output').innerHTML = syntaxHighlight(JSON.stringify(result.data, null, 2));
 
-      // If tool has linked UI, render it
+      // Clear form from UI tab
+      document.getElementById('ui-form-container').innerHTML = '';
+      document.getElementById('ui-results-header').style.display = 'block';
+
+      // If tool has linked UI, render it in iframe
       if (selectedTool.ui) {
         const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
         let html = await uiRes.text();
         html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
         const blob = new Blob([html], { type: 'text/html' });
-        document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}"></iframe>\`;
-        switchTab('ui');
+        document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}" style="width: 100%; height: 600px; border: 1px solid var(--border); border-radius: 8px;"></iframe>\`;
       } else {
-        setUIPreviewMessage('No linked UI', 'This tool only returns data. View the Data tab for the response.');
-        switchTab('data');
+        // Auto-render data using Auto-UI components
+        document.getElementById('ui-preview').innerHTML = renderAutoUI(result.data);
       }
 
       setStatus('success', 'Completed successfully');
+    }
+
+    function renderAutoUI(data) {
+      // Auto-detect data structure and render appropriately
+      if (Array.isArray(data)) {
+        if (data.length === 0) {
+          return '<div class="empty-state"><p>No results found</p></div>';
+        }
+        // Render as list of cards
+        return \`<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px;">\${data.map(item => renderCard(item)).join('')}</div>\`;
+      } else if (typeof data === 'object' && data !== null) {
+        // Single object - render as card
+        return \`<div style="padding: 16px;">\${renderCard(data)}</div>\`;
+      } else {
+        // Primitive value
+        return \`<div style="padding: 16px; color: var(--text);">\${String(data)}</div>\`;
+      }
+    }
+
+    function renderCard(item) {
+      if (typeof item !== 'object' || item === null) {
+        return \`<div style="padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;">\${String(item)}</div>\`;
+      }
+      
+      const entries = Object.entries(item);
+      const title = item.title || item.name || item.id || entries[0]?.[1] || 'Item';
+      const description = item.description || item.snippet || item.summary || '';
+      const url = item.url || item.link || item.href || '';
+      
+      return \`
+        <div style="padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 15px; color: var(--text); margin-bottom: 6px;">\${escapeHtml(String(title))}</div>
+          \${description ? \`<div style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">\${escapeHtml(String(description))}</div>\` : ''}
+          \${url ? \`<a href="\${escapeHtml(url)}" target="_blank" style="color: var(--accent); font-size: 12px; text-decoration: none;">View \u2192</a>\` : ''}
+          \${!description && !url ? \`<div style="color: var(--muted); font-size: 12px; margin-top: 6px;">\${entries.slice(1).map(([k, v]) => \`<div><strong>\${k}:</strong> \${String(v)}</div>\`).join('')}</div>\` : ''}
+        </div>
+      \`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     // Tab switching
