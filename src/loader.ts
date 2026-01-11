@@ -298,8 +298,8 @@ export class PhotonLoader {
     return nodeModules;
   }
 
-  private shouldRetryInstall(error: any): boolean {
-    const message = error?.message?.toString() || '';
+  private shouldRetryInstall(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
     return (
       message.includes('Cannot find package') ||
       message.includes('ERR_MODULE_NOT_FOUND') ||
@@ -400,7 +400,7 @@ export class PhotonLoader {
       // Find the exported class
       const MCPClass = this.findMCPClass(module);
 
-      if (!MCPClass) {
+      if (!MCPClass || !this.isClass(MCPClass)) {
         throw new Error('No MCP class found in file. Expected a class with async methods.');
       }
 
@@ -415,9 +415,9 @@ export class PhotonLoader {
       );
 
       // Create instance with injected dependencies
-      let instance;
+      let instance: Record<string, unknown>;
       try {
-        instance = new MCPClass(...values);
+        instance = new MCPClass(...values) as Record<string, unknown>;
       } catch (error) {
         // Constructor threw an error (likely validation failure)
         const constructorParams = await this.extractConstructorParams(absolutePath);
@@ -438,15 +438,17 @@ export class PhotonLoader {
       }
 
       // Inject MCP client factory if available (enables this.mcp() calls)
-      if (this.mcpClientFactory && typeof instance.setMCPFactory === 'function') {
-        instance.setMCPFactory(this.mcpClientFactory);
+      const setMCPFactory = instance.setMCPFactory;
+      if (this.mcpClientFactory && typeof setMCPFactory === 'function') {
+        setMCPFactory.call(instance, this.mcpClientFactory);
         this.log(`Injected MCP factory into ${name}`);
       }
 
       // Call lifecycle hook if present with error handling
-      if (instance.onInitialize) {
+      const onInitialize = instance.onInitialize;
+      if (typeof onInitialize === 'function') {
         try {
-          await instance.onInitialize();
+          await onInitialize.call(instance);
         } catch (error) {
           const initError = new Error(
             `Initialization failed for ${name}: ${getErrorMessage(error)}\n` +
@@ -566,7 +568,7 @@ export class PhotonLoader {
    * Find the MCP class in a module
    * Looks for default export or any class with async methods
    */
-  private findMCPClass(module: any): any {
+  private findMCPClass(module: Record<string, unknown>): unknown {
     // Try default export first
     if (module.default && this.isClass(module.default)) {
       if (this.hasAsyncMethods(module.default)) {
@@ -587,14 +589,14 @@ export class PhotonLoader {
   /**
    * Check if a function is a class constructor
    */
-  private isClass(fn: any): boolean {
+  private isClass(fn: unknown): fn is new (...args: unknown[]) => unknown {
     return typeof fn === 'function' && /^\s*class\s+/.test(fn.toString());
   }
 
   /**
    * Check if a class has async methods
    */
-  private hasAsyncMethods(ClassConstructor: any): boolean {
+  private hasAsyncMethods(ClassConstructor: new (...args: unknown[]) => unknown): boolean {
     const prototype = ClassConstructor.prototype;
 
     for (const key of Object.getOwnPropertyNames(prototype)) {
@@ -617,15 +619,16 @@ export class PhotonLoader {
   /**
    * Get MCP name from class
    */
-  private getMCPName(mcpClass: any): string {
+  private getMCPName(mcpClass: new (...args: unknown[]) => unknown): string {
     // Try to use PhotonMCP's method if available
-    if (typeof mcpClass.getMCPName === 'function') {
-      return mcpClass.getMCPName();
+    const classWithStatic = mcpClass as { getMCPName?: () => string; name: string };
+    if (typeof classWithStatic.getMCPName === 'function') {
+      return classWithStatic.getMCPName();
     }
 
     // Fallback: implement convention for plain classes
     // Convert PascalCase to kebab-case (e.g., MyAwesomeMCP → my-awesome-mcp)
-    return mcpClass.name
+    return classWithStatic.name
       .replace(/MCP$/, '') // Remove "MCP" suffix if present
       .replace(/([A-Z])/g, '-$1')
       .toLowerCase()
@@ -635,14 +638,15 @@ export class PhotonLoader {
   /**
    * Get tool methods from class
    */
-  private getToolMethods(mcpClass: any): string[] {
+  private getToolMethods(mcpClass: new (...args: unknown[]) => unknown): string[] {
     // Try to use PhotonMCP's method if available
-    if (typeof mcpClass.getToolMethods === 'function') {
-      return mcpClass.getToolMethods();
+    const classWithStatic = mcpClass as { getToolMethods?: () => string[]; prototype: Record<string, unknown> };
+    if (typeof classWithStatic.getToolMethods === 'function') {
+      return classWithStatic.getToolMethods();
     }
 
     // Fallback: implement convention for plain classes
-    const prototype = mcpClass.prototype;
+    const prototype = classWithStatic.prototype;
     const methods: string[] = [];
 
     Object.getOwnPropertyNames(prototype).forEach((name) => {
@@ -664,7 +668,7 @@ export class PhotonLoader {
   /**
    * Extract tools, templates, and statics from a class
    */
-  private async extractTools(mcpClass: any, sourceFilePath: string): Promise<{
+  private async extractTools(mcpClass: new (...args: unknown[]) => unknown, sourceFilePath: string): Promise<{
     tools: PhotonTool[];
     templates: TemplateInfo[];
     statics: StaticInfo[];
@@ -724,9 +728,10 @@ export class PhotonLoader {
 
         this.log(`Loaded ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from .schema.json override`);
         return { tools, templates, statics };
-      } catch (jsonError: any) {
+      } catch (jsonError: unknown) {
         // .schema.json doesn't exist, try extracting from .ts source
-        if (jsonError.code === 'ENOENT') {
+        const isNotFound = jsonError instanceof Error && 'code' in jsonError && (jsonError as NodeJS.ErrnoException).code === 'ENOENT';
+        if (isNotFound) {
           const extractor = new SchemaExtractor();
           const source = await fs.readFile(sourceFilePath, 'utf-8');
           const metadata = extractor.extractAllFromSource(source);
