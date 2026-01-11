@@ -39,6 +39,7 @@ import { runTask } from './shared/task-runner.js';
 import { LoggerOptions, normalizeLogLevel, logger } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
 import { handleError, wrapError, getErrorMessage } from './shared/error-handler.js';
+import { validateOrThrow, inRange, isPositive, isInteger } from './shared/validation.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
@@ -78,8 +79,18 @@ function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOp
  * Find an available port starting from the given port
  */
 async function findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number> {
+  // Validate port range
+  validateOrThrow(startPort, [
+    inRange('start port', 1, 65535),
+    isInteger('start port'),
+    isPositive('start port')
+  ]);
+  
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
+    if (port > 65535) {
+      throw new Error(`Port ${port} exceeds maximum port number (65535)`);
+    }
     if (await isPortAvailable(port)) {
       return port;
     }

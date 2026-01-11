@@ -29,6 +29,7 @@ import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel, type LogRecord } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
+import { validateOrThrow, assertString, notEmpty, inRange, oneOf, hasExtension } from './shared/validation.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -73,6 +74,25 @@ export class PhotonServer {
   private logger: Logger;
 
   constructor(options: PhotonServerOptions) {
+    // Validate options
+    assertString(options.filePath, 'filePath');
+    validateOrThrow(options.filePath, [
+      notEmpty('filePath'),
+      hasExtension('filePath', ['ts', 'js'])
+    ]);
+    
+    if (options.transport) {
+      validateOrThrow(options.transport, [
+        oneOf<TransportType>('transport', ['stdio', 'sse'])
+      ]);
+    }
+    
+    if (options.port !== undefined) {
+      validateOrThrow(options.port, [
+        inRange('port', 1, 65535)
+      ]);
+    }
+    
     this.options = options;
     this.devMode = options.devMode || false;
 

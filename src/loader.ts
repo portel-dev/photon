@@ -73,6 +73,7 @@ import { PHOTON_VERSION } from './version.js';
 import { generateConfigErrorMessage, summarizeConstructorParams, toEnvVarName } from './shared/config-docs.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
+import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -343,6 +344,13 @@ export class PhotonLoader {
    * Load a single Photon MCP file
    */
   async loadFile(filePath: string): Promise<PhotonMCPClassExtended> {
+    // Validate input
+    assertString(filePath, 'filePath');
+    validateOrThrow(filePath, [
+      notEmpty('Photon file path'),
+      hasExtension('Photon file', ['ts', 'js'])
+    ]);
+    
     try {
       // Resolve to absolute path
       const absolutePath = path.resolve(filePath);
