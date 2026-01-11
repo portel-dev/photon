@@ -39,6 +39,8 @@ import {
   // Elicit for fallback
   prompt as elicitPrompt,
   confirm as elicitConfirm,
+  // Progress rendering
+  ProgressRenderer,
   // MCP Client types and SDK transport
   type MCPClientFactory,
   type MCPDependency,
@@ -66,7 +68,6 @@ interface DependencySpec {
   version: string;
 }
 
-import { ProgressRenderer } from './shared/progress-renderer.js';
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION } from './version.js';
 import { generateConfigErrorMessage, summarizeConstructorParams, toEnvVarName } from './shared/config-docs.js';

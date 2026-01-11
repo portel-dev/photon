@@ -31,7 +31,7 @@ import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-import { ProgressRenderer } from './shared/progress-renderer.js';
+import { ProgressRenderer } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 import { toEnvVarName } from './shared/config-docs.js';
 import { renderSection } from './shared/cli-sections.js';
