@@ -8,6 +8,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as readline from 'readline';
 import { PHOTON_VERSION } from './version.js';
+import { logger } from './shared/logger.js';
 
 interface MCPRequest {
   jsonrpc: '2.0';
@@ -69,7 +70,7 @@ export class MCPTestClient {
             pending.resolve(response);
           }
         } catch (error) {
-          console.error('[test-client] Failed to parse response:', line);
+          logger.error('[test-client] Failed to parse response:', { line });
         }
       });
 
@@ -81,7 +82,7 @@ export class MCPTestClient {
         });
 
         stderrRl.on('line', (line) => {
-          console.error('[mcp-stderr]', line);
+          logger.debug('[mcp-stderr]', { line });
         });
       }
 
@@ -145,21 +146,21 @@ export class MCPTestClient {
 
     for (const test of tests) {
       try {
-        console.log(`\n🧪 Running: ${test.name}`);
+        logger.info(`Running: ${test.name}`);
         const response = await this.send(test.method, test.params);
 
         const result = test.validate(response);
         if (result === true) {
-          console.log(`✅ PASS: ${test.name}`);
+          logger.info(`PASS: ${test.name}`);
           passed++;
         } else {
           const errorMsg = typeof result === 'string' ? result : 'Validation failed';
-          console.log(`❌ FAIL: ${test.name}\n   ${errorMsg}`);
+          logger.error(`FAIL: ${test.name}\n   ${errorMsg}`);
           errors.push(`${test.name}: ${errorMsg}`);
           failed++;
         }
       } catch (error: any) {
-        console.log(`❌ ERROR: ${test.name}\n   ${error.message}`);
+        logger.error(`ERROR: ${test.name}\n   ${error.message}`);
         errors.push(`${test.name}: ${error.message}`);
         failed++;
       }

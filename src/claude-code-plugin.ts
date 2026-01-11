@@ -8,6 +8,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
 import { PHOTON_VERSION } from './version.js';
+import { logger } from './shared/logger.js';
 
 /**
  * Generate Claude Code plugin files
@@ -18,12 +19,12 @@ export async function generateClaudeCodePlugin(
 ): Promise<void> {
   const resolvedPath = path.resolve(dirPath);
 
-  console.error('\n🔌 Generating Claude Code plugin...');
+  logger.info('Generating Claude Code plugin...');
 
   // Read the marketplace manifest
   const manifestPath = path.join(resolvedPath, '.marketplace', 'photons.json');
   if (!existsSync(manifestPath)) {
-    console.error('❌ No marketplace manifest found. Run without --claude-code first.');
+    logger.error('No marketplace manifest found. Run without --claude-code first.');
     return;
   }
 
@@ -46,15 +47,15 @@ export async function generateClaudeCodePlugin(
   await generateCheckPhotonScript(scriptsDir);
   await generateSetupScript(scriptsDir);
 
-  console.error('   ✓ .claude-plugin/marketplace.json');
-  console.error('   ✓ .claude-plugin/hooks.json');
-  console.error('   ✓ .claude-plugin/scripts/check-photon.sh');
-  console.error('   ✓ .claude-plugin/scripts/setup-photon.sh');
+  logger.info('✓ .claude-plugin/marketplace.json');
+  logger.info('✓ .claude-plugin/hooks.json');
+  logger.info('✓ .claude-plugin/scripts/check-photon.sh');
+  logger.info('✓ .claude-plugin/scripts/setup-photon.sh');
 
-  console.error('\n✅ Claude Code plugin generated successfully!');
-  console.error('\nUsers can install with:');
-  console.error('  /plugin marketplace add <your-repo>');
-  console.error('  /plugin install photons@<your-marketplace>');
+  logger.info('Claude Code plugin generated successfully!');
+  logger.info('\nUsers can install with:');
+  logger.info('  /plugin marketplace add <your-repo>');
+  logger.info('  /plugin install photons@<your-marketplace>');
 }
 
 /**

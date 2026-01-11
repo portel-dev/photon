@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { logger } from './shared/logger.js';
 
 interface TemplateHash {
   version: string;
@@ -149,7 +150,7 @@ export class TemplateManager {
         hash: defaultHash,
         customized: false,
       };
-      console.error(`   ✓ Created template: _templates/${name}`);
+      logger.info(`✓ Created template: _templates/${name}`);
     } else {
       // Template exists - check if customized
       const currentContent = await fs.readFile(templatePath, 'utf-8');
@@ -173,7 +174,7 @@ export class TemplateManager {
             hash: defaultHash,
             customized: false,
           };
-          console.error(`   ✓ Updated template: _templates/${name} (new version)`);
+          logger.info(`✓ Updated template: _templates/${name} (new version)`);
         }
       } else {
         // Hash changed - user customized it
