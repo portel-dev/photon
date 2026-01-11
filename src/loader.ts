@@ -1583,8 +1583,13 @@ Run: photon mcp ${mcpName} --config
           break;
 
         case 'status':
-          // Status shows as ephemeral spinner (cleared when complete)
-          this.progressRenderer.showSpinner(emit.message);
+          // Status shows as ephemeral spinner with auto-animation
+          // Updates the message if already spinning, or starts a new spinner
+          if (this.progressRenderer.active) {
+            this.progressRenderer.updateMessage(emit.message);
+          } else {
+            this.progressRenderer.startSpinner(emit.message);
+          }
           break;
 
         case 'log': {
