@@ -583,13 +583,13 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     }
 
     .result-list a {
-      color: #1e88e5;
+      color: #64b5f6;
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 500;
     }
 
     .result-list a:hover {
-      text-decoration: underline;
+      color: #90caf9;
     }
 
     .result-content h1,
@@ -629,6 +629,48 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     .result-content pre code {
       background: none;
       padding: 0;
+    }
+
+    .result-content a {
+      color: #64b5f6;
+      text-decoration: none;
+    }
+
+    .result-content a:hover {
+      color: #90caf9;
+    }
+
+    .front-matter {
+      width: 100%;
+      margin-bottom: 20px;
+      border-collapse: collapse;
+      background: #1e1e1e;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .front-matter tr {
+      border-bottom: 1px solid #333;
+    }
+
+    .front-matter tr:last-child {
+      border-bottom: none;
+    }
+
+    .front-matter td {
+      padding: 10px 14px;
+      vertical-align: top;
+    }
+
+    .front-matter .fm-key {
+      color: #81c784;
+      font-weight: 500;
+      width: 120px;
+      white-space: nowrap;
+    }
+
+    .front-matter .fm-value {
+      color: #e0e0e0;
     }
 
     .elicitation-modal {
@@ -945,8 +987,27 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     }
 
     function renderMarkdown(text) {
-      // Simple markdown rendering
       let html = text;
+
+      // Parse YAML front matter (between --- delimiters)
+      const frontMatterMatch = html.match(/^---\\n([\\s\\S]*?)\\n---\\n?/);
+      let frontMatterHtml = '';
+      if (frontMatterMatch) {
+        html = html.slice(frontMatterMatch[0].length);
+        const yaml = frontMatterMatch[1];
+        const rows = yaml.split('\\n')
+          .filter(line => line.includes(':'))
+          .map(line => {
+            const idx = line.indexOf(':');
+            const key = line.slice(0, idx).trim();
+            const value = line.slice(idx + 1).trim();
+            return \`<tr><td class="fm-key">\${key}</td><td class="fm-value">\${value}</td></tr>\`;
+          })
+          .join('');
+        if (rows) {
+          frontMatterHtml = \`<table class="front-matter">\${rows}</table>\`;
+        }
+      }
 
       // Links
       html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>');
@@ -971,7 +1032,7 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       // Line breaks within paragraphs
       html = html.replace(/\\n/g, '<br>');
 
-      return html;
+      return frontMatterHtml + html;
     }
 
     function handleError(message) {
