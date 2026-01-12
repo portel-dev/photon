@@ -5,53 +5,74 @@ Photon uses generator functions with a unified yield protocol across all adapter
 
 ---
 
-## 1. Core Protocol Types (photon-core)
+## 1. Core Protocol Types (photon-core) ✅ DONE
 
 ### 1.1 Define Discriminated Union Types
-- [ ] Define `IoMsg` type for always-available messages:
-  ```ts
-  type IoMsg =
-    | { kind: "emit"; op: "status"; text: string }
-    | { kind: "emit"; op: "progress"; done?: number; total?: number; text?: string }
-    | { kind: "emit"; op: "stream"; text: string }
-    | { kind: "ask"; op: "text"; message: string; default?: string }
-    | { kind: "ask"; op: "confirm"; message: string; default?: boolean }
-    | { kind: "ask"; op: "select"; message: string; options: string[]; default?: string }
-  ```
+Types already defined in `generator.ts` with `emit`/`ask` discriminators:
+```ts
+// Emit yields (output)
+type EmitYield = EmitStatus | EmitProgress | EmitStream | EmitLog | EmitToast | ...
+// e.g., { emit: 'status', message: string }
 
-- [ ] Define `WfMsg` type for durable workflow messages (@stateful only):
-  ```ts
-  type WfMsg =
-    | { kind: "do"; op: string; input: unknown; key?: string }
-    | { kind: "wait"; op: string; input: unknown; key?: string }
-  ```
+// Ask yields (input)
+type AskYield = AskText | AskPassword | AskConfirm | AskSelect | AskNumber | ...
+// e.g., { ask: 'text', message: string, default?: string }
 
-- [ ] Export unified `PhotonYield = IoMsg | WfMsg`
+// Combined
+type PhotonYield = AskYield | EmitYield
+```
+
+- [x] EmitYield types: status, progress, stream, log, toast, thinking, artifact, ui
+- [x] AskYield types: text, password, confirm, select, number, file, date, form, url
+- [x] Type guards: `isAskYield()`, `isEmitYield()`
+- [x] Checkpoint yields for stateful workflows
 
 ### 1.2 Engine Behavior per Kind
-- [ ] `emit` → forward to adapters, immediately continue (no resume value)
-- [ ] `ask` → suspend until adapter returns response, resume with `next(answer)`
-- [ ] `do`/`wait` → persist to history, replay returns stored results (workflow only)
+- [x] `emit` → forward to adapters, immediately continue (no resume value)
+- [x] `ask` → suspend until adapter returns response, resume with `next(answer)`
+- [x] `checkpoint` → persist to history for stateful workflows
 
 ---
 
-## 2. Developer API (photon-core)
+## 2. Developer API (photon-core) ✅ DONE
 
 ### 2.1 Create `io` Helper (always available)
-- [ ] `io.emit.status(text)` → yields `{ kind: "emit", op: "status", text }`
-- [ ] `io.emit.progress({ done, total, text })` → yields progress
-- [ ] `io.emit.stream(text)` → yields stream chunk
-- [ ] `io.ask.text(message, default?)` → yields and returns string
-- [ ] `io.ask.confirm(message, default?)` → yields and returns boolean
-- [ ] `io.ask.select(message, options, default?)` → yields and returns string
+Implemented in `io.ts` - provides ergonomic API for yields:
+```ts
+import { io } from '@portel/photon-core';
+
+yield io.emit.status('Loading...');
+yield io.emit.progress(0.5, 'Halfway');
+const name = yield io.ask.text('Name?', { default: 'Guest' });
+const ok = yield io.ask.confirm('Continue?');
+```
+
+- [x] `io.emit.status(message, type?)` → status message
+- [x] `io.emit.progress(value, message?, meta?)` → progress bar
+- [x] `io.emit.stream(data, final?, contentType?)` → stream chunk
+- [x] `io.emit.log(message, level?, data?)` → debug log
+- [x] `io.emit.toast(message, type?, duration?)` → toast notification
+- [x] `io.emit.thinking(active)` → thinking indicator
+- [x] `io.emit.artifact(type, options)` → rich artifact
+- [x] `io.emit.ui(id, options?)` → UI component
+- [x] `io.ask.text(message, options?)` → text input
+- [x] `io.ask.password(message, options?)` → password input
+- [x] `io.ask.confirm(message, options?)` → yes/no
+- [x] `io.ask.select(message, options, config?)` → selection
+- [x] `io.ask.number(message, options?)` → number input
+- [x] `io.ask.file(message, options?)` → file picker
+- [x] `io.ask.date(message, options?)` → date picker
+- [x] `io.ask.form(message, schema, options?)` → structured form
+- [x] `io.ask.url(message, url, options?)` → OAuth/URL auth
 
 ### 2.2 Create `wf` Helper (workflow only)
 - [ ] `wf.do(op, input, key?)` → durable effect execution
 - [ ] `wf.wait(op, input, key?)` → wait for external event
 
 ### 2.3 Backward Compatibility
-- [ ] Support existing `{ emit: 'progress', value, message }` format during transition
-- [ ] Support existing `{ ask: 'text', message }` format during transition
+- [x] Existing `{ emit: 'progress', value, message }` format works
+- [x] Existing `{ ask: 'text', message }` format works
+- [x] Type guards handle both formats
 
 ---
 
@@ -203,13 +224,16 @@ This ensures all frontends (CLI/MCP/WebUI) get consistent updates for internal o
 ## Current Status
 
 ### Completed
-- [x] Demo photon updated to new yield format
+- [x] Core protocol types in photon-core (EmitYield, AskYield, PhotonYield)
+- [x] `io` helper API in photon-core v1.5.0 (io.emit.*, io.ask.*)
+- [x] Demo photon updated to use `io` helper
 - [x] WebSocket playground progress display (centered overlay, single message)
 - [x] WebSocket playground clears progress on result
 - [x] Markdown rendering: blockquotes, code, links
 - [x] YAML front matter rendering
 - [x] Link styling for dark theme
 - [x] PhotonLoader used in both playgrounds
+- [x] Dependency installation from @dependencies docblock
 
 ### In Progress
 - [ ] `this.emit()` wiring in playground (needs loader.executeTool integration)
@@ -225,12 +249,14 @@ This ensures all frontends (CLI/MCP/WebUI) get consistent updates for internal o
 ┌─────────────────────────────────────────────────────────────┐
 │                     Photon Method                           │
 │  yield io.emit.progress(...)  or  yield io.ask.confirm(...) │
+│  or: yield { emit: 'status', message: '...' }               │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Photon Engine                             │
-│  Routes by `kind`: emit → forward, ask → suspend+resume     │
+│            executeGenerator (photon-core)                   │
+│  isEmitYield() → outputHandler, continue                    │
+│  isAskYield()  → inputProvider, resume with response        │
 └─────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┼───────────────┐
