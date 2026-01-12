@@ -123,9 +123,72 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       }
     }
 
+    // PRE-CHECK: Extract constructor params and check if required ones are configured
+    const extractor = new SchemaExtractor();
+    let constructorParams: ConfigParam[] = [];
+
     try {
-      // Load photon using PhotonLoader (handles deps, TypeScript, injections)
-      const mcp = await loader.loadFile(photonPath);
+      const source = await fs.readFile(photonPath, 'utf-8');
+      const params = extractor.extractConstructorParams(source);
+
+      constructorParams = params
+        .filter(p => p.isPrimitive)
+        .map(p => ({
+          name: p.name,
+          envVar: toEnvVarName(name, p.name),
+          type: p.type,
+          isOptional: p.isOptional,
+          hasDefault: p.hasDefault,
+          defaultValue: p.defaultValue
+        }));
+    } catch {
+      // Can't extract params, try to load anyway
+    }
+
+    // Check if any required params are missing from environment
+    const missingRequired = constructorParams.filter(p =>
+      !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+    );
+
+    // Also check for placeholder defaults (common pattern: '<your-api-key>')
+    const hasPlaceholderDefaults = constructorParams.some(p =>
+      p.hasDefault &&
+      typeof p.defaultValue === 'string' &&
+      (p.defaultValue.includes('<') || p.defaultValue.includes('your-'))
+    );
+
+    // If required params missing OR has placeholder defaults without env override, mark as unconfigured
+    const needsConfig = missingRequired.length > 0 ||
+      (hasPlaceholderDefaults && constructorParams.some(p =>
+        p.hasDefault &&
+        typeof p.defaultValue === 'string' &&
+        (p.defaultValue.includes('<') || p.defaultValue.includes('your-')) &&
+        !process.env[p.envVar]
+      ));
+
+    if (needsConfig && constructorParams.length > 0) {
+      photons.push({
+        name,
+        path: photonPath,
+        configured: false,
+        requiredParams: constructorParams,
+        errorMessage: missingRequired.length > 0
+          ? `Missing required: ${missingRequired.map(p => p.name).join(', ')}`
+          : 'Has placeholder values that need configuration'
+      });
+
+      logger.info(`📋 ${name} needs configuration (${missingRequired.length} required, ${constructorParams.length} total params)`);
+      continue;
+    }
+
+    // All params satisfied, try to load with timeout
+    try {
+      const loadPromise = loader.loadFile(photonPath);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Loading timeout (10s)')), 10000)
+      );
+
+      const mcp = await Promise.race([loadPromise, timeoutPromise]) as any;
       const instance = mcp.instance;
 
       if (!instance) {
@@ -133,10 +196,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         continue;
       }
 
-      photonMCPs.set(name, mcp);  // Store full MCP for executeTool()
+      photonMCPs.set(name, mcp);
 
       // Extract schema for UI
-      const extractor = new SchemaExtractor();
       const schemas = await extractor.extractFromFile(photonPath);
 
       // Filter out lifecycle methods
@@ -156,54 +218,25 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         configured: true,
         methods
       });
+
+      logger.info(`✅ ${name} loaded successfully`);
     } catch (error) {
-      // Check if it's a configuration error - capture params for UI config
+      // Loading failed - show as unconfigured if we have params, otherwise skip
       const errorMsg = error instanceof Error ? error.message : String(error);
-      const isConfigError = errorMsg.includes('Configuration Error') ||
-                           errorMsg.includes('required') ||
-                           (error instanceof Error && error.name === 'PhotonConfigError');
 
-      if (isConfigError) {
-        // Extract constructor params to show in config form
-        try {
-          const extractor = new SchemaExtractor();
-          const source = await fs.readFile(photonPath, 'utf-8');
-          const params = extractor.extractConstructorParams(source);
-
-          const configParams: ConfigParam[] = params
-            .filter(p => p.isPrimitive)
-            .map(p => ({
-              name: p.name,
-              envVar: toEnvVarName(name, p.name),
-              type: p.type,
-              isOptional: p.isOptional,
-              hasDefault: p.hasDefault,
-              defaultValue: p.defaultValue
-            }));
-
-          photons.push({
-            name,
-            path: photonPath,
-            configured: false,
-            requiredParams: configParams,
-            errorMessage: extractErrorMessage(errorMsg)
-          });
-
-          logger.info(`📋 ${name} needs configuration (${configParams.filter(p => !p.isOptional && !p.hasDefault).length} required params)`);
-        } catch {
-          logger.warn(`Failed to extract config for ${name}`);
-        }
+      if (constructorParams.length > 0) {
+        photons.push({
+          name,
+          path: photonPath,
+          configured: false,
+          requiredParams: constructorParams,
+          errorMessage: errorMsg.slice(0, 200)
+        });
+        logger.info(`📋 ${name} failed to load, showing config form`);
       } else {
-        logger.warn(`Failed to load ${name}: ${errorMsg}`);
+        logger.warn(`⚠️  ${name} failed: ${errorMsg.slice(0, 80)}`);
       }
     }
-  }
-
-  // Helper to extract clean error message
-  function extractErrorMessage(msg: string): string {
-    // Extract just the main error from the formatted message
-    const match = msg.match(/❌ Configuration Error: .+\n\n(.+?)(?:\n|$)/);
-    return match ? match[1] : msg.slice(0, 200);
   }
 
   // Count configured vs unconfigured
