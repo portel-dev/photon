@@ -1,11 +1,14 @@
 /**
  * Demo Photon - Comprehensive feature demonstration
- * 
+ *
  * Demonstrates all Photon runtime features with Node.js compatible syntax.
  * This version avoids TypeScript parameter properties for compatibility.
- * 
+ *
  * @version 1.0.0
+ * @dependencies @portel/photon-core@^1.5.0
  */
+
+import { io } from '@portel/photon-core';
 
 interface User {
   id: string;
@@ -128,19 +131,15 @@ export default class DemoPhoton {
   async *showProgress(params: { steps?: number }): AsyncGenerator<any> {
     const steps = params.steps || 5;
 
-    yield { emit: 'status', message: 'Starting process...' };
+    yield io.emit.status('Starting process...');
     await new Promise(resolve => setTimeout(resolve, 500));
 
     for (let i = 1; i <= steps; i++) {
-      yield {
-        emit: 'progress',
-        value: i / steps,
-        message: `Processing step ${i} of ${steps}`,
-      };
+      yield io.emit.progress(i / steps, `Processing step ${i} of ${steps}`);
       await new Promise(resolve => setTimeout(resolve, 300));
     }
 
-    yield { emit: 'progress', value: 1, message: 'Complete!' };
+    yield io.emit.progress(1, 'Complete!');
     return `Completed ${steps} steps successfully`;
   }
 
@@ -149,13 +148,13 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *showSpinner(): AsyncGenerator<any> {
-    yield { emit: 'status', message: 'Loading data...' };
+    yield io.emit.status('Loading data...');
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    yield { emit: 'status', message: 'Processing...' };
+    yield io.emit.status('Processing...');
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    yield { emit: 'status', message: 'Finalizing...' };
+    yield io.emit.status('Finalizing...');
     await new Promise(resolve => setTimeout(resolve, 500));
 
     return 'Done!';
@@ -170,16 +169,8 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *askName(): AsyncGenerator<any> {
-    const name = yield {
-      ask: 'text',
-      message: 'What is your name?',
-      default: 'Anonymous',
-    };
-
-    const age = yield {
-      ask: 'text',
-      message: 'How old are you?',
-    };
+    const name = yield io.ask.text('What is your name?', { default: 'Anonymous' });
+    const age = yield io.ask.text('How old are you?');
 
     return `Hello ${name}, you are ${age} years old!`;
   }
@@ -189,11 +180,7 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *confirmAction(): AsyncGenerator<any> {
-    const confirmed = yield {
-      ask: 'confirm',
-      message: 'Are you sure you want to continue?',
-      default: false,
-    };
+    const confirmed = yield io.ask.confirm('Are you sure you want to continue?', { default: false });
 
     if (confirmed) {
       return 'Action confirmed and executed!';
@@ -207,12 +194,7 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *selectOption(): AsyncGenerator<any> {
-    const choice = yield {
-      ask: 'select',
-      message: 'Choose your favorite color:',
-      options: ['Red', 'Green', 'Blue', 'Yellow'],
-      default: 'Blue',
-    };
+    const choice = yield io.ask.select('Choose your favorite color:', ['Red', 'Green', 'Blue', 'Yellow'], { default: 'Blue' });
 
     return `You selected: ${choice}`;
   }
@@ -222,29 +204,19 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *multiStepForm(): AsyncGenerator<any> {
-    yield { emit: 'status', message: 'Starting registration...' };
+    yield io.emit.status('Starting registration...');
 
-    const username = yield {
-      ask: 'text',
-      message: 'Enter username:',
-    };
+    const username = yield io.ask.text('Enter username:');
 
-    yield { emit: 'progress', value: 0.33, message: 'Step 1/3 complete' };
+    yield io.emit.progress(0.33, 'Step 1/3 complete');
 
-    const email = yield {
-      ask: 'text',
-      message: 'Enter email:',
-    };
+    const email = yield io.ask.text('Enter email:');
 
-    yield { emit: 'progress', value: 0.66, message: 'Step 2/3 complete' };
+    yield io.emit.progress(0.66, 'Step 2/3 complete');
 
-    const confirmed = yield {
-      ask: 'confirm',
-      message: `Create account for ${username} (${email})?`,
-      default: true,
-    };
+    const confirmed = yield io.ask.confirm(`Create account for ${username} (${email})?`, { default: true });
 
-    yield { emit: 'progress', value: 1, message: 'Complete!' };
+    yield io.emit.progress(1, 'Complete!');
 
     if (confirmed) {
       return {
