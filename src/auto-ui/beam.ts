@@ -803,6 +803,40 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       stroke: currentColor;
     }
 
+    /* Config JSON editor */
+    .config-json-container {
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+    }
+
+    .config-json-container textarea {
+      flex: 1;
+      min-height: 300px;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: none;
+      transition: var(--transition);
+    }
+
+    .config-json-container textarea:focus {
+      outline: none;
+      border-color: var(--warning);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+    }
+
+    .config-json-container .btn-configure {
+      align-self: flex-start;
+    }
+
     /* Main content */
     .main-content {
       flex: 1;
@@ -1417,9 +1451,30 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           <p id="config-description"></p>
         </div>
 
+        <div class="tabs">
+          <div class="tab active" data-config-tab="form">Form</div>
+          <div class="tab" data-config-tab="json">JSON</div>
+        </div>
+
         <div class="tab-content" style="flex: 1; overflow-y: auto;">
-          <div class="config-form-container">
-            <form id="config-form"></form>
+          <div class="tab-panel active" id="config-form-panel">
+            <div class="config-form-container">
+              <form id="config-form"></form>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="config-json-panel">
+            <div class="config-json-container">
+              <textarea id="config-json" spellcheck="false" placeholder="{}"></textarea>
+              <button type="button" class="btn btn-configure" onclick="saveConfigJson()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                  <polyline points="17,21 17,13 7,13 7,21"/>
+                  <polyline points="7,3 7,8 15,8"/>
+                </svg>
+                Save Configuration
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1689,6 +1744,47 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         photon: currentPhoton.name,
         config
       }));
+    }
+
+    function updateConfigJson() {
+      if (!currentPhoton) return;
+
+      // Build config object from current form values
+      const form = document.getElementById('config-form');
+      const formData = new FormData(form);
+      let config = {};
+
+      for (const [key, value] of formData.entries()) {
+        if (value) config[key] = value;
+      }
+
+      // If form is empty, show template with param names
+      if (Object.keys(config).length === 0 && currentPhoton.requiredParams) {
+        for (const param of currentPhoton.requiredParams) {
+          config[param.envVar] = param.hasDefault ? String(param.defaultValue) : '';
+        }
+      }
+
+      document.getElementById('config-json').value = JSON.stringify(config, null, 2);
+    }
+
+    function saveConfigJson() {
+      if (!currentPhoton) return;
+
+      try {
+        const jsonText = document.getElementById('config-json').value;
+        const config = JSON.parse(jsonText);
+
+        showProgress(\`Configuring \${currentPhoton.name}...\`);
+
+        ws.send(JSON.stringify({
+          type: 'configure',
+          photon: currentPhoton.name,
+          config
+        }));
+      } catch (error) {
+        alert('Invalid JSON: ' + error.message);
+      }
     }
 
     function togglePhoton(photonName) {
@@ -2030,16 +2126,36 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('elicitation-modal').classList.remove('visible');
     }
 
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
+    // Tab switching for method view
+    document.querySelectorAll('.tab[data-tab]').forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.tab;
-        
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        
+        const tabsContainer = tab.parentElement;
+
+        tabsContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
+
+        document.querySelectorAll('#method-view .tab-panel').forEach(p => p.classList.remove('active'));
         document.getElementById(\`\${tabName}-panel\`).classList.add('active');
+      });
+    });
+
+    // Tab switching for config view
+    document.querySelectorAll('.tab[data-config-tab]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.configTab;
+        const tabsContainer = tab.parentElement;
+
+        tabsContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        document.querySelectorAll('#config-view .tab-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(\`config-\${tabName}-panel\`).classList.add('active');
+
+        // Populate JSON textarea when switching to JSON tab
+        if (tabName === 'json' && currentPhoton) {
+          updateConfigJson();
+        }
       });
     });
 
