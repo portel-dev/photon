@@ -8,13 +8,16 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 2. [Creating Your First MCP](#creating-your-first-mcp)
 3. [Constructor Configuration](#constructor-configuration)
 4. [Writing Tool Methods](#writing-tool-methods)
-5. [Lifecycle Hooks](#lifecycle-hooks)
-6. [Common Patterns](#common-patterns)
-7. [Testing and Development](#testing-and-development)
-8. [Deployment](#deployment)
-9. [How Photon Works](#how-photon-works)
-10. [Best Practices](#best-practices)
-11. [Troubleshooting](#troubleshooting)
+5. [Docblock Tags](#docblock-tags)
+6. [Advanced Workflows](#advanced-workflows)
+7. [Lifecycle Hooks](#lifecycle-hooks)
+8. [Common Patterns](#common-patterns)
+9. [CLI Command Reference](#cli-command-reference)
+10. [Testing and Development](#testing-and-development)
+11. [Deployment](#deployment)
+12. [How Photon Works](#how-photon-works)
+13. [Best Practices](#best-practices)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,7 +27,7 @@ Create your first MCP in 3 steps:
 
 ```bash
 # 1. Create new MCP
-photon init my-tool
+photon maker new my-tool
 
 # 2. Edit ~/.photon/my-tool.photon.ts
 export default class MyTool {
@@ -158,6 +161,9 @@ constructor(
 - `string` - No conversion
 - `number` - Parsed with `Number()`
 - `boolean` - "true" → `true`, anything else → `false`
+
+> [!NOTE]
+> Arrays (`string[]`, etc.) are not yet supported for direct environment variable mapping in the constructor. Use interactive elicitation in tool methods for complex user input.
 
 ### Smart Defaults
 
@@ -405,6 +411,109 @@ export default class MyMCP {
   // Also private (NOT a tool)
   async _privateMethod() {
     return "Not exposed";
+  }
+}
+```
+
+---
+
+## Docblock Tags
+
+Photon uses JSDoc tags to extract rich metadata and configure runtime behavior.
+
+### Class-Level Tags
+Place these in the main JSDoc comment at the top of your `.photon.ts` file.
+
+| Tag | Usage |
+|---|---|
+| `@version` | Specifies Photon version (e.g., `1.0.0`) |
+| `@author` | Specifies the author |
+| `@license` | Specifies the license (e.g., `MIT`) |
+| `@repository` | Link to source repository |
+| `@homepage` | Link to project homepage |
+| `@dependencies` | NPM dependencies to auto-install (`axios@^1.0.0, lodash`) |
+| `@mcps` | MCP dependencies for injection and diagramming |
+| `@photons` | Photon dependencies for injection and diagramming |
+| `@stateful` | Set to `true` for stateful workflows (default: `false`) |
+| `@idleTimeout` | Idle timeout in ms before process exit |
+
+### Method-Level Tags
+Place these immediately preceding a tool method.
+
+| Tag | Usage |
+|---|---|
+| `@param` | Describes a parameter for MCP/CLI help |
+| `@example` | Provides a code example for the tool |
+| `@format` | Output format hint (`table`, `tree`, `list`, `primitive`, `none`) |
+
+### Parameter Validation Tags
+Inline tags within `@param` descriptions to add schema constraints.
+
+| Tag | Usage | Example |
+|---|---|---|
+| `{@min N}` | Minimum value | `* @param age Age {@min 0}` |
+| `{@max N}` | Maximum value | `* @param score Score {@max 100}` |
+| `{@format T}` | Data format | `* @param email Email {@format email}` |
+| `{@pattern R}` | Regex pattern | `* @param zip Zip {@pattern ^[0-9]{5}$}` |
+| `{@example V}` | Parameter example | `* @param city City {@example London}` |
+
+---
+
+## Advanced Workflows
+
+Photon supports interactive and stateful workflows using `async` generators and the `ask`/`emit` pattern.
+
+### Interactive Tools (ask/emit)
+Use the `ask`/`emit` pattern to create interactive CLI tools or conversational MCPs.
+
+```typescript
+export default class InteractiveTool {
+  async *survey() {
+    // Emit progress
+    yield { emit: 'progress', value: 0.2, message: 'Starting survey...' };
+
+    // Ask for text
+    const name = yield { ask: 'text', message: 'What is your name?' };
+
+    // Ask for confirmation
+    const confirm = yield { ask: 'confirm', message: `Is ${name} correct?` };
+
+    if (!confirm) return "Aborted";
+
+    // Ask for selection
+    const color = yield { 
+      ask: 'select', 
+      message: 'Favorite color?', 
+      options: ['Red', 'Green', 'Blue'] 
+    };
+
+    yield { emit: 'progress', value: 1.0, message: 'Done!' };
+    return `Name: ${name}, Favorite Color: ${color}`;
+  }
+}
+```
+
+### Stateful Workflows
+Mark a class as `@stateful` and use `checkpoint` yields to persist state across sessions. This is ideal for long-running workflows or tasks that require manual approval.
+
+```typescript
+/**
+ * @stateful true
+ */
+export default class Workflow {
+  async *execute(params: { task: string }) {
+    console.error("Starting task:", params.task);
+
+    // Initial work
+    const step1 = await someAsyncWork();
+
+    // Persist state here. If process restarts, it resumes from here.
+    yield { checkpoint: 'step1_complete', data: { step1 } };
+
+    // Next step
+    const step2 = await nextWork(step1);
+    
+    return { step1, step2 };
   }
 }
 ```
@@ -715,13 +824,52 @@ export default class Git {
 
 ---
 
+## CLI Command Reference
+
+Photon provides a comprehensive suite of commands for running, managing, and developing MCPs.
+
+### Runtime Commands
+| Command | Usage |
+|---|---|
+| `photon mcp <name>` | Run a Photon as an MCP server. Use `--dev` for hot-reload. |
+| `photon cli <photon> [method]` | Execute Photon methods directly from the command line. |
+| `photon serve <name>` | Launch an SSE server for browser or remote access. |
+| `photon playground` | Open an interactive web UI for all your installed Photons. |
+
+### Management Commands
+| Command | Usage |
+|---|---|
+| `photon add <name>` | Install a Photon from the marketplace. |
+| `photon remove <name>` | Remove an installed Photon. |
+| `photon upgrade [name]` | Upgrade Photon(s) to the latest version. |
+| `photon info [name]` | Show detailed metadata and configuration for a Photon. |
+| `photon search <query>` | Search enabled marketplaces for Photons. |
+
+### Developer Tools (maker)
+| Command | Usage |
+|---|---|
+| `photon maker new <name>` | Create a new Photon from the default template. |
+| `photon maker validate <name>` | Validate syntax, schemas, and dependencies. |
+| `photon maker sync` | Generate `photons.json` manifest for a marketplace. |
+| `photon maker init` | Set up a marketplace with auto-sync git hooks. |
+| `photon maker diagram <name>` | Generate a Mermaid dependency/flow diagram. |
+
+### Maintenance
+| Command | Usage |
+|---|---|
+| `photon doctor` | Diagnose your environment (Node, npm, ports, config). |
+| `photon update` | Refresh marketplace indexes and check for CLI updates. |
+| `photon clear-cache` | Clear compiled Photon artifacts. |
+
+---
+
 ## Testing and Development
 
 ### Local Development
 
 **1. Create MCP:**
 ```bash
-photon init my-tool
+photon maker new my-tool
 ```
 
 **2. Edit file:**
@@ -925,6 +1073,21 @@ photon mcp my-tool
 # .env
 MY_TOOL_API_KEY=sk-...
 ```
+
+### Cloudflare Workers
+
+Deploy your Photon to the edge with Cloudflare Workers:
+
+```bash
+photon deploy cloudflare my-tool
+```
+
+This will:
+1. Generate an optimized bundle.
+2. Create a `wrangler.toml` configuration.
+3. Deploy the service to your Cloudflare account.
+
+Use `--dev` to enable the interactive playground in the deployed worker.
 
 ---
 
@@ -1559,9 +1722,9 @@ Compile with esbuild's bundling (automatic in Photon).
 
 **Next Steps:**
 
-1. Create your first MCP: `photon init my-tool`
+1. Create your first MCP: `photon maker new my-tool`
 2. Study examples: `examples/` directory
-3. Test in dev mode: `photon my-tool --dev`
-4. Deploy to Claude Desktop: `photon my-tool --config`
+3. Test in dev mode: `photon mcp my-tool --dev`
+4. Deploy to Claude Desktop: `photon mcp my-tool --config`
 
 Happy building! 🚀
