@@ -13,4 +13,5 @@ export { TreeComponent } from './components/tree';
 export { FormComponent } from './components/form';
 export { CardComponent } from './components/card';
 export { ListComponent } from './components/list';
+export { startWebSocketPlayground } from './websocket-playground';
 export * from './types';
