@@ -9,10 +9,11 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
+import { PhotonLoader } from '../loader.js';
 import { PhotonServer } from '../server.js';
 import { logger } from '../shared/logger.js';
-import { 
-  SchemaExtractor, 
+import {
+  SchemaExtractor,
   executeGenerator,
   isAsyncGenerator,
   type PhotonYield,
@@ -42,17 +43,26 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
     process.exit(1);
   }
 
-  // Extract metadata for all photons
+  // Extract metadata for all photons (use PhotonLoader for proper dependency handling)
   const photons: PhotonInfo[] = [];
-  
+  const loader = new PhotonLoader(false, logger);
+
   for (const name of photonList) {
     const photonPath = await resolvePhotonPath(name, workingDir);
     if (!photonPath) continue;
 
     try {
+      // Load photon using PhotonLoader (handles deps, TypeScript, injections)
+      const mcp = await loader.loadFile(photonPath);
+      if (!mcp.instance) {
+        logger.warn(`Failed to get instance for ${name}`);
+        continue;
+      }
+
+      // Extract schema for UI
       const extractor = new SchemaExtractor();
       const schemas = await extractor.extractFromFile(photonPath);
-      
+
       // Filter out lifecycle methods (onInitialize, etc)
       const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
       const methods: MethodInfo[] = schemas
@@ -70,7 +80,7 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
         methods
       });
     } catch (error) {
-      logger.warn(`Failed to extract schema for ${name}: ${error}`);
+      logger.warn(`Failed to load ${name}: ${error}`);
     }
   }
 
