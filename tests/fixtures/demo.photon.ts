@@ -128,19 +128,19 @@ export default class DemoPhoton {
   async *showProgress(params: { steps?: number }): AsyncGenerator<any> {
     const steps = params.steps || 5;
 
-    yield { type: 'progress', message: 'Starting process...' };
+    yield { emit: 'status', message: 'Starting process...' };
     await new Promise(resolve => setTimeout(resolve, 500));
 
     for (let i = 1; i <= steps; i++) {
       yield {
-        type: 'progress',
-        percent: (i / steps) * 100,
+        emit: 'progress',
+        value: i / steps,
         message: `Processing step ${i} of ${steps}`,
       };
       await new Promise(resolve => setTimeout(resolve, 300));
     }
 
-    yield { type: 'progress', percent: 100, message: 'Complete!' };
+    yield { emit: 'progress', value: 1, message: 'Complete!' };
     return `Completed ${steps} steps successfully`;
   }
 
@@ -149,13 +149,13 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *showSpinner(): AsyncGenerator<any> {
-    yield { type: 'progress', message: 'Loading data...' };
+    yield { emit: 'status', message: 'Loading data...' };
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    yield { type: 'progress', message: 'Processing...' };
+    yield { emit: 'status', message: 'Processing...' };
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    yield { type: 'progress', message: 'Finalizing...' };
+    yield { emit: 'status', message: 'Finalizing...' };
     await new Promise(resolve => setTimeout(resolve, 500));
 
     return 'Done!';
@@ -171,14 +171,12 @@ export default class DemoPhoton {
    */
   async *askName(): AsyncGenerator<any> {
     const name = yield {
-      type: 'ask',
       ask: 'text',
       message: 'What is your name?',
       default: 'Anonymous',
     };
 
     const age = yield {
-      type: 'ask',
       ask: 'text',
       message: 'How old are you?',
     };
@@ -192,7 +190,6 @@ export default class DemoPhoton {
    */
   async *confirmAction(): AsyncGenerator<any> {
     const confirmed = yield {
-      type: 'ask',
       ask: 'confirm',
       message: 'Are you sure you want to continue?',
       default: false,
@@ -211,10 +208,9 @@ export default class DemoPhoton {
    */
   async *selectOption(): AsyncGenerator<any> {
     const choice = yield {
-      type: 'ask',
       ask: 'select',
       message: 'Choose your favorite color:',
-      choices: ['Red', 'Green', 'Blue', 'Yellow'],
+      options: ['Red', 'Green', 'Blue', 'Yellow'],
       default: 'Blue',
     };
 
@@ -226,32 +222,29 @@ export default class DemoPhoton {
    * @format primitive
    */
   async *multiStepForm(): AsyncGenerator<any> {
-    yield { type: 'progress', message: 'Starting registration...' };
+    yield { emit: 'status', message: 'Starting registration...' };
 
     const username = yield {
-      type: 'ask',
       ask: 'text',
       message: 'Enter username:',
     };
 
-    yield { type: 'progress', percent: 33, message: 'Step 1/3 complete' };
+    yield { emit: 'progress', value: 0.33, message: 'Step 1/3 complete' };
 
     const email = yield {
-      type: 'ask',
       ask: 'text',
       message: 'Enter email:',
     };
 
-    yield { type: 'progress', percent: 66, message: 'Step 2/3 complete' };
+    yield { emit: 'progress', value: 0.66, message: 'Step 2/3 complete' };
 
     const confirmed = yield {
-      type: 'ask',
       ask: 'confirm',
       message: `Create account for ${username} (${email})?`,
       default: true,
     };
 
-    yield { type: 'progress', percent: 100, message: 'Complete!' };
+    yield { emit: 'progress', value: 1, message: 'Complete!' };
 
     if (confirmed) {
       return {
