@@ -709,80 +709,96 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       background: var(--warning);
     }
 
-    .photon-item.unconfigured .method-count {
-      background: rgba(245, 158, 11, 0.15);
-      color: var(--warning);
-    }
-
-    .config-panel {
-      background: var(--bg-tertiary);
-      border-radius: 0 0 var(--radius-md) var(--radius-md);
-      padding: 16px;
-      display: none;
-    }
-
-    .config-panel.expanded {
-      display: block;
-    }
-
-    .config-panel .config-message {
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-bottom: 16px;
-      padding: 12px;
-      background: rgba(245, 158, 11, 0.1);
-      border-radius: var(--radius-sm);
-      border-left: 3px solid var(--warning);
-    }
-
-    .config-panel .form-group {
-      margin-bottom: 16px;
-    }
-
-    .config-panel .form-group label {
-      display: block;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      margin-bottom: 6px;
-    }
-
-    .config-panel .form-group label .env-var {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-muted);
-      font-weight: 400;
-    }
-
-    .config-panel input {
-      width: 100%;
-      padding: 10px 12px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      color: var(--text-primary);
-      font-size: 13px;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .config-panel input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    .config-panel input::placeholder {
-      color: var(--text-muted);
-    }
-
-    .config-panel .btn-configure {
-      width: 100%;
-      padding: 10px;
+    .photon-item.unconfigured .method-count.configure-badge {
       background: var(--warning);
       color: #000;
       font-weight: 600;
     }
 
-    .config-panel .btn-configure:hover {
+    .photon-item.unconfigured .photon-header.selected {
+      background: var(--bg-tertiary);
+    }
+
+    /* Config view in main content */
+    .config-header {
+      position: relative;
+    }
+
+    .config-header .config-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .config-form-container {
+      padding: 24px 32px;
+      max-width: 600px;
+    }
+
+    .config-form-container .form-group {
+      margin-bottom: 20px;
+    }
+
+    .config-form-container .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .config-form-container .form-group label .hint {
+      display: block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-top: 4px;
+    }
+
+    .config-form-container input {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      transition: var(--transition);
+    }
+
+    .config-form-container input:focus {
+      outline: none;
+      border-color: var(--warning);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+    }
+
+    .config-form-container input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .btn-configure {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      background: var(--warning);
+      color: #000;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      border: none;
+      font-size: 14px;
+      transition: var(--transition);
+    }
+
+    .btn-configure:hover {
       background: #d97706;
+      transform: translateY(-1px);
+    }
+
+    .btn-configure svg {
+      stroke: currentColor;
     }
 
     /* Main content */
@@ -1390,6 +1406,21 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           </div>
         </div>
       </div>
+
+      <!-- Config view for unconfigured photons -->
+      <div id="config-view" style="display: none; flex-direction: column; height: 100%;">
+        <div class="method-header config-header">
+          <div class="config-icon">⚙️</div>
+          <h2 id="config-title"></h2>
+          <p id="config-description"></p>
+        </div>
+
+        <div class="tab-content" style="flex: 1; overflow-y: auto;">
+          <div class="config-form-container">
+            <form id="config-form"></form>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1556,32 +1587,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             </div>
           \`;
         } else {
-          const requiredCount = photon.requiredParams.filter(p => !p.isOptional && !p.hasDefault).length;
           return \`
             <div class="photon-item unconfigured">
-              <div class="photon-header" data-photon="\${photon.name}" onclick="toggleConfigPanel('\${photon.name}')">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')">
                 <span class="photon-name">\${photon.name}</span>
-                <span class="method-count">\${requiredCount} required</span>
-              </div>
-              <div class="config-panel" id="config-\${photon.name}">
-                <div class="config-message">Configure this photon to enable its features</div>
-                <form onsubmit="submitConfig('\${photon.name}', event)">
-                  \${photon.requiredParams.map(param => \`
-                    <div class="form-group">
-                      <label>
-                        \${param.name}\${!param.isOptional && !param.hasDefault ? ' *' : ''}
-                        <span class="env-var">\${param.envVar}</span>
-                      </label>
-                      <input
-                        type="\${param.name.toLowerCase().includes('password') || param.name.toLowerCase().includes('secret') || param.name.toLowerCase().includes('key') ? 'password' : 'text'}"
-                        name="\${param.envVar}"
-                        placeholder="\${param.hasDefault ? \`Default: \${param.defaultValue}\` : \`Enter \${param.name}...\`}"
-                        \${!param.isOptional && !param.hasDefault ? 'required' : ''}
-                      />
-                    </div>
-                  \`).join('')}
-                  <button type="submit" class="btn btn-configure">Configure & Enable</button>
-                </form>
+                <span class="method-count configure-badge">Configure</span>
               </div>
             </div>
           \`;
@@ -1589,14 +1599,78 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }).join('');
     }
 
-    function toggleConfigPanel(photonName) {
-      const header = event.currentTarget;
-      const configPanel = document.getElementById(\`config-\${photonName}\`);
-      header.classList.toggle('expanded');
-      configPanel.classList.toggle('expanded');
+    function selectUnconfigured(photonName) {
+      currentPhoton = photons.find(p => p.name === photonName);
+      currentMethod = null;
+
+      // Update selection in sidebar
+      document.querySelectorAll('.method-item, .photon-header').forEach(el => {
+        el.classList.remove('selected');
+      });
+      const header = document.querySelector(\`[data-photon="\${photonName}"]\`);
+      if (header) header.classList.add('selected');
+
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        toggleSidebar(false);
+      }
+
+      // Show config view in main area
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('method-view').style.display = 'none';
+      document.getElementById('config-view').style.display = 'flex';
+
+      // Update config view content
+      document.getElementById('config-title').textContent = photonName;
+      document.getElementById('config-description').textContent = currentPhoton.errorMessage || 'Configure this photon to enable its features';
+
+      // Render config form
+      renderConfigForm();
     }
 
-    function submitConfig(photonName, e) {
+    function renderConfigForm() {
+      const form = document.getElementById('config-form');
+      const params = currentPhoton.requiredParams || [];
+
+      let html = '';
+
+      for (const param of params) {
+        const isRequired = !param.isOptional && !param.hasDefault;
+        const isSecret = param.name.toLowerCase().includes('password') ||
+                        param.name.toLowerCase().includes('secret') ||
+                        param.name.toLowerCase().includes('key') ||
+                        param.name.toLowerCase().includes('token');
+
+        html += \`
+          <div class="form-group">
+            <label>
+              \${param.name}\${isRequired ? ' <span class="required">*</span>' : ''}
+              <span class="hint">\${param.envVar}</span>
+            </label>
+            <input
+              type="\${isSecret ? 'password' : 'text'}"
+              name="\${param.envVar}"
+              placeholder="\${param.hasDefault ? \`Default: \${param.defaultValue}\` : \`Enter \${param.name}...\`}"
+              \${isRequired ? 'required' : ''}
+            />
+          </div>
+        \`;
+      }
+
+      html += \`
+        <button type="submit" class="btn btn-configure">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+          </svg>
+          Configure & Enable
+        </button>
+      \`;
+
+      form.innerHTML = html;
+      form.onsubmit = handleConfigSubmit;
+    }
+
+    function handleConfigSubmit(e) {
       e.preventDefault();
       const form = e.target;
       const formData = new FormData(form);
@@ -1606,11 +1680,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         if (value) config[key] = value;
       }
 
-      showProgress(\`Configuring \${photonName}...\`);
+      showProgress(\`Configuring \${currentPhoton.name}...\`);
 
       ws.send(JSON.stringify({
         type: 'configure',
-        photon: photonName,
+        photon: currentPhoton.name,
         config
       }));
     }
