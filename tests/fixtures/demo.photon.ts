@@ -5,7 +5,6 @@
  * This version avoids TypeScript parameter properties for compatibility.
  *
  * @version 1.0.0
- * @dependencies @portel/photon-core@^1.5.0
  */
 
 import { io } from '@portel/photon-core';

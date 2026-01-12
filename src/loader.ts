@@ -371,6 +371,12 @@ export class PhotonLoader {
         const extracted = await this.dependencyManager.extractDependencies(absolutePath);
         const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
+
+        // Auto-include @portel/photon-core if imported (it's the runtime, always available)
+        if (tsContent.includes('@portel/photon-core') && !dependencies.some(d => d.name === '@portel/photon-core')) {
+          dependencies.push({ name: '@portel/photon-core', version: `^${PHOTON_VERSION.split('.').slice(0, 2).join('.')}.0` });
+        }
+
         mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
         cacheKey = this.getCacheKey(mcpName, absolutePath);
         sourceHash = crypto.createHash('sha256').update(tsContent).digest('hex');
