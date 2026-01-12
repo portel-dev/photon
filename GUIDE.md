@@ -9,15 +9,18 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 3. [Constructor Configuration](#constructor-configuration)
 4. [Writing Tool Methods](#writing-tool-methods)
 5. [Docblock Tags](#docblock-tags)
-6. [Advanced Workflows](#advanced-workflows)
-7. [Lifecycle Hooks](#lifecycle-hooks)
-8. [Common Patterns](#common-patterns)
-9. [CLI Command Reference](#cli-command-reference)
-10. [Testing and Development](#testing-and-development)
-11. [Deployment](#deployment)
-12. [How Photon Works](#how-photon-works)
-13. [Best Practices](#best-practices)
-14. [Troubleshooting](#troubleshooting)
+6. [Return Formatting](#return-formatting)
+7. [Dependency Injection](#dependency-injection)
+8. [Assets and UI](#assets-and-ui)
+9. [Advanced Workflows](#advanced-workflows)
+10. [Lifecycle Hooks](#lifecycle-hooks)
+11. [Common Patterns](#common-patterns)
+12. [CLI Command Reference](#cli-command-reference)
+13. [Testing and Development](#testing-and-development)
+14. [Deployment](#deployment)
+15. [How Photon Works](#how-photon-works)
+16. [Best Practices](#best-practices)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -160,7 +163,24 @@ constructor(
 **Supported types:**
 - `string` - No conversion
 - `number` - Parsed with `Number()`
-- `boolean` - "true" → `true`, anything else → `false`
+- `boolean` - "true"/"1" → `true`, "false"/"0" → `false`
+
+### Documentation
+
+To provide descriptions for these parameters in the CLI and MCP help, use a `Configuration:` section in your class-level JSDoc:
+
+```typescript
+/**
+ * Filesystem MCP
+ * 
+ * Configuration:
+ * - workdir: Path to the working directory
+ * - maxFileSize: Maximum file size in bytes
+ */
+export default class Filesystem {
+  constructor(private workdir: string, private maxFileSize: number) {}
+}
+```
 
 > [!NOTE]
 > Arrays (`string[]`, etc.) are not yet supported for direct environment variable mapping in the constructor. Use interactive elicitation in tool methods for complex user input.
@@ -436,6 +456,11 @@ Place these in the main JSDoc comment at the top of your `.photon.ts` file.
 | `@photons` | Photon dependencies for injection and diagramming |
 | `@stateful` | Set to `true` for stateful workflows (default: `false`) |
 | `@idleTimeout` | Idle timeout in ms before process exit |
+| `@mcp` | Declare an MCP dependency source |
+| `@photon` | Declare another Photon dependency source |
+| `@ui` | Define a UI template asset for MCP Apps |
+| `@prompt` | Define a static prompt asset |
+| `@resource` | Define a static resource asset |
 
 ### Method-Level Tags
 Place these immediately preceding a tool method.
@@ -444,7 +469,8 @@ Place these immediately preceding a tool method.
 |---|---|
 | `@param` | Describes a parameter for MCP/CLI help |
 | `@example` | Provides a code example for the tool |
-| `@format` | Output format hint (`table`, `tree`, `list`, `primitive`, `none`) |
+| `@format` | Output format hint (see [Return Formatting](#return-formatting)) |
+| `@ui` | Link tool to a class-level UI asset |
 
 ### Parameter Validation Tags
 Inline tags within `@param` descriptions to add schema constraints.
@@ -456,6 +482,103 @@ Inline tags within `@param` descriptions to add schema constraints.
 | `{@format T}` | Data format | `* @param email Email {@format email}` |
 | `{@pattern R}` | Regex pattern | `* @param zip Zip {@pattern ^[0-9]{5}$}` |
 | `{@example V}` | Parameter example | `* @param city City {@example London}` |
+
+---
+
+## Return Formatting
+
+Photon allows hinting the data shape and type of return values using the `@format` tag. This helps the CLI and Web interfaces render the data optimally.
+
+### Structural Formats
+Structural hints tell Photon how to organize the data table or tree.
+
+| Format | Description | Used For |
+|---|---|---|
+| `primitive` | Formats result as a single value | Strings, numbers, booleans |
+| `table` | Formats results as a grid | Arrays of objects |
+| `list` | Formats results as a bulleted list | Arrays of primitives |
+| `tree` | Formats results as a hierarchy | Nested objects/JSON |
+| `none` | Raw JSON output | Complex data without specific shape |
+
+### Content & Code Formats
+Content hints specify the syntax for text coloring and highlighting.
+
+- **Content Types**: `json`, `markdown`, `yaml`, `xml`, `html`
+- **Code Blocks**: `code` (generic) or `code:language` (e.g., `code:typescript`)
+
+**Example:**
+```typescript
+/**
+ * List files in directory
+ * @format table
+ */
+async ls(params: { path: string }) {
+  return await this._listFiles(params.path);
+}
+
+/**
+ * Get system report
+ * @format markdown
+ */
+async report() {
+  return "# System Status\n- CPU: 10%\n- RAM: 4GB";
+}
+```
+
+---
+
+## Dependency Injection
+
+Photon makes it easy to compose complex workflows by injecting other MCPs or Photons directly into your class instances.
+
+### Declaring Dependencies
+Use `@mcp` and `@photon` tags at the class level to declare external dependencies.
+
+```typescript
+/**
+ * @mcp github anthropics/mcp-server-github
+ * @mcp storage filesystem
+ */
+export default class Manager {
+  constructor(
+    private github: any, // Injected from @mcp github
+    private fs: any      // Injected from @mcp storage
+  ) {}
+}
+```
+
+### Injection Rules
+- **Non-primitive parameters** in the constructor that match a declared dependency name are automatically injected.
+- The name in the constructor must match the first argument of the `@mcp` or `@photon` tag.
+
+---
+
+## Assets and UI
+
+Photon supports "MCP Apps" by allowing you to bundle UI templates, prompts, and static resources directly with your Photon server.
+
+### Declaring Assets
+Use `@ui`, `@prompt`, and `@resource` tags at the class level to link local files as assets.
+
+```typescript
+/**
+ * @ui dashboard ./ui/dashboard.html
+ * @prompt welcome ./prompts/welcome-message.txt
+ * @resource data ./assets/data.json
+ */
+export default class MyApp {
+  /**
+   * Show the main dashboard
+   * @ui dashboard
+   */
+  async showDashboard() {
+    return { success: true };
+  }
+}
+```
+
+### Linking UI to Tools
+Use the method-level `@ui` tag to specify which UI template should be rendered when a tool is invoked in a compatible interface (like the Photon Playground or a custom web UI).
 
 ---
 
