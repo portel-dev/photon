@@ -15,3 +15,30 @@ export { CardComponent } from './components/card';
 export { ListComponent } from './components/list';
 export { startWebSocketPlayground } from './websocket-playground';
 export * from './types';
+
+// PhotonBridge - unified UI communication layer
+export {
+  createPhotonBridge,
+  generateBridgeLoaderScript,
+  type PhotonBridge,
+  type EmitEvent,
+  type ProgressEvent,
+  type StatusEvent,
+  type StreamEvent,
+  type AskEvent,
+  type AskTextEvent,
+  type AskConfirmEvent,
+  type AskSelectEvent,
+  type AskNumberEvent,
+  type PhotonContext,
+  type HostToUIMessage,
+  type UIToHostMessage
+} from './photon-bridge';
+
+// PhotonHost - host-side manager for custom UI iframes
+export {
+  PhotonHost,
+  createHostOutputHandler,
+  createHostInputProvider,
+  type PhotonHostOptions
+} from './photon-host';
