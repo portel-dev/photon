@@ -9,10 +9,11 @@ import * as http from 'http';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { Writable } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
-import { logger } from '../shared/logger.js';
+import { logger, createLogger } from '../shared/logger.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import {
   SchemaExtractor,
@@ -109,8 +110,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const photons: AnyPhotonInfo[] = [];
   const photonMCPs = new Map<string, any>();  // Store full MCP objects
 
-  // Use PhotonLoader for proper dependency management
-  const loader = new PhotonLoader(false, logger);
+  // Use PhotonLoader with silent logger to suppress verbose errors during loading
+  // Beam handles errors gracefully by showing config forms, so we don't need loader error logs
+  const nullStream = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+  const silentLogger = createLogger({ destination: nullStream });
+  const loader = new PhotonLoader(false, silentLogger);
 
   for (const name of photonList) {
     const photonPath = await resolvePhotonPath(name, workingDir);
@@ -150,19 +154,27 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       !p.isOptional && !p.hasDefault && !process.env[p.envVar]
     );
 
-    // Also check for placeholder defaults (common pattern: '<your-api-key>')
+    // Check for placeholder defaults or localhost URLs (which need local services running)
+    const isPlaceholderOrLocalDefault = (value: string): boolean => {
+      // Common placeholder patterns
+      if (value.includes('<') || value.includes('your-')) return true;
+      // Localhost URLs that need local services
+      if (value.includes('localhost') || value.includes('127.0.0.1')) return true;
+      return false;
+    };
+
     const hasPlaceholderDefaults = constructorParams.some(p =>
       p.hasDefault &&
       typeof p.defaultValue === 'string' &&
-      (p.defaultValue.includes('<') || p.defaultValue.includes('your-'))
+      isPlaceholderOrLocalDefault(p.defaultValue)
     );
 
-    // If required params missing OR has placeholder defaults without env override, mark as unconfigured
+    // If required params missing OR has placeholder/localhost defaults without env override, mark as unconfigured
     const needsConfig = missingRequired.length > 0 ||
       (hasPlaceholderDefaults && constructorParams.some(p =>
         p.hasDefault &&
         typeof p.defaultValue === 'string' &&
-        (p.defaultValue.includes('<') || p.defaultValue.includes('your-')) &&
+        isPlaceholderOrLocalDefault(p.defaultValue) &&
         !process.env[p.envVar]
       ));
 
@@ -177,7 +189,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           : 'Has placeholder values that need configuration'
       });
 
-      logger.info(`📋 ${name} needs configuration (${missingRequired.length} required, ${constructorParams.length} total params)`);
       continue;
     }
 
@@ -192,7 +203,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const instance = mcp.instance;
 
       if (!instance) {
-        logger.warn(`Failed to get instance for ${name}`);
         continue;
       }
 
@@ -218,10 +228,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         configured: true,
         methods
       });
-
-      logger.info(`✅ ${name} loaded successfully`);
     } catch (error) {
-      // Loading failed - show as unconfigured if we have params, otherwise skip
+      // Loading failed - show as unconfigured if we have params, otherwise skip silently
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       if (constructorParams.length > 0) {
@@ -232,10 +240,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           requiredParams: constructorParams,
           errorMessage: errorMsg.slice(0, 200)
         });
-        logger.info(`📋 ${name} failed to load, showing config form`);
-      } else {
-        logger.warn(`⚠️  ${name} failed: ${errorMsg.slice(0, 80)}`);
       }
+      // Skip photons without constructor params that fail to load
     }
   }
 
@@ -261,7 +267,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const wss = new WebSocketServer({ server });
 
   wss.on('connection', (ws: WebSocket) => {
-    logger.info('Client connected to Beam');
 
     // Send photon list on connection
     ws.send(JSON.stringify({
@@ -293,19 +298,16 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     });
 
     ws.on('close', () => {
-      logger.info('Client disconnected from Beam');
+      // Client disconnected
     });
   });
 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    logger.info(`⚡ Photon Beam running at ${url}`);
-    if (unconfiguredCount > 0) {
-      logger.info(`   ${configuredCount} ready, ${unconfiguredCount} need configuration`);
-    } else {
-      logger.info(`   ${configuredCount} photon(s) ready`);
-    }
-    console.log(`\n⚡ Photon Beam → ${url}\n`);
+    const status = unconfiguredCount > 0
+      ? `${configuredCount} ready, ${unconfiguredCount} need setup`
+      : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
+    console.log(`\n⚡ Photon Beam → ${url} (${status})\n`);
   });
 }
 
