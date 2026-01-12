@@ -129,6 +129,9 @@ export class PhotonServer {
           resources: {
             listChanged: true, // We support hot reload notifications
           },
+          experimental: {
+            sampling: {}, // Support elicitation via MCP sampling protocol
+          },
         },
       }
     );
@@ -2110,6 +2113,9 @@ export class PhotonServer {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
+          experimental: {
+            sampling: {}, // Support elicitation via MCP sampling protocol
+          },
         },
       }
     );
