@@ -102,22 +102,84 @@ Photon uses generator functions with a unified yield protocol across all adapter
 - [ ] Blockquote rendering ✅ DONE
 
 ### 5.3 Custom UI Support
-- [ ] Create `PhotonClient` class for client-side SDK:
-  ```ts
-  const client = new PhotonClient('ws://localhost:3000');
-  const result = await client.invoke('photon', 'method', args, {
-    onProgress: (data) => { /* update custom UI */ },
-    onElicitation: async (ask) => { /* show custom dialog, return response */ }
-  });
-  ```
-- [ ] Expose PhotonClient in playground for custom UIs to import
-- [ ] Document custom UI integration pattern
+
+**Current Convention:**
+- `<photon-name>/` folder next to `<photon-name>.photon.ts` contains assets
+- `<photon-name>/ui/` - custom UI templates (HTML files)
+- Custom UIs receive final result via `window.__PHOTON_DATA__`
+- Method links to UI via `@ui <view-name>` docblock tag
+
+**Gap:** Custom UIs only receive final result, not progress/elicitation events.
+
+**Solution:** Expose `window.__PHOTON__` API for custom UIs:
+```ts
+// Custom UI can subscribe to events
+window.__PHOTON__.on('progress', (data) => {
+  // { kind: 'emit', op: 'progress', done, total, text }
+  updateProgressBar(data);
+});
+
+window.__PHOTON__.on('elicitation', async (ask) => {
+  // { kind: 'ask', op: 'confirm', message }
+  const result = await showMyDialog(ask);
+  window.__PHOTON__.respond(result);
+});
+
+// Final data still available as before
+const data = window.__PHOTON_DATA__;
+```
+
+**Tasks:**
+- [ ] Create `window.__PHOTON__` API with `on()`, `respond()` methods
+- [ ] Playground injects this API before loading custom UI
+- [ ] Forward `emit` yields to subscribed listeners
+- [ ] Forward `ask` yields, wait for `respond()` call
+- [ ] Maintain backward compat: `window.__PHOTON_DATA__` still works for result-only UIs
 
 ---
 
-## 6. Photon Internal Events
+## 6. Auto UI Format Rendering
 
-### 6.1 Surface Runtime Events via `emit`
+The `@format` docblock tag customizes how results are rendered in auto-generated UIs.
+
+### 6.1 Structural Formats
+| Format | Rendering |
+|--------|-----------|
+| `primitive` | Simple text/number display |
+| `table` | Data grid with columns from object keys |
+| `tree` | Collapsible hierarchical view |
+| `list` | Bulleted/numbered list |
+| `none` | No output displayed |
+
+### 6.2 Content Type Formats
+| Format | Rendering |
+|--------|-----------|
+| `json` | Syntax-highlighted JSON |
+| `markdown` | Rendered markdown |
+| `yaml` | Syntax-highlighted YAML |
+| `xml` | Syntax-highlighted XML |
+| `html` | Rendered HTML (sandboxed) |
+
+### 6.3 Code Formats
+| Format | Rendering |
+|--------|-----------|
+| `code` | Generic code block |
+| `code:typescript` | TypeScript syntax highlighting |
+| `code:python` | Python syntax highlighting |
+| `code:<lang>` | Language-specific highlighting |
+
+### 6.4 Tasks
+- [ ] Auto UI respects `@format` from method docblock
+- [ ] Table renderer for array-of-objects
+- [ ] Tree renderer for nested objects
+- [ ] Code block renderer with syntax highlighting
+- [ ] Markdown renderer (already partially done)
+
+---
+
+## 7. Photon Internal Events
+
+### 7.1 Surface Runtime Events via `emit`
 - [ ] Dependency resolution progress
 - [ ] Dependency installation progress
 - [ ] TypeScript compilation status
@@ -127,7 +189,7 @@ This ensures all frontends (CLI/MCP/WebUI) get consistent updates for internal o
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 - [ ] Unit tests for new protocol types
 - [ ] Integration tests: CLI adapter
@@ -182,3 +244,42 @@ This ensures all frontends (CLI/MCP/WebUI) get consistent updates for internal o
         Terminal        Claude/LLM        Browser
         Progress        Elicitation       Custom UI
 ```
+
+---
+
+## Future Improvements (Backlog)
+
+### Error Yields
+```ts
+| { kind: "error"; code: string; message: string; recoverable?: boolean }
+```
+Allows UI to show errors inline vs crashing the flow.
+
+### Cancellation Support
+- Adapter sends cancel signal
+- Engine calls `generator.return()`
+- Photon handles cleanup via `try/finally`
+
+### Timeout on `ask`
+```ts
+io.ask.text('Name?', { timeout: 30000, default: 'Anonymous' })
+```
+If user doesn't respond in time, use default or throw.
+
+### Binary/File Streaming
+```ts
+| { kind: "emit"; op: "chunk"; mime: string; data: string /* base64 */ }
+```
+
+### Protocol Version Header
+First yield declares version for graceful upgrades:
+```ts
+{ kind: "meta"; protocol: "photon/1.0" }
+```
+
+### Type-Safe Returns with `yield*`
+```ts
+const name: string = yield* io.ask.text('What is your name?');
+const confirmed: boolean = yield* io.ask.confirm('Continue?');
+```
+Requires helpers to be generator functions for TypeScript inference.
