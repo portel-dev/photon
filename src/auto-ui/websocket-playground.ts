@@ -947,20 +947,30 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     function renderMarkdown(text) {
       // Simple markdown rendering
       let html = text;
-      
+
       // Links
       html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>');
-      
+
       // Bold
       html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-      
+
+      // Italic
+      html = html.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+
       // Headers
+      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
       html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      
-      // Paragraphs
-      html = html.split('\\n\\n').map(p => \`<p>\${p}</p>\`).join('');
-      
+
+      // Blockquotes (> at start of line)
+      html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
+      // Code blocks
+      html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+
+      // Line breaks within paragraphs
+      html = html.replace(/\\n/g, '<br>');
+
       return html;
     }
 
