@@ -1863,14 +1863,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const type = schema.type || 'string';
       const enumValues = schema.enum;
 
+      // Dropdown for enum/choice values
       if (enumValues) {
         return \`
           <select name="\${key}" \${isRequired ? 'required' : ''}>
+            <option value="">Select \${key}...</option>
             \${enumValues.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
           </select>
         \`;
       }
 
+      // Boolean toggle
       if (type === 'boolean') {
         return \`
           <select name="\${key}">
@@ -1880,11 +1883,36 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         \`;
       }
 
+      // Number with optional min/max constraints
       if (type === 'number' || type === 'integer') {
-        return \`<input type="number" name="\${key}" \${isRequired ? 'required' : ''} />\`;
+        const min = schema.minimum !== undefined ? \`min="\${schema.minimum}"\` : '';
+        const max = schema.maximum !== undefined ? \`max="\${schema.maximum}"\` : '';
+        const step = type === 'integer' ? 'step="1"' : '';
+        return \`<input type="number" name="\${key}" \${min} \${max} \${step} \${isRequired ? 'required' : ''} />\`;
       }
 
-      return \`<input type="text" name="\${key}" \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." />\`;
+      // Textarea for long text (maxLength > 200 or format: 'textarea')
+      if (type === 'string' && (schema.maxLength > 200 || schema.format === 'textarea' || schema.format === 'multiline')) {
+        const maxLength = schema.maxLength ? \`maxlength="\${schema.maxLength}"\` : '';
+        return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." rows="4"></textarea>\`;
+      }
+
+      // Build attributes for string input
+      const attrs = [];
+      if (schema.minLength) attrs.push(\`minlength="\${schema.minLength}"\`);
+      if (schema.maxLength) attrs.push(\`maxlength="\${schema.maxLength}"\`);
+      if (schema.pattern) attrs.push(\`pattern="\${schema.pattern}"\`);
+
+      // Special input types based on format
+      let inputType = 'text';
+      if (schema.format === 'email') inputType = 'email';
+      else if (schema.format === 'uri' || schema.format === 'url') inputType = 'url';
+      else if (schema.format === 'date') inputType = 'date';
+      else if (schema.format === 'date-time') inputType = 'datetime-local';
+      else if (schema.format === 'time') inputType = 'time';
+      else if (schema.format === 'password') inputType = 'password';
+
+      return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." />\`;
     }
 
     function handleSubmit(e) {
