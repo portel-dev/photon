@@ -5,12 +5,12 @@
  */
 
 import * as http from 'http';
-import { pathToFileURL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
+import { PhotonLoader } from '../loader.js';
 import { logger } from '../shared/logger.js';
-import { 
-  SchemaExtractor, 
+import {
+  SchemaExtractor,
   executeGenerator,
   isAsyncGenerator,
   type PhotonYield,
@@ -60,14 +60,29 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
   const photons: PhotonInfo[] = [];
   const photonInstances = new Map<string, any>();
   
+  // Use PhotonLoader for proper dependency management
+  const loader = new PhotonLoader(false, logger);
+
   for (const name of photonList) {
     const photonPath = await resolvePhotonPath(name, workingDir);
     if (!photonPath) continue;
 
     try {
+      // Load photon using PhotonLoader (handles deps, TypeScript, injections)
+      const mcp = await loader.loadFile(photonPath);
+      const instance = mcp.instance;
+
+      if (!instance) {
+        logger.warn(`Failed to get instance for ${name}`);
+        continue;
+      }
+
+      photonInstances.set(name, instance);
+
+      // Extract schema for UI
       const extractor = new SchemaExtractor();
       const schemas = await extractor.extractFromFile(photonPath);
-      
+
       // Filter out lifecycle methods
       const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
       const methods: MethodInfo[] = schemas
@@ -84,18 +99,6 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
         path: photonPath,
         methods
       });
-
-      // Load photon instance using file URL for proper path resolution
-      const fileUrl = pathToFileURL(photonPath).href;
-      const module = await import(fileUrl);
-      const PhotonClass = module.default;
-      const instance = new PhotonClass();
-      
-      if (instance.onInitialize) {
-        await instance.onInitialize();
-      }
-      
-      photonInstances.set(name, instance);
     } catch (error) {
       logger.warn(`Failed to load ${name}: ${error}`);
     }
