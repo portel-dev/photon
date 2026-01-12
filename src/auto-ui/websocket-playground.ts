@@ -5,6 +5,7 @@
  */
 
 import * as http from 'http';
+import { pathToFileURL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { logger } from '../shared/logger.js';
@@ -84,8 +85,9 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
         methods
       });
 
-      // Load photon instance
-      const module = await import(photonPath);
+      // Load photon instance using file URL for proper path resolution
+      const fileUrl = pathToFileURL(photonPath).href;
+      const module = await import(fileUrl);
       const PhotonClass = module.default;
       const instance = new PhotonClass();
       
@@ -877,7 +879,7 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     function handleYield(data) {
       const container = document.getElementById('progress-container');
       container.classList.add('visible');
-      
+
       if (data.emit === 'status') {
         const item = document.createElement('div');
         item.className = 'progress-item';
@@ -887,14 +889,15 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
         \`;
         container.appendChild(item);
       } else if (data.emit === 'progress') {
+        const percent = Math.round((data.value || 0) * 100);
         const item = document.createElement('div');
         item.className = 'progress-item';
         item.innerHTML = \`
           <span>\${data.message || 'Progress'}</span>
           <div class="progress-bar">
-            <div class="progress-fill" style="width: \${data.percent}%"></div>
+            <div class="progress-fill" style="width: \${percent}%"></div>
           </div>
-          <span>\${data.percent}%</span>
+          <span>\${percent}%</span>
         \`;
         container.appendChild(item);
       }
@@ -961,32 +964,64 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       const modal = document.getElementById('elicitation-modal');
       const title = document.getElementById('elicitation-title');
       const form = document.getElementById('elicitation-form');
-      
+
       title.textContent = data.message || 'Input Required';
-      
-      // Render elicitation form
+
+      // Render elicitation form based on ask type
       let html = '';
-      
-      if (data.type === 'text') {
+
+      if (data.ask === 'text' || data.ask === 'password') {
+        const inputType = data.ask === 'password' ? 'password' : 'text';
         html = \`
           <div class="form-group">
-            <input type="text" id="elicitation-input" />
+            <input type="\${inputType}" id="elicitation-input" placeholder="\${data.placeholder || ''}" value="\${data.default || ''}" />
           </div>
         \`;
-      } else if (data.type === 'select') {
+      } else if (data.ask === 'select') {
+        const options = (data.options || []).map(opt => {
+          const value = typeof opt === 'string' ? opt : opt.value;
+          const label = typeof opt === 'string' ? opt : opt.label;
+          return \`<option value="\${value}">\${label}</option>\`;
+        }).join('');
         html = \`
           <div class="form-group">
-            <select id="elicitation-input">
-              \${(data.options || []).map(opt => \`<option value="\${opt}">\${opt}</option>\`).join('')}
-            </select>
+            <select id="elicitation-input">\${options}</select>
+          </div>
+        \`;
+      } else if (data.ask === 'confirm') {
+        html = \`
+          <div class="form-group" style="display: flex; gap: 10px;">
+            <button class="btn" onclick="submitElicitationValue(true)" style="background: #4caf50;">Yes</button>
+            <button class="btn" onclick="submitElicitationValue(false)" style="background: #f44336;">No</button>
+          </div>
+        \`;
+        form.innerHTML = html;
+        modal.classList.add('visible');
+        return;
+      } else if (data.ask === 'number') {
+        html = \`
+          <div class="form-group">
+            <input type="number" id="elicitation-input"
+              \${data.min !== undefined ? \`min="\${data.min}"\` : ''}
+              \${data.max !== undefined ? \`max="\${data.max}"\` : ''}
+              \${data.step !== undefined ? \`step="\${data.step}"\` : ''}
+              value="\${data.default || ''}" />
           </div>
         \`;
       }
-      
+
       html += \`<button class="btn" onclick="submitElicitation()">Submit</button>\`;
-      
+
       form.innerHTML = html;
       modal.classList.add('visible');
+    }
+
+    function submitElicitationValue(value) {
+      ws.send(JSON.stringify({
+        type: 'elicitation_response',
+        value
+      }));
+      document.getElementById('elicitation-modal').classList.remove('visible');
     }
 
     function submitElicitation() {

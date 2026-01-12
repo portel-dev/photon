@@ -676,30 +676,32 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
                   // Update progress display
                   const resultUI = document.getElementById('result-ui');
                   if (resultUI) {
-                    const progress = event.data;
+                    const emit = event.data;
                     let progressHTML = '';
-                    
-                    if (progress.percentage !== undefined) {
+
+                    if (emit.emit === 'progress' && emit.value !== undefined) {
                       // Show progress bar for percentage-based progress
+                      const percent = Math.round((emit.value || 0) * 100);
                       progressHTML = \`
                         <div class="progress-container">
-                          <div style="margin-bottom: 8px;">\${progress.message || 'Processing...'}</div>
+                          <div style="margin-bottom: 8px;">\${emit.message || 'Processing...'}</div>
                           <div style="background: #e0e0e0; height: 8px; border-radius: 4px; overflow: hidden;">
-                            <div style="background: #3498db; height: 100%; width: \${progress.percentage}%; transition: width 0.3s;"></div>
+                            <div style="background: #3498db; height: 100%; width: \${percent}%; transition: width 0.3s;"></div>
                           </div>
-                          <div style="margin-top: 4px; font-size: 12px; color: #666;">\${progress.percentage}%</div>
+                          <div style="margin-top: 4px; font-size: 12px; color: #666;">\${percent}%</div>
                         </div>
                       \`;
                     } else {
-                      // Show spinner for unknown progress
+                      // Show spinner for status messages or unknown progress
+                      const message = emit.message || emit.data?.message || 'Processing...';
                       progressHTML = \`
                         <div class="progress-container">
-                          <div class="spinner"></div> 
-                          <span id="progress-text">\${progress.message || 'Processing...'}</span>
+                          <div class="spinner"></div>
+                          <span id="progress-text">\${message}</span>
                         </div>
                       \`;
                     }
-                    
+
                     resultUI.innerHTML = progressHTML;
                   }
                 } else if (event.type === 'result') {
