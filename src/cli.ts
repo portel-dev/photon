@@ -1228,7 +1228,7 @@ program
   .command('serve')
   .argument('<name>', 'Photon name (without .photon.ts extension)')
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
-  .option('--dev', 'Enable development mode with hot reload and playground')
+  .option('--dev', 'Enable development mode with hot reload')
   .description('Run Photon as HTTP server with SSE transport (auto port detection)')
   .action(async (name: string, options: any, command: Command) => {
     try {
@@ -1294,16 +1294,16 @@ program
     }
   });
 
-// Playground command: interactive UI for all photons
+// Beam command: interactive UI for all photons
 program
-  .command('playground')
+  .command('beam')
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
-  .description('Launch interactive playground for all installed photons')
+  .description('Launch Photon Beam - interactive control panel for all your photons')
   .action(async (options: any, command: Command) => {
     try {
       // Get working directory from global options
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
-      
+
       // Find available port
       const startPort = parseInt(options.port, 10);
       const port = await findAvailablePort(startPort);
@@ -1312,13 +1312,13 @@ program
         console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
       }
 
-      // Import and start WebSocket playground server
-      const { startWebSocketPlayground } = await import('./auto-ui/websocket-playground.js');
-      await startWebSocketPlayground(workingDir, port);
+      // Import and start Beam server
+      const { startBeam } = await import('./auto-ui/beam.js');
+      await startBeam(workingDir, port);
 
       // Handle shutdown signals
       const shutdown = () => {
-        console.error('\nShutting down playground...');
+        console.error('\nShutting down Photon Beam...');
         process.exit(0);
       };
 
@@ -1337,7 +1337,7 @@ program
   .command('deploy')
   .argument('<target>', 'Deployment target: cloudflare (or cf)')
   .argument('<name>', 'Photon name (without .photon.ts extension)')
-  .option('--dev', 'Enable playground in deployment')
+  .option('--dev', 'Enable Beam UI in deployment')
   .option('--dry-run', 'Generate project without deploying')
   .option('--output <dir>', 'Output directory for generated project')
   .description('Deploy a Photon to cloud platforms')

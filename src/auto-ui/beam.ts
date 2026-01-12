@@ -1,25 +1,51 @@
 /**
- * Enhanced Playground Server with Elicitation Support
- * 
- * Uses SSE for server->client and POST for client->server communication
+ * Photon Beam - Interactive Control Panel
+ *
+ * A unified UI to interact with all your photons.
+ * Uses WebSocket for real-time bidirectional communication.
  */
 
 import * as http from 'http';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger } from '../shared/logger.js';
+import { toEnvVarName } from '../shared/config-docs.js';
 import {
   SchemaExtractor,
   type PhotonYield,
-  type OutputHandler
+  type OutputHandler,
+  type ConstructorParam
 } from '@portel/photon-core';
 
 interface PhotonInfo {
   name: string;
   path: string;
+  configured: true;
   methods: MethodInfo[];
 }
+
+interface UnconfiguredPhotonInfo {
+  name: string;
+  path: string;
+  configured: false;
+  requiredParams: ConfigParam[];
+  errorMessage: string;
+}
+
+interface ConfigParam {
+  name: string;
+  envVar: string;
+  type: string;
+  isOptional: boolean;
+  hasDefault: boolean;
+  defaultValue?: any;
+}
+
+type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 
 interface MethodInfo {
   name: string;
@@ -35,25 +61,52 @@ interface InvokeRequest {
   args: Record<string, any>;
 }
 
+interface ConfigureRequest {
+  type: 'configure';
+  photon: string;
+  config: Record<string, string>;
+}
+
 interface ElicitationResponse {
   type: 'elicitation_response';
   value: any;
 }
 
-type ClientMessage = InvokeRequest | ElicitationResponse;
+type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse;
 
-export async function startWebSocketPlayground(workingDir: string, port: number): Promise<void> {
+// Config file path
+const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
+
+async function loadConfig(): Promise<Record<string, Record<string, string>>> {
+  try {
+    const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return {};
+  }
+}
+
+async function saveConfig(config: Record<string, Record<string, string>>): Promise<void> {
+  const dir = path.dirname(CONFIG_FILE);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+export async function startBeam(workingDir: string, port: number): Promise<void> {
   // Discover all photons
   const photonList = await listPhotonMCPs(workingDir);
-  
+
   if (photonList.length === 0) {
     logger.warn('No photons found in ' + workingDir);
     console.log('\nCreate a photon with: photon maker new <name>');
     process.exit(1);
   }
 
+  // Load saved config and apply to env
+  const savedConfig = await loadConfig();
+
   // Extract metadata for all photons
-  const photons: PhotonInfo[] = [];
+  const photons: AnyPhotonInfo[] = [];
   const photonMCPs = new Map<string, any>();  // Store full MCP objects
 
   // Use PhotonLoader for proper dependency management
@@ -62,6 +115,13 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
   for (const name of photonList) {
     const photonPath = await resolvePhotonPath(name, workingDir);
     if (!photonPath) continue;
+
+    // Apply saved config to environment before loading
+    if (savedConfig[name]) {
+      for (const [key, value] of Object.entries(savedConfig[name])) {
+        process.env[key] = value;
+      }
+    }
 
     try {
       // Load photon using PhotonLoader (handles deps, TypeScript, injections)
@@ -93,12 +153,62 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
       photons.push({
         name,
         path: photonPath,
+        configured: true,
         methods
       });
     } catch (error) {
-      logger.warn(`Failed to load ${name}: ${error}`);
+      // Check if it's a configuration error - capture params for UI config
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const isConfigError = errorMsg.includes('Configuration Error') ||
+                           errorMsg.includes('required') ||
+                           (error instanceof Error && error.name === 'PhotonConfigError');
+
+      if (isConfigError) {
+        // Extract constructor params to show in config form
+        try {
+          const extractor = new SchemaExtractor();
+          const source = await fs.readFile(photonPath, 'utf-8');
+          const params = extractor.extractConstructorParams(source);
+
+          const configParams: ConfigParam[] = params
+            .filter(p => p.isPrimitive)
+            .map(p => ({
+              name: p.name,
+              envVar: toEnvVarName(name, p.name),
+              type: p.type,
+              isOptional: p.isOptional,
+              hasDefault: p.hasDefault,
+              defaultValue: p.defaultValue
+            }));
+
+          photons.push({
+            name,
+            path: photonPath,
+            configured: false,
+            requiredParams: configParams,
+            errorMessage: extractErrorMessage(errorMsg)
+          });
+
+          logger.info(`📋 ${name} needs configuration (${configParams.filter(p => !p.isOptional && !p.hasDefault).length} required params)`);
+        } catch {
+          logger.warn(`Failed to extract config for ${name}`);
+        }
+      } else {
+        logger.warn(`Failed to load ${name}: ${errorMsg}`);
+      }
     }
   }
+
+  // Helper to extract clean error message
+  function extractErrorMessage(msg: string): string {
+    // Extract just the main error from the formatted message
+    const match = msg.match(/❌ Configuration Error: .+\n\n(.+?)(?:\n|$)/);
+    return match ? match[1] : msg.slice(0, 200);
+  }
+
+  // Count configured vs unconfigured
+  const configuredCount = photons.filter(p => p.configured).length;
+  const unconfiguredCount = photons.filter(p => !p.configured).length;
 
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
@@ -106,7 +216,7 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
 
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(generateWebSocketHTML(photons, port));
+      res.end(generateBeamHTML(photons, port));
       return;
     }
 
@@ -118,7 +228,7 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
   const wss = new WebSocketServer({ server });
 
   wss.on('connection', (ws: WebSocket) => {
-    logger.info('Client connected to playground');
+    logger.info('Client connected to Beam');
 
     // Send photon list on connection
     ws.send(JSON.stringify({
@@ -132,6 +242,8 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
 
         if (message.type === 'invoke') {
           await handleInvoke(ws, message, photonMCPs, loader);
+        } else if (message.type === 'configure') {
+          await handleConfigure(ws, message, photons, photonMCPs, loader, savedConfig);
         } else if (message.type === 'elicitation_response') {
           // Store response for pending elicitation
           if ((ws as any).pendingElicitation) {
@@ -148,15 +260,19 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
     });
 
     ws.on('close', () => {
-      logger.info('Client disconnected from playground');
+      logger.info('Client disconnected from Beam');
     });
   });
 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    logger.info(`🎮 Photon Playground running at ${url}`);
-    logger.info(`   ${photons.length} photon(s) available`);
-    console.log(`\n🎮 Open ${url} in your browser\n`);
+    logger.info(`⚡ Photon Beam running at ${url}`);
+    if (unconfiguredCount > 0) {
+      logger.info(`   ${configuredCount} ready, ${unconfiguredCount} need configuration`);
+    } else {
+      logger.info(`   ${configuredCount} photon(s) ready`);
+    }
+    console.log(`\n⚡ Photon Beam → ${url}\n`);
   });
 }
 
@@ -211,7 +327,92 @@ async function handleInvoke(
   }
 }
 
-function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
+async function handleConfigure(
+  ws: WebSocket,
+  request: ConfigureRequest,
+  photons: AnyPhotonInfo[],
+  photonMCPs: Map<string, any>,
+  loader: PhotonLoader,
+  savedConfig: Record<string, Record<string, string>>
+): Promise<void> {
+  const { photon: photonName, config } = request;
+
+  // Find the unconfigured photon
+  const photonIndex = photons.findIndex(p => p.name === photonName && !p.configured);
+  if (photonIndex === -1) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Photon not found or already configured: ${photonName}`
+    }));
+    return;
+  }
+
+  const unconfiguredPhoton = photons[photonIndex] as UnconfiguredPhotonInfo;
+
+  // Apply config to environment
+  for (const [key, value] of Object.entries(config)) {
+    process.env[key] = value;
+  }
+
+  // Save config to file
+  savedConfig[photonName] = config;
+  await saveConfig(savedConfig);
+
+  // Try to reload the photon
+  try {
+    const mcp = await loader.loadFile(unconfiguredPhoton.path);
+    const instance = mcp.instance;
+
+    if (!instance) {
+      throw new Error('Failed to create instance');
+    }
+
+    photonMCPs.set(photonName, mcp);
+
+    // Extract schema for UI
+    const extractor = new SchemaExtractor();
+    const schemas = await extractor.extractFromFile(unconfiguredPhoton.path);
+
+    const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+    const methods: MethodInfo[] = schemas
+      .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+      .map((schema: any) => ({
+        name: schema.name,
+        description: schema.description || '',
+        params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+        returns: { type: 'object' }
+      }));
+
+    // Replace unconfigured photon with configured one
+    const configuredPhoton: PhotonInfo = {
+      name: photonName,
+      path: unconfiguredPhoton.path,
+      configured: true,
+      methods
+    };
+
+    photons[photonIndex] = configuredPhoton;
+
+    logger.info(`✅ ${photonName} configured successfully`);
+
+    // Send updated photon info to client
+    ws.send(JSON.stringify({
+      type: 'configured',
+      photon: configuredPhoton
+    }));
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to configure ${photonName}: ${errorMsg}`);
+
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Configuration failed: ${errorMsg.slice(0, 200)}`
+    }));
+  }
+}
+
+function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -220,7 +421,7 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
   <meta name="theme-color" content="#0f0f0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Photon Playground</title>
+  <title>Photon Beam</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -468,6 +669,87 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     .method-item.selected {
       background: var(--accent);
       color: white;
+    }
+
+    /* Unconfigured photon styles */
+    .photon-item.unconfigured .photon-name::before {
+      background: var(--warning);
+    }
+
+    .photon-item.unconfigured .method-count {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+    }
+
+    .config-panel {
+      background: var(--bg-tertiary);
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      padding: 16px;
+      display: none;
+    }
+
+    .config-panel.expanded {
+      display: block;
+    }
+
+    .config-panel .config-message {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      padding: 12px;
+      background: rgba(245, 158, 11, 0.1);
+      border-radius: var(--radius-sm);
+      border-left: 3px solid var(--warning);
+    }
+
+    .config-panel .form-group {
+      margin-bottom: 16px;
+    }
+
+    .config-panel .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .config-panel .form-group label .env-var {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .config-panel input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .config-panel input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .config-panel input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .config-panel .btn-configure {
+      width: 100%;
+      padding: 10px;
+      background: var(--warning);
+      color: #000;
+      font-weight: 600;
+    }
+
+    .config-panel .btn-configure:hover {
+      background: #d97706;
     }
 
     /* Main content */
@@ -1148,7 +1430,7 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       ws = new WebSocket('ws://localhost:${port}');
 
       ws.onopen = () => {
-        console.log('Connected to playground');
+        console.log('Connected to Beam');
       };
 
       ws.onmessage = (event) => {
@@ -1157,7 +1439,7 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       };
 
       ws.onclose = () => {
-        console.log('Disconnected from playground');
+        console.log('Disconnected, reconnecting...');
         setTimeout(connect, 1000);
       };
 
@@ -1184,6 +1466,28 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
         case 'elicitation':
           showElicitation(message.data);
           break;
+        case 'configured':
+          handleConfigured(message.photon);
+          break;
+      }
+    }
+
+    function handleConfigured(photon) {
+      hideProgress();
+
+      // Update photon in list
+      const index = photons.findIndex(p => p.name === photon.name);
+      if (index !== -1) {
+        photons[index] = photon;
+        renderPhotonList();
+
+        // Auto-expand the newly configured photon after render
+        setTimeout(() => {
+          const methodList = document.getElementById(\`methods-\${photon.name}\`);
+          const header = document.querySelector(\`[data-photon="\${photon.name}"]\`);
+          if (methodList) methodList.classList.add('expanded');
+          if (header) header.classList.add('expanded');
+        }, 50);
       }
     }
 
@@ -1191,24 +1495,91 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       const list = document.getElementById('photon-list');
       const count = document.getElementById('photon-count');
 
-      const totalMethods = photons.reduce((sum, p) => sum + p.methods.length, 0);
-      count.textContent = \`\${photons.length} photon\${photons.length !== 1 ? 's' : ''} · \${totalMethods} methods\`;
+      const configured = photons.filter(p => p.configured);
+      const unconfigured = photons.filter(p => !p.configured);
+      const totalMethods = configured.reduce((sum, p) => sum + (p.methods?.length || 0), 0);
 
-      list.innerHTML = photons.map(photon => \`
-        <div class="photon-item">
-          <div class="photon-header" onclick="togglePhoton('\${photon.name}')">
-            <span class="photon-name">\${photon.name}</span>
-            <span class="method-count">\${photon.methods.length}</span>
-          </div>
-          <div class="method-list" id="methods-\${photon.name}">
-            \${photon.methods.map(method => \`
-              <div class="method-item" onclick="selectMethod('\${photon.name}', '\${method.name}', event)">
-                \${method.name}
+      if (unconfigured.length > 0) {
+        count.textContent = \`\${configured.length} ready · \${unconfigured.length} need setup\`;
+      } else {
+        count.textContent = \`\${photons.length} photon\${photons.length !== 1 ? 's' : ''} · \${totalMethods} methods\`;
+      }
+
+      list.innerHTML = photons.map(photon => {
+        if (photon.configured) {
+          return \`
+            <div class="photon-item">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="togglePhoton('\${photon.name}')">
+                <span class="photon-name">\${photon.name}</span>
+                <span class="method-count">\${photon.methods.length}</span>
               </div>
-            \`).join('')}
-          </div>
-        </div>
-      \`).join('');
+              <div class="method-list" id="methods-\${photon.name}">
+                \${photon.methods.map(method => \`
+                  <div class="method-item" onclick="selectMethod('\${photon.name}', '\${method.name}', event)">
+                    \${method.name}
+                  </div>
+                \`).join('')}
+              </div>
+            </div>
+          \`;
+        } else {
+          const requiredCount = photon.requiredParams.filter(p => !p.isOptional && !p.hasDefault).length;
+          return \`
+            <div class="photon-item unconfigured">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="toggleConfigPanel('\${photon.name}')">
+                <span class="photon-name">\${photon.name}</span>
+                <span class="method-count">\${requiredCount} required</span>
+              </div>
+              <div class="config-panel" id="config-\${photon.name}">
+                <div class="config-message">Configure this photon to enable its features</div>
+                <form onsubmit="submitConfig('\${photon.name}', event)">
+                  \${photon.requiredParams.map(param => \`
+                    <div class="form-group">
+                      <label>
+                        \${param.name}\${!param.isOptional && !param.hasDefault ? ' *' : ''}
+                        <span class="env-var">\${param.envVar}</span>
+                      </label>
+                      <input
+                        type="\${param.name.toLowerCase().includes('password') || param.name.toLowerCase().includes('secret') || param.name.toLowerCase().includes('key') ? 'password' : 'text'}"
+                        name="\${param.envVar}"
+                        placeholder="\${param.hasDefault ? \`Default: \${param.defaultValue}\` : \`Enter \${param.name}...\`}"
+                        \${!param.isOptional && !param.hasDefault ? 'required' : ''}
+                      />
+                    </div>
+                  \`).join('')}
+                  <button type="submit" class="btn btn-configure">Configure & Enable</button>
+                </form>
+              </div>
+            </div>
+          \`;
+        }
+      }).join('');
+    }
+
+    function toggleConfigPanel(photonName) {
+      const header = event.currentTarget;
+      const configPanel = document.getElementById(\`config-\${photonName}\`);
+      header.classList.toggle('expanded');
+      configPanel.classList.toggle('expanded');
+    }
+
+    function submitConfig(photonName, e) {
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData(form);
+      const config = {};
+
+      for (const [key, value] of formData.entries()) {
+        if (value) config[key] = value;
+      }
+
+      showProgress(\`Configuring \${photonName}...\`);
+
+      ws.send(JSON.stringify({
+        type: 'configure',
+        photon: photonName,
+        config
+      }));
     }
 
     function togglePhoton(photonName) {
