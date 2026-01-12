@@ -493,10 +493,16 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     }
 
     .progress-container {
-      margin-top: 20px;
-      padding: 15px;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 24px 32px;
       background: #2a2a2a;
-      border-radius: 4px;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      z-index: 100;
+      min-width: 280px;
       display: none;
     }
 
@@ -506,11 +512,11 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
 
     .progress-item {
       padding: 8px 0;
-      font-size: 13px;
-      color: #bbb;
+      font-size: 14px;
+      color: #e0e0e0;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .spinner {
@@ -883,33 +889,36 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
       const container = document.getElementById('progress-container');
       container.classList.add('visible');
 
+      // Replace content instead of appending - show only current status
       if (data.emit === 'status') {
-        const item = document.createElement('div');
-        item.className = 'progress-item';
-        item.innerHTML = \`
-          <div class="spinner"></div>
-          <span>\${data.message}</span>
+        container.innerHTML = \`
+          <div class="progress-item">
+            <div class="spinner"></div>
+            <span>\${data.message}</span>
+          </div>
         \`;
-        container.appendChild(item);
       } else if (data.emit === 'progress') {
         const percent = Math.round((data.value || 0) * 100);
-        const item = document.createElement('div');
-        item.className = 'progress-item';
-        item.innerHTML = \`
-          <span>\${data.message || 'Progress'}</span>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width: \${percent}%"></div>
+        container.innerHTML = \`
+          <div class="progress-item">
+            <span>\${data.message || 'Progress'}</span>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: \${percent}%"></div>
+            </div>
+            <span>\${percent}%</span>
           </div>
-          <span>\${percent}%</span>
         \`;
-        container.appendChild(item);
       }
     }
 
     function handleResult(data) {
+      // Hide progress when result arrives
+      document.getElementById('progress-container').classList.remove('visible');
+      document.getElementById('progress-container').innerHTML = '';
+
       const container = document.getElementById('result-container');
       const content = document.getElementById('result-content');
-      
+
       container.classList.add('visible');
       
       if (Array.isArray(data)) {
@@ -956,9 +965,13 @@ function generateWebSocketHTML(photons: PhotonInfo[], port: number): string {
     }
 
     function handleError(message) {
+      // Hide progress on error
+      document.getElementById('progress-container').classList.remove('visible');
+      document.getElementById('progress-container').innerHTML = '';
+
       const container = document.getElementById('result-container');
       const content = document.getElementById('result-content');
-      
+
       container.classList.add('visible');
       content.innerHTML = \`<p style="color: #ef5350;">Error: \${message}</p>\`;
     }
