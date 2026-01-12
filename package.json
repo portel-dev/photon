@@ -61,12 +61,14 @@
     "cli-highlight": "^2.1.11",
     "commander": "^12.1.0",
     "esbuild": "^0.27.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@release-it/conventional-changelog": "^10.0.1",
     "@types/inquirer": "^9.0.9",
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
     "autocannon": "^8.0.0",
     "clinic": "^13.0.0",
     "release-it": "^19.0.6",

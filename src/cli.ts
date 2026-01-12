@@ -1312,9 +1312,9 @@ program
         console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
       }
 
-      // Import and start playground server
-      const { startPlaygroundServer } = await import('./auto-ui/playground-server.js');
-      await startPlaygroundServer(workingDir, port);
+      // Import and start WebSocket playground server
+      const { startWebSocketPlayground } = await import('./auto-ui/websocket-playground.js');
+      await startWebSocketPlayground(workingDir, port);
 
       // Handle shutdown signals
       const shutdown = () => {

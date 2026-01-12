@@ -11,7 +11,13 @@ import { existsSync } from 'fs';
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonServer } from '../server.js';
 import { logger } from '../shared/logger.js';
-import { SchemaExtractor } from '@portel/photon-core';
+import { 
+  SchemaExtractor, 
+  executeGenerator,
+  isAsyncGenerator,
+  type PhotonYield,
+  type EmitYield
+} from '@portel/photon-core';
 
 interface PhotonInfo {
   name: string;
@@ -54,8 +60,8 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
         .map((schema: any) => ({
           name: schema.name,
           description: schema.description || '',
-          params: schema.parameters || { type: 'object', properties: {}, required: [] },
-          returns: schema.returns || { type: 'object' }
+          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' }
         }));
 
       photons.push({
@@ -118,10 +124,53 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
             throw new Error(`Method ${method} not found`);
           }
 
-          const result = await instance[method](params);
+          // Call method with params object - photon methods expect a single params object
+          const methodResult = instance[method](params);
+          
+          // Check if it's a generator - use SSE for streaming
+          let result: any;
+          if (isAsyncGenerator(methodResult)) {
+            // Setup SSE for streaming progress
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive'
+            });
+            
+            try {
+              result = await executeGenerator(methodResult as AsyncGenerator<PhotonYield, any, any>, {
+                inputProvider: async (ask) => {
+                  // Send ask event to client
+                  res.write(`data: ${JSON.stringify({ type: 'ask', data: ask })}\n\n`);
+                  // For now, throw error - playground doesn't support interactive input yet
+                  throw new Error(`Interactive input not supported in playground: ${ask.message}`);
+                },
+                outputHandler: async (emit) => {
+                  // Stream progress updates to client
+                  res.write(`data: ${JSON.stringify({ type: 'progress', data: emit })}\n\n`);
+                }
+              });
+              
+              // Send final result
+              res.write(`data: ${JSON.stringify({ type: 'result', data: result })}\n\n`);
+              res.write('data: [DONE]\n\n');
+              res.end();
+            } catch (error: any) {
+              res.write(`data: ${JSON.stringify({ type: 'error', data: { message: error.message } })}\n\n`);
+              res.end();
+            }
+          } else {
+            // Non-generator: regular JSON response
+            if (methodResult && typeof methodResult.then === 'function') {
+              result = await methodResult;
+            } else {
+              result = methodResult;
+            }
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ result }));
+            logger.info(`Sending result to client:`, result);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ result }));
+          }
         } catch (error: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: error.message }));
@@ -157,10 +206,11 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
     }
     
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
       display: flex;
       height: 100vh;
       background: #f5f5f5;
+      line-height: 1.6;
     }
     
     .sidebar {
@@ -378,12 +428,22 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
       background: white;
       padding: 15px;
       border-radius: 4px;
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 13px;
-      white-space: pre-wrap;
+      font-family: inherit;
+      font-size: 14px;
+      white-space: normal;
       word-break: break-word;
       max-height: 400px;
       overflow-y: auto;
+    }
+    
+    .progress-container {
+      display: flex;
+      align-items: center;
+      padding: 20px;
+      background: white;
+      border-radius: 4px;
+      color: #3498db;
+      font-size: 14px;
     }
     
     .spinner {
@@ -465,6 +525,10 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
     let currentMethod = null;
     let currentResult = null;
 
+    // Markdown helpers for rendering doc blocks  
+    const markdownLinkRegex = /\\[([^\\]]+)\\]\\(([^)]+)\\)/g;
+    const markdownBoldRegex = /\\*\\*([^*]+)\\*\\*/g;
+
     // Render photon tree
     function renderTree() {
       const tree = document.getElementById('photon-tree');
@@ -532,7 +596,7 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
               <label>
                 \${name}
                 \${isRequired ? '<span style="color: red;">*</span>' : ''}
-                \${schema.description ? '<span style="color: #666; font-weight: normal; font-size: 12px;"> - \${schema.description}</span>' : ''}
+                \${schema.description ? '<span style="color: #666; font-weight: normal; font-size: 12px;"> - ' + schema.description + '</span>' : ''}
               </label>
               <input 
                 type="\${type}" 
@@ -568,6 +632,11 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Invoking...';
 
+      // Show progress area
+      const resultUI = document.getElementById('result-ui');
+      resultUI.style.display = 'block';
+      resultUI.innerHTML = '<div class="progress-container"><div class="spinner"></div> <span id="progress-text">Starting...</span></div>';
+
       try {
         const response = await fetch('/api/invoke', {
           method: 'POST',
@@ -579,16 +648,85 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
           })
         });
 
-        const data = await response.json();
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
+        // Check if it's SSE (for generators)
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('text/event-stream')) {
+          // Handle SSE streaming
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
 
-        currentResult = data.result;
-        renderResult();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\\n\\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6);
+              if (data === '[DONE]') break;
+
+              try {
+                const event = JSON.parse(data);
+                
+                if (event.type === 'progress') {
+                  // Update progress display
+                  const resultUI = document.getElementById('result-ui');
+                  if (resultUI) {
+                    const progress = event.data;
+                    let progressHTML = '';
+                    
+                    if (progress.percentage !== undefined) {
+                      // Show progress bar for percentage-based progress
+                      progressHTML = \`
+                        <div class="progress-container">
+                          <div style="margin-bottom: 8px;">\${progress.message || 'Processing...'}</div>
+                          <div style="background: #e0e0e0; height: 8px; border-radius: 4px; overflow: hidden;">
+                            <div style="background: #3498db; height: 100%; width: \${progress.percentage}%; transition: width 0.3s;"></div>
+                          </div>
+                          <div style="margin-top: 4px; font-size: 12px; color: #666;">\${progress.percentage}%</div>
+                        </div>
+                      \`;
+                    } else {
+                      // Show spinner for unknown progress
+                      progressHTML = \`
+                        <div class="progress-container">
+                          <div class="spinner"></div> 
+                          <span id="progress-text">\${progress.message || 'Processing...'}</span>
+                        </div>
+                      \`;
+                    }
+                    
+                    resultUI.innerHTML = progressHTML;
+                  }
+                } else if (event.type === 'result') {
+                  currentResult = event.data;
+                  renderResult();
+                } else if (event.type === 'error') {
+                  throw new Error(event.data.message);
+                }
+              } catch (e) {
+                console.error('Failed to parse SSE event:', e);
+              }
+            }
+          }
+        } else {
+          // Regular JSON response (non-generator)
+          const data = await response.json();
+          
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          currentResult = data.result;
+          renderResult();
+        }
       } catch (error) {
         alert('Error: ' + error.message);
+        resultUI.innerHTML = '<p style="color: #d32f2f;">Error: ' + error.message + '</p>';
       } finally {
         btn.disabled = false;
         const label = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
@@ -614,46 +752,99 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
     }
 
     function formatResult(result) {
+      // Handle null/undefined
+      if (result === null || result === undefined) {
+        return '<p style="color: #666;">No result returned</p>';
+      }
+      
       // Handle arrays
       if (Array.isArray(result)) {
         if (result.length === 0) {
           return '<p style="color: #666;">Empty result</p>';
         }
         
-        // Check if it's markdown content (has .text property)
-        if (result[0]?.text) {
-          return '<div style="line-height: 1.6;">' + 
-            result.map(item => {
-              // Simple markdown rendering
-              let text = item.text || '';
-              // Convert markdown links to HTML
-              text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #3498db;">$1</a>');
+        // Check if array contains markdown strings
+        if (typeof result[0] === 'string') {
+          return '<div class="markdown-list" style="line-height: 1.8;">' + 
+            result.map((item, idx) => {
+              let text = String(item);
+              // Convert markdown links to bold HTML links (no underline)
+              text = text.replace(markdownLinkRegex, '<a href="$2" target="_blank" style="color: #3498db; text-decoration: none; font-weight: 600;">$1</a>');
               // Convert bold
-              text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-              return '<p>' + text + '</p>';
+              text = text.replace(markdownBoldRegex, '<strong>$1</strong>');
+              // Convert blockquotes (lines starting with >)
+              text = text.replace(/^&gt;\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+              text = text.replace(/^>\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+              // Convert headers
+              text = text.replace(/^### (.*$)/gm, '<h4 style="margin: 15px 0 8px 0; font-size: 16px; font-weight: 600;">$1</h4>');
+              text = text.replace(/^## (.*$)/gm, '<h3 style="margin: 20px 0 10px 0; font-size: 18px; font-weight: 600;">$1</h3>');
+              // Convert line breaks
+              text = text.replace(/\\n/g, '<br/>');
+              
+              return '<div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #3498db;"><div style="font-size: 12px; color: #95a5a6; margin-bottom: 8px;">Entry ' + (idx + 1) + '</div>' + text + '</div>';
+            }).join('') + 
+            '</div>';
+        }
+        
+        // Check if it's markdown content objects (has .text property)
+        if (result[0]?.text) {
+          return '<div class="markdown-list" style="line-height: 1.8;">' + 
+            result.map((item, idx) => {
+              let text = item.text || '';
+              // Convert markdown links to bold HTML links (no underline)
+              text = text.replace(markdownLinkRegex, '<a href="$2" target="_blank" style="color: #3498db; text-decoration: none; font-weight: 600;">$1</a>');
+              // Convert bold
+              text = text.replace(markdownBoldRegex, '<strong>$1</strong>');
+              // Convert blockquotes
+              text = text.replace(/^&gt;\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+              text = text.replace(/^>\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+              // Add title if present
+              if (item.title) {
+                return '<div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #3498db;"><div style="font-size: 12px; color: #95a5a6; margin-bottom: 8px;">Entry ' + (idx + 1) + '</div><strong style="font-size: 16px;">' + item.title + '</strong><br/><div style="margin-top: 8px;">' + text + '</div></div>';
+              }
+              return '<div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #3498db;"><div style="font-size: 12px; color: #95a5a6; margin-bottom: 8px;">Entry ' + (idx + 1) + '</div>' + text + '</div>';
             }).join('') + 
             '</div>';
         }
         
         // Regular array - format as list
         return '<ul style="list-style: none; padding: 0;">' + 
-          result.map(item => {
+          result.map((item, idx) => {
             if (typeof item === 'object') {
               return '<li style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;"><pre style="margin: 0;">' + 
                 JSON.stringify(item, null, 2) + '</pre></li>';
             }
-            return '<li style="margin: 5px 0;">' + String(item) + '</li>';
+            return '<li style="margin: 5px 0; padding: 8px; background: #f8f9fa; border-radius: 4px;"><strong>Item ' + (idx + 1) + ':</strong> ' + String(item) + '</li>';
           }).join('') + 
           '</ul>';
       }
       
       // Handle objects
       if (typeof result === 'object' && result !== null) {
-        return '<pre style="margin: 0;">' + JSON.stringify(result, null, 2) + '</pre>';
+        return '<pre style="margin: 0; padding: 15px; background: #f8f9fa; border-radius: 6px; overflow-x: auto;">' + JSON.stringify(result, null, 2) + '</pre>';
       }
       
-      // Handle primitives
-      return '<p>' + String(result) + '</p>';
+      // Handle strings (apply markdown rendering)
+      if (typeof result === 'string') {
+        let text = result;
+        // Convert markdown links to bold HTML links (no underline)
+        text = text.replace(markdownLinkRegex, '<a href="$2" target="_blank" style="color: #3498db; text-decoration: none; font-weight: 600;">$1</a>');
+        // Convert bold
+        text = text.replace(markdownBoldRegex, '<strong>$1</strong>');
+        // Convert blockquotes (lines starting with >)
+        text = text.replace(/^&gt;\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+        text = text.replace(/^>\\s*(.*)$/gm, '<blockquote style="margin: 10px 0; padding: 10px 15px; background: #ecf0f1; border-left: 4px solid #95a5a6; color: #555;">$1</blockquote>');
+        // Convert headers
+        text = text.replace(/^### (.*$)/gm, '<h4 style="margin: 15px 0 8px 0; font-size: 16px; font-weight: 600;">$1</h4>');
+        text = text.replace(/^## (.*$)/gm, '<h3 style="margin: 20px 0 10px 0; font-size: 18px; font-weight: 600;">$1</h3>');
+        text = text.replace(/^# (.*$)/gm, '<h2 style="margin: 20px 0 10px 0; font-size: 20px; font-weight: 600;">$1</h2>');
+        // Convert line breaks
+        text = text.replace(/\\n/g, '<br/>');
+        return '<div style="padding: 15px; background: #f8f9fa; border-radius: 6px; line-height: 1.8;">' + text + '</div>';
+      }
+      
+      // Handle other primitives
+      return '<div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">' + String(result) + '</div>';
     }
 
     // Tab switching
