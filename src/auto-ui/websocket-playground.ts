@@ -11,12 +11,8 @@ import { PhotonLoader } from '../loader.js';
 import { logger } from '../shared/logger.js';
 import {
   SchemaExtractor,
-  executeGenerator,
-  isAsyncGenerator,
   type PhotonYield,
-  type EmitYield,
-  type OutputHandler,
-  type InputProvider
+  type OutputHandler
 } from '@portel/photon-core';
 
 interface PhotonInfo {
@@ -58,8 +54,8 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
 
   // Extract metadata for all photons
   const photons: PhotonInfo[] = [];
-  const photonInstances = new Map<string, any>();
-  
+  const photonMCPs = new Map<string, any>();  // Store full MCP objects
+
   // Use PhotonLoader for proper dependency management
   const loader = new PhotonLoader(false, logger);
 
@@ -77,7 +73,7 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
         continue;
       }
 
-      photonInstances.set(name, instance);
+      photonMCPs.set(name, mcp);  // Store full MCP for executeTool()
 
       // Extract schema for UI
       const extractor = new SchemaExtractor();
@@ -135,7 +131,7 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
         const message: ClientMessage = JSON.parse(data.toString());
 
         if (message.type === 'invoke') {
-          await handleInvoke(ws, message, photonInstances);
+          await handleInvoke(ws, message, photonMCPs, loader);
         } else if (message.type === 'elicitation_response') {
           // Store response for pending elicitation
           if ((ws as any).pendingElicitation) {
@@ -165,14 +161,15 @@ export async function startWebSocketPlayground(workingDir: string, port: number)
 }
 
 async function handleInvoke(
-  ws: WebSocket, 
-  request: InvokeRequest, 
-  photonInstances: Map<string, any>
+  ws: WebSocket,
+  request: InvokeRequest,
+  photonMCPs: Map<string, any>,
+  loader: PhotonLoader
 ): Promise<void> {
   const { photon, method, args } = request;
-  
-  const instance = photonInstances.get(photon);
-  if (!instance) {
+
+  const mcp = photonMCPs.get(photon);
+  if (!mcp || !mcp.instance) {
     ws.send(JSON.stringify({
       type: 'error',
       message: `Photon not found: ${photon}`
@@ -180,6 +177,7 @@ async function handleInvoke(
     return;
   }
 
+  const instance = mcp.instance;
   if (typeof instance[method] !== 'function') {
     ws.send(JSON.stringify({
       type: 'error',
@@ -189,55 +187,22 @@ async function handleInvoke(
   }
 
   try {
-    const methodResult = instance[method](args);
-
-    if (isAsyncGenerator(methodResult)) {
-      // Handle generator with yields
-      const outputHandler: OutputHandler = (yieldValue: PhotonYield) => {
-        ws.send(JSON.stringify({
-          type: 'yield',
-          data: yieldValue
-        }));
-      };
-
-      const inputProvider: InputProvider = async (yieldValue: PhotonYield): Promise<any> => {
-        // Send elicitation request
-        ws.send(JSON.stringify({
-          type: 'elicitation',
-          data: yieldValue
-        }));
-
-        // Wait for response
-        return new Promise((resolve, reject) => {
-          (ws as any).pendingElicitation = { resolve, reject };
-          
-          // Timeout after 5 minutes
-          setTimeout(() => {
-            if ((ws as any).pendingElicitation) {
-              (ws as any).pendingElicitation = null;
-              reject(new Error('Elicitation timeout'));
-            }
-          }, 300000);
-        });
-      };
-
-      const result = await executeGenerator(methodResult as AsyncGenerator<PhotonYield, any, any>, { 
-        inputProvider,
-        outputHandler
-      });
-      
+    // Create output handler for streaming progress/status events
+    const outputHandler: OutputHandler = (yieldValue: PhotonYield) => {
       ws.send(JSON.stringify({
-        type: 'result',
-        data: result
+        type: 'yield',
+        data: yieldValue
       }));
-    } else {
-      // Regular method
-      const result = await methodResult;
-      ws.send(JSON.stringify({
-        type: 'result',
-        data: result
-      }));
-    }
+    };
+
+    // Use loader.executeTool which properly sets up execution context for this.emit()
+    // and handles PhotonMCP vs plain class methods
+    const result = await loader.executeTool(mcp, method, args, { outputHandler });
+
+    ws.send(JSON.stringify({
+      type: 'result',
+      data: result
+    }));
   } catch (error) {
     ws.send(JSON.stringify({
       type: 'error',
