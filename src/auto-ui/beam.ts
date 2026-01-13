@@ -2448,6 +2448,86 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       margin-bottom: 0;
     }
 
+    .kv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+
+    .kv-table tr {
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .kv-table tr:last-child {
+      border-bottom: none;
+    }
+
+    .kv-table td {
+      padding: 10px 12px;
+    }
+
+    .kv-key {
+      color: var(--text-secondary);
+      font-weight: 500;
+      width: 40%;
+    }
+
+    .kv-value {
+      color: var(--text-primary);
+    }
+
+    .kv-value.value-true {
+      color: var(--success);
+    }
+
+    .kv-value.value-false {
+      color: var(--text-tertiary);
+    }
+
+    .kv-value.value-null {
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    .kv-value.value-number {
+      color: var(--accent-light);
+    }
+
+    .kv-value.value-object {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    .grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+
+    .grid-table th {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      font-weight: 600;
+      border-bottom: 2px solid var(--border-color);
+    }
+
+    .grid-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .grid-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .grid-table tr:hover td {
+      background: var(--bg-tertiary);
+    }
+
     .result-content a {
       color: var(--accent-light);
       text-decoration: none;
@@ -4667,6 +4747,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Handle mermaid diagrams
       if (format === 'mermaid' && typeof data === 'string') {
         renderMermaid(content, data);
+      } else if (format === 'table') {
+        // Explicit table format - render array as grid, object as key-value
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+          content.innerHTML = renderGridTable(data);
+        } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+          content.innerHTML = renderKeyValueTable(data);
+        } else {
+          content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
+        }
       } else if (Array.isArray(data)) {
         content.innerHTML = \`
           <ul class="result-list">
@@ -4679,6 +4768,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         // Check if object has a 'diagram' field with mermaid content
         if (data && data.diagram && typeof data.diagram === 'string') {
           renderMermaid(content, data.diagram);
+        } else if (data && isSimpleKeyValueObject(data)) {
+          // Auto-detect flat key-value objects and render as table
+          content.innerHTML = renderKeyValueTable(data);
         } else {
           content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
         }
@@ -4848,6 +4940,76 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return \`<li>\${renderMarkdown(item)}</li>\`;
       }
       return \`<li><pre>\${JSON.stringify(item, null, 2)}</pre></li>\`;
+    }
+
+    // Check if object is a simple flat key-value (all values are primitives)
+    function isSimpleKeyValueObject(obj) {
+      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
+      const keys = Object.keys(obj);
+      if (keys.length === 0 || keys.length > 20) return false; // Too empty or too large
+      return keys.every(key => {
+        const val = obj[key];
+        return val === null || ['string', 'number', 'boolean'].includes(typeof val);
+      });
+    }
+
+    // Render flat key-value object as a clean table
+    function renderKeyValueTable(obj) {
+      const rows = Object.entries(obj).map(([key, value]) => {
+        let displayValue = value;
+        let valueClass = '';
+        if (typeof value === 'boolean') {
+          displayValue = value ? '✓ Yes' : '✗ No';
+          valueClass = value ? 'value-true' : 'value-false';
+        } else if (value === null || value === undefined) {
+          displayValue = '—';
+          valueClass = 'value-null';
+        } else if (typeof value === 'number') {
+          valueClass = 'value-number';
+        } else if (typeof value === 'object') {
+          displayValue = JSON.stringify(value);
+          valueClass = 'value-object';
+        }
+        return \`<tr><td class="kv-key">\${key}</td><td class="kv-value \${valueClass}">\${displayValue}</td></tr>\`;
+      }).join('');
+      return \`<table class="kv-table"><tbody>\${rows}</tbody></table>\`;
+    }
+
+    // Render array of objects as a grid table with columns
+    function renderGridTable(data) {
+      if (!data || data.length === 0) return '<p>No data</p>';
+
+      // Get all unique keys from all objects
+      const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
+
+      // Build header row
+      const headerCells = keys.map(key => \`<th>\${key}</th>\`).join('');
+
+      // Build data rows
+      const rows = data.map(obj => {
+        const cells = keys.map(key => {
+          let value = obj[key];
+          let cellClass = '';
+
+          if (value === null || value === undefined) {
+            value = '—';
+            cellClass = 'value-null';
+          } else if (typeof value === 'boolean') {
+            value = value ? '✓' : '✗';
+            cellClass = value === '✓' ? 'value-true' : 'value-false';
+          } else if (typeof value === 'number') {
+            cellClass = 'value-number';
+          } else if (typeof value === 'object') {
+            value = JSON.stringify(value);
+            cellClass = 'value-object';
+          }
+
+          return \`<td class="\${cellClass}">\${value}</td>\`;
+        }).join('');
+        return \`<tr>\${cells}</tr>\`;
+      }).join('');
+
+      return \`<table class="grid-table"><thead><tr>\${headerCells}</tr></thead><tbody>\${rows}</tbody></table>\`;
     }
 
     function renderMarkdown(text) {
