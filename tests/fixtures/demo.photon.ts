@@ -160,6 +160,44 @@ export default class DemoPhoton {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Show a notification toast
+   * @param message The message to display
+   * @param type Notification type: success, error, warning, info
+   * @format primitive
+   */
+  async *showNotification(params: {
+    message: string;
+    type?: 'success' | 'error' | 'warning' | 'info';
+  }): AsyncGenerator<any> {
+    const type = params.type || 'info';
+    yield io.emit.toast(params.message, type);
+    return `Notification shown: ${params.message}`;
+  }
+
+  /**
+   * Show multiple notification types
+   * @format primitive
+   */
+  async *notificationDemo(): AsyncGenerator<any> {
+    yield io.emit.toast('This is an info message', 'info');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    yield io.emit.toast('This is a success message', 'success');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    yield io.emit.toast('This is a warning message', 'warning');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    yield io.emit.toast('This is an error message', 'error');
+
+    return 'All notifications shown!';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // ELICITATION (ASK/YIELD)
   // ═══════════════════════════════════════════════════════════════
 
