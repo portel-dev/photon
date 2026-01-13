@@ -16,6 +16,19 @@ export {
   createSessionStore,
 } from './session/store.js';
 
+// Cloudflare KV Session Store
+export { KVSessionStore, type KVNamespace } from './session/kv-store.js';
+
+// Cloudflare D1 Database
+export { D1Client, SCHEMA as D1_SCHEMA, type D1Database } from './db/d1-client.js';
+export {
+  D1TenantStore,
+  D1UserStore,
+  D1MembershipStore,
+  D1GrantStore,
+  D1ElicitationStore,
+} from './db/d1-stores.js';
+
 // JWT & Auth
 export {
   JwtService,
