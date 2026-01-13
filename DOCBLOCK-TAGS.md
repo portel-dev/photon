@@ -18,6 +18,7 @@ Photon uses JSDoc-style docblock tags to extract metadata, configure tools, and 
 | `@param` | `method` | Describes a tool parameter. Photon extracts the description for MCP/CLI help. | `* @param name User name` |
 | `@example` | `method` | Provides a code example for using the tool. Used in documentation generation. | `* @example \n * await tool.greet({ name: 'World' })` |
 | `@format` | `method` | Hints the output format for the CLI and Web interfaces. | `* @format table` |
+| `@autorun` | `method` | Auto-execute when selected in Beam UI (for idempotent methods). | `* @autorun` |
 | `@ui` | `method` | Links a tool method to a UI template defined at the class level. | `* @ui my-view` |
 | `@mcp` | `class` | Declares an MCP dependency for injection into the constructor. | `* @mcp fs filesystem` |
 | `@photon` | `class` | Declares a Photon dependency for injection into the constructor. | `* @photon auth auth-service` |

@@ -53,6 +53,7 @@ interface MethodInfo {
   description: string;
   params: any;
   returns: any;
+  autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
 }
 
 interface InvokeRequest {
@@ -219,7 +220,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           name: schema.name,
           description: schema.description || '',
           params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-          returns: { type: 'object' }
+          returns: { type: 'object' },
+          autorun: schema.autorun || false
         }));
 
       photons.push({
@@ -415,7 +417,8 @@ async function handleConfigure(
         name: schema.name,
         description: schema.description || '',
         params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-        returns: { type: 'object' }
+        returns: { type: 'object' },
+        autorun: schema.autorun || false
       }));
 
     // Replace unconfigured photon with configured one
@@ -1833,20 +1836,31 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       let html = '';
 
       for (const [key, schema] of Object.entries(properties)) {
-        const isRequired = required.includes(key);
+        // Fields with default values are not truly required
+        const hasDefault = schema.default !== undefined;
+        const isRequired = required.includes(key) && !hasDefault;
         const description = schema.description || '';
+
+        // Clean description - remove default info since we show it in placeholder
+        const cleanDesc = description.replace(/\\s*\\(default:.*?\\)/gi, '').trim();
 
         html += \`
           <div class="form-group">
             <label>
               \${key}
               \${isRequired ? '<span class="required">*</span>' : ''}
-              \${description ? \`<span class="hint">\${description}</span>\` : ''}
+              \${cleanDesc ? \`<span class="hint">\${cleanDesc}</span>\` : ''}
             </label>
             \${renderInput(key, schema, isRequired)}
           </div>
         \`;
       }
+
+      // Check if method has no required fields (all have defaults or optional)
+      const hasRequiredFields = Object.entries(properties).some(([key, schema]) => {
+        const hasDefault = schema.default !== undefined;
+        return required.includes(key) && !hasDefault;
+      });
 
       // Capitalize first letter of method name for button
       const buttonLabel = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
@@ -1859,11 +1873,47 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       form.innerHTML = html;
       form.onsubmit = handleSubmit;
+
+      // Auto-execute if method is marked as autorun and has no required fields
+      if (currentMethod.autorun && !hasRequiredFields) {
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }, 100);
+      }
+    }
+
+    // Parse enum values from description like: 'auto' | 'workflow' | 'api'
+    function parseEnumFromDescription(description) {
+      if (!description) return null;
+      // Match pattern: 'value1' | 'value2' | 'value3'
+      const match = description.match(/'([^']+)'(?:\\s*\\|\\s*'([^']+)')+/);
+      if (match) {
+        // Extract all quoted values
+        const enumMatch = description.match(/'([^']+)'/g);
+        if (enumMatch && enumMatch.length >= 2) {
+          return enumMatch.map(v => v.replace(/'/g, ''));
+        }
+      }
+      return null;
+    }
+
+    // Extract default value from description like: (default: 'auto')
+    function parseDefaultFromDescription(description) {
+      if (!description) return null;
+      const match = description.match(/\\(default:\\s*'?([^')]+)'?\\)/i);
+      return match ? match[1].trim() : null;
     }
 
     function renderInput(key, schema, isRequired) {
       const type = schema.type || 'string';
-      const enumValues = schema.enum;
+      const description = schema.description || '';
+      const defaultValue = schema.default !== undefined ? schema.default : parseDefaultFromDescription(description);
+
+      // Try to get enum from schema or parse from description
+      let enumValues = schema.enum;
+      if (!enumValues && type === 'string') {
+        enumValues = parseEnumFromDescription(description);
+      }
 
       // Check for anyOf with enum (mixed: enum values + free-form) - use autocomplete
       if (schema.anyOf) {
@@ -1873,8 +1923,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         if (enumSchema && freeFormSchema) {
           const suggestions = enumSchema.enum || [];
           const listId = \`list-\${key}\`;
+          const defaultAttr = defaultValue ? \`value="\${defaultValue}"\` : '';
           return \`
-            <input type="text" name="\${key}" list="\${listId}" \${isRequired ? 'required' : ''} placeholder="Select or enter \${key}..." />
+            <input type="text" name="\${key}" list="\${listId}" \${defaultAttr} \${isRequired ? 'required' : ''} placeholder="Select or enter \${key}..." />
             <datalist id="\${listId}">
               \${suggestions.map(v => \`<option value="\${v}">\`).join('')}
             </datalist>
@@ -1886,18 +1937,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (enumValues) {
         return \`
           <select name="\${key}" \${isRequired ? 'required' : ''}>
-            <option value="">Select \${key}...</option>
-            \${enumValues.map(v => \`<option value="\${v}">\${v}</option>\`).join('')}
+            \${!isRequired && !defaultValue ? \`<option value="">Select \${key}...</option>\` : ''}
+            \${enumValues.map(v => \`<option value="\${v}" \${v === defaultValue ? 'selected' : ''}>\${v}</option>\`).join('')}
           </select>
         \`;
       }
 
       // Boolean toggle
       if (type === 'boolean') {
+        const boolDefault = defaultValue === true || defaultValue === 'true';
         return \`
           <select name="\${key}">
-            <option value="true">true</option>
-            <option value="false">false</option>
+            <option value="true" \${boolDefault ? 'selected' : ''}>true</option>
+            <option value="false" \${!boolDefault ? 'selected' : ''}>false</option>
           </select>
         \`;
       }
@@ -1907,11 +1959,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const min = schema.minimum !== undefined ? \`min="\${schema.minimum}"\` : '';
         const max = schema.maximum !== undefined ? \`max="\${schema.maximum}"\` : '';
         const step = type === 'integer' ? 'step="1"' : '';
-        return \`<input type="number" name="\${key}" \${min} \${max} \${step} \${isRequired ? 'required' : ''} />\`;
+        const defaultAttr = defaultValue !== undefined ? \`value="\${defaultValue}"\` : '';
+        return \`<input type="number" name="\${key}" \${min} \${max} \${step} \${defaultAttr} \${isRequired ? 'required' : ''} />\`;
       }
 
       // Field names that should use textarea
-      const textareaFields = ['code', 'source', 'script', 'content', 'body', 'message', 'query', 'sql', 'html', 'css', 'json', 'yaml', 'xml', 'markdown', 'text', 'template', 'prompt', 'description'];
+      const textareaFields = ['code', 'source', 'script', 'content', 'body', 'message', 'query', 'sql', 'html', 'css', 'json', 'yaml', 'xml', 'markdown', 'text', 'template', 'prompt'];
       const keyLower = key.toLowerCase();
       const isTextareaField = textareaFields.some(f => keyLower === f || keyLower.endsWith(f) || keyLower.startsWith(f));
 
@@ -1919,7 +1972,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (type === 'string' && (schema.maxLength > 200 || schema.format === 'textarea' || schema.format === 'multiline' || schema.field === 'textarea' || isTextareaField)) {
         const maxLength = schema.maxLength ? \`maxlength="\${schema.maxLength}"\` : '';
         const rows = isTextareaField ? '8' : '4';
-        return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." rows="\${rows}" style="font-family: 'JetBrains Mono', monospace;"></textarea>\`;
+        const placeholder = defaultValue ? \`Default: \${defaultValue}\` : \`Enter \${key}...\`;
+        return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" rows="\${rows}" style="font-family: 'JetBrains Mono', monospace;">\${defaultValue || ''}</textarea>\`;
       }
 
       // Build attributes for string input
@@ -1927,6 +1981,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (schema.minLength) attrs.push(\`minlength="\${schema.minLength}"\`);
       if (schema.maxLength) attrs.push(\`maxlength="\${schema.maxLength}"\`);
       if (schema.pattern) attrs.push(\`pattern="\${schema.pattern}"\`);
+      if (defaultValue) attrs.push(\`value="\${defaultValue}"\`);
+
+      // Placeholder with default hint
+      const placeholder = defaultValue && !attrs.some(a => a.startsWith('value='))
+        ? \`Default: \${defaultValue}\`
+        : \`Enter \${key}...\`;
 
       // Special input types based on format or field
       let inputType = 'text';
@@ -1940,7 +2000,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       else if (formatOrField === 'number') inputType = 'number';
       else if (formatOrField === 'hidden') inputType = 'hidden';
 
-      return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." />\`;
+      return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" />\`;
     }
 
     function handleSubmit(e) {
