@@ -310,6 +310,20 @@ export class PhotonDocExtractor {
       cleanDesc = cleanDesc.replace(/\{@pattern\s+[^}]+\}\s*/g, '');
     }
 
+    // Extract {@choice value1,value2,...}
+    const choiceMatch = cleanDesc.match(/\{@choice\s+([^}]+)\}/);
+    if (choiceMatch) {
+      constraints.push(`choice: ${choiceMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@choice\s+[^}]+\}\s*/g, '');
+    }
+
+    // Extract {@field type}
+    const fieldMatch = cleanDesc.match(/\{@field\s+([a-z]+)\}/);
+    if (fieldMatch) {
+      constraints.push(`field: ${fieldMatch[1]}`);
+      cleanDesc = cleanDesc.replace(/\{@field\s+[a-z]+\}\s*/g, '');
+    }
+
     // Extract {@example value} - handle nested braces in JSON examples
     const exampleStart = cleanDesc.indexOf('{@example ');
     if (exampleStart !== -1) {

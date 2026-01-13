@@ -1848,11 +1848,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         \`;
       }
 
+      // Capitalize first letter of method name for button
+      const buttonLabel = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
       html += \`<button type="submit" class="btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
         </svg>
-        Run \${currentMethod.name}
+        \${buttonLabel}
       </button>\`;
 
       form.innerHTML = html;
@@ -1862,6 +1864,23 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function renderInput(key, schema, isRequired) {
       const type = schema.type || 'string';
       const enumValues = schema.enum;
+
+      // Check for anyOf with enum (mixed: enum values + free-form) - use autocomplete
+      if (schema.anyOf) {
+        const enumSchema = schema.anyOf.find(s => s.enum);
+        const freeFormSchema = schema.anyOf.find(s => !s.enum && (s.type === 'string' || s.type === 'number'));
+
+        if (enumSchema && freeFormSchema) {
+          const suggestions = enumSchema.enum || [];
+          const listId = \`list-\${key}\`;
+          return \`
+            <input type="text" name="\${key}" list="\${listId}" \${isRequired ? 'required' : ''} placeholder="Select or enter \${key}..." />
+            <datalist id="\${listId}">
+              \${suggestions.map(v => \`<option value="\${v}">\`).join('')}
+            </datalist>
+          \`;
+        }
+      }
 
       // Dropdown for enum/choice values
       if (enumValues) {
@@ -1891,10 +1910,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return \`<input type="number" name="\${key}" \${min} \${max} \${step} \${isRequired ? 'required' : ''} />\`;
       }
 
-      // Textarea for long text (maxLength > 200 or format: 'textarea')
-      if (type === 'string' && (schema.maxLength > 200 || schema.format === 'textarea' || schema.format === 'multiline')) {
+      // Field names that should use textarea
+      const textareaFields = ['code', 'source', 'script', 'content', 'body', 'message', 'query', 'sql', 'html', 'css', 'json', 'yaml', 'xml', 'markdown', 'text', 'template', 'prompt', 'description'];
+      const keyLower = key.toLowerCase();
+      const isTextareaField = textareaFields.some(f => keyLower === f || keyLower.endsWith(f) || keyLower.startsWith(f));
+
+      // Textarea for long text, explicit textarea format, or code-related field names
+      if (type === 'string' && (schema.maxLength > 200 || schema.format === 'textarea' || schema.format === 'multiline' || schema.field === 'textarea' || isTextareaField)) {
         const maxLength = schema.maxLength ? \`maxlength="\${schema.maxLength}"\` : '';
-        return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." rows="4"></textarea>\`;
+        const rows = isTextareaField ? '8' : '4';
+        return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." rows="\${rows}" style="font-family: 'JetBrains Mono', monospace;"></textarea>\`;
       }
 
       // Build attributes for string input
@@ -1903,14 +1928,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (schema.maxLength) attrs.push(\`maxlength="\${schema.maxLength}"\`);
       if (schema.pattern) attrs.push(\`pattern="\${schema.pattern}"\`);
 
-      // Special input types based on format
+      // Special input types based on format or field
       let inputType = 'text';
-      if (schema.format === 'email') inputType = 'email';
-      else if (schema.format === 'uri' || schema.format === 'url') inputType = 'url';
-      else if (schema.format === 'date') inputType = 'date';
-      else if (schema.format === 'date-time') inputType = 'datetime-local';
-      else if (schema.format === 'time') inputType = 'time';
-      else if (schema.format === 'password') inputType = 'password';
+      const formatOrField = schema.field || schema.format;
+      if (formatOrField === 'email') inputType = 'email';
+      else if (formatOrField === 'uri' || formatOrField === 'url') inputType = 'url';
+      else if (formatOrField === 'date') inputType = 'date';
+      else if (formatOrField === 'date-time' || formatOrField === 'datetime') inputType = 'datetime-local';
+      else if (formatOrField === 'time') inputType = 'time';
+      else if (formatOrField === 'password') inputType = 'password';
+      else if (formatOrField === 'number') inputType = 'number';
+      else if (formatOrField === 'hidden') inputType = 'hidden';
 
       return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="Enter \${key}..." />\`;
     }
