@@ -1653,6 +1653,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       border-left-color: var(--accent);
     }
 
+    .toast-warning {
+      border-left-color: #f59e0b;
+    }
+
     /* File browser */
     .path-input-wrapper {
       display: flex;
@@ -4082,6 +4086,28 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         showProgress(data.message);
       } else if (data.emit === 'progress') {
         showProgress(data.message || 'Processing...', data.value || 0);
+      } else if (data.emit === 'toast') {
+        // Toast notification
+        const type = data.type || 'info'; // success, error, warning, info
+        showToast(data.message, type);
+      } else if (data.emit === 'log') {
+        // Log message - show as toast
+        const level = data.level || 'info';
+        const type = level === 'error' ? 'error' : level === 'warn' ? 'warning' : 'info';
+        showToast(data.message, type);
+      } else if (data.emit === 'thinking') {
+        // Thinking indicator
+        if (data.active) {
+          showProgress('Thinking...');
+        } else {
+          hideProgress();
+        }
+      } else if (data.emit === 'stream') {
+        // Stream data - append to result
+        const content = document.getElementById('result-content');
+        if (content && typeof data.data === 'string') {
+          content.innerHTML += data.data;
+        }
       }
     }
 
