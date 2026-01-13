@@ -2534,6 +2534,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       height: auto;
       border-radius: var(--radius-md);
       margin: 1em 0;
+      cursor: zoom-in;
+      transition: transform 0.2s ease;
+    }
+    .md-image:hover {
+      transform: scale(1.02);
+    }
+
+    /* Image fullscreen viewer (reuses mermaid-fullscreen styles) */
+    #image-fullscreen-container:not(:empty) .mermaid-fullscreen {
+      cursor: default;
+    }
+    #image-fullscreen-container .mermaid-fullscreen-body {
+      cursor: grab;
+    }
+    #image-fullscreen-container .mermaid-fullscreen-body.dragging {
+      cursor: grabbing;
+    }
+    #image-fullscreen-container img {
+      max-width: none;
+      max-height: none;
+      transform-origin: center center;
     }
 
     /* Enhanced markdown: Blockquotes */
@@ -2995,6 +3016,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
   <!-- Mermaid fullscreen container (created dynamically) -->
   <div id="mermaid-fullscreen-container"></div>
+
+  <!-- Image fullscreen container (created dynamically) -->
+  <div id="image-fullscreen-container"></div>
 
   <!-- Activity Panel -->
   <div class="activity-panel" id="activity-panel">
@@ -4612,6 +4636,31 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     });
 
+    // Event delegation for mermaid inline toolbar (zoom, reset, fullscreen buttons)
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mermaid-toolbar button');
+      if (!btn) return;
+
+      const wrapper = btn.closest('.mermaid-wrapper');
+      if (!wrapper) return;
+
+      const mermaidEl = wrapper.querySelector('.mermaid-inline');
+      if (!mermaidEl) return;
+
+      const id = mermaidEl.id;
+      const title = btn.getAttribute('title') || '';
+
+      if (title === 'Zoom in') {
+        mermaidZoom(id, 0.2);
+      } else if (title === 'Zoom out') {
+        mermaidZoom(id, -0.2);
+      } else if (title === 'Reset') {
+        mermaidReset(id);
+      } else if (title === 'Fullscreen') {
+        mermaidFullscreen(id);
+      }
+    });
+
     function mermaidFsZoom(delta) {
       const state = window.mermaidFsState;
       state.scale = Math.max(0.1, Math.min(10, state.scale + delta));
@@ -4678,10 +4727,163 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }, { passive: false });
     }
 
+    // ========== Image Fullscreen Viewer ==========
+    window.imageFsState = { scale: 1, translateX: 0, translateY: 0 };
+
+    function openImageFullscreen(src, alt) {
+      const container = document.getElementById('image-fullscreen-container');
+      container.innerHTML = \`
+        <div class="mermaid-fullscreen">
+          <div class="mermaid-fullscreen-header">
+            <div class="mermaid-fullscreen-controls">
+              <button data-action="zoom-out">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom Out
+              </button>
+              <div class="mermaid-fullscreen-zoom">
+                <span id="image-fs-zoom-level">100%</span>
+              </div>
+              <button data-action="zoom-in">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom In
+              </button>
+              <button data-action="reset">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+                Reset
+              </button>
+            </div>
+            <button data-action="close">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
+            </button>
+          </div>
+          <div class="mermaid-fullscreen-body" id="image-fs-body">
+            <img id="image-fs-content" src="\${src}" alt="\${alt || ''}" style="transform: scale(1)">
+          </div>
+        </div>
+      \`;
+
+      window.imageFsState = { scale: 1, translateX: 0, translateY: 0 };
+      document.body.style.overflow = 'hidden';
+      setupImageFsDrag();
+    }
+
+    function closeImageFullscreen() {
+      document.getElementById('image-fullscreen-container').innerHTML = '';
+      document.body.style.overflow = '';
+    }
+
+    function imageFsZoom(delta) {
+      const state = window.imageFsState;
+      state.scale = Math.max(0.1, Math.min(10, state.scale + delta));
+      applyImageFsTransform();
+      const zoomEl = document.getElementById('image-fs-zoom-level');
+      if (zoomEl) zoomEl.textContent = Math.round(state.scale * 100) + '%';
+    }
+
+    function imageFsReset() {
+      window.imageFsState = { scale: 1, translateX: 0, translateY: 0 };
+      applyImageFsTransform();
+      const zoomEl = document.getElementById('image-fs-zoom-level');
+      if (zoomEl) zoomEl.textContent = '100%';
+    }
+
+    function applyImageFsTransform() {
+      const state = window.imageFsState;
+      const img = document.getElementById('image-fs-content');
+      if (img) {
+        img.style.transform = \`translate(\${state.translateX}px, \${state.translateY}px) scale(\${state.scale})\`;
+      }
+    }
+
+    function setupImageFsDrag() {
+      const body = document.getElementById('image-fs-body');
+      if (!body) return;
+
+      let isDragging = false;
+      let startX, startY, startTranslateX, startTranslateY;
+
+      body.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        isDragging = true;
+        body.classList.add('dragging');
+        startX = e.clientX;
+        startY = e.clientY;
+        startTranslateX = window.imageFsState.translateX;
+        startTranslateY = window.imageFsState.translateY;
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        window.imageFsState.translateX = startTranslateX + dx;
+        window.imageFsState.translateY = startTranslateY + dy;
+        applyImageFsTransform();
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          body.classList.remove('dragging');
+        }
+      });
+
+      body.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        imageFsZoom(delta);
+      }, { passive: false });
+    }
+
+    // Event delegation for image fullscreen controls
+    document.getElementById('image-fullscreen-container').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+
+      const action = btn.dataset.action;
+      if (action === 'close') {
+        closeImageFullscreen();
+      } else if (action === 'zoom-out') {
+        imageFsZoom(-0.2);
+      } else if (action === 'zoom-in') {
+        imageFsZoom(0.2);
+      } else if (action === 'reset') {
+        imageFsReset();
+      }
+    });
+
+    // Click on images to open fullscreen
+    document.addEventListener('click', (e) => {
+      const img = e.target.closest('.md-image');
+      if (img) {
+        openImageFullscreen(img.src, img.alt);
+      }
+    });
+
     // Close modals on Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (document.getElementById('mermaid-fullscreen-container').innerHTML) {
+        if (document.getElementById('image-fullscreen-container').innerHTML) {
+          closeImageFullscreen();
+        } else if (document.getElementById('mermaid-fullscreen-container').innerHTML) {
           closeMermaidFullscreen();
         } else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
           closeResultViewer();
