@@ -7,6 +7,7 @@
 
 import * as http from 'http';
 import * as fs from 'fs/promises';
+import { watch, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Writable } from 'stream';
@@ -278,7 +279,21 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   // Create WebSocket server
   const wss = new WebSocketServer({ server });
 
+  // Track connected clients for broadcasting
+  const clients = new Set<WebSocket>();
+
+  // Broadcast to all connected clients
+  const broadcast = (message: object) => {
+    const data = JSON.stringify(message);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    }
+  };
+
   wss.on('connection', (ws: WebSocket) => {
+    clients.add(ws);
 
     // Send photon list on connection
     ws.send(JSON.stringify({
@@ -314,9 +329,118 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     });
 
     ws.on('close', () => {
-      // Client disconnected
+      clients.delete(ws);
     });
   });
+
+  // File watcher for hot reload
+  const watchers: FSWatcher[] = [];
+  const pendingReloads = new Map<string, NodeJS.Timeout>();
+
+  // Determine which photon a file change belongs to
+  const getPhotonForPath = (changedPath: string): string | null => {
+    const relativePath = path.relative(workingDir, changedPath);
+    const parts = relativePath.split(path.sep);
+
+    // Direct .photon.ts file change
+    if (relativePath.endsWith('.photon.ts')) {
+      return path.basename(relativePath, '.photon.ts');
+    }
+
+    // Asset folder change - first segment is the photon name
+    if (parts.length > 1) {
+      const folderName = parts[0];
+      // Check if corresponding .photon.ts exists
+      const photon = photons.find(p => p.name === folderName);
+      if (photon) {
+        return folderName;
+      }
+    }
+
+    return null;
+  };
+
+  // Handle file change with debounce
+  const handleFileChange = async (photonName: string) => {
+    // Clear any pending reload for this photon
+    const pending = pendingReloads.get(photonName);
+    if (pending) clearTimeout(pending);
+
+    // Debounce - wait 100ms for batch saves
+    pendingReloads.set(photonName, setTimeout(async () => {
+      pendingReloads.delete(photonName);
+
+      const photonIndex = photons.findIndex(p => p.name === photonName);
+      if (photonIndex === -1) return;
+
+      const photon = photons[photonIndex];
+      logger.info(`🔄 File change detected, reloading ${photonName}...`);
+
+      try {
+        // Reload the photon
+        const mcp = await loader.reloadFile(photon.path);
+        if (!mcp.instance) throw new Error('Failed to create instance');
+
+        photonMCPs.set(photonName, mcp);
+
+        // Re-extract schema
+        const extractor = new SchemaExtractor();
+        const schemas = await extractor.extractFromFile(photon.path);
+
+        const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+        const methods: MethodInfo[] = schemas
+          .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+          .map((schema: any) => ({
+            name: schema.name,
+            description: schema.description || '',
+            params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+            returns: { type: 'object' },
+            autorun: schema.autorun || false
+          }));
+
+        const reloadedPhoton: PhotonInfo = {
+          name: photonName,
+          path: photon.path,
+          configured: true,
+          methods
+        };
+
+        photons[photonIndex] = reloadedPhoton;
+
+        // Broadcast to all clients
+        broadcast({
+          type: 'hot-reload',
+          photon: reloadedPhoton
+        });
+
+        logger.info(`✅ ${photonName} hot reloaded`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
+        broadcast({
+          type: 'hot-reload-error',
+          photon: photonName,
+          message: errorMsg.slice(0, 200)
+        });
+      }
+    }, 100));
+  };
+
+  // Watch working directory recursively
+  try {
+    const watcher = watch(workingDir, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+      const fullPath = path.join(workingDir, filename);
+      const photonName = getPhotonForPath(fullPath);
+      if (photonName) {
+        handleFileChange(photonName);
+      }
+    });
+    watchers.push(watcher);
+    logger.info(`👀 Watching for changes in ${workingDir}`);
+  } catch (error) {
+    logger.warn(`File watching not available: ${error}`);
+  }
 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
@@ -2022,6 +2146,41 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         case 'removed':
           handleRemoved(message.photon, message.photons);
           break;
+        case 'hot-reload':
+          handleHotReload(message.photon);
+          break;
+        case 'hot-reload-error':
+          showToast(\`Hot reload failed: \${message.photon}\`, 'error');
+          break;
+      }
+    }
+
+    function handleHotReload(photon) {
+      showToast(\`\${photon.name} updated\`, 'info');
+
+      // Update photon in list
+      const index = photons.findIndex(p => p.name === photon.name);
+      if (index !== -1) {
+        photons[index] = photon;
+        renderPhotonList();
+
+        // Re-select the current method if we're viewing this photon
+        if (currentPhoton && currentPhoton.name === photon.name) {
+          currentPhoton = photon;
+          if (currentMethod) {
+            const method = photon.methods.find(m => m.name === currentMethod.name);
+            if (method) {
+              currentMethod = method;
+              renderMethodView();
+            } else {
+              // Method was removed, show first available
+              if (photon.methods.length > 0) {
+                currentMethod = photon.methods[0];
+                renderMethodView();
+              }
+            }
+          }
+        }
       }
     }
 
