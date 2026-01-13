@@ -103,6 +103,23 @@ export {
   type ClientMetadataDocument,
 } from './auth/well-known.js';
 
+// Runtime (OAuth-aware execution)
+export {
+  OAuthContext,
+  OAuthElicitationRequired,
+  createOAuthInputProvider,
+  PhotonExecutor,
+  isOAuthElicitationError,
+  formatElicitationToolResponse,
+  type OAuthAsk,
+  type OAuthResponse,
+  type OAuthContextConfig,
+  type OAuthInputProvider,
+  type ExecutorConfig,
+  type ExecutionContext,
+  type ExecutionResult,
+} from './runtime/index.js';
+
 // ============================================================================
 // SERV Instance
 // ============================================================================
@@ -115,6 +132,7 @@ import { TenantResolver, MemoryTenantStore, type TenantStore } from './middlewar
 import { AuthMiddleware, type UserStore, type MembershipStore } from './middleware/auth.js';
 import { OAuthProviderRegistry, OAuthFlowHandler, MemoryElicitationStore, MemoryGrantStore } from './auth/oauth.js';
 import type { WellKnownConfig } from './auth/well-known.js';
+import { PhotonExecutor, type ExecutionContext } from './runtime/index.js';
 
 export interface ServConfig {
   /** Base URL (e.g., 'https://serv.example.com') */
@@ -256,6 +274,23 @@ export class Serv {
     userId?: string
   ): Promise<{ valid: boolean; token?: string }> {
     return this.oauthFlow.checkGrant(tenantId, photonId, provider, requiredScopes, userId);
+  }
+
+  /**
+   * Create a PhotonExecutor for running photons with OAuth support
+   */
+  createExecutor(): PhotonExecutor {
+    return new PhotonExecutor({
+      oauthFlow: this.oauthFlow,
+      tokenVault: this.tokenVault,
+    });
+  }
+
+  /**
+   * Create an execution context for a photon
+   */
+  createExecutionContext(session: Session, tenant: Tenant, photonId: string): ExecutionContext {
+    return { session, tenant, photonId };
   }
 
   /**

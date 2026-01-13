@@ -1332,6 +1332,97 @@ program
   });
 
 
+// Serv command: local multi-tenant MCP server for testing
+program
+  .command('serv')
+  .option('-p, --port <number>', 'Port to run on', '4000')
+  .option('-d, --debug', 'Enable debug logging')
+  .description('Start local SERV - multi-tenant MCP hosting for development')
+  .action(async (options: any) => {
+    try {
+      const port = parseInt(options.port, 10);
+      const availablePort = await findAvailablePort(port);
+
+      if (availablePort !== port) {
+        console.error(`⚠️  Port ${port} is in use, using ${availablePort} instead\n`);
+      }
+
+      // Import and start LocalServ
+      const { createLocalServ, getTestToken } = await import('./serv/local.js');
+      const { serv, tenant, user } = createLocalServ({
+        port: availablePort,
+        baseUrl: `http://localhost:${availablePort}`,
+        debug: options.debug,
+      });
+
+      // Get a test token
+      const token = await getTestToken(serv, tenant, user);
+
+      console.error(`
+⚡ SERV Local Development Server
+
+   URL:     http://localhost:${availablePort}
+   Tenant:  ${tenant.slug} (${tenant.name})
+   User:    ${user.email}
+
+   Test Token:
+   ${token}
+
+   MCP Endpoint:
+   http://localhost:${availablePort}/tenant/${tenant.slug}/mcp
+
+   Well-Known:
+   http://localhost:${availablePort}/.well-known/oauth-protected-resource
+
+Press Ctrl+C to stop
+`);
+
+      // Simple HTTP server
+      const http = await import('http');
+      const server = http.createServer(async (req, res) => {
+        const url = req.url || '/';
+        const method = req.method || 'GET';
+        const headers: Record<string, string> = {};
+        for (const [key, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers[key] = value;
+        }
+
+        // Read body if present
+        let body = '';
+        if (method === 'POST') {
+          body = await new Promise((resolve) => {
+            let data = '';
+            req.on('data', chunk => data += chunk);
+            req.on('end', () => resolve(data));
+          });
+        }
+
+        const result = await serv.handleRequest(method, url, headers, body);
+
+        res.writeHead(result.status, result.headers);
+        res.end(result.body);
+      });
+
+      server.listen(availablePort);
+
+      // Handle shutdown
+      const shutdown = async () => {
+        console.error('\nShutting down SERV...');
+        await serv.shutdown();
+        server.close();
+        process.exit(0);
+      };
+
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+
+    } catch (error) {
+      logger.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+
 // Deploy command: deploy Photon to cloud platforms
 program
   .command('deploy')
@@ -2935,14 +3026,14 @@ const RESERVED_COMMANDS = [
   'cli', 'alias', 'unalias', 'aliases',
   // Hidden/advanced
   'mcp', 'search', 'marketplace', 'maker', 'deploy', 'cf-dev',
-  'diagram', 'diagrams', 'enable', 'disable',
+  'diagram', 'diagrams', 'enable', 'disable', 'serv',
   // Help/version (handled by commander)
   'help', '--help', '-h', 'version', '--version', '-V',
 ];
 
 // All known commands for "did you mean" suggestions
 const knownCommands = [
-  'serve', 'beam', 'list', 'ls', 'info',
+  'serve', 'beam', 'list', 'ls', 'info', 'serv',
   'new', 'init', 'validate', 'sync',
   'add', 'remove', 'rm', 'upgrade', 'up', 'update',
   'clear-cache', 'clean', 'doctor',
