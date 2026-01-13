@@ -4287,22 +4287,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return required.includes(key) && !hasDefault;
       });
 
-      // Capitalize first letter of method name for button
-      const buttonLabel = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
-      html += \`<button type="submit" class="btn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        \${buttonLabel}
-      </button>\`;
+      // Check if method will auto-execute (no user input needed)
+      const noParams = Object.keys(properties).length === 0;
+      const willAutoExecute = noParams || (!hasRequiredFields && currentMethod.autorun) || (!hasRequiredFields && currentMethod.linkedUi);
+
+      // Only show the Run button if user input is needed (not auto-executing)
+      // Auto-executing methods can be re-run via the Reload option in settings menu
+      if (!willAutoExecute) {
+        const buttonLabel = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
+        html += \`<button type="submit" class="btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          \${buttonLabel}
+        </button>\`;
+      }
 
       form.innerHTML = html;
       form.onsubmit = handleSubmit;
 
       // Auto-execute if method has no required fields (no user input needed)
-      // This includes: methods with no params, methods with all defaults, or explicit autorun
-      const noParams = Object.keys(properties).length === 0;
-      if (noParams || (!hasRequiredFields && currentMethod.autorun) || (!hasRequiredFields && currentMethod.linkedUi)) {
+      if (willAutoExecute) {
         setTimeout(() => {
           form.dispatchEvent(new Event('submit', { cancelable: true }));
         }, 100);
