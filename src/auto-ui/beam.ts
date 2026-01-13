@@ -4595,6 +4595,23 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.body.style.overflow = '';
     }
 
+    // Event delegation for mermaid fullscreen controls
+    document.getElementById('mermaid-fullscreen-container').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+
+      const text = btn.textContent.trim();
+      if (text.includes('Close')) {
+        closeMermaidFullscreen();
+      } else if (text.includes('Zoom Out')) {
+        mermaidFsZoom(-0.2);
+      } else if (text.includes('Zoom In')) {
+        mermaidFsZoom(0.2);
+      } else if (text.includes('Reset')) {
+        mermaidFsReset();
+      }
+    });
+
     function mermaidFsZoom(delta) {
       const state = window.mermaidFsState;
       state.scale = Math.max(0.1, Math.min(10, state.scale + delta));
