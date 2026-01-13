@@ -272,6 +272,47 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // File browser API
+    if (url.pathname === '/api/browse') {
+      res.setHeader('Content-Type', 'application/json');
+      const dirPath = url.searchParams.get('path') || workingDir;
+
+      try {
+        const resolved = path.resolve(dirPath);
+        const stat = await fs.stat(resolved);
+
+        if (!stat.isDirectory()) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Not a directory' }));
+          return;
+        }
+
+        const entries = await fs.readdir(resolved, { withFileTypes: true });
+        const items = entries
+          .filter(e => !e.name.startsWith('.'))
+          .map(e => ({
+            name: e.name,
+            path: path.join(resolved, e.name),
+            isDirectory: e.isDirectory()
+          }))
+          .sort((a, b) => {
+            if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+            return a.name.localeCompare(b.name);
+          });
+
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          path: resolved,
+          parent: path.dirname(resolved),
+          items
+        }));
+      } catch (error) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to read directory' }));
+      }
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });
@@ -1502,6 +1543,183 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       border-left-color: var(--accent);
     }
 
+    /* File browser */
+    .path-input-wrapper {
+      display: flex;
+      gap: 8px;
+    }
+
+    .path-input-wrapper input {
+      flex: 1;
+    }
+
+    .browse-btn {
+      padding: 10px 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .browse-btn:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .file-browser-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 150;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .file-browser-overlay.visible {
+      display: flex;
+    }
+
+    .file-browser {
+      background: var(--bg-elevated);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .file-browser-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .file-browser-header h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--text-primary);
+    }
+
+    .file-browser-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      font-size: 20px;
+    }
+
+    .file-browser-path {
+      padding: 12px 20px;
+      background: var(--bg-tertiary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .file-browser-path button {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .file-browser-path button:hover {
+      color: var(--text-primary);
+    }
+
+    .file-browser-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .file-browser-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+      color: var(--text-primary);
+    }
+
+    .file-browser-item:hover {
+      background: var(--bg-secondary);
+    }
+
+    .file-browser-item.selected {
+      background: var(--accent);
+      color: white;
+    }
+
+    .file-browser-item.directory {
+      color: var(--accent);
+    }
+
+    .file-browser-item.directory.selected {
+      color: white;
+    }
+
+    .file-browser-item .icon {
+      width: 18px;
+      text-align: center;
+      opacity: 0.7;
+    }
+
+    .file-browser-item .name {
+      flex: 1;
+      font-size: 14px;
+    }
+
+    .file-browser-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .file-browser-footer button {
+      padding: 8px 16px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .file-browser-footer .cancel-btn {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+    }
+
+    .file-browser-footer .select-btn {
+      background: var(--accent);
+      border: none;
+      color: white;
+    }
+
+    .file-browser-footer .select-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* Result container */
     .result-container {
       margin-top: 32px;
@@ -1948,6 +2166,25 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     <div class="elicitation-content">
       <h3 id="elicitation-title"></h3>
       <div id="elicitation-form"></div>
+    </div>
+  </div>
+
+  <!-- File browser modal -->
+  <div class="file-browser-overlay" id="file-browser-overlay">
+    <div class="file-browser">
+      <div class="file-browser-header">
+        <h3>Select File</h3>
+        <button class="file-browser-close" onclick="closeFileBrowser()">&times;</button>
+      </div>
+      <div class="file-browser-path">
+        <button onclick="browseParent()">↑ Up</button>
+        <span id="file-browser-current-path"></span>
+      </div>
+      <div class="file-browser-list" id="file-browser-list"></div>
+      <div class="file-browser-footer">
+        <button class="cancel-btn" onclick="closeFileBrowser()">Cancel</button>
+        <button class="select-btn" id="file-browser-select" disabled onclick="selectFile()">Select</button>
+      </div>
     </div>
   </div>
 
@@ -2705,6 +2942,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       else if (formatOrField === 'number') inputType = 'number';
       else if (formatOrField === 'hidden') inputType = 'hidden';
 
+      // Detect path/file fields - add file browser
+      const pathFields = ['path', 'filepath', 'file', 'filename', 'dir', 'directory', 'folder'];
+      const isPathField = pathFields.some(f => keyLower === f || keyLower.endsWith(f) || keyLower.endsWith('path') || keyLower.endsWith('file')) || formatOrField === 'path' || formatOrField === 'file';
+
+      if (isPathField) {
+        return \`
+          <div class="path-input-wrapper">
+            <input type="text" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" />
+            <button type="button" class="browse-btn" onclick="openFileBrowser('\${key}')">Browse</button>
+          </div>
+        \`;
+      }
+
       return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" />\`;
     }
 
@@ -2783,6 +3033,94 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       container.id = 'toast-container';
       document.body.appendChild(container);
       return container;
+    }
+
+    // File browser state
+    let fileBrowserCallback = null;
+    let fileBrowserCurrentPath = '';
+    let fileBrowserSelectedPath = null;
+
+    function openFileBrowser(inputId) {
+      fileBrowserCallback = inputId;
+      fileBrowserSelectedPath = null;
+      document.getElementById('file-browser-select').disabled = true;
+      document.getElementById('file-browser-overlay').classList.add('visible');
+      browsePath('');
+    }
+
+    function closeFileBrowser() {
+      document.getElementById('file-browser-overlay').classList.remove('visible');
+      fileBrowserCallback = null;
+      fileBrowserSelectedPath = null;
+    }
+
+    async function browsePath(dirPath) {
+      try {
+        const url = dirPath ? \`/api/browse?path=\${encodeURIComponent(dirPath)}\` : '/api/browse';
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.error) {
+          showToast(data.error, 'error');
+          return;
+        }
+
+        fileBrowserCurrentPath = data.path;
+        document.getElementById('file-browser-current-path').textContent = data.path;
+
+        const list = document.getElementById('file-browser-list');
+        list.innerHTML = data.items.map(item => \`
+          <div class="file-browser-item \${item.isDirectory ? 'directory' : ''}"
+               onclick="handleBrowserItemClick('\${item.path.replace(/'/g, "\\\\'")}', \${item.isDirectory})"
+               ondblclick="handleBrowserItemDblClick('\${item.path.replace(/'/g, "\\\\'")}', \${item.isDirectory})">
+            <span class="icon">\${item.isDirectory ? '📁' : '📄'}</span>
+            <span class="name">\${item.name}</span>
+          </div>
+        \`).join('');
+      } catch (error) {
+        showToast('Failed to browse directory', 'error');
+      }
+    }
+
+    function browseParent() {
+      const parent = fileBrowserCurrentPath.split('/').slice(0, -1).join('/') || '/';
+      browsePath(parent);
+    }
+
+    function handleBrowserItemClick(itemPath, isDirectory) {
+      // Remove previous selection
+      document.querySelectorAll('.file-browser-item.selected').forEach(el => el.classList.remove('selected'));
+
+      // Select this item
+      const items = document.querySelectorAll('.file-browser-item');
+      items.forEach(el => {
+        if (el.textContent.includes(itemPath.split('/').pop())) {
+          el.classList.add('selected');
+        }
+      });
+
+      fileBrowserSelectedPath = itemPath;
+      document.getElementById('file-browser-select').disabled = false;
+    }
+
+    function handleBrowserItemDblClick(itemPath, isDirectory) {
+      if (isDirectory) {
+        browsePath(itemPath);
+      } else {
+        fileBrowserSelectedPath = itemPath;
+        selectFile();
+      }
+    }
+
+    function selectFile() {
+      if (!fileBrowserSelectedPath || !fileBrowserCallback) return;
+
+      const input = document.querySelector(\`input[name="\${fileBrowserCallback}"]\`);
+      if (input) {
+        input.value = fileBrowserSelectedPath;
+      }
+
+      closeFileBrowser();
     }
 
     function handleYield(data) {
