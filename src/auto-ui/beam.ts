@@ -278,9 +278,21 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     if (url.pathname === '/api/browse') {
       res.setHeader('Content-Type', 'application/json');
       const dirPath = url.searchParams.get('path') || workingDir;
+      const root = url.searchParams.get('root');
 
       try {
         const resolved = path.resolve(dirPath);
+
+        // Validate path is within root (if specified)
+        if (root) {
+          const resolvedRoot = path.resolve(root);
+          if (!resolved.startsWith(resolvedRoot)) {
+            res.writeHead(403);
+            res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
+            return;
+          }
+        }
+
         const stat = await fs.stat(resolved);
 
         if (!stat.isDirectory()) {
@@ -291,7 +303,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         const entries = await fs.readdir(resolved, { withFileTypes: true });
         const items = entries
-          .filter(e => !e.name.startsWith('.'))
+          .filter(e => !e.name.startsWith('.') || e.name === '.photon')
           .map(e => ({
             name: e.name,
             path: path.join(resolved, e.name),
@@ -306,12 +318,47 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         res.end(JSON.stringify({
           path: resolved,
           parent: path.dirname(resolved),
+          root: root ? path.resolve(root) : null,
           items
         }));
       } catch (error) {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to read directory' }));
       }
+      return;
+    }
+
+    // Get photon's workdir (if applicable)
+    if (url.pathname === '/api/photon-workdir') {
+      res.setHeader('Content-Type', 'application/json');
+      const photonName = url.searchParams.get('name');
+
+      if (!photonName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon name' }));
+        return;
+      }
+
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Photon not found' }));
+        return;
+      }
+
+      // Known photons with workdir constraints
+      // The filesystem photon defaults to ~/.photon
+      let photonWorkdir: string | null = null;
+      if (photonName === 'filesystem') {
+        photonWorkdir = process.env.FILESYSTEM_WORKDIR || path.join(os.homedir(), '.photon');
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        name: photonName,
+        workdir: photonWorkdir,
+        defaultWorkdir: workingDir
+      }));
       return;
     }
 
@@ -3804,24 +3851,46 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     let fileBrowserCallback = null;
     let fileBrowserCurrentPath = '';
     let fileBrowserSelectedPath = null;
+    let fileBrowserRoot = null;
 
-    function openFileBrowser(inputId) {
+    async function openFileBrowser(inputId) {
       fileBrowserCallback = inputId;
       fileBrowserSelectedPath = null;
+      fileBrowserRoot = null;
       document.getElementById('file-browser-select').disabled = true;
       document.getElementById('file-browser-overlay').classList.add('visible');
-      browsePath('');
+
+      // Try to get photon's workdir for path constraint
+      if (currentPhoton) {
+        try {
+          const res = await fetch(\`/api/photon-workdir?name=\${encodeURIComponent(currentPhoton.name)}\`);
+          const data = await res.json();
+          if (data.workdir) {
+            fileBrowserRoot = data.workdir;
+          }
+        } catch (e) {
+          // Ignore - will use default
+        }
+      }
+
+      browsePath(fileBrowserRoot || '');
     }
 
     function closeFileBrowser() {
       document.getElementById('file-browser-overlay').classList.remove('visible');
       fileBrowserCallback = null;
       fileBrowserSelectedPath = null;
+      fileBrowserRoot = null;
     }
 
     async function browsePath(dirPath) {
       try {
-        const url = dirPath ? \`/api/browse?path=\${encodeURIComponent(dirPath)}\` : '/api/browse';
+        let url = '/api/browse';
+        const params = new URLSearchParams();
+        if (dirPath) params.set('path', dirPath);
+        if (fileBrowserRoot) params.set('root', fileBrowserRoot);
+        if (params.toString()) url += '?' + params.toString();
+
         const res = await fetch(url);
         const data = await res.json();
 
@@ -3849,6 +3918,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function browseParent() {
       const parent = fileBrowserCurrentPath.split('/').slice(0, -1).join('/') || '/';
+      // Don't go above root
+      if (fileBrowserRoot && !parent.startsWith(fileBrowserRoot)) {
+        showToast('Cannot navigate above allowed directory', 'warning');
+        return;
+      }
       browsePath(parent);
     }
 
