@@ -4266,8 +4266,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
         // Inject the data into the template
         // The template expects window.__PHOTON_DATA__ to be set
-        const dataScript = \`<script>window.__PHOTON_DATA__ = \${JSON.stringify(data)};</script>\`;
-        const modifiedTemplate = template.replace('</head>', \`\${dataScript}</head>\`);
+        const dataScript = '<scr' + 'ipt>window.__PHOTON_DATA__ = ' + JSON.stringify(data) + ';<\/scr' + 'ipt>';
+        const modifiedTemplate = template.replace('</head>', dataScript + '</head>');
 
         // Create a blob URL for the iframe
         const blob = new Blob([modifiedTemplate], { type: 'text/html' });
