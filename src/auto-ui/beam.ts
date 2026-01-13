@@ -1510,6 +1510,104 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     let currentPhoton = null;
     let currentMethod = null;
 
+    // Hash-based routing
+    function updateHash(photonName, methodName) {
+      const hash = methodName ? \`#\${photonName}/\${methodName}\` : \`#\${photonName}\`;
+      if (window.location.hash !== hash) {
+        history.pushState(null, '', hash);
+      }
+    }
+
+    function parseHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return null;
+      const parts = hash.split('/');
+      return {
+        photon: parts[0] || null,
+        method: parts[1] || null
+      };
+    }
+
+    function restoreFromHash() {
+      const route = parseHash();
+      if (!route || !route.photon) return;
+
+      const photon = photons.find(p => p.name === route.photon);
+      if (!photon) return;
+
+      if (!photon.configured) {
+        // Show configuration view for unconfigured photon
+        selectUnconfiguredByName(route.photon);
+        return;
+      }
+
+      // Expand the photon in sidebar
+      const methodList = document.getElementById(\`methods-\${route.photon}\`);
+      const header = document.querySelector(\`[data-photon="\${route.photon}"]\`);
+      if (methodList) methodList.classList.add('expanded');
+      if (header) header.classList.add('expanded');
+
+      if (route.method) {
+        const method = photon.methods?.find(m => m.name === route.method);
+        if (method) {
+          // Select the method
+          selectMethodByName(route.photon, route.method);
+        }
+      }
+    }
+
+    function selectMethodByName(photonName, methodName) {
+      currentPhoton = photons.find(p => p.name === photonName);
+      if (!currentPhoton) return;
+      currentMethod = currentPhoton.methods?.find(m => m.name === methodName);
+      if (!currentMethod) return;
+
+      // Update selection in sidebar
+      document.querySelectorAll('.method-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      const methodItem = document.querySelector(\`.method-item[onclick*="'\${methodName}'"]\`);
+      if (methodItem) methodItem.classList.add('selected');
+
+      // Show method view
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('method-view').style.display = 'flex';
+      document.getElementById('method-title').textContent = \`\${photonName}.\${methodName}()\`;
+      document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
+
+      renderForm();
+      document.getElementById('result-container').classList.remove('visible');
+    }
+
+    function selectUnconfiguredByName(photonName) {
+      currentPhoton = photons.find(p => p.name === photonName);
+      if (!currentPhoton || currentPhoton.configured) return;
+      currentMethod = null;
+
+      // Update selection in sidebar
+      document.querySelectorAll('.method-item, .photon-header').forEach(el => {
+        el.classList.remove('selected');
+      });
+      const header = document.querySelector(\`[data-photon="\${photonName}"]\`);
+      if (header) header.classList.add('selected');
+
+      // Show config view in main area
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('method-view').style.display = 'none';
+      document.getElementById('config-view').style.display = 'flex';
+
+      // Update config view content
+      document.getElementById('config-title').textContent = photonName;
+      document.getElementById('config-description').textContent = currentPhoton.errorMessage || 'Configure this photon to enable its features';
+
+      renderConfigForm();
+    }
+
+    // Listen for browser back/forward
+    window.addEventListener('popstate', () => {
+      restoreFromHash();
+    });
+
     // Mobile menu handling
     const mobileMenuBtn = document.getElementById('mobile-menu-btn');
     const sidebar = document.getElementById('sidebar');
@@ -1577,6 +1675,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         case 'photons':
           photons = message.data;
           renderPhotonList();
+          // Restore navigation state from URL hash
+          setTimeout(() => restoreFromHash(), 50);
           break;
         case 'yield':
           handleYield(message.data);
@@ -1662,6 +1762,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function selectUnconfigured(photonName) {
       currentPhoton = photons.find(p => p.name === photonName);
       currentMethod = null;
+
+      // Update URL hash
+      updateHash(photonName, null);
 
       // Update selection in sidebar
       document.querySelectorAll('.method-item, .photon-header').forEach(el => {
@@ -1800,6 +1903,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function selectMethod(photonName, methodName, e) {
       currentPhoton = photons.find(p => p.name === photonName);
       currentMethod = currentPhoton.methods.find(m => m.name === methodName);
+
+      // Update URL hash
+      updateHash(photonName, methodName);
 
       // Update selection
       document.querySelectorAll('.method-item').forEach(el => {
