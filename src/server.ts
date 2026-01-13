@@ -40,6 +40,14 @@ export class HotReloadDisabledError extends Error {
 
 export type TransportType = 'stdio' | 'sse';
 
+/**
+ * UI format types for client compatibility
+ * - 'sep-1865': SEP-1865 standard (Anthropic + OpenAI unified format)
+ * - 'photon': Legacy Photon format
+ * - 'none': Text-only, no UI support
+ */
+export type UIFormat = 'sep-1865' | 'photon' | 'none';
+
 export interface PhotonServerOptions {
   filePath: string;
   devMode?: boolean;
@@ -153,6 +161,93 @@ export class PhotonServer {
   }
 
   /**
+   * Detect UI format based on client capabilities
+   *
+   * SEP-1865 clients advertise ui capability in experimental or root capabilities.
+   * Legacy Photon clients may not have explicit UI capability but support photon:// URIs.
+   * Text-only clients have no UI support.
+   *
+   * @param server - Optional server instance (for SSE sessions), defaults to main server
+   */
+  private getUIFormat(server?: Server): UIFormat {
+    const targetServer = server || this.server;
+    const capabilities = targetServer.getClientCapabilities();
+
+    if (!capabilities) {
+      // Before initialization or no capabilities - assume legacy Photon
+      return 'photon';
+    }
+
+    // Check for SEP-1865 UI capability
+    // SEP-1865 clients advertise: { experimental: { ui: {} } } or { ui: {} }
+    const experimental = capabilities.experimental as Record<string, unknown> | undefined;
+    if (experimental?.ui || (capabilities as any).ui) {
+      return 'sep-1865';
+    }
+
+    // Check client info for known SEP-1865 compatible clients
+    const clientInfo = (targetServer as any)._clientVersion;
+    if (clientInfo?.name) {
+      const name = clientInfo.name.toLowerCase();
+      // Known SEP-1865 compatible clients
+      if (name.includes('claude') || name.includes('chatgpt') || name.includes('openai')) {
+        return 'sep-1865';
+      }
+    }
+
+    // Default to Photon format for backward compatibility
+    return 'photon';
+  }
+
+  /**
+   * Build UI resource URI based on detected format
+   *
+   * @param uiId - UI template identifier
+   * @param server - Optional server instance (for SSE sessions)
+   */
+  private buildUIResourceUri(uiId: string, server?: Server): string {
+    const format = this.getUIFormat(server);
+    const photonName = this.mcp?.name || 'unknown';
+
+    switch (format) {
+      case 'sep-1865':
+        return `ui://${photonName}/${uiId}`;
+      case 'photon':
+      default:
+        return `photon://${photonName}/ui/${uiId}`;
+    }
+  }
+
+  /**
+   * Build tool metadata for UI based on detected format
+   *
+   * @param uiId - UI template identifier
+   * @param server - Optional server instance (for SSE sessions)
+   */
+  private buildUIToolMeta(uiId: string, server?: Server): Record<string, unknown> {
+    const format = this.getUIFormat(server);
+    const uri = this.buildUIResourceUri(uiId, server);
+
+    switch (format) {
+      case 'sep-1865':
+        return { 'ui/resourceUri': uri };
+      case 'photon':
+      default:
+        return { outputTemplate: uri };
+    }
+  }
+
+  /**
+   * Get UI mimeType based on detected format
+   *
+   * @param server - Optional server instance (for SSE sessions)
+   */
+  private getUIMimeType(server?: Server): string {
+    const format = this.getUIFormat(server);
+    return format === 'sep-1865' ? 'text/html+mcp' : 'text/html';
+  }
+
+  /**
    * Set up MCP protocol handlers
    */
   private setupHandlers() {
@@ -170,12 +265,10 @@ export class PhotonServer {
             inputSchema: tool.inputSchema,
           };
 
-          // Add _meta with outputTemplate if tool has linked UI
+          // Add _meta with UI template reference (format depends on client capabilities)
           const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
           if (linkedUI) {
-            toolDef._meta = {
-              outputTemplate: `photon://${this.mcp!.name}/ui/${linkedUI.id}`,
-            };
+            toolDef._meta = this.buildUIToolMeta(linkedUI.id);
           }
 
           return toolDef;
@@ -310,15 +403,15 @@ export class PhotonServer {
       if (this.mcp.assets) {
         const photonName = this.mcp.name;
 
-        // Add UI assets
+        // Add UI assets (format depends on client capabilities)
         for (const ui of this.mcp.assets.ui) {
           resources.push({
-            uri: `photon://${photonName}/ui/${ui.id}`,
+            uri: this.buildUIResourceUri(ui.id),
             name: `ui:${ui.id}`,
             description: ui.linkedTool
               ? `UI template for ${ui.linkedTool} tool`
               : `UI template: ${ui.id}`,
-            mimeType: ui.mimeType || 'text/html',
+            mimeType: ui.mimeType || this.getUIMimeType(),
           });
         }
 
@@ -2208,12 +2301,10 @@ export class PhotonServer {
             inputSchema: tool.inputSchema,
           };
 
-          // Add _meta with outputTemplate if tool has linked UI
+          // Add _meta with UI template reference (format depends on client capabilities)
           const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
           if (linkedUI) {
-            toolDef._meta = {
-              outputTemplate: `photon://${this.mcp!.name}/ui/${linkedUI.id}`,
-            };
+            toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
           }
 
           return toolDef;
@@ -2303,16 +2394,16 @@ export class PhotonServer {
         }
       }
 
-      // Add asset resources
+      // Add asset resources (UI format depends on client capabilities)
       if (this.mcp.assets) {
         for (const ui of this.mcp.assets.ui) {
           resources.push({
-            uri: `photon://${this.mcp.name}/${ui.id}`,
+            uri: this.buildUIResourceUri(ui.id, sessionServer),
             name: `ui:${ui.id}`,
             description: ui.linkedTool
               ? `UI template for ${ui.linkedTool} tool`
               : `UI template: ${ui.id}`,
-            mimeType: ui.mimeType || 'text/html',
+            mimeType: ui.mimeType || this.getUIMimeType(sessionServer),
           });
         }
         for (const prompt of this.mcp.assets.prompts) {
