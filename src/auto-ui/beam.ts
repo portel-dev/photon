@@ -782,6 +782,38 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-muted);
     }
 
+    .toggle-switch {
+      display: inline-flex;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .toggle-btn {
+      padding: 10px 20px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .toggle-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .toggle-btn.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    .toggle-btn:first-child {
+      border-right: 1px solid var(--border-color);
+    }
+
     .btn-configure {
       display: inline-flex;
       align-items: center;
@@ -1803,21 +1835,46 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                         param.name.toLowerCase().includes('secret') ||
                         param.name.toLowerCase().includes('key') ||
                         param.name.toLowerCase().includes('token');
+        const isBoolean = param.type === 'boolean';
+        const isNumber = param.type === 'number';
+        const defaultValue = param.hasDefault ? param.defaultValue : '';
 
-        html += \`
-          <div class="form-group">
+        html += \`<div class="form-group">
             <label>
               \${param.name}\${isRequired ? ' <span class="required">*</span>' : ''}
               <span class="hint">\${param.envVar}</span>
-            </label>
+            </label>\`;
+
+        if (isBoolean) {
+          // Toggle switch for booleans
+          const isOn = defaultValue === true || defaultValue === 'true';
+          html += \`
+            <div class="toggle-switch">
+              <button type="button" class="toggle-btn \${!isOn ? 'active' : ''}" data-value="false" onclick="setToggle(this, '\${param.envVar}', false)">Off</button>
+              <button type="button" class="toggle-btn \${isOn ? 'active' : ''}" data-value="true" onclick="setToggle(this, '\${param.envVar}', true)">On</button>
+              <input type="hidden" name="\${param.envVar}" value="\${isOn ? 'true' : 'false'}" />
+            </div>\`;
+        } else if (isNumber) {
+          html += \`
+            <input
+              type="number"
+              name="\${param.envVar}"
+              value="\${defaultValue}"
+              placeholder="Enter \${param.name}..."
+              \${isRequired ? 'required' : ''}
+            />\`;
+        } else {
+          html += \`
             <input
               type="\${isSecret ? 'password' : 'text'}"
               name="\${param.envVar}"
-              placeholder="\${param.hasDefault ? \`Default: \${param.defaultValue}\` : \`Enter \${param.name}...\`}"
+              value="\${defaultValue}"
+              placeholder="Enter \${param.name}..."
               \${isRequired ? 'required' : ''}
-            />
-          </div>
-        \`;
+            />\`;
+        }
+
+        html += \`</div>\`;
       }
 
       html += \`
@@ -1831,6 +1888,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       form.innerHTML = html;
       form.onsubmit = handleConfigSubmit;
+    }
+
+    function setToggle(btn, name, value) {
+      const container = btn.parentElement;
+      container.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      container.querySelector('input[type="hidden"]').value = value ? 'true' : 'false';
     }
 
     function handleConfigSubmit(e) {
