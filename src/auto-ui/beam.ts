@@ -2487,8 +2487,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .mermaid-fullscreen-body.dragging {
       cursor: grabbing;
     }
-    .mermaid-fullscreen-body svg {
-      transition: transform 0.1s ease-out;
+    #mermaid-fs-content {
+      transform-origin: center center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 100%;
+      min-height: 100%;
+    }
+    #mermaid-fs-content svg {
+      max-width: none !important;
+      max-height: none !important;
+      width: auto !important;
+      height: auto !important;
     }
 
     /* Enhanced markdown: Images */
@@ -3037,8 +3048,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const methodItem = document.querySelector(\`.method-item[onclick*="'\${methodName}'"]\`);
       if (methodItem) methodItem.classList.add('selected');
 
-      // Show method view
+      // Show method view, hide others
       document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
       document.getElementById('method-view').style.display = 'flex';
       document.getElementById('method-title').textContent = \`\${photonName}.\${methodName}()\`;
       document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
@@ -3591,8 +3603,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         toggleSidebar(false);
       }
 
-      // Show method view
+      // Show method view, hide others
       document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
       document.getElementById('method-view').style.display = 'flex';
 
       // Update header
@@ -4286,7 +4299,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (el) {
         const svg = el.querySelector('svg');
         if (svg) {
-          svg.style.transform = \`scale(\${state.scale}) translate(\${state.translateX}px, \${state.translateY}px)\`;
+          svg.style.transform = \`translate(\${state.translateX}px, \${state.translateY}px) scale(\${state.scale})\`;
+          svg.style.transformOrigin = 'center center';
         }
       }
     }
@@ -4381,7 +4395,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const state = window.mermaidFsState;
       const content = document.getElementById('mermaid-fs-content');
       if (content) {
-        content.style.transform = \`scale(\${state.scale}) translate(\${state.translateX}px, \${state.translateY}px)\`;
+        // Apply translate first (screen space), then scale from center
+        content.style.transform = \`translate(\${state.translateX}px, \${state.translateY}px) scale(\${state.scale})\`;
       }
     }
 
@@ -4393,26 +4408,32 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       let startX, startY, startTranslateX, startTranslateY;
 
       body.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return; // Don't drag when clicking buttons
         isDragging = true;
         body.classList.add('dragging');
         startX = e.clientX;
         startY = e.clientY;
         startTranslateX = window.mermaidFsState.translateX;
         startTranslateY = window.mermaidFsState.translateY;
+        e.preventDefault();
       });
 
       document.addEventListener('mousemove', (e) => {
         if (!isDragging) return;
-        const dx = (e.clientX - startX) / window.mermaidFsState.scale;
-        const dy = (e.clientY - startY) / window.mermaidFsState.scale;
+        e.preventDefault();
+        // Direct pixel translation (not scaled) for intuitive dragging
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
         window.mermaidFsState.translateX = startTranslateX + dx;
         window.mermaidFsState.translateY = startTranslateY + dy;
         applyMermaidFsTransform();
       });
 
       document.addEventListener('mouseup', () => {
-        isDragging = false;
-        body.classList.remove('dragging');
+        if (isDragging) {
+          isDragging = false;
+          body.classList.remove('dragging');
+        }
       });
 
       // Mouse wheel zoom
@@ -4420,7 +4441,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         e.preventDefault();
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
         mermaidFsZoom(delta);
-      });
+      }, { passive: false });
     }
 
     // Close modals on Escape
