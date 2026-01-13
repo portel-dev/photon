@@ -1014,14 +1014,31 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       background: var(--warning);
     }
 
-    .photon-item.unconfigured .method-count.configure-badge {
+    .photon-item.unconfigured .photon-header {
+      opacity: 0.7;
+    }
+
+    .photon-item.unconfigured .photon-header:hover {
+      opacity: 1;
+    }
+
+    .setup-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
       background: var(--warning);
       color: #000;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
     }
 
     .photon-item.unconfigured .photon-header.selected {
       background: var(--bg-tertiary);
+      opacity: 1;
     }
 
     /* Config view in main content */
@@ -2518,9 +2535,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         } else {
           return \`
             <div class="photon-item unconfigured">
-              <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')" title="Click to configure">
                 <span class="photon-name">\${photon.name}</span>
-                <span class="method-count configure-badge">Configure</span>
+                <span class="setup-indicator" title="Needs setup">?</span>
               </div>
             </div>
           \`;
