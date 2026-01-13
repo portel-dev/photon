@@ -2118,6 +2118,165 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-primary);
     }
 
+    /* Enhanced markdown: Multi-column layout */
+    .md-columns {
+      display: grid;
+      gap: 24px;
+      margin: 1.5em 0;
+    }
+    .md-columns-2 { grid-template-columns: repeat(2, 1fr); }
+    .md-columns-3 { grid-template-columns: repeat(3, 1fr); }
+    .md-columns-4 { grid-template-columns: repeat(4, 1fr); }
+    .md-column {
+      padding: 16px;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-md);
+    }
+    @media (max-width: 768px) {
+      .md-columns { grid-template-columns: 1fr !important; }
+    }
+
+    /* Enhanced markdown: Callout boxes */
+    .md-callout {
+      display: flex;
+      gap: 12px;
+      padding: 16px;
+      margin: 1em 0;
+      border-radius: var(--radius-md);
+      border-left: 4px solid;
+    }
+    .md-callout-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .md-callout-content {
+      flex: 1;
+    }
+    .md-callout-note {
+      background: rgba(59, 130, 246, 0.1);
+      border-color: #3b82f6;
+    }
+    .md-callout-warning {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: #f59e0b;
+    }
+    .md-callout-tip {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: #10b981;
+    }
+    .md-callout-info {
+      background: rgba(139, 92, 246, 0.1);
+      border-color: #8b5cf6;
+    }
+
+    /* Enhanced markdown: Tables */
+    .md-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1em 0;
+      font-size: 14px;
+    }
+    .md-table th, .md-table td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .md-table th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .md-table tr:hover td {
+      background: var(--bg-secondary);
+    }
+
+    /* Enhanced markdown: Code blocks */
+    .code-block {
+      position: relative;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin: 1em 0;
+      overflow-x: auto;
+    }
+    .code-block::before {
+      content: attr(data-lang);
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .code-block code {
+      background: none;
+      padding: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Enhanced markdown: Mermaid diagrams */
+    .mermaid-inline {
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin: 1em 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .mermaid-inline svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .mermaid-error {
+      color: var(--error);
+      text-align: left;
+    }
+
+    /* Enhanced markdown: Images */
+    .md-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: var(--radius-md);
+      margin: 1em 0;
+    }
+
+    /* Enhanced markdown: Blockquotes */
+    .result-content blockquote {
+      border-left: 4px solid var(--accent);
+      padding-left: 16px;
+      margin: 1em 0;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    /* Enhanced markdown: Horizontal rules */
+    .result-content hr {
+      border: none;
+      border-top: 1px solid var(--border-color);
+      margin: 2em 0;
+    }
+
+    /* Enhanced markdown: Lists */
+    .result-content ul, .result-content ol {
+      margin: 1em 0;
+      padding-left: 24px;
+    }
+    .result-content li {
+      margin: 0.5em 0;
+    }
+
+    /* Enhanced markdown: Links */
+    .result-content a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .result-content a:hover {
+      text-decoration: underline;
+    }
+
     /* Elicitation modal */
     .elicitation-modal {
       display: none;
@@ -3606,6 +3765,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function renderMarkdown(text) {
       let html = text;
+      const mermaidBlocks = [];
+      const codeBlocks = [];
 
       // Parse YAML front matter (between --- delimiters)
       const frontMatterMatch = html.match(/^---\\n([\\s\\S]*?)\\n---\\n?/);
@@ -3627,8 +3788,64 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
       }
 
+      // Extract mermaid blocks first
+      html = html.replace(/\\\`\\\`\\\`mermaid\\n([\\s\\S]*?)\\\`\\\`\\\`/g, (match, diagram) => {
+        const id = 'mermaid-inline-' + mermaidBlocks.length;
+        mermaidBlocks.push({ id, diagram: diagram.trim() });
+        return \`<div class="mermaid-inline" id="\${id}"></div>\`;
+      });
+
+      // Extract other code blocks
+      html = html.replace(/\\\`\\\`\\\`(\\w*)\\n([\\s\\S]*?)\\\`\\\`\\\`/g, (match, lang, code) => {
+        const id = 'code-block-' + codeBlocks.length;
+        codeBlocks.push({ id, lang, code: code.trim() });
+        return \`<pre class="code-block" data-lang="\${lang || 'text'}"><code id="\${id}">\${escapeHtml(code.trim())}</code></pre>\`;
+      });
+
+      // Multi-column layout (:::columns ... ::: ... :::end)
+      html = html.replace(/:::columns\\n([\\s\\S]*?):::end/g, (match, content) => {
+        const columns = content.split(/\\n:::\\n/).map(col => col.trim());
+        return \`<div class="md-columns md-columns-\${columns.length}">\${columns.map(c => \`<div class="md-column">\${c}</div>\`).join('')}</div>\`;
+      });
+
+      // Callout boxes (:::note, :::warning, :::tip, :::info)
+      html = html.replace(/:::(note|warning|tip|info)\\n([\\s\\S]*?):::/g, (match, type, content) => {
+        const icons = { note: '📝', warning: '⚠️', tip: '💡', info: 'ℹ️' };
+        return \`<div class="md-callout md-callout-\${type}"><span class="md-callout-icon">\${icons[type]}</span><div class="md-callout-content">\${content.trim()}</div></div>\`;
+      });
+
+      // Tables (| header | header |)
+      html = html.replace(/(\\|.+\\|\\n)+/g, (match) => {
+        const rows = match.trim().split('\\n');
+        if (rows.length < 2) return match;
+
+        const parseRow = (row) => row.split('|').filter(c => c.trim()).map(c => c.trim());
+        const headers = parseRow(rows[0]);
+        const isSeparator = (row) => /^[\\s|:-]+$/.test(row);
+
+        let headerHtml = \`<thead><tr>\${headers.map(h => \`<th>\${h}</th>\`).join('')}</tr></thead>\`;
+        let bodyRows = rows.slice(isSeparator(rows[1]) ? 2 : 1);
+        let bodyHtml = \`<tbody>\${bodyRows.map(row => \`<tr>\${parseRow(row).map(c => \`<td>\${c}</td>\`).join('')}</tr>\`).join('')}</tbody>\`;
+
+        return \`<table class="md-table">\${headerHtml}\${bodyHtml}</table>\`;
+      });
+
+      // Horizontal rule
+      html = html.replace(/^---$/gm, '<hr>');
+      html = html.replace(/^\\*\\*\\*$/gm, '<hr>');
+
+      // Unordered lists
+      html = html.replace(/^(\\s*)[-*] (.+)$/gm, '$1<li>$2</li>');
+      html = html.replace(/(<li>.+<\\/li>\\n?)+/g, '<ul>$&</ul>');
+
+      // Ordered lists
+      html = html.replace(/^(\\s*)\\d+\\. (.+)$/gm, '$1<li>$2</li>');
+
       // Links
       html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>');
+
+      // Images
+      html = html.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, '<img src="$2" alt="$1" class="md-image">');
 
       // Bold
       html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
@@ -3636,7 +3853,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Italic
       html = html.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
 
+      // Strikethrough
+      html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
       // Headers
+      html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
       html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
       html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
@@ -3644,13 +3865,57 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Blockquotes (> at start of line)
       html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
 
-      // Code blocks
+      // Inline code
       html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
 
-      // Line breaks within paragraphs
-      html = html.replace(/\\n/g, '<br>');
+      // Line breaks (double space or explicit)
+      html = html.replace(/  \\n/g, '<br>');
+      html = html.replace(/\\n\\n/g, '</p><p>');
+      html = html.replace(/\\n/g, ' ');
+
+      // Wrap in paragraph
+      html = \`<p>\${html}</p>\`;
+      html = html.replace(/<p><\\/p>/g, '');
+      html = html.replace(/<p>(<h[1-4]>)/g, '$1');
+      html = html.replace(/(<\\/h[1-4]>)<\\/p>/g, '$1');
+      html = html.replace(/<p>(<ul>)/g, '$1');
+      html = html.replace(/(<\\/ul>)<\\/p>/g, '$1');
+      html = html.replace(/<p>(<table)/g, '$1');
+      html = html.replace(/(<\\/table>)<\\/p>/g, '$1');
+      html = html.replace(/<p>(<div)/g, '$1');
+      html = html.replace(/(<\\/div>)<\\/p>/g, '$1');
+      html = html.replace(/<p>(<pre)/g, '$1');
+      html = html.replace(/(<\\/pre>)<\\/p>/g, '$1');
+      html = html.replace(/<p>(<hr>)/g, '$1');
+      html = html.replace(/(<hr>)<\\/p>/g, '$1');
+
+      // Render mermaid blocks after DOM update
+      if (mermaidBlocks.length > 0) {
+        setTimeout(() => {
+          mermaidBlocks.forEach(async ({ id, diagram }) => {
+            const el = document.getElementById(id);
+            if (el) {
+              try {
+                const { svg } = await mermaid.render(id + '-svg', diagram);
+                el.innerHTML = svg;
+              } catch (e) {
+                el.innerHTML = \`<pre class="mermaid-error">\${escapeHtml(diagram)}</pre>\`;
+              }
+            }
+          });
+        }, 0);
+      }
 
       return frontMatterHtml + html;
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
 
     function handleError(message) {
