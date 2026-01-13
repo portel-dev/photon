@@ -1737,6 +1737,144 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       cursor: not-allowed;
     }
 
+    /* Activity Panel */
+    .activity-panel {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+      width: calc(100% - 280px);
+      max-height: 300px;
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+      transform: translateY(calc(100% - 36px));
+      transition: transform 0.2s ease;
+    }
+
+    .activity-panel.expanded {
+      transform: translateY(0);
+    }
+
+    .activity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .activity-header:hover {
+      background: var(--bg-secondary);
+    }
+
+    .activity-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .activity-badge {
+      background: var(--accent);
+      color: white;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    .activity-toggle {
+      color: var(--text-muted);
+      transition: transform 0.2s;
+    }
+
+    .activity-panel.expanded .activity-toggle {
+      transform: rotate(180deg);
+    }
+
+    .activity-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .activity-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 6px 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .activity-item:last-child {
+      border-bottom: none;
+    }
+
+    .activity-time {
+      color: var(--text-muted);
+      flex-shrink: 0;
+      font-size: 11px;
+    }
+
+    .activity-icon {
+      flex-shrink: 0;
+      width: 16px;
+      text-align: center;
+    }
+
+    .activity-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .activity-type {
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .activity-type.invoke { color: var(--accent); }
+    .activity-type.result { color: #10b981; }
+    .activity-type.error { color: #ef4444; }
+    .activity-type.reload { color: #f59e0b; }
+    .activity-type.config { color: #8b5cf6; }
+    .activity-type.status { color: var(--text-secondary); }
+
+    .activity-message {
+      color: var(--text-secondary);
+      word-break: break-word;
+    }
+
+    .activity-clear {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+
+    .activity-clear:hover {
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 768px) {
+      .activity-panel {
+        width: 100%;
+      }
+    }
+
     /* Result container */
     .result-container {
       margin-top: 32px;
@@ -2205,11 +2343,92 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     </div>
   </div>
 
+  <!-- Activity Panel -->
+  <div class="activity-panel" id="activity-panel">
+    <div class="activity-header" onclick="toggleActivityPanel()">
+      <div class="activity-title">
+        <span>Activity</span>
+        <span class="activity-badge" id="activity-count">0</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button class="activity-clear" onclick="clearActivity(event)">Clear</button>
+        <span class="activity-toggle">▲</span>
+      </div>
+    </div>
+    <div class="activity-list" id="activity-list"></div>
+  </div>
+
   <script>
     let ws;
     let photons = [];
     let currentPhoton = null;
     let currentMethod = null;
+
+    // Activity log
+    let activityLog = [];
+    const MAX_ACTIVITY_ITEMS = 100;
+
+    function addActivity(type, message, details = {}) {
+      const entry = {
+        id: Date.now(),
+        time: new Date(),
+        type,
+        message,
+        ...details
+      };
+      activityLog.unshift(entry);
+      if (activityLog.length > MAX_ACTIVITY_ITEMS) {
+        activityLog.pop();
+      }
+      renderActivityList();
+    }
+
+    function renderActivityList() {
+      const list = document.getElementById('activity-list');
+      const count = document.getElementById('activity-count');
+      count.textContent = activityLog.length;
+
+      if (activityLog.length === 0) {
+        list.innerHTML = '<div style="padding: 16px; color: var(--text-muted); text-align: center;">No activity yet</div>';
+        return;
+      }
+
+      const icons = {
+        invoke: '▶',
+        result: '✓',
+        error: '✗',
+        reload: '↻',
+        config: '⚙',
+        status: '•',
+        connect: '◉',
+        'hot-reload': '⚡'
+      };
+
+      list.innerHTML = activityLog.map(entry => {
+        const time = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const icon = icons[entry.type] || '•';
+        return \`
+          <div class="activity-item">
+            <span class="activity-time">\${time}</span>
+            <span class="activity-icon">\${icon}</span>
+            <div class="activity-content">
+              <span class="activity-type \${entry.type}">\${entry.type}</span>
+              <span class="activity-message">\${entry.message}</span>
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    function toggleActivityPanel() {
+      document.getElementById('activity-panel').classList.toggle('expanded');
+    }
+
+    function clearActivity(e) {
+      e.stopPropagation();
+      activityLog = [];
+      renderActivityList();
+    }
 
     // Hash-based routing
     function updateHash(photonName, methodName) {
@@ -2354,6 +2573,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       ws.onopen = () => {
         console.log('Connected to Beam');
+        addActivity('connect', 'Connected to Beam server');
       };
 
       ws.onmessage = (event) => {
@@ -2411,6 +2631,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleHotReload(photon) {
       showToast(\`\${photon.name} updated\`, 'info');
+      addActivity('hot-reload', \`\${photon.name} reloaded (file changed)\`);
 
       // Update photon in list
       const index = photons.findIndex(p => p.name === photon.name);
@@ -2441,6 +2662,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function handleReloaded(photon) {
       hideProgress();
       showToast(\`\${photon.name} reloaded\`, 'success');
+      addActivity('reload', \`\${photon.name} manually reloaded\`);
 
       // Update photon in list
       const index = photons.findIndex(p => p.name === photon.name);
@@ -2484,6 +2706,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleConfigured(photon) {
       hideProgress();
+      addActivity('config', \`\${photon.name} configured and enabled\`);
 
       // Update photon in list
       const index = photons.findIndex(p => p.name === photon.name);
@@ -2993,6 +3216,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       showProgress('Processing...');
       document.getElementById('result-container').classList.remove('visible');
 
+      // Log activity
+      addActivity('invoke', \`\${currentPhoton.name}.\${currentMethod.name}()\`);
+
       // Send invoke request
       ws.send(JSON.stringify({
         type: 'invoke',
@@ -3150,6 +3376,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleResult(data) {
       hideProgress();
+      addActivity('result', \`\${currentPhoton?.name}.\${currentMethod?.name}() completed\`);
 
       const container = document.getElementById('result-container');
       const content = document.getElementById('result-content');
@@ -3230,6 +3457,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleError(message) {
       hideProgress();
+      addActivity('error', message);
 
       const container = document.getElementById('result-container');
       const content = document.getElementById('result-content');
