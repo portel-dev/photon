@@ -1882,38 +1882,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
-    // Parse enum values from description like: 'auto' | 'workflow' | 'api'
-    function parseEnumFromDescription(description) {
-      if (!description) return null;
-      // Match pattern: 'value1' | 'value2' | 'value3'
-      const match = description.match(/'([^']+)'(?:\\s*\\|\\s*'([^']+)')+/);
-      if (match) {
-        // Extract all quoted values
-        const enumMatch = description.match(/'([^']+)'/g);
-        if (enumMatch && enumMatch.length >= 2) {
-          return enumMatch.map(v => v.replace(/'/g, ''));
-        }
-      }
-      return null;
-    }
-
-    // Extract default value from description like: (default: 'auto')
-    function parseDefaultFromDescription(description) {
-      if (!description) return null;
-      const match = description.match(/\\(default:\\s*'?([^')]+)'?\\)/i);
-      return match ? match[1].trim() : null;
-    }
-
     function renderInput(key, schema, isRequired) {
       const type = schema.type || 'string';
-      const description = schema.description || '';
-      const defaultValue = schema.default !== undefined ? schema.default : parseDefaultFromDescription(description);
-
-      // Try to get enum from schema or parse from description
-      let enumValues = schema.enum;
-      if (!enumValues && type === 'string') {
-        enumValues = parseEnumFromDescription(description);
-      }
+      const defaultValue = schema.default;
+      const enumValues = schema.enum;
 
       // Check for anyOf with enum (mixed: enum values + free-form) - use autocomplete
       if (schema.anyOf) {
