@@ -57,6 +57,7 @@ interface MethodInfo {
   returns: any;
   autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
   outputFormat?: string;  // Format hint for rendering (mermaid, markdown, json, etc.)
+  buttonLabel?: string;  // Custom button label from @returns {@label}
   linkedUi?: string;  // UI template ID if linked via @ui annotation
 }
 
@@ -253,6 +254,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             returns: { type: 'object' },
             autorun: schema.autorun || false,
             outputFormat: schema.outputFormat,
+            buttonLabel: schema.buttonLabel,
             linkedUi: linkedAsset?.id
           };
         });
@@ -705,7 +707,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             description: schema.description || '',
             params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
             returns: { type: 'object' },
-            autorun: schema.autorun || false
+            autorun: schema.autorun || false,
+            buttonLabel: schema.buttonLabel
           }));
 
         const reloadedPhoton: PhotonInfo = {
@@ -928,7 +931,8 @@ async function handleConfigure(
         description: schema.description || '',
         params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
         returns: { type: 'object' },
-        autorun: schema.autorun || false
+        autorun: schema.autorun || false,
+        buttonLabel: schema.buttonLabel
       }));
 
     // Replace unconfigured photon with configured one
@@ -1014,7 +1018,8 @@ async function handleReload(
         description: schema.description || '',
         params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
         returns: { type: 'object' },
-        autorun: schema.autorun || false
+        autorun: schema.autorun || false,
+        buttonLabel: schema.buttonLabel
       }));
 
     // Update photon info
@@ -4349,10 +4354,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         // Clean description - remove default info since we show it in placeholder
         const cleanDesc = description.replace(/\\s*\\(default:.*?\\)/gi, '').trim();
 
+        // Use custom label from {@label} or format the key name
+        const fieldLabel = schema.title || formatLabel(key);
+
         html += \`
           <div class="form-group">
             <label>
-              \${key}
+              \${fieldLabel}
               \${isRequired ? '<span class="required">*</span>' : ''}
               \${cleanDesc ? \`<span class="hint">\${cleanDesc}</span>\` : ''}
             </label>
@@ -4374,7 +4382,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Only show the Run button if user input is needed (not auto-executing)
       // Auto-executing methods can be re-run via the Reload option in settings menu
       if (!willAutoExecute) {
-        const buttonLabel = currentMethod.name.charAt(0).toUpperCase() + currentMethod.name.slice(1);
+        // Use explicit buttonLabel from @returns {@label}, or format the method name
+        const buttonLabel = currentMethod.buttonLabel || formatLabel(currentMethod.name);
         html += \`<button type="submit" class="btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -4392,6 +4401,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           form.dispatchEvent(new Event('submit', { cancelable: true }));
         }, 100);
       }
+    }
+
+    // Format camelCase/PascalCase to "Title Case With Spaces"
+    // Examples: getUserName -> "Get User Name", apiKey -> "Api Key"
+    function formatLabel(name) {
+      return name
+        // Insert space before capital letters
+        .replace(/([A-Z])/g, ' $1')
+        // Insert space before numbers
+        .replace(/([a-zA-Z])(\d)/g, '$1 $2')
+        // Capitalize first letter
+        .replace(/^./, str => str.toUpperCase())
+        // Clean up extra spaces
+        .trim();
     }
 
     function renderInput(key, schema, isRequired) {

@@ -83,11 +83,12 @@ Call any method to see its output rendered in BEAM UI.
 
   /**
    * Method with parameters (for form testing)
-   * @param a {@min 0} First number (required)
-   * @param b {@min 0} Second number (required)
+   * @param a {@min 0} {@label First Number} First number to add
+   * @param b {@min 0} {@label Second Number} Second number to add
+   * @returns {@label Calculate Sum} The sum of a and b
    */
-  async add(a: number, b: number): Promise<number> {
-    return a + b;
+  async add(params: { a: number; b: number }): Promise<number> {
+    return params.a + params.b;
   }
 
   /**
@@ -95,8 +96,9 @@ Call any method to see its output rendered in BEAM UI.
    * @param name Name to greet
    * @param greeting Optional greeting prefix
    */
-  async greet(name: string, greeting: string = 'Hello'): Promise<string> {
-    return `${greeting}, ${name}!`;
+  async greet(params: { name: string; greeting?: string }): Promise<string> {
+    const greeting = params.greeting || 'Hello';
+    return `${greeting}, ${params.name}!`;
   }
 
   /**
