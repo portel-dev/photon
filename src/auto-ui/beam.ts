@@ -2004,12 +2004,36 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
       margin-bottom: 12px;
+    }
+
+    .result-expand-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: var(--transition);
+    }
+
+    .result-expand-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
     }
 
     .result-content {
@@ -2227,21 +2251,197 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     /* Enhanced markdown: Mermaid diagrams */
+    .mermaid-wrapper {
+      position: relative;
+      margin: 1em 0;
+    }
+    .mermaid-toolbar {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 10;
+    }
+    .mermaid-wrapper:hover .mermaid-toolbar {
+      opacity: 1;
+    }
+    .mermaid-toolbar button {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: var(--transition);
+    }
+    .mermaid-toolbar button:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
     .mermaid-inline {
       background: var(--bg-tertiary);
       border-radius: var(--radius-md);
       padding: 24px;
-      margin: 1em 0;
-      overflow-x: auto;
+      overflow: hidden;
       text-align: center;
+      cursor: grab;
+    }
+    .mermaid-inline.dragging {
+      cursor: grabbing;
     }
     .mermaid-inline svg {
       max-width: 100%;
       height: auto;
+      transition: transform 0.1s ease-out;
     }
     .mermaid-error {
       color: var(--error);
       text-align: left;
+    }
+
+    /* Result viewer modal */
+    .result-viewer-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      overflow: auto;
+    }
+    .result-viewer-modal.visible {
+      display: flex;
+      flex-direction: column;
+    }
+    .result-viewer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .result-viewer-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .result-viewer-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+    }
+    .result-viewer-close:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+    .result-viewer-body {
+      flex: 1;
+      padding: 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .result-viewer-body .result-content {
+      background: var(--bg-primary);
+      max-width: none;
+    }
+    .result-viewer-body .mermaid-inline {
+      padding: 48px;
+      min-height: 400px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .result-viewer-body .mermaid-toolbar {
+      opacity: 1;
+    }
+
+    /* Mermaid fullscreen mode */
+    .mermaid-fullscreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-primary);
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+    }
+    .mermaid-fullscreen-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+    .mermaid-fullscreen-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .mermaid-fullscreen-controls button {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      transition: var(--transition);
+    }
+    .mermaid-fullscreen-controls button:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+    .mermaid-fullscreen-zoom {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .mermaid-fullscreen-body {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      background: var(--bg-tertiary);
+    }
+    .mermaid-fullscreen-body.dragging {
+      cursor: grabbing;
+    }
+    .mermaid-fullscreen-body svg {
+      transition: transform 0.1s ease-out;
     }
 
     /* Enhanced markdown: Images */
@@ -2526,7 +2726,18 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           <div class="tab-panel active" id="ui-panel">
             <form id="invoke-form"></form>
             <div class="result-container" id="result-container">
-              <div class="result-header">Result</div>
+              <div class="result-header">
+                <span>Result</span>
+                <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                  </svg>
+                  Expand
+                </button>
+              </div>
               <div class="result-content" id="result-content"></div>
             </div>
           </div>
@@ -2613,6 +2824,25 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       </div>
     </div>
   </div>
+
+  <!-- Result viewer modal -->
+  <div class="result-viewer-modal" id="result-viewer-modal">
+    <div class="result-viewer-header">
+      <div class="result-viewer-title">Result</div>
+      <button class="result-viewer-close" onclick="closeResultViewer()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="result-viewer-body">
+      <div class="result-content" id="result-viewer-content"></div>
+    </div>
+  </div>
+
+  <!-- Mermaid fullscreen container (created dynamically) -->
+  <div id="mermaid-fullscreen-container"></div>
 
   <!-- Activity Panel -->
   <div class="activity-panel" id="activity-panel">
@@ -3800,8 +4030,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Extract mermaid blocks first
       html = html.replace(/\\\`\\\`\\\`mermaid\\n([\\s\\S]*?)\\\`\\\`\\\`/g, (match, diagram) => {
         const id = 'mermaid-inline-' + mermaidBlocks.length;
-        mermaidBlocks.push({ id, diagram: diagram.trim() });
-        return \`<div class="mermaid-inline" id="\${id}"></div>\`;
+        const diagramTrimmed = diagram.trim();
+        mermaidBlocks.push({ id, diagram: diagramTrimmed });
+        return \`<div class="mermaid-wrapper">
+          <div class="mermaid-toolbar">
+            <button onclick="mermaidZoom('\${id}', 0.2)" title="Zoom in">+</button>
+            <button onclick="mermaidZoom('\${id}', -0.2)" title="Zoom out">−</button>
+            <button onclick="mermaidReset('\${id}')" title="Reset">↺</button>
+            <button onclick="mermaidFullscreen('\${id}')" title="Fullscreen">⛶</button>
+          </div>
+          <div class="mermaid-inline" id="\${id}" data-diagram="\${encodeURIComponent(diagramTrimmed)}"></div>
+        </div>\`;
       });
 
       // Extract other code blocks
@@ -3917,6 +4156,209 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       return frontMatterHtml + html;
     }
+
+    // Result viewer modal
+    let resultViewerContent = '';
+
+    function openResultViewer() {
+      const content = document.getElementById('result-content').innerHTML;
+      const viewerContent = document.getElementById('result-viewer-content');
+      viewerContent.innerHTML = content;
+      document.getElementById('result-viewer-modal').classList.add('visible');
+      document.body.style.overflow = 'hidden';
+
+      // Re-render mermaid diagrams in the viewer
+      viewerContent.querySelectorAll('.mermaid-inline').forEach(el => {
+        const diagram = decodeURIComponent(el.dataset.diagram || '');
+        if (diagram) {
+          mermaid.render(el.id + '-viewer-svg', diagram).then(({ svg }) => {
+            el.innerHTML = svg;
+          }).catch(e => {
+            el.innerHTML = \`<pre class="mermaid-error">\${escapeHtml(diagram)}</pre>\`;
+          });
+        }
+      });
+    }
+
+    function closeResultViewer() {
+      document.getElementById('result-viewer-modal').classList.remove('visible');
+      document.body.style.overflow = '';
+    }
+
+    // Mermaid zoom state per diagram
+    const mermaidState = {};
+
+    function getMermaidState(id) {
+      if (!mermaidState[id]) {
+        mermaidState[id] = { scale: 1, translateX: 0, translateY: 0 };
+      }
+      return mermaidState[id];
+    }
+
+    function mermaidZoom(id, delta) {
+      const state = getMermaidState(id);
+      state.scale = Math.max(0.2, Math.min(5, state.scale + delta));
+      applyMermaidTransform(id);
+    }
+
+    function mermaidReset(id) {
+      mermaidState[id] = { scale: 1, translateX: 0, translateY: 0 };
+      applyMermaidTransform(id);
+    }
+
+    function applyMermaidTransform(id) {
+      const state = getMermaidState(id);
+      const el = document.getElementById(id);
+      if (el) {
+        const svg = el.querySelector('svg');
+        if (svg) {
+          svg.style.transform = \`scale(\${state.scale}) translate(\${state.translateX}px, \${state.translateY}px)\`;
+        }
+      }
+    }
+
+    function mermaidFullscreen(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      const diagram = decodeURIComponent(el.dataset.diagram || '');
+      if (!diagram) return;
+
+      const container = document.getElementById('mermaid-fullscreen-container');
+      container.innerHTML = \`
+        <div class="mermaid-fullscreen">
+          <div class="mermaid-fullscreen-header">
+            <div class="mermaid-fullscreen-controls">
+              <button onclick="mermaidFsZoom(-0.2)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom Out
+              </button>
+              <div class="mermaid-fullscreen-zoom">
+                <span id="mermaid-fs-zoom-level">100%</span>
+              </div>
+              <button onclick="mermaidFsZoom(0.2)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom In
+              </button>
+              <button onclick="mermaidFsReset()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+                Reset
+              </button>
+            </div>
+            <button onclick="closeMermaidFullscreen()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
+            </button>
+          </div>
+          <div class="mermaid-fullscreen-body" id="mermaid-fs-body">
+            <div id="mermaid-fs-content"></div>
+          </div>
+        </div>
+      \`;
+
+      // Store fullscreen state
+      window.mermaidFsState = { scale: 1, translateX: 0, translateY: 0, diagram };
+
+      // Render diagram
+      mermaid.render('mermaid-fs-svg', diagram).then(({ svg }) => {
+        document.getElementById('mermaid-fs-content').innerHTML = svg;
+        setupMermaidFsDrag();
+      }).catch(e => {
+        document.getElementById('mermaid-fs-content').innerHTML = \`<pre class="mermaid-error">\${escapeHtml(diagram)}</pre>\`;
+      });
+
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeMermaidFullscreen() {
+      document.getElementById('mermaid-fullscreen-container').innerHTML = '';
+      document.body.style.overflow = '';
+    }
+
+    function mermaidFsZoom(delta) {
+      const state = window.mermaidFsState;
+      state.scale = Math.max(0.1, Math.min(10, state.scale + delta));
+      applyMermaidFsTransform();
+      document.getElementById('mermaid-fs-zoom-level').textContent = Math.round(state.scale * 100) + '%';
+    }
+
+    function mermaidFsReset() {
+      window.mermaidFsState = { ...window.mermaidFsState, scale: 1, translateX: 0, translateY: 0 };
+      applyMermaidFsTransform();
+      document.getElementById('mermaid-fs-zoom-level').textContent = '100%';
+    }
+
+    function applyMermaidFsTransform() {
+      const state = window.mermaidFsState;
+      const content = document.getElementById('mermaid-fs-content');
+      if (content) {
+        content.style.transform = \`scale(\${state.scale}) translate(\${state.translateX}px, \${state.translateY}px)\`;
+      }
+    }
+
+    function setupMermaidFsDrag() {
+      const body = document.getElementById('mermaid-fs-body');
+      if (!body) return;
+
+      let isDragging = false;
+      let startX, startY, startTranslateX, startTranslateY;
+
+      body.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        body.classList.add('dragging');
+        startX = e.clientX;
+        startY = e.clientY;
+        startTranslateX = window.mermaidFsState.translateX;
+        startTranslateY = window.mermaidFsState.translateY;
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = (e.clientX - startX) / window.mermaidFsState.scale;
+        const dy = (e.clientY - startY) / window.mermaidFsState.scale;
+        window.mermaidFsState.translateX = startTranslateX + dx;
+        window.mermaidFsState.translateY = startTranslateY + dy;
+        applyMermaidFsTransform();
+      });
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+        body.classList.remove('dragging');
+      });
+
+      // Mouse wheel zoom
+      body.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        mermaidFsZoom(delta);
+      });
+    }
+
+    // Close modals on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (document.getElementById('mermaid-fullscreen-container').innerHTML) {
+          closeMermaidFullscreen();
+        } else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
+          closeResultViewer();
+        }
+      }
+    });
 
     function escapeHtml(text) {
       return text
