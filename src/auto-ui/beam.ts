@@ -86,7 +86,13 @@ interface RemoveRequest {
   photon: string;
 }
 
-type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse | ReloadRequest | RemoveRequest;
+interface OAuthCompleteMessage {
+  type: 'oauth_complete';
+  elicitationId: string;
+  success: boolean;
+}
+
+type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse | ReloadRequest | RemoveRequest | OAuthCompleteMessage;
 
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
@@ -409,6 +415,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           await handleReload(ws, message, photons, photonMCPs, loader, savedConfig);
         } else if (message.type === 'remove') {
           await handleRemove(ws, message, photons, photonMCPs, savedConfig);
+        } else if (message.type === 'oauth_complete') {
+          // OAuth flow completed - client will retry the tool call
+          logger.info(`OAuth completed: ${message.elicitationId} (success: ${message.success})`);
         }
       } catch (error) {
         ws.send(JSON.stringify({
@@ -585,6 +594,31 @@ async function handleInvoke(
       data: result
     }));
   } catch (error) {
+    // Check if this is an OAuth elicitation error
+    if (error instanceof Error && (
+      error.name === 'OAuthElicitationRequired' ||
+      (error as any).code === 'OAUTH_ELICITATION_REQUIRED'
+    )) {
+      const oauthError = error as any;
+      ws.send(JSON.stringify({
+        type: 'elicitation',
+        data: {
+          ask: 'oauth',
+          provider: oauthError.provider || 'OAuth',
+          scopes: oauthError.scopes || [],
+          url: oauthError.elicitationUrl || oauthError.url,
+          elicitationUrl: oauthError.elicitationUrl || oauthError.url,
+          elicitationId: oauthError.elicitationId || oauthError.id,
+          message: oauthError.message || 'Authorization required',
+          // Include context for retry
+          photon,
+          method,
+          params: args
+        }
+      }));
+      return;
+    }
+
     ws.send(JSON.stringify({
       type: 'error',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -2578,6 +2612,74 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       font-weight: 600;
     }
 
+    /* OAuth elicitation */
+    .oauth-provider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+    }
+
+    .oauth-provider-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      background: var(--bg-tertiary);
+    }
+
+    .oauth-provider-info {
+      flex: 1;
+    }
+
+    .oauth-provider-name {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .oauth-scopes {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .oauth-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      margin-top: 16px;
+      font-size: 13px;
+    }
+
+    .oauth-status.waiting {
+      color: var(--warning);
+    }
+
+    .oauth-status.success {
+      color: var(--success);
+    }
+
+    .oauth-status.error {
+      color: var(--error);
+    }
+
+    .oauth-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
     /* Empty state */
     .empty-state {
       display: flex;
@@ -4535,6 +4637,56 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               value="\${data.default || ''}" />
           </div>
         \`;
+      } else if (data.ask === 'oauth') {
+        // OAuth authorization required
+        const providerIcons = {
+          google: '🔵',
+          github: '⚫',
+          microsoft: '🟦',
+          slack: '💜',
+          notion: '⬛',
+          linear: '🟣',
+          default: '🔐'
+        };
+        const icon = providerIcons[data.provider?.toLowerCase()] || providerIcons.default;
+        const scopes = (data.scopes || []).join(', ') || 'basic access';
+
+        html = \`
+          <div class="oauth-provider">
+            <div class="oauth-provider-icon">\${icon}</div>
+            <div class="oauth-provider-info">
+              <div class="oauth-provider-name">\${data.provider || 'OAuth Provider'}</div>
+              <div class="oauth-scopes">Scopes: \${scopes}</div>
+            </div>
+          </div>
+          <p style="color: var(--text-secondary); margin-bottom: 16px;">
+            This tool requires authorization to access \${data.provider || 'an external service'}.
+            Click the button below to authorize in a new window.
+          </p>
+          <div id="oauth-status" class="oauth-status waiting" style="display: none;">
+            <div class="oauth-spinner"></div>
+            <span>Waiting for authorization...</span>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 16px;">
+            <button class="btn" onclick="startOAuthFlow('\${data.url || data.elicitationUrl || ''}', '\${data.elicitationId || ''}')" style="background: var(--accent);">
+              Authorize \${data.provider || ''}
+            </button>
+            <button class="btn" onclick="cancelOAuth()" style="background: var(--bg-tertiary);">
+              Cancel
+            </button>
+          </div>
+        \`;
+        form.innerHTML = html;
+        modal.classList.add('visible');
+
+        // Store pending OAuth data for retry
+        window._pendingOAuth = {
+          photon: data.photon,
+          method: data.method,
+          params: data.params,
+          elicitationId: data.elicitationId
+        };
+        return;
       }
 
       html += \`<button class="btn" onclick="submitElicitation()">Submit</button>\`;
@@ -4554,13 +4706,138 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function submitElicitation() {
       const input = document.getElementById('elicitation-input');
       const value = input.value;
-      
+
       ws.send(JSON.stringify({
         type: 'elicitation_response',
         value
       }));
-      
+
       document.getElementById('elicitation-modal').classList.remove('visible');
+    }
+
+    // OAuth flow handling
+    let oauthPopup = null;
+    let oauthCheckInterval = null;
+
+    function startOAuthFlow(url, elicitationId) {
+      if (!url) {
+        showError('No authorization URL provided');
+        return;
+      }
+
+      // Show waiting status
+      const statusEl = document.getElementById('oauth-status');
+      if (statusEl) {
+        statusEl.style.display = 'flex';
+        statusEl.className = 'oauth-status waiting';
+        statusEl.innerHTML = '<div class="oauth-spinner"></div><span>Waiting for authorization...</span>';
+      }
+
+      // Open popup
+      const width = 500;
+      const height = 700;
+      const left = (window.screen.width - width) / 2;
+      const top = (window.screen.height - height) / 2;
+
+      oauthPopup = window.open(
+        url,
+        'oauth_popup',
+        \`width=\${width},height=\${height},left=\${left},top=\${top},toolbar=no,menubar=no\`
+      );
+
+      if (!oauthPopup) {
+        showError('Popup was blocked. Please allow popups for this site.');
+        return;
+      }
+
+      // Listen for OAuth callback message
+      const messageHandler = (event) => {
+        // Accept messages from OAuth callback
+        if (event.data && event.data.type === 'oauth_callback') {
+          window.removeEventListener('message', messageHandler);
+          clearInterval(oauthCheckInterval);
+
+          if (event.data.success) {
+            handleOAuthSuccess(elicitationId);
+          } else {
+            handleOAuthError(event.data.error || 'Authorization failed');
+          }
+        }
+      };
+      window.addEventListener('message', messageHandler);
+
+      // Also check if popup was closed manually
+      oauthCheckInterval = setInterval(() => {
+        if (oauthPopup && oauthPopup.closed) {
+          clearInterval(oauthCheckInterval);
+          window.removeEventListener('message', messageHandler);
+
+          // Popup closed - assume success and retry (grant may have been created)
+          handleOAuthSuccess(elicitationId);
+        }
+      }, 500);
+    }
+
+    function handleOAuthSuccess(elicitationId) {
+      const statusEl = document.getElementById('oauth-status');
+      if (statusEl) {
+        statusEl.className = 'oauth-status success';
+        statusEl.innerHTML = '✓ Authorization successful! Retrying...';
+      }
+
+      // Close modal and retry the tool call
+      setTimeout(() => {
+        document.getElementById('elicitation-modal').classList.remove('visible');
+
+        // Notify server that OAuth is complete
+        ws.send(JSON.stringify({
+          type: 'oauth_complete',
+          elicitationId: elicitationId,
+          success: true
+        }));
+
+        // Retry the pending operation if we have it
+        if (window._pendingOAuth) {
+          const { photon, method, params } = window._pendingOAuth;
+          if (photon && method) {
+            // Re-invoke the tool
+            ws.send(JSON.stringify({
+              type: 'invoke',
+              photon,
+              method,
+              params: params || {}
+            }));
+          }
+          window._pendingOAuth = null;
+        }
+      }, 1000);
+    }
+
+    function handleOAuthError(error) {
+      const statusEl = document.getElementById('oauth-status');
+      if (statusEl) {
+        statusEl.className = 'oauth-status error';
+        statusEl.innerHTML = \`✗ \${error}\`;
+      }
+    }
+
+    function cancelOAuth() {
+      if (oauthPopup && !oauthPopup.closed) {
+        oauthPopup.close();
+      }
+      if (oauthCheckInterval) {
+        clearInterval(oauthCheckInterval);
+      }
+
+      document.getElementById('elicitation-modal').classList.remove('visible');
+      window._pendingOAuth = null;
+
+      // Notify server of cancellation
+      ws.send(JSON.stringify({
+        type: 'elicitation_response',
+        value: null,
+        cancelled: true
+      }));
     }
 
     // Tab switching for method view
