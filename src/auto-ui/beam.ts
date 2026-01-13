@@ -56,6 +56,7 @@ interface MethodInfo {
   returns: any;
   autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
   outputFormat?: string;  // Format hint for rendering (mermaid, markdown, json, etc.)
+  linkedUi?: string;  // UI template ID if linked via @ui annotation
 }
 
 interface InvokeRequest {
@@ -230,18 +231,26 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Extract schema for UI
       const schemas = await extractor.extractFromFile(photonPath);
 
+      // Get UI assets for linking
+      const uiAssets = mcp.assets?.ui || [];
+
       // Filter out lifecycle methods
       const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
       const methods: MethodInfo[] = schemas
         .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-        .map((schema: any) => ({
-          name: schema.name,
-          description: schema.description || '',
-          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-          returns: { type: 'object' },
-          autorun: schema.autorun || false,
-          outputFormat: schema.outputFormat
-        }));
+        .map((schema: any) => {
+          // Find linked UI for this method
+          const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+          return {
+            name: schema.name,
+            description: schema.description || '',
+            params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+            returns: { type: 'object' },
+            autorun: schema.autorun || false,
+            outputFormat: schema.outputFormat,
+            linkedUi: linkedAsset?.id
+          };
+        });
 
       photons.push({
         name,
@@ -365,6 +374,40 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         workdir: photonWorkdir,
         defaultWorkdir: workingDir
       }));
+      return;
+    }
+
+    // Serve UI templates for custom UI rendering
+    if (url.pathname === '/api/ui') {
+      const photonName = url.searchParams.get('photon');
+      const uiId = url.searchParams.get('id');
+
+      if (!photonName || !uiId) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon or id parameter' }));
+        return;
+      }
+
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Photon not found' }));
+        return;
+      }
+
+      // UI templates are in <photon-dir>/<photon-name>/ui/<id>.html
+      const photonDir = path.dirname(photon.path);
+      const uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+
+      try {
+        const uiContent = await fs.readFile(uiPath, 'utf-8');
+        res.setHeader('Content-Type', 'text/html');
+        res.writeHead(200);
+        res.end(uiContent);
+      } catch (err) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: `UI template not found: ${uiId}` }));
+      }
       return;
     }
 
@@ -3772,8 +3815,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       form.innerHTML = html;
       form.onsubmit = handleSubmit;
 
-      // Auto-execute if method is marked as autorun and has no required fields
-      if (currentMethod.autorun && !hasRequiredFields) {
+      // Auto-execute if method has no required fields (no user input needed)
+      // This includes: methods with no params, methods with all defaults, or explicit autorun
+      const noParams = Object.keys(properties).length === 0;
+      if (noParams || (!hasRequiredFields && currentMethod.autorun) || (!hasRequiredFields && currentMethod.linkedUi)) {
         setTimeout(() => {
           form.dispatchEvent(new Event('submit', { cancelable: true }));
         }, 100);
@@ -4120,6 +4165,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       container.classList.add('visible');
 
+      // Check for custom UI template
+      if (currentMethod?.linkedUi && currentPhoton?.name) {
+        renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
+        // Update data tab
+        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        return;
+      }
+
       const format = currentMethod?.outputFormat;
 
       // Handle mermaid diagrams
@@ -4208,6 +4261,50 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       mermaid.render('mermaid-fs-svg', window.currentMermaidSource).then(({ svg }) => {
         document.getElementById('mermaid-fullscreen-render').innerHTML = svg;
       });
+    }
+
+    async function renderCustomUI(container, data, photonName, uiId) {
+      try {
+        // Fetch the UI template
+        const response = await fetch(\`/api/ui?photon=\${encodeURIComponent(photonName)}&id=\${encodeURIComponent(uiId)}\`);
+        if (!response.ok) {
+          throw new Error(\`Failed to load UI template: \${response.statusText}\`);
+        }
+        const template = await response.text();
+
+        // Inject the data into the template
+        // The template expects window.__PHOTON_DATA__ to be set
+        const dataScript = \`<script>window.__PHOTON_DATA__ = \${JSON.stringify(data)};</script>\`;
+        const modifiedTemplate = template.replace('</head>', \`\${dataScript}</head>\`);
+
+        // Create a blob URL for the iframe
+        const blob = new Blob([modifiedTemplate], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Render in an iframe
+        container.innerHTML = \`
+          <iframe
+            src="\${blobUrl}"
+            class="custom-ui-iframe"
+            style="width: 100%; height: 400px; border: none; border-radius: 8px; background: white;"
+            onload="this.style.height = Math.max(400, this.contentWindow.document.body.scrollHeight + 20) + 'px'"
+          ></iframe>
+        \`;
+
+        // Clean up blob URL after iframe loads
+        const iframe = container.querySelector('iframe');
+        iframe.addEventListener('load', () => {
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        });
+      } catch (error) {
+        console.error('Failed to render custom UI:', error);
+        container.innerHTML = \`
+          <div class="error-message">
+            <p>Failed to load custom UI: \${error.message}</p>
+            <pre>\${JSON.stringify(data, null, 2)}</pre>
+          </div>
+        \`;
+      }
     }
 
     function renderResultItem(item) {
