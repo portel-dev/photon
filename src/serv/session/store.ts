@@ -410,11 +410,12 @@ export class RedisSessionStore implements SessionStore {
 // Factory Function
 // ============================================================================
 
-export type SessionStoreType = 'memory' | 'redis';
+export type SessionStoreType = 'memory' | 'redis' | 'kv';
 
 export interface CreateSessionStoreOptions {
   type: SessionStoreType;
   redis?: RedisClient;
+  kv?: unknown; // KVNamespace - imported dynamically
   config?: Partial<SessionConfig>;
 }
 
@@ -430,6 +431,9 @@ export function createSessionStore(options: CreateSessionStoreOptions): SessionS
         redis: options.redis,
         config: options.config,
       });
+    case 'kv':
+      // KV store is imported separately to avoid bundling Cloudflare types
+      throw new Error('Use KVSessionStore directly from session/kv-store.ts');
     default:
       throw new Error(`Unknown session store type: ${options.type}`);
   }
