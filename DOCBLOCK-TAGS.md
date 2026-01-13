@@ -42,6 +42,7 @@ The `@format` tag on methods supports structural, content, and code formatting h
 | **Structural** | `primitive`, `table`, `tree`, `list`, `none` | Hints at the data shape (literal, array of objects, hierarchy, etc.) |
 | **Content** | `json`, `markdown`, `yaml`, `xml`, `html` | Specifies the syntax for highlighting or rendering. |
 | **Code** | `code`, `code:lang` | Renders output as a code block (e.g., `code:javascript`). |
+| **Diagram** | `mermaid` | Renders Mermaid diagram syntax as interactive visual diagram. |
 
 ## Input Format Values (`{@format}` on params)
 

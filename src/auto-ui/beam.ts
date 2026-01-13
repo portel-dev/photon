@@ -55,6 +55,7 @@ interface MethodInfo {
   params: any;
   returns: any;
   autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
+  outputFormat?: string;  // Format hint for rendering (mermaid, markdown, json, etc.)
 }
 
 interface InvokeRequest {
@@ -232,7 +233,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           description: schema.description || '',
           params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
           returns: { type: 'object' },
-          autorun: schema.autorun || false
+          autorun: schema.autorun || false,
+          outputFormat: schema.outputFormat
         }));
 
       photons.push({
@@ -763,6 +765,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <style>
     :root {
       --bg-primary: #0f0f0f;
@@ -1875,6 +1878,106 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    /* Mermaid diagram */
+    .mermaid-container {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      overflow: auto;
+    }
+
+    .mermaid-diagram {
+      display: flex;
+      justify-content: center;
+      min-height: 200px;
+    }
+
+    .mermaid-diagram svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .mermaid-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .mermaid-actions button {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .mermaid-actions button:hover {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .mermaid-fullscreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.9);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mermaid-fullscreen-content {
+      position: relative;
+      max-width: 95vw;
+      max-height: 95vh;
+      overflow: auto;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-lg);
+      padding: 40px;
+    }
+
+    .mermaid-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      background: var(--bg-tertiary);
+      border: none;
+      border-radius: 50%;
+      color: var(--text-secondary);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mermaid-close:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .mermaid-fullscreen-diagram {
+      display: flex;
+      justify-content: center;
+    }
+
+    .mermaid-fullscreen-diagram svg {
+      max-width: 100%;
+      height: auto;
+    }
+
     /* Result container */
     .result-container {
       margin-top: 32px;
@@ -2566,6 +2669,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           item.querySelector('.photon-header').classList.add('expanded');
         }
       });
+    });
+
+    // Initialize Mermaid with dark theme
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#6366f1',
+        primaryTextColor: '#e5e7eb',
+        primaryBorderColor: '#4f46e5',
+        lineColor: '#6b7280',
+        secondaryColor: '#1f2937',
+        tertiaryColor: '#111827',
+        background: '#0f0f0f',
+        mainBkg: '#1c1c1c',
+        nodeBorder: '#4b5563',
+        clusterBkg: '#1f2937',
+        clusterBorder: '#374151',
+        titleColor: '#f3f4f6',
+        edgeLabelBackground: '#1c1c1c'
+      }
     });
 
     function connect() {
@@ -3383,7 +3507,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       container.classList.add('visible');
 
-      if (Array.isArray(data)) {
+      const format = currentMethod?.outputFormat;
+
+      // Handle mermaid diagrams
+      if (format === 'mermaid' && typeof data === 'string') {
+        renderMermaid(content, data);
+      } else if (Array.isArray(data)) {
         content.innerHTML = \`
           <ul class="result-list">
             \${data.map(item => renderResultItem(item)).join('')}
@@ -3392,11 +3521,80 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       } else if (typeof data === 'string') {
         content.innerHTML = renderMarkdown(data);
       } else {
-        content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
+        // Check if object has a 'diagram' field with mermaid content
+        if (data && data.diagram && typeof data.diagram === 'string') {
+          renderMermaid(content, data.diagram);
+        } else {
+          content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
+        }
       }
 
       // Update data tab
       document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+    }
+
+    async function renderMermaid(container, diagram) {
+      const id = 'mermaid-' + Date.now();
+      container.innerHTML = \`
+        <div class="mermaid-container">
+          <div class="mermaid-diagram" id="\${id}"></div>
+          <div class="mermaid-actions">
+            <button onclick="copyMermaidSource()" title="Copy diagram source">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+              </svg>
+              Copy Source
+            </button>
+            <button onclick="zoomMermaid()" title="View full screen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"></path>
+              </svg>
+              Full Screen
+            </button>
+          </div>
+        </div>
+      \`;
+
+      // Store source for copy functionality
+      window.currentMermaidSource = diagram;
+
+      try {
+        const { svg } = await mermaid.render(id + '-svg', diagram);
+        document.getElementById(id).innerHTML = svg;
+      } catch (error) {
+        container.innerHTML = \`
+          <div style="color: var(--error); padding: 16px;">
+            <strong>Mermaid render error:</strong> \${error.message}
+            <pre style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; overflow-x: auto;">\${diagram}</pre>
+          </div>
+        \`;
+      }
+    }
+
+    function copyMermaidSource() {
+      if (window.currentMermaidSource) {
+        navigator.clipboard.writeText(window.currentMermaidSource);
+        showToast('Diagram source copied', 'success');
+      }
+    }
+
+    function zoomMermaid() {
+      if (!window.currentMermaidSource) return;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'mermaid-fullscreen';
+      overlay.innerHTML = \`
+        <div class="mermaid-fullscreen-content">
+          <button class="mermaid-close" onclick="this.parentElement.parentElement.remove()">×</button>
+          <div class="mermaid-fullscreen-diagram" id="mermaid-fullscreen-render"></div>
+        </div>
+      \`;
+      document.body.appendChild(overlay);
+
+      mermaid.render('mermaid-fs-svg', window.currentMermaidSource).then(({ svg }) => {
+        document.getElementById('mermaid-fullscreen-render').innerHTML = svg;
+      });
     }
 
     function renderResultItem(item) {
