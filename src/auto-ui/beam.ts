@@ -496,8 +496,8 @@ async function handleReload(
   }
 
   try {
-    // Reload the photon
-    const mcp = await loader.loadFile(photonPath);
+    // Reload the photon (clears compiled cache for hot reload)
+    const mcp = await loader.reloadFile(photonPath);
     const instance = mcp.instance;
 
     if (!instance) {
