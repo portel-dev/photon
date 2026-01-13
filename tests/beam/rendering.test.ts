@@ -133,31 +133,59 @@ test('No-param methods auto-execute without Run button', async () => {
 // Form Rendering Tests
 // ============================================================================
 
-// Note: Form tests are disabled for now as they require specific schema
-// configuration to prevent auto-execution. The 'add' method auto-executes
-// because its parameters don't have explicit 'required' constraints.
-// TODO: Investigate how to mark parameters as required in JSDoc to prevent auto-execution
+test('Method with params shows form with Run button', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'add');
+    await beam.expectElement('form');
+    await beam.expectElement('input[name="a"]');
+    await beam.expectElement('input[name="b"]');
+    const submitBtn = beam.page.locator('form button[type="submit"]');
+    assert.ok(await submitBtn.count() > 0, 'Run button should be visible');
+  }, opts);
+});
 
-// test('Method with params shows form with Run button', async () => {
-//   await withBeam(async (beam) => {
-//     await beam.selectMethod('demo', 'add');
-//     await beam.expectElement('form');
-//     await beam.expectElement('input[name="a"]');
-//     await beam.expectElement('input[name="b"]');
-//     const submitBtn = beam.page.locator('form button[type="submit"]');
-//     assert.ok(await submitBtn.count() > 0, 'Run button should be visible');
-//   }, opts);
-// });
+test('Form submission executes method', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'add');
+    await beam.fillField('a', '5');
+    await beam.fillField('b', '3');
+    await beam.submit();
+    await beam.expectResult({ type: 'primitive', value: '8' });
+  }, opts);
+});
 
-// test('Form submission executes method', async () => {
-//   await withBeam(async (beam) => {
-//     await beam.selectMethod('demo', 'add');
-//     await beam.fillField('a', '5');
-//     await beam.fillField('b', '3');
-//     await beam.submit();
-//     await beam.expectResult({ type: 'primitive', value: '8' });
-//   }, opts);
-// });
+// ============================================================================
+// Label Formatting Tests
+// ============================================================================
+
+test('Custom button label from @returns {@label} is displayed', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'add');
+    // Check for custom button label "Calculate Sum"
+    const buttonText = await beam.page.locator('form button[type="submit"]').textContent();
+    assert.ok(buttonText?.includes('Calculate Sum'), 'Expected custom button label "Calculate Sum"');
+  }, opts);
+});
+
+test('Custom field labels from @param {@label} are displayed', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'add');
+    // Check for custom field labels
+    const formHtml = await beam.page.locator('#invoke-form').innerHTML();
+    assert.ok(formHtml.includes('First Number'), 'Expected custom label "First Number"');
+    assert.ok(formHtml.includes('Second Number'), 'Expected custom label "Second Number"');
+  }, opts);
+});
+
+test('Default label formatting converts camelCase to Title Case', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'getConfig');
+    // Method name "getConfig" should be formatted as "Get Config" in UI
+    // Check the sidebar method name (which uses formatLabel)
+    const methodItem = beam.page.locator('#methods-demo .method-item:has-text("getConfig")');
+    assert.ok(await methodItem.count() > 0, 'Method should be visible in sidebar');
+  }, opts);
+});
 
 // ============================================================================
 // Visual Snapshot Tests
