@@ -2828,43 +2828,55 @@ program
   });
 
 // CLI command: directly invoke photon methods
+// Also serves as escape hatch for photons with reserved names (e.g., photon cli list get)
 program
-  .command('cli <photon> [method] [args...]', { hidden: true })
-  .description('Run photon methods directly from the command line')
+  .command('cli <photon> [method] [args...]')
+  .description('Run photon methods from command line (escape hatch for reserved names)')
   .allowUnknownOption()
   .helpOption(false) // Disable default help so we can handle it ourselves
   .action(async (photon: string, method: string | undefined, args: string[]) => {
     // Handle help flag
     if (photon === '--help' || photon === '-h') {
       console.log(`USAGE:
-    photon cli <photon-name> [method] [args...]
+    photon <photon-name> [method] [args...]
+    photon cli <photon-name> [method] [args...]   (explicit form)
 
 DESCRIPTION:
     Run photon methods directly from the command line. Photons provide
     a CLI interface automatically based on their exported methods.
 
+    The 'cli' command is optional - you can run photons directly:
+      photon lg-remote volume +5      (implicit)
+      photon cli lg-remote volume +5  (explicit)
+
+    Use 'photon cli' explicitly when your photon name conflicts with
+    a reserved command (serve, beam, list, init, etc.)
+
 EXAMPLES:
     # List all methods for a photon
-    photon cli lg-remote
+    photon lg-remote
 
     # Call a method with no parameters
-    photon cli lg-remote status
+    photon lg-remote status
 
     # Call a method with parameters
-    photon cli lg-remote volume 50
-    photon cli lg-remote volume +5
-    photon cli lg-remote volume --level=-3
+    photon lg-remote volume 50
+    photon lg-remote volume +5
+    photon spotify play
 
     # Get method-specific help
-    photon cli lg-remote volume --help
+    photon lg-remote volume --help
 
     # Output raw JSON instead of formatted text
-    photon cli lg-remote status --json
+    photon lg-remote status --json
+
+    # Escape hatch for reserved-name photons
+    photon cli list get       (photon named "list", method "get")
+    photon cli serve status   (photon named "serve", method "status")
 
 SEE ALSO:
-    photon info           List all installed photons
+    photon list           List all installed photons
     photon add <name>     Install a photon from marketplace
-    photon alias          Create CLI shortcuts for photons
 `);
       return;
     }
@@ -2910,13 +2922,33 @@ program
 
 
 
+// Reserved commands that should NOT be treated as photon names
+// If first arg is not in this list, it's assumed to be a photon name (implicit CLI mode)
+const RESERVED_COMMANDS = [
+  // Core commands
+  'serve', 'beam', 'list', 'ls', 'info',
+  // Photon management
+  'new', 'init', 'validate', 'sync', 'add', 'remove', 'rm',
+  // Maintenance
+  'upgrade', 'up', 'update', 'doctor', 'clear-cache', 'clean',
+  // Aliases
+  'cli', 'alias', 'unalias', 'aliases',
+  // Hidden/advanced
+  'mcp', 'search', 'marketplace', 'maker', 'deploy', 'cf-dev',
+  'diagram', 'diagrams', 'enable', 'disable',
+  // Help/version (handled by commander)
+  'help', '--help', '-h', 'version', '--version', '-V',
+];
+
 // All known commands for "did you mean" suggestions
 const knownCommands = [
-  'mcp', 'info', 'list', 'ls', 'search',
+  'serve', 'beam', 'list', 'ls', 'info',
+  'new', 'init', 'validate', 'sync',
   'add', 'remove', 'rm', 'upgrade', 'up', 'update',
   'clear-cache', 'clean', 'doctor',
   'cli', 'alias', 'unalias', 'aliases',
-  'marketplace', 'maker',
+  'mcp', 'search', 'marketplace', 'maker',
+  'deploy', 'diagram', 'diagrams',
 ];
 
 const knownSubcommands: Record<string, string[]> = {
@@ -3004,7 +3036,42 @@ program.on('command:*', async (operands) => {
   process.exit(1);
 });
 
-program.parse();
+// ══════════════════════════════════════════════════════════════════════════════
+// IMPLICIT CLI MODE
+// ══════════════════════════════════════════════════════════════════════════════
+// If the first argument is not a reserved command, treat it as a photon name
+// This enables: `photon lg-remote volume +5` instead of `photon cli lg-remote volume +5`
+
+function preprocessArgs(): string[] {
+  const args = process.argv.slice(2);
+
+  // No args - let commander handle it (shows help)
+  if (args.length === 0) {
+    return process.argv;
+  }
+
+  // Find the first non-flag argument
+  const firstArgIndex = args.findIndex(arg => !arg.startsWith('-'));
+  if (firstArgIndex === -1) {
+    // All flags, let commander handle it
+    return process.argv;
+  }
+
+  const firstArg = args[firstArgIndex];
+
+  // If first arg is a reserved command, let commander handle normally
+  if (RESERVED_COMMANDS.includes(firstArg)) {
+    return process.argv;
+  }
+
+  // First arg looks like a photon name - inject 'cli' command
+  // photon lg-remote volume +5 → photon cli lg-remote volume +5
+  const newArgs = [...process.argv];
+  newArgs.splice(2 + firstArgIndex, 0, 'cli');
+  return newArgs;
+}
+
+program.parse(preprocessArgs());
 
 /**
  * Inline template fallback
