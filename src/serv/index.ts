@@ -29,6 +29,16 @@ export {
   D1ElicitationStore,
 } from './db/d1-stores.js';
 
+// Local Development (zero dependencies)
+export {
+  LocalServ,
+  LocalUserStore,
+  LocalMembershipStore,
+  createLocalServ,
+  getTestToken,
+  type LocalServConfig,
+} from './local.js';
+
 // JWT & Auth
 export {
   JwtService,
