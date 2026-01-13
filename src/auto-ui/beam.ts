@@ -74,7 +74,17 @@ interface ElicitationResponse {
   value: any;
 }
 
-type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse;
+interface ReloadRequest {
+  type: 'reload';
+  photon: string;
+}
+
+interface RemoveRequest {
+  type: 'remove';
+  photon: string;
+}
+
+type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse | ReloadRequest | RemoveRequest;
 
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
@@ -290,6 +300,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             (ws as any).pendingElicitation.resolve(message.value);
             (ws as any).pendingElicitation = null;
           }
+        } else if (message.type === 'reload') {
+          await handleReload(ws, message, photons, photonMCPs, loader, savedConfig);
+        } else if (message.type === 'remove') {
+          await handleRemove(ws, message, photons, photonMCPs, savedConfig);
         }
       } catch (error) {
         ws.send(JSON.stringify({
@@ -448,6 +462,127 @@ async function handleConfigure(
       message: `Configuration failed: ${errorMsg.slice(0, 200)}`
     }));
   }
+}
+
+async function handleReload(
+  ws: WebSocket,
+  request: ReloadRequest,
+  photons: AnyPhotonInfo[],
+  photonMCPs: Map<string, any>,
+  loader: PhotonLoader,
+  savedConfig: Record<string, Record<string, string>>
+): Promise<void> {
+  const { photon: photonName } = request;
+
+  // Find the photon
+  const photonIndex = photons.findIndex(p => p.name === photonName);
+  if (photonIndex === -1) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Photon not found: ${photonName}`
+    }));
+    return;
+  }
+
+  const photon = photons[photonIndex];
+  const photonPath = photon.path;
+
+  // Get saved config for this photon
+  const config = savedConfig[photonName] || {};
+
+  // Apply config to environment
+  for (const [key, value] of Object.entries(config)) {
+    process.env[key] = value;
+  }
+
+  try {
+    // Reload the photon
+    const mcp = await loader.loadFile(photonPath);
+    const instance = mcp.instance;
+
+    if (!instance) {
+      throw new Error('Failed to create instance');
+    }
+
+    photonMCPs.set(photonName, mcp);
+
+    // Extract schema for UI
+    const extractor = new SchemaExtractor();
+    const schemas = await extractor.extractFromFile(photonPath);
+
+    const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+    const methods: MethodInfo[] = schemas
+      .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+      .map((schema: any) => ({
+        name: schema.name,
+        description: schema.description || '',
+        params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+        returns: { type: 'object' },
+        autorun: schema.autorun || false
+      }));
+
+    // Update photon info
+    const reloadedPhoton: PhotonInfo = {
+      name: photonName,
+      path: photonPath,
+      configured: true,
+      methods
+    };
+
+    photons[photonIndex] = reloadedPhoton;
+
+    logger.info(`🔄 ${photonName} reloaded successfully`);
+
+    ws.send(JSON.stringify({
+      type: 'reloaded',
+      photon: reloadedPhoton
+    }));
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to reload ${photonName}: ${errorMsg}`);
+
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Reload failed: ${errorMsg.slice(0, 200)}`
+    }));
+  }
+}
+
+async function handleRemove(
+  ws: WebSocket,
+  request: RemoveRequest,
+  photons: AnyPhotonInfo[],
+  photonMCPs: Map<string, any>,
+  savedConfig: Record<string, Record<string, string>>
+): Promise<void> {
+  const { photon: photonName } = request;
+
+  // Find and remove the photon
+  const photonIndex = photons.findIndex(p => p.name === photonName);
+  if (photonIndex === -1) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Photon not found: ${photonName}`
+    }));
+    return;
+  }
+
+  // Remove from arrays/maps
+  photons.splice(photonIndex, 1);
+  photonMCPs.delete(photonName);
+
+  // Remove from saved config
+  delete savedConfig[photonName];
+  await saveConfig(savedConfig);
+
+  logger.info(`🗑️ ${photonName} removed`);
+
+  ws.send(JSON.stringify({
+    type: 'removed',
+    photon: photonName,
+    photons: photons
+  }));
 }
 
 function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
@@ -900,6 +1035,89 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       font-size: 14px;
     }
 
+    .method-header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .photon-settings {
+      position: relative;
+    }
+
+    .settings-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .settings-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border-color: var(--text-muted);
+    }
+
+    .settings-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+    }
+
+    .settings-menu.visible {
+      display: block;
+    }
+
+    .settings-menu button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 14px;
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: left;
+    }
+
+    .settings-menu button:hover {
+      background: var(--bg-secondary);
+    }
+
+    .settings-menu button.danger {
+      color: var(--error);
+    }
+
+    .settings-menu button.danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .settings-divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 4px 0;
+    }
+
     .tabs {
       display: flex;
       gap: 0;
@@ -1117,6 +1335,47 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       font-size: 13px;
       color: var(--text-muted);
       font-weight: 500;
+    }
+
+    /* Toast notifications */
+    #toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      padding: 12px 20px;
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      font-size: 14px;
+      opacity: 0;
+      transform: translateX(100%);
+      transition: all 0.3s ease;
+      border-left: 3px solid var(--accent);
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .toast-success {
+      border-left-color: #10b981;
+    }
+
+    .toast-error {
+      border-left-color: #ef4444;
+    }
+
+    .toast-info {
+      border-left-color: var(--accent);
     }
 
     /* Result container */
@@ -1454,7 +1713,39 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       <div id="method-view" style="display: none; flex-direction: column; height: 100%;">
         <div class="method-header">
-          <h2 id="method-title"></h2>
+          <div class="method-header-top">
+            <h2 id="method-title"></h2>
+            <div class="photon-settings">
+              <button class="settings-btn" onclick="toggleSettingsMenu(event)" title="Photon settings">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+                </svg>
+              </button>
+              <div class="settings-menu" id="settings-menu">
+                <button onclick="reconfigurePhoton()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                  </svg>
+                  Reconfigure
+                </button>
+                <button onclick="reloadPhoton()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+                  </svg>
+                  Reload
+                </button>
+                <div class="settings-divider"></div>
+                <button class="danger" onclick="removePhoton()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                  </svg>
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
           <p id="method-description"></p>
         </div>
 
@@ -1725,6 +2016,56 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         case 'configured':
           handleConfigured(message.photon);
           break;
+        case 'reloaded':
+          handleReloaded(message.photon);
+          break;
+        case 'removed':
+          handleRemoved(message.photon, message.photons);
+          break;
+      }
+    }
+
+    function handleReloaded(photon) {
+      hideProgress();
+      showToast(\`\${photon.name} reloaded\`, 'success');
+
+      // Update photon in list
+      const index = photons.findIndex(p => p.name === photon.name);
+      if (index !== -1) {
+        photons[index] = photon;
+        renderPhotonList();
+
+        // Re-select the current method if we're viewing this photon
+        if (currentPhoton && currentPhoton.name === photon.name && currentMethod) {
+          currentPhoton = photon;
+          const method = photon.methods.find(m => m.name === currentMethod.name);
+          if (method) {
+            currentMethod = method;
+            renderMethodView();
+          }
+        }
+      }
+    }
+
+    function handleRemoved(photonName, updatedPhotons) {
+      hideProgress();
+      showToast(\`\${photonName} removed\`, 'success');
+
+      photons = updatedPhotons;
+      renderPhotonList();
+
+      // If we were viewing this photon, clear the view
+      if (currentPhoton && currentPhoton.name === photonName) {
+        currentPhoton = null;
+        currentMethod = null;
+        document.getElementById('method-view').innerHTML = \`
+          <div class="empty-state">
+            <div class="empty-icon">⚡</div>
+            <h2>Photon Beam</h2>
+            <p>Select a method to begin</p>
+          </div>
+        \`;
+        updateHash('', '');
       }
     }
 
@@ -1895,6 +2236,69 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       container.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       container.querySelector('input[type="hidden"]').value = value ? 'true' : 'false';
+    }
+
+    // Settings menu functions
+    function toggleSettingsMenu(e) {
+      e.stopPropagation();
+      const menu = document.getElementById('settings-menu');
+      menu.classList.toggle('visible');
+
+      // Close menu when clicking outside
+      const closeMenu = (event) => {
+        if (!event.target.closest('.photon-settings')) {
+          menu.classList.remove('visible');
+          document.removeEventListener('click', closeMenu);
+        }
+      };
+
+      if (menu.classList.contains('visible')) {
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+      }
+    }
+
+    function reconfigurePhoton() {
+      if (!currentPhoton) return;
+      document.getElementById('settings-menu').classList.remove('visible');
+
+      // Show config view with current photon
+      document.getElementById('method-view').style.display = 'none';
+      document.getElementById('config-view').style.display = 'flex';
+      document.getElementById('config-title').textContent = currentPhoton.name;
+      document.getElementById('config-description').textContent = 'Update configuration for this photon';
+
+      renderConfigForm();
+    }
+
+    function reloadPhoton() {
+      if (!currentPhoton) return;
+      document.getElementById('settings-menu').classList.remove('visible');
+
+      showProgress(\`Reloading \${currentPhoton.name}...\`);
+
+      ws.send(JSON.stringify({
+        type: 'reload',
+        photon: currentPhoton.name
+      }));
+    }
+
+    function removePhoton() {
+      if (!currentPhoton) return;
+      document.getElementById('settings-menu').classList.remove('visible');
+
+      if (confirm(\`Remove \${currentPhoton.name} from this workspace?\`)) {
+        ws.send(JSON.stringify({
+          type: 'remove',
+          photon: currentPhoton.name
+        }));
+
+        // Go back to empty state
+        currentPhoton = null;
+        currentMethod = null;
+        document.getElementById('method-view').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'flex';
+        history.pushState(null, '', window.location.pathname);
+      }
     }
 
     function handleConfigSubmit(e) {
@@ -2196,6 +2600,30 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function hideProgress() {
       document.getElementById('progress-overlay').classList.remove('visible');
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container') || createToastContainer();
+      const toast = document.createElement('div');
+      toast.className = \`toast toast-\${type}\`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      // Trigger animation
+      requestAnimationFrame(() => toast.classList.add('visible'));
+
+      // Auto-remove after 3s
+      setTimeout(() => {
+        toast.classList.remove('visible');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function createToastContainer() {
+      const container = document.createElement('div');
+      container.id = 'toast-container';
+      document.body.appendChild(container);
+      return container;
     }
 
     function handleYield(data) {
