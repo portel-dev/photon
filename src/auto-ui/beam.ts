@@ -2060,61 +2060,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-primary);
     }
 
-    .mermaid-fullscreen {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.9);
-      z-index: 200;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .mermaid-fullscreen-content {
-      position: relative;
-      max-width: 95vw;
-      max-height: 95vh;
-      overflow: auto;
-      background: var(--bg-elevated);
-      border-radius: var(--radius-lg);
-      padding: 40px;
-    }
-
-    .mermaid-close {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      width: 32px;
-      height: 32px;
-      background: var(--bg-tertiary);
-      border: none;
-      border-radius: 50%;
-      color: var(--text-secondary);
-      font-size: 20px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .mermaid-close:hover {
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-    }
-
-    .mermaid-fullscreen-diagram {
-      display: flex;
-      justify-content: center;
-    }
-
-    .mermaid-fullscreen-diagram svg {
-      max-width: 100%;
-      height: auto;
-    }
-
     /* Result container */
     .result-container {
       margin-top: 32px;
@@ -4248,19 +4193,66 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function zoomMermaid() {
       if (!window.currentMermaidSource) return;
 
-      const overlay = document.createElement('div');
-      overlay.className = 'mermaid-fullscreen';
-      overlay.innerHTML = \`
-        <div class="mermaid-fullscreen-content">
-          <button class="mermaid-close" onclick="this.parentElement.parentElement.remove()">×</button>
-          <div class="mermaid-fullscreen-diagram" id="mermaid-fullscreen-render"></div>
+      // Use the dedicated fullscreen container with proper controls
+      const container = document.getElementById('mermaid-fullscreen-container');
+      container.innerHTML = \`
+        <div class="mermaid-fullscreen">
+          <div class="mermaid-fullscreen-header">
+            <div class="mermaid-fullscreen-controls">
+              <button onclick="mermaidFsZoom(-0.2)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom Out
+              </button>
+              <div class="mermaid-fullscreen-zoom">
+                <span id="mermaid-fs-zoom-level">100%</span>
+              </div>
+              <button onclick="mermaidFsZoom(0.2)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Zoom In
+              </button>
+              <button onclick="mermaidFsReset()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+                Reset
+              </button>
+            </div>
+            <button onclick="closeMermaidFullscreen()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
+            </button>
+          </div>
+          <div class="mermaid-fullscreen-body" id="mermaid-fs-body">
+            <div id="mermaid-fs-content"></div>
+          </div>
         </div>
       \`;
-      document.body.appendChild(overlay);
 
+      // Store fullscreen state
+      window.mermaidFsState = { scale: 1, translateX: 0, translateY: 0, diagram: window.currentMermaidSource };
+
+      // Render diagram
       mermaid.render('mermaid-fs-svg', window.currentMermaidSource).then(({ svg }) => {
-        document.getElementById('mermaid-fullscreen-render').innerHTML = svg;
+        document.getElementById('mermaid-fs-content').innerHTML = svg;
+        setupMermaidFsDrag();
+      }).catch(e => {
+        document.getElementById('mermaid-fs-content').innerHTML = \`<pre class="mermaid-error">\${escapeHtml(window.currentMermaidSource)}</pre>\`;
       });
+
+      document.body.style.overflow = 'hidden';
     }
 
     async function renderCustomUI(container, data, photonName, uiId) {
