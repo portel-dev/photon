@@ -12,10 +12,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { Writable } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
-import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
+import { listPhotonMCPs, resolvePhotonPath, DEFAULT_PHOTON_DIR } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { toEnvVarName } from '../shared/config-docs.js';
+import { MarketplaceManager } from '../marketplace-manager.js';
 import {
   SchemaExtractor,
   type PhotonYield,
@@ -114,13 +115,17 @@ async function saveConfig(config: Record<string, Record<string, string>>): Promi
 }
 
 export async function startBeam(workingDir: string, port: number): Promise<void> {
+  // Initialize marketplace manager for photon discovery and installation
+  const marketplace = new MarketplaceManager();
+  await marketplace.initialize();
+  // Auto-update stale caches in background
+  marketplace.autoUpdateStaleCaches().catch(() => {});
+
   // Discover all photons
   const photonList = await listPhotonMCPs(workingDir);
 
   if (photonList.length === 0) {
-    logger.warn('No photons found in ' + workingDir);
-    console.log('\nCreate a photon with: photon maker new <name>');
-    process.exit(1);
+    logger.info('No photons found - showing management UI');
   }
 
   // Load saved config and apply to env
@@ -411,6 +416,120 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // Marketplace API: Search photons
+    if (url.pathname === '/api/marketplace/search') {
+      res.setHeader('Content-Type', 'application/json');
+      const query = url.searchParams.get('q') || '';
+
+      try {
+        const results = await marketplace.search(query);
+        const photonList: any[] = [];
+
+        for (const [name, sources] of results) {
+          const source = sources[0]; // Use first source
+          photonList.push({
+            name,
+            description: source.metadata?.description || '',
+            version: source.metadata?.version || '',
+            author: source.metadata?.author || '',
+            tags: source.metadata?.tags || [],
+            marketplace: source.marketplace.name,
+          });
+        }
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ photons: photonList }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Search failed' }));
+      }
+      return;
+    }
+
+    // Marketplace API: List all available photons
+    if (url.pathname === '/api/marketplace/list') {
+      res.setHeader('Content-Type', 'application/json');
+
+      try {
+        const allPhotons = await marketplace.getAllPhotons();
+        const photonList: any[] = [];
+
+        for (const [name, { metadata, marketplace: mp }] of allPhotons) {
+          photonList.push({
+            name,
+            description: metadata.description || '',
+            version: metadata.version || '',
+            author: metadata.author || '',
+            tags: metadata.tags || [],
+            marketplace: mp.name,
+          });
+        }
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ photons: photonList }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to list photons' }));
+      }
+      return;
+    }
+
+    // Marketplace API: Add/install a photon
+    if (url.pathname === '/api/marketplace/add' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { name } = JSON.parse(body);
+          if (!name) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing photon name' }));
+            return;
+          }
+
+          // Fetch the photon from marketplace
+          const result = await marketplace.fetchMCP(name);
+          if (!result) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Photon '${name}' not found in marketplace` }));
+            return;
+          }
+
+          // Write to working directory
+          const targetPath = path.join(workingDir, `${name}.photon.ts`);
+          await fs.writeFile(targetPath, result.content, 'utf-8');
+
+          // Save metadata if available
+          if (result.metadata) {
+            const hash = (await import('../marketplace-manager.js')).calculateHash(result.content);
+            await marketplace.savePhotonMetadata(
+              `${name}.photon.ts`,
+              result.marketplace,
+              result.metadata,
+              hash
+            );
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({
+            success: true,
+            name,
+            path: targetPath,
+            version: result.metadata?.version,
+          }));
+
+          // Broadcast to connected clients to reload photon list
+          broadcast({ type: 'photon_added', name });
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: 'Failed to add photon' }));
+        }
+      });
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });
@@ -513,21 +632,70 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       pendingReloads.delete(photonName);
 
       const photonIndex = photons.findIndex(p => p.name === photonName);
-      if (photonIndex === -1) return;
+      const isNewPhoton = photonIndex === -1;
+      const photonPath = isNewPhoton
+        ? path.join(workingDir, `${photonName}.photon.ts`)
+        : photons[photonIndex].path;
 
-      const photon = photons[photonIndex];
-      logger.info(`🔄 File change detected, reloading ${photonName}...`);
+      logger.info(isNewPhoton
+        ? `✨ New photon detected: ${photonName}`
+        : `🔄 File change detected, reloading ${photonName}...`);
+
+      // For new photons, check if configuration is needed first
+      if (isNewPhoton) {
+        const extractor = new SchemaExtractor();
+        let constructorParams: ConfigParam[] = [];
+
+        try {
+          const source = await fs.readFile(photonPath, 'utf-8');
+          const params = extractor.extractConstructorParams(source);
+          constructorParams = params
+            .filter((p: ConstructorParam) => p.isPrimitive)
+            .map((p: ConstructorParam) => ({
+              name: p.name,
+              envVar: toEnvVarName(photonName, p.name),
+              type: p.type,
+              isOptional: p.isOptional,
+              hasDefault: p.hasDefault,
+              defaultValue: p.defaultValue
+            }));
+        } catch {
+          // Can't extract params, try to load anyway
+        }
+
+        // Check if any required params are missing
+        const missingRequired = constructorParams.filter(p =>
+          !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+        );
+
+        if (missingRequired.length > 0 && constructorParams.length > 0) {
+          // Add as unconfigured photon
+          const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+            name: photonName,
+            path: photonPath,
+            configured: false,
+            requiredParams: constructorParams,
+            errorMessage: `Missing required: ${missingRequired.map(p => p.name).join(', ')}`
+          };
+          photons.push(unconfiguredPhoton);
+          broadcast({ type: 'photons', data: photons });
+          logger.info(`⚙️ ${photonName} added (needs configuration)`);
+          return;
+        }
+      }
 
       try {
-        // Reload the photon
-        const mcp = await loader.reloadFile(photon.path);
+        // Load or reload the photon
+        const mcp = isNewPhoton
+          ? await loader.loadFile(photonPath)
+          : await loader.reloadFile(photonPath);
         if (!mcp.instance) throw new Error('Failed to create instance');
 
         photonMCPs.set(photonName, mcp);
 
         // Re-extract schema
         const extractor = new SchemaExtractor();
-        const schemas = await extractor.extractFromFile(photon.path);
+        const schemas = await extractor.extractFromFile(photonPath);
 
         const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
         const methods: MethodInfo[] = schemas
@@ -542,22 +710,59 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         const reloadedPhoton: PhotonInfo = {
           name: photonName,
-          path: photon.path,
+          path: photonPath,
           configured: true,
           methods
         };
 
-        photons[photonIndex] = reloadedPhoton;
-
-        // Broadcast to all clients
-        broadcast({
-          type: 'hot-reload',
-          photon: reloadedPhoton
-        });
-
-        logger.info(`✅ ${photonName} hot reloaded`);
+        if (isNewPhoton) {
+          photons.push(reloadedPhoton);
+          broadcast({ type: 'photons', data: photons });
+          logger.info(`✅ ${photonName} added`);
+        } else {
+          photons[photonIndex] = reloadedPhoton;
+          broadcast({ type: 'hot-reload', photon: reloadedPhoton });
+          logger.info(`✅ ${photonName} hot reloaded`);
+        }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
+
+        // For new photons that fail to load, add as unconfigured
+        if (isNewPhoton) {
+          const extractor = new SchemaExtractor();
+          let constructorParams: ConfigParam[] = [];
+          try {
+            const source = await fs.readFile(photonPath, 'utf-8');
+            const params = extractor.extractConstructorParams(source);
+            constructorParams = params
+              .filter((p: ConstructorParam) => p.isPrimitive)
+              .map((p: ConstructorParam) => ({
+                name: p.name,
+                envVar: toEnvVarName(photonName, p.name),
+                type: p.type,
+                isOptional: p.isOptional,
+                hasDefault: p.hasDefault,
+                defaultValue: p.defaultValue
+              }));
+          } catch {
+            // Ignore extraction errors
+          }
+
+          if (constructorParams.length > 0) {
+            const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+              name: photonName,
+              path: photonPath,
+              configured: false,
+              requiredParams: constructorParams,
+              errorMessage: errorMsg.slice(0, 200)
+            };
+            photons.push(unconfiguredPhoton);
+            broadcast({ type: 'photons', data: photons });
+            logger.info(`⚙️ ${photonName} added (needs configuration)`);
+            return;
+          }
+        }
+
         logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
         broadcast({
           type: 'hot-reload-error',
@@ -1051,6 +1256,115 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       flex: 1;
       overflow-y: auto;
       padding: 8px;
+    }
+
+    .sidebar-footer {
+      padding: 12px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .marketplace-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--bg-tertiary);
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .marketplace-btn:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
+
+    .marketplace-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin-bottom: 12px;
+    }
+
+    .marketplace-item:hover {
+      border-color: var(--accent);
+    }
+
+    .marketplace-item-info {
+      flex: 1;
+    }
+
+    .marketplace-item-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .marketplace-item-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .marketplace-item-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .marketplace-item-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .marketplace-tag {
+      padding: 2px 8px;
+      background: var(--bg-tertiary);
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .marketplace-item-action {
+      margin-left: 16px;
+    }
+
+    .btn-install {
+      padding: 8px 16px;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-install:hover {
+      opacity: 0.9;
+    }
+
+    .btn-install:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-install.installed {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
     }
 
     .photon-item {
@@ -2843,13 +3157,53 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <input type="text" class="search-input" id="search-input" placeholder="Search methods...">
       </div>
       <div class="photon-list" id="photon-list"></div>
+      <div class="sidebar-footer">
+        <button class="marketplace-btn" onclick="showMarketplace()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="16"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+          Add Photons
+        </button>
+      </div>
     </div>
 
     <div class="main-content">
       <div id="empty-state" class="empty-state">
         <div class="empty-icon">⚡</div>
-        <h3>Select a method to begin</h3>
-        <p>Choose a photon and method from the sidebar to get started</p>
+        <h3 id="empty-state-title">Select a method to begin</h3>
+        <p id="empty-state-subtitle">Choose a photon and method from the sidebar to get started</p>
+        <button class="btn" id="empty-state-btn" style="display: none;" onclick="showMarketplace()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Browse Marketplace
+        </button>
+      </div>
+
+      <!-- Marketplace View -->
+      <div id="marketplace-view" style="display: none; flex-direction: column; height: 100%;">
+        <div class="method-header">
+          <div class="method-header-top">
+            <h2>Photon Marketplace</h2>
+            <button class="btn btn-secondary" onclick="hideMarketplace()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
+            </button>
+          </div>
+          <p class="method-description">Search and install photons from the marketplace</p>
+        </div>
+        <div style="padding: 20px; flex: 1; overflow-y: auto;">
+          <div class="search-box" style="margin-bottom: 20px;">
+            <input type="text" class="search-input" id="marketplace-search" placeholder="Search photons..." oninput="searchMarketplace(event)">
+          </div>
+          <div id="marketplace-results"></div>
+        </div>
       </div>
 
       <div id="method-view" style="display: none; flex-direction: column; height: 100%;">
@@ -3325,6 +3679,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         case 'hot-reload-error':
           showToast(\`Hot reload failed: \${message.photon}\`, 'error');
           break;
+        case 'photon_added':
+          // Reload the photon list when a new photon is added
+          fetch('/api/photons')
+            .then(res => res.json())
+            .then(data => {
+              photons = data;
+              renderPhotonList();
+              addActivity('install', \`\${message.name} installed from marketplace\`);
+            });
+          break;
       }
     }
 
@@ -3465,6 +3829,157 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           \`;
         }
       }).join('');
+
+      // Show empty state with marketplace prompt if no photons
+      if (photons.length === 0) {
+        document.getElementById('empty-state-title').textContent = 'No photons installed';
+        document.getElementById('empty-state-subtitle').textContent = 'Get started by adding photons from the marketplace';
+        document.getElementById('empty-state-btn').style.display = 'inline-flex';
+      } else {
+        document.getElementById('empty-state-title').textContent = 'Select a method to begin';
+        document.getElementById('empty-state-subtitle').textContent = 'Choose a photon and method from the sidebar to get started';
+        document.getElementById('empty-state-btn').style.display = 'none';
+      }
+    }
+
+    // ========== Marketplace Functions ==========
+    let marketplacePhotons = [];
+    let installedPhotonNames = new Set();
+
+    function showMarketplace() {
+      // Hide other views
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('method-view').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
+      document.getElementById('marketplace-view').style.display = 'flex';
+
+      // Update installed photons set
+      installedPhotonNames = new Set(photons.map(p => p.name));
+
+      // Focus search input
+      document.getElementById('marketplace-search').focus();
+
+      // Load marketplace if not loaded
+      if (marketplacePhotons.length === 0) {
+        loadMarketplace();
+      } else {
+        renderMarketplaceResults(marketplacePhotons);
+      }
+    }
+
+    function hideMarketplace() {
+      document.getElementById('marketplace-view').style.display = 'none';
+      document.getElementById('empty-state').style.display = photons.length === 0 ? 'flex' : 'none';
+      if (photons.length > 0 && !currentMethod) {
+        document.getElementById('empty-state').style.display = 'flex';
+      }
+    }
+
+    async function loadMarketplace() {
+      const results = document.getElementById('marketplace-results');
+      results.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading marketplace...</div>';
+
+      try {
+        const response = await fetch('/api/marketplace/list');
+        const data = await response.json();
+        marketplacePhotons = data.photons || [];
+        renderMarketplaceResults(marketplacePhotons);
+      } catch (err) {
+        results.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--error);">Failed to load marketplace</div>';
+      }
+    }
+
+    async function searchMarketplace(event) {
+      const query = event.target.value.trim();
+
+      if (query.length === 0) {
+        renderMarketplaceResults(marketplacePhotons);
+        return;
+      }
+
+      if (query.length < 2) return;
+
+      // Debounce
+      clearTimeout(window.marketplaceSearchTimeout);
+      window.marketplaceSearchTimeout = setTimeout(async () => {
+        try {
+          const response = await fetch(\`/api/marketplace/search?q=\${encodeURIComponent(query)}\`);
+          const data = await response.json();
+          renderMarketplaceResults(data.photons || []);
+        } catch (err) {
+          // Fall back to local filter
+          const filtered = marketplacePhotons.filter(p =>
+            p.name.toLowerCase().includes(query.toLowerCase()) ||
+            (p.description || '').toLowerCase().includes(query.toLowerCase())
+          );
+          renderMarketplaceResults(filtered);
+        }
+      }, 300);
+    }
+
+    function renderMarketplaceResults(results) {
+      const container = document.getElementById('marketplace-results');
+
+      if (results.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">No photons found</div>';
+        return;
+      }
+
+      container.innerHTML = results.map(photon => {
+        const isInstalled = installedPhotonNames.has(photon.name);
+        const tags = (photon.tags || []).slice(0, 3).map(t => \`<span class="marketplace-tag">\${t}</span>\`).join('');
+
+        return \`
+          <div class="marketplace-item">
+            <div class="marketplace-item-info">
+              <div class="marketplace-item-name">\${photon.name}</div>
+              <div class="marketplace-item-desc">\${photon.description || 'No description'}</div>
+              <div class="marketplace-item-meta">
+                \${photon.version ? \`<span>v\${photon.version}</span>\` : ''}
+                \${photon.author ? \`<span>by \${photon.author}</span>\` : ''}
+              </div>
+              \${tags ? \`<div class="marketplace-item-tags" style="margin-top: 8px;">\${tags}</div>\` : ''}
+            </div>
+            <div class="marketplace-item-action">
+              <button class="btn-install \${isInstalled ? 'installed' : ''}"
+                      onclick="installPhoton('\${photon.name}')"
+                      \${isInstalled ? 'disabled' : ''}>
+                \${isInstalled ? 'Installed' : 'Install'}
+              </button>
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    async function installPhoton(name) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Installing...';
+
+      try {
+        const response = await fetch('/api/marketplace/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showToast(\`Installed \${name} successfully\`, 'success');
+          btn.textContent = 'Installed';
+          btn.classList.add('installed');
+          installedPhotonNames.add(name);
+          // The server will broadcast photon_added which triggers a reload
+        } else {
+          throw new Error(data.error || 'Installation failed');
+        }
+      } catch (err) {
+        showToast(\`Failed to install \${name}: \${err.message}\`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Install';
+      }
     }
 
     function selectUnconfigured(photonName) {
