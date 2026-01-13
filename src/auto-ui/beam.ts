@@ -2719,7 +2719,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
         <div class="tabs">
           <div class="tab active" data-tab="ui">Execute</div>
-          <div class="tab" data-tab="data">Raw JSON</div>
+          <div class="tab" data-tab="data">Data</div>
         </div>
 
         <div class="tab-content">
