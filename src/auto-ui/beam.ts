@@ -4865,14 +4865,52 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         \`;
       }
 
-      // Boolean toggle
+      // Boolean toggle switch
       if (type === 'boolean') {
         const boolDefault = defaultValue === true || defaultValue === 'true';
+        const toggleId = \`toggle-\${key}-\${Date.now()}\`;
         return \`
-          <select name="\${key}">
-            <option value="true" \${boolDefault ? 'selected' : ''}>true</option>
-            <option value="false" \${!boolDefault ? 'selected' : ''}>false</option>
-          </select>
+          <label class="toggle-switch" style="display: inline-flex; align-items: center; cursor: pointer; gap: 8px;">
+            <input type="checkbox" name="\${key}" id="\${toggleId}" value="true" data-type="boolean" \${boolDefault ? 'checked' : ''} style="display: none;" />
+            <span class="toggle-track" style="
+              position: relative;
+              width: 44px;
+              height: 24px;
+              background: var(--bg-tertiary, #374151);
+              border-radius: 12px;
+              transition: background 0.2s;
+            ">
+              <span class="toggle-thumb" style="
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                width: 20px;
+                height: 20px;
+                background: white;
+                border-radius: 50%;
+                transition: transform 0.2s;
+                transform: translateX(\${boolDefault ? '20px' : '0'});
+              "></span>
+            </span>
+            <span class="toggle-label" style="color: var(--text-secondary); font-size: 13px;">\${boolDefault ? 'Yes' : 'No'}</span>
+          </label>
+          <script>
+            (function() {
+              const checkbox = document.getElementById('\${toggleId}');
+              const track = checkbox.nextElementSibling;
+              const thumb = track.querySelector('.toggle-thumb');
+              const label = track.nextElementSibling;
+              checkbox.addEventListener('change', function() {
+                thumb.style.transform = this.checked ? 'translateX(20px)' : 'translateX(0)';
+                track.style.background = this.checked ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary, #374151)';
+                label.textContent = this.checked ? 'Yes' : 'No';
+              });
+              // Set initial state
+              if (checkbox.checked) {
+                track.style.background = 'var(--accent, #3b82f6)';
+              }
+            })();
+          </script>
         \`;
       }
 
@@ -4944,6 +4982,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       const formData = new FormData(e.target);
       const args = {};
+
+      // Handle unchecked checkboxes (they don't appear in FormData)
+      const booleanInputs = e.target.querySelectorAll('input[data-type="boolean"]');
+      booleanInputs.forEach(input => {
+        if (!formData.has(input.name)) {
+          args[input.name] = false;
+        }
+      });
 
       for (const [key, value] of formData.entries()) {
         // Check if this is a JSON input (array/object field)
