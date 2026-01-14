@@ -1466,6 +1466,24 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       flex-shrink: 0;
     }
 
+    .method-item.highlighted {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    kbd {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--text-primary);
+      box-shadow: 0 1px 0 var(--border-color);
+    }
+
     /* Unconfigured photon styles */
     .photon-item.unconfigured .photon-name::before {
       background: var(--warning);
@@ -5599,8 +5617,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     });
 
-    // Close modals on Escape
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      const target = e.target;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+
+      // Escape - close modals/search
       if (e.key === 'Escape') {
         if (document.getElementById('image-fullscreen-container').innerHTML) {
           closeImageFullscreen();
@@ -5608,9 +5631,152 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           closeMermaidFullscreen();
         } else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
           closeResultViewer();
+        } else if (document.getElementById('keyboard-help-modal')?.classList.contains('visible')) {
+          document.getElementById('keyboard-help-modal').classList.remove('visible');
+        } else if (isInput && target.id === 'search-input') {
+          target.value = '';
+          target.dispatchEvent(new Event('input'));
+          target.blur();
         }
+        return;
+      }
+
+      // Shortcuts that work even in inputs
+      // Ctrl/Cmd+Enter - Submit form
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        const form = document.getElementById('invoke-form');
+        if (form) {
+          e.preventDefault();
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+        return;
+      }
+
+      // Ctrl/Cmd+K or / - Focus search (unless in input)
+      if (((e.ctrlKey || e.metaKey) && e.key === 'k') || (e.key === '/' && !isInput)) {
+        e.preventDefault();
+        document.getElementById('search-input').focus();
+        return;
+      }
+
+      // Don't process other shortcuts when in input
+      if (isInput) return;
+
+      // ? - Show keyboard help
+      if (e.key === '?' && !hasModifier) {
+        e.preventDefault();
+        toggleKeyboardHelp();
+        return;
+      }
+
+      // Arrow keys - navigate methods
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+        e.preventDefault();
+        navigateMethods(e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1);
+        return;
+      }
+
+      // Enter - select highlighted method
+      if (e.key === 'Enter') {
+        const highlighted = document.querySelector('.method-item.highlighted');
+        if (highlighted) {
+          highlighted.click();
+        }
+        return;
+      }
+
+      // r - Reload/re-execute current method
+      if (e.key === 'r' && !hasModifier && currentMethod) {
+        e.preventDefault();
+        const form = document.getElementById('invoke-form');
+        if (form) {
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+        return;
       }
     });
+
+    // Method navigation state
+    let highlightedMethodIndex = -1;
+
+    function navigateMethods(direction) {
+      const methodItems = Array.from(document.querySelectorAll('.method-item:not([style*="display: none"])'));
+      if (methodItems.length === 0) return;
+
+      // Clear previous highlight
+      document.querySelectorAll('.method-item.highlighted').forEach(el => el.classList.remove('highlighted'));
+
+      // Calculate new index
+      if (highlightedMethodIndex === -1) {
+        // Start from current selection or first item
+        const selected = document.querySelector('.method-item.selected');
+        highlightedMethodIndex = selected ? methodItems.indexOf(selected) : -1;
+      }
+
+      highlightedMethodIndex += direction;
+
+      // Wrap around
+      if (highlightedMethodIndex >= methodItems.length) highlightedMethodIndex = 0;
+      if (highlightedMethodIndex < 0) highlightedMethodIndex = methodItems.length - 1;
+
+      // Highlight and scroll into view
+      const item = methodItems[highlightedMethodIndex];
+      if (item) {
+        item.classList.add('highlighted');
+        item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+
+    function toggleKeyboardHelp() {
+      let modal = document.getElementById('keyboard-help-modal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'keyboard-help-modal';
+        modal.className = 'modal';
+        modal.innerHTML = \`
+          <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+              <h2>Keyboard Shortcuts</h2>
+              <button class="close-btn" onclick="document.getElementById('keyboard-help-modal').classList.remove('visible')">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 16px;">
+              <div style="display: grid; gap: 12px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Search</span>
+                  <span><kbd>/</kbd> or <kbd>⌘K</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Navigate methods</span>
+                  <span><kbd>↑</kbd> <kbd>↓</kbd> or <kbd>j</kbd> <kbd>k</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Select method</span>
+                  <span><kbd>Enter</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Submit form</span>
+                  <span><kbd>⌘Enter</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Re-run method</span>
+                  <span><kbd>r</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Close / Clear</span>
+                  <span><kbd>Esc</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Show shortcuts</span>
+                  <span><kbd>?</kbd></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        \`;
+        document.body.appendChild(modal);
+      }
+      modal.classList.toggle('visible');
+    }
 
     function escapeHtml(text) {
       return text
