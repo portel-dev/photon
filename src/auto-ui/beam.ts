@@ -2488,6 +2488,67 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       display: block;
     }
 
+    .result-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .result-filter-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .result-filter-wrapper svg {
+      position: absolute;
+      left: 8px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .result-filter-input {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px 4px 28px;
+      font-size: 12px;
+      color: var(--text-primary);
+      width: 120px;
+      transition: all 0.15s ease;
+    }
+
+    .result-filter-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      width: 180px;
+    }
+
+    .result-filter-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .result-filter-count {
+      padding: 4px 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-top: none;
+      border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    }
+
+    /* Highlight matches in result */
+    .filter-highlight {
+      background: rgba(var(--accent-rgb), 0.3);
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    .filter-hidden {
+      display: none !important;
+    }
+
     .result-header {
       display: flex;
       align-items: center;
@@ -3433,17 +3494,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             <div class="result-container" id="result-container">
               <div class="result-header">
                 <span>Result</span>
-                <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <polyline points="9 21 3 21 3 15"></polyline>
-                    <line x1="21" y1="3" x2="14" y2="10"></line>
-                    <line x1="3" y1="21" x2="10" y2="14"></line>
-                  </svg>
-                  Expand
-                </button>
+                <div class="result-actions">
+                  <div class="result-filter-wrapper">
+                    <input type="text" class="result-filter-input" id="result-filter" placeholder="Filter..." oninput="filterResults(event)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                  </div>
+                  <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <polyline points="9 21 3 21 3 15"></polyline>
+                      <line x1="21" y1="3" x2="14" y2="10"></line>
+                      <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                    Expand
+                  </button>
+                </div>
               </div>
               <div class="result-content" id="result-content"></div>
+              <div class="result-filter-count" id="result-filter-count" style="display: none;"></div>
             </div>
           </div>
 
@@ -4967,6 +5038,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleResult(data) {
       hideProgress();
+      resetFilter(); // Clear filter when new result arrives
       addActivity('result', \`\${currentPhoton?.name}.\${currentMethod?.name}() completed\`);
 
       const container = document.getElementById('result-container');
@@ -5910,6 +5982,109 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    // ========== Output Filtering ==========
+    let lastResultContent = '';
+
+    function filterResults(event) {
+      const query = event.target.value.toLowerCase().trim();
+      const content = document.getElementById('result-content');
+      const countEl = document.getElementById('result-filter-count');
+
+      // Store original content on first filter
+      if (!lastResultContent && content.innerHTML) {
+        lastResultContent = content.innerHTML;
+      }
+
+      if (!query) {
+        // Reset to original content
+        if (lastResultContent) {
+          content.innerHTML = lastResultContent;
+        }
+        countEl.style.display = 'none';
+        return;
+      }
+
+      // Filter different types of content
+      const tables = content.querySelectorAll('table tbody tr');
+      const listItems = content.querySelectorAll('ul li, ol li');
+      const jsonLines = content.querySelectorAll('pre code .line, .kv-table .kv-row');
+      const kvRows = content.querySelectorAll('.kv-table .kv-row');
+
+      let totalCount = 0;
+      let matchCount = 0;
+
+      // Filter table rows
+      if (tables.length > 0) {
+        tables.forEach(row => {
+          totalCount++;
+          const text = row.textContent?.toLowerCase() || '';
+          if (text.includes(query)) {
+            row.classList.remove('filter-hidden');
+            matchCount++;
+          } else {
+            row.classList.add('filter-hidden');
+          }
+        });
+      }
+
+      // Filter list items
+      if (listItems.length > 0) {
+        listItems.forEach(item => {
+          totalCount++;
+          const text = item.textContent?.toLowerCase() || '';
+          if (text.includes(query)) {
+            item.classList.remove('filter-hidden');
+            matchCount++;
+          } else {
+            item.classList.add('filter-hidden');
+          }
+        });
+      }
+
+      // Filter KV rows
+      if (kvRows.length > 0) {
+        kvRows.forEach(row => {
+          totalCount++;
+          const text = row.textContent?.toLowerCase() || '';
+          if (text.includes(query)) {
+            row.classList.remove('filter-hidden');
+            matchCount++;
+          } else {
+            row.classList.add('filter-hidden');
+          }
+        });
+      }
+
+      // Show count if filtering is active
+      if (totalCount > 0) {
+        countEl.textContent = \`Showing \${matchCount} of \${totalCount} items\`;
+        countEl.style.display = 'block';
+      } else {
+        // For plain text/JSON, just check if query is found
+        const text = content.textContent?.toLowerCase() || '';
+        if (text.includes(query)) {
+          countEl.textContent = 'Match found';
+          countEl.style.display = 'block';
+        } else {
+          countEl.textContent = 'No matches';
+          countEl.style.display = 'block';
+        }
+      }
+    }
+
+    // Reset filter when result changes
+    function resetFilter() {
+      lastResultContent = '';
+      const filterInput = document.getElementById('result-filter');
+      if (filterInput) {
+        filterInput.value = '';
+      }
+      const countEl = document.getElementById('result-filter-count');
+      if (countEl) {
+        countEl.style.display = 'none';
+      }
+    }
+
     function toggleKeyboardHelp() {
       let modal = document.getElementById('keyboard-help-modal');
       if (!modal) {
@@ -5972,6 +6147,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function handleError(message) {
       hideProgress();
+      resetFilter(); // Clear filter on error
       addActivity('error', message);
 
       const container = document.getElementById('result-container');
