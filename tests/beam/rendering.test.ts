@@ -276,6 +276,33 @@ test('Clicking favorite button adds to favorites section', async () => {
 });
 
 // ============================================================================
+// Output Filtering Tests
+// ============================================================================
+
+test('Result filter input exists', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'getUsers');
+    await beam.page.waitForTimeout(500);
+    const filterInput = beam.page.locator('#result-filter');
+    assert.ok(await filterInput.count() > 0, 'Filter input should exist');
+  }, opts);
+});
+
+test('Filter hides non-matching rows in table', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'getUsers');
+    await beam.page.waitForTimeout(500);
+    // Type filter query
+    await beam.page.fill('#result-filter', 'Alice');
+    await beam.page.waitForTimeout(200);
+    // Check that filter count shows
+    const countEl = beam.page.locator('#result-filter-count');
+    const countText = await countEl.textContent();
+    assert.ok(countText?.includes('1 of 3'), 'Should show "1 of 3" for Alice filter');
+  }, opts);
+});
+
+// ============================================================================
 // Visual Snapshot Tests
 // ============================================================================
 
