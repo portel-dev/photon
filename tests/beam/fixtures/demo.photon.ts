@@ -93,12 +93,26 @@ Call any method to see its output rendered in BEAM UI.
 
   /**
    * Method with optional parameter
-   * @param name Name to greet
-   * @param greeting Optional greeting prefix
+   * @param name {@placeholder Enter your name} {@hint This will be used in the greeting} Name to greet
+   * @param greeting {@placeholder Hi, Hey, Hello...} Optional greeting prefix
    */
   async greet(params: { name: string; greeting?: string }): Promise<string> {
     const greeting = params.greeting || 'Hello';
     return `${greeting}, ${params.name}!`;
+  }
+
+  /**
+   * Search for items
+   * @icon 🔍
+   * @param query {@placeholder Type to search...} {@hint Search is case-insensitive} Search query
+   * @returns {@label Search Now} The search results
+   */
+  async search(params: { query: string }): Promise<object> {
+    return {
+      query: params.query,
+      results: ['Result 1', 'Result 2', 'Result 3'],
+      total: 3
+    };
   }
 
   /**

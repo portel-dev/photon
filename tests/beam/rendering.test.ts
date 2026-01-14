@@ -188,6 +188,36 @@ test('Default label formatting converts camelCase to Title Case', async () => {
 });
 
 // ============================================================================
+// Placeholder and Hint Tests
+// ============================================================================
+
+test('Custom placeholder from {@placeholder} is displayed', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'greet');
+    const nameInput = beam.page.locator('input[name="name"]');
+    const placeholder = await nameInput.getAttribute('placeholder');
+    assert.ok(placeholder?.includes('Enter your name'), 'Expected custom placeholder "Enter your name"');
+  }, opts);
+});
+
+test('Custom hint from {@hint} is displayed', async () => {
+  await withBeam(async (beam) => {
+    await beam.selectMethod('demo', 'greet');
+    const formHtml = await beam.page.locator('#invoke-form').innerHTML();
+    assert.ok(formHtml.includes('This will be used in the greeting'), 'Expected custom hint text');
+  }, opts);
+});
+
+test('Method icon from @icon is displayed', async () => {
+  await withBeam(async (beam) => {
+    // The search method has @icon 🔍
+    const methodItem = beam.page.locator('#methods-demo .method-item:has-text("search")');
+    const methodHtml = await methodItem.innerHTML();
+    assert.ok(methodHtml.includes('🔍'), 'Expected search icon 🔍 in method list');
+  }, opts);
+});
+
+// ============================================================================
 // Visual Snapshot Tests
 // ============================================================================
 

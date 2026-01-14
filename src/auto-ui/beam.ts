@@ -53,6 +53,7 @@ type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 interface MethodInfo {
   name: string;
   description: string;
+  icon?: string;  // Icon from @icon tag
   params: any;
   returns: any;
   autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
@@ -255,6 +256,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             autorun: schema.autorun || false,
             outputFormat: schema.outputFormat,
             buttonLabel: schema.buttonLabel,
+            icon: schema.icon,
             linkedUi: linkedAsset?.id
           };
         });
@@ -708,7 +710,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
             returns: { type: 'object' },
             autorun: schema.autorun || false,
-            buttonLabel: schema.buttonLabel
+            buttonLabel: schema.buttonLabel,
+            icon: schema.icon
           }));
 
         const reloadedPhoton: PhotonInfo = {
@@ -1439,6 +1442,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       padding: 10px 16px 10px 36px;
       cursor: pointer;
       font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
       color: var(--text-secondary);
       transition: var(--transition);
       border-radius: var(--radius-sm);
@@ -1453,6 +1459,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .method-item.selected {
       background: var(--accent);
       color: white;
+    }
+
+    .method-icon {
+      font-size: 14px;
+      flex-shrink: 0;
     }
 
     /* Unconfigured photon styles */
@@ -3897,6 +3908,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               <div class="method-list" id="methods-\${photon.name}">
                 \${photon.methods.map(method => \`
                   <div class="method-item" onclick="selectMethod('\${photon.name}', '\${method.name}', event)">
+                    \${method.icon ? \`<span class="method-icon">\${method.icon}</span>\` : ''}
                     \${method.name}
                   </div>
                 \`).join('')}
@@ -4357,12 +4369,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         // Use custom label from {@label} or format the key name
         const fieldLabel = schema.title || formatLabel(key);
 
+        // Use {@hint} for help text, fallback to clean description
+        const hintText = schema.hint || cleanDesc;
+
         html += \`
           <div class="form-group">
             <label>
               \${fieldLabel}
               \${isRequired ? '<span class="required">*</span>' : ''}
-              \${cleanDesc ? \`<span class="hint">\${cleanDesc}</span>\` : ''}
+              \${hintText ? \`<span class="hint">\${hintText}</span>\` : ''}
             </label>
             \${renderInput(key, schema, isRequired)}
           </div>
@@ -4479,7 +4494,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (type === 'string' && (schema.maxLength > 200 || schema.format === 'textarea' || schema.format === 'multiline' || schema.field === 'textarea' || isTextareaField)) {
         const maxLength = schema.maxLength ? \`maxlength="\${schema.maxLength}"\` : '';
         const rows = isTextareaField ? '8' : '4';
-        const placeholder = defaultValue ? \`Default: \${defaultValue}\` : \`Enter \${key}...\`;
+        // Use custom {@placeholder} or generate default
+        const placeholder = schema.placeholder || (defaultValue ? \`Default: \${defaultValue}\` : \`Enter \${key}...\`);
         return \`<textarea name="\${key}" \${maxLength} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" rows="\${rows}" style="font-family: 'JetBrains Mono', monospace;">\${defaultValue || ''}</textarea>\`;
       }
 
@@ -4490,10 +4506,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (schema.pattern) attrs.push(\`pattern="\${schema.pattern}"\`);
       if (defaultValue) attrs.push(\`value="\${defaultValue}"\`);
 
-      // Placeholder with default hint
-      const placeholder = defaultValue && !attrs.some(a => a.startsWith('value='))
+      // Use custom {@placeholder} or generate default with hint
+      const placeholder = schema.placeholder || (defaultValue && !attrs.some(a => a.startsWith('value='))
         ? \`Default: \${defaultValue}\`
-        : \`Enter \${key}...\`;
+        : \`Enter \${key}...\`);
 
       // Special input types based on format or field
       let inputType = 'text';

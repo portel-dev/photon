@@ -995,7 +995,81 @@ async function runTests() {
     console.log('✅ Label with @return (singular) variation');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (50 tests)');
+  // Test 51: Placeholder tag extraction
+  {
+    const source = `
+      /**
+       * Search items
+       * @param query {@placeholder Type to search...} Search query
+       */
+      async search(params: { query: string }) {
+        return query;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.query.placeholder, 'Type to search...', 'Should have custom placeholder');
+    assert.equal(schema.properties.query.description, 'Search query', 'Placeholder tag should be removed from description');
+    console.log('✅ Placeholder tag extraction');
+  }
+
+  // Test 52: Hint tag extraction
+  {
+    const source = `
+      /**
+       * Set name
+       * @param name {@hint This will be displayed publicly} User name
+       */
+      async setName(params: { name: string }) {
+        return name;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.name.hint, 'This will be displayed publicly', 'Should have custom hint');
+    assert.equal(schema.properties.name.description, 'User name', 'Hint tag should be removed from description');
+    console.log('✅ Hint tag extraction');
+  }
+
+  // Test 53: Icon tag extraction
+  {
+    const source = `
+      /**
+       * Search for items
+       * @icon 🔍
+       * @param query The query
+       */
+      async search(params: { query: string }) {
+        return query;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).icon, '🔍', 'Should have emoji icon');
+    console.log('✅ Icon tag extraction (emoji)');
+  }
+
+  // Test 54: Combined placeholder, hint, and label
+  {
+    const source = `
+      /**
+       * Send message
+       * @param recipient {@label To} {@placeholder name@example.com} {@hint The email address of the recipient} Email address
+       */
+      async send(params: { recipient: string }) {
+        return recipient;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.recipient.title, 'To', 'Should have custom label');
+    assert.equal(schema.properties.recipient.placeholder, 'name@example.com', 'Should have placeholder');
+    assert.equal(schema.properties.recipient.hint, 'The email address of the recipient', 'Should have hint');
+    assert.equal(schema.properties.recipient.description, 'Email address', 'Tags should be removed from description');
+    console.log('✅ Combined placeholder, hint, and label');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (54 tests)');
 }
 
 // Run if executed directly
