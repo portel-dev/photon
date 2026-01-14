@@ -12,7 +12,6 @@ import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as os from 'os';
 import * as net from 'net';
-import * as readline from 'readline';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
 import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
@@ -40,6 +39,7 @@ import { LoggerOptions, normalizeLogLevel, logger } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
 import { handleError, wrapError, getErrorMessage, ExitCode, exitWithError } from './shared/error-handler.js';
 import { validateOrThrow, inRange, isPositive, isInteger } from './shared/validation.js';
+import { createReadline, promptText, promptConfirm, promptChoice, promptWait } from './shared/cli-utils.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
@@ -135,10 +135,7 @@ async function handleFormElicitation(ask: {
   cliHint('Press Enter to accept defaults. Fields marked * are required.');
   cliSpacer();
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
+  const rl = createReadline();
 
   const question = (prompt: string): Promise<string> => {
     return new Promise((resolve) => {
@@ -259,21 +256,8 @@ async function handleUrlElicitation(ask: {
     cliHint('Please open the URL manually in your browser.');
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
-
-  return new Promise((resolve) => {
-    rl.question('Press Enter when done (or type "cancel" to abort): ', (answer) => {
-      rl.close();
-      if (answer.toLowerCase() === 'cancel') {
-        resolve({ action: 'cancel' });
-      } else {
-        resolve({ action: 'accept' });
-      }
-    });
-  });
+  const shouldContinue = await promptWait('Press Enter when done', true);
+  return { action: shouldContinue ? 'accept' : 'cancel' };
 }
 
 /**
@@ -299,16 +283,12 @@ async function handleSelectElicitation(ask: {
   });
   cliSpacer();
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
+  const rl = createReadline();
+  const prompt = ask.multi
+    ? `Choose (comma-separated, 1-${options.length}): `
+    : `Choose (1-${options.length}): `;
 
   return new Promise((resolve) => {
-    const prompt = ask.multi
-      ? `Choose (comma-separated, 1-${options.length}): `
-      : `Choose (1-${options.length}): `;
-
     rl.question(prompt, (answer) => {
       rl.close();
 
@@ -443,26 +423,10 @@ async function setupMCPDependencies(
 
 /**
  * Prompt for yes/no with default
+ * @deprecated Use promptConfirm from cli-utils.ts directly
  */
 async function promptYesNo(message: string, defaultYes: boolean = true): Promise<boolean> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
-
-  const hint = defaultYes ? '[Y/n]' : '[y/N]';
-
-  return new Promise((resolve) => {
-    rl.question(`${message} ${hint}: `, (answer) => {
-      rl.close();
-      const trimmed = answer.trim().toLowerCase();
-      if (trimmed === '') {
-        resolve(defaultYes);
-      } else {
-        resolve(trimmed === 'y' || trimmed === 'yes');
-      }
-    });
-  });
+  return promptConfirm(message, defaultYes);
 }
 
 /**
@@ -508,10 +472,7 @@ async function promptEnvVars(
 
   console.error(`\n   Environment variables for ${mcpName}:`);
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
+  const rl = createReadline();
 
   for (const varName of suggestedVars) {
     const existingValue = process.env[varName];
@@ -2288,43 +2249,17 @@ program
             selectedIndex = 0;
           } else {
             // Interactive selection
-            selectedIndex = await new Promise<number | null>((resolve) => {
-              const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stderr,
-              });
+            const choice = await promptChoice(
+              `\nWhich one? [1-${suggestions.length}] (or press Enter to cancel): `,
+              suggestions.length,
+              true
+            );
 
-              const askQuestion = () => {
-                rl.question(`\nWhich one? [1-${suggestions.length}] (or press Enter to cancel): `, (answer) => {
-                  const trimmed = answer.trim();
-
-                  // Empty input = cancel
-                  if (trimmed === '') {
-                    rl.close();
-                    resolve(null);
-                    return;
-                  }
-
-                  const choice = parseInt(trimmed, 10);
-
-                  // Validate input
-                  if (isNaN(choice) || choice < 1 || choice > suggestions.length) {
-                    console.error(`Invalid choice. Please enter a number between 1 and ${suggestions.length}.`);
-                    askQuestion();
-                  } else {
-                    rl.close();
-                    resolve(choice - 1);
-                  }
-                });
-              };
-
-              askQuestion();
-            });
-
-            if (selectedIndex === null) {
+            if (choice === null) {
               console.error('\nCancelled.');
               process.exit(0);
             }
+            selectedIndex = choice - 1;
           }
 
           // Update name to the selected MCP
@@ -2376,38 +2311,12 @@ program
         const defaultChoice = recommendedIndex !== -1 ? recommendedIndex + 1 : 1;
 
         // Interactive selection
-        const selectedIndex = await new Promise<number>((resolve) => {
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stderr,
-          });
-
-          const askQuestion = () => {
-            rl.question(`\nWhich marketplace? [1-${conflict.sources.length}] (default: ${defaultChoice}): `, (answer) => {
-              const trimmed = answer.trim();
-
-              // Empty input = use default
-              if (trimmed === '') {
-                rl.close();
-                resolve(defaultChoice - 1);
-                return;
-              }
-
-              const choice = parseInt(trimmed, 10);
-
-              // Validate input
-              if (isNaN(choice) || choice < 1 || choice > conflict.sources.length) {
-                console.error(`Invalid choice. Please enter a number between 1 and ${conflict.sources.length}.`);
-                askQuestion();
-              } else {
-                rl.close();
-                resolve(choice - 1);
-              }
-            });
-          };
-
-          askQuestion();
-        });
+        const choice = await promptChoice(
+          `\nWhich marketplace? [1-${conflict.sources.length}] (default: ${defaultChoice}): `,
+          conflict.sources.length,
+          { defaultChoice }
+        );
+        const selectedIndex = (choice ?? defaultChoice) - 1;
 
         const selectedSource = conflict.sources[selectedIndex];
         selectedMarketplace = selectedSource.marketplace;
