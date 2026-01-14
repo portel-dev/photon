@@ -38,7 +38,7 @@ import { renderSection } from './shared/cli-sections.js';
 import { runTask } from './shared/task-runner.js';
 import { LoggerOptions, normalizeLogLevel, logger } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
-import { handleError, wrapError, getErrorMessage } from './shared/error-handler.js';
+import { handleError, wrapError, getErrorMessage, ExitCode, exitWithError } from './shared/error-handler.js';
 import { validateOrThrow, inRange, isPositive, isInteger } from './shared/validation.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -583,8 +583,10 @@ async function performMarketplaceSync(
   const isDefaultDir = resolvedPath === DEFAULT_WORKING_DIR;
 
   if (!existsSync(resolvedPath)) {
-    logger.error(`Directory not found: ${resolvedPath}`);
-    process.exit(1);
+    exitWithError(`Directory not found: ${resolvedPath}`, {
+      exitCode: ExitCode.NOT_FOUND,
+      suggestion: 'Check the path and ensure the directory exists',
+    });
   }
 
   // Scan for .photon.ts files
@@ -613,8 +615,11 @@ async function performMarketplaceSync(
   }
 
   if (photonFiles.length === 0) {
-    logger.error(`No .photon.ts files found in ${resolvedPath}`);
-    process.exit(1);
+    exitWithError(`No .photon.ts files found`, {
+      exitCode: ExitCode.NOT_FOUND,
+      searchedIn: resolvedPath,
+      suggestion: "Create a .photon.ts file or use 'photon maker new' to generate one",
+    });
   }
 
   console.error(`   Found ${photonFiles.length} photons\n`);
@@ -744,8 +749,11 @@ async function performMarketplaceInit(
   // Check if it's a git repository
   const gitDir = path.join(absolutePath, '.git');
   if (!existsSync(gitDir)) {
-    console.error('⚠️  Not a git repository. Initialize with: git init');
-    process.exit(1);
+    exitWithError('Not a git repository', {
+      exitCode: ExitCode.CONFIG_ERROR,
+      searchedIn: absolutePath,
+      suggestion: 'Initialize with: git init',
+    });
   }
 
   // Create .githooks directory
@@ -966,9 +974,10 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
   cliSpacer();
 
   if (hasErrors) {
-    printError('Validation failed: Missing required environment variables.');
-    cliHint(`Run 'photon mcp ${mcpName} --config' to see the configuration template.`);
-    process.exit(1);
+    exitWithError('Validation failed: Missing required environment variables', {
+      exitCode: ExitCode.CONFIG_ERROR,
+      suggestion: `Run 'photon mcp ${mcpName} --config' to see the configuration template`,
+    });
   } else {
     printSuccess('Configuration valid!');
     cliHint(`Run: photon mcp ${mcpName}`);
@@ -1155,10 +1164,11 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        logger.error(`MCP not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see available MCPs`);
-        process.exit(1);
+        exitWithError(`MCP not found: ${name}`, {
+          exitCode: ExitCode.NOT_FOUND,
+          searchedIn: workingDir,
+          suggestion: "Use 'photon info' to see available MCPs",
+        });
       }
 
       // Handle --validate flag
@@ -1176,9 +1186,10 @@ program
       // Validate transport option
       const transport = options.transport as 'stdio' | 'sse';
       if (transport !== 'stdio' && transport !== 'sse') {
-        logger.error(`Invalid transport: ${options.transport}`);
-        console.error('Valid options: stdio, sse');
-        process.exit(1);
+        exitWithError(`Invalid transport: ${options.transport}`, {
+          exitCode: ExitCode.INVALID_ARGUMENT,
+          suggestion: 'Valid options: stdio, sse',
+        });
       }
 
       // Start MCP server
@@ -1240,10 +1251,11 @@ program
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        logger.error(`Photon not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see available photons`);
-        process.exit(1);
+        exitWithError(`Photon not found: ${name}`, {
+          exitCode: ExitCode.NOT_FOUND,
+          searchedIn: workingDir,
+          suggestion: "Use 'photon info' to see available photons",
+        });
       }
 
       // Find available port
@@ -1905,10 +1917,11 @@ maker
       const filePath = await resolvePhotonPath(name, workingDir);
 
       if (!filePath) {
-        logger.error(`Photon not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see available photons`);
-        process.exit(1);
+        exitWithError(`Photon not found: ${name}`, {
+          exitCode: ExitCode.NOT_FOUND,
+          searchedIn: workingDir,
+          suggestion: "Use 'photon info' to see available photons",
+        });
       }
 
       console.error(`Validating ${path.basename(filePath)}...\n`);
