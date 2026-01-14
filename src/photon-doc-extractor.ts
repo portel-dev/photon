@@ -55,6 +55,7 @@ export interface PhotonMetadata {
   setupInstructions?: string;
   tools?: Tool[];
   dependencies?: string;
+  runtime?: string;
   stateful?: boolean;
   idleTimeout?: number;
   hash: string;
@@ -96,6 +97,7 @@ export class PhotonDocExtractor {
       setupInstructions: this.extractSetupInstructions(),
       tools: await this.extractTools(),
       dependencies: this.extractTag('dependencies'),
+      runtime: this.extractTag('runtime'),
       stateful: statefulTag === 'true',
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
     };
