@@ -896,7 +896,106 @@ async function runTests() {
     console.log('✅ No assets when none declared');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (45 tests)');
+  // ═══════════════════════════════════════════════════════════════════
+  // LABEL TAG TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Test 46: Custom parameter labels with {@label}
+  {
+    const source = `
+      /**
+       * Add two numbers
+       * @param a {@label First Number} First value to add
+       * @param b {@label Second Number} Second value to add
+       */
+      async add(params: { a: number; b: number }) {
+        return params.a + params.b;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.a.title, 'First Number', 'First param should have custom label');
+    assert.equal(schema.properties.b.title, 'Second Number', 'Second param should have custom label');
+    assert.equal(schema.properties.a.description, 'First value to add', 'Label tag should be removed from description');
+    console.log('✅ Custom parameter labels with {@label}');
+  }
+
+  // Test 47: Button label from @returns {@label}
+  {
+    const source = `
+      /**
+       * Calculate sum
+       * @param x First number
+       * @param y Second number
+       * @returns {@label Calculate Sum} The sum result
+       */
+      async calculateSum(params: { x: number; y: number }) {
+        return params.x + params.y;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).buttonLabel, 'Calculate Sum', 'Should have custom button label');
+    console.log('✅ Button label from @returns {@label}');
+  }
+
+  // Test 48: Label combined with other constraints
+  {
+    const source = `
+      /**
+       * Set volume
+       * @param level {@label Volume Level} {@min 0} {@max 100} Volume percentage
+       */
+      async setVolume(params: { level: number }) {
+        return level;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.level.title, 'Volume Level', 'Should have custom label');
+    assert.equal(schema.properties.level.minimum, 0, 'Should have minimum constraint');
+    assert.equal(schema.properties.level.maximum, 100, 'Should have maximum constraint');
+    assert.equal(schema.properties.level.description, 'Volume percentage', 'Should have clean description');
+    console.log('✅ Label combined with other constraints');
+  }
+
+  // Test 49: Method without labels uses no title property
+  {
+    const source = `
+      /**
+       * Simple method
+       * @param value The value
+       */
+      async simple(params: { value: string }) {
+        return value;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.value.title, undefined, 'Should not have title without {@label}');
+    assert.equal((result.tools[0] as any).buttonLabel, undefined, 'Should not have buttonLabel without {@label}');
+    console.log('✅ No title without {@label} tag');
+  }
+
+  // Test 50: Label with @return (singular) variation
+  {
+    const source = `
+      /**
+       * Process value
+       * @param input The input
+       * @return {@label Process Now} The result
+       */
+      async process(params: { input: string }) {
+        return input;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).buttonLabel, 'Process Now', 'Should work with @return (singular)');
+    console.log('✅ Label with @return (singular) variation');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (50 tests)');
 }
 
 // Run if executed directly

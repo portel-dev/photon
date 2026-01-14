@@ -50,6 +50,16 @@ export default class TestCalculator {
   }
 
   /**
+   * Multiply two numbers with custom labels
+   * @param x {@label Multiplier} The first factor
+   * @param y {@label Multiplicand} The second factor
+   * @returns {@label Calculate Product} The product of x and y
+   */
+  async multiply(params: { x: number; y: number }) {
+    return params.x * params.y;
+  }
+
+  /**
    * Get calculator info
    * @format table
    */
@@ -285,6 +295,34 @@ async function runTests() {
       assert(
         result.stdout.includes('USAGE') && result.stdout.includes('photon cli') && result.exitCode === 0,
         'Show CLI command help'
+      );
+    }
+
+    // Test: Custom {@label} tags show in method help
+    {
+      const result = await runCLI(['cli', 'test-cli-calc', 'multiply', '--help']);
+      assert(
+        result.stdout.includes('Multiplier') && result.stdout.includes('Multiplicand') && result.exitCode === 0,
+        'Show custom {@label} tags for parameters in help'
+      );
+    }
+
+    // Test: Method with custom labels executes correctly
+    {
+      const result = await runCLI(['cli', 'test-cli-calc', 'multiply', '6', '7']);
+      assert(
+        result.stdout.trim() === '42' && result.exitCode === 0,
+        'Execute method with labeled parameters correctly'
+      );
+    }
+
+    // Test: Default label formatting (camelCase to Title Case)
+    {
+      const result = await runCLI(['cli', 'test-cli-calc', '--help']);
+      // markdownDoc should be listed as "Markdown Doc" (formatted)
+      assert(
+        result.stdout.includes('markdownDoc') && result.exitCode === 0,
+        'Methods listed with proper formatting'
       );
     }
 

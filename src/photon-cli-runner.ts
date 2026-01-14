@@ -34,9 +34,11 @@ interface MethodInfo {
     type: string;
     optional: boolean;
     description?: string;
+    label?: string;  // Custom label from {@label} tag
   }[];
   description?: string;
   format?: OutputFormat;
+  buttonLabel?: string;  // Custom button label from @returns {@label}
 }
 
 interface MarkdownBlock {
@@ -155,6 +157,10 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       const paramName = paramMatch[1];
       const paramDesc = paramMatch[2].trim();
 
+      // Extract custom label from {@label displayName} tag
+      const labelMatch = paramDesc.match(/\{@label\s+([^}]+)\}/);
+      const customLabel = labelMatch ? labelMatch[1].trim() : undefined;
+
       // Remove JSDoc constraint tags for display
       const cleanDesc = paramDesc
         .replace(/\{@\w+[^}]*\}/g, '')
@@ -172,14 +178,20 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
         type: tsParamTypes.get(paramName) || 'any',
         optional,
         description: cleanDesc,
+        ...(customLabel ? { label: customLabel } : {}),
       });
     }
+
+    // Extract button label from @returns {@label ...} tag
+    const returnsMatch = jsdoc.match(/@returns?\s+.*?\{@label\s+([^}]+)\}/i);
+    const buttonLabel = returnsMatch ? returnsMatch[1].trim() : undefined;
 
     methods.push({
       name: methodName,
       params,
       description,
       ...(format ? { format } : {}),
+      ...(buttonLabel ? { buttonLabel } : {}),
     });
   }
 
@@ -1087,6 +1099,17 @@ function renderGenericTable(headers: string[], rows: string[][]): string {
 }
 
 /**
+ * Format camelCase/PascalCase to "Title Case With Spaces"
+ */
+function formatLabel(name: string): string {
+  return name
+    .replace(/([A-Z])/g, ' $1')          // Add space before capitals
+    .replace(/([a-zA-Z])(\d)/g, '$1 $2') // Add space before numbers
+    .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+    .trim();
+}
+
+/**
  * Print help for a specific method
  */
 function printMethodHelp(photonName: string, method: MethodInfo): void {
@@ -1110,7 +1133,9 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
     if (requiredParams.length > 0) {
       console.log(`REQUIRED:`);
       for (const param of requiredParams) {
-        console.log(`    --${param.name}`);
+        // Show custom label or formatted name
+        const displayLabel = param.label || formatLabel(param.name);
+        console.log(`    --${param.name} (${displayLabel})`);
         if (param.description) {
           console.log(`        ${param.description}`);
         }
@@ -1121,7 +1146,9 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
     if (optionalParams.length > 0) {
       console.log(`OPTIONS:`);
       for (const param of optionalParams) {
-        console.log(`    --${param.name}`);
+        // Show custom label or formatted name
+        const displayLabel = param.label || formatLabel(param.name);
+        console.log(`    --${param.name} (${displayLabel})`);
         if (param.description) {
           console.log(`        ${param.description}`);
         }

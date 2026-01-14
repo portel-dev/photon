@@ -271,6 +271,45 @@ async function runTests() {
       console.log('✅ Server with assets');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // LABEL TAG TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Test 11: Server loads photon with {@label} tags
+    {
+      const labelTestFile = path.join(testDir, 'label-test.photon.ts');
+      const labelContent = `
+        export default class LabelTestMCP {
+          /**
+           * Add two numbers with custom labels
+           * @param a {@label First Number} First value
+           * @param b {@label Second Number} Second value
+           * @returns {@label Calculate Sum} The sum
+           */
+          async add(params: { a: number; b: number }) {
+            return params.a + params.b;
+          }
+        }
+      `;
+      await fs.writeFile(labelTestFile, labelContent, 'utf-8');
+
+      // Load via PhotonLoader and verify labels are in schema
+      const { PhotonLoader } = await import('../src/loader.js');
+      const loader = new PhotonLoader();
+      const mcp = await loader.loadFile(labelTestFile);
+
+      // Check that the tools array includes title for params
+      assert.ok(mcp.tools, 'MCP should have tools');
+      assert.equal(mcp.tools.length, 1, 'Should have 1 tool');
+
+      const addTool = mcp.tools[0];
+      assert.equal(addTool.inputSchema.properties.a.title, 'First Number', 'Param a should have custom label');
+      assert.equal(addTool.inputSchema.properties.b.title, 'Second Number', 'Param b should have custom label');
+      assert.equal((addTool as any).buttonLabel, 'Calculate Sum', 'Tool should have custom button label');
+
+      console.log('✅ Server loads photon with {@label} tags');
+    }
+
     console.log('\n✅ All Server tests passed!');
   } finally {
     // Cleanup
