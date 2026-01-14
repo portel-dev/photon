@@ -697,83 +697,14 @@ export class PhotonServer {
 
       const { uri } = request.params;
 
-      // Check if this is an asset URI (photon://{name}/{type}/{id})
+      // Check for asset URI
       const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
       if (assetMatch && this.mcp.assets) {
-        const [, photonName, assetType, assetId] = assetMatch;
-
-        // Find the asset by type and id
-        let resolvedPath: string | undefined;
-        let mimeType: string = 'text/plain';
-
-        if (assetType === 'ui') {
-          const ui = this.mcp.assets.ui.find(u => u.id === assetId);
-          if (ui) {
-            resolvedPath = ui.resolvedPath;
-            mimeType = ui.mimeType || 'text/html';
-          }
-        } else if (assetType === 'prompts') {
-          const prompt = this.mcp.assets.prompts.find(p => p.id === assetId);
-          if (prompt) {
-            resolvedPath = prompt.resolvedPath;
-            mimeType = 'text/markdown';
-          }
-        } else if (assetType === 'resources') {
-          const resource = this.mcp.assets.resources.find(r => r.id === assetId);
-          if (resource) {
-            resolvedPath = resource.resolvedPath;
-            mimeType = resource.mimeType || 'application/octet-stream';
-          }
-        }
-
-        if (resolvedPath) {
-          try {
-            const content = await fs.readFile(resolvedPath, 'utf-8');
-            return {
-              contents: [
-                {
-                  uri,
-                  mimeType,
-                  text: content,
-                },
-              ],
-            };
-          } catch (error) {
-            this.log('error', 'Asset read failed', {
-              uri,
-              path: resolvedPath,
-              error: getErrorMessage(error),
-            });
-            throw new Error(`Failed to read asset: ${getErrorMessage(error)}`);
-          }
-        }
-
-        throw new Error(`Asset not found: ${uri}`);
+        return this.handleAssetRead(uri, assetMatch);
       }
 
-      // Find the static resource by URI
-      const static_ = this.mcp.statics.find(s => s.uri === uri || this.matchUriPattern(s.uri, uri));
-      if (!static_) {
-        throw new Error(`Resource not found: ${uri}`);
-      }
-
-      try {
-        // Parse URI parameters if URI is a pattern
-        const params = this.parseUriParams(static_.uri, uri);
-
-        // Execute the static method
-        const result = await this.loader.executeTool(this.mcp, static_.name, params);
-
-        // Handle Static return type
-        return this.formatStaticResult(result, static_.mimeType);
-      } catch (error) {
-        this.log('error', 'Resource read failed', {
-          uri,
-          resource: static_.name,
-          error: getErrorMessage(error),
-        });
-        throw new Error(`Failed to read resource: ${getErrorMessage(error)}`);
-      }
+      // Handle static resources
+      return this.handleStaticRead(uri);
     });
   }
 
