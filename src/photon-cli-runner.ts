@@ -35,6 +35,7 @@ interface MethodInfo {
     optional: boolean;
     description?: string;
     label?: string;  // Custom label from {@label} tag
+    example?: string;  // Example value from {@example} tag
   }[];
   description?: string;
   format?: OutputFormat;
@@ -161,8 +162,48 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       const labelMatch = paramDesc.match(/\{@label\s+([^}]+)\}/);
       const customLabel = labelMatch ? labelMatch[1].trim() : undefined;
 
-      // Remove JSDoc constraint tags for display
-      const cleanDesc = paramDesc
+      // Extract {@example ...} - handle nested braces/brackets for JSON
+      let example: string | undefined;
+      const exampleStart = paramDesc.indexOf('{@example ');
+      if (exampleStart !== -1) {
+        const contentStart = exampleStart + '{@example '.length;
+        let braceDepth = 0;
+        let bracketDepth = 0;
+        let i = contentStart;
+        let inString = false;
+
+        while (i < paramDesc.length) {
+          const ch = paramDesc[i];
+          const prevCh = i > 0 ? paramDesc[i - 1] : '';
+
+          if (ch === '"' && prevCh !== '\\') {
+            inString = !inString;
+          } else if (!inString) {
+            if (ch === '{') braceDepth++;
+            else if (ch === '[') bracketDepth++;
+            else if (ch === ']') bracketDepth--;
+            else if (ch === '}') {
+              if (braceDepth === 0 && bracketDepth === 0) {
+                example = paramDesc.substring(contentStart, i).trim();
+                break;
+              }
+              braceDepth--;
+            }
+          }
+          i++;
+        }
+      }
+
+      // Remove {@example ...} tag (handles nested braces/brackets)
+      let cleanedParamDesc = paramDesc;
+      if (exampleStart !== -1 && example) {
+        // Remove the full {@example ...} tag we extracted
+        const tagEnd = exampleStart + '{@example '.length + example.length + 1; // +1 for closing }
+        cleanedParamDesc = paramDesc.substring(0, exampleStart) + paramDesc.substring(tagEnd);
+      }
+
+      // Remove remaining JSDoc constraint tags for display
+      const cleanDesc = cleanedParamDesc
         .replace(/\{@\w+[^}]*\}/g, '')
         .replace(/\(optional\)/gi, '')
         .replace(/\(default:.*?\)/gi, '')
@@ -179,6 +220,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
         optional,
         description: cleanDesc,
         ...(customLabel ? { label: customLabel } : {}),
+        ...(example ? { example } : {}),
       });
     }
 
@@ -1139,6 +1181,10 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
         if (param.description) {
           console.log(`        ${param.description}`);
         }
+        // Show example for complex types (JSON)
+        if (param.example) {
+          console.log(`        Example: ${param.example}`);
+        }
       }
       console.log('');
     }
@@ -1151,6 +1197,10 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
         console.log(`    --${param.name} (${displayLabel})`);
         if (param.description) {
           console.log(`        ${param.description}`);
+        }
+        // Show example for complex types (JSON)
+        if (param.example) {
+          console.log(`        Example: ${param.example}`);
         }
       }
       console.log('');
