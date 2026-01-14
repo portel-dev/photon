@@ -2538,6 +2538,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       to { opacity: 1; transform: translateY(0); }
     }
 
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(100px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes slideOut {
+      from { opacity: 1; transform: translateX(0); }
+      to { opacity: 0; transform: translateX(100px); }
+    }
+
     .result-container.visible {
       display: block;
     }
@@ -4562,10 +4572,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (!currentPhoton) return;
       document.getElementById('settings-menu').classList.remove('visible');
 
-      if (confirm(\`Remove \${currentPhoton.name} from this workspace?\`)) {
+      const photonName = currentPhoton.name;
+      showConfirmDialog(\`Remove \${photonName} from this workspace?\`, () => {
         ws.send(JSON.stringify({
           type: 'remove',
-          photon: currentPhoton.name
+          photon: photonName
         }));
 
         // Go back to empty state
@@ -4574,7 +4585,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         document.getElementById('method-view').style.display = 'none';
         document.getElementById('empty-state').style.display = 'flex';
         history.pushState(null, '', window.location.pathname);
-      }
+      });
     }
 
     function handleConfigSubmit(e) {
@@ -4633,7 +4644,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           config
         }));
       } catch (error) {
-        alert('Invalid JSON: ' + error.message);
+        showToast('Invalid JSON: ' + error.message, 'error');
       }
     }
 
@@ -4931,7 +4942,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           try {
             args[key] = JSON.parse(value);
           } catch (err) {
-            alert(\`Invalid JSON for "\${key}": \${err.message}\`);
+            showToast(\`Invalid JSON for "\${key}": \${err.message}\`, 'error');
             return;
           }
         }
@@ -6571,6 +6582,65 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       form.innerHTML = html;
       modal.classList.add('visible');
+    }
+
+    // Helper: Show confirmation dialog using web UI (not native confirm())
+    let _confirmCallback = null;
+    function showConfirmDialog(message, onConfirm) {
+      const modal = document.getElementById('elicitation-modal');
+      const title = document.getElementById('elicitation-title');
+      const form = document.getElementById('elicitation-form');
+
+      title.textContent = message;
+      _confirmCallback = onConfirm;
+
+      form.innerHTML = \`
+        <div class="form-group" style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn" onclick="handleConfirmDialog(false)" style="background: var(--bg-tertiary); color: var(--text-primary);">Cancel</button>
+          <button class="btn" onclick="handleConfirmDialog(true)" style="background: var(--accent);">Confirm</button>
+        </div>
+      \`;
+      modal.classList.add('visible');
+    }
+
+    function handleConfirmDialog(confirmed) {
+      document.getElementById('elicitation-modal').classList.remove('visible');
+      if (confirmed && _confirmCallback) {
+        _confirmCallback();
+      }
+      _confirmCallback = null;
+    }
+
+    // Helper: Show toast notification instead of alert()
+    function showToast(message, type = 'error') {
+      const colors = {
+        error: '#ef4444',
+        success: '#22c55e',
+        warning: '#f59e0b',
+        info: '#3b82f6'
+      };
+      const toast = document.createElement('div');
+      toast.className = 'toast-notification';
+      toast.style.cssText = \`
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: \${colors[type] || colors.error};
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10001;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      \`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
     }
 
     function submitElicitationValue(value) {
