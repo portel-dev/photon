@@ -14,6 +14,14 @@ import os from 'os';
 async function main() {
   console.log('🧪 Testing SQLite MCP\n');
 
+  // Check if the sqlite example exists (was moved to marketplace)
+  const mcpPath = path.join(process.cwd(), 'examples', 'sqlite.photon.ts');
+  if (!fs.existsSync(mcpPath)) {
+    console.log('⚠️  Skipping: sqlite.photon.ts not found (moved to marketplace)');
+    console.log('   Install with: photon install sqlite');
+    process.exit(0);
+  }
+
   // Create temp database file
   const dbPath = path.join(os.tmpdir(), `photon-test-${Date.now()}.db`);
   console.log(`Using test database: ${dbPath}\n`);
@@ -23,7 +31,6 @@ async function main() {
   try {
     // Start the MCP server
     const photonPath = path.join(process.cwd(), 'dist', 'cli.js');
-    const mcpPath = path.join(process.cwd(), 'examples', 'sqlite.photon.ts');
 
     await client.start('node', [photonPath, mcpPath], {
       S_Q_LITE_PATH: dbPath,

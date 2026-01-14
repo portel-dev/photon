@@ -20,7 +20,7 @@ async function runIntegrationTests() {
 
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, '--dir', fixturesDir, 'mcp', 'content'],
+    args: [cliPath, `--dir=${fixturesDir}`, 'mcp', 'content'],
   });
 
   const client = new Client({
