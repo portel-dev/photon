@@ -326,24 +326,36 @@ export class PhotonDocExtractor {
       cleanDesc = cleanDesc.replace(/\{@field\s+[a-z]+\}\s*/g, '');
     }
 
-    // Extract {@example value} - handle nested braces in JSON examples
+    // Extract {@example value} - handle nested braces and brackets in JSON examples
     const exampleStart = cleanDesc.indexOf('{@example ');
     if (exampleStart !== -1) {
       const contentStart = exampleStart + '{@example '.length;
-      let depth = 0;
+      let braceDepth = 0;
+      let bracketDepth = 0;
       let i = contentStart;
+      let inString = false;
 
-      // Find the closing } by counting braces
+      // Find the closing } by counting braces and brackets, respecting strings
       while (i < cleanDesc.length) {
-        if (cleanDesc[i] === '{') depth++;
-        else if (cleanDesc[i] === '}') {
-          if (depth === 0) {
-            // Found the closing brace of the {@example} tag
-            example = cleanDesc.substring(contentStart, i).trim();
-            cleanDesc = cleanDesc.substring(0, exampleStart) + cleanDesc.substring(i + 1);
-            break;
+        const ch = cleanDesc[i];
+        const prevCh = i > 0 ? cleanDesc[i - 1] : '';
+
+        // Handle string boundaries (skip escaped quotes)
+        if (ch === '"' && prevCh !== '\\') {
+          inString = !inString;
+        } else if (!inString) {
+          if (ch === '{') braceDepth++;
+          else if (ch === '[') bracketDepth++;
+          else if (ch === ']') bracketDepth--;
+          else if (ch === '}') {
+            if (braceDepth === 0 && bracketDepth === 0) {
+              // Found the closing brace of the {@example} tag
+              example = cleanDesc.substring(contentStart, i).trim();
+              cleanDesc = cleanDesc.substring(0, exampleStart) + cleanDesc.substring(i + 1);
+              break;
+            }
+            braceDepth--;
           }
-          depth--;
         }
         i++;
       }
