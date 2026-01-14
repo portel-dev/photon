@@ -129,8 +129,8 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
     // Extract format hint from @format tag (structural and content formats)
     let format: OutputFormat | undefined;
 
-    // Match structural formats
-    const structuralMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|none)/i);
+    // Match structural formats (including card, tabs, accordion)
+    const structuralMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|card|tabs|accordion|none)/i);
     if (structuralMatch) {
       format = structuralMatch[1].toLowerCase() as OutputFormat;
     }
