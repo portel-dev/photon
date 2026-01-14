@@ -137,9 +137,8 @@ export class PhotonServer {
           resources: {
             listChanged: true, // We support hot reload notifications
           },
-          experimental: {
-            sampling: {}, // Support elicitation via MCP sampling protocol
-          },
+          // Note: Server doesn't declare elicitation capability - that's a client capability
+          // The server uses elicitInput() when the client has elicitation support
         },
       }
     );
@@ -248,6 +247,233 @@ export class PhotonServer {
   }
 
   /**
+   * Check if client supports elicitation
+   *
+   * Elicitation is a client capability declared during initialization.
+   * The server can use elicitInput() when the client supports it.
+   */
+  private clientSupportsElicitation(server?: Server): boolean {
+    const targetServer = server || this.server;
+    const capabilities = targetServer.getClientCapabilities();
+
+    if (!capabilities) {
+      return false;
+    }
+
+    // Check for elicitation capability (MCP 2025-06 spec)
+    return !!(capabilities as any).elicitation;
+  }
+
+  /**
+   * Create an MCP-aware input provider for generator ask yields
+   *
+   * Uses MCP elicitInput() when client supports elicitation,
+   * otherwise falls back to readline prompts.
+   */
+  private createMCPInputProvider(server?: Server): (ask: any) => Promise<any> {
+    const targetServer = server || this.server;
+    const supportsElicitation = this.clientSupportsElicitation(server);
+
+    return async (ask: any): Promise<any> => {
+      // If client doesn't support elicitation, fall back to logging the ask
+      // (MCP servers can't use readline - they communicate via protocol)
+      if (!supportsElicitation) {
+        this.log('warn', `Client doesn't support elicitation, ask will be skipped`, { ask: ask.ask, message: ask.message });
+        // Return default values for non-elicitation clients
+        return this.getDefaultForAsk(ask);
+      }
+
+      try {
+        // Build elicitation request based on ask type
+        const elicitParams = this.buildElicitParams(ask);
+
+        // Call server.elicitInput() to request user input from the client
+        const result = await targetServer.elicitInput(elicitParams);
+
+        if (result.action === 'accept' && result.content) {
+          // Extract the value from the response content
+          return this.extractElicitValue(ask, result.content);
+        } else if (result.action === 'decline' || result.action === 'cancel') {
+          this.log('info', `User ${result.action}ed elicitation`, { ask: ask.ask });
+          return this.getDefaultForAsk(ask);
+        }
+
+        return this.getDefaultForAsk(ask);
+      } catch (error) {
+        this.log('error', `Elicitation failed`, { ask: ask.ask, error: getErrorMessage(error) });
+        return this.getDefaultForAsk(ask);
+      }
+    };
+  }
+
+  /**
+   * Build MCP elicit request params from a Photon ask yield
+   */
+  private buildElicitParams(ask: any): any {
+    const baseMessage = ask.message || 'Please provide input';
+
+    switch (ask.ask) {
+      case 'text':
+      case 'password':
+        return {
+          mode: 'form',
+          message: baseMessage,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              value: {
+                type: 'string',
+                title: ask.label || 'Input',
+                description: ask.hint || ask.message,
+                default: ask.default,
+              }
+            },
+            required: ask.required !== false ? ['value'] : [],
+          }
+        };
+
+      case 'confirm':
+        return {
+          mode: 'form',
+          message: baseMessage,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              confirmed: {
+                type: 'boolean',
+                title: 'Confirm',
+                description: ask.message,
+                default: ask.default ?? false,
+              }
+            },
+            required: ['confirmed'],
+          }
+        };
+
+      case 'number':
+        return {
+          mode: 'form',
+          message: baseMessage,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              value: {
+                type: 'number',
+                title: ask.label || 'Number',
+                description: ask.hint || ask.message,
+                default: ask.default,
+                minimum: ask.min,
+                maximum: ask.max,
+              }
+            },
+            required: ask.required !== false ? ['value'] : [],
+          }
+        };
+
+      case 'select':
+        // For select, we use enum in the schema
+        const options = (ask.options || []).map((o: any) =>
+          typeof o === 'string' ? o : o.value
+        );
+        const labels = (ask.options || []).map((o: any) =>
+          typeof o === 'string' ? o : o.label
+        );
+        return {
+          mode: 'form',
+          message: baseMessage + (ask.multi ? ' (select multiple)' : ''),
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              selection: ask.multi ? {
+                type: 'array',
+                items: { type: 'string', enum: options },
+                title: ask.label || 'Selection',
+                description: `Options: ${labels.join(', ')}`,
+              } : {
+                type: 'string',
+                enum: options,
+                title: ask.label || 'Selection',
+                description: `Options: ${labels.join(', ')}`,
+              }
+            },
+            required: ask.required !== false ? ['selection'] : [],
+          }
+        };
+
+      case 'date':
+        return {
+          mode: 'form',
+          message: baseMessage,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              value: {
+                type: 'string',
+                format: 'date',
+                title: ask.label || 'Date',
+                description: ask.hint || ask.message,
+                default: ask.default,
+              }
+            },
+            required: ask.required !== false ? ['value'] : [],
+          }
+        };
+
+      default:
+        // Generic text input for unknown types
+        return {
+          mode: 'form',
+          message: baseMessage,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              value: {
+                type: 'string',
+                title: 'Input',
+              }
+            },
+          }
+        };
+    }
+  }
+
+  /**
+   * Extract value from elicitation response content
+   */
+  private extractElicitValue(ask: any, content: Record<string, any>): any {
+    switch (ask.ask) {
+      case 'confirm':
+        return content.confirmed ?? false;
+      case 'select':
+        return content.selection;
+      default:
+        return content.value;
+    }
+  }
+
+  /**
+   * Get default value for an ask when elicitation is not available or declined
+   */
+  private getDefaultForAsk(ask: any): any {
+    if ('default' in ask) {
+      return ask.default;
+    }
+
+    switch (ask.ask) {
+      case 'confirm':
+        return false;
+      case 'number':
+        return 0;
+      case 'select':
+        return ask.multi ? [] : null;
+      case 'date':
+        return new Date().toISOString().split('T')[0];
+      default:
+        return '';
+    }
+  }
+
+  /**
    * Set up MCP protocol handlers
    */
   private setupHandlers() {
@@ -285,7 +511,12 @@ export class PhotonServer {
       const { name: toolName, arguments: args } = request.params;
 
       try {
-        const result = await this.loader.executeTool(this.mcp, toolName, args || {});
+        // Create MCP-aware input provider for elicitation support
+        const inputProvider = this.createMCPInputProvider();
+
+        const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
+          inputProvider,
+        });
 
         // Find the tool to get its outputFormat
         const tool = this.mcp.tools.find(t => t.name === toolName);
@@ -2317,7 +2548,12 @@ export class PhotonServer {
       if (!this.mcp) throw new Error('MCP not loaded');
       const { name: toolName, arguments: args } = request.params;
       try {
-        const result = await this.loader.executeTool(this.mcp, toolName, args || {});
+        // Create MCP-aware input provider for elicitation support (use sessionServer for SSE)
+        const inputProvider = this.createMCPInputProvider(sessionServer);
+
+        const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
+          inputProvider,
+        });
         const tool = this.mcp.tools.find(t => t.name === toolName);
         const outputFormat = tool?.outputFormat;
 

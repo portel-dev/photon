@@ -1,66 +1,38 @@
 /**
  * MCP Elicitation Support
- * 
- * Maps Photon's yield-based asks to MCP's elicitation protocol
+ *
+ * Maps Photon's yield-based asks to MCP's elicitation protocol.
+ *
+ * As of MCP SDK 1.25, elicitation is handled via:
+ * - Server.elicitInput() - Server requests user input from client
+ * - Client declares { elicitation: {} } capability during initialization
+ *
+ * The actual integration is in server.ts:
+ * - createMCPInputProvider() creates an input provider that uses elicitInput()
+ * - This is passed to loader.executeTool() for generator-based tools
+ *
+ * @see https://forgecode.dev/blog/mcp-spec-updates/
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-// JSONSchema type - using Record<string, any> for schema objects
-type JSONSchema = Record<string, any>;
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 /**
- * Elicitation request following MCP spec
+ * Check if a client supports MCP elicitation
+ *
+ * @param server - MCP server instance
+ * @returns true if client declared elicitation capability
  */
-export interface ElicitationRequest {
-  message: string;
-  requestedSchema: JSONSchema;
+export function clientSupportsElicitation(server: Server): boolean {
+  const capabilities = server.getClientCapabilities();
+  return !!(capabilities as any)?.elicitation;
 }
 
 /**
- * Elicitation response following MCP spec
+ * Elicitation action type from MCP spec
  */
-export interface ElicitationResponse {
-  action: 'accept' | 'decline' | 'cancel';
-  content?: any;
-}
+export type ElicitAction = 'accept' | 'decline' | 'cancel';
 
 /**
- * Registers MCP elicitation handlers on a server
+ * Re-export types for convenience
  */
-export function registerElicitationHandlers(server: Server) {
-  // Note: The elicitation flow is client-initiated in MCP
-  // The server doesn't directly call elicitation/create
-  // Instead, when a tool execution needs user input (via yield),
-  // it must be handled at the transport level or through a callback mechanism
-  
-  // For now, this is a placeholder for future elicitation protocol support
-  // The actual implementation needs to integrate with the SDK's capabilities
-}
-
-/**
- * Helper to convert a Photon ask yield to an MCP elicitation request
- */
-export function createElicitationRequest(
-  message: string,
-  schema: JSONSchema
-): ElicitationRequest {
-  return {
-    message,
-    requestedSchema: schema
-  };
-}
-
-/**
- * Helper to validate elicitation response
- */
-export function validateElicitationResponse(
-  response: ElicitationResponse,
-  schema: JSONSchema
-): boolean {
-  if (response.action !== 'accept') {
-    return true; // decline/cancel don't need validation
-  }
-  
-  // TODO: Implement JSON schema validation
-  return true;
-}
+export type { ElicitResult, ElicitRequestFormParams, ElicitRequestURLParams } from '@modelcontextprotocol/sdk/types.js';
