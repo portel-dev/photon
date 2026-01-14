@@ -22,11 +22,12 @@ export interface RenderContext {
 
 /**
  * Generate CSS for all components
+ * Uses Photon Design System tokens (Material Design 3 + Apple HIG)
  */
 export function generateComponentCSS(): string {
   return `
 /* ==========================================================================
-   Smart Rendering Components
+   Smart Rendering Components (using Photon Design Tokens)
    ========================================================================== */
 
 /* List Component (iOS-style) */
@@ -34,8 +35,8 @@ export function generateComponentCSS(): string {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: var(--border-color);
-  border-radius: 10px;
+  background: var(--color-outline-variant);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -46,36 +47,36 @@ export function generateComponentCSS(): string {
 }
 
 .smart-list.style-inset {
-  margin: 0 16px;
-  border-radius: 10px;
+  margin: 0 var(--space-4);
+  border-radius: var(--radius-md);
 }
 
 .smart-list.style-grouped {
   background: transparent;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 /* List Item */
 .list-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-container);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .list-item:hover {
-  background: var(--bg-hover);
+  background: var(--color-surface-container-high);
 }
 
 .list-item:active {
-  background: var(--bg-active);
+  background: var(--color-surface-container-highest);
 }
 
 .style-plain .list-item {
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-outline-variant);
 }
 
 .style-plain .list-item:last-child {
@@ -90,16 +91,16 @@ export function generateComponentCSS(): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
+  font-size: var(--text-title-lg);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-highest);
 }
 
 .list-item-leading img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .list-item-leading.emoji {
@@ -116,16 +117,17 @@ export function generateComponentCSS(): string {
 }
 
 .list-item-title {
-  font-weight: 500;
-  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .list-item-subtitle {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+  font-size: var(--text-body-sm);
+  color: var(--color-on-surface-variant);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -136,43 +138,43 @@ export function generateComponentCSS(): string {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  color: var(--color-on-surface-variant);
+  font-size: var(--text-body-sm);
 }
 
 .list-item-badge {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--accent-bg);
-  color: var(--accent-color);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-label-sm);
+  font-weight: var(--weight-medium);
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
 }
 
 .list-item-badge.status-active,
 .list-item-badge.status-success {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--color-success-container);
+  color: var(--color-on-success-container);
 }
 
 .list-item-badge.status-inactive,
 .list-item-badge.status-error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-error-container);
+  color: var(--color-on-error-container);
 }
 
 .list-item-badge.status-pending,
 .list-item-badge.status-warning {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-container);
+  color: var(--color-on-warning-container);
 }
 
 /* List Item: Accessory */
 .list-item-accessory {
   flex-shrink: 0;
-  color: var(--text-tertiary);
-  font-size: 1.25rem;
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-title-md);
 }
 
 .list-item-accessory.chevron::after {
@@ -181,23 +183,23 @@ export function generateComponentCSS(): string {
 
 .list-item-accessory.disclosure::after {
   content: '▼';
-  font-size: 0.75rem;
+  font-size: var(--text-label-sm);
 }
 
 /* Card Component */
 .smart-card {
-  background: var(--bg-secondary);
-  border-radius: 12px;
+  background: var(--color-surface-container);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-outline-variant);
 }
 
 .smart-card-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-color);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-outline-variant);
 }
 
 .smart-card-icon {
@@ -206,16 +208,16 @@ export function generateComponentCSS(): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
+  font-size: var(--text-headline-md);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-highest);
 }
 
 .smart-card-icon img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .smart-card-header-content {
@@ -224,14 +226,14 @@ export function generateComponentCSS(): string {
 }
 
 .smart-card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: var(--text-title-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
 }
 
 .smart-card-subtitle {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+  font-size: var(--text-body-sm);
+  color: var(--color-on-surface-variant);
   margin-top: 2px;
 }
 
@@ -242,8 +244,8 @@ export function generateComponentCSS(): string {
 .smart-card-row {
   display: flex;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-outline-variant);
 }
 
 .smart-card-row:last-child {
@@ -251,13 +253,13 @@ export function generateComponentCSS(): string {
 }
 
 .smart-card-label {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
+  color: var(--color-on-surface-variant);
+  font-size: var(--text-body-sm);
 }
 
 .smart-card-value {
-  color: var(--text-primary);
-  font-weight: 500;
+  color: var(--color-on-surface);
+  font-weight: var(--weight-medium);
   text-align: right;
 }
 
@@ -265,7 +267,7 @@ export function generateComponentCSS(): string {
 .smart-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .smart-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
@@ -273,48 +275,49 @@ export function generateComponentCSS(): string {
 .smart-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
 
 .grid-item {
-  background: var(--bg-secondary);
-  border-radius: 10px;
+  background: var(--color-surface-container);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-outline-variant);
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .grid-item:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--elevation-2);
 }
 
 .grid-item-image {
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
-  background: var(--bg-tertiary);
+  background: var(--color-surface-container-highest);
 }
 
 .grid-item-content {
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .grid-item-title {
-  font-weight: 500;
-  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .grid-item-detail {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin-top: 4px;
+  font-size: var(--text-body-sm);
+  color: var(--color-on-surface-variant);
+  margin-top: var(--space-1);
 }
 
 /* Tree Component */
 .smart-tree {
   font-family: var(--font-mono);
-  font-size: 0.875rem;
+  font-size: var(--text-body-sm);
   line-height: 1.6;
 }
 
@@ -323,21 +326,21 @@ export function generateComponentCSS(): string {
 }
 
 .tree-node-inner {
-  margin-left: 20px;
+  margin-left: var(--space-5);
 }
 
 .tree-key {
-  color: var(--text-secondary);
+  color: var(--color-on-surface-variant);
 }
 
 .tree-value {
-  color: var(--text-primary);
+  color: var(--color-on-surface);
 }
 
-.tree-value.string { color: #22863a; }
-.tree-value.number { color: #005cc5; }
-.tree-value.boolean { color: #d73a49; }
-.tree-value.null { color: #6a737d; }
+.tree-value.string { color: var(--color-success); }
+.tree-value.number { color: var(--color-primary); }
+.tree-value.boolean { color: var(--color-error); }
+.tree-value.null { color: var(--color-on-surface-muted); }
 
 .tree-toggle {
   cursor: pointer;
@@ -346,7 +349,7 @@ export function generateComponentCSS(): string {
 
 .tree-toggle::before {
   content: '▼ ';
-  font-size: 0.75rem;
+  font-size: var(--text-label-sm);
 }
 
 .tree-toggle.collapsed::before {
@@ -357,41 +360,41 @@ export function generateComponentCSS(): string {
 .smart-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
-  border-radius: 16px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 0.875rem;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container-highest);
+  color: var(--color-on-surface);
+  font-size: var(--text-body-sm);
 }
 
 .chip.clickable {
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .chip.clickable:hover {
-  background: var(--bg-hover);
+  background: var(--color-surface-container-high);
 }
 
 /* Text Component */
 .smart-text {
-  color: var(--text-primary);
+  color: var(--color-on-surface);
   line-height: 1.6;
 }
 
 .smart-text.large {
-  font-size: 2rem;
-  font-weight: 600;
+  font-size: var(--text-display-sm);
+  font-weight: var(--weight-semibold);
 }
 
 .smart-text.muted {
-  color: var(--text-secondary);
+  color: var(--color-on-surface-variant);
 }
 `;
 }
