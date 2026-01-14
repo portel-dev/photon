@@ -1545,7 +1545,7 @@ Run: photon mcp ${mcpName} --config
     mcp: PhotonMCPClass,
     toolName: string,
     parameters: any,
-    options?: { resumeRunId?: string; outputHandler?: OutputHandler }
+    options?: { resumeRunId?: string; outputHandler?: OutputHandler; inputProvider?: InputProvider }
   ): Promise<any> {
     try {
       // Check for configuration errors before executing tool
@@ -1557,12 +1557,13 @@ Run: photon mcp ${mcpName} --config
       if (typeof mcp.instance.executeTool === 'function') {
         // PhotonMCP base class handles execution
         const outputHandler = options?.outputHandler || this.createOutputHandler();
+        const inputProvider = options?.inputProvider || this.createInputProvider();
         const result = await mcp.instance.executeTool(toolName, parameters, { outputHandler });
 
         // Handle generator result (if tool returns a generator)
         if (isAsyncGenerator(result)) {
           const finalResult = await executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
-            inputProvider: this.createInputProvider(),
+            inputProvider,
             outputHandler
           });
           // Clear any lingering progress
@@ -1591,7 +1592,7 @@ Run: photon mcp ${mcpName} --config
         photon: mcp.name,
         tool: toolName,
         params: parameters,
-        inputProvider: this.createInputProvider(),
+        inputProvider: options?.inputProvider || this.createInputProvider(),
         outputHandler: options?.outputHandler || this.createOutputHandler(),
         resumeRunId: options?.resumeRunId,
       });

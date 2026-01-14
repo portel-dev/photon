@@ -56,7 +56,7 @@
   "author": "Portel Dev",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@portel/photon-core": "file:../photon-core",
     "chokidar": "^4.0.3",
     "cli-highlight": "^2.1.11",
