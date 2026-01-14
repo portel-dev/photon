@@ -341,6 +341,89 @@ export class PhotonLoader {
   }
 
   /**
+   * Parse @runtime tag from source code
+   * @example @runtime ^1.5.0
+   * @example @runtime >=1.4.0
+   */
+  private static parseRuntimeRequirement(source: string): string | undefined {
+    const match = source.match(/@runtime\s+([^\r\n\s]+)/);
+    return match ? match[1].trim() : undefined;
+  }
+
+  /**
+   * Check if current runtime version satisfies the required version range
+   * Supports: ^1.5.0, >=1.5.0, 1.5.0, ~1.5.0
+   */
+  private static checkRuntimeCompatibility(required: string, current: string): { compatible: boolean; message?: string } {
+    // Parse version components
+    const parseVersion = (v: string): [number, number, number] => {
+      const clean = v.replace(/^[~^>=<]+/, '');
+      const parts = clean.split('.').map(p => parseInt(p, 10) || 0);
+      return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+    };
+
+    const [reqMajor, reqMinor, reqPatch] = parseVersion(required);
+    const [curMajor, curMinor, curPatch] = parseVersion(current);
+
+    // Determine range type
+    const isExact = !required.match(/^[~^>=<]/);
+    const isCaret = required.startsWith('^');
+    const isTilde = required.startsWith('~');
+    const isGte = required.startsWith('>=');
+    const isGt = required.startsWith('>') && !isGte;
+
+    let compatible = false;
+
+    if (isExact) {
+      // Exact match required
+      compatible = curMajor === reqMajor && curMinor === reqMinor && curPatch === reqPatch;
+    } else if (isCaret) {
+      // ^1.5.0 means >=1.5.0 and <2.0.0
+      if (curMajor === reqMajor) {
+        if (curMinor > reqMinor) {
+          compatible = true;
+        } else if (curMinor === reqMinor) {
+          compatible = curPatch >= reqPatch;
+        }
+      }
+    } else if (isTilde) {
+      // ~1.5.0 means >=1.5.0 and <1.6.0
+      compatible = curMajor === reqMajor && curMinor === reqMinor && curPatch >= reqPatch;
+    } else if (isGte) {
+      // >=1.5.0
+      if (curMajor > reqMajor) {
+        compatible = true;
+      } else if (curMajor === reqMajor) {
+        if (curMinor > reqMinor) {
+          compatible = true;
+        } else if (curMinor === reqMinor) {
+          compatible = curPatch >= reqPatch;
+        }
+      }
+    } else if (isGt) {
+      // >1.5.0
+      if (curMajor > reqMajor) {
+        compatible = true;
+      } else if (curMajor === reqMajor) {
+        if (curMinor > reqMinor) {
+          compatible = true;
+        } else if (curMinor === reqMinor) {
+          compatible = curPatch > reqPatch;
+        }
+      }
+    }
+
+    if (!compatible) {
+      return {
+        compatible: false,
+        message: `This photon requires runtime version ${required}, but you have ${current}. Please upgrade: npm install -g @portel/photon@latest`,
+      };
+    }
+
+    return { compatible: true };
+  }
+
+  /**
    * Load a single Photon MCP file
    */
   async loadFile(filePath: string): Promise<PhotonMCPClassExtended> {
@@ -368,6 +451,16 @@ export class PhotonLoader {
 
       if (absolutePath.endsWith('.ts')) {
         tsContent = await fs.readFile(absolutePath, 'utf-8');
+
+        // Check runtime version compatibility
+        const requiredRuntime = PhotonLoader.parseRuntimeRequirement(tsContent);
+        if (requiredRuntime) {
+          const check = PhotonLoader.checkRuntimeCompatibility(requiredRuntime, PHOTON_VERSION);
+          if (!check.compatible) {
+            throw new Error(check.message);
+          }
+        }
+
         const extracted = await this.dependencyManager.extractDependencies(absolutePath);
         const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);

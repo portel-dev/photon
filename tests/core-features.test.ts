@@ -106,12 +106,37 @@ async function testMCPConfig() {
   console.log('✅ MCP config resolution works for all transport types');
 }
 
+async function testRuntimeVersion() {
+  console.log('\n=== TEST 5: Runtime Version Compatibility ===\n');
+
+  const loader = new PhotonLoader(false);
+
+  // Test compatible version (^1.0.0 should work with current version)
+  const photon = await loader.loadFile('./tests/fixtures/runtime-version.photon.ts');
+  console.log('✅ Compatible runtime photon loaded:', photon.name);
+
+  // Test incompatible version (^99.0.0 should fail)
+  try {
+    await loader.loadFile('./tests/fixtures/future-runtime.photon.ts');
+    throw new Error('Should have thrown version error');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('requires runtime version ^99.0.0')) {
+      console.log('✅ Incompatible runtime correctly rejected');
+      console.log('   Error:', message);
+    } else {
+      throw err;
+    }
+  }
+}
+
 async function main() {
   try {
     await testInjection();
     await testDependencies();
     await testWorkflows();
     await testMCPConfig();
+    await testRuntimeVersion();
 
     console.log('\n=== All Core Feature Tests Passed ===\n');
   } catch (err) {

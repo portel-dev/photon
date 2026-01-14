@@ -1,70 +1,169 @@
 # Supported Docblock Tags
 
-Photon uses JSDoc-style docblock tags to extract metadata, configure tools, and generate documentation. This page lists all supported tags, their placement, and usage.
+Photon uses JSDoc-style docblock tags to extract metadata, configure tools, and generate documentation. This page lists all supported tags organized by where they can be used.
 
-| Tag | Level | Usage | Example |
-|---|---|---|---|
-| `@version` | `class` | Specifies the version of the Photon. Defaults to current Photon runtime version if omitted. | `* @version 1.0.0` |
-| `@author` | `class` | Specifies the author of the Photon. | `* @author Jane Doe` |
-| `@description` | `class` | (Implicit) The first paragraph of the class-level JSDoc is used as the Photon description. | `/** \n * My Tool - Description here \n */` |
-| `@license` | `class` | Specifies the license of the Photon. | `* @license MIT` |
-| `@repository` | `class` | Direct link to the source repository. | `* @repository https://github.com/user/repo` |
-| `@homepage` | `class` | Direct link to the project homepage. | `* @homepage https://example.com` |
-| `@dependencies` | `class` | Lists NPM dependencies to be auto-installed on first run. | `* @dependencies axios@^1.0.0, lodash` |
-| `@mcps` | `class` | Lists MCP dependencies (used for diagram generation). | `* @mcps filesystem, git` |
-| `@photons` | `class` | Lists Photon dependencies (used for diagram generation). | `* @photons calculator` |
-| `@stateful` | `class` | Set to `true` if the Photon maintains state between calls (used for workflows). | `* @stateful true` |
-| `@idleTimeout` | `class` | Specifies the idle timeout in milliseconds before the Photon process is terminated. | `* @idleTimeout 300000` |
-| `@param` | `method` | Describes a tool parameter. Photon extracts the description for MCP/CLI help. | `* @param name User name` |
-| `@example` | `method` | Provides a code example for using the tool. Used in documentation generation. | `* @example \n * await tool.greet({ name: 'World' })` |
-| `@format` | `method` | Hints the output format for the CLI and Web interfaces. | `* @format table` |
-| `@autorun` | `method` | Auto-execute when selected in Beam UI (for idempotent methods). | `* @autorun` |
-| `@ui` | `method` | Links a tool method to a UI template defined at the class level. | `* @ui my-view` |
-| `@mcp` | `class` | Declares an MCP dependency for injection into the constructor. | `* @mcp fs filesystem` |
-| `@photon` | `class` | Declares a Photon dependency for injection into the constructor. | `* @photon auth auth-service` |
-| `@ui` | `class` | Defines a UI template asset for MCP Apps. | `* @ui my-view ./ui/view.html` |
-| `@prompt` | `class` | Defines a static prompt asset. | `* @prompt greet ./prompts/greet.txt` |
-| `@resource` | `class` | Defines a static resource asset. | `* @resource data ./data.json` |
-| `{@min N}` | `param` | Defines the minimum value for a numeric parameter. | `* @param age Age {@min 0}` |
-| `{@max N}` | `param` | Defines the maximum value for a numeric parameter. | `* @param score Score {@max 100}` |
-| `{@format type}` | `param` | Defines the data format for validation or input type. | `* @param email Email {@format email}` |
-| `{@pattern regex}` | `param` | Defines a regex pattern the parameter must match. | `* @param zip Zip code {@pattern ^[0-9]{5}$}` |
-| `{@example value}` | `param` | Provides a specific example value for a parameter. | `* @param city City {@example London}` |
-| `{@choice a,b,c}` | `param` | Defines allowed values for a parameter (renders as dropdown). | `* @param status Status {@choice pending,approved,rejected}` |
-| `{@field type}` | `param` | Specifies HTML input type for the Auto UI form. | `* @param bio Bio {@field textarea}` |
+## Class-Level Tags
 
-## Return Format Values (`@format` on methods)
+These tags are placed in the JSDoc comment at the top of your `.photon.ts` file, before the class declaration.
 
-The `@format` tag on methods supports structural, content, and code formatting hints:
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@version` | Photon version. Defaults to runtime version if omitted. | `@version 1.0.0` |
+| `@author` | Author of the photon. | `@author Jane Doe` |
+| `@license` | License type. | `@license MIT` |
+| `@repository` | Source repository URL. | `@repository https://github.com/user/repo` |
+| `@homepage` | Project homepage URL. | `@homepage https://example.com` |
+| `@runtime` | **Required runtime version.** The photon will refuse to load if the runtime doesn't match. | `@runtime ^1.5.0` |
+| `@dependencies` | NPM packages to auto-install on first run. | `@dependencies axios@^1.0.0, lodash` |
+| `@mcp` | Declares an MCP dependency for constructor injection. | `@mcp github anthropics/mcp-server-github` |
+| `@photon` | Declares a Photon dependency for constructor injection. | `@photon helper ./helper.photon.ts` |
+| `@mcps` | Lists MCP dependencies (for diagram generation). | `@mcps filesystem, git` |
+| `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |
+| `@stateful` | Set to `true` if the photon maintains state between calls. | `@stateful true` |
+| `@idleTimeout` | Idle timeout in milliseconds before process termination. | `@idleTimeout 300000` |
+| `@ui` | Defines a UI template asset for MCP Apps. | `@ui my-view ./ui/view.html` |
+| `@prompt` | Defines a static prompt asset. | `@prompt greet ./prompts/greet.txt` |
+| `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
 
-| Type | Values | Description |
-|---|---|---|
-| **Structural** | `primitive`, `table`, `tree`, `list`, `none` | Hints at the data shape (literal, array of objects, hierarchy, etc.) |
-| **Content** | `json`, `markdown`, `yaml`, `xml`, `html` | Specifies the syntax for highlighting or rendering. |
-| **Code** | `code`, `code:lang` | Renders output as a code block (e.g., `code:javascript`). |
-| **Diagram** | `mermaid` | Renders Mermaid diagram syntax as interactive visual diagram. |
+### Runtime Version Ranges
 
-## Input Format Values (`{@format}` on params)
+The `@runtime` tag supports semver-style version ranges:
 
-The `{@format}` inline tag on parameters controls input validation and Auto UI rendering:
+| Range | Meaning | Example |
+|-------|---------|---------|
+| `^1.5.0` | Compatible with 1.5.0 and above, below 2.0.0 | `@runtime ^1.5.0` |
+| `~1.5.0` | Compatible with 1.5.x only | `@runtime ~1.5.0` |
+| `>=1.5.0` | Any version 1.5.0 or higher | `@runtime >=1.5.0` |
+| `1.5.0` | Exact version match required | `@runtime 1.5.0` |
 
-| Value | Description | Example |
-|---|---|---|
-| `email` | Email input with validation | `{@format email}` |
-| `url` / `uri` | URL input with validation | `{@format url}` |
-| `date` | Date picker | `{@format date}` |
-| `date-time` | Date and time picker | `{@format date-time}` |
-| `time` | Time picker | `{@format time}` |
-| `password` | Password input (masked) | `{@format password}` |
-| `textarea` / `multiline` | Multi-line text area | `{@format textarea}` |
-| `uuid` | UUID validation | `{@format uuid}` |
+## Method-Level Tags
 
-## Field Types (`{@field}`)
+These tags are placed in the JSDoc comment immediately before a tool method.
 
-The `{@field}` inline tag explicitly specifies the HTML input type in Auto UI:
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@param` | Describes a tool parameter. | `@param name User's full name` |
+| `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
+| `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
+| `@format` | Hints the output format for CLI/Web interfaces. | `@format table` |
+| `@icon` | Sets the tool icon (emoji or icon name). | `@icon calculator` or `@icon 🧮` |
+| `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
+| `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
+
+## Inline Parameter Tags
+
+These tags are placed within `@param` descriptions to add validation and UI hints.
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `{@min N}` | Minimum value for numeric parameters. | `@param age Age {@min 0}` |
+| `{@max N}` | Maximum value for numeric parameters. | `@param score Score {@max 100}` |
+| `{@format type}` | Data format for validation/input type. | `@param email Email {@format email}` |
+| `{@pattern regex}` | Regex pattern the parameter must match. | `@param zip Zip code {@pattern ^[0-9]{5}$}` |
+| `{@example value}` | Example value for the parameter. | `@param city City {@example London}` |
+| `{@choice a,b,c}` | Allowed values (renders as dropdown). | `@param status Status {@choice pending,approved,rejected}` |
+| `{@field type}` | Explicit HTML input type for Auto UI. | `@param bio Bio {@field textarea}` |
+| `{@label name}` | Custom display label for the parameter. | `@param firstName First Name {@label Your First Name}` |
+
+## Return Value Tags
+
+The `{@label}` tag can be used within `@returns` to customize the button label in BEAM:
+
+```typescript
+/**
+ * Send a greeting message
+ * @returns The greeting {@label Say Hello}
+ */
+async greet(): Promise<string> { ... }
+```
+
+## Output Format Values
+
+The `@format` tag on methods supports multiple format types:
+
+### Structural Formats
 
 | Value | Description |
-|---|---|
+|-------|-------------|
+| `primitive` | Single value (string, number, boolean) |
+| `table` | Array of objects as a table |
+| `list` | Array as a styled list (iOS-inspired) |
+| `grid` | Array as a visual grid |
+| `tree` | Hierarchical/nested data |
+| `card` | Single object as a card |
+| `none` | No special formatting |
+
+### Content Formats
+
+| Value | Description |
+|-------|-------------|
+| `json` | JSON syntax highlighting |
+| `markdown` | Markdown rendering |
+| `yaml` | YAML syntax highlighting |
+| `xml` | XML syntax highlighting |
+| `html` | HTML rendering |
+| `mermaid` | Mermaid diagram rendering |
+
+### Code Formats
+
+| Value | Description |
+|-------|-------------|
+| `code` | Generic code block |
+| `code:javascript` | JavaScript syntax highlighting |
+| `code:typescript` | TypeScript syntax highlighting |
+| `code:python` | Python syntax highlighting |
+| `code:lang` | Any language (replace `lang`) |
+
+### Advanced List/Grid Formatting
+
+For `list`, `table`, and `grid` formats, you can specify layout hints using nested syntax:
+
+```typescript
+/**
+ * Get all users
+ * @format list {@title name, @subtitle email, @icon avatar, @badge status, @style inset}
+ */
+async getUsers(): Promise<User[]>
+```
+
+Available layout hints:
+
+| Hint | Description |
+|------|-------------|
+| `@title fieldName` | Primary display field |
+| `@subtitle fieldName` | Secondary text field |
+| `@icon fieldName` | Leading visual field (avatar, image) |
+| `@badge fieldName` | Status badge field |
+| `@detail fieldName` | Trailing detail value |
+| `@style styleName` | List style: `plain`, `grouped`, `inset`, `inset-grouped` |
+| `@columns N` | Number of columns (for grid) |
+
+Field names can include renderers with `:suffix`:
+- `email:link` - Render as mailto link
+- `createdAt:date` - Format as date
+- `price:currency` - Format as currency
+
+## Input Format Values
+
+The `{@format}` inline tag on parameters controls validation and Auto UI:
+
+| Value | Description |
+|-------|-------------|
+| `email` | Email input with validation |
+| `url` / `uri` | URL input with validation |
+| `date` | Date picker |
+| `date-time` | Date and time picker |
+| `time` | Time picker |
+| `password` | Password input (masked) |
+| `textarea` / `multiline` | Multi-line text area |
+| `uuid` | UUID validation |
+
+## Field Types
+
+The `{@field}` inline tag explicitly sets the HTML input type:
+
+| Value | Description |
+|-------|-------------|
 | `text` | Single-line text input (default) |
 | `textarea` | Multi-line text area |
 | `number` | Number input with spinner |
@@ -73,7 +172,58 @@ The `{@field}` inline tag explicitly specifies the HTML input type in Auto UI:
 | `select` | Dropdown (use with `{@choice}`) |
 | `hidden` | Hidden field |
 
-## Note on Formatting
-- **Class-level tags** must be placed in the main JSDoc comment at the top of your `.photon.ts` file.
-- **Method-level tags** must be placed in the JSDoc comment immediately preceding the tool method.
-- **Inline tags** are placed within the `@param` description text and are used to add validation constraints or example values.
+## Complete Example
+
+```typescript
+/**
+ * User Management Photon
+ *
+ * Provides tools for managing users in the system.
+ *
+ * @version 1.0.0
+ * @author Jane Doe
+ * @license MIT
+ * @runtime ^1.5.0
+ * @dependencies uuid@^9.0.0
+ * @mcp database postgres-mcp
+ */
+export default class UserManager {
+  /**
+   * List all users
+   * @format list {@title name, @subtitle email, @icon avatar, @badge role}
+   * @returns List of users {@label Fetch Users}
+   * @icon 👥
+   */
+  async listUsers(): Promise<User[]> { ... }
+
+  /**
+   * Create a new user
+   * @param name Full name {@label Your Name} {@min 2} {@max 100}
+   * @param email Email address {@format email} {@example john@example.com}
+   * @param role User role {@choice admin,user,guest}
+   * @returns The created user
+   * @icon ➕
+   */
+  async createUser(params: {
+    name: string;
+    email: string;
+    role: string;
+  }): Promise<User> { ... }
+
+  /**
+   * Get current status
+   * @autorun
+   * @format json
+   * @icon 📊
+   */
+  async status(): Promise<SystemStatus> { ... }
+}
+```
+
+## Notes
+
+- **Class-level tags** must be in the JSDoc comment at the top of your `.photon.ts` file before the class.
+- **Method-level tags** must be in the JSDoc comment immediately preceding the tool method.
+- **Inline tags** use curly braces `{@tag}` and are placed within parameter descriptions.
+- The first paragraph of the class-level JSDoc becomes the photon description.
+- The first line of each method's JSDoc becomes the tool description.
