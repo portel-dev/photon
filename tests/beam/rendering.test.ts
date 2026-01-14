@@ -218,6 +218,28 @@ test('Method icon from @icon is displayed', async () => {
 });
 
 // ============================================================================
+// Keyboard Shortcut Tests
+// ============================================================================
+
+test('Keyboard shortcut ? shows help modal', async () => {
+  await withBeam(async (beam) => {
+    await beam.page.keyboard.press('?');
+    await beam.page.waitForTimeout(200);
+    const modal = beam.page.locator('#keyboard-help-modal.visible');
+    assert.ok(await modal.count() > 0, 'Keyboard help modal should be visible');
+  }, opts);
+});
+
+test('Keyboard shortcut / focuses search', async () => {
+  await withBeam(async (beam) => {
+    await beam.page.keyboard.press('/');
+    await beam.page.waitForTimeout(200);
+    const focused = await beam.page.evaluate(() => document.activeElement?.id);
+    assert.equal(focused, 'search-input', 'Search input should be focused');
+  }, opts);
+});
+
+// ============================================================================
 // Visual Snapshot Tests
 // ============================================================================
 
