@@ -360,9 +360,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
       const photonName = url.searchParams.get('name');
 
+      // If no photon name provided, just return the default working directory
       if (!photonName) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Missing photon name' }));
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          defaultWorkdir: workingDir
+        }));
         return;
       }
 
@@ -4913,20 +4916,30 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('file-browser-select').disabled = true;
       document.getElementById('file-browser-overlay').classList.add('visible');
 
-      // Try to get photon's workdir for path constraint
-      if (currentPhoton) {
-        try {
-          const res = await fetch(\`/api/photon-workdir?name=\${encodeURIComponent(currentPhoton.name)}\`);
-          const data = await res.json();
-          if (data.workdir) {
-            fileBrowserRoot = data.workdir;
-          }
-        } catch (e) {
-          // Ignore - will use default
+      let startPath = '';
+
+      try {
+        // Build API URL - include photon name if available
+        const apiUrl = currentPhoton
+          ? \`/api/photon-workdir?name=\${encodeURIComponent(currentPhoton.name)}\`
+          : '/api/photon-workdir';
+
+        const res = await fetch(apiUrl);
+        const data = await res.json();
+
+        if (data.workdir) {
+          // Photon has a specific workdir constraint
+          fileBrowserRoot = data.workdir;
+          startPath = data.workdir;
+        } else if (data.defaultWorkdir) {
+          // Use the global working directory as default start path
+          startPath = data.defaultWorkdir;
         }
+      } catch (e) {
+        // Ignore - will use default (current directory)
       }
 
-      browsePath(fileBrowserRoot || '');
+      browsePath(startPath);
     }
 
     function closeFileBrowser() {
@@ -6172,16 +6185,153 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           </div>
         \`;
       } else if (data.ask === 'select') {
-        const options = (data.options || []).map(opt => {
-          const value = typeof opt === 'string' ? opt : opt.value;
-          const label = typeof opt === 'string' ? opt : opt.label;
-          return \`<option value="\${value}">\${label}</option>\`;
-        }).join('');
-        html = \`
-          <div class="form-group">
-            <select id="elicitation-input">\${options}</select>
-          </div>
-        \`;
+        const opts = data.options || [];
+        const isMulti = data.multi === true;
+        const layout = data.layout || 'list';
+        const columns = data.columns || 2;
+        const filters = data.filters || [];
+        const filterField = data.filterField || 'category';
+        const searchable = data.searchable === true;
+        const searchPlaceholder = data.searchPlaceholder || 'Search...';
+
+        // Check if options have rich fields (image, price, etc.)
+        const hasRichOptions = opts.some(opt =>
+          typeof opt === 'object' && (opt.image || opt.price !== undefined)
+        );
+
+        // Check if any options are adjustable (have quantity controls)
+        const hasAdjustable = opts.some(opt =>
+          typeof opt === 'object' && opt.adjustable === true
+        );
+
+        if (hasRichOptions || isMulti) {
+          // Render as rich card/list layout with checkboxes
+          const gridStyle = layout === 'grid' || layout === 'cards'
+            ? \`display: grid; grid-template-columns: repeat(\${columns}, 1fr); gap: 12px;\`
+            : '';
+
+          // Build filter buttons HTML
+          let filtersHtml = '';
+          if (filters.length > 0) {
+            const filterBtns = filters.map((f, i) => \`
+              <button type="button" class="filter-btn \${i === 0 ? 'active' : ''}" data-filter="\${f}" onclick="filterSelectOptions(this, '\${filterField}')"
+                      style="padding: 6px 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 16px; background: \${i === 0 ? 'var(--accent, #3b82f6)' : 'var(--bg-secondary, #fff)'}; color: \${i === 0 ? 'white' : 'var(--text-primary, #1f2937)'}; cursor: pointer; font-size: 13px;">
+                \${f}
+              </button>
+            \`).join('');
+            filtersHtml = \`<div class="select-filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">\${filterBtns}</div>\`;
+          }
+
+          // Build search box HTML
+          let searchHtml = '';
+          if (searchable) {
+            searchHtml = \`
+              <div class="select-search" style="margin-bottom: 12px;">
+                <input type="text" id="select-search-input" placeholder="\${searchPlaceholder}" oninput="searchSelectOptions(this.value)"
+                       style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; font-size: 14px;" />
+              </div>
+            \`;
+          }
+
+          const optionsHtml = opts.map((opt, idx) => {
+            const value = typeof opt === 'string' ? opt : opt.value;
+            const label = typeof opt === 'string' ? opt : opt.label;
+            const desc = typeof opt === 'object' ? opt.description : '';
+            const image = typeof opt === 'object' ? opt.image : '';
+            const price = typeof opt === 'object' ? opt.price : undefined;
+            const originalPrice = typeof opt === 'object' ? opt.originalPrice : undefined;
+            const currency = typeof opt === 'object' ? (opt.currency || 'USD') : 'USD';
+            const badge = typeof opt === 'object' ? opt.badge : '';
+            const badgeType = typeof opt === 'object' ? (opt.badgeType || 'default') : 'default';
+            const quantity = typeof opt === 'object' ? opt.quantity : undefined;
+            const adjustable = typeof opt === 'object' ? opt.adjustable === true : false;
+            const minQty = typeof opt === 'object' ? (opt.minQuantity ?? 1) : 1;
+            const maxQty = typeof opt === 'object' ? (opt.maxQuantity ?? 99) : 99;
+            const disabled = typeof opt === 'object' ? opt.disabled : false;
+            const disabledReason = typeof opt === 'object' ? opt.disabledReason : '';
+            const selected = typeof opt === 'object' ? opt.selected : false;
+            const category = typeof opt === 'object' ? opt.category : '';
+            const inputType = isMulti ? 'checkbox' : 'radio';
+
+            // Get category as string for data attribute
+            const categoryStr = Array.isArray(category) ? category.join(',') : (category || '');
+
+            const badgeColors = {
+              default: '#6b7280',
+              success: '#22c55e',
+              warning: '#f59e0b',
+              error: '#ef4444',
+              info: '#3b82f6'
+            };
+
+            const formatPrice = (p, curr) => {
+              return new Intl.NumberFormat('en-US', { style: 'currency', currency: curr }).format(p);
+            };
+
+            // Quantity controls HTML
+            let qtyControlsHtml = '';
+            if (adjustable && quantity !== undefined) {
+              qtyControlsHtml = \`
+                <div class="qty-controls" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                  <button type="button" class="qty-btn" onclick="adjustQuantity('\${value}', -1, \${minQty}, \${maxQty}); event.stopPropagation();"
+                          style="width: 28px; height: 28px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; background: var(--bg-secondary, #fff); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">−</button>
+                  <span class="qty-value" data-value="\${value}" style="min-width: 24px; text-align: center; font-weight: 500;">\${quantity}</span>
+                  <button type="button" class="qty-btn" onclick="adjustQuantity('\${value}', 1, \${minQty}, \${maxQty}); event.stopPropagation();"
+                          style="width: 28px; height: 28px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; background: var(--bg-secondary, #fff); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">+</button>
+                </div>
+              \`;
+            } else if (quantity !== undefined) {
+              qtyControlsHtml = \`<span style="font-size: 12px; color: #6b7280;">×\${quantity}</span>\`;
+            }
+
+            return \`
+              <label class="rich-option \${disabled ? 'disabled' : ''} \${layout === 'cards' ? 'card-layout' : ''}"
+                     data-value="\${value}" data-label="\${label}" data-category="\${categoryStr}"
+                     style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; cursor: \${disabled ? 'not-allowed' : 'pointer'}; background: \${disabled ? '#f3f4f6' : 'var(--bg-secondary, #fff)'}; opacity: \${disabled ? '0.6' : '1'};">
+                <input type="\${inputType}" name="elicitation-select" value="\${value}"
+                       \${selected ? 'checked' : ''} \${disabled ? 'disabled' : ''}
+                       style="margin-top: 4px; width: 18px; height: 18px;" />
+                \${image ? \`<img src="\${image}" alt="\${label}" style="width: 64px; height: 64px; object-fit: cover; border-radius: 6px; flex-shrink: 0;" />\` : ''}
+                <div style="flex: 1; min-width: 0;">
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="font-weight: 500; color: var(--text-primary, #1f2937);">\${label}</span>
+                    \${badge ? \`<span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: \${badgeColors[badgeType]}; color: white;">\${badge}</span>\` : ''}
+                    \${!adjustable && quantity !== undefined ? \`<span style="font-size: 12px; color: #6b7280;">×\${quantity}</span>\` : ''}
+                  </div>
+                  \${desc ? \`<div style="font-size: 13px; color: #6b7280; margin-top: 2px;">\${desc}</div>\` : ''}
+                  \${disabled && disabledReason ? \`<div style="font-size: 12px; color: #ef4444; margin-top: 2px;">\${disabledReason}</div>\` : ''}
+                  \${price !== undefined ? \`
+                    <div style="margin-top: 4px;">
+                      <span style="font-weight: 600; color: var(--text-primary, #1f2937);">\${formatPrice(price, currency)}</span>
+                      \${originalPrice !== undefined ? \`<span style="font-size: 13px; color: #9ca3af; text-decoration: line-through; margin-left: 6px;">\${formatPrice(originalPrice, currency)}</span>\` : ''}
+                    </div>
+                  \` : ''}
+                  \${adjustable && quantity !== undefined ? qtyControlsHtml : ''}
+                </div>
+              </label>
+            \`;
+          }).join('');
+
+          html = \`
+            \${filtersHtml}
+            \${searchHtml}
+            <div class="form-group rich-select" id="rich-select-options" style="\${gridStyle}">
+              \${optionsHtml}
+            </div>
+          \`;
+        } else {
+          // Simple dropdown for basic options
+          const selectOptions = opts.map(opt => {
+            const value = typeof opt === 'string' ? opt : opt.value;
+            const label = typeof opt === 'string' ? opt : opt.label;
+            return \`<option value="\${value}">\${label}</option>\`;
+          }).join('');
+          html = \`
+            <div class="form-group">
+              <select id="elicitation-input">\${selectOptions}</select>
+            </div>
+          \`;
+        }
       } else if (data.ask === 'confirm') {
         html = \`
           <div class="form-group" style="display: flex; gap: 10px;">
@@ -6269,15 +6419,106 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     function submitElicitation() {
+      let value;
+
+      // Check for regular input first
       const input = document.getElementById('elicitation-input');
-      const value = input.value;
+      if (input) {
+        value = input.value;
+      } else {
+        // Check for rich select (radio/checkbox inputs)
+        const checkboxes = document.querySelectorAll('input[name="elicitation-select"]:checked');
+        if (checkboxes.length > 0) {
+          const values = Array.from(checkboxes).map(cb => cb.value);
+          // If single radio, return single value; if multi checkbox, return array
+          const isMulti = document.querySelector('input[name="elicitation-select"][type="checkbox"]') !== null;
+          value = isMulti ? values : values[0];
+        }
+      }
+
+      // Include quantity adjustments if any were made
+      const quantities = window._selectQuantities || {};
+      const hasQuantities = Object.keys(quantities).length > 0;
 
       ws.send(JSON.stringify({
         type: 'elicitation_response',
-        value
+        value,
+        ...(hasQuantities && { quantities })
       }));
 
+      // Clear quantity tracking
+      window._selectQuantities = {};
+
       document.getElementById('elicitation-modal').classList.remove('visible');
+    }
+
+    // Track quantity adjustments for rich select
+    window._selectQuantities = {};
+
+    function filterSelectOptions(btn, filterField) {
+      // Update button styles
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.style.background = 'var(--bg-secondary, #fff)';
+        b.style.color = 'var(--text-primary, #1f2937)';
+        b.classList.remove('active');
+      });
+      btn.style.background = 'var(--accent, #3b82f6)';
+      btn.style.color = 'white';
+      btn.classList.add('active');
+
+      const filter = btn.dataset.filter;
+      const options = document.querySelectorAll('.rich-option');
+
+      options.forEach(opt => {
+        const category = opt.dataset.category || '';
+        const categories = category.split(',');
+
+        // 'All' shows everything, otherwise check if category matches
+        if (filter === 'All' || categories.some(c => c.toLowerCase().includes(filter.toLowerCase()))) {
+          opt.style.display = '';
+        } else {
+          opt.style.display = 'none';
+        }
+      });
+    }
+
+    function searchSelectOptions(query) {
+      const normalizedQuery = query.toLowerCase().trim();
+      const options = document.querySelectorAll('.rich-option');
+
+      options.forEach(opt => {
+        const label = (opt.dataset.label || '').toLowerCase();
+        const category = (opt.dataset.category || '').toLowerCase();
+
+        if (!normalizedQuery || label.includes(normalizedQuery) || category.includes(normalizedQuery)) {
+          opt.style.display = '';
+        } else {
+          opt.style.display = 'none';
+        }
+      });
+    }
+
+    function adjustQuantity(value, delta, minQty, maxQty) {
+      const qtySpan = document.querySelector(\`.qty-value[data-value="\${value}"]\`);
+      if (!qtySpan) return;
+
+      let currentQty = parseInt(qtySpan.textContent, 10) || 1;
+      let newQty = currentQty + delta;
+
+      // Clamp to min/max
+      newQty = Math.max(minQty, Math.min(maxQty, newQty));
+      qtySpan.textContent = newQty;
+
+      // Store in global tracking object
+      window._selectQuantities[value] = newQty;
+
+      // If quantity is 0 and minQty allows removal, uncheck the item
+      if (newQty === 0) {
+        const checkbox = document.querySelector(\`input[name="elicitation-select"][value="\${value}"]\`);
+        if (checkbox) {
+          checkbox.checked = false;
+        }
+      }
     }
 
     // OAuth flow handling
