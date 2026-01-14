@@ -1111,6 +1111,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <style>
     :root {
+      color-scheme: dark;
       --bg-primary: #0f0f0f;
       --bg-secondary: #161616;
       --bg-tertiary: #1c1c1c;
@@ -1154,6 +1155,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
+    /* JSON Syntax Highlighting */
+    .json-key { color: #9cdcfe; }
+    .json-string { color: #ce9178; }
+    .json-number { color: #b5cea8; }
+    .json-boolean { color: #569cd6; }
+    .json-null { color: #808080; }
 
     .app {
       display: flex;
@@ -1943,6 +1951,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    /* Override browser autofill styling */
+    .form-group input:-webkit-autofill,
+    .form-group input:-webkit-autofill:hover,
+    .form-group input:-webkit-autofill:focus {
+      -webkit-text-fill-color: var(--text-primary);
+      -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset;
+      transition: background-color 5000s ease-in-out 0s;
     }
 
     .form-group textarea {
@@ -5071,7 +5088,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Check for custom UI template (highest priority)
       if (currentMethod?.linkedUi && currentPhoton?.name) {
         renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
-        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
         return;
       }
 
@@ -5081,20 +5098,25 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
         renderMermaid(content, data);
-        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
         return;
       }
 
       // Check if object has a 'diagram' field with mermaid content
       if (data && data.diagram && typeof data.diagram === 'string') {
         renderMermaid(content, data.diagram);
-        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
         return;
       }
 
       // Use Smart Rendering System
-      const result = renderSmartResult(data, format, layoutHints);
-      if (result !== null) {
+      let result = null;
+      try {
+        result = renderSmartResult(data, format, layoutHints);
+      } catch (err) {
+        console.error('Smart rendering error:', err);
+      }
+      if (result) {
         content.innerHTML = result;
       } else {
         // Fallback to JSON
@@ -5102,7 +5124,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
 
       // Update data tab
-      document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+      document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
     }
 
     async function renderMermaid(container, diagram) {
@@ -6141,6 +6163,59 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    function syntaxHighlightJson(json) {
+      if (typeof json !== 'string') {
+        json = JSON.stringify(json, null, 2);
+      }
+      // Simple token-based highlighting
+      var result = '';
+      var i = 0;
+      while (i < json.length) {
+        var ch = json[i];
+
+        // String (key or value)
+        if (ch === '"') {
+          var start = i;
+          i++;
+          while (i < json.length && (json[i] !== '"' || json[i-1] === String.fromCharCode(92))) i++;
+          i++; // include closing quote
+          var str = json.substring(start, i);
+          // Check if it's a key (followed by :)
+          var rest = json.substring(i).trimStart();
+          if (rest[0] === ':') {
+            result += '<span class="json-key">' + escapeHtml(str) + '</span>';
+          } else {
+            result += '<span class="json-string">' + escapeHtml(str) + '</span>';
+          }
+        }
+        // Number
+        else if (ch === '-' || (ch >= '0' && ch <= '9')) {
+          var start = i;
+          while (i < json.length && /[0-9.eE+-]/.test(json[i])) i++;
+          result += '<span class="json-number">' + escapeHtml(json.substring(start, i)) + '</span>';
+        }
+        // true/false/null
+        else if (json.substring(i, i+4) === 'true') {
+          result += '<span class="json-boolean">true</span>';
+          i += 4;
+        }
+        else if (json.substring(i, i+5) === 'false') {
+          result += '<span class="json-boolean">false</span>';
+          i += 5;
+        }
+        else if (json.substring(i, i+4) === 'null') {
+          result += '<span class="json-null">null</span>';
+          i += 4;
+        }
+        // Whitespace and punctuation
+        else {
+          result += escapeHtml(ch);
+          i++;
+        }
+      }
+      return result;
     }
 
     function handleError(message) {

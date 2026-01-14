@@ -460,6 +460,18 @@ function renderList(data, mapping, typeHints, style, accessory) {
 function renderListItem(item, mapping, typeHints, accessory) {
   let html = '<div class="list-item">';
 
+  // Handle primitive items (strings, numbers, booleans)
+  if (typeof item !== 'object' || item === null) {
+    html += '<div class="list-item-content">';
+    html += '<div class="list-item-title">' + escapeHtml(String(item)) + '</div>';
+    html += '</div>';
+    if (accessory && accessory !== 'none') {
+      html += '<div class="list-item-accessory ' + accessory + '"></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   // Leading (icon/avatar)
   if (mapping.icon && item[mapping.icon] !== undefined) {
     const iconValue = item[mapping.icon];
