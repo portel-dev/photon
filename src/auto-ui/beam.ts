@@ -4731,12 +4731,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (!willAutoExecute) {
         // Use explicit buttonLabel from @returns {@label}, or format the method name
         const buttonLabel = currentMethod.buttonLabel || formatLabel(currentMethod.name);
-        html += \`<button type="submit" class="btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          \${buttonLabel}
-        </button>\`;
+        html += \`<button type="submit" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>\${buttonLabel}</span></button>\`;
       }
 
       form.innerHTML = html;
@@ -4753,15 +4748,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     // Format camelCase/PascalCase to "Title Case With Spaces"
     // Examples: getUserName -> "Get User Name", apiKey -> "Api Key"
     function formatLabel(name) {
-      return name
-        // Insert space before capital letters
-        .replace(/([A-Z])/g, ' $1')
-        // Insert space before numbers
-        .replace(/([a-zA-Z])(\d)/g, '$1 $2')
-        // Capitalize first letter
-        .replace(/^./, str => str.toUpperCase())
-        // Clean up extra spaces
-        .trim();
+      if (!name) return '';
+      // Insert space before each capital letter (for camelCase)
+      let result = name.replace(/([a-z])([A-Z])/g, '$1 $2');
+      // Insert space before numbers (use [0-9] instead of \\d to avoid escaping issues)
+      result = result.replace(/([a-zA-Z])([0-9])/g, '$1 $2');
+      // Capitalize first letter
+      return result.charAt(0).toUpperCase() + result.slice(1);
     }
 
     // Generate sample value from JSON Schema (Swagger-style)
