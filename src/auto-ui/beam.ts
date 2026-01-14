@@ -1967,6 +1967,18 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       min-height: 100px;
     }
 
+    .form-group .json-input {
+      min-height: 120px;
+      white-space: pre;
+    }
+
+    .form-group .json-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-style: italic;
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -4738,6 +4750,26 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const defaultValue = schema.default;
       const enumValues = schema.enum;
 
+      // Complex types (array, object) - use JSON textarea
+      if (type === 'array' || type === 'object') {
+        const example = schema.example || schema.default;
+        const placeholder = example
+          ? JSON.stringify(example, null, 2)
+          : (type === 'array' ? '[\n  \n]' : '{\n  \n}');
+        const defaultVal = defaultValue ? JSON.stringify(defaultValue, null, 2) : '';
+        return \`
+          <textarea
+            name="\${key}"
+            class="json-input"
+            \${isRequired ? 'required' : ''}
+            placeholder="\${placeholder.replace(/"/g, '&quot;')}"
+            rows="6"
+            style="font-family: 'JetBrains Mono', monospace; font-size: 12px;"
+          >\${defaultVal}</textarea>
+          <div class="json-hint">Enter valid JSON \${type === 'array' ? 'array' : 'object'}</div>
+        \`;
+      }
+
       // Check for anyOf with enum (mixed: enum values + free-form) - use autocomplete
       if (schema.anyOf) {
         const enumSchema = schema.anyOf.find(s => s.enum);
@@ -4847,8 +4879,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const args = {};
 
       for (const [key, value] of formData.entries()) {
+        // Check if this is a JSON input (array/object field)
+        const inputElement = e.target.querySelector(\`[name="\${key}"]\`);
+        const isJsonInput = inputElement && inputElement.classList.contains('json-input');
+
+        if (isJsonInput && value.trim()) {
+          try {
+            args[key] = JSON.parse(value);
+          } catch (err) {
+            alert(\`Invalid JSON for "\${key}": \${err.message}\`);
+            return;
+          }
+        }
         // Parse booleans and numbers
-        if (value === 'true') args[key] = true;
+        else if (value === 'true') args[key] = true;
         else if (value === 'false') args[key] = false;
         else if (!isNaN(value) && value !== '') args[key] = parseFloat(value);
         else args[key] = value;
