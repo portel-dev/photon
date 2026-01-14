@@ -4713,6 +4713,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       let html = '';
 
       for (const [key, schema] of Object.entries(properties)) {
+        // Skip hidden fields (for programmatic use only, not UI)
+        if (schema.hidden === true) {
+          continue;
+        }
+
         // Fields with default values are not truly required
         const hasDefault = schema.default !== undefined;
         const isRequired = required.includes(key) && !hasDefault;
