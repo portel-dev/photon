@@ -23,6 +23,7 @@ import {
   type OutputHandler,
   type ConstructorParam
 } from '@portel/photon-core';
+import { generateSmartRenderingJS, generateSmartRenderingCSS } from './rendering/index.js';
 
 interface PhotonInfo {
   name: string;
@@ -58,6 +59,7 @@ interface MethodInfo {
   returns: any;
   autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
   outputFormat?: string;  // Format hint for rendering (mermaid, markdown, json, etc.)
+  layoutHints?: Record<string, string>;  // Layout hints from @format list {@title name, @subtitle email}
   buttonLabel?: string;  // Custom button label from @returns {@label}
   linkedUi?: string;  // UI template ID if linked via @ui annotation
 }
@@ -255,6 +257,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             returns: { type: 'object' },
             autorun: schema.autorun || false,
             outputFormat: schema.outputFormat,
+            layoutHints: schema.layoutHints,
             buttonLabel: schema.buttonLabel,
             icon: schema.icon,
             linkedUi: linkedAsset?.id
@@ -3370,6 +3373,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     ::-webkit-scrollbar-thumb:hover {
       background: var(--border-light);
     }
+
+    /* Smart Rendering Components */
+    ${generateSmartRenderingCSS()}
   </style>
 </head>
 <body>
@@ -3639,6 +3645,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   </div>
 
   <script>
+    // Smart Rendering System
+    ${generateSmartRenderingJS()}
+
     let ws;
     let photons = [];
     let currentPhoton = null;
@@ -5046,46 +5055,37 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       container.classList.add('visible');
 
-      // Check for custom UI template
+      // Check for custom UI template (highest priority)
       if (currentMethod?.linkedUi && currentPhoton?.name) {
         renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
-        // Update data tab
         document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
         return;
       }
 
       const format = currentMethod?.outputFormat;
+      const layoutHints = currentMethod?.layoutHints;
 
-      // Handle mermaid diagrams
+      // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
         renderMermaid(content, data);
-      } else if (format === 'table') {
-        // Explicit table format - render array as grid, object as key-value
-        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-          content.innerHTML = renderGridTable(data);
-        } else if (data && typeof data === 'object' && !Array.isArray(data)) {
-          content.innerHTML = renderKeyValueTable(data);
-        } else {
-          content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
-        }
-      } else if (Array.isArray(data)) {
-        content.innerHTML = \`
-          <ul class="result-list">
-            \${data.map(item => renderResultItem(item)).join('')}
-          </ul>
-        \`;
-      } else if (typeof data === 'string') {
-        content.innerHTML = renderMarkdown(data);
+        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        return;
+      }
+
+      // Check if object has a 'diagram' field with mermaid content
+      if (data && data.diagram && typeof data.diagram === 'string') {
+        renderMermaid(content, data.diagram);
+        document.getElementById('data-content').textContent = JSON.stringify(data, null, 2);
+        return;
+      }
+
+      // Use Smart Rendering System
+      const result = renderSmartResult(data, format, layoutHints);
+      if (result !== null) {
+        content.innerHTML = result;
       } else {
-        // Check if object has a 'diagram' field with mermaid content
-        if (data && data.diagram && typeof data.diagram === 'string') {
-          renderMermaid(content, data.diagram);
-        } else if (data && isSimpleKeyValueObject(data)) {
-          // Auto-detect flat key-value objects and render as table
-          content.innerHTML = renderKeyValueTable(data);
-        } else {
-          content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${JSON.stringify(data, null, 2)}</pre>\`;
-        }
+        // Fallback to JSON
+        content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(JSON.stringify(data, null, 2))}</pre>\`;
       }
 
       // Update data tab
@@ -6004,60 +6004,45 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return;
       }
 
-      // Filter different types of content
+      // Filter different types of content (including smart rendering components)
       const tables = content.querySelectorAll('table tbody tr');
       const listItems = content.querySelectorAll('ul li, ol li');
-      const jsonLines = content.querySelectorAll('pre code .line, .kv-table .kv-row');
       const kvRows = content.querySelectorAll('.kv-table .kv-row');
+      // Smart rendering elements
+      const smartListItems = content.querySelectorAll('.list-item');
+      const smartCardRows = content.querySelectorAll('.smart-card-row');
+      const smartGridItems = content.querySelectorAll('.grid-item');
+      const smartChips = content.querySelectorAll('.chip');
 
       let totalCount = 0;
       let matchCount = 0;
 
-      // Filter table rows
-      if (tables.length > 0) {
-        tables.forEach(row => {
+      // Helper to filter elements
+      const filterElements = (elements) => {
+        elements.forEach(el => {
           totalCount++;
-          const text = row.textContent?.toLowerCase() || '';
+          const text = el.textContent?.toLowerCase() || '';
           if (text.includes(query)) {
-            row.classList.remove('filter-hidden');
+            el.classList.remove('filter-hidden');
             matchCount++;
           } else {
-            row.classList.add('filter-hidden');
+            el.classList.add('filter-hidden');
           }
         });
-      }
+      };
 
-      // Filter list items
-      if (listItems.length > 0) {
-        listItems.forEach(item => {
-          totalCount++;
-          const text = item.textContent?.toLowerCase() || '';
-          if (text.includes(query)) {
-            item.classList.remove('filter-hidden');
-            matchCount++;
-          } else {
-            item.classList.add('filter-hidden');
-          }
-        });
-      }
-
-      // Filter KV rows
-      if (kvRows.length > 0) {
-        kvRows.forEach(row => {
-          totalCount++;
-          const text = row.textContent?.toLowerCase() || '';
-          if (text.includes(query)) {
-            row.classList.remove('filter-hidden');
-            matchCount++;
-          } else {
-            row.classList.add('filter-hidden');
-          }
-        });
-      }
+      // Filter all element types
+      filterElements(tables);
+      filterElements(listItems);
+      filterElements(kvRows);
+      filterElements(smartListItems);
+      filterElements(smartCardRows);
+      filterElements(smartGridItems);
+      filterElements(smartChips);
 
       // Show count if filtering is active
       if (totalCount > 0) {
-        countEl.textContent = \`Showing \${matchCount} of \${totalCount} items\`;
+        countEl.textContent = \`\${matchCount} of \${totalCount}\`;
         countEl.style.display = 'block';
       } else {
         // For plain text/JSON, just check if query is found

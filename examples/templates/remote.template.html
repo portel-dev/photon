@@ -1,0 +1,246 @@
+<!--
+  TV Remote Control Template
+
+  Usage:
+  1. Copy this file to your photon directory
+  2. Add @ui remote ./remote.template.html to your class JSDoc
+  3. Implement the methods referenced by data-method attributes
+
+  Example photon:
+
+  /**
+   * TV Remote Controller
+   * @ui remote ./remote.template.html
+   */
+  export default class TVRemote {
+    async power(): Promise<string> { ... }
+    async channelUp(): Promise<number> { ... }
+    async channelDown(): Promise<number> { ... }
+    async volumeUp(): Promise<number> { ... }
+    async volumeDown(): Promise<number> { ... }
+    async mute(): Promise<boolean> { ... }
+    async pressDigit(params: { digit: number }): Promise<void> { ... }
+    async setChannel(params: { channel: number }): Promise<void> { ... }
+  }
+-->
+
+<div class="remote-control">
+  <!-- Power Button -->
+  <div class="remote-row power-row">
+    <button data-method="power" class="btn-power">
+      <span class="power-icon">&#x23FB;</span>
+    </button>
+  </div>
+
+  <!-- Display -->
+  <div class="remote-display" data-result>
+    <span class="display-text">---</span>
+  </div>
+
+  <!-- Channel & Volume -->
+  <div class="remote-row controls-row">
+    <div class="control-group">
+      <button data-method="channelUp" class="btn-channel">CH +</button>
+      <span class="control-label">Channel</span>
+      <button data-method="channelDown" class="btn-channel">CH -</button>
+    </div>
+
+    <div class="control-group">
+      <button data-method="volumeUp" class="btn-volume">VOL +</button>
+      <span class="control-label">Volume</span>
+      <button data-method="volumeDown" class="btn-volume">VOL -</button>
+    </div>
+  </div>
+
+  <!-- Mute -->
+  <div class="remote-row">
+    <button data-method="mute" class="btn-mute">
+      <span class="mute-icon">&#x1F507;</span> MUTE
+    </button>
+  </div>
+
+  <!-- Number Pad -->
+  <div class="numpad">
+    <button data-method="pressDigit" data-args='{"digit": 1}' class="btn-digit">1</button>
+    <button data-method="pressDigit" data-args='{"digit": 2}' class="btn-digit">2</button>
+    <button data-method="pressDigit" data-args='{"digit": 3}' class="btn-digit">3</button>
+    <button data-method="pressDigit" data-args='{"digit": 4}' class="btn-digit">4</button>
+    <button data-method="pressDigit" data-args='{"digit": 5}' class="btn-digit">5</button>
+    <button data-method="pressDigit" data-args='{"digit": 6}' class="btn-digit">6</button>
+    <button data-method="pressDigit" data-args='{"digit": 7}' class="btn-digit">7</button>
+    <button data-method="pressDigit" data-args='{"digit": 8}' class="btn-digit">8</button>
+    <button data-method="pressDigit" data-args='{"digit": 9}' class="btn-digit">9</button>
+    <button data-method="setChannel" data-args='{"channel": -1}' class="btn-digit btn-back">&#x232B;</button>
+    <button data-method="pressDigit" data-args='{"digit": 0}' class="btn-digit">0</button>
+    <button data-method="setChannel" data-args='{"channel": 0}' class="btn-digit btn-enter">OK</button>
+  </div>
+</div>
+
+<style>
+  .remote-control {
+    width: 280px;
+    padding: 24px;
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    border-radius: 24px;
+    box-shadow:
+      0 10px 40px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .remote-row {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .power-row {
+    margin-bottom: 24px;
+  }
+
+  .btn-power {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(145deg, #e74c3c, #c0392b);
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+    transition: all 0.2s;
+  }
+
+  .btn-power:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(231, 76, 60, 0.5);
+  }
+
+  .btn-power:active {
+    transform: scale(0.95);
+  }
+
+  .remote-display {
+    background: #0a0a14;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    text-align: center;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .display-text {
+    color: #00ff88;
+    font-family: 'Courier New', monospace;
+    font-size: 24px;
+    font-weight: bold;
+    letter-spacing: 4px;
+  }
+
+  .controls-row {
+    gap: 32px;
+  }
+
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .control-label {
+    color: #666;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .btn-channel,
+  .btn-volume {
+    width: 60px;
+    height: 36px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(145deg, #2c3e50, #1a252f);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-channel:hover,
+  .btn-volume:hover {
+    background: linear-gradient(145deg, #34495e, #2c3e50);
+    transform: translateY(-2px);
+  }
+
+  .btn-channel:active,
+  .btn-volume:active {
+    transform: translateY(0);
+  }
+
+  .btn-mute {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #2c3e50, #1a252f);
+    color: #f39c12;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-mute:hover {
+    background: linear-gradient(145deg, #f39c12, #e67e22);
+    color: white;
+  }
+
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .btn-digit {
+    height: 48px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #2c3e50, #1a252f);
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-digit:hover {
+    background: linear-gradient(145deg, #3498db, #2980b9);
+    transform: scale(1.05);
+  }
+
+  .btn-digit:active {
+    transform: scale(0.95);
+  }
+
+  .btn-back {
+    color: #e74c3c;
+  }
+
+  .btn-enter {
+    background: linear-gradient(145deg, #27ae60, #1e8449);
+  }
+
+  .btn-enter:hover {
+    background: linear-gradient(145deg, #2ecc71, #27ae60);
+  }
+</style>

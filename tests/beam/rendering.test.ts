@@ -18,22 +18,24 @@ const opts = { workingDir: fixturesDir };
 // Table Rendering Tests
 // ============================================================================
 
-test('Key-value object renders as kv-table', async () => {
+test('Key-value object renders as card', async () => {
   await withBeam(async (beam) => {
     await beam.selectMethod('demo', 'getConfig');
     await beam.expectResult({
       type: 'kv-table',
-      contains: ['apiKeySet', 'apiKeyLength']
+      // Smart rendering formats labels: apiKeySet -> Api Key Set
+      contains: ['Api Key Set', 'Api Key Length']
     });
   }, opts);
 });
 
-test('Array of objects with @format table renders as grid-table', async () => {
+test('Array of objects renders as list', async () => {
   await withBeam(async (beam) => {
     await beam.selectMethod('demo', 'getUsers');
     await beam.expectResult({
       type: 'grid-table',
-      columns: ['id', 'name', 'email'],
+      // Smart rendering shows name as title, email as subtitle
+      columns: ['Alice', 'Bob', 'Charlie'],
       rowCount: 3
     });
   }, opts);
@@ -288,14 +290,14 @@ test('Result filter input exists', async () => {
   }, opts);
 });
 
-test('Filter hides non-matching rows in table', async () => {
+test('Filter hides non-matching items', async () => {
   await withBeam(async (beam) => {
     await beam.selectMethod('demo', 'getUsers');
     await beam.page.waitForTimeout(500);
     // Type filter query
     await beam.page.fill('#result-filter', 'Alice');
-    await beam.page.waitForTimeout(200);
-    // Check that filter count shows
+    await beam.page.waitForTimeout(300);
+    // Check that filter count shows (format: "X of Y")
     const countEl = beam.page.locator('#result-filter-count');
     const countText = await countEl.textContent();
     assert.ok(countText?.includes('1 of 3'), 'Should show "1 of 3" for Alice filter');

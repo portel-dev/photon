@@ -173,8 +173,9 @@ function createBeamContext(page: Page, port: number): BeamContext {
       await resultContent.waitFor({ state: 'visible', timeout: 5000 });
 
       if (expected.type === 'kv-table') {
-        const kvTable = resultContent.locator('.kv-table');
-        assert.ok(await kvTable.count() > 0, 'Expected key-value table');
+        // Smart rendering: flat objects render as cards or kv-tables
+        const kvTable = resultContent.locator('.kv-table, .smart-card');
+        assert.ok(await kvTable.count() > 0, 'Expected key-value table or card');
 
         if (expected.contains) {
           const content = await resultContent.innerHTML();
@@ -183,19 +184,22 @@ function createBeamContext(page: Page, port: number): BeamContext {
           }
         }
       } else if (expected.type === 'grid-table') {
-        const gridTable = resultContent.locator('.grid-table');
-        assert.ok(await gridTable.count() > 0, 'Expected grid table');
+        // Smart rendering: arrays of objects render as lists
+        const gridTable = resultContent.locator('.grid-table, .smart-list');
+        assert.ok(await gridTable.count() > 0, 'Expected grid table or list');
 
         if (expected.columns) {
-          const headers = await gridTable.locator('th').allTextContents();
+          // For smart-list, columns appear in list-item content
+          const content = await resultContent.textContent();
           for (const col of expected.columns) {
-            assert.ok(headers.includes(col), `Expected column "${col}"`);
+            assert.ok(content?.includes(col), `Expected field "${col}" in content`);
           }
         }
 
         if (expected.rowCount !== undefined) {
-          const rows = await gridTable.locator('tbody tr').count();
-          assert.strictEqual(rows, expected.rowCount, `Expected ${expected.rowCount} rows`);
+          // Count items (rows or list-items)
+          const rows = await resultContent.locator('tbody tr, .list-item').count();
+          assert.strictEqual(rows, expected.rowCount, `Expected ${expected.rowCount} items`);
         }
       } else if (expected.type === 'primitive') {
         const content = await resultContent.textContent();
