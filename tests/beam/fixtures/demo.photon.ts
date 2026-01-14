@@ -163,4 +163,61 @@ Call any method to see its output rendered in BEAM UI.
   async getNull(): Promise<null> {
     return null;
   }
+
+  // ============================================================================
+  // Smart Rendering Test Methods
+  // ============================================================================
+
+  /**
+   * Users with smart field detection (name->title, email->subtitle, avatar->icon)
+   */
+  async getSmartUsers(): Promise<object[]> {
+    return [
+      { name: 'Alice Smith', email: 'alice@example.com', avatar: 'A', status: 'active' },
+      { name: 'Bob Jones', email: 'bob@example.com', avatar: 'B', status: 'inactive' },
+      { name: 'Carol White', email: 'carol@example.com', avatar: 'C', status: 'active' }
+    ];
+  }
+
+  /**
+   * Products with layout hints override
+   * @format list {@title productName, @subtitle description, @badge category}
+   */
+  async getProducts(): Promise<object[]> {
+    return [
+      { productName: 'Laptop Pro', description: 'High-performance laptop', category: 'Electronics', price: 1299 },
+      { productName: 'Wireless Mouse', description: 'Ergonomic wireless mouse', category: 'Accessories', price: 49 },
+      { productName: 'USB-C Hub', description: 'Multi-port USB-C adapter', category: 'Accessories', price: 79 }
+    ];
+  }
+
+  /**
+   * Single card with hints
+   * @format card {@title displayName, @subtitle role}
+   */
+  async getProfile(): Promise<object> {
+    return {
+      displayName: 'John Developer',
+      role: 'Senior Engineer',
+      department: 'Engineering',
+      location: 'Remote'
+    };
+  }
+
+  /**
+   * String array for chips rendering
+   */
+  async getTags(): Promise<string[]> {
+    return ['JavaScript', 'TypeScript', 'React', 'Node.js', 'GraphQL'];
+  }
+
+  /**
+   * Data with date and email fields for type detection
+   */
+  async getContacts(): Promise<object[]> {
+    return [
+      { name: 'Support', email: 'support@company.com', createdAt: '2024-01-15' },
+      { name: 'Sales', email: 'sales@company.com', createdAt: '2024-02-20' }
+    ];
+  }
 }
