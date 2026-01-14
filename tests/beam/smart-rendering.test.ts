@@ -51,16 +51,18 @@ test('Smart rendering detects status field as badge', async () => {
 // Layout Hints Tests - JSDoc Override
 // ============================================================================
 
-test('Layout hints show product data correctly', async () => {
+test('Layout hints override default field mapping', async () => {
   await withBeam(async (beam) => {
     // getProducts has @format list {@title productName, @subtitle description, @badge category}
-    // Note: layoutHints extraction from schema needs implementation
     await beam.selectMethod('demo', 'getProducts');
     const content = await beam.getResultContent();
-    // Field detection picks up description (detected as subtitle) and category (detected as badge)
-    assert.ok(content.includes('High-performance'), 'Should display description');
-    assert.ok(content.includes('Electronics'), 'Should display category');
-    assert.ok(content.includes('Accessories'), 'Should display category');
+    // Layout hints should use productName as title
+    assert.ok(content.includes('Laptop Pro'), 'Should use productName as title');
+    assert.ok(content.includes('Wireless Mouse'), 'Should use productName as title');
+    // Description as subtitle
+    assert.ok(content.includes('High-performance'), 'Should display description as subtitle');
+    // Category as badge
+    assert.ok(content.includes('Electronics'), 'Should display category as badge');
   }, opts);
 });
 
