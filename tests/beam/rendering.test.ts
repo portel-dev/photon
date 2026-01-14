@@ -240,6 +240,42 @@ test('Keyboard shortcut / focuses search', async () => {
 });
 
 // ============================================================================
+// Favorites Tests
+// ============================================================================
+
+test('Methods have favorite star button on hover', async () => {
+  await withBeam(async (beam) => {
+    // Expand the demo photon first
+    await beam.page.click('.photon-header[data-photon="demo"]');
+    await beam.page.waitForTimeout(200);
+    // Hover over a method to show favorite button
+    const methodItem = beam.page.locator('#methods-demo .method-item').first();
+    await methodItem.hover();
+    await beam.page.waitForTimeout(100);
+    // Check the button exists in the HTML
+    const html = await methodItem.innerHTML();
+    assert.ok(html.includes('favorite-btn'), 'Favorite button should exist in method item');
+  }, opts);
+});
+
+test('Clicking favorite button adds to favorites section', async () => {
+  await withBeam(async (beam) => {
+    // Expand and click favorite
+    await beam.page.click('.photon-header[data-photon="demo"]');
+    await beam.page.waitForTimeout(200);
+    const methodItem = beam.page.locator('#methods-demo .method-item').first();
+    await methodItem.hover();
+    // Use force:true since button may have opacity: 0
+    const favoriteBtn = methodItem.locator('.favorite-btn');
+    await favoriteBtn.click({ force: true });
+    await beam.page.waitForTimeout(300);
+    // Check if Favorites section appears
+    const favoritesSection = beam.page.locator('.section-header:has-text("Favorites")');
+    assert.ok(await favoritesSection.count() > 0, 'Favorites section should appear after starring a method');
+  }, opts);
+});
+
+// ============================================================================
 // Visual Snapshot Tests
 // ============================================================================
 
