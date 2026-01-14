@@ -396,6 +396,34 @@ export function generateComponentCSS(): string {
 .smart-text.muted {
   color: var(--color-on-surface-variant);
 }
+
+/* JSON Syntax Highlighting */
+.json-highlighted {
+  margin: 0;
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.json-key {
+  color: #9cdcfe;
+}
+
+.json-string {
+  color: #ce9178;
+}
+
+.json-number {
+  color: #b5cea8;
+}
+
+.json-boolean {
+  color: #569cd6;
+}
+
+.json-null {
+  color: #808080;
+}
 `;
 }
 
@@ -405,6 +433,48 @@ export function generateComponentCSS(): string {
 export function generateComponentsJS(): string {
   return `
 // Component Renderers
+
+// JSON Syntax Highlighting
+function syntaxHighlightJson(json) {
+  if (typeof json !== 'string') {
+    json = JSON.stringify(json, null, 2);
+  }
+  var result = '';
+  var i = 0;
+  while (i < json.length) {
+    var ch = json[i];
+    if (ch === '"') {
+      var start = i;
+      i++;
+      while (i < json.length && !(json[i] === '"' && json[i-1] !== String.fromCharCode(92))) i++;
+      i++;
+      var str = json.substring(start, i);
+      var rest = json.substring(i).trimStart();
+      if (rest[0] === ':') {
+        result += '<span class="json-key">' + escapeHtml(str) + '</span>';
+      } else {
+        result += '<span class="json-string">' + escapeHtml(str) + '</span>';
+      }
+    } else if (/[0-9-]/.test(ch)) {
+      var start = i;
+      while (i < json.length && /[0-9.eE+-]/.test(json[i])) i++;
+      result += '<span class="json-number">' + json.substring(start, i) + '</span>';
+    } else if (json.substring(i, i+4) === 'true') {
+      result += '<span class="json-boolean">true</span>';
+      i += 4;
+    } else if (json.substring(i, i+5) === 'false') {
+      result += '<span class="json-boolean">false</span>';
+      i += 5;
+    } else if (json.substring(i, i+4) === 'null') {
+      result += '<span class="json-null">null</span>';
+      i += 4;
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+  return result;
+}
 
 function renderSmartResult(data, format, layoutHints) {
   // Get layout type
@@ -442,7 +512,7 @@ function renderSmartResult(data, format, layoutHints) {
       return '<pre class="code-block">' + escapeHtml(String(data)) + '</pre>';
     case 'json':
     default:
-      return '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+      return '<pre class="json-highlighted">' + syntaxHighlightJson(data) + '</pre>';
   }
 }
 
