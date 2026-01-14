@@ -1972,11 +1972,30 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       white-space: pre;
     }
 
-    .form-group .json-hint {
+    .form-group .json-schema-preview {
+      margin-bottom: 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    .form-group .json-schema-label {
       font-size: 11px;
       color: var(--text-muted);
-      margin-top: 4px;
-      font-style: italic;
+      padding: 6px 10px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .form-group .json-schema-sample {
+      margin: 0;
+      padding: 10px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-secondary);
+      overflow-x: auto;
+      white-space: pre;
     }
 
     .btn {
@@ -4745,28 +4764,60 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         .trim();
     }
 
+    // Generate sample value from JSON Schema (Swagger-style)
+    function generateSchemaSample(schema) {
+      if (!schema) return null;
+
+      const type = schema.type;
+
+      if (type === 'array') {
+        const itemSample = generateSchemaSample(schema.items);
+        return itemSample ? [itemSample] : [];
+      }
+
+      if (type === 'object') {
+        const sample = {};
+        const props = schema.properties || {};
+        for (const [key, propSchema] of Object.entries(props)) {
+          sample[key] = generateSchemaSample(propSchema);
+        }
+        return sample;
+      }
+
+      // Primitives - return type placeholder
+      if (type === 'string') return 'string';
+      if (type === 'number' || type === 'integer') return 0;
+      if (type === 'boolean') return true;
+
+      return null;
+    }
+
     function renderInput(key, schema, isRequired) {
       const type = schema.type || 'string';
       const defaultValue = schema.default;
       const enumValues = schema.enum;
 
-      // Complex types (array, object) - use JSON textarea
+      // Complex types (array, object) - use JSON textarea with schema preview
       if (type === 'array' || type === 'object') {
-        const example = schema.example || schema.default;
-        const placeholder = example
-          ? JSON.stringify(example, null, 2)
-          : (type === 'array' ? '[\n  \n]' : '{\n  \n}');
+        // Generate sample from schema (Swagger-style)
+        const schemaSample = generateSchemaSample(schema);
+        const example = schema.example || schemaSample;
         const defaultVal = defaultValue ? JSON.stringify(defaultValue, null, 2) : '';
+        // Show formatted sample in a preview div
+        const sampleJson = JSON.stringify(example, null, 2);
         return \`
+          <div class="json-schema-preview">
+            <div class="json-schema-label">Expected format:</div>
+            <pre class="json-schema-sample">\${escapeHtml(sampleJson)}</pre>
+          </div>
           <textarea
             name="\${key}"
             class="json-input"
             \${isRequired ? 'required' : ''}
-            placeholder="\${placeholder.replace(/"/g, '&quot;')}"
+            placeholder="Enter JSON here..."
             rows="6"
             style="font-family: 'JetBrains Mono', monospace; font-size: 12px;"
           >\${defaultVal}</textarea>
-          <div class="json-hint">Enter valid JSON \${type === 'array' ? 'array' : 'object'}</div>
         \`;
       }
 
