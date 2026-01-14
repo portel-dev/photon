@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { SchemaExtractor, setPromptHandler } from '@portel/photon-core';
+import { SchemaExtractor, setPromptHandler, setElicitHandler, elicitReadline } from '@portel/photon-core';
 import * as readline from 'readline';
 import chalk from 'chalk';
 import { highlight } from 'cli-highlight';
@@ -1303,6 +1303,9 @@ export async function runMethod(
       });
     });
   });
+
+  // Set up readline elicit handler for CLI (confirm, select, etc.)
+  setElicitHandler(elicitReadline);
 
   try {
     // Resolve photon path
