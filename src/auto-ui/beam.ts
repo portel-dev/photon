@@ -1484,6 +1484,70 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       box-shadow: 0 1px 0 var(--border-color);
     }
 
+    /* Special sections (Favorites, Recent) */
+    .special-section {
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .section-header svg {
+      opacity: 0.7;
+    }
+
+    .method-photon-prefix {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .favorite-btn {
+      margin-left: auto;
+      padding: 4px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .method-item:hover .favorite-btn {
+      opacity: 0.6;
+    }
+
+    .favorite-btn:hover {
+      opacity: 1 !important;
+      color: var(--warning);
+    }
+
+    .favorite-btn.favorited {
+      opacity: 1;
+      color: var(--warning);
+    }
+
+    .method-item.selected .favorite-btn {
+      color: white;
+      opacity: 0.7;
+    }
+
+    .method-item.selected .favorite-btn:hover,
+    .method-item.selected .favorite-btn.favorited {
+      opacity: 1;
+    }
+
     /* Unconfigured photon styles */
     .photon-item.unconfigured .photon-name::before {
       background: var(--warning);
@@ -3901,6 +3965,81 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    // ========== History & Favorites ==========
+    const STORAGE_KEY_FAVORITES = 'beam-favorites';
+    const STORAGE_KEY_RECENT = 'beam-recent';
+    const MAX_RECENT = 5;
+
+    function getFavorites() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY_FAVORITES) || '[]');
+      } catch { return []; }
+    }
+
+    function setFavorites(favorites) {
+      localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(favorites));
+    }
+
+    function toggleFavorite(photonName, methodName, event) {
+      event?.stopPropagation();
+      const key = \`\${photonName}/\${methodName}\`;
+      const favorites = getFavorites();
+      const index = favorites.indexOf(key);
+      if (index >= 0) {
+        favorites.splice(index, 1);
+      } else {
+        favorites.push(key);
+      }
+      setFavorites(favorites);
+      renderPhotonList();
+    }
+
+    function getRecent() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT) || '[]');
+      } catch { return []; }
+    }
+
+    function addToRecent(photonName, methodName) {
+      const key = \`\${photonName}/\${methodName}\`;
+      let recent = getRecent();
+      // Remove if already exists
+      recent = recent.filter(r => r !== key);
+      // Add to front
+      recent.unshift(key);
+      // Keep only MAX_RECENT
+      recent = recent.slice(0, MAX_RECENT);
+      localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(recent));
+    }
+
+    function isFavorite(photonName, methodName) {
+      return getFavorites().includes(\`\${photonName}/\${methodName}\`);
+    }
+
+    function getMethodByKey(key) {
+      const [photonName, methodName] = key.split('/');
+      const photon = photons.find(p => p.name === photonName && p.configured);
+      const method = photon?.methods?.find(m => m.name === methodName);
+      return method ? { photon, method, photonName, methodName } : null;
+    }
+
+    function renderMethodItem(photonName, method, showPhotonName = false) {
+      const fav = isFavorite(photonName, method.name);
+      const favClass = fav ? 'favorited' : '';
+      const prefix = showPhotonName ? \`<span class="method-photon-prefix">\${photonName}.</span>\` : '';
+      return \`
+        <div class="method-item" onclick="selectMethod('\${photonName}', '\${method.name}', event)">
+          \${method.icon ? \`<span class="method-icon">\${method.icon}</span>\` : ''}
+          \${prefix}\${method.name}
+          <button class="favorite-btn \${favClass}" onclick="toggleFavorite('\${photonName}', '\${method.name}', event)" title="\${fav ? 'Remove from favorites' : 'Add to favorites'}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="\${fav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      \`;
+    }
+
     function renderPhotonList() {
       const list = document.getElementById('photon-list');
       const count = document.getElementById('photon-count');
@@ -3915,7 +4054,51 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         count.textContent = \`\${photons.length} photon\${photons.length !== 1 ? 's' : ''} · \${totalMethods} methods\`;
       }
 
-      list.innerHTML = photons.map(photon => {
+      let html = '';
+
+      // Favorites section
+      const favorites = getFavorites();
+      const favoriteItems = favorites.map(getMethodByKey).filter(Boolean);
+      if (favoriteItems.length > 0) {
+        html += \`
+          <div class="special-section">
+            <div class="section-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+              </svg>
+              Favorites
+            </div>
+            <div class="method-list expanded">
+              \${favoriteItems.map(item => renderMethodItem(item.photonName, item.method, true)).join('')}
+            </div>
+          </div>
+        \`;
+      }
+
+      // Recent section
+      const recent = getRecent();
+      const recentItems = recent.map(getMethodByKey).filter(Boolean).filter(item =>
+        !favorites.includes(\`\${item.photonName}/\${item.methodName}\`)
+      ).slice(0, 3);
+      if (recentItems.length > 0) {
+        html += \`
+          <div class="special-section">
+            <div class="section-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              Recent
+            </div>
+            <div class="method-list expanded">
+              \${recentItems.map(item => renderMethodItem(item.photonName, item.method, true)).join('')}
+            </div>
+          </div>
+        \`;
+      }
+
+      // All photons
+      html += photons.map(photon => {
         if (photon.configured) {
           return \`
             <div class="photon-item">
@@ -3924,12 +4107,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                 <span class="method-count">\${photon.methods.length}</span>
               </div>
               <div class="method-list" id="methods-\${photon.name}">
-                \${photon.methods.map(method => \`
-                  <div class="method-item" onclick="selectMethod('\${photon.name}', '\${method.name}', event)">
-                    \${method.icon ? \`<span class="method-icon">\${method.icon}</span>\` : ''}
-                    \${method.name}
-                  </div>
-                \`).join('')}
+                \${photon.methods.map(method => renderMethodItem(photon.name, method, false)).join('')}
               </div>
             </div>
           \`;
@@ -3944,6 +4122,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           \`;
         }
       }).join('');
+
+      list.innerHTML = html;
 
       // Show empty state with marketplace prompt if no photons
       if (photons.length === 0) {
@@ -4336,6 +4516,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function selectMethod(photonName, methodName, e) {
       currentPhoton = photons.find(p => p.name === photonName);
       currentMethod = currentPhoton.methods.find(m => m.name === methodName);
+
+      // Track in recent history
+      addToRecent(photonName, methodName);
 
       // Update URL hash
       updateHash(photonName, methodName);
