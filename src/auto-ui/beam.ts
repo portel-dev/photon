@@ -4868,15 +4868,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Boolean toggle switch
       if (type === 'boolean') {
         const boolDefault = defaultValue === true || defaultValue === 'true';
-        const toggleId = \`toggle-\${key}-\${Date.now()}\`;
         return \`
-          <label class="toggle-switch" style="display: inline-flex; align-items: center; cursor: pointer; gap: 8px;">
-            <input type="checkbox" name="\${key}" id="\${toggleId}" value="true" data-type="boolean" \${boolDefault ? 'checked' : ''} style="display: none;" />
+          <label class="toggle-switch" onclick="toggleBoolean(this)" style="display: inline-flex; align-items: center; cursor: pointer; gap: 8px;">
+            <input type="checkbox" name="\${key}" value="true" data-type="boolean" \${boolDefault ? 'checked' : ''} style="display: none;" />
             <span class="toggle-track" style="
               position: relative;
               width: 44px;
               height: 24px;
-              background: var(--bg-tertiary, #374151);
+              background: \${boolDefault ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary, #374151)'};
               border-radius: 12px;
               transition: background 0.2s;
             ">
@@ -4894,23 +4893,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             </span>
             <span class="toggle-label" style="color: var(--text-secondary); font-size: 13px;">\${boolDefault ? 'Yes' : 'No'}</span>
           </label>
-          <script>
-            (function() {
-              const checkbox = document.getElementById('\${toggleId}');
-              const track = checkbox.nextElementSibling;
-              const thumb = track.querySelector('.toggle-thumb');
-              const label = track.nextElementSibling;
-              checkbox.addEventListener('change', function() {
-                thumb.style.transform = this.checked ? 'translateX(20px)' : 'translateX(0)';
-                track.style.background = this.checked ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary, #374151)';
-                label.textContent = this.checked ? 'Yes' : 'No';
-              });
-              // Set initial state
-              if (checkbox.checked) {
-                track.style.background = 'var(--accent, #3b82f6)';
-              }
-            })();
-          </script>
         \`;
       }
 
@@ -4975,6 +4957,22 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
 
       return \`<input type="\${inputType}" name="\${key}" \${attrs.join(' ')} \${isRequired ? 'required' : ''} placeholder="\${placeholder}" />\`;
+    }
+
+    // Toggle boolean switch handler
+    function toggleBoolean(label) {
+      const checkbox = label.querySelector('input[type="checkbox"]');
+      const track = label.querySelector('.toggle-track');
+      const thumb = label.querySelector('.toggle-thumb');
+      const labelText = label.querySelector('.toggle-label');
+
+      // Toggle the checkbox
+      checkbox.checked = !checkbox.checked;
+
+      // Update visual state
+      thumb.style.transform = checkbox.checked ? 'translateX(20px)' : 'translateX(0)';
+      track.style.background = checkbox.checked ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary, #374151)';
+      labelText.textContent = checkbox.checked ? 'Yes' : 'No';
     }
 
     function handleSubmit(e) {
