@@ -158,11 +158,24 @@ function createBeamContext(page: Page, port: number): BeamContext {
       // First expand the photon if not already
       const photonHeader = page.locator(`.photon-header[data-photon="${photon}"]`);
       await photonHeader.waitFor({ state: 'visible', timeout: 10000 });
-      await photonHeader.click();
-      await page.waitForTimeout(200);
 
-      // Then select the method
+      // Check if the methods list is expanded (visible)
+      const methodsList = page.locator(`#methods-${photon}`);
+      const isExpanded = await methodsList.isVisible();
+
+      if (!isExpanded) {
+        await photonHeader.click();
+        await page.waitForTimeout(200);
+      }
+
+      // Scroll the sidebar to find the method
+      const sidebar = page.locator('#sidebar');
+      await sidebar.evaluate((el: HTMLElement) => el.scrollTop = 0);
+      await page.waitForTimeout(100);
+
+      // Then select the method (scroll into view)
       const methodItem = page.locator(`#methods-${photon} .method-item:has-text("${method}")`);
+      await methodItem.scrollIntoViewIfNeeded();
       await methodItem.waitFor({ state: 'visible', timeout: 5000 });
       await methodItem.click();
       await page.waitForTimeout(500); // Wait for execution

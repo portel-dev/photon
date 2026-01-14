@@ -137,15 +137,32 @@ export function selectLayout(
 }
 
 /**
- * Check if object has fields that look like images
+ * Check if object has fields that look like actual images (not just icon characters)
+ * We need to verify the VALUE looks like an image URL, not just the field name
  */
 export function hasImageFields(obj: object): boolean {
-  const imagePatterns = /^(image|photo|thumbnail|picture|avatar|poster|cover)$/i;
+  const imageFieldNames = /^(image|photo|thumbnail|picture|poster|cover)$/i;
+  const avatarFieldName = /^(avatar)$/i;
   const imageUrlPattern = /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i;
+  const dataUrlPattern = /^data:image\//i;
 
   for (const [key, value] of Object.entries(obj)) {
-    if (imagePatterns.test(key)) return true;
-    if (typeof value === 'string' && imageUrlPattern.test(value)) return true;
+    // Skip non-string values
+    if (typeof value !== 'string') continue;
+
+    // Check for image URL patterns in value
+    if (imageUrlPattern.test(value) || dataUrlPattern.test(value)) return true;
+
+    // For image field names (not avatar), check if value looks like a URL
+    if (imageFieldNames.test(key) && (value.startsWith('http') || value.startsWith('/'))) {
+      return true;
+    }
+
+    // For avatar fields specifically, only treat as image if it's actually a URL
+    // Single characters or short strings are icons, not images
+    if (avatarFieldName.test(key) && value.length > 10 && (value.startsWith('http') || value.startsWith('/'))) {
+      return true;
+    }
   }
 
   return false;
@@ -291,11 +308,15 @@ function selectLayout(data, format, hints) {
 }
 
 function hasImageFields(obj) {
-  const imagePatterns = /^(image|photo|thumbnail|picture|avatar|poster|cover)$/i;
+  const imageFieldNames = /^(image|photo|thumbnail|picture|poster|cover)$/i;
+  const avatarFieldName = /^(avatar)$/i;
   const imageUrlPattern = /\\.(jpg|jpeg|png|gif|webp|svg)(\\?.*)?$/i;
+  const dataUrlPattern = /^data:image\\//i;
   for (const [key, value] of Object.entries(obj)) {
-    if (imagePatterns.test(key)) return true;
-    if (typeof value === 'string' && imageUrlPattern.test(value)) return true;
+    if (typeof value !== 'string') continue;
+    if (imageUrlPattern.test(value) || dataUrlPattern.test(value)) return true;
+    if (imageFieldNames.test(key) && (value.startsWith('http') || value.startsWith('/'))) return true;
+    if (avatarFieldName.test(key) && value.length > 10 && (value.startsWith('http') || value.startsWith('/'))) return true;
   }
   return false;
 }

@@ -1,0 +1,81 @@
+<!--
+  Calculator Template for Testing
+-->
+
+<div class="calculator">
+  <div class="calc-display" data-result>0</div>
+
+  <div class="calc-grid">
+    <button data-method="clear" class="btn-clear">C</button>
+    <button data-method="pressDigit" data-args='{"digit": "7"}' class="btn-digit">7</button>
+    <button data-method="pressDigit" data-args='{"digit": "8"}' class="btn-digit">8</button>
+    <button data-method="pressDigit" data-args='{"digit": "9"}' class="btn-digit">9</button>
+    <button data-method="pressDigit" data-args='{"digit": "4"}' class="btn-digit">4</button>
+    <button data-method="pressDigit" data-args='{"digit": "5"}' class="btn-digit">5</button>
+    <button data-method="pressDigit" data-args='{"digit": "6"}' class="btn-digit">6</button>
+    <button data-method="pressDigit" data-args='{"digit": "1"}' class="btn-digit">1</button>
+    <button data-method="pressDigit" data-args='{"digit": "2"}' class="btn-digit">2</button>
+    <button data-method="pressDigit" data-args='{"digit": "3"}' class="btn-digit">3</button>
+    <button data-method="pressDigit" data-args='{"digit": "0"}' class="btn-digit btn-zero">0</button>
+    <button data-method="calculate" class="btn-equals">=</button>
+  </div>
+</div>
+
+<style>
+  .calculator {
+    width: 240px;
+    padding: 16px;
+    background: #1a1a2e;
+    border-radius: 12px;
+    font-family: -apple-system, sans-serif;
+  }
+
+  .calc-display {
+    background: #0a0a14;
+    color: #00ff88;
+    padding: 16px;
+    font-size: 24px;
+    text-align: right;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-family: monospace;
+  }
+
+  .calc-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .calc-grid button {
+    height: 48px;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-digit {
+    background: #2c3e50;
+    color: white;
+  }
+
+  .btn-digit:hover {
+    background: #3498db;
+  }
+
+  .btn-clear {
+    background: #e74c3c;
+    color: white;
+  }
+
+  .btn-equals {
+    background: #27ae60;
+    color: white;
+  }
+
+  .btn-zero {
+    grid-column: span 2;
+  }
+</style>
