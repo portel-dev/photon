@@ -6,6 +6,67 @@
 import { Logger } from './logger.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
+// EXIT CODES (following Unix conventions)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Standard CLI exit codes following Unix conventions
+ * @see https://tldp.org/LDP/abs/html/exitcodes.html
+ */
+export const ExitCode = {
+  /** Command completed successfully */
+  SUCCESS: 0,
+  /** General/unspecified error */
+  ERROR: 1,
+  /** Invalid command-line argument or usage */
+  INVALID_ARGUMENT: 2,
+  /** Configuration error (missing or invalid config) */
+  CONFIG_ERROR: 3,
+  /** File or resource not found */
+  NOT_FOUND: 4,
+  /** Network or connection error */
+  NETWORK_ERROR: 5,
+  /** Validation error (input validation failed) */
+  VALIDATION_ERROR: 6,
+  /** Permission denied */
+  PERMISSION_DENIED: 13,
+  /** Operation was cancelled by user */
+  CANCELLED: 130,
+} as const;
+
+export type ExitCodeType = typeof ExitCode[keyof typeof ExitCode];
+
+/**
+ * Get appropriate exit code for an error
+ */
+export function getExitCode(error: unknown): ExitCodeType {
+  if (error instanceof ValidationError) {
+    return ExitCode.VALIDATION_ERROR;
+  }
+  if (error instanceof ConfigurationError) {
+    return ExitCode.CONFIG_ERROR;
+  }
+  if (error instanceof NetworkError) {
+    return ExitCode.NETWORK_ERROR;
+  }
+  if (error instanceof FileSystemError) {
+    const details = error.details as { code?: string } | undefined;
+    if (details?.code === 'ENOENT') {
+      return ExitCode.NOT_FOUND;
+    }
+    if (details?.code === 'EACCES' || details?.code === 'EPERM') {
+      return ExitCode.PERMISSION_DENIED;
+    }
+    return ExitCode.ERROR;
+  }
+  if (isNodeError(error)) {
+    if (error.code === 'ENOENT') return ExitCode.NOT_FOUND;
+    if (error.code === 'EACCES' || error.code === 'EPERM') return ExitCode.PERMISSION_DENIED;
+  }
+  return ExitCode.ERROR;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ERROR TYPES
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -192,6 +253,7 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 export interface ErrorHandlerOptions {
   logger?: Logger;
   exitOnError?: boolean;
+  exitCode?: ExitCodeType;
   showStack?: boolean;
 }
 
@@ -202,6 +264,7 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
   const {
     logger,
     exitOnError = false,
+    exitCode,
     showStack = process.env.DEBUG === 'true',
   } = options;
 
@@ -227,8 +290,64 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
   }
 
   if (exitOnError) {
-    process.exit(1);
+    // Use provided exit code, or derive from error type
+    const code = exitCode ?? getExitCode(error);
+    process.exit(code);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CLI ERROR UTILITIES
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Print error to stderr and exit with appropriate code
+ * Use this for CLI commands to ensure consistent error handling
+ */
+export function exitWithError(
+  message: string,
+  options?: {
+    exitCode?: ExitCodeType;
+    suggestion?: string;
+    searchedIn?: string;
+    logger?: Logger;
+  }
+): never {
+  const { exitCode = ExitCode.ERROR, suggestion, searchedIn, logger } = options || {};
+
+  if (logger) {
+    logger.error(message);
+    if (searchedIn) {
+      logger.error(`Searched in: ${searchedIn}`);
+    }
+    if (suggestion) {
+      logger.info(`Tip: ${suggestion}`);
+    }
+  } else {
+    console.error(`✗ ${message}`);
+    if (searchedIn) {
+      console.error(`  Searched in: ${searchedIn}`);
+    }
+    if (suggestion) {
+      console.error(`  Tip: ${suggestion}`);
+    }
+  }
+
+  process.exit(exitCode);
+}
+
+/**
+ * Exit successfully with optional message
+ */
+export function exitSuccess(message?: string, logger?: Logger): never {
+  if (message) {
+    if (logger) {
+      logger.info(message);
+    } else {
+      console.error(`✓ ${message}`);
+    }
+  }
+  process.exit(ExitCode.SUCCESS);
 }
 
 /**
