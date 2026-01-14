@@ -21,9 +21,10 @@ import {
   SchemaExtractor,
   type PhotonYield,
   type OutputHandler,
-  type ConstructorParam
+  type ConstructorParam,
+  generateSmartRenderingJS,
+  generateSmartRenderingCSS
 } from '@portel/photon-core';
-import { generateSmartRenderingJS, generateSmartRenderingCSS } from './rendering/index.js';
 
 interface PhotonInfo {
   name: string;
@@ -4695,8 +4696,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function renderForm() {
       const form = document.getElementById('invoke-form');
       const params = currentMethod.params;
-      const properties = params.properties || {};
-      const required = params.required || [];
+
+      // Handle anyOf schemas (union types like { ip: string } | string)
+      // Extract properties from the first object option in the union
+      let properties = params.properties || {};
+      let required = params.required || [];
+
+      if (params.anyOf && Array.isArray(params.anyOf)) {
+        const objectOption = params.anyOf.find(opt => opt.type === 'object' && opt.properties);
+        if (objectOption) {
+          properties = objectOption.properties || {};
+          required = objectOption.required || [];
+        }
+      }
 
       let html = '';
 
