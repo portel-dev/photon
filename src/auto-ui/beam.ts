@@ -27,12 +27,14 @@ import {
   generateSmartRenderingJS,
   generateSmartRenderingCSS
 } from '@portel/photon-core';
+import { generateTemplateEngineJS, generateTemplateEngineCSS } from './rendering/template-engine.js';
 
 interface PhotonInfo {
   name: string;
   path: string;
   configured: true;
   methods: MethodInfo[];
+  templatePath?: string;  // @ui template.html - custom UI template
 }
 
 interface UnconfiguredPhotonInfo {
@@ -163,6 +165,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     // PRE-CHECK: Extract constructor params and check if required ones are configured
     const extractor = new SchemaExtractor();
     let constructorParams: ConfigParam[] = [];
+    let templatePath: string | undefined;
 
     try {
       const source = await fs.readFile(photonPath, 'utf-8');
@@ -178,6 +181,15 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           hasDefault: p.hasDefault,
           defaultValue: p.defaultValue
         }));
+
+      // Extract @ui template path from class-level JSDoc
+      const classJsdocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/);
+      if (classJsdocMatch) {
+        const uiMatch = classJsdocMatch[0].match(/@ui\s+([^\s*]+)/);
+        if (uiMatch) {
+          templatePath = uiMatch[1];
+        }
+      }
     } catch {
       // Can't extract params, try to load anyway
     }
@@ -273,7 +285,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         name,
         path: photonPath,
         configured: true,
-        methods
+        methods,
+        templatePath
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -427,6 +440,50 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       } catch (err) {
         res.writeHead(404);
         res.end(JSON.stringify({ error: `UI template not found: ${uiId}` }));
+      }
+      return;
+    }
+
+    // Serve @ui template files (class-level custom UI)
+    if (url.pathname === '/api/template') {
+      const photonName = url.searchParams.get('photon');
+      const templatePathParam = url.searchParams.get('path');
+
+      if (!photonName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon parameter' }));
+        return;
+      }
+
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon || !photon.configured) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Photon not found or not configured' }));
+        return;
+      }
+
+      // Use provided path or photon's templatePath
+      const templateFile = templatePathParam || (photon as PhotonInfo).templatePath;
+      if (!templateFile) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'No template path specified' }));
+        return;
+      }
+
+      // Resolve template path relative to photon's directory
+      const photonDir = path.dirname(photon.path);
+      const fullTemplatePath = path.isAbsolute(templateFile)
+        ? templateFile
+        : path.join(photonDir, templateFile);
+
+      try {
+        const templateContent = await fs.readFile(fullTemplatePath, 'utf-8');
+        res.setHeader('Content-Type', 'text/html');
+        res.writeHead(200);
+        res.end(templateContent);
+      } catch (err) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: `Template not found: ${templateFile}` }));
       }
       return;
     }
@@ -1477,6 +1534,26 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       padding: 3px 10px;
       border-radius: 20px;
       font-weight: 500;
+    }
+
+    .template-indicator {
+      font-size: 10px;
+      color: var(--accent);
+      background: var(--accent);
+      background: rgba(59, 130, 246, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .method-item.template-method {
+      border-left: 2px solid var(--accent);
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .method-item.template-method:hover {
+      background: rgba(59, 130, 246, 0.1);
     }
 
     .method-list {
@@ -3549,6 +3626,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     /* Smart Rendering Components */
     ${generateSmartRenderingCSS()}
+
+    /* Template Engine Components */
+    ${generateTemplateEngineCSS()}
   </style>
 </head>
 <body>
@@ -3820,6 +3900,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   <script>
     // Smart Rendering System
     ${generateSmartRenderingJS()}
+
+    // Template Engine for @ui templates
+    ${generateTemplateEngineJS()}
 
     let ws;
     let photons = [];
@@ -4353,13 +4436,28 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // All photons
       html += photons.map(photon => {
         if (photon.configured) {
+          // Add template indicator if photon has @ui
+          const templateIndicator = photon.templatePath
+            ? '<span class="template-indicator" title="Has custom UI template">UI</span>'
+            : '';
+
+          // If photon has template, add a special "Open UI" method
+          const templateMethod = photon.templatePath
+            ? \`<div class="method-item template-method" onclick="loadPhotonTemplate('\${photon.name}')">
+                <span class="method-icon">🎨</span>
+                <span class="method-name">Open Custom UI</span>
+              </div>\`
+            : '';
+
           return \`
             <div class="photon-item">
               <div class="photon-header" data-photon="\${photon.name}" onclick="togglePhoton('\${photon.name}')">
                 <span class="photon-name">\${photon.name}</span>
+                \${templateIndicator}
                 <span class="method-count">\${photon.methods.length}</span>
               </div>
               <div class="method-list" id="methods-\${photon.name}">
+                \${templateMethod}
                 \${photon.methods.map(method => renderMethodItem(photon.name, method, false)).join('')}
               </div>
             </div>
@@ -4765,6 +4863,66 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const methodList = document.getElementById(\`methods-\${photonName}\`);
       header.classList.toggle('expanded');
       methodList.classList.toggle('expanded');
+    }
+
+    // Load and render a custom UI template for a photon with @ui annotation
+    async function loadPhotonTemplate(photonName) {
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon || !photon.templatePath) {
+        showToast('No template found for ' + photonName, 'error');
+        return;
+      }
+
+      currentPhoton = photon;
+      currentMethod = null;
+
+      // Update URL hash
+      updateHash(photonName, '_template');
+
+      // Update selection
+      document.querySelectorAll('.method-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      event?.target?.classList?.add('selected');
+
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        toggleSidebar(false);
+      }
+
+      // Show method view
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
+      document.getElementById('method-view').style.display = 'flex';
+
+      // Update header
+      document.getElementById('method-title').textContent = photonName + ' Custom UI';
+      document.getElementById('method-description').textContent = 'Interactive UI template for ' + photonName;
+
+      // Hide form, show result
+      document.getElementById('invoke-form').innerHTML = '';
+
+      try {
+        // Fetch template from API
+        const response = await fetch('/api/template?photon=' + encodeURIComponent(photonName));
+        if (!response.ok) {
+          throw new Error('Failed to load template: ' + response.statusText);
+        }
+
+        const templateHtml = await response.text();
+
+        // Render in sandboxed iframe with MCP bridge
+        const content = document.getElementById('result-content');
+        renderHtmlContent(content, templateHtml, photonName, {}, null);
+
+        // Show results
+        document.getElementById('result-container').classList.add('visible');
+        document.getElementById('data-content').innerHTML = '<pre style="margin: 0; font-family: JetBrains Mono, monospace; font-size: 13px;">' + escapeHtml(templateHtml) + '</pre>';
+
+        addActivity('template', 'Loaded custom UI for ' + photonName);
+      } catch (error) {
+        showToast('Failed to load template: ' + error.message, 'error');
+      }
     }
 
     function selectMethod(photonName, methodName, e) {
@@ -5617,6 +5775,79 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         widgetId: _widgetId,
         url: url
       }, '*');
+    },
+
+    // === File Handling ===
+    // Upload a file (Blob or File) and get back a file ID
+    uploadFile: function(blob, filename) {
+      return new Promise(function(resolve, reject) {
+        var fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        // Convert blob to base64 for postMessage transfer
+        var reader = new FileReader();
+        reader.onload = function() {
+          var base64 = reader.result;
+
+          function handleResponse(event) {
+            if (event.data && event.data.type === 'mcp:file_uploaded' && event.data.fileId === fileId) {
+              window.removeEventListener('message', handleResponse);
+              if (event.data.error) {
+                reject(new Error(event.data.error));
+              } else {
+                resolve({ fileId: event.data.fileId, url: event.data.url });
+              }
+            }
+          }
+          window.addEventListener('message', handleResponse);
+
+          window.parent.postMessage({
+            type: 'mcp:upload_file',
+            widgetId: _widgetId,
+            fileId: fileId,
+            filename: filename || 'file',
+            mimeType: blob.type || 'application/octet-stream',
+            data: base64,
+            size: blob.size
+          }, '*');
+
+          setTimeout(function() {
+            window.removeEventListener('message', handleResponse);
+            reject(new Error('File upload timeout'));
+          }, 60000);
+        };
+        reader.onerror = function() {
+          reject(new Error('Failed to read file'));
+        };
+        reader.readAsDataURL(blob);
+      });
+    },
+
+    // Get a download URL for a previously uploaded file
+    getFileDownloadUrl: function(fileId) {
+      return new Promise(function(resolve, reject) {
+        function handleResponse(event) {
+          if (event.data && event.data.type === 'mcp:file_url' && event.data.fileId === fileId) {
+            window.removeEventListener('message', handleResponse);
+            if (event.data.error) {
+              reject(new Error(event.data.error));
+            } else {
+              resolve(event.data.url);
+            }
+          }
+        }
+        window.addEventListener('message', handleResponse);
+
+        window.parent.postMessage({
+          type: 'mcp:get_file_url',
+          widgetId: _widgetId,
+          fileId: fileId
+        }, '*');
+
+        setTimeout(function() {
+          window.removeEventListener('message', handleResponse);
+          reject(new Error('Get file URL timeout'));
+        }, 10000);
+      });
     }
   };
 
@@ -5750,6 +5981,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     // Widget state storage
     const widgetStates = new Map();
     const activeWidgets = new Map();
+    // File storage for uploaded files (fileId -> { url, filename, mimeType, size })
+    const uploadedFiles = new Map();
 
     // Toggle widget fullscreen mode
     function toggleWidgetFullscreen(widgetId) {
@@ -7530,6 +7763,61 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const { url } = event.data;
         if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
           window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      // Handle file upload requests
+      if (messageType === 'mcp:upload_file') {
+        const { widgetId, fileId, filename, mimeType, data, size } = event.data;
+
+        try {
+          // Store the file data as a blob URL
+          // data is a base64 data URL
+          const blobUrl = data; // Already a data URL, can be used directly
+          uploadedFiles.set(fileId, {
+            url: blobUrl,
+            filename: filename,
+            mimeType: mimeType,
+            size: size,
+            uploadedAt: Date.now()
+          });
+
+          // Send success response
+          event.source?.postMessage({
+            type: 'mcp:file_uploaded',
+            fileId: fileId,
+            url: blobUrl
+          }, '*');
+
+          addActivity('file-upload', 'success', 'Uploaded: ' + filename);
+        } catch (err) {
+          event.source?.postMessage({
+            type: 'mcp:file_uploaded',
+            fileId: fileId,
+            error: err.message || 'Upload failed'
+          }, '*');
+        }
+        return;
+      }
+
+      // Handle file URL requests
+      if (messageType === 'mcp:get_file_url') {
+        const { widgetId, fileId } = event.data;
+
+        const file = uploadedFiles.get(fileId);
+        if (file) {
+          event.source?.postMessage({
+            type: 'mcp:file_url',
+            fileId: fileId,
+            url: file.url
+          }, '*');
+        } else {
+          event.source?.postMessage({
+            type: 'mcp:file_url',
+            fileId: fileId,
+            error: 'File not found'
+          }, '*');
         }
         return;
       }
