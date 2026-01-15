@@ -5096,6 +5096,25 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    // Re-render method view after sidebar refresh (e.g., hot-reload)
+    // Restores sidebar selection and updates form
+    function renderMethodView() {
+      if (!currentPhoton || !currentMethod) return;
+
+      // Update selection in sidebar (may have been cleared by renderPhotonList)
+      document.querySelectorAll('.method-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      const methodItem = document.querySelector(\`.method-item[onclick*="'\${currentMethod.name}'"]\`);
+      if (methodItem) methodItem.classList.add('selected');
+
+      // Update header
+      document.getElementById('method-title').textContent = \`\${currentPhoton.name}.\${currentMethod.name}()\`;
+      document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
+
+      renderForm();
+    }
+
     // Format camelCase/PascalCase to "Title Case With Spaces"
     // Examples: getUserName -> "Get User Name", apiKey -> "Api Key"
     function formatLabel(name) {
