@@ -19,7 +19,8 @@ export type LayoutType =
   | 'markdown'  // Legacy: markdown rendering
   | 'mermaid'   // Legacy: mermaid diagrams
   | 'code'      // Code block with syntax highlighting
-  | 'json';     // Raw JSON display
+  | 'json'      // Raw JSON display
+  | 'html';     // Raw HTML (for custom UIs)
 
 export interface LayoutHints {
   title?: string;       // Field to use as title
@@ -49,6 +50,7 @@ const FORMAT_TO_LAYOUT: Record<string, LayoutType> = {
   'text': 'text',
   'primitive': 'text',
   'chips': 'chips',
+  'html': 'html',
 };
 
 /**
@@ -273,6 +275,7 @@ const FORMAT_TO_LAYOUT = {
   'text': 'text',
   'primitive': 'text',
   'chips': 'chips',
+  'html': 'html',
 };
 
 function selectLayout(data, format, hints) {
