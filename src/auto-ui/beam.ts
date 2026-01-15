@@ -5024,36 +5024,47 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       let html = '';
 
-      for (const [key, schema] of Object.entries(properties)) {
-        // Skip hidden fields (for programmatic use only, not UI)
-        if (schema.hidden === true) {
-          continue;
-        }
-
-        // Fields with default values are not truly required
+      // Check if we should hide the form (custom UI handles everything)
+      const hasLinkedUi = !!currentMethod.linkedUi;
+      const allParamsOptional = Object.entries(properties).every(([key, schema]) => {
         const hasDefault = schema.default !== undefined;
-        const isRequired = required.includes(key) && !hasDefault;
-        const description = schema.description || '';
+        return !required.includes(key) || hasDefault;
+      });
+      const hideForm = hasLinkedUi && allParamsOptional;
 
-        // Clean description - remove default info since we show it in placeholder
-        const cleanDesc = description.replace(/\\s*\\(default:.*?\\)/gi, '').trim();
+      // Only render form fields if not hiding the form
+      if (!hideForm) {
+        for (const [key, schema] of Object.entries(properties)) {
+          // Skip hidden fields (for programmatic use only, not UI)
+          if (schema.hidden === true) {
+            continue;
+          }
 
-        // Use custom label from {@label} or format the key name
-        const fieldLabel = schema.title || formatLabel(key);
+          // Fields with default values are not truly required
+          const hasDefault = schema.default !== undefined;
+          const isRequired = required.includes(key) && !hasDefault;
+          const description = schema.description || '';
 
-        // Use {@hint} for help text, fallback to clean description
-        const hintText = schema.hint || cleanDesc;
+          // Clean description - remove default info since we show it in placeholder
+          const cleanDesc = description.replace(/\\s*\\(default:.*?\\)/gi, '').trim();
 
-        html += \`
-          <div class="form-group">
-            <label>
-              \${fieldLabel}
-              \${isRequired ? '<span class="required">*</span>' : ''}
-              \${hintText ? \`<span class="hint">\${hintText}</span>\` : ''}
-            </label>
-            \${renderInput(key, schema, isRequired)}
-          </div>
-        \`;
+          // Use custom label from {@label} or format the key name
+          const fieldLabel = schema.title || formatLabel(key);
+
+          // Use {@hint} for help text, fallback to clean description
+          const hintText = schema.hint || cleanDesc;
+
+          html += \`
+            <div class="form-group">
+              <label>
+                \${fieldLabel}
+                \${isRequired ? '<span class="required">*</span>' : ''}
+                \${hintText ? \`<span class="hint">\${hintText}</span>\` : ''}
+              </label>
+              \${renderInput(key, schema, isRequired)}
+            </div>
+          \`;
+        }
       }
 
       // Check if method has no required fields (all have defaults or optional)
