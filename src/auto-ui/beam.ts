@@ -5467,15 +5467,29 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 <\\/script>
 \`;
 
-      // Inject bridge script before closing </head> or at start of content
+      // Wrap in proper HTML document structure if needed
       let modifiedHtml = htmlContent;
-      if (htmlContent.includes('</head>')) {
-        modifiedHtml = htmlContent.replace('</head>', bridgeScript + '</head>');
-      } else if (htmlContent.includes('<body')) {
-        modifiedHtml = htmlContent.replace('<body', bridgeScript + '<body');
+      const hasHtmlTag = htmlContent.includes('<html') || htmlContent.includes('<!DOCTYPE');
+
+      if (hasHtmlTag) {
+        // Full HTML document - inject bridge into head
+        if (htmlContent.includes('</head>')) {
+          modifiedHtml = htmlContent.replace('</head>', bridgeScript + '</head>');
+        } else if (htmlContent.includes('<body')) {
+          modifiedHtml = htmlContent.replace('<body', bridgeScript + '<body');
+        }
       } else {
-        // No head or body tag - prepend the script
-        modifiedHtml = bridgeScript + htmlContent;
+        // HTML fragment - wrap in full document with bridge
+        modifiedHtml = \`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  \${bridgeScript}
+</head>
+<body>
+\${htmlContent}
+</body>
+</html>\`;
       }
 
       // Create blob URL for iframe
