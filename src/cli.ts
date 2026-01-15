@@ -1860,8 +1860,10 @@ const RESERVED_COMMANDS = [
   'upgrade', 'up', 'update', 'doctor', 'clear-cache', 'clean',
   // Aliases
   'cli', 'alias', 'unalias', 'aliases',
+  // Marketplace
+  'marketplace',
   // Hidden/advanced
-  'mcp', 'search', 'marketplace', 'maker', 'deploy', 'cf-dev',
+  'mcp', 'search', 'maker', 'deploy', 'cf-dev',
   'diagram', 'diagrams', 'enable', 'disable', 'serv',
   // Help/version (handled by commander)
   'help', '--help', '-h', 'version', '--version', '-V',

@@ -5349,6 +5349,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return;
       }
 
+      // Handle HTML format - render in sandboxed iframe with MCP-style postMessage bridge
+      if (format === 'html' && typeof data === 'string') {
+        renderHtmlContent(content, data, invokedPhoton || currentPhoton?.name);
+        document.getElementById('data-content').innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(data)}</pre>\`;
+        return;
+      }
+
       // Use Smart Rendering System
       let result = null;
       try {
@@ -5403,6 +5410,95 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             <pre style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; overflow-x: auto;">\${diagram}</pre>
           </div>
         \`;
+      }
+    }
+
+    // Render HTML content in a sandboxed iframe with MCP-style postMessage bridge
+    function renderHtmlContent(container, htmlContent, photonName) {
+      // Bridge script injected into the iframe
+      // Provides window.mcp.callTool() that uses postMessage to communicate with parent
+      const bridgeScript = \`
+<script>
+(function() {
+  // MCP-style bridge for iframe communication
+  window.mcp = {
+    // Call a tool on the photon
+    // Returns a Promise that resolves with the result
+    callTool: function(toolName, args) {
+      return new Promise(function(resolve, reject) {
+        var callId = 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        // Listen for response
+        function handleResponse(event) {
+          if (event.data && event.data.type === 'mcp:tool_result' && event.data.callId === callId) {
+            window.removeEventListener('message', handleResponse);
+            if (event.data.error) {
+              reject(new Error(event.data.error));
+            } else {
+              resolve(event.data.result);
+            }
+          }
+        }
+        window.addEventListener('message', handleResponse);
+
+        // Send tool call request to parent
+        window.parent.postMessage({
+          type: 'mcp:tool_call',
+          callId: callId,
+          photon: '\${photonName || ''}',
+          tool: toolName,
+          arguments: args || {}
+        }, '*');
+
+        // Timeout after 30 seconds
+        setTimeout(function() {
+          window.removeEventListener('message', handleResponse);
+          reject(new Error('Tool call timeout'));
+        }, 30000);
+      });
+    }
+  };
+
+  // Backwards compatibility: also expose as invokePhotonMethod
+  window.invokePhotonMethod = function(photon, method, args) {
+    return window.mcp.callTool(method, args);
+  };
+})();
+<\\/script>
+\`;
+
+      // Inject bridge script before closing </head> or at start of content
+      let modifiedHtml = htmlContent;
+      if (htmlContent.includes('</head>')) {
+        modifiedHtml = htmlContent.replace('</head>', bridgeScript + '</head>');
+      } else if (htmlContent.includes('<body')) {
+        modifiedHtml = htmlContent.replace('<body', bridgeScript + '<body');
+      } else {
+        // No head or body tag - prepend the script
+        modifiedHtml = bridgeScript + htmlContent;
+      }
+
+      // Create blob URL for iframe
+      const blob = new Blob([modifiedHtml], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Render iframe
+      container.innerHTML = \`
+        <iframe
+          src="\${blobUrl}"
+          class="html-content-iframe"
+          style="width: 100%; min-height: 400px; border: none; border-radius: 8px; background: white;"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          onload="this.style.height = Math.max(400, this.contentWindow.document.body.scrollHeight + 20) + 'px'"
+        ></iframe>
+      \`;
+
+      // Clean up blob URL after iframe loads
+      const iframe = container.querySelector('iframe');
+      if (iframe) {
+        iframe.addEventListener('load', () => {
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        });
       }
     }
 
@@ -7051,6 +7147,57 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           updateConfigJson();
         }
       });
+    });
+
+    // Listen for MCP-style postMessage tool calls from iframes
+    // This allows HTML UIs rendered in iframes to call photon methods
+    window.addEventListener('message', function(event) {
+      // Only handle mcp:tool_call messages
+      if (!event.data || event.data.type !== 'mcp:tool_call') return;
+
+      const { callId, photon, tool, arguments: args } = event.data;
+      const targetPhoton = photon || currentPhoton?.name;
+
+      if (!targetPhoton || !tool) {
+        // Send error back to iframe
+        event.source?.postMessage({
+          type: 'mcp:tool_result',
+          callId: callId,
+          error: 'Missing photon or tool name'
+        }, '*');
+        return;
+      }
+
+      // Generate invocation ID for tracking
+      const invocationId = 'iframe_' + callId;
+
+      // Track this as an interactive invocation so result doesn't replace UI
+      pendingInteractiveInvocations.set(invocationId, {
+        resolve: function(result) {
+          // Send result back to iframe
+          event.source?.postMessage({
+            type: 'mcp:tool_result',
+            callId: callId,
+            result: result
+          }, '*');
+        },
+        reject: function(error) {
+          event.source?.postMessage({
+            type: 'mcp:tool_result',
+            callId: callId,
+            error: error.message || String(error)
+          }, '*');
+        }
+      });
+
+      // Send invoke request via WebSocket
+      ws.send(JSON.stringify({
+        type: 'invoke',
+        photon: targetPhoton,
+        method: tool,
+        args: args || {},
+        invocationId: invocationId
+      }));
     });
 
     // Connect on load
