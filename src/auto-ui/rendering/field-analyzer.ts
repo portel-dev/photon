@@ -26,7 +26,7 @@ export interface FieldTypeHint {
 // Patterns for semantic field detection
 const FIELD_PATTERNS = {
   title: /^(name|title|label|displayName|heading|subject)$/i,
-  subtitle: /^(description|subtitle|summary|bio|about|tagline)$/i,
+  subtitle: /^(description|subtitle|summary|bio|about|tagline|ip|address|host|hostname|endpoint)$/i,
   icon: /^(icon|avatar|image|photo|thumbnail|picture|logo)$/i,
   badge: /^(status|state|type|role|category|kind|tag|level)$/i,
   detail: /^(count|total|amount|price|value|size|quantity|score)$/i,
@@ -198,7 +198,7 @@ export function generateFieldAnalyzerJS(): string {
 // Field Analyzer - Smart detection of field semantics
 const FIELD_PATTERNS = {
   title: /^(name|title|label|displayName|heading|subject)$/i,
-  subtitle: /^(description|subtitle|summary|bio|about|tagline)$/i,
+  subtitle: /^(description|subtitle|summary|bio|about|tagline|ip|address|host|hostname|endpoint)$/i,
   icon: /^(icon|avatar|image|photo|thumbnail|picture|logo)$/i,
   badge: /^(status|state|type|role|category|kind|tag|level)$/i,
   detail: /^(count|total|amount|price|value|size|quantity|score)$/i,

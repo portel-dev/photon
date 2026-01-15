@@ -63,7 +63,15 @@ export function selectLayout(
   if (format) {
     // Handle code:language format
     if (format.startsWith('code:')) return 'code';
-    return FORMAT_TO_LAYOUT[format] || 'json';
+
+    const layout = FORMAT_TO_LAYOUT[format] || 'json';
+
+    // Smart fallback: if list/table format but data is not an array, use card
+    if ((layout === 'list' || format === 'table') && !Array.isArray(data) && typeof data === 'object' && data !== null) {
+      return 'card';
+    }
+
+    return layout;
   }
 
   // 2. Null/undefined
@@ -270,7 +278,12 @@ const FORMAT_TO_LAYOUT = {
 function selectLayout(data, format, hints) {
   if (format) {
     if (format.startsWith('code:')) return 'code';
-    return FORMAT_TO_LAYOUT[format] || 'json';
+    var layout = FORMAT_TO_LAYOUT[format] || 'json';
+    // Smart fallback: if list/table format but data is not an array, use card
+    if ((layout === 'list' || format === 'table') && !Array.isArray(data) && typeof data === 'object' && data !== null) {
+      return 'card';
+    }
+    return layout;
   }
 
   if (data === null || data === undefined) return 'text';
