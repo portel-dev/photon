@@ -508,6 +508,9 @@ function renderSmartResult(data, format, layoutHints) {
     case 'mermaid':
       // Handle in parent (needs async)
       return null;
+    case 'html':
+      // Raw HTML - return as-is (assumes data is HTML string)
+      return typeof data === 'string' ? data : (data?.html || String(data));
     case 'code':
       return '<pre class="code-block">' + escapeHtml(String(data)) + '</pre>';
     case 'json':
