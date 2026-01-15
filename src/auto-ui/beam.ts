@@ -21,6 +21,8 @@ import {
   SchemaExtractor,
   type PhotonYield,
   type OutputHandler,
+  type InputProvider,
+  type AskYield,
   type ConstructorParam,
   generateSmartRenderingJS,
   generateSmartRenderingCSS
@@ -846,9 +848,23 @@ async function handleInvoke(
       }));
     };
 
+    // Create input provider for web-based elicitation (ask yields)
+    const inputProvider: InputProvider = async (ask: AskYield): Promise<any> => {
+      // Send elicitation request to web client
+      ws.send(JSON.stringify({
+        type: 'elicitation',
+        data: ask
+      }));
+
+      // Wait for response from client
+      return new Promise((resolve) => {
+        (ws as any).pendingElicitation = { resolve };
+      });
+    };
+
     // Use loader.executeTool which properly sets up execution context for this.emit()
     // and handles PhotonMCP vs plain class methods
-    const result = await loader.executeTool(mcp, method, args, { outputHandler });
+    const result = await loader.executeTool(mcp, method, args, { outputHandler, inputProvider });
 
     ws.send(JSON.stringify({
       type: 'result',
@@ -5029,6 +5045,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         args
       }));
     }
+
+    // Global function for custom HTML UIs to invoke methods
+    window.invokePhotonMethod = function(photon, method, args) {
+      ws.send(JSON.stringify({
+        type: 'invoke',
+        photon: photon,
+        method: method,
+        args: args || {}
+      }));
+    };
 
     function showProgress(message, progress) {
       const overlay = document.getElementById('progress-overlay');
