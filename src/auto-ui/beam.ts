@@ -711,17 +711,24 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         const schemas = await extractor.extractFromFile(photonPath);
 
         const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+        const uiAssets = mcp.assets?.ui || [];
         const methods: MethodInfo[] = schemas
           .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-          .map((schema: any) => ({
-            name: schema.name,
-            description: schema.description || '',
-            params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-            returns: { type: 'object' },
-            autorun: schema.autorun || false,
-            buttonLabel: schema.buttonLabel,
-            icon: schema.icon
-          }));
+          .map((schema: any) => {
+            const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+            return {
+              name: schema.name,
+              description: schema.description || '',
+              params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+              returns: { type: 'object' },
+              autorun: schema.autorun || false,
+              outputFormat: schema.outputFormat,
+              layoutHints: schema.layoutHints,
+              buttonLabel: schema.buttonLabel,
+              icon: schema.icon,
+              linkedUi: linkedAsset?.id
+            };
+          });
 
         const reloadedPhoton: PhotonInfo = {
           name: photonName,
