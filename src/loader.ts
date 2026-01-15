@@ -85,7 +85,7 @@ export class PhotonLoader {
   private mcpClients: Map<string, any> = new Map();
   /** SDK factory for MCP connections */
   private sdkFactory?: SDKMCPClientFactory;
-  /** Cached MCP config from ~/.photon/mcp-servers.json */
+  /** Cached MCP config from ~/.photon/config.json */
   private mcpConfig?: PhotonMCPConfig;
   /** Progress renderer for inline CLI animation */
   private progressRenderer = new ProgressRenderer();
@@ -101,7 +101,7 @@ export class PhotonLoader {
   }
 
   /**
-   * Load MCP configuration from ~/.photon/mcp-servers.json
+   * Load MCP configuration from ~/.photon/config.json
    * Called lazily on first MCP injection
    */
   private async ensureMCPConfig(): Promise<PhotonMCPConfig> {
@@ -1012,7 +1012,7 @@ export class PhotonLoader {
    * Get or create an MCP client for a dependency
    *
    * Resolution order:
-   * 1. Check ~/.photon/mcp-servers.json for configured server
+   * 1. Check ~/.photon/config.json for configured server
    * 2. Fall back to resolving from @mcp declaration source
    *
    * Validates connection on first use - throws MCPConfigurationError if connection fails
@@ -1023,16 +1023,16 @@ export class PhotonLoader {
       return this.mcpClients.get(dep.name);
     }
 
-    // Try to get config from ~/.photon/mcp-servers.json first
+    // Try to get config from ~/.photon/config.json first
     const photonConfig = await this.ensureMCPConfig();
     let serverConfig: MCPServerConfig;
     let isFromConfig = false;
 
     if (photonConfig.mcpServers[dep.name]) {
-      // Use pre-configured server from mcp-servers.json
+      // Use pre-configured server from config.json
       serverConfig = resolveEnvVars(photonConfig.mcpServers[dep.name]);
       isFromConfig = true;
-      this.log(`  Using configured MCP: ${dep.name} from mcp-servers.json`);
+      this.log(`  Using configured MCP: ${dep.name} from config.json`);
     } else {
       // Fall back to resolving from @mcp declaration
       serverConfig = resolveMCPSource(dep.name, dep.source, dep.sourceType);
@@ -1076,7 +1076,7 @@ export class PhotonLoader {
       // If configured but failed, provide more specific error
       throw new Error(
         `MCP "${dep.name}" is configured but failed to connect: ${errorMsg}\n` +
-        `Check your ~/.photon/mcp-servers.json configuration and ensure:\n` +
+        `Check your ~/.photon/config.json configuration and ensure:\n` +
         `  • The command/URL is correct\n` +
         `  • Required environment variables are set\n` +
         `  • The MCP server is accessible`

@@ -109,16 +109,59 @@ type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse | Re
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
 
-async function loadConfig(): Promise<Record<string, Record<string, string>>> {
+// Unified config structure
+interface MCPServerConfig {
+  command?: string;
+  args?: string[];
+  url?: string;
+  transport?: 'stdio' | 'sse' | 'websocket';
+  env?: Record<string, string>;
+}
+
+interface PhotonConfig {
+  photons: Record<string, Record<string, string>>;
+  mcpServers: Record<string, MCPServerConfig>;
+}
+
+/**
+ * Migrate old flat config to new nested structure
+ */
+function migrateConfig(config: any): PhotonConfig {
+  // Already new format
+  if (config.photons !== undefined || config.mcpServers !== undefined) {
+    return {
+      photons: config.photons || {},
+      mcpServers: config.mcpServers || {}
+    };
+  }
+
+  // Old flat format → migrate all keys under photons
+  console.error('📦 Migrating config.json to new nested format...');
+  return {
+    photons: { ...config },
+    mcpServers: {}
+  };
+}
+
+async function loadConfig(): Promise<PhotonConfig> {
   try {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-    return JSON.parse(data);
+    const raw = JSON.parse(data);
+    const migrated = migrateConfig(raw);
+
+    // Save back if migration occurred (structure changed)
+    if (!raw.photons && Object.keys(raw).length > 0) {
+      await saveConfig(migrated);
+      console.error('✅ Config migrated successfully');
+    }
+
+    return migrated;
   } catch {
-    return {};
+    return { photons: {}, mcpServers: {} };
   }
 }
 
-async function saveConfig(config: Record<string, Record<string, string>>): Promise<void> {
+async function saveConfig(config: PhotonConfig): Promise<void> {
   const dir = path.dirname(CONFIG_FILE);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
@@ -156,8 +199,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     if (!photonPath) continue;
 
     // Apply saved config to environment before loading
-    if (savedConfig[name]) {
-      for (const [key, value] of Object.entries(savedConfig[name])) {
+    if (savedConfig.photons[name]) {
+      for (const [key, value] of Object.entries(savedConfig.photons[name])) {
         process.env[key] = value;
       }
     }
@@ -985,7 +1028,7 @@ async function handleConfigure(
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
-  savedConfig: Record<string, Record<string, string>>
+  savedConfig: PhotonConfig
 ): Promise<void> {
   const { photon: photonName, config } = request;
 
@@ -1007,7 +1050,7 @@ async function handleConfigure(
   }
 
   // Save config to file
-  savedConfig[photonName] = config;
+  savedConfig.photons[photonName] = config;
   await saveConfig(savedConfig);
 
   // Try to reload the photon
@@ -1073,7 +1116,7 @@ async function handleReload(
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
-  savedConfig: Record<string, Record<string, string>>
+  savedConfig: PhotonConfig
 ): Promise<void> {
   const { photon: photonName } = request;
 
@@ -1091,7 +1134,7 @@ async function handleReload(
   const photonPath = photon.path;
 
   // Get saved config for this photon
-  const config = savedConfig[photonName] || {};
+  const config = savedConfig.photons[photonName] || {};
 
   // Apply config to environment
   for (const [key, value] of Object.entries(config)) {
@@ -1159,7 +1202,7 @@ async function handleRemove(
   request: RemoveRequest,
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
-  savedConfig: Record<string, Record<string, string>>
+  savedConfig: PhotonConfig
 ): Promise<void> {
   const { photon: photonName } = request;
 
@@ -1178,7 +1221,7 @@ async function handleRemove(
   photonMCPs.delete(photonName);
 
   // Remove from saved config
-  delete savedConfig[photonName];
+  delete savedConfig.photons[photonName];
   await saveConfig(savedConfig);
 
   logger.info(`🗑️ ${photonName} removed`);
