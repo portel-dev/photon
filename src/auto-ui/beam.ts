@@ -3212,6 +3212,80 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       transform-origin: center center;
     }
 
+    /* Widget container styles (for HTML format iframes) */
+    .widget-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg-tertiary);
+    }
+
+    .widget-toolbar {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 10;
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .widget-container:hover .widget-toolbar {
+      opacity: 1;
+    }
+
+    .widget-fullscreen-btn {
+      background: rgba(0, 0, 0, 0.6);
+      border: none;
+      border-radius: 6px;
+      padding: 6px 8px;
+      cursor: pointer;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+
+    .widget-fullscreen-btn:hover {
+      background: rgba(0, 0, 0, 0.8);
+    }
+
+    /* Widget fullscreen mode */
+    .widget-fullscreen {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 10000 !important;
+      background: var(--bg-primary) !important;
+      border-radius: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    .widget-fullscreen .widget-toolbar {
+      opacity: 1;
+      top: 16px;
+      right: 16px;
+    }
+
+    .widget-fullscreen .widget-fullscreen-btn {
+      background: var(--bg-secondary);
+      padding: 10px 12px;
+    }
+
+    .widget-fullscreen iframe {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 100vh !important;
+      border-radius: 0 !important;
+    }
+
     /* Enhanced markdown: Blockquotes */
     .result-content blockquote {
       border-left: 4px solid var(--accent);
@@ -5058,6 +5132,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Log activity
       addActivity('invoke', \`\${currentPhoton.name}.\${currentMethod.name}()\`);
 
+      // Store args for passing to HTML widgets
+      lastInvocationArgs = args;
+
       // Send invoke request
       ws.send(JSON.stringify({
         type: 'invoke',
@@ -5070,6 +5147,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     // Track pending interactive invocations (from custom HTML UIs)
     const pendingInteractiveInvocations = new Map();
     let invocationCounter = 0;
+
+    // Track last invocation args for passing to HTML widgets
+    let lastInvocationArgs = {};
 
     // Global function for custom HTML UIs to invoke methods
     // Returns a Promise that resolves with the result
@@ -5351,7 +5431,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       // Handle HTML format - render in sandboxed iframe with MCP-style postMessage bridge
       if (format === 'html' && typeof data === 'string') {
-        renderHtmlContent(content, data, invokedPhoton || currentPhoton?.name);
+        renderHtmlContent(content, data, invokedPhoton || currentPhoton?.name, lastInvocationArgs, null);
         document.getElementById('data-content').innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(data)}</pre>\`;
         return;
       }
@@ -5414,21 +5494,44 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     // Render HTML content in a sandboxed iframe with MCP-style postMessage bridge
-    function renderHtmlContent(container, htmlContent, photonName) {
+    // Enhanced to match ChatGPT Apps SDK window.openai API
+    function renderHtmlContent(container, htmlContent, photonName, toolInput, toolOutput) {
       // Bridge script injected into the iframe
-      // Provides window.mcp.callTool() that uses postMessage to communicate with parent
+      // Provides window.mcp API matching ChatGPT's window.openai
       const bridgeScript = \`
 <script>
 (function() {
-  // MCP-style bridge for iframe communication
+  // Internal state
+  var _widgetState = {};
+  var _toolInput = null;
+  var _toolOutput = null;
+  var _displayMode = 'inline';
+  var _theme = 'dark';
+  var _widgetId = 'widget_' + Date.now();
+
+  // MCP-style bridge for iframe communication (matches ChatGPT's window.openai)
   window.mcp = {
+    // === Data Properties ===
+    // Current tool input arguments
+    get toolInput() { return _toolInput; },
+    // Current tool output/result
+    get toolOutput() { return _toolOutput; },
+    // Persisted widget state
+    get widgetState() { return _widgetState; },
+    // Current display mode: 'inline' | 'fullscreen' | 'pip'
+    get displayMode() { return _displayMode; },
+    // Current theme: 'dark' | 'light'
+    get theme() { return _theme; },
+    // Widget identifier
+    get widgetId() { return _widgetId; },
+
+    // === Tool Invocation ===
     // Call a tool on the photon
     // Returns a Promise that resolves with the result
     callTool: function(toolName, args) {
       return new Promise(function(resolve, reject) {
         var callId = 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-        // Listen for response
         function handleResponse(event) {
           if (event.data && event.data.type === 'mcp:tool_result' && event.data.callId === callId) {
             window.removeEventListener('message', handleResponse);
@@ -5441,7 +5544,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
         window.addEventListener('message', handleResponse);
 
-        // Send tool call request to parent
         window.parent.postMessage({
           type: 'mcp:tool_call',
           callId: callId,
@@ -5450,19 +5552,111 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           arguments: args || {}
         }, '*');
 
-        // Timeout after 30 seconds
         setTimeout(function() {
           window.removeEventListener('message', handleResponse);
           reject(new Error('Tool call timeout'));
         }, 30000);
       });
+    },
+
+    // === State Management ===
+    // Persist widget state (visible to model in ChatGPT, stored locally in BEAM)
+    setWidgetState: function(state) {
+      _widgetState = Object.assign({}, _widgetState, state);
+      window.parent.postMessage({
+        type: 'mcp:set_widget_state',
+        widgetId: _widgetId,
+        photon: '\${photonName || ''}',
+        state: _widgetState
+      }, '*');
+      return _widgetState;
+    },
+
+    // === Display Control ===
+    // Request display mode change: 'inline' | 'fullscreen' | 'pip'
+    requestDisplayMode: function(options) {
+      var mode = typeof options === 'string' ? options : (options && options.mode) || 'inline';
+      window.parent.postMessage({
+        type: 'mcp:request_display_mode',
+        widgetId: _widgetId,
+        mode: mode
+      }, '*');
+    },
+
+    // Request to close the widget
+    requestClose: function() {
+      window.parent.postMessage({
+        type: 'mcp:request_close',
+        widgetId: _widgetId
+      }, '*');
+    },
+
+    // Notify parent of intrinsic height for auto-sizing
+    notifyIntrinsicHeight: function(height) {
+      window.parent.postMessage({
+        type: 'mcp:notify_height',
+        widgetId: _widgetId,
+        height: height
+      }, '*');
+    },
+
+    // === Navigation ===
+    // Send a follow-up message to the conversation
+    sendFollowUpMessage: function(message) {
+      window.parent.postMessage({
+        type: 'mcp:send_followup',
+        widgetId: _widgetId,
+        message: message
+      }, '*');
+    },
+
+    // Open URL in new tab/window
+    openExternal: function(url) {
+      window.parent.postMessage({
+        type: 'mcp:open_external',
+        widgetId: _widgetId,
+        url: url
+      }, '*');
     }
   };
+
+  // Listen for initialization and updates from parent
+  window.addEventListener('message', function(event) {
+    if (!event.data) return;
+
+    // Initialize with data from parent
+    if (event.data.type === 'mcp:init') {
+      _toolInput = event.data.toolInput || null;
+      _toolOutput = event.data.toolOutput || null;
+      _widgetState = event.data.widgetState || {};
+      _displayMode = event.data.displayMode || 'inline';
+      _theme = event.data.theme || 'dark';
+      _widgetId = event.data.widgetId || _widgetId;
+
+      // Dispatch custom event for widgets to react
+      window.dispatchEvent(new CustomEvent('mcp:initialized', { detail: window.mcp }));
+    }
+
+    // Display mode changed by parent
+    if (event.data.type === 'mcp:display_mode_changed') {
+      _displayMode = event.data.mode;
+      window.dispatchEvent(new CustomEvent('mcp:display_mode_changed', { detail: { mode: _displayMode } }));
+    }
+
+    // Theme changed
+    if (event.data.type === 'mcp:theme_changed') {
+      _theme = event.data.theme;
+      window.dispatchEvent(new CustomEvent('mcp:theme_changed', { detail: { theme: _theme } }));
+    }
+  });
 
   // Backwards compatibility: also expose as invokePhotonMethod
   window.invokePhotonMethod = function(photon, method, args) {
     return window.mcp.callTool(method, args);
   };
+
+  // Signal ready to parent
+  window.parent.postMessage({ type: 'mcp:widget_ready', widgetId: _widgetId }, '*');
 })();
 <\\/script>
 \`;
@@ -5496,25 +5690,94 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const blob = new Blob([modifiedHtml], { type: 'text/html' });
       const blobUrl = URL.createObjectURL(blob);
 
-      // Render iframe
+      // Generate widget ID for this instance
+      const widgetId = 'widget_' + photonName + '_' + Date.now();
+
+      // Render iframe with fullscreen button
       container.innerHTML = \`
-        <iframe
-          src="\${blobUrl}"
-          class="html-content-iframe"
-          style="width: 100%; min-height: 400px; border: none; border-radius: 8px; background: white;"
-          sandbox="allow-scripts allow-same-origin allow-forms"
-          onload="this.style.height = Math.max(400, this.contentWindow.document.body.scrollHeight + 20) + 'px'"
-        ></iframe>
+        <div class="widget-container" data-widget-id="\${widgetId}" data-display-mode="inline">
+          <div class="widget-toolbar">
+            <button class="widget-fullscreen-btn" onclick="toggleWidgetFullscreen('\${widgetId}')" title="Toggle fullscreen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+              </svg>
+            </button>
+          </div>
+          <iframe
+            src="\${blobUrl}"
+            class="html-content-iframe"
+            style="width: 100%; min-height: 400px; border: none; border-radius: 8px; background: white;"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          ></iframe>
+        </div>
       \`;
 
-      // Clean up blob URL after iframe loads
+      // Get iframe reference
+      const widgetContainer = container.querySelector('.widget-container');
       const iframe = container.querySelector('iframe');
+
       if (iframe) {
+        // Handle iframe load - send initialization data
         iframe.addEventListener('load', () => {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+          // Auto-size iframe
+          try {
+            const height = Math.max(400, iframe.contentWindow.document.body.scrollHeight + 20);
+            iframe.style.height = height + 'px';
+          } catch (e) {
+            // Cross-origin, will use notifyIntrinsicHeight
+          }
+
+          // Send initialization data to widget
+          const storedState = widgetStates.get(widgetId) || {};
+          iframe.contentWindow.postMessage({
+            type: 'mcp:init',
+            widgetId: widgetId,
+            toolInput: toolInput || {},
+            toolOutput: toolOutput,
+            widgetState: storedState,
+            displayMode: 'inline',
+            theme: 'dark'
+          }, '*');
         });
+
+        // Store iframe reference for later communication
+        activeWidgets.set(widgetId, { iframe, container: widgetContainer, photon: photonName });
       }
     }
+
+    // Widget state storage
+    const widgetStates = new Map();
+    const activeWidgets = new Map();
+
+    // Toggle widget fullscreen mode
+    function toggleWidgetFullscreen(widgetId) {
+      const widget = activeWidgets.get(widgetId);
+      if (!widget) return;
+
+      const container = widget.container;
+      const iframe = widget.iframe;
+      const currentMode = container.dataset.displayMode || 'inline';
+      const newMode = currentMode === 'fullscreen' ? 'inline' : 'fullscreen';
+
+      container.dataset.displayMode = newMode;
+
+      if (newMode === 'fullscreen') {
+        container.classList.add('widget-fullscreen');
+        document.body.style.overflow = 'hidden';
+      } else {
+        container.classList.remove('widget-fullscreen');
+        document.body.style.overflow = '';
+      }
+
+      // Notify widget of display mode change
+      iframe.contentWindow?.postMessage({
+        type: 'mcp:display_mode_changed',
+        mode: newMode
+      }, '*');
+    }
+    window.toggleWidgetFullscreen = toggleWidgetFullscreen;
 
     function copyMermaidSource() {
       if (window.currentMermaidSource) {
@@ -7163,55 +7426,119 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       });
     });
 
-    // Listen for MCP-style postMessage tool calls from iframes
-    // This allows HTML UIs rendered in iframes to call photon methods
+    // Listen for MCP-style postMessage from iframes
+    // This allows HTML UIs to communicate with BEAM (matches ChatGPT's window.openai API)
     window.addEventListener('message', function(event) {
-      // Only handle mcp:tool_call messages
-      if (!event.data || event.data.type !== 'mcp:tool_call') return;
+      if (!event.data || !event.data.type) return;
 
-      const { callId, photon, tool, arguments: args } = event.data;
-      const targetPhoton = photon || currentPhoton?.name;
+      const messageType = event.data.type;
 
-      if (!targetPhoton || !tool) {
-        // Send error back to iframe
-        event.source?.postMessage({
-          type: 'mcp:tool_result',
-          callId: callId,
-          error: 'Missing photon or tool name'
-        }, '*');
+      // Handle tool call requests
+      if (messageType === 'mcp:tool_call') {
+        const { callId, photon, tool, arguments: args } = event.data;
+        const targetPhoton = photon || currentPhoton?.name;
+
+        if (!targetPhoton || !tool) {
+          event.source?.postMessage({
+            type: 'mcp:tool_result',
+            callId: callId,
+            error: 'Missing photon or tool name'
+          }, '*');
+          return;
+        }
+
+        const invocationId = 'iframe_' + callId;
+
+        pendingInteractiveInvocations.set(invocationId, {
+          resolve: function(result) {
+            event.source?.postMessage({
+              type: 'mcp:tool_result',
+              callId: callId,
+              result: result
+            }, '*');
+          },
+          reject: function(error) {
+            event.source?.postMessage({
+              type: 'mcp:tool_result',
+              callId: callId,
+              error: error.message || String(error)
+            }, '*');
+          }
+        });
+
+        ws.send(JSON.stringify({
+          type: 'invoke',
+          photon: targetPhoton,
+          method: tool,
+          args: args || {},
+          invocationId: invocationId
+        }));
         return;
       }
 
-      // Generate invocation ID for tracking
-      const invocationId = 'iframe_' + callId;
-
-      // Track this as an interactive invocation so result doesn't replace UI
-      pendingInteractiveInvocations.set(invocationId, {
-        resolve: function(result) {
-          // Send result back to iframe
-          event.source?.postMessage({
-            type: 'mcp:tool_result',
-            callId: callId,
-            result: result
-          }, '*');
-        },
-        reject: function(error) {
-          event.source?.postMessage({
-            type: 'mcp:tool_result',
-            callId: callId,
-            error: error.message || String(error)
-          }, '*');
+      // Handle widget state persistence
+      if (messageType === 'mcp:set_widget_state') {
+        const { widgetId, photon, state } = event.data;
+        widgetStates.set(widgetId, state);
+        // Also store by photon name for persistence
+        if (photon) {
+          widgetStates.set('photon_' + photon, state);
         }
-      });
+        return;
+      }
 
-      // Send invoke request via WebSocket
-      ws.send(JSON.stringify({
-        type: 'invoke',
-        photon: targetPhoton,
-        method: tool,
-        args: args || {},
-        invocationId: invocationId
-      }));
+      // Handle display mode requests
+      if (messageType === 'mcp:request_display_mode') {
+        const { widgetId, mode } = event.data;
+        if (mode === 'fullscreen' || mode === 'inline') {
+          toggleWidgetFullscreen(widgetId);
+        }
+        return;
+      }
+
+      // Handle close requests
+      if (messageType === 'mcp:request_close') {
+        const { widgetId } = event.data;
+        const widget = activeWidgets.get(widgetId);
+        if (widget && widget.container) {
+          widget.container.style.display = 'none';
+        }
+        return;
+      }
+
+      // Handle intrinsic height notifications
+      if (messageType === 'mcp:notify_height') {
+        const { widgetId, height } = event.data;
+        const widget = activeWidgets.get(widgetId);
+        if (widget && widget.iframe) {
+          widget.iframe.style.height = Math.max(100, height) + 'px';
+        }
+        return;
+      }
+
+      // Handle follow-up message requests
+      if (messageType === 'mcp:send_followup') {
+        const { message } = event.data;
+        // Add to activity log as a user-initiated action
+        addActivity('follow-up', 'info', message);
+        showToast('Follow-up: ' + message, 'info');
+        return;
+      }
+
+      // Handle external URL requests
+      if (messageType === 'mcp:open_external') {
+        const { url } = event.data;
+        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      // Handle widget ready signal
+      if (messageType === 'mcp:widget_ready') {
+        // Widget is ready, initialization already sent on iframe load
+        return;
+      }
     });
 
     // Connect on load
