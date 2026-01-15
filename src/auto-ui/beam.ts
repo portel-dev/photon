@@ -72,6 +72,7 @@ interface InvokeRequest {
   photon: string;
   method: string;
   args: Record<string, any>;
+  invocationId?: string;  // For interactive UI invocations that need response routing
 }
 
 interface ConfigureRequest {
@@ -242,6 +243,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
       // Extract schema for UI
       const schemas = await extractor.extractFromFile(photonPath);
+      (mcp as any).schemas = schemas;  // Store schemas for result rendering
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
@@ -709,6 +711,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         // Re-extract schema
         const extractor = new SchemaExtractor();
         const schemas = await extractor.extractFromFile(photonPath);
+        (mcp as any).schemas = schemas;  // Store schemas for result rendering
 
         const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
         const uiAssets = mcp.assets?.ui || [];
@@ -826,7 +829,7 @@ async function handleInvoke(
   photonMCPs: Map<string, any>,
   loader: PhotonLoader
 ): Promise<void> {
-  const { photon, method, args } = request;
+  const { photon, method, args, invocationId } = request;
 
   const mcp = photonMCPs.get(photon);
   if (!mcp || !mcp.instance) {
@@ -873,9 +876,18 @@ async function handleInvoke(
     // and handles PhotonMCP vs plain class methods
     const result = await loader.executeTool(mcp, method, args, { outputHandler, inputProvider });
 
+    // Find the method's format settings from schema
+    const schemas = mcp.schemas || [];
+    const methodSchema = schemas.find((s: any) => s.name === method);
+
     ws.send(JSON.stringify({
       type: 'result',
-      data: result
+      data: result,
+      photon,
+      method,
+      outputFormat: methodSchema?.outputFormat,
+      layoutHints: methodSchema?.layoutHints,
+      invocationId  // Pass back for interactive UI routing
     }));
   } catch (error) {
     // Check if this is an OAuth elicitation error
@@ -955,6 +967,7 @@ async function handleConfigure(
     // Extract schema for UI
     const extractor = new SchemaExtractor();
     const schemas = await extractor.extractFromFile(unconfiguredPhoton.path);
+    (mcp as any).schemas = schemas;  // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const methods: MethodInfo[] = schemas
@@ -1042,6 +1055,7 @@ async function handleReload(
     // Extract schema for UI
     const extractor = new SchemaExtractor();
     const schemas = await extractor.extractFromFile(photonPath);
+    (mcp as any).schemas = schemas;  // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const methods: MethodInfo[] = schemas
@@ -3999,7 +4013,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           handleYield(message.data);
           break;
         case 'result':
-          handleResult(message.data);
+          handleResult(message);
           break;
         case 'error':
           handleError(message.message);
@@ -5053,14 +5067,26 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }));
     }
 
+    // Track pending interactive invocations (from custom HTML UIs)
+    const pendingInteractiveInvocations = new Map();
+    let invocationCounter = 0;
+
     // Global function for custom HTML UIs to invoke methods
+    // Returns a Promise that resolves with the result
     window.invokePhotonMethod = function(photon, method, args) {
-      ws.send(JSON.stringify({
-        type: 'invoke',
-        photon: photon,
-        method: method,
-        args: args || {}
-      }));
+      const invocationId = 'inv_' + (++invocationCounter) + '_' + Date.now();
+
+      return new Promise((resolve, reject) => {
+        pendingInteractiveInvocations.set(invocationId, { resolve, reject });
+
+        ws.send(JSON.stringify({
+          type: 'invoke',
+          photon: photon,
+          method: method,
+          args: args || {},
+          invocationId: invocationId  // Track this invocation
+        }));
+      });
     };
 
     function showProgress(message, progress) {
@@ -5268,25 +5294,46 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
-    function handleResult(data) {
+    function handleResult(message) {
+      // Extract data and format info from message
+      // Message can include: data, photon, method, outputFormat, layoutHints, invocationId
+      const data = message.data;
+      const invokedMethod = message.method;
+      const invokedPhoton = message.photon;
+      const invocationId = message.invocationId;
+
+      // Check if this is a response to an interactive UI invocation
+      // If so, resolve the promise and DON'T update the main UI
+      if (invocationId && pendingInteractiveInvocations.has(invocationId)) {
+        const { resolve } = pendingInteractiveInvocations.get(invocationId);
+        pendingInteractiveInvocations.delete(invocationId);
+        addActivity('result', \`\${invokedPhoton}.\${invokedMethod}() completed (interactive)\`);
+        resolve(data);  // Resolve the promise with the result data
+        return;  // Don't update the main UI - the interactive UI handles it
+      }
+
       hideProgress();
       resetFilter(); // Clear filter when new result arrives
-      addActivity('result', \`\${currentPhoton?.name}.\${currentMethod?.name}() completed\`);
+      addActivity('result', \`\${invokedPhoton || currentPhoton?.name}.\${invokedMethod || currentMethod?.name}() completed\`);
 
       const container = document.getElementById('result-container');
       const content = document.getElementById('result-content');
 
       container.classList.add('visible');
 
-      // Check for custom UI template (highest priority)
-      if (currentMethod?.linkedUi && currentPhoton?.name) {
-        renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
-        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
-        return;
-      }
+      // Use format info from message if available, otherwise fall back to currentMethod
+      // This allows custom HTML UIs (invokePhotonMethod) to get correct rendering
+      const format = message.outputFormat ?? currentMethod?.outputFormat;
+      const layoutHints = message.layoutHints ?? currentMethod?.layoutHints;
 
-      const format = currentMethod?.outputFormat;
-      const layoutHints = currentMethod?.layoutHints;
+      // Check for custom UI template (highest priority) - only if method matches currentMethod
+      if (!invokedMethod || invokedMethod === currentMethod?.name) {
+        if (currentMethod?.linkedUi && currentPhoton?.name) {
+          renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
+          document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
+          return;
+        }
+      }
 
       // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
