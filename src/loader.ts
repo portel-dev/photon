@@ -544,6 +544,11 @@ export class PhotonLoader {
         this.logger.warn(String(configError));
       }
 
+      // Inject @mcp dependencies from source (this.github, this.fs, etc.)
+      if (tsContent) {
+        await this.injectMCPDependencies(instance, tsContent, name);
+      }
+
       // Inject MCP client factory if available (enables this.mcp() calls)
       const setMCPFactory = instance.setMCPFactory;
       if (this.mcpClientFactory && typeof setMCPFactory === 'function') {
