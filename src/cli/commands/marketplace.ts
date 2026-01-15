@@ -15,8 +15,8 @@ const logger = new Logger({ component: 'marketplace' });
  */
 export function registerMarketplaceCommands(program: Command): void {
   const marketplace = program
-    .command('marketplace', { hidden: true })
-    .description('Manage MCP marketplaces');
+    .command('marketplace')
+    .description('Manage photon marketplaces');
 
   marketplace
     .command('list')
@@ -156,6 +156,57 @@ export function registerMarketplaceCommands(program: Command): void {
         } else {
           logger.error(`Marketplace '${name}' not found`);
           process.exit(1);
+        }
+      } catch (error) {
+        logger.error(`Error: ${getErrorMessage(error)}`);
+        process.exit(1);
+      }
+    });
+
+  marketplace
+    .command('update')
+    .argument('[name]', 'Marketplace name (optional, updates all if omitted)')
+    .description('Update marketplace cache (fetch latest photon list)')
+    .action(async (name?: string) => {
+      try {
+        const { MarketplaceManager } = await import('../../marketplace-manager.js');
+        const manager = new MarketplaceManager();
+        await manager.initialize();
+
+        if (name) {
+          // Update specific marketplace
+          const marketplace = manager.get(name);
+          if (!marketplace) {
+            logger.error(`Marketplace '${name}' not found`);
+            process.exit(1);
+          }
+
+          console.error(`Updating ${name}...`);
+          const success = await manager.updateMarketplaceCache(name);
+          if (success) {
+            console.error(`✅ Updated marketplace: ${name}`);
+          } else {
+            console.error(`⚠️  Failed to update marketplace: ${name}`);
+          }
+        } else {
+          // Update all enabled marketplaces
+          console.error(`Updating all enabled marketplaces...`);
+          const results = await manager.updateAllCaches();
+
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const [marketplaceName, success] of results) {
+            if (success) {
+              console.error(`  ✅ ${marketplaceName}`);
+              successCount++;
+            } else {
+              console.error(`  ⚠️  ${marketplaceName} (failed)`);
+              failCount++;
+            }
+          }
+
+          console.error(`\nUpdated ${successCount} marketplace(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
         }
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
