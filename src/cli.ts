@@ -1888,12 +1888,28 @@ program
   .argument('[photon]', 'Photon to test (tests all if omitted)')
   .argument('[test]', 'Specific test to run')
   .option('--json', 'Output results as JSON')
+  .option(
+    '--mode <mode>',
+    'Test mode: direct (unit), cli (integration via CLI), mcp (integration via MCP), all',
+    'direct'
+  )
   .description('Run test methods in photons')
   .action(async (photon: string | undefined, test: string | undefined, options: any) => {
     try {
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
       const { runTests } = await import('./test-runner.js');
-      const summary = await runTests(workingDir, photon, test, { json: options.json });
+
+      // Validate mode
+      const validModes = ['direct', 'cli', 'mcp', 'all'];
+      if (!validModes.includes(options.mode)) {
+        logger.error(`Invalid mode: ${options.mode}. Valid modes: ${validModes.join(', ')}`);
+        process.exit(1);
+      }
+
+      const summary = await runTests(workingDir, photon, test, {
+        json: options.json,
+        mode: options.mode,
+      });
 
       // Exit with error code if any tests failed
       if (summary.failed > 0) {
