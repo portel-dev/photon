@@ -920,6 +920,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     }
 
     // Test API: Run a single test
+    // Supports modes: 'direct' (call instance method) or 'mcp' (call via executeTool)
     if (url.pathname === '/api/test/run' && req.method === 'POST') {
       let body = '';
       req.on('data', (chunk) => (body += chunk));
@@ -927,13 +928,13 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         res.setHeader('Content-Type', 'application/json');
 
         try {
-          const { photon: photonName, test: testName } = JSON.parse(body);
+          const { photon: photonName, test: testName, mode = 'direct' } = JSON.parse(body);
 
           // Find the photon
           const photon = photons.find((p) => p.name === photonName);
           if (!photon) {
             res.writeHead(404);
-            res.end(JSON.stringify({ passed: false, error: 'Photon not found' }));
+            res.end(JSON.stringify({ passed: false, error: 'Photon not found', mode }));
             return;
           }
 
@@ -941,33 +942,67 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           const mcp = photonMCPs.get(photonName);
           if (!mcp || !mcp.instance) {
             res.writeHead(404);
-            res.end(JSON.stringify({ passed: false, error: 'Photon not loaded' }));
+            res.end(JSON.stringify({ passed: false, error: 'Photon not loaded', mode }));
             return;
           }
 
           // Run the test method
           const start = Date.now();
           try {
-            const result = await mcp.instance[testName]();
+            let result: any;
+
+            if (mode === 'mcp') {
+              // MCP mode: use executeTool to simulate MCP protocol
+              // This tests the full tool execution path
+              result = await loader.executeTool(mcp, testName, {}, {});
+            } else {
+              // Direct mode: call instance method directly
+              result = await mcp.instance[testName]();
+            }
+
             const duration = Date.now() - start;
 
             // Check result
-            if (result && typeof result === 'object' && result.passed === false) {
-              res.writeHead(200);
-              res.end(
-                JSON.stringify({
-                  passed: false,
-                  error: result.error || result.message || 'Test failed',
-                  duration,
-                })
-              );
+            if (result && typeof result === 'object') {
+              if (result.skipped === true) {
+                res.writeHead(200);
+                res.end(
+                  JSON.stringify({
+                    passed: true,
+                    skipped: true,
+                    message: result.reason || 'Skipped',
+                    duration,
+                    mode,
+                  })
+                );
+              } else if (result.passed === false) {
+                res.writeHead(200);
+                res.end(
+                  JSON.stringify({
+                    passed: false,
+                    error: result.error || result.message || 'Test failed',
+                    duration,
+                    mode,
+                  })
+                );
+              } else {
+                res.writeHead(200);
+                res.end(
+                  JSON.stringify({
+                    passed: true,
+                    message: result?.message,
+                    duration,
+                    mode,
+                  })
+                );
+              }
             } else {
               res.writeHead(200);
               res.end(
                 JSON.stringify({
                   passed: true,
-                  message: result?.message,
                   duration,
+                  mode,
                 })
               );
             }
@@ -979,6 +1014,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                 passed: false,
                 error: testError.message || String(testError),
                 duration,
+                mode,
               })
             );
           }
@@ -2320,6 +2356,22 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-muted);
       min-width: 32px;
       text-align: right;
+    }
+
+    .test-mode-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      margin-left: 4px;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    .test-status.skipped {
+      color: var(--warning);
     }
 
     kbd {
@@ -5285,14 +5337,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       \`;
     }
 
-    function renderTestItem(photonName, method) {
+    function renderTestItem(photonName, method, mode = 'direct') {
       // Format test name: testCalculateAddition -> Calculate Addition
       const displayName = method.name.replace(/^test/, '').replace(/([A-Z])/g, ' $1').trim();
+      const modeLabel = mode === 'direct' ? '' : \` <span class="test-mode-badge">\${mode}</span>\`;
       return \`
-        <div class="test-item" data-photon="\${photonName}" data-test="\${method.name}">
+        <div class="test-item" data-photon="\${photonName}" data-test="\${method.name}" data-mode="\${mode}">
           <span class="test-status" title="Not run">○</span>
-          <span class="test-name">\${displayName}</span>
-          <button class="run-test-btn" onclick="runSingleTest('\${photonName}', '\${method.name}')" title="Run test">
+          <span class="test-name">\${displayName}\${modeLabel}</span>
+          <button class="run-test-btn" onclick="runSingleTest('\${photonName}', '\${method.name}', '\${mode}')" title="Run test (\${mode})">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="5 3 19 12 5 21 5 3"></polygon>
             </svg>
@@ -5302,8 +5355,18 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       \`;
     }
 
-    async function runSingleTest(photonName, testName) {
-      const testItem = document.querySelector(\`.test-item[data-photon="\${photonName}"][data-test="\${testName}"]\`);
+    function renderTestItems(photonName, methods) {
+      // Render both direct and MCP mode tests
+      let html = '';
+      for (const method of methods) {
+        html += renderTestItem(photonName, method, 'direct');
+        html += renderTestItem(photonName, method, 'mcp');
+      }
+      return html;
+    }
+
+    async function runSingleTest(photonName, testName, mode = 'direct') {
+      const testItem = document.querySelector(\`.test-item[data-photon="\${photonName}"][data-test="\${testName}"][data-mode="\${mode}"]\`);
       if (!testItem) return;
 
       const statusEl = testItem.querySelector('.test-status');
@@ -5319,12 +5382,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const response = await fetch('/api/test/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ photon: photonName, test: testName })
+          body: JSON.stringify({ photon: photonName, test: testName, mode })
         });
 
         const result = await response.json();
 
-        if (result.passed) {
+        if (result.skipped) {
+          statusEl.innerHTML = '○';
+          statusEl.title = result.message || 'Skipped';
+          statusEl.className = 'test-status skipped';
+        } else if (result.passed) {
           statusEl.innerHTML = '✓';
           statusEl.title = 'Passed';
           statusEl.className = 'test-status passed';
@@ -5356,10 +5423,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         item.querySelector('.test-duration').textContent = '';
       });
 
-      // Run tests sequentially
+      // Run tests sequentially (including both direct and mcp modes)
       for (const item of testItems) {
         const testName = item.dataset.test;
-        await runSingleTest(photonName, testName);
+        const mode = item.dataset.mode || 'direct';
+        await runSingleTest(photonName, testName, mode);
       }
     }
 
@@ -5505,7 +5573,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                 </button>
               </div>
               <div class="test-methods" id="tests-\${photon.name}">
-                \${testMethods.map(method => renderTestItem(photon.name, method)).join('')}
+                \${renderTestItems(photon.name, testMethods)}
               </div>
             </div>
           \` : '';
