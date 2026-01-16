@@ -2928,6 +2928,40 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       display: block;
     }
 
+    /* App mode - fullscreen UI without tabs */
+    #method-view.app-mode .tabs,
+    #method-view.app-mode #invoke-form,
+    #method-view.app-mode .result-header {
+      display: none !important;
+    }
+
+    #method-view.app-mode .tab-content {
+      padding: 0;
+    }
+
+    #method-view.app-mode .tab-panel {
+      max-width: none;
+    }
+
+    #method-view.app-mode .result-container {
+      margin-top: 0;
+      display: block !important;
+    }
+
+    #method-view.app-mode .result-content {
+      padding: 0;
+    }
+
+    #method-view.app-mode .widget-container {
+      border-radius: 0;
+    }
+
+    #method-view.app-mode .html-content-iframe {
+      height: calc(100vh - 120px) !important;
+      min-height: calc(100vh - 120px) !important;
+      border-radius: 0 !important;
+    }
+
     /* Form styles */
     .form-group {
       margin-bottom: 24px;
@@ -6520,20 +6554,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         toggleSidebar(false);
       }
 
-      // Show method view, hide others
+      // Show method view in app mode, hide others
       document.getElementById('empty-state').style.display = 'none';
       document.getElementById('config-view').style.display = 'none';
-      document.getElementById('method-view').style.display = 'flex';
+      const methodView = document.getElementById('method-view');
+      methodView.style.display = 'flex';
+      methodView.classList.add('app-mode');
 
       // Update header
       document.getElementById('method-title').textContent = photonName;
-      document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
+      document.getElementById('method-description').textContent = currentMethod.description || 'interact with this board - humans through the UI, AI through MCP methods.';
 
-      // Render form (will auto-execute if no required params)
-      renderForm();
-
-      // Clear previous results
-      document.getElementById('result-container').classList.remove('visible');
+      // Auto-execute the app's main method
+      document.getElementById('result-container').classList.add('visible');
+      executeMethod({});
     }
     window.openApp = openApp;
 
@@ -6583,10 +6617,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         toggleSidebar(false);
       }
 
-      // Show method view, hide others
+      // Show method view, hide others, exit app mode
       document.getElementById('empty-state').style.display = 'none';
       document.getElementById('config-view').style.display = 'none';
-      document.getElementById('method-view').style.display = 'flex';
+      const methodView = document.getElementById('method-view');
+      methodView.style.display = 'flex';
+      methodView.classList.remove('app-mode');
 
       // Update header
       document.getElementById('method-title').textContent = \`\${photonName}.\${methodName}()\`;
