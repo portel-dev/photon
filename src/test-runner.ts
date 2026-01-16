@@ -17,6 +17,7 @@ interface TestResult {
   photon: string;
   test: string;
   passed: boolean;
+  skipped?: boolean;
   duration: number;
   error?: string;
   message?: string;
@@ -26,12 +27,14 @@ interface TestSummary {
   total: number;
   passed: number;
   failed: number;
+  skipped: number;
   duration: number;
   results: TestResult[];
 }
 
 /**
  * Extract test methods from a photon instance
+ * Excludes testBeforeAll and testAfterAll (lifecycle hooks)
  */
 function getTestMethods(instance: any): string[] {
   const methods: string[] = [];
@@ -41,13 +44,23 @@ function getTestMethods(instance: any): string[] {
     if (
       name.startsWith('test') &&
       typeof instance[name] === 'function' &&
-      name !== 'constructor'
+      name !== 'constructor' &&
+      name !== 'testBeforeAll' &&
+      name !== 'testAfterAll'
     ) {
       methods.push(name);
     }
   }
 
   return methods.sort();
+}
+
+/**
+ * Check if photon has lifecycle hooks
+ */
+function hasLifecycleHook(instance: any, hookName: string): boolean {
+  const proto = Object.getPrototypeOf(instance);
+  return typeof instance[hookName] === 'function';
 }
 
 /**
@@ -66,6 +79,18 @@ async function runTest(
 
     // Check result format
     if (result && typeof result === 'object') {
+      // Handle skipped tests
+      if (result.skipped === true) {
+        return {
+          photon: photonName,
+          test: testName,
+          passed: true,
+          skipped: true,
+          duration,
+          message: result.reason || 'Skipped',
+        };
+      }
+
       if (result.passed === false) {
         return {
           photon: photonName,
@@ -153,9 +178,42 @@ async function runPhotonTests(
       ];
     }
 
+    // Run testBeforeAll if it exists
+    if (hasLifecycleHook(instance, 'testBeforeAll')) {
+      try {
+        await instance.testBeforeAll();
+      } catch (error: any) {
+        return [
+          {
+            photon: photonName,
+            test: 'beforeAll',
+            passed: false,
+            duration: 0,
+            error: `Setup failed: ${error.message}`,
+          },
+        ];
+      }
+    }
+
+    // Run tests
     for (const testName of testsToRun) {
       const result = await runTest(instance, photonName, testName);
       results.push(result);
+    }
+
+    // Run testAfterAll if it exists
+    if (hasLifecycleHook(instance, 'testAfterAll')) {
+      try {
+        await instance.testAfterAll();
+      } catch (error: any) {
+        results.push({
+          photon: photonName,
+          test: 'afterAll',
+          passed: false,
+          duration: 0,
+          error: `Teardown failed: ${error.message}`,
+        });
+      }
     }
 
     return results;
@@ -187,16 +245,31 @@ function formatTestName(name: string): string {
  * Print a single test result
  */
 function printTestResult(result: TestResult): void {
-  const icon = result.passed ? chalk.green('✓') : chalk.red('✗');
+  let icon: string;
+  if (result.skipped) {
+    icon = chalk.yellow('○');
+  } else if (result.passed) {
+    icon = chalk.green('✓');
+  } else {
+    icon = chalk.red('✗');
+  }
+
   // Strip 'test' prefix and lowercase first char
   const stripped = result.test.replace(/^test/, '');
   const displayName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
   const name = chalk.gray(`${result.photon}.`) + displayName;
   const time = chalk.gray(`${result.duration}ms`);
 
-  console.log(`  ${icon} ${name} ${time}`);
-  if (!result.passed && result.error) {
-    console.log(chalk.red(`    ${result.error}`));
+  if (result.skipped) {
+    console.log(`  ${icon} ${name} ${chalk.yellow('skipped')} ${time}`);
+    if (result.message) {
+      console.log(chalk.yellow(`    ${result.message}`));
+    }
+  } else {
+    console.log(`  ${icon} ${name} ${time}`);
+    if (!result.passed && result.error) {
+      console.log(chalk.red(`    ${result.error}`));
+    }
   }
 }
 
@@ -208,21 +281,25 @@ function printSummary(summary: TestSummary): void {
   console.log(chalk.bold('─'.repeat(50)));
   console.log('');
 
+  const skippedInfo = summary.skipped > 0 ? chalk.yellow(` (${summary.skipped} skipped)`) : '';
+
   if (summary.failed === 0) {
     console.log(
-      chalk.green.bold(`✓ All ${summary.total} tests passed`) +
+      chalk.green.bold(`✓ All ${summary.passed} tests passed`) +
+        skippedInfo +
         chalk.gray(` (${summary.duration}ms)`)
     );
   } else {
     console.log(
       chalk.red.bold(`✗ ${summary.failed} of ${summary.total} tests failed`) +
+        skippedInfo +
         chalk.gray(` (${summary.duration}ms)`)
     );
 
     // List failed tests
     console.log('');
     console.log(chalk.red('Failed tests:'));
-    for (const result of summary.results.filter((r) => !r.passed)) {
+    for (const result of summary.results.filter((r) => !r.passed && !r.skipped)) {
       console.log(chalk.red(`  • ${result.photon}.${result.test}`));
       if (result.error) {
         console.log(chalk.gray(`    ${result.error}`));
@@ -332,13 +409,15 @@ export async function runTests(
   }
 
   const duration = Date.now() - startTime;
-  const passed = results.filter((r) => r.passed).length;
+  const skipped = results.filter((r) => r.skipped).length;
+  const passed = results.filter((r) => r.passed && !r.skipped).length;
   const failed = results.filter((r) => !r.passed).length;
 
   const summary: TestSummary = {
     total: results.length,
     passed,
     failed,
+    skipped,
     duration,
     results,
   };
