@@ -35,6 +35,8 @@ interface PhotonInfo {
   configured: true;
   methods: MethodInfo[];
   templatePath?: string;  // @ui template.html - custom UI template
+  isApp?: boolean;  // True if photon has main() with @ui - listed under Apps section
+  appEntry?: MethodInfo;  // The main() method that serves as app entry point
 }
 
 interface UnconfiguredPhotonInfo {
@@ -324,12 +326,17 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           };
         });
 
+      // Check if this is an App (has main() method with @ui)
+      const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+
       photons.push({
         name,
         path: photonPath,
         configured: true,
         methods,
-        templatePath
+        templatePath,
+        isApp: !!mainMethod,
+        appEntry: mainMethod
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -833,11 +840,16 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             };
           });
 
+        // Check if this is an App (has main() method with @ui)
+        const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+
         const reloadedPhoton: PhotonInfo = {
           name: photonName,
           path: photonPath,
           configured: true,
-          methods
+          methods,
+          isApp: !!mainMethod,
+          appEntry: mainMethod
         };
 
         if (isNewPhoton) {
@@ -1081,12 +1093,18 @@ async function handleConfigure(
         buttonLabel: schema.buttonLabel
       }));
 
+    // Check if this is an App (has main() method with @ui)
+    const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+    const isApp = !!mainMethod;
+
     // Replace unconfigured photon with configured one
     const configuredPhoton: PhotonInfo = {
       name: photonName,
       path: unconfiguredPhoton.path,
       configured: true,
-      methods
+      methods,
+      isApp,
+      appEntry: mainMethod
     };
 
     photons[photonIndex] = configuredPhoton;
@@ -1158,23 +1176,36 @@ async function handleReload(
     (mcp as any).schemas = schemas;  // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+    const uiAssets = mcp.assets?.ui || [];
     const methods: MethodInfo[] = schemas
       .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-      .map((schema: any) => ({
-        name: schema.name,
-        description: schema.description || '',
-        params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-        returns: { type: 'object' },
-        autorun: schema.autorun || false,
-        buttonLabel: schema.buttonLabel
-      }));
+      .map((schema: any) => {
+        const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+        return {
+          name: schema.name,
+          description: schema.description || '',
+          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          autorun: schema.autorun || false,
+          outputFormat: schema.outputFormat,
+          layoutHints: schema.layoutHints,
+          buttonLabel: schema.buttonLabel,
+          icon: schema.icon,
+          linkedUi: linkedAsset?.id
+        };
+      });
+
+    // Check if this is an App (has main() method with @ui)
+    const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
 
     // Update photon info
     const reloadedPhoton: PhotonInfo = {
       name: photonName,
       path: photonPath,
       configured: true,
-      methods
+      methods,
+      isApp: !!mainMethod,
+      appEntry: mainMethod
     };
 
     photons[photonIndex] = reloadedPhoton;
@@ -1750,6 +1781,108 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .photon-item.unconfigured .photon-header.selected {
       background: var(--bg-tertiary);
       opacity: 1;
+    }
+
+    /* App items in sidebar */
+    .apps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 4px 0;
+    }
+
+    .app-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+
+    .app-item:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .app-item.selected {
+      background: var(--accent);
+      color: white;
+    }
+
+    .app-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .app-name {
+      font-size: 14px;
+      font-weight: 500;
+      flex: 1;
+    }
+
+    .app-menu-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: all 0.15s ease;
+    }
+
+    .app-item:hover .app-menu-btn {
+      opacity: 0.7;
+    }
+
+    .app-menu-btn:hover {
+      opacity: 1 !important;
+      background: var(--bg-secondary);
+    }
+
+    .app-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      min-width: 160px;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .app-menu.visible {
+      display: block;
+    }
+
+    .app-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: all 0.15s ease;
+    }
+
+    .app-menu-item:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .app-menu-item .method-icon {
+      font-size: 14px;
     }
 
     /* Config view in main content */
@@ -4476,15 +4609,68 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         \`;
       }
 
-      // All photons
-      html += photons.map(photon => {
-        if (photon.configured) {
-          // Add template indicator if photon has @ui
+      // Separate Apps and Tools
+      const apps = configured.filter(p => p.isApp);
+      const tools = configured.filter(p => !p.isApp);
+
+      // Apps section
+      if (apps.length > 0) {
+        html += \`
+          <div class="special-section">
+            <div class="section-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+              </svg>
+              Apps
+            </div>
+            <div class="apps-list">
+              \${apps.map(photon => \`
+                <div class="app-item" onclick="openApp('\${photon.name}')">
+                  <span class="app-icon">\${photon.appEntry?.icon || '📱'}</span>
+                  <span class="app-name">\${photon.name}</span>
+                  <button class="app-menu-btn" onclick="event.stopPropagation(); toggleAppMenu('\${photon.name}')" title="Show methods">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="5" r="2"></circle>
+                      <circle cx="12" cy="12" r="2"></circle>
+                      <circle cx="12" cy="19" r="2"></circle>
+                    </svg>
+                  </button>
+                  <div class="app-menu" id="app-menu-\${photon.name}">
+                    \${photon.methods.filter(m => m.name !== 'main').map(method => \`
+                      <div class="app-menu-item" onclick="event.stopPropagation(); selectMethod('\${photon.name}', '\${method.name}')">
+                        \${method.icon ? \`<span class="method-icon">\${method.icon}</span>\` : ''}
+                        \${method.name}
+                      </div>
+                    \`).join('')}
+                  </div>
+                </div>
+              \`).join('')}
+            </div>
+          </div>
+        \`;
+      }
+
+      // Tools section
+      if (tools.length > 0 || unconfigured.length > 0) {
+        html += \`
+          <div class="special-section">
+            <div class="section-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+              </svg>
+              Tools
+            </div>
+        \`;
+
+        // Tool photons (expandable)
+        html += tools.map(photon => {
           const templateIndicator = photon.templatePath
             ? '<span class="template-indicator" title="Has custom UI template">UI</span>'
             : '';
 
-          // If photon has template, add a special "Open UI" method
           const templateMethod = photon.templatePath
             ? \`<div class="method-item template-method" onclick="loadPhotonTemplate('\${photon.name}')">
                 <span class="method-icon">🎨</span>
@@ -4505,17 +4691,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               </div>
             </div>
           \`;
-        } else {
-          return \`
-            <div class="photon-item unconfigured">
-              <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')" title="Click to configure">
-                <span class="photon-name">\${photon.name}</span>
-                <span class="setup-indicator" title="Needs setup">?</span>
-              </div>
+        }).join('');
+
+        // Unconfigured photons
+        html += unconfigured.map(photon => \`
+          <div class="photon-item unconfigured">
+            <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')" title="Click to configure">
+              <span class="photon-name">\${photon.name}</span>
+              <span class="setup-indicator" title="Needs setup">?</span>
             </div>
-          \`;
-        }
-      }).join('');
+          </div>
+        \`).join('');
+
+        html += '</div>';  // Close Tools section
+      }
 
       list.innerHTML = html;
 
@@ -4967,6 +5156,77 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         showToast('Failed to load template: ' + error.message, 'error');
       }
     }
+
+    // Open an App (photon with main() entry point)
+    function openApp(photonName) {
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon || !photon.isApp || !photon.appEntry) return;
+
+      currentPhoton = photon;
+      currentMethod = photon.appEntry;
+
+      // Track in recent history
+      addToRecent(photonName, 'main');
+
+      // Update URL hash
+      updateHash(photonName, 'main');
+
+      // Update selection - clear all and select app item
+      document.querySelectorAll('.method-item, .app-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      const appItem = document.querySelector(\`.app-item[onclick*="'\${photonName}'"]\`);
+      if (appItem) appItem.classList.add('selected');
+
+      // Close app menu if open
+      closeAllAppMenus();
+
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        toggleSidebar(false);
+      }
+
+      // Show method view, hide others
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
+      document.getElementById('method-view').style.display = 'flex';
+
+      // Update header
+      document.getElementById('method-title').textContent = photonName;
+      document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
+
+      // Render form (will auto-execute if no required params)
+      renderForm();
+
+      // Clear previous results
+      document.getElementById('result-container').classList.remove('visible');
+    }
+    window.openApp = openApp;
+
+    // Toggle app overflow menu
+    function toggleAppMenu(photonName) {
+      const menu = document.getElementById(\`app-menu-\${photonName}\`);
+      if (!menu) return;
+
+      const wasVisible = menu.classList.contains('visible');
+      closeAllAppMenus();
+
+      if (!wasVisible) {
+        menu.classList.add('visible');
+      }
+    }
+    window.toggleAppMenu = toggleAppMenu;
+
+    function closeAllAppMenus() {
+      document.querySelectorAll('.app-menu.visible').forEach(m => m.classList.remove('visible'));
+    }
+
+    // Close app menus when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.app-menu-btn') && !e.target.closest('.app-menu')) {
+        closeAllAppMenus();
+      }
+    });
 
     function selectMethod(photonName, methodName, e) {
       currentPhoton = photons.find(p => p.name === photonName);
