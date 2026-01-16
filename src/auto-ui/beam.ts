@@ -675,6 +675,210 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // Marketplace API: Get all marketplace sources
+    if (url.pathname === '/api/marketplace/sources') {
+      res.setHeader('Content-Type', 'application/json');
+
+      try {
+        const sources = marketplace.getAll();
+        const sourcesWithCounts = await Promise.all(
+          sources.map(async (source) => {
+            // Get photon count from cached manifest
+            const manifest = await marketplace.getCachedManifest(source.name);
+            return {
+              name: source.name,
+              repo: source.repo,
+              source: source.source,
+              sourceType: source.sourceType,
+              enabled: source.enabled,
+              photonCount: manifest?.photons?.length || 0,
+              lastUpdated: source.lastUpdated,
+            };
+          })
+        );
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ sources: sourcesWithCounts }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to get marketplace sources' }));
+      }
+      return;
+    }
+
+    // Marketplace API: Add a new marketplace source
+    if (url.pathname === '/api/marketplace/sources/add' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { source } = JSON.parse(body);
+          if (!source) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing source parameter' }));
+            return;
+          }
+
+          const result = await marketplace.add(source);
+
+          // Update cache for the new marketplace
+          if (result.added) {
+            await marketplace.updateMarketplaceCache(result.marketplace.name);
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({
+            success: true,
+            name: result.marketplace.name,
+            added: result.added,
+          }));
+        } catch (err) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    // Marketplace API: Remove a marketplace source
+    if (url.pathname === '/api/marketplace/sources/remove' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { name } = JSON.parse(body);
+          if (!name) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing name parameter' }));
+            return;
+          }
+
+          const removed = await marketplace.remove(name);
+          if (!removed) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
+            return;
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    // Marketplace API: Toggle marketplace enabled/disabled
+    if (url.pathname === '/api/marketplace/sources/toggle' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { name, enabled } = JSON.parse(body);
+          if (!name || typeof enabled !== 'boolean') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing name or enabled parameter' }));
+            return;
+          }
+
+          const success = await marketplace.setEnabled(name, enabled);
+          if (!success) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
+            return;
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    // Marketplace API: Refresh marketplace cache
+    if (url.pathname === '/api/marketplace/refresh' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { name } = JSON.parse(body || '{}');
+
+          if (name) {
+            // Refresh specific marketplace
+            const success = await marketplace.updateMarketplaceCache(name);
+            res.writeHead(200);
+            res.end(JSON.stringify({ success, updated: success ? [name] : [] }));
+          } else {
+            // Refresh all enabled marketplaces
+            const results = await marketplace.updateAllCaches();
+            const updated = Array.from(results.entries())
+              .filter(([, success]) => success)
+              .map(([name]) => name);
+
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, updated }));
+          }
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    // Marketplace API: Check for available updates
+    if (url.pathname === '/api/marketplace/updates') {
+      res.setHeader('Content-Type', 'application/json');
+
+      try {
+        const { readLocalMetadata } = await import('../marketplace-manager.js');
+        const localMetadata = await readLocalMetadata();
+        const updates: Array<{
+          name: string;
+          fileName: string;
+          currentVersion: string;
+          latestVersion: string;
+          marketplace: string;
+        }> = [];
+
+        // Check each installed photon for updates
+        for (const [fileName, installMeta] of Object.entries(localMetadata.photons)) {
+          const photonName = fileName.replace(/\.photon\.ts$/, '');
+          const latestInfo = await marketplace.getPhotonMetadata(photonName);
+
+          if (latestInfo && latestInfo.metadata.version !== installMeta.version) {
+            updates.push({
+              name: photonName,
+              fileName,
+              currentVersion: installMeta.version,
+              latestVersion: latestInfo.metadata.version,
+              marketplace: latestInfo.marketplace.name,
+            });
+          }
+        }
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ updates }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to check for updates' }));
+      }
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });
@@ -1442,6 +1646,30 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       letter-spacing: -0.5px;
     }
 
+    .header-add-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px dashed var(--border-light);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.5;
+      transition: all 0.15s ease;
+      margin-left: auto;
+    }
+
+    .header-add-btn:hover {
+      opacity: 1;
+      border-style: solid;
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+    }
+
     .sidebar-header .subtitle {
       font-size: 13px;
       color: var(--text-muted);
@@ -1481,33 +1709,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       flex: 1;
       overflow-y: auto;
       padding: 8px;
-    }
-
-    .sidebar-footer {
-      padding: 12px;
-      border-top: 1px solid var(--border-color);
-    }
-
-    .marketplace-btn {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 10px 16px;
-      background: var(--bg-tertiary);
-      border: 1px dashed var(--border-color);
-      border-radius: var(--radius-md);
-      color: var(--text-secondary);
-      font-size: 13px;
-      cursor: pointer;
-      transition: var(--transition);
-    }
-
-    .marketplace-btn:hover {
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      border-color: var(--accent);
     }
 
     .marketplace-item {
@@ -1590,6 +1791,170 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .btn-install.installed {
       background: var(--bg-tertiary);
       color: var(--text-secondary);
+    }
+
+    .btn-install.update {
+      background: var(--warning);
+      color: #000;
+    }
+
+    /* Marketplace toolbar */
+    .marketplace-toolbar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    /* Source filter pills */
+    .source-filters {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .source-pill {
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid transparent;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .source-pill:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-light);
+    }
+
+    .source-pill.active {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .source-pill .count {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    .source-pill.active .count {
+      background: rgba(59, 130, 246, 0.2);
+    }
+
+    .source-pill.disabled {
+      opacity: 0.5;
+      text-decoration: line-through;
+    }
+
+    /* Marketplace source badge on photon cards */
+    .marketplace-source-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      color: var(--text-muted);
+      margin-left: 8px;
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .modal-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal-dialog {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow: hidden;
+      transform: scale(0.95);
+      transition: transform 0.2s ease;
+    }
+
+    .modal-overlay.visible .modal-dialog {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      transition: var(--transition);
+    }
+
+    .modal-close:hover {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    .form-hint code {
+      font-family: var(--font-mono);
+      background: var(--bg-tertiary);
+      padding: 1px 4px;
+      border-radius: 3px;
     }
 
     .photon-item {
@@ -2416,6 +2781,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+
+    .spin {
+      animation: spin 1s linear infinite;
     }
 
     .progress-message {
@@ -3886,6 +4255,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <div class="logo">
           <div class="logo-icon">⚡</div>
           <h1>Photon</h1>
+          <button class="header-add-btn" onclick="showMarketplace()" title="Add photons (p)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
         </div>
         <p class="subtitle" id="photon-count">Loading...</p>
       </div>
@@ -3893,16 +4268,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <input type="text" class="search-input" id="search-input" placeholder="Search methods...">
       </div>
       <div class="photon-list" id="photon-list"></div>
-      <div class="sidebar-footer">
-        <button class="marketplace-btn" onclick="showMarketplace()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="16"></line>
-            <line x1="8" y1="12" x2="16" y2="12"></line>
-          </svg>
-          Add Photons
-        </button>
-      </div>
     </div>
 
     <div class="main-content">
@@ -3923,22 +4288,76 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       <div id="marketplace-view" style="display: none; flex-direction: column; height: 100%;">
         <div class="method-header">
           <div class="method-header-top">
-            <h2>Photon Marketplace</h2>
-            <button class="btn btn-secondary" onclick="hideMarketplace()">
+            <h2>Marketplace</h2>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary" onclick="showAddSourceModal()" title="Add marketplace source">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add Source
+              </button>
+              <button class="btn btn-secondary" onclick="hideMarketplace()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 20px; flex: 1; overflow-y: auto;">
+          <div class="marketplace-toolbar">
+            <div class="search-box" style="flex: 1;">
+              <input type="text" class="search-input" id="marketplace-search" placeholder="Search photons..." oninput="searchMarketplace(event)">
+            </div>
+            <button class="btn btn-secondary" onclick="refreshMarketplace()" title="Refresh marketplace">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6"></path>
+                <path d="M1 20v-6h6"></path>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </button>
+          </div>
+          <div id="marketplace-sources" class="source-filters"></div>
+          <div id="marketplace-results"></div>
+        </div>
+      </div>
+
+      <!-- Add Marketplace Source Modal -->
+      <div id="add-source-modal" class="modal-overlay">
+        <div class="modal-dialog" style="max-width: 480px;">
+          <div class="modal-header">
+            <h3>Add Marketplace Source</h3>
+            <button class="modal-close" onclick="hideAddSourceModal()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
-              Close
             </button>
           </div>
-          <p class="method-description">Search and install photons from the marketplace</p>
-        </div>
-        <div style="padding: 20px; flex: 1; overflow-y: auto;">
-          <div class="search-box" style="margin-bottom: 20px;">
-            <input type="text" class="search-input" id="marketplace-search" placeholder="Search photons..." oninput="searchMarketplace(event)">
+          <div class="modal-body">
+            <p style="color: var(--text-muted); margin-bottom: 16px;">
+              Add a custom marketplace to discover and install photons from different sources.
+            </p>
+            <div class="form-group">
+              <label class="form-label">Source</label>
+              <input type="text" id="source-input" class="form-input" placeholder="username/repo or URL" style="width: 100%;" onkeydown="if(event.key==='Enter'){addMarketplaceSource();event.preventDefault();}">
+              <div class="form-hint">
+                Supported formats:
+                <ul style="margin: 8px 0 0 16px; padding: 0;">
+                  <li><code>username/repo</code> - GitHub repository</li>
+                  <li><code>https://github.com/user/repo</code> - GitHub URL</li>
+                  <li><code>https://example.com/photons.json</code> - Direct URL</li>
+                  <li><code>./local/path</code> - Local directory</li>
+                </ul>
+              </div>
+            </div>
           </div>
-          <div id="marketplace-results"></div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideAddSourceModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="addMarketplaceSource()">Add Marketplace</button>
+          </div>
         </div>
       </div>
 
@@ -4789,7 +5208,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     // ========== Marketplace Functions ==========
     let marketplacePhotons = [];
+    let marketplaceSources = [];
+    let activeSourceFilter = null; // null means "All"
     let installedPhotonNames = new Set();
+    let photonUpdates = new Map(); // name -> { currentVersion, latestVersion }
 
     function showMarketplace() {
       // Hide other views
@@ -4804,12 +5226,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Focus search input
       document.getElementById('marketplace-search').focus();
 
-      // Load marketplace if not loaded
-      if (marketplacePhotons.length === 0) {
-        loadMarketplace();
-      } else {
-        renderMarketplaceResults(marketplacePhotons);
-      }
+      // Load sources and photons
+      loadMarketplaceSources();
+      loadMarketplace();
+      checkForUpdates();
     }
 
     function hideMarketplace() {
@@ -4820,6 +5240,66 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    async function loadMarketplaceSources() {
+      try {
+        const response = await fetch('/api/marketplace/sources');
+        const data = await response.json();
+        marketplaceSources = data.sources || [];
+        renderSourceFilters();
+      } catch (err) {
+        console.error('Failed to load marketplace sources:', err);
+      }
+    }
+
+    function renderSourceFilters() {
+      const container = document.getElementById('marketplace-sources');
+      if (!container) return;
+
+      // Calculate total count
+      const totalCount = marketplaceSources
+        .filter(s => s.enabled)
+        .reduce((sum, s) => sum + s.photonCount, 0);
+
+      let html = \`
+        <button class="source-pill \${activeSourceFilter === null ? 'active' : ''}" onclick="filterBySource(null)">
+          All
+          <span class="count">\${totalCount}</span>
+        </button>
+      \`;
+
+      html += marketplaceSources.map(source => \`
+        <button class="source-pill \${activeSourceFilter === source.name ? 'active' : ''} \${!source.enabled ? 'disabled' : ''}"
+                onclick="filterBySource('\${source.name}')"
+                title="\${source.source}">
+          \${source.name}
+          <span class="count">\${source.photonCount}</span>
+        </button>
+      \`).join('');
+
+      container.innerHTML = html;
+    }
+
+    function filterBySource(sourceName) {
+      activeSourceFilter = sourceName;
+      renderSourceFilters();
+
+      // Filter and render results
+      const filtered = sourceName
+        ? marketplacePhotons.filter(p => p.marketplace === sourceName)
+        : marketplacePhotons;
+
+      // Also apply search filter if there's a search query
+      const searchQuery = document.getElementById('marketplace-search').value.trim().toLowerCase();
+      const finalFiltered = searchQuery
+        ? filtered.filter(p =>
+            p.name.toLowerCase().includes(searchQuery) ||
+            (p.description || '').toLowerCase().includes(searchQuery)
+          )
+        : filtered;
+
+      renderMarketplaceResults(finalFiltered);
+    }
+
     async function loadMarketplace() {
       const results = document.getElementById('marketplace-results');
       results.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading marketplace...</div>';
@@ -4828,9 +5308,112 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const response = await fetch('/api/marketplace/list');
         const data = await response.json();
         marketplacePhotons = data.photons || [];
-        renderMarketplaceResults(marketplacePhotons);
+
+        // Apply current filter
+        const filtered = activeSourceFilter
+          ? marketplacePhotons.filter(p => p.marketplace === activeSourceFilter)
+          : marketplacePhotons;
+
+        renderMarketplaceResults(filtered);
       } catch (err) {
         results.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--error);">Failed to load marketplace</div>';
+      }
+    }
+
+    async function checkForUpdates() {
+      try {
+        const response = await fetch('/api/marketplace/updates');
+        const data = await response.json();
+        photonUpdates.clear();
+        (data.updates || []).forEach(u => {
+          photonUpdates.set(u.name, {
+            currentVersion: u.currentVersion,
+            latestVersion: u.latestVersion
+          });
+        });
+        // Re-render to show update badges
+        if (marketplacePhotons.length > 0) {
+          const filtered = activeSourceFilter
+            ? marketplacePhotons.filter(p => p.marketplace === activeSourceFilter)
+            : marketplacePhotons;
+          renderMarketplaceResults(filtered);
+        }
+      } catch (err) {
+        console.error('Failed to check for updates:', err);
+      }
+    }
+
+    async function refreshMarketplace() {
+      const btn = event.target.closest('button');
+      btn.disabled = true;
+      btn.innerHTML = \`
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+          <path d="M23 4v6h-6"></path>
+          <path d="M1 20v-6h6"></path>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      \`;
+
+      try {
+        await fetch('/api/marketplace/refresh', { method: 'POST' });
+        await loadMarketplaceSources();
+        await loadMarketplace();
+        await checkForUpdates();
+        showToast('Marketplace refreshed', 'success');
+      } catch (err) {
+        showToast('Failed to refresh marketplace', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = \`
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6"></path>
+            <path d="M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        \`;
+      }
+    }
+
+    function showAddSourceModal() {
+      document.getElementById('add-source-modal').classList.add('visible');
+      document.getElementById('source-input').value = '';
+      document.getElementById('source-input').focus();
+    }
+
+    function hideAddSourceModal() {
+      document.getElementById('add-source-modal').classList.remove('visible');
+    }
+
+    async function addMarketplaceSource() {
+      const input = document.getElementById('source-input');
+      const source = input.value.trim();
+
+      if (!source) {
+        showToast('Please enter a marketplace source', 'error');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/marketplace/sources/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to add marketplace');
+        }
+
+        hideAddSourceModal();
+        showToast(data.added ? \`Added marketplace: \${data.name}\` : \`Marketplace already exists: \${data.name}\`, 'success');
+
+        // Reload sources and photons
+        await loadMarketplaceSources();
+        await loadMarketplace();
+      } catch (err) {
+        showToast(err.message, 'error');
       }
     }
 
@@ -4838,7 +5421,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const query = event.target.value.trim();
 
       if (query.length === 0) {
-        renderMarketplaceResults(marketplacePhotons);
+        filterBySource(activeSourceFilter);
         return;
       }
 
@@ -4850,13 +5433,25 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         try {
           const response = await fetch(\`/api/marketplace/search?q=\${encodeURIComponent(query)}\`);
           const data = await response.json();
-          renderMarketplaceResults(data.photons || []);
+          let results = data.photons || [];
+
+          // Apply source filter
+          if (activeSourceFilter) {
+            results = results.filter(p => p.marketplace === activeSourceFilter);
+          }
+
+          renderMarketplaceResults(results);
         } catch (err) {
           // Fall back to local filter
-          const filtered = marketplacePhotons.filter(p =>
+          let filtered = marketplacePhotons.filter(p =>
             p.name.toLowerCase().includes(query.toLowerCase()) ||
             (p.description || '').toLowerCase().includes(query.toLowerCase())
           );
+
+          if (activeSourceFilter) {
+            filtered = filtered.filter(p => p.marketplace === activeSourceFilter);
+          }
+
           renderMarketplaceResults(filtered);
         }
       }, 300);
@@ -4872,29 +5467,81 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       container.innerHTML = results.map(photon => {
         const isInstalled = installedPhotonNames.has(photon.name);
+        const updateInfo = photonUpdates.get(photon.name);
+        const hasUpdate = updateInfo && updateInfo.currentVersion !== updateInfo.latestVersion;
         const tags = (photon.tags || []).slice(0, 3).map(t => \`<span class="marketplace-tag">\${t}</span>\`).join('');
+
+        // Determine button state
+        let buttonClass = 'btn-install';
+        let buttonText = 'Install';
+        let buttonDisabled = '';
+        let buttonAction = \`installPhoton('\${photon.name}')\`;
+
+        if (hasUpdate) {
+          buttonClass = 'btn-install update';
+          buttonText = \`Update to v\${updateInfo.latestVersion}\`;
+          buttonAction = \`updatePhoton('\${photon.name}')\`;
+        } else if (isInstalled) {
+          buttonClass = 'btn-install installed';
+          buttonText = 'Installed';
+          buttonDisabled = 'disabled';
+        }
 
         return \`
           <div class="marketplace-item">
             <div class="marketplace-item-info">
-              <div class="marketplace-item-name">\${photon.name}</div>
+              <div class="marketplace-item-name">
+                \${photon.name}
+                <span class="marketplace-source-badge">\${photon.marketplace}</span>
+              </div>
               <div class="marketplace-item-desc">\${photon.description || 'No description'}</div>
               <div class="marketplace-item-meta">
                 \${photon.version ? \`<span>v\${photon.version}</span>\` : ''}
                 \${photon.author ? \`<span>by \${photon.author}</span>\` : ''}
+                \${hasUpdate ? \`<span style="color: var(--warning);">Update available</span>\` : ''}
               </div>
               \${tags ? \`<div class="marketplace-item-tags" style="margin-top: 8px;">\${tags}</div>\` : ''}
             </div>
             <div class="marketplace-item-action">
-              <button class="btn-install \${isInstalled ? 'installed' : ''}"
-                      onclick="installPhoton('\${photon.name}')"
-                      \${isInstalled ? 'disabled' : ''}>
-                \${isInstalled ? 'Installed' : 'Install'}
+              <button class="\${buttonClass}"
+                      onclick="\${buttonAction}"
+                      \${buttonDisabled}>
+                \${buttonText}
               </button>
             </div>
           </div>
         \`;
       }).join('');
+    }
+
+    async function updatePhoton(name) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Updating...';
+
+      try {
+        const response = await fetch('/api/marketplace/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showToast(\`Updated \${name} to v\${data.version}\`, 'success');
+          btn.textContent = 'Installed';
+          btn.classList.remove('update');
+          btn.classList.add('installed');
+          photonUpdates.delete(name);
+        } else {
+          throw new Error(data.error || 'Update failed');
+        }
+      } catch (err) {
+        showToast(\`Failed to update \${name}: \${err.message}\`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Update';
+      }
     }
 
     async function installPhoton(name) {
@@ -7233,11 +7880,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
           closeResultViewer();
         }
-        // 6. Close keyboard help
+        // 6. Close add source modal
+        else if (document.getElementById('add-source-modal')?.classList.contains('visible')) {
+          hideAddSourceModal();
+        }
+        // 7. Close keyboard help
         else if (document.getElementById('keyboard-help-modal')?.classList.contains('visible')) {
           document.getElementById('keyboard-help-modal').classList.remove('visible');
         }
-        // 7. Clear search input
+        // 8. Clear search input
         else if (isInput && target.id === 'search-input') {
           target.value = '';
           target.dispatchEvent(new Event('input'));
@@ -7299,6 +7950,68 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
         return;
       }
+
+      // t - Toggle theme
+      if (e.key === 't' && !hasModifier) {
+        e.preventDefault();
+        toggleTheme();
+        return;
+      }
+
+      // f - Toggle favorites filter
+      if (e.key === 'f' && !hasModifier) {
+        e.preventDefault();
+        toggleFavoritesFilter();
+        return;
+      }
+
+      // [ - Previous photon
+      if (e.key === '[' && !hasModifier) {
+        e.preventDefault();
+        navigatePhotons(-1);
+        return;
+      }
+
+      // ] - Next photon
+      if (e.key === ']' && !hasModifier) {
+        e.preventDefault();
+        navigatePhotons(1);
+        return;
+      }
+
+      // h - Collapse/go back to photon list
+      if (e.key === 'h' && !hasModifier) {
+        e.preventDefault();
+        collapseCurrentPhoton();
+        return;
+      }
+
+      // g g - Jump to top (vim-style double-tap)
+      if (e.key === 'g' && !hasModifier) {
+        if (window.lastKeyForGG === 'g' && Date.now() - window.lastKeyTimeForGG < 500) {
+          e.preventDefault();
+          scrollSidebarToTop();
+          window.lastKeyForGG = null;
+        } else {
+          window.lastKeyForGG = 'g';
+          window.lastKeyTimeForGG = Date.now();
+        }
+        return;
+      }
+
+      // G (Shift+g) - Jump to bottom
+      if (e.key === 'G' && !hasModifier) {
+        e.preventDefault();
+        scrollSidebarToBottom();
+        return;
+      }
+
+      // p - Open marketplace
+      if (e.key === 'p' && !hasModifier) {
+        e.preventDefault();
+        showMarketplace();
+        return;
+      }
     });
 
     // Method navigation state
@@ -7329,6 +8042,108 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (item) {
         item.classList.add('highlighted');
         item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+
+    // ========== Additional Keyboard Navigation ==========
+
+    // Toggle theme (light/dark)
+    function toggleTheme() {
+      const root = document.documentElement;
+      const isDark = root.style.getPropertyValue('--bg-primary') === '#f8f9fa' ? false :
+                     root.classList.contains('light-theme') ? true :
+                     !document.body.classList.contains('light-theme');
+
+      if (isDark) {
+        // Switch to light theme
+        root.style.setProperty('--bg-primary', '#f8f9fa');
+        root.style.setProperty('--bg-secondary', '#ffffff');
+        root.style.setProperty('--bg-tertiary', '#f1f3f4');
+        root.style.setProperty('--bg-elevated', '#ffffff');
+        root.style.setProperty('--border-color', '#e0e0e0');
+        root.style.setProperty('--border-light', '#eee');
+        root.style.setProperty('--text-primary', '#1f1f1f');
+        root.style.setProperty('--text-secondary', '#5f6368');
+        root.style.setProperty('--text-muted', '#9aa0a6');
+        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.1)');
+        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.15)');
+        root.style.setProperty('--shadow-lg', '0 8px 24px rgba(0,0,0,0.2)');
+        root.style.setProperty('color-scheme', 'light');
+        document.body.classList.add('light-theme');
+        showToast('Light theme', 'info');
+      } else {
+        // Switch to dark theme
+        root.style.setProperty('--bg-primary', '#0f0f0f');
+        root.style.setProperty('--bg-secondary', '#161616');
+        root.style.setProperty('--bg-tertiary', '#1c1c1c');
+        root.style.setProperty('--bg-elevated', '#222222');
+        root.style.setProperty('--border-color', '#2a2a2a');
+        root.style.setProperty('--border-light', '#333');
+        root.style.setProperty('--text-primary', '#f5f5f5');
+        root.style.setProperty('--text-secondary', '#a0a0a0');
+        root.style.setProperty('--text-muted', '#666');
+        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.3)');
+        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.4)');
+        root.style.setProperty('--shadow-lg', '0 8px 24px rgba(0,0,0,0.5)');
+        root.style.setProperty('color-scheme', 'dark');
+        document.body.classList.remove('light-theme');
+        showToast('Dark theme', 'info');
+      }
+    }
+
+    // Toggle favorites filter
+    function toggleFavoritesFilter() {
+      const btn = document.querySelector('.favorites-toggle');
+      if (btn) {
+        btn.click();
+      } else {
+        showToast('No favorites filter available', 'info');
+      }
+    }
+
+    // Navigate to previous/next photon
+    function navigatePhotons(direction) {
+      const photonItems = Array.from(document.querySelectorAll('.photon-section'));
+      if (photonItems.length === 0) return;
+
+      // Find current expanded photon
+      const expandedIndex = photonItems.findIndex(p => p.classList.contains('expanded'));
+      let newIndex = expandedIndex + direction;
+
+      // Wrap around
+      if (newIndex >= photonItems.length) newIndex = 0;
+      if (newIndex < 0) newIndex = photonItems.length - 1;
+
+      // Click the new photon header to expand it
+      const header = photonItems[newIndex]?.querySelector('.photon-header');
+      if (header) {
+        header.click();
+        photonItems[newIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+
+    // Collapse current photon (go back to list)
+    function collapseCurrentPhoton() {
+      const expanded = document.querySelector('.photon-section.expanded');
+      if (expanded) {
+        const header = expanded.querySelector('.photon-header');
+        if (header) header.click();
+      }
+    }
+
+    // Scroll sidebar to top
+    function scrollSidebarToTop() {
+      const photonList = document.getElementById('photon-list');
+      if (photonList) {
+        photonList.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    // Scroll sidebar to bottom
+    function scrollSidebarToBottom() {
+      const photonList = document.getElementById('photon-list');
+      if (photonList) {
+        photonList.scrollTo({ top: photonList.scrollHeight, behavior: 'smooth' });
       }
     }
 
@@ -7439,7 +8254,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               <button class="close-btn" onclick="document.getElementById('keyboard-help-modal').classList.remove('visible')">&times;</button>
             </div>
             <div class="modal-body" style="padding: 16px;">
-              <div style="display: grid; gap: 12px;">
+              <div style="display: grid; gap: 8px; font-size: 13px;">
+                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Navigation</div>
                 <div style="display: flex; justify-content: space-between;">
                   <span style="color: var(--text-secondary);">Search</span>
                   <span><kbd>/</kbd> or <kbd>⌘K</kbd></span>
@@ -7453,6 +8269,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                   <span><kbd>Enter</kbd></span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Prev/next photon</span>
+                  <span><kbd>[</kbd> <kbd>]</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Collapse photon</span>
+                  <span><kbd>h</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Jump to top/bottom</span>
+                  <span><kbd>gg</kbd> <kbd>G</kbd></span>
+                </div>
+
+                <div style="font-weight: 600; color: var(--text-primary); margin: 8px 0 4px;">Actions</div>
+                <div style="display: flex; justify-content: space-between;">
                   <span style="color: var(--text-secondary);">Submit form</span>
                   <span><kbd>⌘Enter</kbd></span>
                 </div>
@@ -7461,7 +8291,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                   <span><kbd>r</kbd></span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                  <span style="color: var(--text-secondary);">Close / Clear</span>
+                  <span style="color: var(--text-secondary);">Toggle theme</span>
+                  <span><kbd>t</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Toggle favorites</span>
+                  <span><kbd>f</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Open marketplace</span>
+                  <span><kbd>p</kbd></span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Close / Cancel</span>
                   <span><kbd>Esc</kbd></span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
