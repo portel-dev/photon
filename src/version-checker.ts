@@ -40,7 +40,9 @@ export class VersionChecker {
   /**
    * Fetch remote version from marketplace
    */
-  async fetchRemoteVersion(mcpName: string): Promise<{ version: string; marketplace: Marketplace } | null> {
+  async fetchRemoteVersion(
+    mcpName: string
+  ): Promise<{ version: string; marketplace: Marketplace } | null> {
     return await this.marketplaceManager.fetchVersion(mcpName);
   }
 

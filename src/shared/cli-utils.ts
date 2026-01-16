@@ -151,9 +151,7 @@ export function promptChoice(
   const rl = createReadline();
 
   // Handle legacy boolean parameter
-  const opts = typeof options === 'boolean'
-    ? { allowCancel: options }
-    : options;
+  const opts = typeof options === 'boolean' ? { allowCancel: options } : options;
   const { allowCancel = true, defaultChoice } = opts;
 
   return new Promise((resolve) => {

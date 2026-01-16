@@ -68,8 +68,8 @@ export interface SessionConfig {
 }
 
 const DEFAULT_CONFIG: SessionConfig = {
-  defaultTtlSeconds: 15 * 60,       // 15 minutes
-  maxTtlSeconds: 24 * 60 * 60,      // 24 hours
+  defaultTtlSeconds: 15 * 60, // 15 minutes
+  maxTtlSeconds: 24 * 60 * 60, // 24 hours
   cleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
 };
 
@@ -278,11 +278,7 @@ export class RedisSessionStore implements SessionStore {
       lastActivityAt: now,
     };
 
-    await this.redis.set(
-      this.sessionKey(session.id),
-      JSON.stringify(session),
-      { EX: ttl }
-    );
+    await this.redis.set(this.sessionKey(session.id), JSON.stringify(session), { EX: ttl });
 
     // Track user sessions
     if (options.userId) {
@@ -342,11 +338,7 @@ export class RedisSessionStore implements SessionStore {
     session.lastActivityAt = now;
     session.expiresAt = newExpiry;
 
-    await this.redis.set(
-      this.sessionKey(sessionId),
-      JSON.stringify(session),
-      { EX: remainingTtl }
-    );
+    await this.redis.set(this.sessionKey(sessionId), JSON.stringify(session), { EX: remainingTtl });
   }
 
   async destroy(sessionId: string): Promise<void> {
@@ -364,7 +356,7 @@ export class RedisSessionStore implements SessionStore {
 
     if (sessionIds.length === 0) return 0;
 
-    const keys = sessionIds.map(id => this.sessionKey(id));
+    const keys = sessionIds.map((id) => this.sessionKey(id));
     await this.redis.del(keys);
     await this.redis.del(userKey);
 

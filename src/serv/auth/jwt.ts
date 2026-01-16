@@ -186,9 +186,12 @@ export class JwtService {
    * Create HMAC signature
    */
   private createSignature(input: string): string {
-    const algorithm = this.config.algorithm === 'HS256' ? 'sha256'
-      : this.config.algorithm === 'HS384' ? 'sha384'
-      : 'sha512';
+    const algorithm =
+      this.config.algorithm === 'HS256'
+        ? 'sha256'
+        : this.config.algorithm === 'HS384'
+          ? 'sha384'
+          : 'sha512';
 
     const hmac = createHmac(algorithm, this.config.secret);
     hmac.update(input);
@@ -296,7 +299,9 @@ function base64UrlDecode(str: string): string {
 
 let jwtServiceInstance: JwtService | null = null;
 
-export function getJwtService(config?: Partial<JwtConfig> & { secret: string; issuer: string }): JwtService {
+export function getJwtService(
+  config?: Partial<JwtConfig> & { secret: string; issuer: string }
+): JwtService {
   if (!jwtServiceInstance) {
     if (!config) {
       throw new Error('JWT service not initialized. Call with config first.');
@@ -306,7 +311,9 @@ export function getJwtService(config?: Partial<JwtConfig> & { secret: string; is
   return jwtServiceInstance;
 }
 
-export function initJwtService(config: Partial<JwtConfig> & { secret: string; issuer: string }): JwtService {
+export function initJwtService(
+  config: Partial<JwtConfig> & { secret: string; issuer: string }
+): JwtService {
   jwtServiceInstance = new JwtService(config);
   return jwtServiceInstance;
 }

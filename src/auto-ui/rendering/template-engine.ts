@@ -17,16 +17,16 @@
  */
 
 export interface TemplateBinding {
-  element: string;        // CSS selector
-  method: string;         // Method name
-  args?: any;             // Arguments to pass
-  event?: string;         // Event to listen for (default: 'click')
+  element: string; // CSS selector
+  method: string; // Method name
+  args?: any; // Arguments to pass
+  event?: string; // Event to listen for (default: 'click')
 }
 
 export interface TemplateConfig {
-  id: string;             // Template identifier
-  path: string;           // Path to template file
-  bindings?: TemplateBinding[];  // Pre-defined bindings (optional)
+  id: string; // Template identifier
+  path: string; // Path to template file
+  bindings?: TemplateBinding[]; // Pre-defined bindings (optional)
 }
 
 /**

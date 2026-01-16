@@ -84,27 +84,21 @@ export class D1TenantStore implements TenantStore {
   constructor(private db: D1Client) {}
 
   async findBySlug(slug: string): Promise<Tenant | null> {
-    const row = await this.db.first<TenantRow>(
-      'SELECT * FROM tenants WHERE slug = ?',
-      slug
-    );
+    const row = await this.db.first<TenantRow>('SELECT * FROM tenants WHERE slug = ?', slug);
     return row ? this.rowToTenant(row) : null;
   }
 
   async findByCustomDomain(domain: string): Promise<Tenant | null> {
     // Query tenants where settings.customDomain matches
     const rows = await this.db.all<TenantRow>(
-      'SELECT * FROM tenants WHERE json_extract(settings, \'$.customDomain\') = ?',
+      "SELECT * FROM tenants WHERE json_extract(settings, '$.customDomain') = ?",
       domain
     );
     return rows.length > 0 ? this.rowToTenant(rows[0]) : null;
   }
 
   async findById(id: string): Promise<Tenant | null> {
-    const row = await this.db.first<TenantRow>(
-      'SELECT * FROM tenants WHERE id = ?',
-      id
-    );
+    const row = await this.db.first<TenantRow>('SELECT * FROM tenants WHERE id = ?', id);
     return row ? this.rowToTenant(row) : null;
   }
 
@@ -145,10 +139,7 @@ export class D1TenantStore implements TenantStore {
     if (updates.length === 0) return;
 
     params.push(id);
-    await this.db.run(
-      `UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`,
-      ...params
-    );
+    await this.db.run(`UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`, ...params);
   }
 
   async delete(id: string): Promise<void> {
@@ -177,10 +168,7 @@ export class D1UserStore implements UserStore {
   constructor(private db: D1Client) {}
 
   async findById(id: string): Promise<User | null> {
-    const row = await this.db.first<UserRow>(
-      'SELECT * FROM users WHERE id = ?',
-      id
-    );
+    const row = await this.db.first<UserRow>('SELECT * FROM users WHERE id = ?', id);
     return row ? this.rowToUser(row) : null;
   }
 
@@ -217,10 +205,7 @@ export class D1UserStore implements UserStore {
     if (updates.length === 0) return;
 
     params.push(id);
-    await this.db.run(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
-      ...params
-    );
+    await this.db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, ...params);
   }
 
   private rowToUser(row: UserRow): User {
@@ -254,7 +239,7 @@ export class D1MembershipStore implements MembershipStore {
       'SELECT * FROM memberships WHERE user_id = ?',
       userId
     );
-    return rows.map(r => this.rowToMembership(r));
+    return rows.map((r) => this.rowToMembership(r));
   }
 
   async findByTenant(tenantId: string): Promise<Membership[]> {
@@ -262,7 +247,7 @@ export class D1MembershipStore implements MembershipStore {
       'SELECT * FROM memberships WHERE tenant_id = ?',
       tenantId
     );
-    return rows.map(r => this.rowToMembership(r));
+    return rows.map((r) => this.rowToMembership(r));
   }
 
   async create(membership: Omit<Membership, 'joinedAt'>): Promise<Membership> {
@@ -396,10 +381,7 @@ export class D1GrantStore implements GrantStore {
     }
 
     params.push(id);
-    await this.db.run(
-      `UPDATE photon_grants SET ${updates.join(', ')} WHERE id = ?`,
-      ...params
-    );
+    await this.db.run(`UPDATE photon_grants SET ${updates.join(', ')} WHERE id = ?`, ...params);
   }
 
   async delete(id: string): Promise<void> {
@@ -412,7 +394,7 @@ export class D1GrantStore implements GrantStore {
       tenantId,
       userId
     );
-    return rows.map(r => this.rowToGrant(r));
+    return rows.map((r) => this.rowToGrant(r));
   }
 
   private rowToGrant(row: GrantRow): PhotonGrant {

@@ -1,6 +1,6 @@
 /**
  * Multi-Photon Playground Server
- * 
+ *
  * Serves an interactive UI for testing all installed photons
  */
 
@@ -17,7 +17,7 @@ import {
   executeGenerator,
   isAsyncGenerator,
   type PhotonYield,
-  type EmitYield
+  type EmitYield,
 } from '@portel/photon-core';
 
 interface PhotonInfo {
@@ -36,7 +36,7 @@ interface MethodInfo {
 export async function startPlaygroundServer(workingDir: string, port: number): Promise<void> {
   // Discover all photons
   const photonList = await listPhotonMCPs(workingDir);
-  
+
   if (photonList.length === 0) {
     logger.warn('No photons found in ' + workingDir);
     console.log('\nCreate a photon with: photon maker new <name>');
@@ -71,13 +71,13 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
           name: schema.name,
           description: schema.description || '',
           params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-          returns: { type: 'object' }
+          returns: { type: 'object' },
         }));
 
       photons.push({
         name,
         path: photonPath,
-        methods
+        methods,
       });
     } catch (error) {
       logger.warn(`Failed to load ${name}: ${error}`);
@@ -105,11 +105,11 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
     // API: Invoke method
     if (url.pathname === '/api/invoke' && req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      req.on('data', (chunk) => (body += chunk));
       req.on('end', async () => {
         try {
           const { photon, method, params } = JSON.parse(body);
-          
+
           // Find photon path
           const photonPath = await resolvePhotonPath(photon, workingDir);
           if (!photonPath) {
@@ -122,7 +122,7 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
           const { PhotonLoader } = await import('../loader.js');
           const loader = new PhotonLoader(false, logger);
           const mcp = await loader.loadFile(photonPath);
-          
+
           // Get the instance
           const instance = mcp.instance;
           if (!instance) {
@@ -136,7 +136,7 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
 
           // Call method with params object - photon methods expect a single params object
           const methodResult = instance[method](params);
-          
+
           // Check if it's a generator - use SSE for streaming
           let result: any;
           if (isAsyncGenerator(methodResult)) {
@@ -144,29 +144,36 @@ export async function startPlaygroundServer(workingDir: string, port: number): P
             res.writeHead(200, {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive'
+              Connection: 'keep-alive',
             });
-            
+
             try {
-              result = await executeGenerator(methodResult as AsyncGenerator<PhotonYield, any, any>, {
-                inputProvider: async (ask) => {
-                  // Send ask event to client
-                  res.write(`data: ${JSON.stringify({ type: 'ask', data: ask })}\n\n`);
-                  // For now, throw error - playground doesn't support interactive input yet
-                  throw new Error(`Interactive input not supported in playground: ${ask.message}`);
-                },
-                outputHandler: async (emit) => {
-                  // Stream progress updates to client
-                  res.write(`data: ${JSON.stringify({ type: 'progress', data: emit })}\n\n`);
+              result = await executeGenerator(
+                methodResult as AsyncGenerator<PhotonYield, any, any>,
+                {
+                  inputProvider: async (ask) => {
+                    // Send ask event to client
+                    res.write(`data: ${JSON.stringify({ type: 'ask', data: ask })}\n\n`);
+                    // For now, throw error - playground doesn't support interactive input yet
+                    throw new Error(
+                      `Interactive input not supported in playground: ${ask.message}`
+                    );
+                  },
+                  outputHandler: async (emit) => {
+                    // Stream progress updates to client
+                    res.write(`data: ${JSON.stringify({ type: 'progress', data: emit })}\n\n`);
+                  },
                 }
-              });
-              
+              );
+
               // Send final result
               res.write(`data: ${JSON.stringify({ type: 'result', data: result })}\n\n`);
               res.write('data: [DONE]\n\n');
               res.end();
             } catch (error: any) {
-              res.write(`data: ${JSON.stringify({ type: 'error', data: { message: error.message } })}\n\n`);
+              res.write(
+                `data: ${JSON.stringify({ type: 'error', data: { message: error.message } })}\n\n`
+              );
               res.end();
             }
           } else {

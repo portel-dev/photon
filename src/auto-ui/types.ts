@@ -2,7 +2,7 @@
  * Type definitions for Auto-UI system
  */
 
-export type UIHint = 
+export type UIHint =
   | 'table'
   | 'tree'
   | 'list'

@@ -17,9 +17,16 @@ import type { SessionStore, SessionConfig } from './store.js';
  * Compatible with @cloudflare/workers-types KVNamespace
  */
 export interface KVNamespace {
-  get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<string | null>;
+  get(
+    key: string,
+    options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }
+  ): Promise<string | null>;
   get(key: string, options: { type: 'json' }): Promise<unknown | null>;
-  put(key: string, value: string, options?: { expirationTtl?: number; metadata?: unknown }): Promise<void>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number; metadata?: unknown }
+  ): Promise<void>;
   delete(key: string): Promise<void>;
   list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
     keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
@@ -33,8 +40,8 @@ export interface KVNamespace {
 // ============================================================================
 
 const DEFAULT_CONFIG: SessionConfig = {
-  defaultTtlSeconds: 15 * 60,       // 15 minutes
-  maxTtlSeconds: 24 * 60 * 60,      // 24 hours
+  defaultTtlSeconds: 15 * 60, // 15 minutes
+  maxTtlSeconds: 24 * 60 * 60, // 24 hours
   cleanupIntervalMs: 5 * 60 * 1000, // Not used - KV handles TTL
 };
 
@@ -80,16 +87,12 @@ export class KVSessionStore implements SessionStore {
     };
 
     // Store session with TTL
-    await this.kv.put(
-      this.sessionKey(session.id),
-      JSON.stringify(session),
-      { expirationTtl: ttl }
-    );
+    await this.kv.put(this.sessionKey(session.id), JSON.stringify(session), { expirationTtl: ttl });
 
     // Track user sessions (if user is provided)
     if (options.userId) {
       const userKey = this.userSessionsKey(options.tenantId, options.userId);
-      const existing = await this.kv.get(userKey, { type: 'json' }) as string[] | null;
+      const existing = (await this.kv.get(userKey, { type: 'json' })) as string[] | null;
       const sessionIds = existing ?? [];
       sessionIds.push(session.id);
       await this.kv.put(userKey, JSON.stringify(sessionIds), {
@@ -120,7 +123,7 @@ export class KVSessionStore implements SessionStore {
 
   async getByUser(tenantId: string, userId: string): Promise<Session[]> {
     const userKey = this.userSessionsKey(tenantId, userId);
-    const sessionIds = await this.kv.get(userKey, { type: 'json' }) as string[] | null;
+    const sessionIds = (await this.kv.get(userKey, { type: 'json' })) as string[] | null;
     if (!sessionIds) return [];
 
     const sessions: Session[] = [];
@@ -157,20 +160,18 @@ export class KVSessionStore implements SessionStore {
     session.lastActivityAt = now;
     session.expiresAt = newExpiry;
 
-    await this.kv.put(
-      this.sessionKey(sessionId),
-      JSON.stringify(session),
-      { expirationTtl: remainingTtl }
-    );
+    await this.kv.put(this.sessionKey(sessionId), JSON.stringify(session), {
+      expirationTtl: remainingTtl,
+    });
   }
 
   async destroy(sessionId: string): Promise<void> {
     const session = await this.get(sessionId);
     if (session?.userId) {
       const userKey = this.userSessionsKey(session.tenantId, session.userId);
-      const sessionIds = await this.kv.get(userKey, { type: 'json' }) as string[] | null;
+      const sessionIds = (await this.kv.get(userKey, { type: 'json' })) as string[] | null;
       if (sessionIds) {
-        const filtered = sessionIds.filter(id => id !== sessionId);
+        const filtered = sessionIds.filter((id) => id !== sessionId);
         if (filtered.length > 0) {
           await this.kv.put(userKey, JSON.stringify(filtered), {
             expirationTtl: this.config.maxTtlSeconds,
@@ -185,11 +186,11 @@ export class KVSessionStore implements SessionStore {
 
   async destroyByUser(tenantId: string, userId: string): Promise<number> {
     const userKey = this.userSessionsKey(tenantId, userId);
-    const sessionIds = await this.kv.get(userKey, { type: 'json' }) as string[] | null;
+    const sessionIds = (await this.kv.get(userKey, { type: 'json' })) as string[] | null;
     if (!sessionIds) return 0;
 
     const count = sessionIds.length;
-    await Promise.all(sessionIds.map(id => this.kv.delete(this.sessionKey(id))));
+    await Promise.all(sessionIds.map((id) => this.kv.delete(this.sessionKey(id))));
     await this.kv.delete(userKey);
 
     return count;

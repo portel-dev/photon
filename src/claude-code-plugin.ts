@@ -70,15 +70,15 @@ async function generateMarketplaceJson(
   const plugins: any[] = [];
 
   for (const photon of manifest.photons || []) {
-    const pluginName = photon.name;  // Clean plugin name
-    const serverName = photon.name;  // Clean MCP server name
+    const pluginName = photon.name; // Clean plugin name
+    const serverName = photon.name; // Clean MCP server name
 
     // Get constructor params to determine env vars
     const envVars = await extractEnvVars(photon);
 
     const mcpConfig: any = {
       command: 'photon',
-      args: ['mcp', photon.name]
+      args: ['mcp', photon.name],
     };
 
     if (Object.keys(envVars).length > 0) {
@@ -90,29 +90,30 @@ async function generateMarketplaceJson(
       description: photon.description || `${photon.name} MCP server`,
       source: './',
       strict: false,
-      hooks: [
-        './.claude-plugin/hooks.json'
-      ],
+      hooks: ['./.claude-plugin/hooks.json'],
       mcpServers: {
-        [serverName]: mcpConfig
-      }
+        [serverName]: mcpConfig,
+      },
     });
   }
 
   const pluginManifest = {
     name: `${manifest.name}-marketplace`,
-    owner: options.owner ? {
-      name: options.owner,
-      email: 'arul@luracast.com'
-    } : (manifest.owner || {
-      name: 'Portel',
-      email: 'arul@luracast.com'
-    }),
+    owner: options.owner
+      ? {
+          name: options.owner,
+          email: 'arul@luracast.com',
+        }
+      : manifest.owner || {
+          name: 'Portel',
+          email: 'arul@luracast.com',
+        },
     metadata: {
-      description: manifest.description || options.description || `Official ${manifest.name} MCP servers`,
-      version: manifest.version || PHOTON_VERSION
+      description:
+        manifest.description || options.description || `Official ${manifest.name} MCP servers`,
+      version: manifest.version || PHOTON_VERSION,
     },
-    plugins
+    plugins,
   };
 
   const outputPath = path.join(pluginDir, 'marketplace.json');
@@ -144,11 +145,11 @@ async function generateHooksJson(pluginDir: string): Promise<void> {
           {
             type: 'command',
             command: 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-photon.sh',
-            timeout: 120
-          }
-        ]
-      }
-    ]
+            timeout: 120,
+          },
+        ],
+      },
+    ],
   };
 
   const outputPath = path.join(pluginDir, 'hooks.json');

@@ -98,7 +98,11 @@ export function getDaemonStatus(photonName: string): DaemonStatus {
 /**
  * Start daemon for a photon
  */
-export async function startDaemon(photonName: string, photonPath: string, quiet: boolean = false): Promise<void> {
+export async function startDaemon(
+  photonName: string,
+  photonPath: string,
+  quiet: boolean = false
+): Promise<void> {
   ensureDaemonDir();
 
   if (isDaemonRunning(photonName)) {
@@ -141,7 +145,7 @@ export async function startDaemon(photonName: string, photonPath: string, quiet:
   }
 
   // Wait a bit for daemon to initialize
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 500));
 }
 
 /**
@@ -182,7 +186,7 @@ export function stopDaemon(photonName: string): void {
 export function stopAllDaemons(): void {
   ensureDaemonDir();
 
-  const pidFiles = fs.readdirSync(DAEMON_DIR).filter(f => f.endsWith('.pid'));
+  const pidFiles = fs.readdirSync(DAEMON_DIR).filter((f) => f.endsWith('.pid'));
 
   for (const pidFile of pidFiles) {
     const photonName = pidFile.replace('.pid', '');

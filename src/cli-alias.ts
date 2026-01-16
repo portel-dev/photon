@@ -65,7 +65,11 @@ export async function createAlias(photonName: string, aliasName?: string): Promi
 /**
  * Create Unix-style alias (bash script)
  */
-async function createUnixAlias(cmdName: string, photonName: string, photonCmd: string): Promise<void> {
+async function createUnixAlias(
+  cmdName: string,
+  photonName: string,
+  photonCmd: string
+): Promise<void> {
   const aliasPath = path.join(ALIAS_DIR, cmdName);
 
   // Check if alias already exists
@@ -86,7 +90,11 @@ ${photonCmd} cli ${photonName} "$@"
 /**
  * Create Windows-style alias (batch file)
  */
-async function createWindowsAlias(cmdName: string, photonName: string, photonCmd: string): Promise<void> {
+async function createWindowsAlias(
+  cmdName: string,
+  photonName: string,
+  photonCmd: string
+): Promise<void> {
   const aliasPath = path.join(ALIAS_DIR, `${cmdName}.cmd`);
 
   // Check if alias already exists
@@ -120,7 +128,9 @@ async function checkAndInstructPath(): Promise<void> {
 
   if (IS_WINDOWS) {
     logger.info(`\nTo add it permanently, run this in PowerShell (as Administrator):`);
-    logger.info(`  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${ALIAS_DIR}", "User")`);
+    logger.info(
+      `  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${ALIAS_DIR}", "User")`
+    );
     logger.info(`\nOr add it manually:`);
     logger.info(`  1. Open "Environment Variables" in Windows settings`);
     logger.info(`  2. Edit the "Path" variable for your user`);

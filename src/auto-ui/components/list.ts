@@ -48,8 +48,8 @@ export class ListComponent implements UIComponent {
       items: data,
       metadata: {
         ordered: metadata.numbered ?? false,
-        title: metadata.title
-      }
+        title: metadata.title,
+      },
     };
   }
 
@@ -59,8 +59,8 @@ export class ListComponent implements UIComponent {
       props: {
         items: data,
         title: metadata.title,
-        ordered: metadata.numbered ?? false
-      }
+        ordered: metadata.numbered ?? false,
+      },
     };
   }
 }

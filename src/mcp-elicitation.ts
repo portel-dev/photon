@@ -35,4 +35,8 @@ export type ElicitAction = 'accept' | 'decline' | 'cancel';
 /**
  * Re-export types for convenience
  */
-export type { ElicitResult, ElicitRequestFormParams, ElicitRequestURLParams } from '@modelcontextprotocol/sdk/types.js';
+export type {
+  ElicitResult,
+  ElicitRequestFormParams,
+  ElicitRequestURLParams,
+} from '@modelcontextprotocol/sdk/types.js';

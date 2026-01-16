@@ -29,10 +29,14 @@ import type {
   UIToHostMessage,
   EmitEvent,
   AskEvent,
-  PhotonContext
+  PhotonContext,
 } from './photon-bridge.js';
 import { getThemeTokens } from './design-system/tokens.js';
-import { createMcpAppsInitialize, createThemeChangeMessages, type PlatformContext } from './platform-compat.js';
+import {
+  createMcpAppsInitialize,
+  createThemeChangeMessages,
+  type PlatformContext,
+} from './platform-compat.js';
 
 export interface PhotonHostOptions {
   photon: string;
@@ -57,10 +61,13 @@ export class PhotonHost {
   private context: PhotonContext;
   private platformContext: PlatformContext;
   private toolInput: Record<string, any>;
-  private pendingElicitations = new Map<string, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-  }>();
+  private pendingElicitations = new Map<
+    string,
+    {
+      resolve: (value: any) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   private isReady = false;
   private readyPromise: Promise<void>;
   private readyResolve!: () => void;
@@ -78,7 +85,7 @@ export class PhotonHost {
       photon: options.photon,
       method: options.method,
       theme,
-      locale: options.locale || 'en-US'
+      locale: options.locale || 'en-US',
     };
 
     this.platformContext = {
@@ -88,11 +95,11 @@ export class PhotonHost {
       photon: options.photon,
       method: options.method,
       hostName: options.hostName || 'beam',
-      hostVersion: options.hostVersion || '1.5.0'
+      hostVersion: options.hostVersion || '1.5.0',
     };
 
     // Create ready promise
-    this.readyPromise = new Promise(resolve => {
+    this.readyPromise = new Promise((resolve) => {
       this.readyResolve = resolve;
     });
 
@@ -123,13 +130,13 @@ export class PhotonHost {
       type: 'photon:init',
       context: this.context,
       toolInput: this.toolInput,
-      themeTokens
+      themeTokens,
     } as any);
 
     // 2. Send MCP Apps Extension ui/initialize (JSON-RPC)
     const mcpInit = createMcpAppsInitialize(this.platformContext, {
       width: 800,
-      height: 600
+      height: 600,
     });
     this.sendRaw(mcpInit);
 
@@ -139,7 +146,7 @@ export class PhotonHost {
       theme: this.context.theme,
       displayMode: this.platformContext.displayMode,
       locale: this.context.locale,
-      toolInput: this.toolInput
+      toolInput: this.toolInput,
     });
   }
 
@@ -177,7 +184,7 @@ export class PhotonHost {
       this.send({
         type: 'photon:ask',
         id,
-        event: ask
+        event: ask,
       });
 
       // Timeout after 5 minutes
@@ -218,12 +225,12 @@ export class PhotonHost {
       this.send({
         type: 'photon:context',
         context,
-        themeTokens
+        themeTokens,
       } as any);
 
       // Send to all platforms
       const messages = createThemeChangeMessages(context.theme);
-      messages.forEach(msg => this.sendRaw(msg));
+      messages.forEach((msg) => this.sendRaw(msg));
     } else {
       this.send({ type: 'photon:context', context });
     }
@@ -275,21 +282,21 @@ export class PhotonHost {
         this.isReady = true;
         this.readyResolve();
         this.initialize();
-      }
-      else if (msg.method === 'tools/call' && this.options.onCallTool) {
-        this.options.onCallTool(msg.params.name, msg.params.arguments)
-          .then(result => {
+      } else if (msg.method === 'tools/call' && this.options.onCallTool) {
+        this.options
+          .onCallTool(msg.params.name, msg.params.arguments)
+          .then((result) => {
             this.sendRaw({
               jsonrpc: '2.0',
               id: msg.id,
-              result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
+              result: { content: [{ type: 'text', text: JSON.stringify(result) }] },
             });
           })
-          .catch(error => {
+          .catch((error) => {
             this.sendRaw({
               jsonrpc: '2.0',
               id: msg.id,
-              error: { code: -32000, message: error.message }
+              error: { code: -32000, message: error.message },
             });
           });
       }
@@ -319,19 +326,20 @@ export class PhotonHost {
 
       case 'photon:call-tool':
         if (this.options.onCallTool) {
-          this.options.onCallTool(msg.toolName, msg.args)
-            .then(result => {
+          this.options
+            .onCallTool(msg.toolName, msg.args)
+            .then((result) => {
               this.send({
                 type: 'photon:call-tool-response' as any,
                 callId: msg.callId,
-                result
+                result,
               });
             })
-            .catch(error => {
+            .catch((error) => {
               this.send({
                 type: 'photon:call-tool-response' as any,
                 callId: msg.callId,
-                error: error.message
+                error: error.message,
               });
             });
         }

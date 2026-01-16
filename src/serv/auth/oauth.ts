@@ -15,7 +15,12 @@ import type {
   Session,
   Tenant,
 } from '../types/index.js';
-import { encodeOAuthState, decodeOAuthState, generateCodeVerifier, generateCodeChallenge } from './jwt.js';
+import {
+  encodeOAuthState,
+  decodeOAuthState,
+  generateCodeVerifier,
+  generateCodeChallenge,
+} from './jwt.js';
 import type { TokenVault } from '../vault/token-vault.js';
 
 // ============================================================================
@@ -167,7 +172,12 @@ export class MemoryElicitationStore implements ElicitationStore {
 // ============================================================================
 
 export interface GrantStore {
-  find(tenantId: string, photonId: string, provider: string, userId?: string): Promise<PhotonGrant | null>;
+  find(
+    tenantId: string,
+    photonId: string,
+    provider: string,
+    userId?: string
+  ): Promise<PhotonGrant | null>;
   create(grant: Omit<PhotonGrant, 'id' | 'createdAt' | 'updatedAt'>): Promise<PhotonGrant>;
   update(id: string, data: Partial<PhotonGrant>): Promise<void>;
   delete(id: string): Promise<void>;
@@ -185,7 +195,12 @@ export class MemoryGrantStore implements GrantStore {
     return `${tenantId}:${photonId}:${provider}:${userId ?? 'anonymous'}`;
   }
 
-  async find(tenantId: string, photonId: string, provider: string, userId?: string): Promise<PhotonGrant | null> {
+  async find(
+    tenantId: string,
+    photonId: string,
+    provider: string,
+    userId?: string
+  ): Promise<PhotonGrant | null> {
     const k = this.key(tenantId, photonId, provider, userId);
     return this.grants.get(k) ?? null;
   }
@@ -289,14 +304,17 @@ export class OAuthFlowHandler {
     });
 
     // Build OAuth state
-    const state = encodeOAuthState({
-      sessionId: session.id,
-      elicitationId: elicitation.id,
-      photonId,
-      provider,
-      nonce: randomBytes(16).toString('hex'),
-      timestamp: Date.now(),
-    }, this.config.stateSecret);
+    const state = encodeOAuthState(
+      {
+        sessionId: session.id,
+        elicitationId: elicitation.id,
+        photonId,
+        provider,
+        nonce: randomBytes(16).toString('hex'),
+        timestamp: Date.now(),
+      },
+      this.config.stateSecret
+    );
 
     // Build authorization URL
     const params = new URLSearchParams({
@@ -354,7 +372,10 @@ export class OAuthFlowHandler {
       );
 
       // Encrypt and store tokens
-      const accessTokenEncrypted = await this.config.tokenVault.encrypt(tenantId, tokens.accessToken);
+      const accessTokenEncrypted = await this.config.tokenVault.encrypt(
+        tenantId,
+        tokens.accessToken
+      );
       const refreshTokenEncrypted = tokens.refreshToken
         ? await this.config.tokenVault.encrypt(tenantId, tokens.refreshToken)
         : undefined;
@@ -396,7 +417,10 @@ export class OAuthFlowHandler {
       await this.config.elicitationStore.update(elicitation.id, {
         status: 'cancelled',
       });
-      return { success: false, error: err instanceof Error ? err.message : 'Token exchange failed' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Token exchange failed',
+      };
     }
   }
 
@@ -417,7 +441,7 @@ export class OAuthFlowHandler {
     }
 
     // Check scopes
-    const hasAllScopes = requiredScopes.every(s => grant.scopes.includes(s));
+    const hasAllScopes = requiredScopes.every((s) => grant.scopes.includes(s));
     if (!hasAllScopes) {
       return { valid: false };
     }
@@ -428,7 +452,10 @@ export class OAuthFlowHandler {
       if (grant.refreshTokenEncrypted) {
         const refreshed = await this.refreshGrant(grant);
         if (refreshed) {
-          const token = await this.config.tokenVault.decrypt(tenantId, refreshed.accessTokenEncrypted);
+          const token = await this.config.tokenVault.decrypt(
+            tenantId,
+            refreshed.accessTokenEncrypted
+          );
           return { valid: true, token };
         }
       }
@@ -469,7 +496,7 @@ export class OAuthFlowHandler {
       throw new Error(`Token exchange failed: ${error}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       access_token: string;
       refresh_token?: string;
       token_type?: string;
@@ -495,7 +522,10 @@ export class OAuthFlowHandler {
     if (!provider) return null;
 
     try {
-      const refreshToken = await this.config.tokenVault.decrypt(grant.tenantId, grant.refreshTokenEncrypted);
+      const refreshToken = await this.config.tokenVault.decrypt(
+        grant.tenantId,
+        grant.refreshTokenEncrypted
+      );
 
       const response = await fetch(provider.tokenUrl, {
         method: 'POST',
@@ -513,12 +543,15 @@ export class OAuthFlowHandler {
 
       if (!response.ok) return null;
 
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         access_token: string;
         refresh_token?: string;
         expires_in?: number;
       };
-      const accessTokenEncrypted = await this.config.tokenVault.encrypt(grant.tenantId, data.access_token);
+      const accessTokenEncrypted = await this.config.tokenVault.encrypt(
+        grant.tenantId,
+        data.access_token
+      );
       const refreshTokenEncrypted = data.refresh_token
         ? await this.config.tokenVault.encrypt(grant.tenantId, data.refresh_token)
         : grant.refreshTokenEncrypted;

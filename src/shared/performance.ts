@@ -45,7 +45,7 @@ export class PerformanceMonitor {
     metric.duration = duration;
 
     this.logger?.debug(`⏱️  ${name}: ${duration}ms`, metric.metadata);
-    
+
     return duration;
   }
 
@@ -134,7 +134,7 @@ export function memoize<T extends (...args: never[]) => unknown>(
     }
 
     const value = fn(...args) as ReturnType<T>;
-    
+
     // Evict oldest if at capacity
     if (cache.size >= maxSize) {
       const firstKey = cache.keys().next().value;

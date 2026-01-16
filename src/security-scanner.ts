@@ -65,12 +65,20 @@ export class SecurityScanner {
 
       if (result.hasVulnerabilities) {
         totalVulnerabilities += result.vulnerabilities.length;
-        result.vulnerabilities.forEach(vuln => {
+        result.vulnerabilities.forEach((vuln) => {
           switch (vuln.severity) {
-            case 'critical': criticalCount++; break;
-            case 'high': highCount++; break;
-            case 'moderate': moderateCount++; break;
-            case 'low': lowCount++; break;
+            case 'critical':
+              criticalCount++;
+              break;
+            case 'high':
+              highCount++;
+              break;
+            case 'moderate':
+              moderateCount++;
+              break;
+            case 'low':
+              lowCount++;
+              break;
           }
         });
       }
@@ -90,7 +98,10 @@ export class SecurityScanner {
   /**
    * Audit a single dependency
    */
-  private async auditDependency(mcpName: string, dependency: string): Promise<DependencyAuditResult> {
+  private async auditDependency(
+    mcpName: string,
+    dependency: string
+  ): Promise<DependencyAuditResult> {
     // Parse dependency string (name@version)
     const parts = dependency.split('@');
     const version = parts.pop() || 'latest';
@@ -132,7 +143,10 @@ export class SecurityScanner {
   /**
    * Extract relevant vulnerabilities from npm audit output
    */
-  private extractVulnerabilities(auditData: NpmAuditData, packageName: string): VulnerabilityInfo[] {
+  private extractVulnerabilities(
+    auditData: NpmAuditData,
+    packageName: string
+  ): VulnerabilityInfo[] {
     const vulnerabilities: VulnerabilityInfo[] = [];
 
     if (!auditData.vulnerabilities) {
@@ -143,7 +157,6 @@ export class SecurityScanner {
     for (const [vulnPackage, vulnData] of Object.entries(auditData.vulnerabilities)) {
       // Check if this vulnerability affects our target package
       if (vulnPackage === packageName || vulnData.via?.includes(packageName)) {
-
         vulnerabilities.push({
           severity: vulnData.severity || 'moderate',
           title: vulnData.name || vulnPackage,
@@ -186,11 +199,16 @@ export class SecurityScanner {
    */
   getSeveritySymbol(severity: string): string {
     switch (severity) {
-      case 'critical': return '🔴';
-      case 'high': return '🟠';
-      case 'moderate': return '🟡';
-      case 'low': return '🔵';
-      default: return 'ℹ️';
+      case 'critical':
+        return '🔴';
+      case 'high':
+        return '🟠';
+      case 'moderate':
+        return '🟡';
+      case 'low':
+        return '🔵';
+      default:
+        return 'ℹ️';
     }
   }
 

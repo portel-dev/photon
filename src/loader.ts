@@ -70,7 +70,11 @@ interface DependencySpec {
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION } from './version.js';
-import { generateConfigErrorMessage, summarizeConstructorParams, toEnvVarName } from './shared/config-docs.js';
+import {
+  generateConfigErrorMessage,
+  summarizeConstructorParams,
+  toEnvVarName,
+} from './shared/config-docs.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
@@ -155,16 +159,20 @@ export class PhotonLoader {
     const hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
     return `${mcpName}-${hash}`;
   }
- 
+
   private getPhotonCacheDir(): string {
     return path.join(os.homedir(), '.photon', '.cache', 'photons');
   }
- 
+
   private sanitizeCacheLabel(label: string): string {
     return label.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
- 
-  private async writePhotonCacheFile(label: string, content: string, hashHint?: string): Promise<string> {
+
+  private async writePhotonCacheFile(
+    label: string,
+    content: string,
+    hashHint?: string
+  ): Promise<string> {
     const cacheDir = this.getPhotonCacheDir();
     await fs.mkdir(cacheDir, { recursive: true });
     const hash = hashHint
@@ -175,7 +183,7 @@ export class PhotonLoader {
     await fs.writeFile(cachePath, content, 'utf-8');
     return cachePath;
   }
- 
+
   private async runCommand(command: string, args: string[], cwd: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(command, args, {
@@ -192,7 +200,7 @@ export class PhotonLoader {
       });
     });
   }
- 
+
   /**
    * Directory where MCP-specific dependencies are cached
    */
@@ -225,7 +233,9 @@ export class PhotonLoader {
     return path.join(this.getDependencyCacheDir(cacheKey), 'metadata.json');
   }
 
-  private async readDependencyMetadata(cacheKey: string): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
+  private async readDependencyMetadata(
+    cacheKey: string
+  ): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
     try {
       const data = await fs.readFile(this.getDependencyMetadataPath(cacheKey), 'utf-8');
       return JSON.parse(data);
@@ -251,16 +261,28 @@ export class PhotonLoader {
       return false;
     }
     const normalize = (deps: DependencySpec[]) =>
-      deps.map(d => `${d.name}@${d.version}`).sort().join('|');
+      deps
+        .map((d) => `${d.name}@${d.version}`)
+        .sort()
+        .join('|');
     return normalize(a) === normalize(b);
   }
 
-  private async writeDependencyMetadata(cacheKey: string, hash: string, dependencies: DependencySpec[], photonPath?: string): Promise<void> {
+  private async writeDependencyMetadata(
+    cacheKey: string,
+    hash: string,
+    dependencies: DependencySpec[],
+    photonPath?: string
+  ): Promise<void> {
     const metadataPath = this.getDependencyMetadataPath(cacheKey);
     await fs.mkdir(path.dirname(metadataPath), { recursive: true });
     await fs.writeFile(
       metadataPath,
-      JSON.stringify({ hash, dependencies, photonPath: photonPath ? path.resolve(photonPath) : undefined }, null, 2),
+      JSON.stringify(
+        { hash, dependencies, photonPath: photonPath ? path.resolve(photonPath) : undefined },
+        null,
+        2
+      ),
       'utf-8'
     );
   }
@@ -274,7 +296,9 @@ export class PhotonLoader {
   ): Promise<string | null> {
     const metadata = await this.readDependencyMetadata(cacheKey);
     const hashMatches = metadata?.hash === sourceHash;
-    const depsMatch = metadata ? this.dependenciesEqual(metadata.dependencies, dependencies) : false;
+    const depsMatch = metadata
+      ? this.dependenciesEqual(metadata.dependencies, dependencies)
+      : false;
     const needsClear = Boolean(metadata && (!hashMatches || !depsMatch));
 
     if (needsClear) {
@@ -313,7 +337,10 @@ export class PhotonLoader {
     const regex = /@dependencies\s+([^\r\n]+)/g;
     let match;
     while ((match = regex.exec(source)) !== null) {
-      const entries = match[1].split(',').map(entry => entry.trim()).filter(Boolean);
+      const entries = match[1]
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
       for (const entry of entries) {
         const atIndex = entry.lastIndexOf('@');
         if (atIndex <= 0) {
@@ -329,7 +356,10 @@ export class PhotonLoader {
     return deps;
   }
 
-  private static mergeDependencySpecs(existing: DependencySpec[], additional: DependencySpec[]): DependencySpec[] {
+  private static mergeDependencySpecs(
+    existing: DependencySpec[],
+    additional: DependencySpec[]
+  ): DependencySpec[] {
     const map = new Map<string, string>();
     for (const dep of existing) {
       map.set(dep.name, dep.version);
@@ -354,11 +384,14 @@ export class PhotonLoader {
    * Check if current runtime version satisfies the required version range
    * Supports: ^1.5.0, >=1.5.0, 1.5.0, ~1.5.0
    */
-  private static checkRuntimeCompatibility(required: string, current: string): { compatible: boolean; message?: string } {
+  private static checkRuntimeCompatibility(
+    required: string,
+    current: string
+  ): { compatible: boolean; message?: string } {
     // Parse version components
     const parseVersion = (v: string): [number, number, number] => {
       const clean = v.replace(/^[~^>=<]+/, '');
-      const parts = clean.split('.').map(p => parseInt(p, 10) || 0);
+      const parts = clean.split('.').map((p) => parseInt(p, 10) || 0);
       return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
     };
 
@@ -431,9 +464,9 @@ export class PhotonLoader {
     assertString(filePath, 'filePath');
     validateOrThrow(filePath, [
       notEmpty('Photon file path'),
-      hasExtension('Photon file', ['ts', 'js'])
+      hasExtension('Photon file', ['ts', 'js']),
     ]);
-    
+
     try {
       // Resolve to absolute path
       const absolutePath = path.resolve(filePath);
@@ -466,8 +499,14 @@ export class PhotonLoader {
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
 
         // Auto-include @portel/photon-core if imported (it's the runtime, always available)
-        if (tsContent.includes('@portel/photon-core') && !dependencies.some(d => d.name === '@portel/photon-core')) {
-          dependencies.push({ name: '@portel/photon-core', version: `^${PHOTON_VERSION.split('.').slice(0, 2).join('.')}.0` });
+        if (
+          tsContent.includes('@portel/photon-core') &&
+          !dependencies.some((d) => d.name === '@portel/photon-core')
+        ) {
+          dependencies.push({
+            name: '@portel/photon-core',
+            version: `^${PHOTON_VERSION.split('.').slice(0, 2).join('.')}.0`,
+          });
         }
 
         mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
@@ -478,7 +517,13 @@ export class PhotonLoader {
           this.log(`📦 Found ${dependencies.length} dependencies`);
         }
 
-        await this.ensureDependenciesWithHash(cacheKey!, mcpName, dependencies, sourceHash, absolutePath);
+        await this.ensureDependenciesWithHash(
+          cacheKey!,
+          mcpName,
+          dependencies,
+          sourceHash,
+          absolutePath
+        );
       }
 
       const importModule = async () => {
@@ -497,7 +542,13 @@ export class PhotonLoader {
         if (this.shouldRetryInstall(error) && tsContent && sourceHash && mcpName && cacheKey) {
           this.log(`⚠️  Missing dependency detected, reinstalling dependencies for ${mcpName}`);
           await this.clearAllCaches(cacheKey);
-          await this.ensureDependenciesWithHash(cacheKey, mcpName, dependencies, sourceHash, absolutePath);
+          await this.ensureDependenciesWithHash(
+            cacheKey,
+            mcpName,
+            dependencies,
+            sourceHash,
+            absolutePath
+          );
           module = await importModule();
         } else {
           throw error;
@@ -564,8 +615,8 @@ export class PhotonLoader {
         } catch (error) {
           const initError = new Error(
             `Initialization failed for ${name}: ${getErrorMessage(error)}\n` +
-            `\nThe onInitialize() lifecycle hook threw an error.\n` +
-            `Check your constructor configuration and initialization logic.`
+              `\nThe onInitialize() lifecycle hook threw an error.\n` +
+              `Check your constructor configuration and initialization logic.`
           );
           initError.name = 'PhotonInitializationError';
           if (error instanceof Error && error.stack) {
@@ -588,7 +639,9 @@ export class PhotonLoader {
         assets && (assets.ui.length > 0 || assets.prompts.length > 0 || assets.resources.length > 0)
           ? `${assets.ui.length + assets.prompts.length + assets.resources.length} assets`
           : null,
-      ].filter(Boolean).join(', ');
+      ]
+        .filter(Boolean)
+        .join(', ');
 
       this.log(`✅ Loaded: ${name} (${counts})`);
 
@@ -637,8 +690,12 @@ export class PhotonLoader {
   /**
    * Compile TypeScript file to JavaScript and cache it
    */
-  private async compileTypeScript(tsFilePath: string, cacheKey: string, tsContent?: string): Promise<string> {
-    const source = tsContent ?? await fs.readFile(tsFilePath, 'utf-8');
+  private async compileTypeScript(
+    tsFilePath: string,
+    cacheKey: string,
+    tsContent?: string
+  ): Promise<string> {
+    const source = tsContent ?? (await fs.readFile(tsFilePath, 'utf-8'));
     const hash = crypto.createHash('sha256').update(source).digest('hex').slice(0, 16);
 
     // Store compiled files in dedicated build cache directory
@@ -663,7 +720,7 @@ export class PhotonLoader {
       loader: 'ts',
       format: 'esm',
       target: 'es2022',
-      sourcemap: 'inline'
+      sourcemap: 'inline',
     });
 
     // Ensure cache directory exists
@@ -752,7 +809,10 @@ export class PhotonLoader {
    */
   private getToolMethods(mcpClass: new (...args: unknown[]) => unknown): string[] {
     // Try to use PhotonMCP's method if available
-    const classWithStatic = mcpClass as { getToolMethods?: () => string[]; prototype: Record<string, unknown> };
+    const classWithStatic = mcpClass as {
+      getToolMethods?: () => string[];
+      prototype: Record<string, unknown>;
+    };
     if (typeof classWithStatic.getToolMethods === 'function') {
       return classWithStatic.getToolMethods();
     }
@@ -780,7 +840,10 @@ export class PhotonLoader {
   /**
    * Extract tools, templates, and statics from a class
    */
-  private async extractTools(mcpClass: new (...args: unknown[]) => unknown, sourceFilePath: string): Promise<{
+  private async extractTools(
+    mcpClass: new (...args: unknown[]) => unknown,
+    sourceFilePath: string
+  ): Promise<{
     tools: PhotonTool[];
     templates: TemplateInfo[];
     statics: StaticInfo[];
@@ -838,28 +901,37 @@ export class PhotonLoader {
           }
         }
 
-        this.log(`Loaded ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from .schema.json override`);
+        this.log(
+          `Loaded ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from .schema.json override`
+        );
         return { tools, templates, statics };
       } catch (jsonError: unknown) {
         // .schema.json doesn't exist, try extracting from .ts source
-        const isNotFound = jsonError instanceof Error && 'code' in jsonError && (jsonError as NodeJS.ErrnoException).code === 'ENOENT';
+        const isNotFound =
+          jsonError instanceof Error &&
+          'code' in jsonError &&
+          (jsonError as NodeJS.ErrnoException).code === 'ENOENT';
         if (isNotFound) {
           const extractor = new SchemaExtractor();
           const source = await fs.readFile(sourceFilePath, 'utf-8');
           const metadata = extractor.extractAllFromSource(source);
 
           // Filter by method names that exist in the class
-          tools = metadata.tools.filter(t => methodNames.includes(t.name));
-          templates = metadata.templates.filter(t => methodNames.includes(t.name));
-          statics = metadata.statics.filter(s => methodNames.includes(s.name));
+          tools = metadata.tools.filter((t) => methodNames.includes(t.name));
+          templates = metadata.templates.filter((t) => methodNames.includes(t.name));
+          statics = metadata.statics.filter((s) => methodNames.includes(s.name));
 
-          this.log(`Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`);
+          this.log(
+            `Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`
+          );
           return { tools, templates, statics };
         }
         throw jsonError;
       }
     } catch (error) {
-      this.logger.warn(`⚠️  Failed to extract schemas: ${getErrorMessage(error)}. Using basic tools.`);
+      this.logger.warn(
+        `⚠️  Failed to extract schemas: ${getErrorMessage(error)}. Using basic tools.`
+      );
 
       // Fallback: create basic tools without detailed schemas
       for (const methodName of methodNames) {
@@ -949,7 +1021,9 @@ export class PhotonLoader {
               throw error;
             }
 
-            this.log(`  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${getErrorMessage(error)}`);
+            this.log(
+              `  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${getErrorMessage(error)}`
+            );
             missingMCPs.push({
               name: mcpDep.name,
               source: mcpDep.source,
@@ -971,7 +1045,9 @@ export class PhotonLoader {
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
           } catch (error) {
             this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${getErrorMessage(error)}`);
-            missingPhotons.push(`@photon ${photonDep.name} ${photonDep.source}: ${getErrorMessage(error)}`);
+            missingPhotons.push(
+              `@photon ${photonDep.name} ${photonDep.source}: ${getErrorMessage(error)}`
+            );
             values.push(undefined);
           }
           break;
@@ -997,8 +1073,8 @@ export class PhotonLoader {
       if (missingPhotons.length > 0) {
         parts.push(
           `Missing Photon dependencies:\n` +
-          missingPhotons.map(d => `  • ${d}`).join('\n') +
-          `\n\nEnsure these Photons are installed and accessible.`
+            missingPhotons.map((d) => `  • ${d}`).join('\n') +
+            `\n\nEnsure these Photons are installed and accessible.`
         );
       }
 
@@ -1065,21 +1141,23 @@ export class PhotonLoader {
 
       // If not configured in mcp-servers.json, throw configuration error
       if (!isFromConfig) {
-        throw new MCPConfigurationError([{
-          name: dep.name,
-          source: dep.source,
-          sourceType: dep.sourceType as MCPSourceType,
-          originalError: errorMsg,
-        }]);
+        throw new MCPConfigurationError([
+          {
+            name: dep.name,
+            source: dep.source,
+            sourceType: dep.sourceType as MCPSourceType,
+            originalError: errorMsg,
+          },
+        ]);
       }
 
       // If configured but failed, provide more specific error
       throw new Error(
         `MCP "${dep.name}" is configured but failed to connect: ${errorMsg}\n` +
-        `Check your ~/.photon/config.json configuration and ensure:\n` +
-        `  • The command/URL is correct\n` +
-        `  • Required environment variables are set\n` +
-        `  • The MCP server is accessible`
+          `Check your ~/.photon/config.json configuration and ensure:\n` +
+          `  • The command/URL is correct\n` +
+          `  • Required environment variables are set\n` +
+          `  • The MCP server is accessible`
       );
     }
 
@@ -1114,7 +1192,10 @@ export class PhotonLoader {
   /**
    * Resolve Photon dependency path based on source type
    */
-  private async resolvePhotonPath(dep: PhotonDependency, currentPhotonPath: string): Promise<string> {
+  private async resolvePhotonPath(
+    dep: PhotonDependency,
+    currentPhotonPath: string
+  ): Promise<string> {
     switch (dep.sourceType) {
       case 'local':
         if (dep.source.startsWith('./') || dep.source.startsWith('../')) {
@@ -1136,7 +1217,10 @@ export class PhotonLoader {
     }
   }
 
-  private async resolveMarketplacePhoton(dep: PhotonDependency, currentPhotonPath: string): Promise<string> {
+  private async resolveMarketplacePhoton(
+    dep: PhotonDependency,
+    currentPhotonPath: string
+  ): Promise<string> {
     const { slug, fileName, marketplaceHint } = this.normalizeMarketplaceSource(dep.source);
     const photonDir = path.dirname(currentPhotonPath);
     const candidates = [
@@ -1164,11 +1248,15 @@ export class PhotonLoader {
 
     throw new Error(
       `Photon "${dep.source}" not found in local paths or configured marketplaces. ` +
-      `Checked: ${candidates.join(', ')}`
+        `Checked: ${candidates.join(', ')}`
     );
   }
 
-  private normalizeMarketplaceSource(source: string): { slug: string; fileName: string; marketplaceHint?: string } {
+  private normalizeMarketplaceSource(source: string): {
+    slug: string;
+    fileName: string;
+    marketplaceHint?: string;
+  } {
     let slugSource = source;
     let marketplaceHint: string | undefined;
 
@@ -1191,7 +1279,10 @@ export class PhotonLoader {
     return { slug: normalizedSlug, fileName, marketplaceHint };
   }
 
-  private async fetchPhotonFromMarketplace(slug: string, marketplaceHint?: string): Promise<string | null> {
+  private async fetchPhotonFromMarketplace(
+    slug: string,
+    marketplaceHint?: string
+  ): Promise<string | null> {
     try {
       const manager = await this.getMarketplaceManager();
       try {
@@ -1225,7 +1316,10 @@ export class PhotonLoader {
     return null;
   }
 
-  private async fetchPhotonFromSpecificMarketplace(marketplace: Marketplace, slug: string): Promise<string | null> {
+  private async fetchPhotonFromSpecificMarketplace(
+    marketplace: Marketplace,
+    slug: string
+  ): Promise<string | null> {
     try {
       if (marketplace.sourceType === 'local') {
         const localPath = marketplace.url.replace('file://', '');
@@ -1243,7 +1337,9 @@ export class PhotonLoader {
         return await this.writePhotonCacheFile(`${marketplace.name}-${slug}`, content);
       }
     } catch (error) {
-      this.log(`  ⚠️ Failed to fetch ${slug} from marketplace ${marketplace.name}: ${getErrorMessage(error)}`);
+      this.log(
+        `  ⚠️ Failed to fetch ${slug} from marketplace ${marketplace.name}: ${getErrorMessage(error)}`
+      );
     }
 
     return null;
@@ -1254,14 +1350,21 @@ export class PhotonLoader {
     const url = `https://raw.githubusercontent.com/${info.owner}/${info.repo}/${info.ref}/${info.filePath}`;
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Failed to download Photon from GitHub (${dep.source}): HTTP ${response.status}`);
+      throw new Error(
+        `Failed to download Photon from GitHub (${dep.source}): HTTP ${response.status}`
+      );
     }
     const content = await response.text();
     const label = `${info.owner}-${info.repo}-${info.filePath.replace(/[\\/]/g, '_')}`;
     return await this.writePhotonCacheFile(label, content);
   }
 
-  private parseGithubSource(dep: PhotonDependency): { owner: string; repo: string; ref: string; filePath: string } {
+  private parseGithubSource(dep: PhotonDependency): {
+    owner: string;
+    repo: string;
+    ref: string;
+    filePath: string;
+  } {
     let source = dep.source
       .replace(/^github:/, '')
       .replace(/^https?:\/\/github\.com\//, '')
@@ -1298,9 +1401,7 @@ export class PhotonLoader {
     } else {
       filePath = parts.join('/');
       if (!filePath.endsWith('.ts')) {
-        filePath = filePath.endsWith('.photon')
-          ? `${filePath}.ts`
-          : `${filePath}.photon.ts`;
+        filePath = filePath.endsWith('.photon') ? `${filePath}.ts` : `${filePath}.photon.ts`;
       }
     }
 
@@ -1309,7 +1410,13 @@ export class PhotonLoader {
 
   private async resolveNpmPhoton(dep: PhotonDependency): Promise<string> {
     const { packageSpec, packageName, filePath } = this.parseNpmSource(dep.source);
-    const cacheDir = path.join(os.homedir(), '.photon', '.cache', 'npm', this.sanitizeCacheLabel(packageSpec));
+    const cacheDir = path.join(
+      os.homedir(),
+      '.photon',
+      '.cache',
+      'npm',
+      this.sanitizeCacheLabel(packageSpec)
+    );
     await fs.mkdir(cacheDir, { recursive: true });
     await this.ensureNpmPackageInstalled(cacheDir, packageSpec, packageName);
 
@@ -1320,9 +1427,7 @@ export class PhotonLoader {
 
     if (filePath) {
       const normalized = filePath.replace(/^\//, '');
-      const explicitCandidates = [
-        path.join(packageRoot, normalized),
-      ];
+      const explicitCandidates = [path.join(packageRoot, normalized)];
       if (!normalized.endsWith('.ts')) {
         explicitCandidates.push(path.join(packageRoot, `${normalized}.photon.ts`));
       }
@@ -1341,7 +1446,11 @@ export class PhotonLoader {
     throw new Error(`Unable to locate a .photon.ts file within npm package ${packageSpec}.`);
   }
 
-  private parseNpmSource(source: string): { packageSpec: string; packageName: string; filePath?: string } {
+  private parseNpmSource(source: string): {
+    packageSpec: string;
+    packageName: string;
+    filePath?: string;
+  } {
     let cleaned = source.replace(/^npm:/, '');
     const [specPart, filePath] = cleaned.split('#', 2);
     return {
@@ -1368,11 +1477,19 @@ export class PhotonLoader {
     return path.join(cacheDir, 'node_modules', packageName);
   }
 
-  private async ensureNpmPackageInstalled(cacheDir: string, packageSpec: string, packageName: string): Promise<void> {
+  private async ensureNpmPackageInstalled(
+    cacheDir: string,
+    packageSpec: string,
+    packageName: string
+  ): Promise<void> {
     const packageJsonPath = path.join(cacheDir, 'package.json');
     if (!(await this.pathExists(packageJsonPath))) {
       const pkgName = `photon-npm-${this.sanitizeCacheLabel(packageSpec)}`;
-      await fs.writeFile(packageJsonPath, JSON.stringify({ name: pkgName, version: PHOTON_VERSION }, null, 2), 'utf-8');
+      await fs.writeFile(
+        packageJsonPath,
+        JSON.stringify({ name: pkgName, version: PHOTON_VERSION }, null, 2),
+        'utf-8'
+      );
     }
 
     const packageRoot = this.getPackageInstallPath(cacheDir, packageName);
@@ -1381,7 +1498,11 @@ export class PhotonLoader {
     }
 
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    await this.runCommand(npmCmd, ['install', packageSpec, '--omit=dev', '--silent', '--no-save'], cacheDir);
+    await this.runCommand(
+      npmCmd,
+      ['install', packageSpec, '--omit=dev', '--silent', '--no-save'],
+      cacheDir
+    );
   }
 
   private async findPhotonFile(dir: string, depth = 0): Promise<string | null> {
@@ -1450,13 +1571,10 @@ export class PhotonLoader {
       }
     }
 
-    const configError = missing.length > 0
-      ? generateConfigErrorMessage(mcpName, missing)
-      : null;
+    const configError = missing.length > 0 ? generateConfigErrorMessage(mcpName, missing) : null;
 
     return { values, configError };
   }
-
 
   /**
    * Parse environment variable value based on TypeScript type
@@ -1485,7 +1603,10 @@ export class PhotonLoader {
     const originalMessage = getErrorMessage(error);
 
     // Build detailed env var documentation with examples
-    const { docs: envVarDocs, exampleEnv: envExample } = summarizeConstructorParams(constructorParams, mcpName);
+    const { docs: envVarDocs, exampleEnv: envExample } = summarizeConstructorParams(
+      constructorParams,
+      mcpName
+    );
 
     const enhancedMessage = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1531,8 +1652,6 @@ Run: photon mcp ${mcpName} --config
     return enhanced;
   }
 
-
-
   /**
    * Execute a tool on the loaded MCP instance
    * Handles both regular async methods and async generators
@@ -1567,10 +1686,13 @@ Run: photon mcp ${mcpName} --config
 
         // Handle generator result (if tool returns a generator)
         if (isAsyncGenerator(result)) {
-          const finalResult = await executeGenerator(result as AsyncGenerator<PhotonYield, any, any>, {
-            inputProvider,
-            outputHandler
-          });
+          const finalResult = await executeGenerator(
+            result as AsyncGenerator<PhotonYield, any, any>,
+            {
+              inputProvider,
+              outputHandler,
+            }
+          );
           // Clear any lingering progress
           this.progressRenderer.done();
           return finalResult;
@@ -1655,15 +1777,13 @@ Run: photon mcp ${mcpName} --config
           const options = (ask.options || []).map((o: any) =>
             typeof o === 'string' ? o : o.label
           );
-          const result = await elicitPrompt(
-            `${ask.message}\nOptions: ${options.join(', ')}`
-          );
+          const result = await elicitPrompt(`${ask.message}\nOptions: ${options.join(', ')}`);
           return result;
         }
 
         case 'number': {
           const result = await elicitPrompt(ask.message, ask.default?.toString());
-          return result ? parseFloat(result) : ask.default ?? 0;
+          return result ? parseFloat(result) : (ask.default ?? 0);
         }
 
         case 'date': {
@@ -1723,7 +1843,14 @@ Run: photon mcp ${mcpName} --config
 
         case 'toast':
           this.progressRenderer.done();
-          const icon = emit.type === 'error' ? '❌' : emit.type === 'warning' ? '⚠️' : emit.type === 'success' ? '✅' : 'ℹ';
+          const icon =
+            emit.type === 'error'
+              ? '❌'
+              : emit.type === 'warning'
+                ? '⚠️'
+                : emit.type === 'success'
+                  ? '✅'
+                  : 'ℹ';
           this.logger.info(`${icon} ${emit.message}`);
           break;
 
@@ -1769,7 +1896,11 @@ Run: photon mcp ${mcpName} --config
    * }
    * ```
    */
-  private async injectMCPDependencies(instance: any, source: string, photonName: string): Promise<void> {
+  private async injectMCPDependencies(
+    instance: any,
+    source: string,
+    photonName: string
+  ): Promise<void> {
     const extractor = new SchemaExtractor();
     const mcpDeps = extractor.extractMCPDependencies(source);
 
@@ -1833,7 +1964,10 @@ Run: photon mcp ${mcpName} --config
    * - @prompt <id> <path> - Static prompts
    * - @resource <id> <path> - Static resources
    */
-  private async discoverAssets(photonPath: string, source: string): Promise<PhotonAssets | undefined> {
+  private async discoverAssets(
+    photonPath: string,
+    source: string
+  ): Promise<PhotonAssets | undefined> {
     const extractor = new SchemaExtractor();
     const dir = path.dirname(photonPath);
     const basename = path.basename(photonPath, '.photon.ts');
@@ -1854,7 +1988,12 @@ Run: photon mcp ${mcpName} --config
     const assets = extractor.extractAssets(source, folderExists ? assetFolder : undefined);
 
     // If no folder exists and no explicit declarations, skip
-    if (!folderExists && assets.ui.length === 0 && assets.prompts.length === 0 && assets.resources.length === 0) {
+    if (
+      !folderExists &&
+      assets.ui.length === 0 &&
+      assets.prompts.length === 0 &&
+      assets.resources.length === 0
+    ) {
       return undefined;
     }
 
@@ -1909,7 +2048,7 @@ Run: photon mcp ${mcpName} --config
     let match;
     while ((match = methodUiRegex.exec(source)) !== null) {
       const [, uiId, methodName] = match;
-      const asset = assets.ui.find(u => u.id === uiId);
+      const asset = assets.ui.find((u) => u.id === uiId);
       if (asset && !asset.linkedTool) {
         asset.linkedTool = methodName;
         this.log(`  🔗 UI ${uiId} → ${methodName}`);
@@ -1932,7 +2071,7 @@ Run: photon mcp ${mcpName} --config
         for (const file of files) {
           const id = path.basename(file, path.extname(file));
           // Skip if already declared
-          if (!assets.ui.find(u => u.id === id)) {
+          if (!assets.ui.find((u) => u.id === id)) {
             const resolvedPath = path.join(uiDir, file);
             assets.ui.push({
               id,
@@ -1957,7 +2096,7 @@ Run: photon mcp ${mcpName} --config
           if (file.endsWith('.md') || file.endsWith('.txt')) {
             const id = path.basename(file, path.extname(file));
             // Skip if already declared
-            if (!assets.prompts.find(p => p.id === id)) {
+            if (!assets.prompts.find((p) => p.id === id)) {
               const resolvedPath = path.join(promptsDir, file);
               assets.prompts.push({
                 id,
@@ -1981,7 +2120,7 @@ Run: photon mcp ${mcpName} --config
         for (const file of files) {
           const id = path.basename(file, path.extname(file));
           // Skip if already declared
-          if (!assets.resources.find(r => r.id === id)) {
+          if (!assets.resources.find((r) => r.id === id)) {
             const resolvedPath = path.join(resourcesDir, file);
             assets.resources.push({
               id,
@@ -2016,26 +2155,26 @@ Run: photon mcp ${mcpName} --config
   private getMimeType(filename: string): string {
     const ext = path.extname(filename).toLowerCase().slice(1);
     const mimeTypes: Record<string, string> = {
-      'html': 'text/html',
-      'htm': 'text/html',
-      'css': 'text/css',
-      'js': 'application/javascript',
-      'mjs': 'application/javascript',
-      'jsx': 'text/jsx',
-      'ts': 'text/typescript',
-      'tsx': 'text/tsx',
-      'json': 'application/json',
-      'yaml': 'application/yaml',
-      'yml': 'application/yaml',
-      'xml': 'application/xml',
-      'md': 'text/markdown',
-      'txt': 'text/plain',
-      'png': 'image/png',
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'gif': 'image/gif',
-      'svg': 'image/svg+xml',
-      'webp': 'image/webp',
+      html: 'text/html',
+      htm: 'text/html',
+      css: 'text/css',
+      js: 'application/javascript',
+      mjs: 'application/javascript',
+      jsx: 'text/jsx',
+      ts: 'text/typescript',
+      tsx: 'text/tsx',
+      json: 'application/json',
+      yaml: 'application/yaml',
+      yml: 'application/yaml',
+      xml: 'application/xml',
+      md: 'text/markdown',
+      txt: 'text/plain',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      svg: 'image/svg+xml',
+      webp: 'image/webp',
     };
     return mimeTypes[ext] || 'application/octet-stream';
   }

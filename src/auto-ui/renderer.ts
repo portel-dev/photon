@@ -29,7 +29,7 @@ export class AutoUIRenderer {
     const props: ComponentProps = {
       data,
       metadata,
-      context: this.context
+      context: this.context,
     };
 
     try {
@@ -46,11 +46,11 @@ export class AutoUIRenderer {
         console.log(chalk.bold(metadata.title));
         console.log('');
       }
-      
+
       if (typeof data === 'string') {
         return data;
       }
-      
+
       return JSON.stringify(data, null, 2);
     }
 
@@ -58,7 +58,7 @@ export class AutoUIRenderer {
       return {
         type: 'raw',
         data,
-        metadata
+        metadata,
       };
     }
 
@@ -66,8 +66,8 @@ export class AutoUIRenderer {
       component: 'Raw',
       props: {
         data,
-        ...metadata
-      }
+        ...metadata,
+      },
     };
   }
 
@@ -91,7 +91,7 @@ export class AutoUIRenderer {
 
     const columnsMatch = docblock.match(/@ui-columns\s+(.+)/);
     if (columnsMatch) {
-      metadata.columns = columnsMatch[1].split(',').map(c => c.trim());
+      metadata.columns = columnsMatch[1].split(',').map((c) => c.trim());
     }
 
     metadata.sortable = /@ui-sortable/.test(docblock);

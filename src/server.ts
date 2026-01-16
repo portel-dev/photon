@@ -24,12 +24,25 @@ import * as fs from 'fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import { PhotonMCPClassExtended, Template, Static, TemplateResponse, TemplateMessage } from '@portel/photon-core';
+import {
+  PhotonMCPClassExtended,
+  Template,
+  Static,
+  TemplateResponse,
+  TemplateMessage,
+} from '@portel/photon-core';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel, type LogRecord } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
-import { validateOrThrow, assertString, notEmpty, inRange, oneOf, hasExtension } from './shared/validation.js';
+import {
+  validateOrThrow,
+  assertString,
+  notEmpty,
+  inRange,
+  oneOf,
+  hasExtension,
+} from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 
 export class HotReloadDisabledError extends Error {
@@ -73,9 +86,18 @@ export class PhotonServer {
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
   private hotReloadDisabled = false;
-  private lastReloadError?: { message: string; stack?: string; timestamp: number; attempts: number };
+  private lastReloadError?: {
+    message: string;
+    stack?: string;
+    timestamp: number;
+    attempts: number;
+  };
   private statusClients: Set<ServerResponse> = new Set();
-  private currentStatus: { type: 'info' | 'success' | 'error' | 'warn'; message: string; timestamp: number } = {
+  private currentStatus: {
+    type: 'info' | 'success' | 'error' | 'warn';
+    message: string;
+    timestamp: number;
+  } = {
     type: 'info',
     message: 'Ready',
     timestamp: Date.now(),
@@ -87,21 +109,17 @@ export class PhotonServer {
     assertString(options.filePath, 'filePath');
     validateOrThrow(options.filePath, [
       notEmpty('filePath'),
-      hasExtension('filePath', ['ts', 'js'])
+      hasExtension('filePath', ['ts', 'js']),
     ]);
-    
+
     if (options.transport) {
-      validateOrThrow(options.transport, [
-        oneOf<TransportType>('transport', ['stdio', 'sse'])
-      ]);
+      validateOrThrow(options.transport, [oneOf<TransportType>('transport', ['stdio', 'sse'])]);
     }
-    
+
     if (options.port !== undefined) {
-      validateOrThrow(options.port, [
-        inRange('port', 1, 65535)
-      ]);
+      validateOrThrow(options.port, [inRange('port', 1, 65535)]);
     }
-    
+
     this.options = options;
     this.devMode = options.devMode || false;
 
@@ -119,7 +137,10 @@ export class PhotonServer {
     }
     this.logger = createLogger(baseLoggerOptions);
 
-    this.loader = new PhotonLoader(true, this.logger.child({ component: 'photon-loader', scope: 'loader' }));
+    this.loader = new PhotonLoader(
+      true,
+      this.logger.child({ component: 'photon-loader', scope: 'loader' })
+    );
 
     // Create MCP server instance
     this.server = new Server(
@@ -279,7 +300,10 @@ export class PhotonServer {
       // If client doesn't support elicitation, fall back to logging the ask
       // (MCP servers can't use readline - they communicate via protocol)
       if (!supportsElicitation) {
-        this.log('warn', `Client doesn't support elicitation, ask will be skipped`, { ask: ask.ask, message: ask.message });
+        this.log('warn', `Client doesn't support elicitation, ask will be skipped`, {
+          ask: ask.ask,
+          message: ask.message,
+        });
         // Return default values for non-elicitation clients
         return this.getDefaultForAsk(ask);
       }
@@ -327,10 +351,10 @@ export class PhotonServer {
                 title: ask.label || 'Input',
                 description: ask.hint || ask.message,
                 default: ask.default,
-              }
+              },
             },
             required: ask.required !== false ? ['value'] : [],
-          }
+          },
         };
 
       case 'confirm':
@@ -345,10 +369,10 @@ export class PhotonServer {
                 title: 'Confirm',
                 description: ask.message,
                 default: ask.default ?? false,
-              }
+              },
             },
             required: ['confirmed'],
-          }
+          },
         };
 
       case 'number':
@@ -365,40 +389,38 @@ export class PhotonServer {
                 default: ask.default,
                 minimum: ask.min,
                 maximum: ask.max,
-              }
+              },
             },
             required: ask.required !== false ? ['value'] : [],
-          }
+          },
         };
 
       case 'select':
         // For select, we use enum in the schema
-        const options = (ask.options || []).map((o: any) =>
-          typeof o === 'string' ? o : o.value
-        );
-        const labels = (ask.options || []).map((o: any) =>
-          typeof o === 'string' ? o : o.label
-        );
+        const options = (ask.options || []).map((o: any) => (typeof o === 'string' ? o : o.value));
+        const labels = (ask.options || []).map((o: any) => (typeof o === 'string' ? o : o.label));
         return {
           mode: 'form',
           message: baseMessage + (ask.multi ? ' (select multiple)' : ''),
           requestedSchema: {
             type: 'object',
             properties: {
-              selection: ask.multi ? {
-                type: 'array',
-                items: { type: 'string', enum: options },
-                title: ask.label || 'Selection',
-                description: `Options: ${labels.join(', ')}`,
-              } : {
-                type: 'string',
-                enum: options,
-                title: ask.label || 'Selection',
-                description: `Options: ${labels.join(', ')}`,
-              }
+              selection: ask.multi
+                ? {
+                    type: 'array',
+                    items: { type: 'string', enum: options },
+                    title: ask.label || 'Selection',
+                    description: `Options: ${labels.join(', ')}`,
+                  }
+                : {
+                    type: 'string',
+                    enum: options,
+                    title: ask.label || 'Selection',
+                    description: `Options: ${labels.join(', ')}`,
+                  },
             },
             required: ask.required !== false ? ['selection'] : [],
-          }
+          },
         };
 
       case 'date':
@@ -414,10 +436,10 @@ export class PhotonServer {
                 title: ask.label || 'Date',
                 description: ask.hint || ask.message,
                 default: ask.default,
-              }
+              },
             },
             required: ask.required !== false ? ['value'] : [],
-          }
+          },
         };
 
       default:
@@ -431,9 +453,9 @@ export class PhotonServer {
               value: {
                 type: 'string',
                 title: 'Input',
-              }
+              },
             },
-          }
+          },
         };
     }
   }
@@ -485,7 +507,7 @@ export class PhotonServer {
       }
 
       return {
-        tools: this.mcp.tools.map(tool => {
+        tools: this.mcp.tools.map((tool) => {
           const toolDef: any = {
             name: tool.name,
             description: tool.description,
@@ -493,7 +515,7 @@ export class PhotonServer {
           };
 
           // Add _meta with UI template reference (format depends on client capabilities)
-          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+          const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
           if (linkedUI) {
             toolDef._meta = this.buildUIToolMeta(linkedUI.id);
           }
@@ -520,7 +542,7 @@ export class PhotonServer {
         });
 
         // Find the tool to get its outputFormat
-        const tool = this.mcp.tools.find(t => t.name === toolName);
+        const tool = this.mcp.tools.find((t) => t.name === toolName);
         const outputFormat = tool?.outputFormat;
 
         // Check if this was a stateful workflow execution
@@ -547,9 +569,10 @@ export class PhotonServer {
         if (isStateful && result.runId) {
           const workflowInfo = {
             type: 'text',
-            text: `\n\n---\n📋 **Workflow Run**: ${result.runId}\n` +
-                  `Status: ${result.status}${result.resumed ? ' (resumed)' : ''}\n` +
-                  `This is a stateful workflow. To resume if interrupted, use run ID: ${result.runId}`,
+            text:
+              `\n\n---\n📋 **Workflow Run**: ${result.runId}\n` +
+              `Status: ${result.status}${result.resumed ? ' (resumed)' : ''}\n` +
+              `This is a stateful workflow. To resume if interrupted, use run ID: ${result.runId}`,
           };
           return { content: [content, workflowInfo] };
         }
@@ -574,14 +597,19 @@ export class PhotonServer {
       }
 
       return {
-        prompts: this.mcp.templates.map(template => ({
+        prompts: this.mcp.templates.map((template) => ({
           name: template.name,
           description: template.description,
-          arguments: Object.entries(template.inputSchema.properties || {}).map(([name, schema]) => ({
-            name,
-            description: (typeof schema === 'object' && schema && 'description' in schema ? schema.description as string : '') || '',
-            required: template.inputSchema.required?.includes(name) || false,
-          })),
+          arguments: Object.entries(template.inputSchema.properties || {}).map(
+            ([name, schema]) => ({
+              name,
+              description:
+                (typeof schema === 'object' && schema && 'description' in schema
+                  ? (schema.description as string)
+                  : '') || '',
+              required: template.inputSchema.required?.includes(name) || false,
+            })
+          ),
         })),
       };
     });
@@ -595,7 +623,7 @@ export class PhotonServer {
       const { name: promptName, arguments: args } = request.params;
 
       // Find the template
-      const template = this.mcp.templates.find(t => t.name === promptName);
+      const template = this.mcp.templates.find((t) => t.name === promptName);
       if (!template) {
         throw new Error(`Prompt not found: ${promptName}`);
       }
@@ -622,9 +650,9 @@ export class PhotonServer {
       }
 
       // Only return resources with static URIs (no {parameters})
-      const staticResources = this.mcp.statics.filter(s => !this.isUriTemplate(s.uri));
+      const staticResources = this.mcp.statics.filter((s) => !this.isUriTemplate(s.uri));
 
-      const resources = staticResources.map(static_ => ({
+      const resources = staticResources.map((static_) => ({
         uri: static_.uri,
         name: static_.name,
         description: static_.description,
@@ -678,10 +706,10 @@ export class PhotonServer {
       }
 
       // Only return resources with URI templates (has {parameters})
-      const templateResources = this.mcp.statics.filter(s => this.isUriTemplate(s.uri));
+      const templateResources = this.mcp.statics.filter((s) => this.isUriTemplate(s.uri));
 
       return {
-        resourceTemplates: templateResources.map(static_ => ({
+        resourceTemplates: templateResources.map((static_) => ({
           uriTemplate: static_.uri,
           name: static_.name,
           description: static_.description,
@@ -838,7 +866,8 @@ export class PhotonServer {
     // Categorize common errors and provide suggestions
     if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
       errorType = 'implementation_error';
-      suggestion = 'The tool implementation may have an issue. Check that all methods are properly defined.';
+      suggestion =
+        'The tool implementation may have an issue. Check that all methods are properly defined.';
     } else if (errorMessage.includes('required') || errorMessage.includes('validation')) {
       errorType = 'validation_error';
       suggestion = 'Check the parameters provided match the tool schema requirements.';
@@ -847,7 +876,8 @@ export class PhotonServer {
       suggestion = 'The operation took too long. Try again or check external service availability.';
     } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('network')) {
       errorType = 'network_error';
-      suggestion = 'Cannot connect to external service. Check network connection and service availability.';
+      suggestion =
+        'Cannot connect to external service. Check network connection and service availability.';
     } else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
       errorType = 'permission_error';
       suggestion = 'Permission denied. Check file/resource access permissions.';
@@ -994,17 +1024,21 @@ export class PhotonServer {
         if (this.devMode) {
           endpoints.playground = `http://localhost:${port}/playground`;
         }
-        res.end(JSON.stringify({
-          name: this.mcp?.name || 'photon-mcp',
-          transport: 'sse',
-          endpoints,
-          tools: this.mcp?.tools.length || 0,
-          assets: this.mcp?.assets ? {
-            ui: this.mcp.assets.ui.length,
-            prompts: this.mcp.assets.prompts.length,
-            resources: this.mcp.assets.resources.length,
-          } : null,
-        }));
+        res.end(
+          JSON.stringify({
+            name: this.mcp?.name || 'photon-mcp',
+            transport: 'sse',
+            endpoints,
+            tools: this.mcp?.tools.length || 0,
+            assets: this.mcp?.assets
+              ? {
+                  ui: this.mcp.assets.ui.length,
+                  prompts: this.mcp.assets.prompts.length,
+                  resources: this.mcp.assets.resources.length,
+                }
+              : null,
+          })
+        );
         return;
       }
 
@@ -1038,15 +1072,18 @@ export class PhotonServer {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
           });
-          const tools = this.mcp?.tools.map(tool => {
-            const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
-            return {
-              name: tool.name,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-              ui: linkedUI ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` } : null,
-            };
-          }) || [];
+          const tools =
+            this.mcp?.tools.map((tool) => {
+              const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+              return {
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+                ui: linkedUI
+                  ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` }
+                  : null,
+              };
+            }) || [];
           res.end(JSON.stringify({ tools }));
           return;
         }
@@ -1072,17 +1109,19 @@ export class PhotonServer {
         res.setHeader('Content-Type', 'application/json');
 
         let body = '';
-        req.on('data', chunk => body += chunk);
+        req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
           try {
             const { tool, args } = JSON.parse(body);
             const result = await this.loader.executeTool(this.mcp!, tool, args || {});
             const isStateful = result && typeof result === 'object' && result._stateful === true;
             res.writeHead(200);
-            res.end(JSON.stringify({
-              success: true,
-              data: isStateful ? result.result : result,
-            }));
+            res.end(
+              JSON.stringify({
+                success: true,
+                data: isStateful ? result.result : result,
+              })
+            );
           } catch (error) {
             res.writeHead(500);
             res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
@@ -1099,7 +1138,7 @@ export class PhotonServer {
         res.setHeader('Connection', 'keep-alive');
 
         let body = '';
-        req.on('data', chunk => body += chunk);
+        req.on('data', (chunk) => (body += chunk));
         req.on('end', async () => {
           let requestId = `run_${Date.now()}`;
 
@@ -1182,7 +1221,7 @@ export class PhotonServer {
       // API: Get UI template
       if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
         const uiId = url.pathname.replace('/api/ui/', '');
-        const ui = this.mcp?.assets?.ui.find(u => u.id === uiId);
+        const ui = this.mcp?.assets?.ui.find((u) => u.id === uiId);
 
         if (ui?.resolvedPath) {
           try {
@@ -1233,17 +1272,20 @@ export class PhotonServer {
   private async listAllPhotons() {
     const { listPhotonFiles, DEFAULT_PHOTON_DIR } = await import('./path-resolver.js');
     const photonFiles = await listPhotonFiles();
-    
+
     const photons = await Promise.all(
       photonFiles.map(async (file) => {
         try {
-          const loader = new PhotonLoader(this.devMode, this.logger.child({ component: 'photon-loader', scope: 'discovery' }));
+          const loader = new PhotonLoader(
+            this.devMode,
+            this.logger.child({ component: 'photon-loader', scope: 'discovery' })
+          );
           const mcp = await loader.loadFile(file);
           return {
             name: mcp.name,
             description: mcp.description,
             file: file.replace(DEFAULT_PHOTON_DIR + '/', ''),
-            tools: mcp.tools.map(tool => ({
+            tools: mcp.tools.map((tool) => ({
               name: tool.name,
               description: tool.description,
               inputSchema: tool.inputSchema,
@@ -1256,7 +1298,7 @@ export class PhotonServer {
       })
     );
 
-    return photons.filter(p => p !== null);
+    return photons.filter((p) => p !== null);
   }
 
   /**
@@ -1372,7 +1414,7 @@ export class PhotonServer {
     sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
       if (!this.mcp) return { tools: [] };
       return {
-        tools: this.mcp.tools.map(tool => {
+        tools: this.mcp.tools.map((tool) => {
           const toolDef: any = {
             name: tool.name,
             description: tool.description,
@@ -1380,7 +1422,7 @@ export class PhotonServer {
           };
 
           // Add _meta with UI template reference (format depends on client capabilities)
-          const linkedUI = this.mcp?.assets?.ui.find(u => u.linkedTool === tool.name);
+          const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
           if (linkedUI) {
             toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
           }
@@ -1401,7 +1443,7 @@ export class PhotonServer {
         const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
           inputProvider,
         });
-        const tool = this.mcp.tools.find(t => t.name === toolName);
+        const tool = this.mcp.tools.find((t) => t.name === toolName);
         const outputFormat = tool?.outputFormat;
 
         const isStateful = result && typeof result === 'object' && result._stateful === true;
@@ -1434,15 +1476,17 @@ export class PhotonServer {
     sessionServer.setRequestHandler(ListPromptsRequestSchema, async () => {
       if (!this.mcp) return { prompts: [] };
       return {
-        prompts: this.mcp.templates.map(template => ({
+        prompts: this.mcp.templates.map((template) => ({
           name: template.name,
           description: template.description,
           arguments: template.inputSchema?.properties
-            ? Object.entries(template.inputSchema.properties).map(([name, schema]: [string, any]) => ({
-                name,
-                description: schema.description || '',
-                required: template.inputSchema?.required?.includes(name) || false,
-              }))
+            ? Object.entries(template.inputSchema.properties).map(
+                ([name, schema]: [string, any]) => ({
+                  name,
+                  description: schema.description || '',
+                  required: template.inputSchema?.required?.includes(name) || false,
+                })
+              )
             : [],
         })),
       };
@@ -1515,8 +1559,8 @@ export class PhotonServer {
       if (!this.mcp) return { resourceTemplates: [] };
       return {
         resourceTemplates: this.mcp.statics
-          .filter(static_ => this.isUriTemplate(static_.uri))
-          .map(static_ => ({
+          .filter((static_) => this.isUriTemplate(static_.uri))
+          .map((static_) => ({
             uriTemplate: static_.uri,
             name: static_.name,
             description: static_.description,
@@ -1551,19 +1595,19 @@ export class PhotonServer {
     let mimeType: string = 'text/plain';
 
     if (assetType === 'ui') {
-      const ui = this.mcp!.assets!.ui.find(u => u.id === assetId);
+      const ui = this.mcp!.assets!.ui.find((u) => u.id === assetId);
       if (ui) {
         resolvedPath = ui.resolvedPath;
         mimeType = ui.mimeType || 'text/html';
       }
     } else if (assetType === 'prompts') {
-      const prompt = this.mcp!.assets!.prompts.find(p => p.id === assetId);
+      const prompt = this.mcp!.assets!.prompts.find((p) => p.id === assetId);
       if (prompt) {
         resolvedPath = prompt.resolvedPath;
         mimeType = 'text/markdown';
       }
     } else if (assetType === 'resources') {
-      const resource = this.mcp!.assets!.resources.find(r => r.id === assetId);
+      const resource = this.mcp!.assets!.resources.find((r) => r.id === assetId);
       if (resource) {
         resolvedPath = resource.resolvedPath;
         mimeType = resource.mimeType || 'application/octet-stream';
@@ -1584,7 +1628,9 @@ export class PhotonServer {
    * Handle static resource read (for both stdio and SSE handlers)
    */
   private async handleStaticRead(uri: string) {
-    const static_ = this.mcp!.statics.find(s => s.uri === uri || this.matchUriPattern(s.uri, uri));
+    const static_ = this.mcp!.statics.find(
+      (s) => s.uri === uri || this.matchUriPattern(s.uri, uri)
+    );
     if (!static_) {
       throw new Error(`Resource not found: ${uri}`);
     }
@@ -1654,12 +1700,12 @@ export class PhotonServer {
       warnings,
       summary: {
         toolCount: tools.length,
-        tools: tools.map(tool => ({
+        tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description || '',
-          hasUI: Boolean(assets.ui?.some(ui => ui.linkedTool === tool.name)),
+          hasUI: Boolean(assets.ui?.some((ui) => ui.linkedTool === tool.name)),
         })),
-        uiAssets: (assets.ui || []).map(ui => ({ id: ui.id, linkedTool: ui.linkedTool })),
+        uiAssets: (assets.ui || []).map((ui) => ({ id: ui.id, linkedTool: ui.linkedTool })),
         promptCount: assets.prompts?.length || 0,
         resourceCount: assets.resources?.length || 0,
       },
@@ -1731,7 +1777,9 @@ export class PhotonServer {
     }
 
     if (this.hotReloadDisabled) {
-      throw new HotReloadDisabledError('Hot reload temporarily disabled after repeated failures. Restart Photon or fix the errors to re-enable.');
+      throw new HotReloadDisabledError(
+        'Hot reload temporarily disabled after repeated failures. Restart Photon or fix the errors to re-enable.'
+      );
     }
 
     try {
@@ -1801,7 +1849,9 @@ export class PhotonServer {
 
         this.hotReloadDisabled = true;
         this.reloadFailureCount = 0;
-        throw new HotReloadDisabledError('Hot reload disabled after repeated failures. Restart Photon dev server once the errors are resolved.');
+        throw new HotReloadDisabledError(
+          'Hot reload disabled after repeated failures. Restart Photon dev server once the errors are resolved.'
+        );
       }
 
       const retryDelay = Math.min(5000 * this.reloadFailureCount, 15000);
@@ -1838,7 +1888,9 @@ export class PhotonServer {
       this.log('debug', 'Sent list_changed notifications');
     } catch (error) {
       // Notification sending is best-effort - don't fail reload if it fails
-      this.log('warn', 'Failed to send list_changed notifications', { error: getErrorMessage(error) });
+      this.log('warn', 'Failed to send list_changed notifications', {
+        error: getErrorMessage(error),
+      });
     }
   }
 }

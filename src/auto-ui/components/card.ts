@@ -30,7 +30,7 @@ export class CardComponent implements UIComponent {
     }
 
     const lines: string[] = [];
-    
+
     if (metadata.title) {
       lines.push(chalk.bold(metadata.title));
       lines.push('');
@@ -38,16 +38,15 @@ export class CardComponent implements UIComponent {
 
     Object.entries(data).forEach(([key, value]) => {
       const formattedKey = chalk.cyan(key + ':');
-      const formattedValue = typeof value === 'object' 
-        ? JSON.stringify(value, null, 2) 
-        : String(value);
+      const formattedValue =
+        typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
       lines.push(`${formattedKey} ${formattedValue}`);
     });
 
     return boxen(lines.join('\n'), {
       padding: 1,
       borderStyle: 'round',
-      borderColor: 'gray'
+      borderColor: 'gray',
     });
   }
 
@@ -57,8 +56,8 @@ export class CardComponent implements UIComponent {
       data,
       metadata: {
         title: metadata.title,
-        description: metadata.description
-      }
+        description: metadata.description,
+      },
     };
   }
 
@@ -68,8 +67,8 @@ export class CardComponent implements UIComponent {
       props: {
         data,
         title: metadata.title,
-        description: metadata.description
-      }
+        description: metadata.description,
+      },
     };
   }
 }

@@ -214,11 +214,7 @@ export function extractTenantSlug(url: string, pathPrefix = '/tenant/'): string 
 /**
  * Build tenant-specific URL
  */
-export function buildTenantUrl(
-  baseUrl: string,
-  tenant: Tenant,
-  path: string
-): string {
+export function buildTenantUrl(baseUrl: string, tenant: Tenant, path: string): string {
   if (tenant.settings.customDomain) {
     return `https://${tenant.settings.customDomain}${path}`;
   }

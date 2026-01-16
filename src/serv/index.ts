@@ -130,7 +130,12 @@ import { JwtService } from './auth/jwt.js';
 import { LocalTokenVault, type TokenVault } from './vault/token-vault.js';
 import { TenantResolver, MemoryTenantStore, type TenantStore } from './middleware/tenant.js';
 import { AuthMiddleware, type UserStore, type MembershipStore } from './middleware/auth.js';
-import { OAuthProviderRegistry, OAuthFlowHandler, MemoryElicitationStore, MemoryGrantStore } from './auth/oauth.js';
+import {
+  OAuthProviderRegistry,
+  OAuthFlowHandler,
+  MemoryElicitationStore,
+  MemoryGrantStore,
+} from './auth/oauth.js';
 import type { WellKnownConfig } from './auth/well-known.js';
 import { PhotonExecutor, type ExecutionContext } from './runtime/index.js';
 
@@ -178,9 +183,11 @@ export class Serv {
     // Initialize stores
     this.sessionStore = config.sessionStore ?? new MemorySessionStore();
     this.tenantStore = config.tenantStore ?? new MemoryTenantStore();
-    this.tokenVault = config.tokenVault ?? new LocalTokenVault({
-      masterKey: config.encryptionKey,
-    });
+    this.tokenVault =
+      config.tokenVault ??
+      new LocalTokenVault({
+        masterKey: config.encryptionKey,
+      });
 
     // Initialize JWT service
     this.jwtService = new JwtService({
@@ -308,10 +315,7 @@ export class Serv {
 /**
  * Create a SERV instance for development
  */
-export function createDevServ(options?: {
-  baseUrl?: string;
-  baseDomain?: string;
-}): Serv {
+export function createDevServ(options?: { baseUrl?: string; baseDomain?: string }): Serv {
   const baseUrl = options?.baseUrl ?? 'http://localhost:3000';
   const baseDomain = options?.baseDomain ?? 'localhost';
 

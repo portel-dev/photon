@@ -33,7 +33,7 @@ export class ProgressIndicator implements UIComponent {
         this.spinner = ora({
           text: progress.message || 'Processing...',
           stream: process.stdout,
-          hideCursor: true
+          hideCursor: true,
         }).start();
       } else if (progress.message !== this.lastMessage) {
         this.spinner.text = progress.message || 'Processing...';
@@ -42,16 +42,20 @@ export class ProgressIndicator implements UIComponent {
       return '';
     }
 
-    if (progress.type === 'percentage' && progress.current !== undefined && progress.total !== undefined) {
+    if (
+      progress.type === 'percentage' &&
+      progress.current !== undefined &&
+      progress.total !== undefined
+    ) {
       const percent = Math.round((progress.current / progress.total) * 100);
       const bar = this.createProgressBar(percent);
       const message = progress.message || 'Progress';
-      
+
       if (!this.spinner) {
         this.spinner = ora().start();
       }
       this.spinner.text = `${message} ${bar} ${percent}%`;
-      
+
       if (percent >= 100) {
         this.spinner.succeed(`${message} Complete`);
         this.spinner = undefined;
@@ -63,12 +67,12 @@ export class ProgressIndicator implements UIComponent {
       const step = progress.step || 0;
       const total = progress.totalSteps || 0;
       const message = progress.message || 'Step';
-      
+
       if (!this.spinner) {
         this.spinner = ora().start();
       }
       this.spinner.text = `${message} (${step}/${total})`;
-      
+
       if (step >= total) {
         this.spinner.succeed(`All steps complete`);
         this.spinner = undefined;
@@ -87,7 +91,7 @@ export class ProgressIndicator implements UIComponent {
       total: progress.total,
       message: progress.message,
       step: progress.step,
-      totalSteps: progress.totalSteps
+      totalSteps: progress.totalSteps,
     };
   }
 
@@ -96,13 +100,14 @@ export class ProgressIndicator implements UIComponent {
       component: 'Progress',
       props: {
         type: progress.type,
-        value: progress.type === 'percentage' && progress.current && progress.total
-          ? (progress.current / progress.total) * 100
-          : undefined,
+        value:
+          progress.type === 'percentage' && progress.current && progress.total
+            ? (progress.current / progress.total) * 100
+            : undefined,
         message: progress.message,
         step: progress.step,
-        totalSteps: progress.totalSteps
-      }
+        totalSteps: progress.totalSteps,
+      },
     };
   }
 
