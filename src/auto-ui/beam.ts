@@ -7661,7 +7661,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           <iframe
             src="\${blobUrl}"
             class="html-content-iframe"
-            style="width: 100%; min-height: 400px; border: none; border-radius: 8px; background: white;"
+            style="width: 100%; height: calc(100vh - 280px); min-height: 500px; border: none; border-radius: 8px; background: transparent;"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           ></iframe>
         </div>
@@ -7676,10 +7676,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         iframe.addEventListener('load', () => {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 
-          // Auto-size iframe
+          // Auto-size iframe only if content is taller than current height
+          // Don't shrink - custom UIs may use 100% height
           try {
-            const height = Math.max(400, iframe.contentWindow.document.body.scrollHeight + 20);
-            iframe.style.height = height + 'px';
+            const contentHeight = iframe.contentWindow.document.body.scrollHeight + 20;
+            const currentHeight = iframe.offsetHeight;
+            if (contentHeight > currentHeight) {
+              iframe.style.height = contentHeight + 'px';
+            }
           } catch (e) {
             // Cross-origin, will use notifyIntrinsicHeight
           }
