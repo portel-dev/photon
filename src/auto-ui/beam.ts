@@ -5146,6 +5146,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function selectMethodByName(photonName, methodName) {
       currentPhoton = photons.find(p => p.name === photonName);
       if (!currentPhoton) return;
+
+      // If this is an app's main method, use openApp instead
+      if (currentPhoton.isApp && methodName === 'main') {
+        openApp(photonName);
+        return;
+      }
+
       currentMethod = currentPhoton.methods?.find(m => m.name === methodName);
       if (!currentMethod) return;
 
@@ -5156,10 +5163,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const methodItem = document.querySelector(\`.method-item[onclick*="'\${methodName}'"]\`);
       if (methodItem) methodItem.classList.add('selected');
 
-      // Show method view, hide others
+      // Show method view, hide others, exit app mode
       document.getElementById('empty-state').style.display = 'none';
       document.getElementById('config-view').style.display = 'none';
-      document.getElementById('method-view').style.display = 'flex';
+      const methodView = document.getElementById('method-view');
+      methodView.style.display = 'flex';
+      methodView.classList.remove('app-mode');
       document.getElementById('method-title').textContent = \`\${photonName}.\${methodName}()\`;
       document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
 
@@ -6598,6 +6607,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     function selectMethod(photonName, methodName, e) {
       currentPhoton = photons.find(p => p.name === photonName);
+
+      // If this is an app's main method, use openApp instead
+      if (currentPhoton?.isApp && methodName === 'main') {
+        openApp(photonName);
+        return;
+      }
+
       currentMethod = currentPhoton.methods.find(m => m.name === methodName);
 
       // Track in recent history
