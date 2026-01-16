@@ -715,7 +715,18 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         } else if (message.type === 'elicitation_response') {
           // Store response for pending elicitation
           if ((ws as any).pendingElicitation) {
-            (ws as any).pendingElicitation.resolve(message.value);
+            if (message.cancelled) {
+              // User cancelled the elicitation
+              (ws as any).pendingElicitation.reject(new Error('User cancelled'));
+            } else {
+              (ws as any).pendingElicitation.resolve(message.value);
+            }
+            (ws as any).pendingElicitation = null;
+          }
+        } else if (message.type === 'cancel') {
+          // Cancel any pending elicitation (the async operation continues in background)
+          if ((ws as any).pendingElicitation) {
+            (ws as any).pendingElicitation.reject(new Error('Execution cancelled'));
             (ws as any).pendingElicitation = null;
           }
         } else if (message.type === 'reload') {
@@ -1001,9 +1012,9 @@ async function handleInvoke(
         data: ask
       }));
 
-      // Wait for response from client
-      return new Promise((resolve) => {
-        (ws as any).pendingElicitation = { resolve };
+      // Wait for response from client (can be cancelled via Escape)
+      return new Promise((resolve, reject) => {
+        (ws as any).pendingElicitation = { resolve, reject };
       });
     };
 
@@ -2433,6 +2444,34 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       font-size: 13px;
       color: var(--text-muted);
       font-weight: 500;
+    }
+
+    .progress-cancel {
+      margin-top: 16px;
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .progress-cancel:hover {
+      background: var(--bg-hover);
+      border-color: var(--text-muted);
+      color: var(--text-primary);
+    }
+
+    .progress-cancel kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      margin-left: 6px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
     }
 
     /* Toast notifications */
@@ -4029,6 +4068,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
       </div>
       <div class="progress-percent" id="progress-percent" style="display: none;">0%</div>
+      <button class="progress-cancel" onclick="cancelExecution()">Cancel <kbd>Esc</kbd></button>
     </div>
   </div>
 
@@ -5713,6 +5753,31 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('progress-overlay').classList.remove('visible');
     }
 
+    // Cancel current execution and close progress overlay
+    function cancelExecution() {
+      hideProgress();
+      // Also close elicitation modal if open
+      document.getElementById('elicitation-modal').classList.remove('visible');
+      // Send cancel message to server
+      ws.send(JSON.stringify({ type: 'cancel' }));
+      showToast('Execution cancelled', 'info');
+      addActivity('cancel', 'Cancelled execution');
+    }
+
+    // Close elicitation modal (user cancelled input)
+    function cancelElicitation() {
+      const modal = document.getElementById('elicitation-modal');
+      if (modal.classList.contains('visible')) {
+        modal.classList.remove('visible');
+        // Send cancel response to server
+        ws.send(JSON.stringify({
+          type: 'elicitation_response',
+          cancelled: true
+        }));
+        showToast('Input cancelled', 'info');
+      }
+    }
+
     function showToast(message, type = 'info') {
       const container = document.getElementById('toast-container') || createToastContainer();
       const toast = document.createElement('div');
@@ -7146,17 +7211,34 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
       const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
 
-      // Escape - close modals/search
+      // Escape - close modals/cancel operations (priority order)
       if (e.key === 'Escape') {
-        if (document.getElementById('image-fullscreen-container').innerHTML) {
+        // 1. Cancel running execution (progress overlay)
+        if (document.getElementById('progress-overlay').classList.contains('visible')) {
+          cancelExecution();
+        }
+        // 2. Cancel elicitation (input prompt)
+        else if (document.getElementById('elicitation-modal').classList.contains('visible')) {
+          cancelElicitation();
+        }
+        // 3. Close image fullscreen
+        else if (document.getElementById('image-fullscreen-container').innerHTML) {
           closeImageFullscreen();
-        } else if (document.getElementById('mermaid-fullscreen-container').innerHTML) {
+        }
+        // 4. Close mermaid fullscreen
+        else if (document.getElementById('mermaid-fullscreen-container').innerHTML) {
           closeMermaidFullscreen();
-        } else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
+        }
+        // 5. Close result viewer
+        else if (document.getElementById('result-viewer-modal').classList.contains('visible')) {
           closeResultViewer();
-        } else if (document.getElementById('keyboard-help-modal')?.classList.contains('visible')) {
+        }
+        // 6. Close keyboard help
+        else if (document.getElementById('keyboard-help-modal')?.classList.contains('visible')) {
           document.getElementById('keyboard-help-modal').classList.remove('visible');
-        } else if (isInput && target.id === 'search-input') {
+        }
+        // 7. Clear search input
+        else if (isInput && target.id === 'search-input') {
           target.value = '';
           target.dispatchEvent(new Event('input'));
           target.blur();
