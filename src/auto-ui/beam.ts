@@ -3953,7 +3953,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               <div class="result-header">
                 <span>Result</span>
                 <div class="result-actions">
-                  <div class="result-filter-wrapper">
+                  <div class="result-filter-wrapper" style="display: none;">
                     <input type="text" class="result-filter-input" id="result-filter" placeholder="Filter..." oninput="filterResults(event)">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <circle cx="11" cy="11" r="8"></circle>
@@ -5933,9 +5933,24 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
       }
 
-      // Show filter for non-custom UI results
+      // Only show filter for array results (collections)
       const filterWrapper = document.querySelector('.result-filter-wrapper');
-      if (filterWrapper) filterWrapper.style.display = '';
+      const isFilterable = Array.isArray(data) && data.length > 0;
+      if (filterWrapper) {
+        filterWrapper.style.display = isFilterable ? '' : 'none';
+        // Store searchable fields for filtering
+        if (isFilterable && typeof data[0] === 'object') {
+          // Use layoutHints.filter if specified (space-separated field names)
+          // Otherwise fall back to common searchable fields
+          const defaultSearchFields = ['name', 'title', 'label', 'description', 'summary', 'query', 'text', 'content'];
+          let searchFields = defaultSearchFields;
+          if (layoutHints?.filter) {
+            // Parse space-separated field names from @filter hint
+            searchFields = layoutHints.filter.split(/\s+/).filter(Boolean);
+          }
+          filterWrapper.dataset.searchFields = JSON.stringify(searchFields);
+        }
+      }
 
       // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
@@ -7320,6 +7335,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const countEl = document.getElementById('result-filter-count');
       if (countEl) {
         countEl.style.display = 'none';
+      }
+      // Hide filter wrapper until we know result is filterable
+      const filterWrapper = document.querySelector('.result-filter-wrapper');
+      if (filterWrapper) {
+        filterWrapper.style.display = 'none';
+        delete filterWrapper.dataset.searchFields;
       }
     }
 
