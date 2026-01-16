@@ -641,7 +641,7 @@ async function runPhotonTests(
     // MCP INTERFACE TESTS
     // ─────────────────────────────────────────────────────────────────────────
 
-    if (mode === 'mcp') {
+    if (mode === 'mcp' || mode === 'all') {
       const methods = await getPublicMethods(photonPath);
 
       for (const method of methods) {

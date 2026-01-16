@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 import { watch, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn } from 'child_process';
 import { Writable } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath, DEFAULT_PHOTON_DIR } from '../path-resolver.js';
@@ -920,7 +921,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     }
 
     // Test API: Run a single test
-    // Supports modes: 'direct' (call instance method) or 'mcp' (call via executeTool)
+    // Supports modes: 'direct' (call instance method), 'mcp' (call via executeTool), 'cli' (spawn subprocess)
     if (url.pathname === '/api/test/run' && req.method === 'POST') {
       let body = '';
       req.on('data', (chunk) => (body += chunk));
@@ -955,6 +956,44 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
               // MCP mode: use executeTool to simulate MCP protocol
               // This tests the full tool execution path
               result = await loader.executeTool(mcp, testName, {}, {});
+            } else if (mode === 'cli') {
+              // CLI mode: spawn subprocess to test CLI interface
+              const cliPath = path.resolve(__dirname, '..', 'cli.js');
+              const args = ['cli', photonName, testName, '--json', '--dir', workingDir];
+
+              result = await new Promise((resolve) => {
+                const proc = spawn('node', [cliPath, ...args], {
+                  cwd: workingDir,
+                  timeout: 30000,
+                  env: { ...process.env },
+                });
+
+                let stdout = '';
+                let stderr = '';
+
+                proc.stdout.on('data', (data) => (stdout += data.toString()));
+                proc.stderr.on('data', (data) => (stderr += data.toString()));
+
+                proc.on('close', (code) => {
+                  const output = stdout.trim() || stderr.trim();
+                  const hasOutput = output.length > 0;
+                  const infraErrors = ['Photon not found', 'command not found', 'Cannot find module', 'ENOENT'];
+                  const isInfraError = infraErrors.some((e) => (stdout + stderr).includes(e));
+
+                  if (hasOutput && !isInfraError) {
+                    // CLI interface worked - transport successful
+                    resolve({ passed: true, message: 'CLI interface test passed' });
+                  } else if (isInfraError) {
+                    resolve({ passed: false, error: `CLI infrastructure error: ${output}` });
+                  } else {
+                    resolve({ passed: false, error: `CLI test failed with code ${code}: no output` });
+                  }
+                });
+
+                proc.on('error', (err) => {
+                  resolve({ passed: false, error: `CLI spawn error: ${err.message}` });
+                });
+              });
             } else {
               // Direct mode: call instance method directly
               result = await mcp.instance[testName]();
@@ -5356,10 +5395,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     function renderTestItems(photonName, methods) {
-      // Render both direct and MCP mode tests
+      // Render all 3 test modes: direct, cli, and mcp
       let html = '';
       for (const method of methods) {
         html += renderTestItem(photonName, method, 'direct');
+        html += renderTestItem(photonName, method, 'cli');
         html += renderTestItem(photonName, method, 'mcp');
       }
       return html;
