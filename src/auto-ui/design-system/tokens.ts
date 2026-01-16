@@ -179,8 +179,8 @@ const colorPalette = {
   },
 } as const;
 
-// System colors (semantic tokens - what components use)
-export const colors = {
+// System colors - Dark Theme (default)
+export const colorsDark = {
   // Surfaces
   surface: colorPalette.neutral[5],
   surfaceContainer: colorPalette.neutral[10],
@@ -224,6 +224,66 @@ export const colors = {
   // Scrim (overlay)
   scrim: 'rgba(0, 0, 0, 0.5)',
 } as const;
+
+// System colors - Light Theme
+export const colorsLight = {
+  // Surfaces (inverted - light backgrounds)
+  surface: colorPalette.neutral[100],   // white
+  surfaceContainer: colorPalette.neutral[95],
+  surfaceContainerHigh: colorPalette.neutral[90],
+  surfaceContainerHighest: colorPalette.neutral[80],
+  surfaceBright: colorPalette.neutral[100],
+
+  // Text on surfaces (dark text on light)
+  onSurface: colorPalette.neutral[10],
+  onSurfaceVariant: colorPalette.neutral[30],
+  onSurfaceMuted: colorPalette.neutral[50],
+
+  // Primary (darker for light theme)
+  primary: colorPalette.primary[40],
+  primaryContainer: colorPalette.primary[90],
+  onPrimary: colorPalette.neutral[100],  // white text on primary
+  onPrimaryContainer: colorPalette.primary[10],
+
+  // Success
+  success: colorPalette.success[40],
+  successContainer: colorPalette.success[90],
+  onSuccess: colorPalette.neutral[100],  // white text
+  onSuccessContainer: colorPalette.success[10],
+
+  // Warning
+  warning: colorPalette.warning[40],
+  warningContainer: colorPalette.warning[90],
+  onWarning: colorPalette.neutral[100],  // white text
+  onWarningContainer: colorPalette.warning[10],
+
+  // Error
+  error: colorPalette.error[40],
+  errorContainer: colorPalette.error[90],
+  onError: colorPalette.neutral[100],  // white text
+  onErrorContainer: colorPalette.error[10],
+
+  // Outline (darker for light theme)
+  outline: colorPalette.neutral[50],
+  outlineVariant: colorPalette.neutral[80],
+
+  // Scrim (overlay)
+  scrim: 'rgba(0, 0, 0, 0.3)' as const,
+};
+
+// Default export (dark theme for backwards compatibility)
+export const colors = colorsDark;
+
+// Theme type
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+// Theme colors type (union of both)
+export type ThemeColors = typeof colorsDark | typeof colorsLight;
+
+// Get colors for a specific theme
+export function getThemeColors(theme: 'light' | 'dark'): ThemeColors {
+  return theme === 'light' ? colorsLight : colorsDark;
+}
 
 // =============================================================================
 // ELEVATION - Material Design 3 Shadows
@@ -299,11 +359,61 @@ export const zIndex = {
 // CSS CUSTOM PROPERTIES GENERATOR
 // =============================================================================
 
+/**
+ * Generate color CSS variables for a specific theme
+ */
+function generateColorVars(themeColors: ThemeColors): string {
+  return `
+  /* Colors - Surfaces */
+  --color-surface: ${themeColors.surface};
+  --color-surface-container: ${themeColors.surfaceContainer};
+  --color-surface-container-high: ${themeColors.surfaceContainerHigh};
+  --color-surface-container-highest: ${themeColors.surfaceContainerHighest};
+  --color-surface-bright: ${themeColors.surfaceBright};
+
+  /* Colors - Text */
+  --color-on-surface: ${themeColors.onSurface};
+  --color-on-surface-variant: ${themeColors.onSurfaceVariant};
+  --color-on-surface-muted: ${themeColors.onSurfaceMuted};
+
+  /* Colors - Primary */
+  --color-primary: ${themeColors.primary};
+  --color-primary-container: ${themeColors.primaryContainer};
+  --color-on-primary: ${themeColors.onPrimary};
+  --color-on-primary-container: ${themeColors.onPrimaryContainer};
+
+  /* Colors - Success */
+  --color-success: ${themeColors.success};
+  --color-success-container: ${themeColors.successContainer};
+  --color-on-success: ${themeColors.onSuccess};
+  --color-on-success-container: ${themeColors.onSuccessContainer};
+
+  /* Colors - Warning */
+  --color-warning: ${themeColors.warning};
+  --color-warning-container: ${themeColors.warningContainer};
+  --color-on-warning: ${themeColors.onWarning};
+  --color-on-warning-container: ${themeColors.onWarningContainer};
+
+  /* Colors - Error */
+  --color-error: ${themeColors.error};
+  --color-error-container: ${themeColors.errorContainer};
+  --color-on-error: ${themeColors.onError};
+  --color-on-error-container: ${themeColors.onErrorContainer};
+
+  /* Colors - Outline */
+  --color-outline: ${themeColors.outline};
+  --color-outline-variant: ${themeColors.outlineVariant};
+
+  /* Colors - Scrim */
+  --color-scrim: ${themeColors.scrim};`;
+}
+
 export function generateTokensCSS(): string {
   return `
 /* ==========================================================================
    Photon Design System - Design Tokens
    Based on Material Design 3 + Apple HIG
+   Supports: dark (default), light, system preference
    ========================================================================== */
 
 :root {
@@ -363,48 +473,8 @@ export function generateTokensCSS(): string {
   --weight-semibold: ${fontWeight.semibold};
   --weight-bold: ${fontWeight.bold};
 
-  /* Colors - Surfaces */
-  --color-surface: ${colors.surface};
-  --color-surface-container: ${colors.surfaceContainer};
-  --color-surface-container-high: ${colors.surfaceContainerHigh};
-  --color-surface-container-highest: ${colors.surfaceContainerHighest};
-  --color-surface-bright: ${colors.surfaceBright};
-
-  /* Colors - Text */
-  --color-on-surface: ${colors.onSurface};
-  --color-on-surface-variant: ${colors.onSurfaceVariant};
-  --color-on-surface-muted: ${colors.onSurfaceMuted};
-
-  /* Colors - Primary */
-  --color-primary: ${colors.primary};
-  --color-primary-container: ${colors.primaryContainer};
-  --color-on-primary: ${colors.onPrimary};
-  --color-on-primary-container: ${colors.onPrimaryContainer};
-
-  /* Colors - Success */
-  --color-success: ${colors.success};
-  --color-success-container: ${colors.successContainer};
-  --color-on-success: ${colors.onSuccess};
-  --color-on-success-container: ${colors.onSuccessContainer};
-
-  /* Colors - Warning */
-  --color-warning: ${colors.warning};
-  --color-warning-container: ${colors.warningContainer};
-  --color-on-warning: ${colors.onWarning};
-  --color-on-warning-container: ${colors.onWarningContainer};
-
-  /* Colors - Error */
-  --color-error: ${colors.error};
-  --color-error-container: ${colors.errorContainer};
-  --color-on-error: ${colors.onError};
-  --color-on-error-container: ${colors.onErrorContainer};
-
-  /* Colors - Outline */
-  --color-outline: ${colors.outline};
-  --color-outline-variant: ${colors.outlineVariant};
-
-  /* Colors - Scrim */
-  --color-scrim: ${colors.scrim};
+  /* Default: Dark Theme Colors */
+  ${generateColorVars(colorsDark)}
 
   /* Elevation */
   --elevation-0: ${elevation['0']};
@@ -447,5 +517,84 @@ export function generateTokensCSS(): string {
   --z-popover: ${zIndex.popover};
   --z-toast: ${zIndex.toast};
 }
+
+/* Light Theme Override */
+[data-theme="light"],
+.light {
+  ${generateColorVars(colorsLight)}
+}
+
+/* System Preference: Light Mode */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    ${generateColorVars(colorsLight)}
+  }
+}
 `;
+}
+
+// =============================================================================
+// THEME TOKENS FOR MCP APPS / PLATFORM BRIDGES
+// =============================================================================
+
+/**
+ * Get theme tokens as a flat object for MCP Apps ui/initialize
+ * Compatible with OpenAI Apps SDK and MCP Apps Extension (SEP-1865)
+ */
+export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> {
+  const themeColors = theme === 'light' ? colorsLight : colorsDark;
+
+  return {
+    // Colors
+    '--color-surface': themeColors.surface,
+    '--color-surface-container': themeColors.surfaceContainer,
+    '--color-surface-container-high': themeColors.surfaceContainerHigh,
+    '--color-surface-container-highest': themeColors.surfaceContainerHighest,
+    '--color-surface-bright': themeColors.surfaceBright,
+    '--color-on-surface': themeColors.onSurface,
+    '--color-on-surface-variant': themeColors.onSurfaceVariant,
+    '--color-on-surface-muted': themeColors.onSurfaceMuted,
+    '--color-primary': themeColors.primary,
+    '--color-primary-container': themeColors.primaryContainer,
+    '--color-on-primary': themeColors.onPrimary,
+    '--color-on-primary-container': themeColors.onPrimaryContainer,
+    '--color-success': themeColors.success,
+    '--color-success-container': themeColors.successContainer,
+    '--color-on-success': themeColors.onSuccess,
+    '--color-on-success-container': themeColors.onSuccessContainer,
+    '--color-warning': themeColors.warning,
+    '--color-warning-container': themeColors.warningContainer,
+    '--color-on-warning': themeColors.onWarning,
+    '--color-on-warning-container': themeColors.onWarningContainer,
+    '--color-error': themeColors.error,
+    '--color-error-container': themeColors.errorContainer,
+    '--color-on-error': themeColors.onError,
+    '--color-on-error-container': themeColors.onErrorContainer,
+    '--color-outline': themeColors.outline,
+    '--color-outline-variant': themeColors.outlineVariant,
+    '--color-scrim': themeColors.scrim,
+
+    // Spacing
+    '--space-0': spacing['0'],
+    '--space-1': spacing['1'],
+    '--space-2': spacing['2'],
+    '--space-3': spacing['3'],
+    '--space-4': spacing['4'],
+    '--space-6': spacing['6'],
+    '--space-8': spacing['8'],
+
+    // Typography
+    '--font-sans': fontFamily.sans,
+    '--font-mono': fontFamily.mono,
+    '--text-body-md': fontSize['body-md'],
+    '--text-body-sm': fontSize['body-sm'],
+    '--text-title-md': fontSize['title-md'],
+    '--text-label-md': fontSize['label-md'],
+
+    // Border Radius
+    '--radius-sm': radius.sm,
+    '--radius-md': radius.md,
+    '--radius-lg': radius.lg,
+    '--radius-full': radius.full,
+  };
 }

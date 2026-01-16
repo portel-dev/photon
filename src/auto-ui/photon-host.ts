@@ -31,6 +31,8 @@ import type {
   AskEvent,
   PhotonContext
 } from './photon-bridge.js';
+import { getThemeTokens } from './design-system/tokens.js';
+import { createMcpAppsInitialize, createThemeChangeMessages, type PlatformContext } from './platform-compat.js';
 
 export interface PhotonHostOptions {
   photon: string;
@@ -38,6 +40,9 @@ export interface PhotonHostOptions {
   toolInput: Record<string, any>;
   theme?: 'light' | 'dark';
   locale?: string;
+  displayMode?: 'inline' | 'fullscreen' | 'modal';
+  hostName?: string;
+  hostVersion?: string;
   onCallTool?: (toolName: string, args: Record<string, any>) => Promise<any>;
   onFollowUp?: (message: string) => void;
   onStateChange?: (state: any) => void;
@@ -50,6 +55,7 @@ export interface PhotonHostOptions {
 export class PhotonHost {
   private iframe: HTMLIFrameElement;
   private context: PhotonContext;
+  private platformContext: PlatformContext;
   private toolInput: Record<string, any>;
   private pendingElicitations = new Map<string, {
     resolve: (value: any) => void;
@@ -65,11 +71,24 @@ export class PhotonHost {
     this.iframe = iframe;
     this.options = options;
     this.toolInput = options.toolInput;
+
+    const theme = options.theme || 'dark';
+
     this.context = {
       photon: options.photon,
       method: options.method,
-      theme: options.theme || 'dark',
+      theme,
       locale: options.locale || 'en-US'
+    };
+
+    this.platformContext = {
+      theme,
+      locale: options.locale || 'en-US',
+      displayMode: options.displayMode || 'inline',
+      photon: options.photon,
+      method: options.method,
+      hostName: options.hostName || 'beam',
+      hostVersion: options.hostVersion || '1.5.0'
     };
 
     // Create ready promise
@@ -91,11 +110,35 @@ export class PhotonHost {
 
   /**
    * Initialize the bridge - call after iframe loads
+   * Sends initialization messages for all supported platforms:
+   * - MCP Apps Extension (JSON-RPC ui/initialize)
+   * - Photon Bridge (photon:init)
+   * - OpenAI Apps SDK compatible (openai:set_globals)
    */
   initialize(): void {
+    const themeTokens = getThemeTokens(this.context.theme);
+
+    // 1. Send Photon Bridge init (with theme tokens)
     this.send({
       type: 'photon:init',
       context: this.context,
+      toolInput: this.toolInput,
+      themeTokens
+    } as any);
+
+    // 2. Send MCP Apps Extension ui/initialize (JSON-RPC)
+    const mcpInit = createMcpAppsInitialize(this.platformContext, {
+      width: 800,
+      height: 600
+    });
+    this.sendRaw(mcpInit);
+
+    // 3. Send OpenAI Apps SDK set_globals event
+    this.sendRaw({
+      type: 'openai:set_globals',
+      theme: this.context.theme,
+      displayMode: this.platformContext.displayMode,
+      locale: this.context.locale,
       toolInput: this.toolInput
     });
   }
@@ -163,10 +206,34 @@ export class PhotonHost {
 
   /**
    * Update context (theme, locale, etc.)
+   * Sends updates to all supported platforms.
    */
   updateContext(context: Partial<PhotonContext>): void {
     Object.assign(this.context, context);
-    this.send({ type: 'photon:context', context });
+    Object.assign(this.platformContext, context);
+
+    // Send Photon context update with theme tokens if theme changed
+    if (context.theme) {
+      const themeTokens = getThemeTokens(context.theme);
+      this.send({
+        type: 'photon:context',
+        context,
+        themeTokens
+      } as any);
+
+      // Send to all platforms
+      const messages = createThemeChangeMessages(context.theme);
+      messages.forEach(msg => this.sendRaw(msg));
+    } else {
+      this.send({ type: 'photon:context', context });
+    }
+  }
+
+  /**
+   * Update theme across all platforms
+   */
+  setTheme(theme: 'light' | 'dark'): void {
+    this.updateContext({ theme });
   }
 
   /**
@@ -187,12 +254,52 @@ export class PhotonHost {
     }
   }
 
+  private sendRaw(message: any): void {
+    if (this.iframe.contentWindow) {
+      this.iframe.contentWindow.postMessage(message, '*');
+    }
+  }
+
   private handleMessage(event: any): void {
     // Only handle messages from our iframe
     if (event.source !== this.iframe.contentWindow) return;
 
-    const msg = event.data as UIToHostMessage;
-    if (!msg || typeof msg.type !== 'string' || !msg.type.startsWith('photon:')) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== 'object') return;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handle MCP Apps Extension JSON-RPC messages
+    // ─────────────────────────────────────────────────────────────────────────
+    if (msg.jsonrpc === '2.0') {
+      if (msg.method === 'ui/ready') {
+        this.isReady = true;
+        this.readyResolve();
+        this.initialize();
+      }
+      else if (msg.method === 'tools/call' && this.options.onCallTool) {
+        this.options.onCallTool(msg.params.name, msg.params.arguments)
+          .then(result => {
+            this.sendRaw({
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
+            });
+          })
+          .catch(error => {
+            this.sendRaw({
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: error.message }
+            });
+          });
+      }
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handle Photon Bridge messages
+    // ─────────────────────────────────────────────────────────────────────────
+    if (typeof msg.type !== 'string' || !msg.type.startsWith('photon:')) return;
 
     switch (msg.type) {
       case 'photon:ready':
