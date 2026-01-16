@@ -538,6 +538,29 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // Platform Bridge API: Generate platform compatibility script
+    if (url.pathname === '/api/platform-bridge') {
+      const theme = (url.searchParams.get('theme') || 'dark') as 'light' | 'dark';
+      const photonName = url.searchParams.get('photon') || '';
+      const methodName = url.searchParams.get('method') || '';
+
+      const { generatePlatformBridgeScript } = await import('./platform-compat.js');
+      const script = generatePlatformBridgeScript({
+        theme,
+        locale: 'en-US',
+        displayMode: 'inline',
+        photon: photonName,
+        method: methodName,
+        hostName: 'beam',
+        hostVersion: '1.5.0'
+      });
+
+      res.setHeader('Content-Type', 'text/html');
+      res.writeHead(200);
+      res.end(script);
+      return;
+    }
+
     // Marketplace API: Search photons
     if (url.pathname === '/api/marketplace/search') {
       res.setHeader('Content-Type', 'application/json');
@@ -6434,10 +6457,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
         const template = await response.text();
 
-        // Inject the data into the template
+        // Fetch platform bridge script from server (includes MCP Apps, OpenAI, Claude compat)
+        const bridgeResponse = await fetch(\`/api/platform-bridge?theme=dark&photon=\${encodeURIComponent(photonName)}&method=\${encodeURIComponent(uiId)}\`);
+        const platformBridge = bridgeResponse.ok ? await bridgeResponse.text() : '';
+
+        // Inject the data and platform bridge into the template
         // The template expects window.__PHOTON_DATA__ to be set
         const dataScript = '<scr' + 'ipt>window.__PHOTON_DATA__ = ' + JSON.stringify(data) + ';<\/scr' + 'ipt>';
-        const modifiedTemplate = template.replace('</head>', dataScript + '</head>');
+        const modifiedTemplate = template.replace('</head>', platformBridge + dataScript + '</head>');
 
         // Create a blob URL for the iframe
         const blob = new Blob([modifiedTemplate], { type: 'text/html' });

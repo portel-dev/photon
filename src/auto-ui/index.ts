@@ -42,3 +42,26 @@ export {
   createHostInputProvider,
   type PhotonHostOptions
 } from './photon-host';
+
+// Platform Compatibility Layer - MCP Apps, ChatGPT Apps SDK, Claude Artifacts
+export {
+  generatePlatformBridgeScript,
+  createMcpAppsInitialize,
+  createThemeChangeMessages,
+  type PlatformContext,
+  type McpAppsInitialize,
+  type McpAppsToolInput,
+  type McpAppsToolResult,
+  type OpenAiApi,
+  type OpenAiContext
+} from './platform-compat';
+
+// Design System with theming
+export {
+  getThemeTokens,
+  getThemeColors,
+  generateTokensCSS,
+  colorsDark,
+  colorsLight,
+  type ThemeMode
+} from './design-system/tokens';
