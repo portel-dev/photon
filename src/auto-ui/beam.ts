@@ -7597,6 +7597,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     return window.mcp.callTool(method, args);
   };
 
+  // Expose as window.photon for compatibility with custom UI templates
+  window.photon = {
+    invoke: function(method, args) {
+      return window.mcp.callTool(method, args);
+    },
+    callTool: window.mcp.callTool,
+    get toolInput() { return window.mcp.toolInput; },
+    get toolOutput() { return window.mcp.toolOutput; },
+    get widgetState() { return window.mcp.widgetState; },
+    setWidgetState: window.mcp.setWidgetState,
+    get theme() { return window.mcp.theme; }
+  };
+
   // Signal ready to parent
   window.parent.postMessage({ type: 'mcp:widget_ready', widgetId: _widgetId }, '*');
 })();
@@ -9644,6 +9657,49 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           type: 'invoke',
           photon: targetPhoton,
           method: tool,
+          args: args || {},
+          invocationId: invocationId
+        }));
+        return;
+      }
+
+      // Handle photon:call-tool (from platform bridge / custom UI templates)
+      if (messageType === 'photon:call-tool') {
+        const { callId, toolName, args } = event.data;
+        const targetPhoton = currentPhoton?.name;
+
+        if (!targetPhoton || !toolName) {
+          event.source?.postMessage({
+            type: 'photon:call-tool-response',
+            callId: callId,
+            error: 'Missing photon or tool name'
+          }, '*');
+          return;
+        }
+
+        const invocationId = 'photon_' + callId;
+
+        pendingInteractiveInvocations.set(invocationId, {
+          resolve: function(result) {
+            event.source?.postMessage({
+              type: 'photon:call-tool-response',
+              callId: callId,
+              result: result
+            }, '*');
+          },
+          reject: function(error) {
+            event.source?.postMessage({
+              type: 'photon:call-tool-response',
+              callId: callId,
+              error: error.message || String(error)
+            }, '*');
+          }
+        });
+
+        ws.send(JSON.stringify({
+          type: 'invoke',
+          photon: targetPhoton,
+          method: toolName,
           args: args || {},
           invocationId: invocationId
         }));

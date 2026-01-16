@@ -137,6 +137,9 @@ export interface PhotonBridge {
   /** Invoke another tool on the same photon */
   callTool(toolName: string, args: Record<string, any>): Promise<any>;
 
+  /** Alias for callTool - invoke another tool on the same photon */
+  invoke(toolName: string, args: Record<string, any>): Promise<any>;
+
   /** Send a follow-up message (for conversational UIs) */
   sendFollowUpMessage(message: string): Promise<void>;
 
@@ -345,6 +348,11 @@ export function createPhotonBridge(): PhotonBridge {
       });
     },
 
+    // Alias for callTool - used by custom UI templates
+    async invoke(toolName, args) {
+      return this.callTool(toolName, args);
+    },
+
     async sendFollowUpMessage(message) {
       window.parent.postMessage(
         {
@@ -442,6 +450,7 @@ export function generateBridgeLoaderScript(): string {
         window.parent.postMessage({ type: 'photon:call-tool', toolName: name, args: args, callId: id }, '*');
       });
     },
+    invoke: function(name, args) { return this.callTool(name, args); },
     sendFollowUpMessage: function(msg) {
       window.parent.postMessage({ type: 'photon:follow-up', message: msg }, '*');
     },

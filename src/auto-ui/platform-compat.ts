@@ -342,6 +342,7 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     onElicitation: function(h) { elicitationHandler = h; return function() { elicitationHandler = null; }; },
 
     callTool: callTool,
+    invoke: callTool, // Alias for callTool - used by custom UI templates
     sendFollowUpMessage: function(msg) {
       postToHost({ type: 'photon:follow-up', message: msg });
     },
