@@ -19,7 +19,8 @@ export class FileWatcher {
   constructor(server: PhotonServer, filePath: string, logger?: Logger) {
     this.server = server;
     this.filePath = path.resolve(filePath);
-    this.logger = logger ?? createLogger({ component: 'file-watcher', scope: path.basename(filePath) });
+    this.logger =
+      logger ?? createLogger({ component: 'file-watcher', scope: path.basename(filePath) });
   }
 
   /**

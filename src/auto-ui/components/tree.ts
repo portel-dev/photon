@@ -50,8 +50,8 @@ export class TreeComponent implements UIComponent {
       root: data,
       metadata: {
         expandable: metadata.expandable ?? true,
-        title: metadata.title
-      }
+        title: metadata.title,
+      },
     };
   }
 
@@ -62,8 +62,8 @@ export class TreeComponent implements UIComponent {
         data,
         title: metadata.title,
         expandable: metadata.expandable ?? true,
-        defaultExpanded: true
-      }
+        defaultExpanded: true,
+      },
     };
   }
 }

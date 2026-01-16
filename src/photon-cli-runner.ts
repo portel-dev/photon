@@ -9,7 +9,12 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { SchemaExtractor, setPromptHandler, setElicitHandler, elicitReadline } from '@portel/photon-core';
+import {
+  SchemaExtractor,
+  setPromptHandler,
+  setElicitHandler,
+  elicitReadline,
+} from '@portel/photon-core';
 import * as readline from 'readline';
 import chalk from 'chalk';
 import { highlight } from 'cli-highlight';
@@ -34,12 +39,12 @@ interface MethodInfo {
     type: string;
     optional: boolean;
     description?: string;
-    label?: string;  // Custom label from {@label} tag
-    example?: string;  // Example value from {@example} tag
+    label?: string; // Custom label from {@label} tag
+    example?: string; // Example value from {@example} tag
   }[];
   description?: string;
   format?: OutputFormat;
-  buttonLabel?: string;  // Custom button label from @returns {@label}
+  buttonLabel?: string; // Custom button label from @returns {@label}
 }
 
 interface MarkdownBlock {
@@ -94,7 +99,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
     const description = descMatch
       ? descMatch[1]
           .split('\n')
-          .map(line => line.replace(/^\s*\*\s?/, '').trim())
+          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
           .join(' ')
           .trim()
       : undefined;
@@ -131,7 +136,9 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
     let format: OutputFormat | undefined;
 
     // Match structural formats (including card, tabs, accordion)
-    const structuralMatch = jsdoc.match(/@format\s+(primitive|table|tree|list|card|tabs|accordion|none)/i);
+    const structuralMatch = jsdoc.match(
+      /@format\s+(primitive|table|tree|list|card|tabs|accordion|none)/i
+    );
     if (structuralMatch) {
       format = structuralMatch[1].toLowerCase() as OutputFormat;
     }
@@ -144,7 +151,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
         // Match code format (with optional language)
         const codeMatch = jsdoc.match(/@format\s+code(?::(\w+))?/i);
         if (codeMatch) {
-          format = codeMatch[1] ? `code:${codeMatch[1]}` as OutputFormat : 'code';
+          format = codeMatch[1] ? (`code:${codeMatch[1]}` as OutputFormat) : 'code';
         }
       }
     }
@@ -255,7 +262,7 @@ function extractBaseType(typeStr: string): string {
   }
 
   // Handle unions: boolean | number -> take first primitive type
-  const unionTypes = typeStr.split('|').map(t => t.trim());
+  const unionTypes = typeStr.split('|').map((t) => t.trim());
   for (const type of unionTypes) {
     if (/^(boolean|number|string)/.test(type)) {
       return type;
@@ -271,7 +278,9 @@ function extractBaseType(typeStr: string): string {
  *   "{ mute?: boolean } | boolean" -> [["mute", { type: "boolean", optional: true }]]
  *   "{ level?: number | string }" -> [["level", { type: "number", optional: true }]]
  */
-function extractObjectProperties(typeStr: string): Map<string, { type: string; optional: boolean }> {
+function extractObjectProperties(
+  typeStr: string
+): Map<string, { type: string; optional: boolean }> {
   const props = new Map<string, { type: string; optional: boolean }>();
 
   // Find all object type definitions: { prop?: type } or { prop: type }
@@ -327,7 +336,10 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
     }
 
     if (markdownText) {
-      const primaryBlock = buildMarkdownBlockFromPrepared(markdownText, { hint, inlineFormat: inlineMarkdownFormat });
+      const primaryBlock = buildMarkdownBlockFromPrepared(markdownText, {
+        hint,
+        inlineFormat: inlineMarkdownFormat,
+      });
       if (primaryBlock) {
         const metadata = extractMetadataFields(result);
         renderMarkdownBlocks([primaryBlock], { additionalMetadata: metadata });
@@ -340,12 +352,12 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
       dataToFormat = result.data;
     } else {
       const otherFields = Object.keys(result).filter(
-        k => k !== 'success' && k !== 'message' && k !== 'error'
+        (k) => k !== 'success' && k !== 'message' && k !== 'error'
       );
 
       if (otherFields.length > 0) {
         dataToFormat = {};
-        otherFields.forEach(k => dataToFormat[k] = result[k]);
+        otherFields.forEach((k) => (dataToFormat[k] = result[k]));
       } else {
         if (!result.message) {
           renderNone();
@@ -363,7 +375,10 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
         dataToFormat = inline.text;
       }
 
-      const markdownBlock = buildMarkdownBlockFromPrepared(dataToFormat, { hint, inlineFormat: inline?.format });
+      const markdownBlock = buildMarkdownBlockFromPrepared(dataToFormat, {
+        hint,
+        inlineFormat: inline?.format,
+      });
       if (markdownBlock) {
         renderMarkdownBlocks([markdownBlock]);
         return true;
@@ -394,7 +409,10 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
         payload = inline.text;
       }
 
-      const standaloneBlock = buildMarkdownBlockFromPrepared(payload, { hint, inlineFormat: inline?.format });
+      const standaloneBlock = buildMarkdownBlockFromPrepared(payload, {
+        hint,
+        inlineFormat: inline?.format,
+      });
       if (standaloneBlock) {
         renderMarkdownBlocks([standaloneBlock]);
         return true;
@@ -420,14 +438,11 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 /**
  * Parse CLI arguments into method parameters
  */
-function parseCliArgs(
-  args: string[],
-  params: MethodInfo['params']
-): Record<string, any> {
+function parseCliArgs(args: string[], params: MethodInfo['params']): Record<string, any> {
   const result: Record<string, any> = {};
 
   // Create a map of param names to types for quick lookup
-  const paramTypes = new Map(params.map(p => [p.name, p.type]));
+  const paramTypes = new Map(params.map((p) => [p.name, p.type]));
 
   // Handle both positional and --flag style arguments
   let positionalIndex = 0;
@@ -546,7 +561,7 @@ function looksLikeMarkdown(value: any): boolean {
     /(?:^|\n)(?:-{3,}|_{3,}|\*{3,})(?:\n|$)/m,
   ];
 
-  if (blockPatterns.some(pattern => pattern.test(trimmed))) {
+  if (blockPatterns.some((pattern) => pattern.test(trimmed))) {
     return true;
   }
 
@@ -571,20 +586,29 @@ function renderMarkdownNicely(content: string): void {
   rendered = rendered.replace(/^[\t ]+(?=#{1,6}\s)/gm, '');
 
   // Attach standalone emoji lines to following headings
-  rendered = rendered.replace(/^[ \t]*([^\w\s]{1,4})\s*\n([ \t]*#{1,6}\s+)(.+)$/gm, (_m, emoji, hashes, title) => {
-    return `${hashes}${emoji.trim()} ${title}`;
-  });
+  rendered = rendered.replace(
+    /^[ \t]*([^\w\s]{1,4})\s*\n([ \t]*#{1,6}\s+)(.+)$/gm,
+    (_m, emoji, hashes, title) => {
+      return `${hashes}${emoji.trim()} ${title}`;
+    }
+  );
 
   // Heuristic: Merge standalone emojis (or short lines) into the following header
   // This fixes the "floating emoji" look by making them part of the header
-  rendered = rendered.replace(/(^|\n)([^\n]{1,5})\n+(#{1,6})\s+(.+)$/gm, (_m, prefix, icon, hashes, text) => {
-    return `${prefix}${hashes} ${icon.trim()} ${text}`;
-  });
+  rendered = rendered.replace(
+    /(^|\n)([^\n]{1,5})\n+(#{1,6})\s+(.+)$/gm,
+    (_m, prefix, icon, hashes, text) => {
+      return `${prefix}${hashes} ${icon.trim()} ${text}`;
+    }
+  );
 
   // Convert Markdown tables to box-drawn tables
-  rendered = rendered.replace(/(^|\n)(\|[^\n]+\|\n\|[^\n]+\|\n(?:\|[^\n]+\|\n?)+)/g, (_m, prefix, block) => {
-    return `${prefix}${renderMarkdownTableBlock(block.trim())}`;
-  });
+  rendered = rendered.replace(
+    /(^|\n)(\|[^\n]+\|\n\|[^\n]+\|\n(?:\|[^\n]+\|\n?)+)/g,
+    (_m, prefix, block) => {
+      return `${prefix}${renderMarkdownTableBlock(block.trim())}`;
+    }
+  );
 
   // Extract code blocks to prevent wrapping them
   const codeBlocks: string[] = [];
@@ -594,19 +618,22 @@ function renderMarkdownNicely(content: string): void {
   });
 
   // Wrap text paragraphs
-  rendered = rendered.split('\n').map(line => {
-    // Skip headers, placeholders, empty lines, lists, quotes
-    if (
-      line.startsWith('#') ||
-      line.includes('\u0000CODE') ||
-      !line.trim() ||
-      line.match(/^(\s*[-*+]|\s*\d+\.|>)/)
-    ) {
-      return line;
-    }
-    // Wrap plain text line
-    return wrapToWidth(line, termWidth).join('\n');
-  }).join('\n');
+  rendered = rendered
+    .split('\n')
+    .map((line) => {
+      // Skip headers, placeholders, empty lines, lists, quotes
+      if (
+        line.startsWith('#') ||
+        line.includes('\u0000CODE') ||
+        !line.trim() ||
+        line.match(/^(\s*[-*+]|\s*\d+\.|>)/)
+      ) {
+        return line;
+      }
+      // Wrap plain text line
+      return wrapToWidth(line, termWidth).join('\n');
+    })
+    .join('\n');
 
   // Restore code blocks and highlight
   rendered = rendered.replace(/\u0000CODE(\d+)\u0000/g, (_m, index) => {
@@ -624,8 +651,9 @@ function renderMarkdownNicely(content: string): void {
     });
   });
 
-  rendered = rendered.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, url) =>
-    chalk.blueBright(text) + chalk.dim(` (${url})`)
+  rendered = rendered.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (_m, text, url) => chalk.blueBright(text) + chalk.dim(` (${url})`)
   );
 
   rendered = rendered.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes, text) => {
@@ -643,12 +671,19 @@ function renderMarkdownNicely(content: string): void {
   rendered = rendered.replace(/_(.+?)_/g, (_m, text) => chalk.italic(text));
   rendered = rendered.replace(/`([^`]+)`/g, (_m, code) => chalk.cyan(code));
 
-  rendered = rendered.split('\n').map(line => line.trimEnd()).join('\n');
+  rendered = rendered
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n');
   rendered = rendered.replace(/\n{3,}/g, '\n\n');
   console.log(rendered.trim());
 }
 
-function convertFrontMatterToMarkdown(markdown: string): { markdown: string; metadata: Record<string, string>; hadFrontMatter: boolean } {
+function convertFrontMatterToMarkdown(markdown: string): {
+  markdown: string;
+  metadata: Record<string, string>;
+  hadFrontMatter: boolean;
+} {
   let text = markdown.replace(/^\uFEFF/, '').trimStart();
   const metadata: Record<string, string> = {};
   const fmRegex = /^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*/;
@@ -675,12 +710,10 @@ function convertFrontMatterToMarkdown(markdown: string): { markdown: string; met
 }
 
 function frontMatterToTable(parsed: Record<string, string>): string {
-  const rows = Object.entries(parsed).map(([key, value]) => `| ${escapePipes(key)} | ${escapePipes(value)} |`).join('\n');
-  return [
-    '| Field | Value |',
-    '| --- | --- |',
-    rows,
-  ].join('\n');
+  const rows = Object.entries(parsed)
+    .map(([key, value]) => `| ${escapePipes(key)} | ${escapePipes(value)} |`)
+    .join('\n');
+  return ['| Field | Value |', '| --- | --- |', rows].join('\n');
 }
 
 function escapePipes(text: string): string {
@@ -1054,7 +1087,7 @@ function renderMarkdownTableBlock(block: string): string {
   const rows = lines
     .slice(2)
     .map(parseMarkdownTableRow)
-    .filter(row => row.length === header.length);
+    .filter((row) => row.length === header.length);
 
   if (!rows.length) {
     return block;
@@ -1069,12 +1102,12 @@ function parseMarkdownTableRow(line: string): string[] {
     .replace(/^\|/, '')
     .replace(/\|$/, '')
     .split('|')
-    .map(cell => cell.trim());
+    .map((cell) => cell.trim());
 }
 
 function renderGenericTable(headers: string[], rows: string[][]): string {
   if (!headers.length) {
-    return rows.map(row => row.join(' | ')).join('\n');
+    return rows.map((row) => row.join(' | ')).join('\n');
   }
 
   const termWidth = process.stdout.columns || 80;
@@ -1082,8 +1115,8 @@ function renderGenericTable(headers: string[], rows: string[][]): string {
   const baseOverhead = 2 * columns + (columns - 1) + 2; // padding + connectors + borders
   const maxAvailable = Math.max(columns, termWidth - baseOverhead);
 
-  const colWidths = headers.map(header => Math.max(visibleLength(header), 3));
-  rows.forEach(row => {
+  const colWidths = headers.map((header) => Math.max(visibleLength(header), 3));
+  rows.forEach((row) => {
     row.forEach((cell, idx) => {
       const width = visibleLength(cell ?? '');
       if (width > (colWidths[idx] || 0)) {
@@ -1105,17 +1138,17 @@ function renderGenericTable(headers: string[], rows: string[][]): string {
     colWidths[maxIdx]--;
   }
 
-  const wrappedRows = [headers, ...rows].map(row =>
+  const wrappedRows = [headers, ...rows].map((row) =>
     row.map((cell, idx) => wrapToWidth(cell ?? '', colWidths[idx] || 1))
   );
 
-  const horizontal = colWidths.map(width => '─'.repeat(width + 2));
+  const horizontal = colWidths.map((width) => '─'.repeat(width + 2));
   const top = `┌${horizontal.join('┬')}┐`;
   const mid = `├${horizontal.join('┼')}┤`;
   const bottom = `└${horizontal.join('┴')}┘`;
 
   const formatWrappedRow = (wrappedCells: string[][]): string[] => {
-    const maxLines = Math.max(...wrappedCells.map(cell => cell.length));
+    const maxLines = Math.max(...wrappedCells.map((cell) => cell.length));
     const lines: string[] = [];
     for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
       const parts = wrappedCells.map((cellLines, idx) => {
@@ -1145,9 +1178,9 @@ function renderGenericTable(headers: string[], rows: string[][]): string {
  */
 function formatLabel(name: string): string {
   return name
-    .replace(/([A-Z])/g, ' $1')          // Add space before capitals
+    .replace(/([A-Z])/g, ' $1') // Add space before capitals
     .replace(/([a-zA-Z])(\d)/g, '$1 $2') // Add space before numbers
-    .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+    .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
     .trim();
 }
 
@@ -1159,12 +1192,12 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
   console.log(`    ${method.name} - ${method.description || 'No description'}\n`);
 
   console.log(`USAGE:`);
-  const requiredParams = method.params.filter(p => !p.optional);
-  const optionalParams = method.params.filter(p => p.optional);
+  const requiredParams = method.params.filter((p) => !p.optional);
+  const optionalParams = method.params.filter((p) => p.optional);
 
   let usage = `    photon cli ${photonName} ${method.name}`;
   if (requiredParams.length > 0) {
-    usage += ' ' + requiredParams.map(p => `--${p.name} <value>`).join(' ');
+    usage += ' ' + requiredParams.map((p) => `--${p.name} <value>`).join(' ');
   }
   if (optionalParams.length > 0) {
     usage += ' [options]';
@@ -1213,7 +1246,7 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
 
   console.log(`EXAMPLE:`);
   if (requiredParams.length > 0) {
-    const exampleParams = requiredParams.map(p => `--${p.name} <value>`).join(' ');
+    const exampleParams = requiredParams.map((p) => `--${p.name} <value>`).join(' ');
     console.log(`    photon cli ${photonName} ${method.name} ${exampleParams}\n`);
   } else {
     console.log(`    photon cli ${photonName} ${method.name}\n`);
@@ -1243,7 +1276,7 @@ export async function listMethods(photonName: string): Promise<void> {
     console.log(`COMMANDS:`);
 
     // Find longest method name for alignment
-    const maxLength = Math.max(...methods.map(m => m.name.length));
+    const maxLength = Math.max(...methods.map((m) => m.name.length));
 
     for (const method of methods) {
       const padding = ' '.repeat(maxLength - method.name.length + 4);
@@ -1261,9 +1294,9 @@ export async function listMethods(photonName: string): Promise<void> {
       // Show first 3 methods as examples
       const exampleMethods = methods.slice(0, 3);
       for (const method of exampleMethods) {
-        const requiredParams = method.params.filter(p => !p.optional);
+        const requiredParams = method.params.filter((p) => !p.optional);
         if (requiredParams.length > 0) {
-          const paramStr = requiredParams.map(p => `--${p.name} <value>`).join(' ');
+          const paramStr = requiredParams.map((p) => `--${p.name} <value>`).join(' ');
           console.log(`    photon cli ${photonName} ${method.name} ${paramStr}`);
         } else {
           console.log(`    photon cli ${photonName} ${method.name}`);
@@ -1293,9 +1326,7 @@ export async function runMethod(
         output: process.stdout,
       });
 
-      const prompt = defaultValue
-        ? `${message} [${defaultValue}]: `
-        : `${message}: `;
+      const prompt = defaultValue ? `${message} [${defaultValue}]: ` : `${message}: `;
 
       rl.question(prompt, (answer) => {
         rl.close();
@@ -1329,11 +1360,11 @@ export async function runMethod(
       return;
     }
 
-    const method = methods.find(m => m.name === methodName);
+    const method = methods.find((m) => m.name === methodName);
 
     if (!method) {
       logger.error(`Method '${methodName}' not found in ${photonName}`);
-      console.error(`\nAvailable methods: ${methods.map(m => m.name).join(', ')}`);
+      console.error(`\nAvailable methods: ${methods.map((m) => m.name).join(', ')}`);
       console.error(`\nRun 'photon cli ${photonName}' to see all methods`);
       process.exit(1);
     }
@@ -1355,10 +1386,9 @@ export async function runMethod(
     }
 
     // Filter out special flags before parsing method args
-    const filteredArgs = args.filter((arg, i) =>
-      arg !== '--json' &&
-      arg !== '--resume' &&
-      (resumeIndex === -1 || i !== resumeIndex + 1)
+    const filteredArgs = args.filter(
+      (arg, i) =>
+        arg !== '--json' && arg !== '--resume' && (resumeIndex === -1 || i !== resumeIndex + 1)
     );
 
     // Parse arguments
@@ -1374,9 +1404,11 @@ export async function runMethod(
 
     if (missing.length > 0) {
       logger.error(`Missing required parameters: ${missing.join(', ')}`);
-      console.error(`\nUsage: photon cli ${photonName} ${methodName} ${method.params.map(p =>
-        p.optional ? `[--${p.name}]` : `--${p.name} <value>`
-      ).join(' ')}`);
+      console.error(
+        `\nUsage: photon cli ${photonName} ${methodName} ${method.params
+          .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
+          .join(' ')}`
+      );
       process.exit(1);
     }
 
@@ -1395,7 +1427,7 @@ export async function runMethod(
         // Wait for daemon to be ready
         let ready = false;
         for (let i = 0; i < 10; i++) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           if (await pingDaemon(photonName)) {
             ready = true;
             break;
@@ -1439,7 +1471,8 @@ export async function runMethod(
         process.exit(1);
       }
     } else {
-      const formatHint = method.format || (looksLikeMarkdown(actualResult) ? 'markdown' : undefined);
+      const formatHint =
+        method.format || (looksLikeMarkdown(actualResult) ? 'markdown' : undefined);
       const success = formatOutput(actualResult, formatHint);
       if (!success) {
         process.exit(1);
@@ -1449,18 +1482,20 @@ export async function runMethod(
       if (isStateful && result.runId) {
         console.log('');
         if (result.resumed && result.resumedFromStep !== undefined) {
-          console.log(`Resumed from step ${result.resumedFromStep}, completed ${result.checkpointsCompleted} checkpoints`);
+          console.log(
+            `Resumed from step ${result.resumedFromStep}, completed ${result.checkpointsCompleted} checkpoints`
+          );
         }
         console.log(`Run ID: ${result.runId}`);
       }
     }
-
   } catch (error) {
     // Check for custom user-facing message from photon
     // Photons can throw: throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
-    const userMessage = (error && typeof error === 'object' && 'userMessage' in error && error.userMessage)
-      || getErrorMessage(error)
-      || 'Unknown error occurred';
+    const userMessage =
+      (error && typeof error === 'object' && 'userMessage' in error && error.userMessage) ||
+      getErrorMessage(error) ||
+      'Unknown error occurred';
     const hint = error && typeof error === 'object' && 'hint' in error ? error.hint : undefined;
 
     logger.error(`${userMessage}`);

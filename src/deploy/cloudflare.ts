@@ -101,7 +101,10 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     .replace(/import\s+\*\s+as\s+fs\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
     .replace(/import\s+\*\s+as\s+path\s+from\s+['"]path['"]/g, '// path not available in Workers')
     .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
-    .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]fs\/promises['"]/g, '// fs not available in Workers')
+    .replace(
+      /import\s+{\s*[^}]+\s*}\s+from\s+['"]fs\/promises['"]/g,
+      '// fs not available in Workers'
+    )
     .replace(/import\s+{\s*[^}]+\s*}\s+from\s+['"]path['"]/g, '// path not available in Workers')
     // Remove @dependencies comment
     .replace(/\s*\*\s*@dependencies[^\n]*/g, '');
@@ -111,7 +114,12 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   await fs.writeFile(path.join(outputDir, 'src', 'photon.ts'), transformedPhoton);
 
   // Create wrangler.toml
-  const wranglerTemplatePath = path.join(packageRoot, 'templates', 'cloudflare', 'wrangler.toml.template');
+  const wranglerTemplatePath = path.join(
+    packageRoot,
+    'templates',
+    'cloudflare',
+    'wrangler.toml.template'
+  );
   let wranglerConfig = await fs.readFile(wranglerTemplatePath, 'utf-8');
   wranglerConfig = wranglerConfig.replace(/__PHOTON_NAME__/g, photonName);
   await fs.writeFile(path.join(outputDir, 'wrangler.toml'), wranglerConfig);
@@ -131,10 +139,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
       typescript: '^5.0.0',
     },
   };
-  await fs.writeFile(
-    path.join(outputDir, 'package.json'),
-    JSON.stringify(packageJson, null, 2)
-  );
+  await fs.writeFile(path.join(outputDir, 'package.json'), JSON.stringify(packageJson, null, 2));
 
   // Create tsconfig.json
   const tsconfig = {
@@ -149,10 +154,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     },
     include: ['src/**/*'],
   };
-  await fs.writeFile(
-    path.join(outputDir, 'tsconfig.json'),
-    JSON.stringify(tsconfig, null, 2)
-  );
+  await fs.writeFile(path.join(outputDir, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2));
 
   logger.info(`Project generated at: ${outputDir}`);
 
@@ -174,7 +176,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
     logger.error('Failed to install dependencies');
     logger.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     logger.error('💡 Check your npm installation and network connection');
-    throw new Error(`Dependency installation failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Dependency installation failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Check for wrangler authentication
@@ -214,7 +218,9 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
         logger.info(`\nYour MCP server is live at:`);
         logger.info(`https://${photonName}.<your-subdomain>.workers.dev`);
         if (devMode) {
-          logger.info(`\nPlayground: https://${photonName}.<your-subdomain>.workers.dev/playground`);
+          logger.info(
+            `\nPlayground: https://${photonName}.<your-subdomain>.workers.dev/playground`
+          );
         }
         resolve();
       } else {
@@ -228,7 +234,10 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
   // Generate with dev mode, then run wrangler dev
   await deployToCloudflare({ ...options, devMode: true, dryRun: true });
 
-  const photonName = path.basename(options.photonPath).replace(/\.photon\.ts$/, '').replace(/[^a-z0-9-]/gi, '-');
+  const photonName = path
+    .basename(options.photonPath)
+    .replace(/\.photon\.ts$/, '')
+    .replace(/[^a-z0-9-]/gi, '-');
   const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
 
   logger.info('Installing dependencies...');

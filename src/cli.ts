@@ -14,11 +14,13 @@ import * as os from 'os';
 import * as net from 'net';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
-import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir, DEFAULT_WORKING_DIR } from './path-resolver.js';
 import {
-  SchemaExtractor,
-  ConstructorParam,
-} from '@portel/photon-core';
+  resolvePhotonPath,
+  listPhotonMCPs,
+  ensureWorkingDir,
+  DEFAULT_WORKING_DIR,
+} from './path-resolver.js';
+import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
@@ -32,7 +34,13 @@ import { renderSection } from './shared/cli-sections.js';
 import { runTask } from './shared/task-runner.js';
 import { LoggerOptions, normalizeLogLevel, logger } from './shared/logger.js';
 import { printHeader, printInfo, printWarning, printError, printSuccess } from './cli-formatter.js';
-import { handleError, wrapError, getErrorMessage, ExitCode, exitWithError } from './shared/error-handler.js';
+import {
+  handleError,
+  wrapError,
+  getErrorMessage,
+  ExitCode,
+  exitWithError,
+} from './shared/error-handler.js';
 import { validateOrThrow, inRange, isPositive, isInteger } from './shared/validation.js';
 import { createReadline, promptText, promptWait } from './shared/cli-utils.js';
 import { registerMarketplaceCommands } from './cli/commands/marketplace.js';
@@ -81,9 +89,9 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
   validateOrThrow(startPort, [
     inRange('start port', 1, 65535),
     isInteger('start port'),
-    isPositive('start port')
+    isPositive('start port'),
   ]);
-  
+
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
     if (port > 65535) {
@@ -93,7 +101,9 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
       return port;
     }
   }
-  throw new Error(`No available port found between ${startPort} and ${startPort + maxAttempts - 1}`);
+  throw new Error(
+    `No available port found between ${startPort} and ${startPort + maxAttempts - 1}`
+  );
 }
 
 function cliHeading(title: string): void {
@@ -183,7 +193,8 @@ async function handleFormElicitation(ask: {
       }
     } else if (prop.type === 'array') {
       // Multi-select
-      const items = prop.items?.anyOf || prop.items?.enum?.map((e: string) => ({ const: e, title: e }));
+      const items =
+        prop.items?.anyOf || prop.items?.enum?.map((e: string) => ({ const: e, title: e }));
       if (items) {
         printInfo(`${title}${reqMark} (comma-separated numbers):`);
         items.forEach((item: any, i: number) => {
@@ -243,9 +254,7 @@ async function handleUrlElicitation(ask: {
 
   // Open URL in default browser
   const platform = process.platform;
-  const openCommand =
-    platform === 'darwin' ? 'open' :
-    platform === 'win32' ? 'start' : 'xdg-open';
+  const openCommand = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
 
   try {
     const { exec } = await import('child_process');
@@ -274,7 +283,8 @@ async function handleSelectElicitation(ask: {
   );
 
   options.forEach((opt, i) => {
-    const isDefault = ask.default === opt.value || (Array.isArray(ask.default) && ask.default.includes(opt.value));
+    const isDefault =
+      ask.default === opt.value || (Array.isArray(ask.default) && ask.default.includes(opt.value));
     const defaultMark = isDefault ? ' ✓' : '';
     const desc = opt.description ? ` - ${opt.description}` : '';
     cliListItem(`${i + 1}. ${opt.label}${desc}${defaultMark}`);
@@ -380,7 +390,7 @@ async function performMarketplaceSync(
   // Scan for .photon.ts files
   console.error('📦 Scanning for .photon.ts files...');
   const files = await fs.readdir(resolvedPath);
-  let photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+  let photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
 
   // Filter out installed photons if requested (for ~/.photon)
   if (options.filterInstalled && isDefaultDir) {
@@ -388,11 +398,11 @@ async function performMarketplaceSync(
     const metadata = await readLocalMetadata();
     // Metadata keys may include .photon.ts extension
     const installedNames = new Set(
-      Object.keys(metadata.photons || {}).map(k => k.replace(/\.photon\.ts$/, ''))
+      Object.keys(metadata.photons || {}).map((k) => k.replace(/\.photon\.ts$/, ''))
     );
 
     const originalCount = photonFiles.length;
-    photonFiles = photonFiles.filter(f => {
+    photonFiles = photonFiles.filter((f) => {
       const name = f.replace(/\.photon\.ts$/, '');
       return !installedNames.has(name);
     });
@@ -454,7 +464,7 @@ async function performMarketplaceSync(
       homepage: metadata.homepage,
       source: `../${file}`,
       hash,
-      tools: metadata.tools?.map(t => t.name),
+      tools: metadata.tools?.map((t) => t.name),
     });
 
     // Generate individual photon documentation
@@ -470,9 +480,11 @@ async function performMarketplaceSync(
     name: options.name || baseName,
     version: PHOTON_VERSION,
     description: options.description || undefined,
-    owner: options.owner ? {
-      name: options.owner,
-    } : undefined,
+    owner: options.owner
+      ? {
+          name: options.owner,
+        }
+      : undefined,
     photons,
   };
 
@@ -493,7 +505,7 @@ async function performMarketplaceSync(
   const readmeContent = await templateMgr.renderTemplate('readme.md', {
     marketplaceName: manifest.name,
     marketplaceDescription: manifest.description || '',
-    photons: photons.map(p => ({
+    photons: photons.map((p) => ({
       name: p.name,
       description: p.description,
       version: p.version,
@@ -639,9 +651,12 @@ function formatDefaultValue(value: any): string {
     if (value.includes('homedir()')) {
       // Replace homedir() with actual home directory
       // Handle both path.join() and join()
-      return value.replace(/(?:path\.)?join\(homedir\(\),\s*['"]([^'"]+)['"]\)/g, (_, folderName) => {
-        return path.join(os.homedir(), folderName);
-      });
+      return value.replace(
+        /(?:path\.)?join\(homedir\(\),\s*['"]([^'"]+)['"]\)/g,
+        (_, folderName) => {
+          return path.join(os.homedir(), folderName);
+        }
+      );
     }
     if (value.includes('process.cwd()')) {
       return process.cwd();
@@ -685,7 +700,7 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
   }
 
   let hasErrors = false;
-  const results: Array<{name: string; envVar: string; status: string; value?: string}> = [];
+  const results: Array<{ name: string; envVar: string; status: string; value?: string }> = [];
 
   for (const param of params) {
     const envVarName = toEnvVarName(mcpName, param.name);
@@ -717,7 +732,7 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
   }
 
   printHeader('Configuration status');
-  results.forEach(r => {
+  results.forEach((r) => {
     printInfo(`  ${r.status} ${r.envVar}`);
     if (r.value) {
       printInfo(`     Value: ${r.value}`);
@@ -739,7 +754,11 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
 /**
  * Show configuration template for an MCP
  */
-async function showConfigTemplate(filePath: string, mcpName: string, workingDir: string = DEFAULT_WORKING_DIR): Promise<void> {
+async function showConfigTemplate(
+  filePath: string,
+  mcpName: string,
+  workingDir: string = DEFAULT_WORKING_DIR
+): Promise<void> {
   cliHeading(`📋 Configuration template for: ${mcpName}`);
   cliSpacer();
 
@@ -751,7 +770,7 @@ async function showConfigTemplate(filePath: string, mcpName: string, workingDir:
   }
 
   printHeader('Environment variables');
-  params.forEach(param => {
+  params.forEach((param) => {
     const envVarName = toEnvVarName(mcpName, param.name);
     const isRequired = !param.isOptional && !param.hasDefault;
     const status = isRequired ? '[REQUIRED]' : '[OPTIONAL]';
@@ -767,7 +786,7 @@ async function showConfigTemplate(filePath: string, mcpName: string, workingDir:
   printHeader('Claude Desktop configuration');
 
   const envExample: Record<string, string> = {};
-  params.forEach(param => {
+  params.forEach((param) => {
     const envVarName = toEnvVarName(mcpName, param.name);
     if (!param.isOptional && !param.hasDefault) {
       envExample[envVarName] = `<your-${param.name}>`;
@@ -808,7 +827,9 @@ program
     sortSubcommands: false,
     sortOptions: false,
   })
-  .addHelpText('after', `
+  .addHelpText(
+    'after',
+    `
 Runtime Commands:
   mcp <name>              Run a photon as MCP server (for AI assistants)
   cli <photon> [method]   Run photon methods from command line
@@ -835,7 +856,8 @@ Advanced:
   alias <photon>          Create CLI shortcuts for photons
 
 Run 'photon <command> --help' for detailed usage.
-`);
+`
+  );
 
 // Update command: refresh marketplace indexes and check for CLI updates
 program
@@ -843,7 +865,8 @@ program
   .description('Update marketplace indexes and check for CLI updates')
   .action(async () => {
     try {
-      const { printInfo, printSuccess, printWarning, printHeader } = await import('./cli-formatter.js');
+      const { printInfo, printSuccess, printWarning, printHeader } =
+        await import('./cli-formatter.js');
       const { MarketplaceManager } = await import('./marketplace-manager.js');
       const manager = new MarketplaceManager();
       await manager.initialize();
@@ -985,7 +1008,6 @@ program
     }
   });
 
-
 // Serve command: quick SSE server with auto port detection
 program
   .command('serve')
@@ -1088,13 +1110,11 @@ program
 
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
-
     } catch (error) {
       logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
-
 
 // Serv command: local multi-tenant MCP server for testing
 program
@@ -1156,7 +1176,7 @@ Press Ctrl+C to stop
         if (method === 'POST') {
           body = await new Promise((resolve) => {
             let data = '';
-            req.on('data', chunk => data += chunk);
+            req.on('data', (chunk) => (data += chunk));
             req.on('end', () => resolve(data));
           });
         }
@@ -1179,13 +1199,11 @@ Press Ctrl+C to stop
 
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
-
     } catch (error) {
       logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
-
 
 // Deploy command: deploy Photon to cloud platforms
 program
@@ -1231,7 +1249,6 @@ program
       process.exit(1);
     }
   });
-
 
 // Dev command: run local Cloudflare dev server
 program
@@ -1301,7 +1318,8 @@ program
             name: mcpName,
             version: entry.metadata?.version || PHOTON_VERSION,
             description: entry.metadata?.description
-              ? entry.metadata.description.substring(0, 50) + (entry.metadata.description.length > 50 ? '...' : '')
+              ? entry.metadata.description.substring(0, 50) +
+                (entry.metadata.description.length > 50 ? '...' : '')
               : '-',
             marketplace: entry.marketplace.name,
           });
@@ -1311,7 +1329,6 @@ program
       console.log('');
       formatOutput(tableData, 'table');
       printInfo(`\nInstall with: photon add <name>`);
-
     } catch (error) {
       const { printError } = await import('./cli-formatter.js');
       printError(getErrorMessage(error));
@@ -1364,11 +1381,9 @@ maker
       // Convert kebab-case to PascalCase for class name
       const className = name
         .split(/[-_]/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join('');
-      const content = template
-        .replace(/TemplateName/g, className)
-        .replace(/template-name/g, name);
+      const content = template.replace(/TemplateName/g, className).replace(/template-name/g, name);
 
       // Write file
       await fs.writeFile(filePath, content, 'utf-8');
@@ -1529,7 +1544,7 @@ maker
 
       const dirPath = path.resolve(options.dir || '.');
       const files = await fs.readdir(dirPath);
-      const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+      const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
 
       if (photonFiles.length === 0) {
         console.error('No .photon.ts files found');
@@ -1580,7 +1595,8 @@ program
   .option('--port <number>', 'Port to check for availability', '3000')
   .action(async (name: string | undefined, options: any, command: Command) => {
     try {
-      const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } = await import('./cli-formatter.js');
+      const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } =
+        await import('./cli-formatter.js');
       const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
       const diagnostics: Record<string, any> = {};
       const suggestions: string[] = [];
@@ -1646,9 +1662,17 @@ program
       try {
         await fs.access(cacheDir);
         const files = await fs.readdir(cacheDir);
-        diagnostics['Cache directory'] = { path: cacheDir, status: STATUS.OK, cachedFiles: files.length };
+        diagnostics['Cache directory'] = {
+          path: cacheDir,
+          status: STATUS.OK,
+          cachedFiles: files.length,
+        };
       } catch {
-        diagnostics['Cache directory'] = { path: cacheDir, status: STATUS.UNKNOWN, note: 'Created on demand' };
+        diagnostics['Cache directory'] = {
+          path: cacheDir,
+          status: STATUS.UNKNOWN,
+          note: 'Created on demand',
+        };
       }
 
       // Port availability
@@ -1661,7 +1685,9 @@ program
       };
       if (!available) {
         issuesFound++;
-        suggestions.push(`Port ${port} is busy. Run Photon with '--port ${port + 1}' or stop the conflicting service.`);
+        suggestions.push(
+          `Port ${port} is busy. Run Photon with '--port ${port + 1}' or stop the conflicting service.`
+        );
       }
 
       // Marketplace configuration
@@ -1669,7 +1695,7 @@ program
         const { MarketplaceManager } = await import('./marketplace-manager.js');
         const manager = new MarketplaceManager();
         await manager.initialize();
-        const enabled = manager.getAll().filter(m => m.enabled);
+        const enabled = manager.getAll().filter((m) => m.enabled);
         if (enabled.length === 0) {
           diagnostics['Marketplaces'] = {
             status: STATUS.WARN,
@@ -1680,7 +1706,7 @@ program
           const conflicts = await manager.detectAllConflicts();
           diagnostics['Marketplaces'] = {
             status: conflicts.size > 0 ? STATUS.WARN : STATUS.OK,
-            enabled: enabled.map(m => m.name),
+            enabled: enabled.map((m) => m.name),
             conflicts: conflicts.size,
           };
           if (conflicts.size > 0) {
@@ -1690,7 +1716,9 @@ program
         }
       } catch (error) {
         diagnostics['Marketplaces'] = { status: STATUS.ERROR, error: getErrorMessage(error) };
-        suggestions.push('Marketplace config failed to load. Run photon marketplace list to debug.');
+        suggestions.push(
+          'Marketplace config failed to load. Run photon marketplace list to debug.'
+        );
         issuesFound++;
       }
 
@@ -1708,7 +1736,7 @@ program
           photonSection.path = filePath;
           const params = await extractConstructorParams(filePath);
           if (params.length > 0) {
-            photonSection.environment = params.map(param => {
+            photonSection.environment = params.map((param) => {
               const envVar = toEnvVarName(name, param.name);
               const value = process.env[envVar];
               const ok = Boolean(value) || param.isOptional || param.hasDefault;
@@ -1719,7 +1747,11 @@ program
               return {
                 name: envVar,
                 status: ok ? STATUS.OK : STATUS.ERROR,
-                value: value ? 'configured' : param.hasDefault ? `default: ${formatDefaultValue(param.defaultValue)}` : 'missing',
+                value: value
+                  ? 'configured'
+                  : param.hasDefault
+                    ? `default: ${formatDefaultValue(param.defaultValue)}`
+                    : 'missing',
               };
             });
           }
@@ -1729,7 +1761,10 @@ program
             await fs.access(cachedFile);
             photonSection.cache = { status: STATUS.OK, note: 'Warm' };
           } catch {
-            photonSection.cache = { status: STATUS.WARN, note: 'Not compiled yet (first run will compile)' };
+            photonSection.cache = {
+              status: STATUS.WARN,
+              note: 'Not compiled yet (first run will compile)',
+            };
           }
         }
         diagnostics[`Photon: ${name}`] = photonSection;
@@ -1847,37 +1882,89 @@ program
     await listAliases();
   });
 
-
-
 // Reserved commands that should NOT be treated as photon names
 // If first arg is not in this list, it's assumed to be a photon name (implicit CLI mode)
 const RESERVED_COMMANDS = [
   // Core commands
-  'serve', 'beam', 'list', 'ls', 'info',
+  'serve',
+  'beam',
+  'list',
+  'ls',
+  'info',
   // Photon management
-  'new', 'init', 'validate', 'sync', 'add', 'remove', 'rm',
+  'new',
+  'init',
+  'validate',
+  'sync',
+  'add',
+  'remove',
+  'rm',
   // Maintenance
-  'upgrade', 'up', 'update', 'doctor', 'clear-cache', 'clean',
+  'upgrade',
+  'up',
+  'update',
+  'doctor',
+  'clear-cache',
+  'clean',
   // Aliases
-  'cli', 'alias', 'unalias', 'aliases',
+  'cli',
+  'alias',
+  'unalias',
+  'aliases',
   // Marketplace
   'marketplace',
   // Hidden/advanced
-  'mcp', 'search', 'maker', 'deploy', 'cf-dev',
-  'diagram', 'diagrams', 'enable', 'disable', 'serv',
+  'mcp',
+  'search',
+  'maker',
+  'deploy',
+  'cf-dev',
+  'diagram',
+  'diagrams',
+  'enable',
+  'disable',
+  'serv',
   // Help/version (handled by commander)
-  'help', '--help', '-h', 'version', '--version', '-V',
+  'help',
+  '--help',
+  '-h',
+  'version',
+  '--version',
+  '-V',
 ];
 
 // All known commands for "did you mean" suggestions
 const knownCommands = [
-  'serve', 'beam', 'list', 'ls', 'info', 'serv',
-  'new', 'init', 'validate', 'sync',
-  'add', 'remove', 'rm', 'upgrade', 'up', 'update',
-  'clear-cache', 'clean', 'doctor',
-  'cli', 'alias', 'unalias', 'aliases',
-  'mcp', 'search', 'marketplace', 'maker',
-  'deploy', 'diagram', 'diagrams',
+  'serve',
+  'beam',
+  'list',
+  'ls',
+  'info',
+  'serv',
+  'new',
+  'init',
+  'validate',
+  'sync',
+  'add',
+  'remove',
+  'rm',
+  'upgrade',
+  'up',
+  'update',
+  'clear-cache',
+  'clean',
+  'doctor',
+  'cli',
+  'alias',
+  'unalias',
+  'aliases',
+  'mcp',
+  'search',
+  'marketplace',
+  'maker',
+  'deploy',
+  'diagram',
+  'diagrams',
 ];
 
 const knownSubcommands: Record<string, string[]> = {
@@ -1905,8 +1992,8 @@ function levenshteinDistance(a: string, b: string): number {
       } else {
         matrix[i][j] = Math.min(
           matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
+          matrix[i][j - 1] + 1, // insertion
+          matrix[i - 1][j] + 1 // deletion
         );
       }
     }
@@ -1944,7 +2031,7 @@ program.on('command:*', async (operands) => {
 
   // Check if it's a subcommand typo for a known parent
   const args = process.argv.slice(2);
-  const parentIndex = args.findIndex(arg => knownSubcommands[arg]);
+  const parentIndex = args.findIndex((arg) => knownSubcommands[arg]);
 
   if (parentIndex !== -1 && parentIndex < args.indexOf(unknownCommand)) {
     const parent = args[parentIndex];
@@ -1980,7 +2067,7 @@ function preprocessArgs(): string[] {
   }
 
   // Find the first non-flag argument
-  const firstArgIndex = args.findIndex(arg => !arg.startsWith('-'));
+  const firstArgIndex = args.findIndex((arg) => !arg.startsWith('-'));
   if (firstArgIndex === -1) {
     // All flags, let commander handle it
     return process.argv;

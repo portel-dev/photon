@@ -6,16 +6,16 @@
  */
 
 export interface FieldMapping {
-  title?: string;       // Primary display field (name, title, label)
-  subtitle?: string;    // Secondary text field (description, email)
-  icon?: string;        // Leading visual field (icon, avatar, image)
-  badge?: string;       // Status badge field (status, state, type)
-  detail?: string;      // Trailing detail field (count, value, role)
-  link?: string;        // Clickable URL field (url, link, href)
-  id?: string;          // Identifier field (id, key, code)
-  date?: string;        // Date field (createdAt, updatedAt)
-  boolean?: string;     // Boolean field (isActive, enabled)
-  remaining: string[];  // Fields not mapped to slots
+  title?: string; // Primary display field (name, title, label)
+  subtitle?: string; // Secondary text field (description, email)
+  icon?: string; // Leading visual field (icon, avatar, image)
+  badge?: string; // Status badge field (status, state, type)
+  detail?: string; // Trailing detail field (count, value, role)
+  link?: string; // Clickable URL field (url, link, href)
+  id?: string; // Identifier field (id, key, code)
+  date?: string; // Date field (createdAt, updatedAt)
+  boolean?: string; // Boolean field (isActive, enabled)
+  remaining: string[]; // Fields not mapped to slots
 }
 
 export interface FieldTypeHint {
@@ -33,7 +33,8 @@ const FIELD_PATTERNS = {
   link: /^(url|link|href|website|homepage|uri)$/i,
   id: /^(id|key|code|uuid|slug|_id)$/i,
   date: /^(date|time|createdAt|updatedAt|created|updated|timestamp|.*At|.*Date|.*Time)$/i,
-  boolean: /^(is[A-Z]|has[A-Z]|can[A-Z]|should[A-Z]|enabled|disabled|active|visible|checked|selected)$/i,
+  boolean:
+    /^(is[A-Z]|has[A-Z]|can[A-Z]|should[A-Z]|enabled|disabled|active|visible|checked|selected)$/i,
 };
 
 // Patterns for type detection from field values
@@ -60,7 +61,7 @@ export function analyzeFields(data: object | object[]): FieldMapping {
 
   // First pass: match by field name patterns
   for (const [slot, pattern] of Object.entries(FIELD_PATTERNS)) {
-    const match = fields.find(f => pattern.test(f) && !assigned.has(f));
+    const match = fields.find((f) => pattern.test(f) && !assigned.has(f));
     if (match) {
       (mapping as any)[slot] = match;
       assigned.add(match);
@@ -69,7 +70,7 @@ export function analyzeFields(data: object | object[]): FieldMapping {
 
   // Special case: if no subtitle but we have email, use it
   if (!mapping.subtitle) {
-    const emailField = fields.find(f => /email/i.test(f) && !assigned.has(f));
+    const emailField = fields.find((f) => /email/i.test(f) && !assigned.has(f));
     if (emailField) {
       mapping.subtitle = emailField;
       assigned.add(emailField);
@@ -77,7 +78,7 @@ export function analyzeFields(data: object | object[]): FieldMapping {
   }
 
   // Collect remaining fields
-  mapping.remaining = fields.filter(f => !assigned.has(f));
+  mapping.remaining = fields.filter((f) => !assigned.has(f));
 
   return mapping;
 }
@@ -142,7 +143,7 @@ export function isVisualField(value: any): boolean {
   if (emojiRegex.test(value) || value.length <= 2) {
     // Check if it's actually an emoji (simplified check)
     const codePoint = value.codePointAt(0) || 0;
-    if (codePoint > 0x1F000) return true;
+    if (codePoint > 0x1f000) return true;
   }
 
   // Image URL detection
@@ -154,14 +155,16 @@ export function isVisualField(value: any): boolean {
  * camelCase -> Title Case, snake_case -> Title Case
  */
 export function formatFieldLabel(field: string): string {
-  return field
-    // camelCase to spaces
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    // snake_case to spaces
-    .replace(/_/g, ' ')
-    // Capitalize first letter of each word
-    .replace(/\b\w/g, c => c.toUpperCase())
-    .trim();
+  return (
+    field
+      // camelCase to spaces
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // snake_case to spaces
+      .replace(/_/g, ' ')
+      // Capitalize first letter of each word
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim()
+  );
 }
 
 /**

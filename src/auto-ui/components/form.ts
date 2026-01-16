@@ -28,23 +28,31 @@ export class FormComponent implements UIComponent {
   }
 
   async collectInput(schema: any): Promise<any> {
-    const questions = schema.properties ? Object.entries(schema.properties).map(([key, prop]: [string, any]) => ({
-      type: this.getInputType(prop.type),
-      name: key,
-      message: prop.description || key,
-      default: prop.default,
-      validate: prop.required ? (input: any) => input ? true : `${key} is required` : undefined
-    })) : [];
+    const questions = schema.properties
+      ? Object.entries(schema.properties).map(([key, prop]: [string, any]) => ({
+          type: this.getInputType(prop.type),
+          name: key,
+          message: prop.description || key,
+          default: prop.default,
+          validate: prop.required
+            ? (input: any) => (input ? true : `${key} is required`)
+            : undefined,
+        }))
+      : [];
 
     return inquirer.prompt(questions);
   }
 
   private getInputType(type: string): string {
     switch (type) {
-      case 'boolean': return 'confirm';
-      case 'number': return 'number';
-      case 'array': return 'checkbox';
-      default: return 'input';
+      case 'boolean':
+        return 'confirm';
+      case 'number':
+        return 'number';
+      case 'array':
+        return 'checkbox';
+      default:
+        return 'input';
     }
   }
 
@@ -54,8 +62,8 @@ export class FormComponent implements UIComponent {
       schema,
       metadata: {
         title: metadata.title,
-        description: metadata.description
-      }
+        description: metadata.description,
+      },
     };
   }
 
@@ -65,8 +73,8 @@ export class FormComponent implements UIComponent {
       props: {
         schema,
         title: metadata.title,
-        description: metadata.description
-      }
+        description: metadata.description,
+      },
     };
   }
 }

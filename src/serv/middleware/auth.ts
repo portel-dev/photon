@@ -4,7 +4,14 @@
  * Validates Bearer tokens and attaches session to request context
  */
 
-import type { Session, SessionToken, User, Membership, RequestContext, Tenant } from '../types/index.js';
+import type {
+  Session,
+  SessionToken,
+  User,
+  Membership,
+  RequestContext,
+  Tenant,
+} from '../types/index.js';
 import type { SessionStore } from '../session/store.js';
 import type { JwtService } from '../auth/jwt.js';
 
@@ -64,10 +71,7 @@ export class AuthMiddleware {
   /**
    * Authenticate a request
    */
-  async authenticate(
-    tenant: Tenant,
-    authHeader?: string
-  ): Promise<AuthResult> {
+  async authenticate(tenant: Tenant, authHeader?: string): Promise<AuthResult> {
     // Extract token from Authorization header
     const token = this.extractBearerToken(authHeader);
 
@@ -216,7 +220,7 @@ export function hasPermission(role: string, requiredRoles: string[]): boolean {
   };
 
   const userLevel = hierarchy[role] ?? 0;
-  const minRequired = Math.min(...requiredRoles.map(r => hierarchy[r] ?? 999));
+  const minRequired = Math.min(...requiredRoles.map((r) => hierarchy[r] ?? 999));
 
   return userLevel >= minRequired;
 }
@@ -247,7 +251,7 @@ export function generateClientFingerprint(request: {
   const str = parts.join('|');
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
 

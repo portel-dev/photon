@@ -137,14 +137,20 @@ export class D1Client {
    * Execute a query and return first result
    */
   async first<T>(query: string, ...params: unknown[]): Promise<T | null> {
-    return this.db.prepare(query).bind(...params).first<T>();
+    return this.db
+      .prepare(query)
+      .bind(...params)
+      .first<T>();
   }
 
   /**
    * Execute a query and return all results
    */
   async all<T>(query: string, ...params: unknown[]): Promise<T[]> {
-    const result = await this.db.prepare(query).bind(...params).all<T>();
+    const result = await this.db
+      .prepare(query)
+      .bind(...params)
+      .all<T>();
     return result.results ?? [];
   }
 
@@ -152,7 +158,10 @@ export class D1Client {
    * Execute a query (INSERT, UPDATE, DELETE)
    */
   async run(query: string, ...params: unknown[]): Promise<{ changes: number; lastRowId: number }> {
-    const result = await this.db.prepare(query).bind(...params).run();
+    const result = await this.db
+      .prepare(query)
+      .bind(...params)
+      .run();
     return {
       changes: result.meta?.changes ?? 0,
       lastRowId: result.meta?.last_row_id ?? 0,
@@ -163,7 +172,7 @@ export class D1Client {
    * Execute multiple queries in a batch
    */
   async batch(queries: Array<{ sql: string; params: unknown[] }>): Promise<void> {
-    const statements = queries.map(q => this.db.prepare(q.sql).bind(...q.params));
+    const statements = queries.map((q) => this.db.prepare(q.sql).bind(...q.params));
     await this.db.batch(statements);
   }
 }

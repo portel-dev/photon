@@ -21,12 +21,21 @@ export class SessionManager {
   private cleanupInterval: NodeJS.Timeout | null = null;
   private logger: Logger;
 
-  constructor(photonPath: string, photonName: string, sessionTimeout: number = 600000, logger?: Logger) {
+  constructor(
+    photonPath: string,
+    photonName: string,
+    sessionTimeout: number = 600000,
+    logger?: Logger
+  ) {
     this.photonPath = photonPath;
     this.photonName = photonName;
     this.sessionTimeout = sessionTimeout;
-    this.logger = logger ?? createLogger({ component: 'session-manager', scope: photonName, minimal: true });
-    this.loader = new PhotonLoader(false, this.logger.child({ component: 'photon-loader', scope: photonName }));
+    this.logger =
+      logger ?? createLogger({ component: 'session-manager', scope: photonName, minimal: true });
+    this.loader = new PhotonLoader(
+      false,
+      this.logger.child({ component: 'photon-loader', scope: photonName })
+    );
 
     // Start periodic cleanup
     this.startCleanup();
@@ -35,7 +44,10 @@ export class SessionManager {
   /**
    * Get or create a session
    */
-  async getOrCreateSession(sessionId: string | undefined, clientType?: string): Promise<PhotonSession> {
+  async getOrCreateSession(
+    sessionId: string | undefined,
+    clientType?: string
+  ): Promise<PhotonSession> {
     const id = sessionId || DEFAULT_SESSION_ID;
 
     if (this.sessions.has(id)) {
@@ -55,7 +67,7 @@ export class SessionManager {
         instance,
         createdAt: Date.now(),
         lastActivity: Date.now(),
-        clientType
+        clientType,
       };
 
       this.sessions.set(id, session);
@@ -63,7 +75,10 @@ export class SessionManager {
 
       return session;
     } catch (error) {
-      this.logger.error('Failed to create session', { sessionId: id, error: getErrorMessage(error) });
+      this.logger.error('Failed to create session', {
+        sessionId: id,
+        error: getErrorMessage(error),
+      });
       throw error;
     }
   }

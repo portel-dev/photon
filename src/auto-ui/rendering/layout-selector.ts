@@ -8,59 +8,55 @@
  */
 
 export type LayoutType =
-  | 'text'      // Simple text/markdown display
-  | 'card'      // Single object as card with header + fields
-  | 'list'      // Array of objects as iOS-style list
-  | 'grid'      // Array of objects as visual grid
-  | 'tree'      // Nested object as collapsible tree
-  | 'kv'        // Flat object as key-value table
-  | 'chips'     // Array of strings as chips/tags
-  | 'table'     // Legacy: grid table (backward compat)
-  | 'markdown'  // Legacy: markdown rendering
-  | 'mermaid'   // Legacy: mermaid diagrams
-  | 'code'      // Code block with syntax highlighting
-  | 'json'      // Raw JSON display
-  | 'html';     // Raw HTML (for custom UIs)
+  | 'text' // Simple text/markdown display
+  | 'card' // Single object as card with header + fields
+  | 'list' // Array of objects as iOS-style list
+  | 'grid' // Array of objects as visual grid
+  | 'tree' // Nested object as collapsible tree
+  | 'kv' // Flat object as key-value table
+  | 'chips' // Array of strings as chips/tags
+  | 'table' // Legacy: grid table (backward compat)
+  | 'markdown' // Legacy: markdown rendering
+  | 'mermaid' // Legacy: mermaid diagrams
+  | 'code' // Code block with syntax highlighting
+  | 'json' // Raw JSON display
+  | 'html'; // Raw HTML (for custom UIs)
 
 export interface LayoutHints {
-  title?: string;       // Field to use as title
-  subtitle?: string;    // Field to use as subtitle
-  icon?: string;        // Field to use as icon
-  badge?: string;       // Field to use as badge
-  detail?: string;      // Field to use as detail
-  image?: string;       // Field to use as image (grid)
-  style?: string;       // List style (plain, grouped, inset, etc.)
-  accessory?: string;   // Accessory type (chevron, switch, etc.)
-  columns?: number;     // Grid columns
-  fields?: string[];    // Specific fields to show
+  title?: string; // Field to use as title
+  subtitle?: string; // Field to use as subtitle
+  icon?: string; // Field to use as icon
+  badge?: string; // Field to use as badge
+  detail?: string; // Field to use as detail
+  image?: string; // Field to use as image (grid)
+  style?: string; // List style (plain, grouped, inset, etc.)
+  accessory?: string; // Accessory type (chevron, switch, etc.)
+  columns?: number; // Grid columns
+  fields?: string[]; // Specific fields to show
 }
 
 // Map legacy @format values to new layout types
 const FORMAT_TO_LAYOUT: Record<string, LayoutType> = {
-  'table': 'list',        // table -> list (smart rendering)
-  'list': 'list',
-  'grid': 'grid',
-  'card': 'card',
-  'kv': 'kv',
-  'tree': 'tree',
-  'json': 'json',
-  'markdown': 'markdown',
-  'mermaid': 'mermaid',
-  'code': 'code',
-  'text': 'text',
-  'primitive': 'text',
-  'chips': 'chips',
-  'html': 'html',
+  table: 'list', // table -> list (smart rendering)
+  list: 'list',
+  grid: 'grid',
+  card: 'card',
+  kv: 'kv',
+  tree: 'tree',
+  json: 'json',
+  markdown: 'markdown',
+  mermaid: 'mermaid',
+  code: 'code',
+  text: 'text',
+  primitive: 'text',
+  chips: 'chips',
+  html: 'html',
 };
 
 /**
  * Select the best layout type for given data
  */
-export function selectLayout(
-  data: any,
-  format?: string,
-  hints?: LayoutHints
-): LayoutType {
+export function selectLayout(data: any, format?: string, hints?: LayoutHints): LayoutType {
   // 1. Explicit format takes precedence (backward compat)
   if (format) {
     // Handle code:language format
@@ -69,7 +65,12 @@ export function selectLayout(
     const layout = FORMAT_TO_LAYOUT[format] || 'json';
 
     // Smart fallback: if list/table format but data is not an array, use card
-    if ((layout === 'list' || format === 'table') && !Array.isArray(data) && typeof data === 'object' && data !== null) {
+    if (
+      (layout === 'list' || format === 'table') &&
+      !Array.isArray(data) &&
+      typeof data === 'object' &&
+      data !== null
+    ) {
       return 'card';
     }
 
@@ -170,7 +171,11 @@ export function hasImageFields(obj: object): boolean {
 
     // For avatar fields specifically, only treat as image if it's actually a URL
     // Single characters or short strings are icons, not images
-    if (avatarFieldName.test(key) && value.length > 10 && (value.startsWith('http') || value.startsWith('/'))) {
+    if (
+      avatarFieldName.test(key) &&
+      value.length > 10 &&
+      (value.startsWith('http') || value.startsWith('/'))
+    ) {
       return true;
     }
   }
@@ -202,16 +207,16 @@ export function isNested(obj: object, depth: number = 0): boolean {
 export function hasMarkdownSyntax(text: string): boolean {
   // Check for common markdown patterns
   const patterns = [
-    /^#{1,6}\s/m,           // Headers
-    /\*\*[^*]+\*\*/,        // Bold
-    /\*[^*]+\*/,            // Italic
-    /\[[^\]]+\]\([^)]+\)/,  // Links
-    /```[\s\S]*```/,        // Code blocks
-    /^\s*[-*+]\s/m,         // Lists
-    /^\s*\d+\.\s/m,         // Numbered lists
+    /^#{1,6}\s/m, // Headers
+    /\*\*[^*]+\*\*/, // Bold
+    /\*[^*]+\*/, // Italic
+    /\[[^\]]+\]\([^)]+\)/, // Links
+    /```[\s\S]*```/, // Code blocks
+    /^\s*[-*+]\s/m, // Lists
+    /^\s*\d+\.\s/m, // Numbered lists
   ];
 
-  return patterns.some(p => p.test(text));
+  return patterns.some((p) => p.test(text));
 }
 
 /**
@@ -224,7 +229,7 @@ export function parseLayoutHints(hintsString: string): LayoutHints {
   if (!hintsString) return hints;
 
   // Split by comma and parse each hint
-  const parts = hintsString.split(',').map(s => s.trim());
+  const parts = hintsString.split(',').map((s) => s.trim());
 
   for (const part of parts) {
     // Match @key value or @key value:renderer
@@ -234,14 +239,30 @@ export function parseLayoutHints(hintsString: string): LayoutHints {
       const cleanValue = value.trim();
 
       switch (key) {
-        case 'title': hints.title = cleanValue; break;
-        case 'subtitle': hints.subtitle = cleanValue; break;
-        case 'icon': hints.icon = cleanValue; break;
-        case 'badge': hints.badge = cleanValue; break;
-        case 'detail': hints.detail = cleanValue; break;
-        case 'image': hints.image = cleanValue; break;
-        case 'style': hints.style = cleanValue; break;
-        case 'accessory': hints.accessory = cleanValue; break;
+        case 'title':
+          hints.title = cleanValue;
+          break;
+        case 'subtitle':
+          hints.subtitle = cleanValue;
+          break;
+        case 'icon':
+          hints.icon = cleanValue;
+          break;
+        case 'badge':
+          hints.badge = cleanValue;
+          break;
+        case 'detail':
+          hints.detail = cleanValue;
+          break;
+        case 'image':
+          hints.image = cleanValue;
+          break;
+        case 'style':
+          hints.style = cleanValue;
+          break;
+        case 'accessory':
+          hints.accessory = cleanValue;
+          break;
         case 'columns':
           hints.columns = parseInt(cleanValue, 10);
           break;

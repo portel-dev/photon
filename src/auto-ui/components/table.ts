@@ -30,16 +30,16 @@ export class TableComponent implements UIComponent {
     }
 
     const columns = metadata.columns || Object.keys(data[0]);
-    
+
     const table = new Table({
       head: columns.map((col: string) => chalk.cyan(col)),
       style: {
         head: [],
-        border: []
-      }
+        border: [],
+      },
     });
 
-    data.forEach(row => {
+    data.forEach((row) => {
       const values = columns.map((col: string) => {
         const value = row[col];
         if (value === null || value === undefined) {
@@ -58,7 +58,7 @@ export class TableComponent implements UIComponent {
 
   private renderMCP(data: any[], metadata: any): object {
     const columns = metadata.columns || (data.length > 0 ? Object.keys(data[0]) : []);
-    
+
     return {
       type: 'table',
       columns,
@@ -67,27 +67,27 @@ export class TableComponent implements UIComponent {
         sortable: metadata.sortable ?? false,
         filterable: metadata.filterable ?? false,
         paginated: metadata.paginated ?? false,
-        title: metadata.title
-      }
+        title: metadata.title,
+      },
     };
   }
 
   private renderWeb(data: any[], metadata: any): object {
     const columns = metadata.columns || (data.length > 0 ? Object.keys(data[0]) : []);
-    
+
     return {
       component: 'Table',
       props: {
         columns: columns.map((col: string) => ({
           key: col,
           label: col,
-          sortable: metadata.sortable ?? true
+          sortable: metadata.sortable ?? true,
         })),
         data,
         title: metadata.title,
         filterable: metadata.filterable ?? true,
-        paginated: metadata.paginated ?? true
-      }
+        paginated: metadata.paginated ?? true,
+      },
     };
   }
 }

@@ -37,7 +37,7 @@ export interface McpAppsInitialize {
       width?: number;
       height?: number;
     };
-    theme: Record<string, string>;  // CSS variables
+    theme: Record<string, string>; // CSS variables
   };
 }
 

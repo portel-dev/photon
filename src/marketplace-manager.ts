@@ -192,7 +192,9 @@ export class MarketplaceManager {
    * 4. Direct URL: https://example.com/photons.json
    * 5. Local path: ./path/to/marketplace or /absolute/path
    */
-  private parseMarketplaceSource(input: string): Omit<Marketplace, 'enabled' | 'lastUpdated'> | null {
+  private parseMarketplaceSource(
+    input: string
+  ): Omit<Marketplace, 'enabled' | 'lastUpdated'> | null {
     // Pattern 1: username/repo (GitHub shorthand)
     const shorthandMatch = input.match(/^([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+)$/);
     if (shorthandMatch) {
@@ -207,7 +209,9 @@ export class MarketplaceManager {
     }
 
     // Pattern 2: https://github.com/username/repo[.git] (GitHub HTTPS)
-    const httpsMatch = input.match(/^https?:\/\/github\.com\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/);
+    const httpsMatch = input.match(
+      /^https?:\/\/github\.com\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-_.]+?)(\.git)?$/
+    );
     if (httpsMatch) {
       const [, username, repo] = httpsMatch;
       return {
@@ -323,7 +327,9 @@ export class MarketplaceManager {
    *
    * @returns Object with marketplace info and 'added' flag (false if already existed)
    */
-  async add(source: string): Promise<{ marketplace: Omit<Marketplace, 'enabled' | 'lastUpdated'>; added: boolean }> {
+  async add(
+    source: string
+  ): Promise<{ marketplace: Omit<Marketplace, 'enabled' | 'lastUpdated'>; added: boolean }> {
     const parsed = this.parseMarketplaceSource(source);
 
     if (!parsed) {
@@ -435,7 +441,7 @@ export class MarketplaceManager {
         });
 
         if (response.ok) {
-          return await response.json() as MarketplaceManifest;
+          return (await response.json()) as MarketplaceManifest;
         }
       } else {
         // GitHub sources (github, git-ssh)
@@ -446,7 +452,7 @@ export class MarketplaceManager {
         });
 
         if (response.ok) {
-          return await response.json() as MarketplaceManifest;
+          return (await response.json()) as MarketplaceManifest;
         } else {
           this.logger.warn(`Manifest fetch returned ${response.status} for ${marketplace.name}`);
         }
@@ -457,9 +463,10 @@ export class MarketplaceManager {
       this.logger.warn(`Failed to fetch manifest from ${marketplace.name}`, {
         source: marketplace.source,
         error: message,
-        hint: error instanceof Error && error.name === 'TimeoutError' 
-          ? 'Network timeout - check your internet connection'
-          : 'Marketplace may be unavailable',
+        hint:
+          error instanceof Error && error.name === 'TimeoutError'
+            ? 'Network timeout - check your internet connection'
+            : 'Marketplace may be unavailable',
       });
     }
 
@@ -529,7 +536,9 @@ export class MarketplaceManager {
   /**
    * Get Photon metadata from cached manifest
    */
-  async getPhotonMetadata(photonName: string): Promise<{ metadata: PhotonMetadata; marketplace: Marketplace } | null> {
+  async getPhotonMetadata(
+    photonName: string
+  ): Promise<{ metadata: PhotonMetadata; marketplace: Marketplace } | null> {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
@@ -549,7 +558,9 @@ export class MarketplaceManager {
   /**
    * Get all Photons with metadata from all enabled marketplaces
    */
-  async getAllPhotons(): Promise<Map<string, { metadata: PhotonMetadata; marketplace: Marketplace }>> {
+  async getAllPhotons(): Promise<
+    Map<string, { metadata: PhotonMetadata; marketplace: Marketplace }>
+  > {
     const photons = new Map<string, { metadata: PhotonMetadata; marketplace: Marketplace }>();
     const enabled = this.getEnabled();
 
@@ -594,7 +605,7 @@ export class MarketplaceManager {
 
     const lastUpdate = new Date(marketplace.lastUpdated).getTime();
     const now = Date.now();
-    return (now - lastUpdate) > CACHE_TTL_MS;
+    return now - lastUpdate > CACHE_TTL_MS;
   }
 
   /**
@@ -621,7 +632,9 @@ export class MarketplaceManager {
    * Try to fetch MCP from all enabled marketplaces
    * Returns content, marketplace info, and metadata (version, hash)
    */
-  async fetchMCP(mcpName: string): Promise<{ content: string; marketplace: Marketplace; metadata?: PhotonMetadata } | null> {
+  async fetchMCP(
+    mcpName: string
+  ): Promise<{ content: string; marketplace: Marketplace; metadata?: PhotonMetadata } | null> {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
@@ -649,7 +662,7 @@ export class MarketplaceManager {
         if (content) {
           // Try to fetch metadata from manifest
           const manifest = await this.getCachedManifest(marketplace.name);
-          const metadata = manifest?.photons.find(p => p.name === mcpName);
+          const metadata = manifest?.photons.find((p) => p.name === mcpName);
 
           return { content, marketplace, metadata };
         }
@@ -664,7 +677,9 @@ export class MarketplaceManager {
   /**
    * Fetch version from all enabled marketplaces
    */
-  async fetchVersion(mcpName: string): Promise<{ version: string; marketplace: Marketplace } | null> {
+  async fetchVersion(
+    mcpName: string
+  ): Promise<{ version: string; marketplace: Marketplace } | null> {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
@@ -707,7 +722,9 @@ export class MarketplaceManager {
    * Search for Photon in all marketplaces
    * Searches in name, description, tags, and author fields
    */
-  async search(query: string): Promise<Map<string, { metadata?: PhotonMetadata; marketplace: Marketplace }[]>> {
+  async search(
+    query: string
+  ): Promise<Map<string, { metadata?: PhotonMetadata; marketplace: Marketplace }[]>> {
     const results = new Map<string, { metadata?: PhotonMetadata; marketplace: Marketplace }[]>();
     const enabled = this.getEnabled();
     const lowerQuery = query.toLowerCase();
@@ -721,7 +738,7 @@ export class MarketplaceManager {
         for (const photon of manifest.photons) {
           const nameMatch = photon.name.toLowerCase().includes(lowerQuery);
           const descMatch = photon.description?.toLowerCase().includes(lowerQuery);
-          const tagMatch = photon.tags?.some(tag => tag.toLowerCase().includes(lowerQuery));
+          const tagMatch = photon.tags?.some((tag) => tag.toLowerCase().includes(lowerQuery));
           const authorMatch = photon.author?.toLowerCase().includes(lowerQuery);
 
           if (nameMatch || descMatch || tagMatch || authorMatch) {
@@ -765,7 +782,7 @@ export class MarketplaceManager {
       // Try to fetch photons.json manifest
       const manifest = await this.fetchManifest(marketplace);
       if (manifest) {
-        return manifest.photons.map(p => p.name);
+        return manifest.photons.map((p) => p.name);
       }
     } catch {
       // No manifest file available
@@ -824,7 +841,9 @@ export class MarketplaceManager {
   /**
    * Find all marketplaces that have a specific MCP (for conflict detection)
    */
-  async findAllSources(mcpName: string): Promise<Array<{ marketplace: Marketplace; metadata?: PhotonMetadata; content?: string }>> {
+  async findAllSources(
+    mcpName: string
+  ): Promise<Array<{ marketplace: Marketplace; metadata?: PhotonMetadata; content?: string }>> {
     const sources = [];
     const enabled = this.getEnabled();
 
@@ -853,7 +872,7 @@ export class MarketplaceManager {
         if (content) {
           // Try to fetch metadata from manifest
           const manifest = await this.getCachedManifest(marketplace.name);
-          const metadata = manifest?.photons.find(p => p.name === mcpName);
+          const metadata = manifest?.photons.find((p) => p.name === mcpName);
 
           sources.push({
             marketplace,
@@ -872,8 +891,13 @@ export class MarketplaceManager {
   /**
    * Detect all MCP conflicts across marketplaces
    */
-  async detectAllConflicts(): Promise<Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>> {
-    const conflicts = new Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>();
+  async detectAllConflicts(): Promise<
+    Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>
+  > {
+    const conflicts = new Map<
+      string,
+      Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>
+    >();
     const enabled = this.getEnabled();
 
     if (enabled.length <= 1) {
@@ -881,7 +905,10 @@ export class MarketplaceManager {
     }
 
     // Collect all MCPs from all marketplaces
-    const mcpsByName = new Map<string, Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>>();
+    const mcpsByName = new Map<
+      string,
+      Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>
+    >();
 
     for (const marketplace of enabled) {
       const manifest = await this.getCachedManifest(marketplace.name);
@@ -912,7 +939,10 @@ export class MarketplaceManager {
   /**
    * Check if adding/upgrading an MCP would create a conflict
    */
-  async checkConflict(mcpName: string, targetMarketplace?: string): Promise<{
+  async checkConflict(
+    mcpName: string,
+    targetMarketplace?: string
+  ): Promise<{
     hasConflict: boolean;
     sources: Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>;
     recommendation?: string;
@@ -932,7 +962,7 @@ export class MarketplaceManager {
 
     // If target marketplace specified, recommend it
     if (targetMarketplace) {
-      const targetSource = sources.find(s => s.marketplace.name === targetMarketplace);
+      const targetSource = sources.find((s) => s.marketplace.name === targetMarketplace);
       if (targetSource) {
         recommendation = targetMarketplace;
       }
@@ -942,7 +972,7 @@ export class MarketplaceManager {
     if (!recommendation) {
       // Sort by version (semver) if available
       const withVersions = sources
-        .filter(s => s.metadata?.version)
+        .filter((s) => s.metadata?.version)
         .sort((a, b) => {
           const vA = a.metadata!.version;
           const vB = b.metadata!.version;

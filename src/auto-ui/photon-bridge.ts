@@ -28,7 +28,7 @@ declare const window: {
 
 export interface ProgressEvent {
   emit: 'progress';
-  value: number;  // 0-1
+  value: number; // 0-1
   message?: string;
 }
 
@@ -207,7 +207,7 @@ export function createPhotonBridge(): PhotonBridge {
     theme: 'dark',
     locale: 'en-US',
     photon: '',
-    method: ''
+    method: '',
   };
 
   // Check if running in ChatGPT
@@ -226,36 +226,39 @@ export function createPhotonBridge(): PhotonBridge {
 
       case 'photon:emit':
         const emitEvent = msg.event;
-        emitListeners.forEach(cb => cb(emitEvent));
+        emitListeners.forEach((cb) => cb(emitEvent));
 
         if (emitEvent.emit === 'progress') {
-          progressListeners.forEach(cb => cb(emitEvent as ProgressEvent));
+          progressListeners.forEach((cb) => cb(emitEvent as ProgressEvent));
         } else if (emitEvent.emit === 'status') {
-          statusListeners.forEach(cb => cb(emitEvent as StatusEvent));
+          statusListeners.forEach((cb) => cb(emitEvent as StatusEvent));
         } else if (emitEvent.emit === 'stream') {
-          streamListeners.forEach(cb => cb(emitEvent as StreamEvent));
+          streamListeners.forEach((cb) => cb(emitEvent as StreamEvent));
         }
         break;
 
       case 'photon:ask':
         if (elicitationHandler) {
-          elicitationHandler(msg.event).then(value => {
-            window.parent.postMessage({
-              type: 'photon:ask-response',
-              id: msg.id,
-              value
-            } as UIToHostMessage, '*');
+          elicitationHandler(msg.event).then((value) => {
+            window.parent.postMessage(
+              {
+                type: 'photon:ask-response',
+                id: msg.id,
+                value,
+              } as UIToHostMessage,
+              '*'
+            );
           });
         }
         break;
 
       case 'photon:result':
         _toolOutput = msg.data;
-        resultListeners.forEach(cb => cb(msg.data));
+        resultListeners.forEach((cb) => cb(msg.data));
         break;
 
       case 'photon:error':
-        errorListeners.forEach(cb => cb(msg.error));
+        errorListeners.forEach((cb) => cb(msg.error));
         break;
 
       case 'photon:context':
@@ -280,15 +283,24 @@ export function createPhotonBridge(): PhotonBridge {
 
   return {
     // Data access
-    get toolInput() { return _toolInput; },
-    get toolOutput() { return _toolOutput; },
-    get widgetState() { return _widgetState; },
+    get toolInput() {
+      return _toolInput;
+    },
+    get toolOutput() {
+      return _toolOutput;
+    },
+    get widgetState() {
+      return _widgetState;
+    },
     setWidgetState(state: any) {
       _widgetState = state;
-      window.parent.postMessage({
-        type: 'photon:set-state',
-        state
-      } as UIToHostMessage, '*');
+      window.parent.postMessage(
+        {
+          type: 'photon:set-state',
+          state,
+        } as UIToHostMessage,
+        '*'
+      );
     },
 
     // Event subscriptions
@@ -301,7 +313,9 @@ export function createPhotonBridge(): PhotonBridge {
 
     onElicitation(handler) {
       elicitationHandler = handler;
-      return () => { elicitationHandler = null; };
+      return () => {
+        elicitationHandler = null;
+      };
     },
 
     // Actions
@@ -319,28 +333,44 @@ export function createPhotonBridge(): PhotonBridge {
         }
         window.addEventListener('message', handleResponse);
 
-        window.parent.postMessage({
-          type: 'photon:call-tool',
-          toolName,
-          args,
-          callId
-        } as UIToHostMessage, '*');
+        window.parent.postMessage(
+          {
+            type: 'photon:call-tool',
+            toolName,
+            args,
+            callId,
+          } as UIToHostMessage,
+          '*'
+        );
       });
     },
 
     async sendFollowUpMessage(message) {
-      window.parent.postMessage({
-        type: 'photon:follow-up',
-        message
-      } as UIToHostMessage, '*');
+      window.parent.postMessage(
+        {
+          type: 'photon:follow-up',
+          message,
+        } as UIToHostMessage,
+        '*'
+      );
     },
 
     // Context
-    get theme() { return _context.theme; },
-    get locale() { return _context.locale; },
-    get photon() { return _context.photon; },
-    get method() { return _context.method; },
-    get isChatGPT() { return isChatGPT; }
+    get theme() {
+      return _context.theme;
+    },
+    get locale() {
+      return _context.locale;
+    },
+    get photon() {
+      return _context.photon;
+    },
+    get method() {
+      return _context.method;
+    },
+    get isChatGPT() {
+      return isChatGPT;
+    },
   };
 }
 

@@ -125,11 +125,11 @@ async function setupMCPDependencies(
   const skipped: string[] = [];
 
   // Check which MCPs need configuration
-  const unconfigured = mcpDeps.filter(dep => !config.mcpServers[dep.name]);
+  const unconfigured = mcpDeps.filter((dep) => !config.mcpServers[dep.name]);
 
   if (unconfigured.length === 0) {
     console.error(`\n✓ All ${mcpDeps.length} MCP dependencies already configured`);
-    return { configured: mcpDeps.map(d => d.name), skipped: [] };
+    return { configured: mcpDeps.map((d) => d.name), skipped: [] };
   }
 
   console.error(`\n📦 Found ${mcpDeps.length} MCP dependencies:`);
@@ -153,10 +153,7 @@ async function setupMCPDependencies(
   console.error(`\n${unconfigured.length} MCP(s) need configuration:\n`);
 
   for (const dep of unconfigured) {
-    const shouldConfigure = await promptYesNo(
-      `Configure ${dep.name}? (${dep.source})`,
-      true
-    );
+    const shouldConfigure = await promptYesNo(`Configure ${dep.name}? (${dep.source})`, true);
 
     if (!shouldConfigure) {
       skipped.push(dep.name);
@@ -291,8 +288,8 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
         }
 
         // Handle conflicts
-        let selectedMarketplace: typeof conflict.sources[0]['marketplace'];
-        let selectedMetadata: typeof conflict.sources[0]['metadata'];
+        let selectedMarketplace: (typeof conflict.sources)[0]['marketplace'];
+        let selectedMetadata: (typeof conflict.sources)[0]['metadata'];
 
         if (conflict.hasConflict) {
           console.error(`⚠️  MCP '${name}' found in multiple marketplaces:\n`);
@@ -309,7 +306,9 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           }
 
           // Get default choice (recommended or first)
-          const recommendedIndex = conflict.sources.findIndex(s => s.marketplace.name === conflict.recommendation);
+          const recommendedIndex = conflict.sources.findIndex(
+            (s) => s.marketplace.name === conflict.recommendation
+          );
           const defaultChoice = recommendedIndex !== -1 ? recommendedIndex + 1 : 1;
 
           // Interactive selection
@@ -346,7 +345,12 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
         if (selectedMetadata) {
           const { calculateHash } = await import('../../marketplace-manager.js');
           const contentHash = calculateHash(content);
-          await manager.savePhotonMetadata(fileName, selectedMarketplace, selectedMetadata, contentHash);
+          await manager.savePhotonMetadata(
+            fileName,
+            selectedMarketplace,
+            selectedMetadata,
+            contentHash
+          );
         }
 
         console.error(`✅ Added ${name} from ${selectedMarketplace.name}`);
@@ -425,7 +429,6 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
         console.log('');
         printSuccess(`Successfully removed ${name}`);
         printInfo(`To reinstall: photon add ${name}`);
-
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(getErrorMessage(error));
@@ -442,7 +445,8 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .description('Upgrade MCP(s) from marketplaces')
     .action(async (name: string | undefined, options: any, command: Command) => {
       try {
-        const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } = await import('../../cli-formatter.js');
+        const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } =
+          await import('../../cli-formatter.js');
         // Get working directory from global options
         const workingDir = command.parent?.opts().dir || defaultWorkingDir;
 
@@ -474,12 +478,14 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           }
 
           if (options.check) {
-            const tableData = [{
-              name,
-              local: versionInfo.local,
-              remote: versionInfo.remote,
-              status: versionInfo.needsUpdate ? STATUS.UPDATE : STATUS.OK,
-            }];
+            const tableData = [
+              {
+                name,
+                local: versionInfo.local,
+                remote: versionInfo.remote,
+                status: versionInfo.needsUpdate ? STATUS.UPDATE : STATUS.OK,
+              },
+            ];
             formatOutput(tableData, 'table');
             return;
           }
@@ -512,7 +518,8 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           const needsUpdate: string[] = [];
 
           // Build table data
-          const tableData: Array<{ name: string; local: string; remote: string; status: string }> = [];
+          const tableData: Array<{ name: string; local: string; remote: string; status: string }> =
+            [];
 
           for (const [mcpName, info] of updates) {
             if (info.needsUpdate) {

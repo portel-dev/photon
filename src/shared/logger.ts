@@ -148,7 +148,12 @@ export function normalizeLogLevel(input?: string | null): LogLevel {
     return 'info';
   }
   const normalized = input.toLowerCase();
-  if (normalized === 'error' || normalized === 'warn' || normalized === 'info' || normalized === 'debug') {
+  if (
+    normalized === 'error' ||
+    normalized === 'warn' ||
+    normalized === 'info' ||
+    normalized === 'debug'
+  ) {
     return normalized;
   }
   throw new Error(`Invalid log level: ${input}. Use error | warn | info | debug.`);

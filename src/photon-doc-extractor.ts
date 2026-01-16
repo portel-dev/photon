@@ -151,7 +151,10 @@ export class PhotonDocExtractor {
     return params.map((param) => {
       // Convert to environment variable format
       // ClassName -> class-name -> CLASS_NAME_PARAM_NAME
-      const kebabCase = className.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+      const kebabCase = className
+        .replace(/([A-Z])/g, '-$1')
+        .toLowerCase()
+        .replace(/^-/, '');
       const envPrefix = kebabCase.toUpperCase().replace(/-/g, '_');
       const envVar = `${envPrefix}_${param.name.toUpperCase()}`;
 
@@ -217,8 +220,8 @@ export class PhotonDocExtractor {
     // Clean up the configuration text
     return configMatch[1]
       .split('\n')
-      .map(line => line.replace(/^\s*\*\s?/, '').trim())
-      .filter(line => line.length > 0)
+      .map((line) => line.replace(/^\s*\*\s?/, '').trim())
+      .filter((line) => line.length > 0)
       .join('\n')
       .trim();
   }
@@ -239,9 +242,11 @@ export class PhotonDocExtractor {
       const methodIndex = match.index;
 
       // Skip private methods (starting with _) and lifecycle methods
-      if (methodName.startsWith('_') ||
-          methodName === 'onInitialize' ||
-          methodName === 'onShutdown') {
+      if (
+        methodName.startsWith('_') ||
+        methodName === 'onInitialize' ||
+        methodName === 'onShutdown'
+      ) {
         continue;
       }
 
@@ -279,7 +284,11 @@ export class PhotonDocExtractor {
    * Extracts tags like {@min 1}, {@max 100}, {@format email}, {@example test}
    * Returns cleaned description and formatted constraints string
    */
-  private parseInlineJSDocTags(description: string): { description: string; constraintsFormatted?: string; example?: string } {
+  private parseInlineJSDocTags(description: string): {
+    description: string;
+    constraintsFormatted?: string;
+    example?: string;
+  } {
     const constraints: string[] = [];
     let cleanDesc = description;
     let example: string | undefined;
@@ -375,13 +384,12 @@ export class PhotonDocExtractor {
    * Parse a single tool method from its JSDoc content
    */
   private parseToolMethodFromJSDoc(jsdoc: string, methodName: string): Tool | null {
-
     // Extract method description (first line(s) before @param)
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
     const description = descMatch
       ? descMatch[1]
           .split('\n')
-          .map(line => line.replace(/^\s*\*\s?/, '').trim())
+          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
           .join(' ')
           .trim()
       : '';
@@ -402,7 +410,10 @@ export class PhotonDocExtractor {
       // Format: "Param description (optional)" or "Param description (default: value)"
       let cleanDesc = parsed.description;
       const optional = /\(optional\)/i.test(cleanDesc) || /\(default:/i.test(cleanDesc);
-      cleanDesc = cleanDesc.replace(/\(optional\)/gi, '').replace(/\(default:.*?\)/gi, '').trim();
+      cleanDesc = cleanDesc
+        .replace(/\(optional\)/gi, '')
+        .replace(/\(default:.*?\)/gi, '')
+        .trim();
 
       params.push({
         name: paramName,
@@ -422,7 +433,7 @@ export class PhotonDocExtractor {
     if (exampleMatch) {
       const exampleText = exampleMatch[1]
         .split('\n')
-        .map(line => line.replace(/^\s*\*\s?/, ''))
+        .map((line) => line.replace(/^\s*\*\s?/, ''))
         .join('\n')
         .trim();
 
@@ -473,7 +484,7 @@ export class PhotonDocExtractor {
    * Detect the type of Photon based on its methods
    */
   private detectPhotonType(tools: Tool[]): PhotonType {
-    const hasGenerator = tools.some(t => t.isGenerator);
+    const hasGenerator = tools.some((t) => t.isGenerator);
     const hasAskEmit = this.hasAskEmitPatterns();
 
     if (hasGenerator && hasAskEmit) return 'workflow';
@@ -499,7 +510,12 @@ export class PhotonDocExtractor {
     return {
       mcps: mcpsTag ? mcpsTag.split(/[,\s]+/).filter(Boolean) : [],
       photons: photonsTag ? photonsTag.split(/[,\s]+/).filter(Boolean) : [],
-      npm: depsTag ? depsTag.split(/[,\s]+/).map(d => d.split('@')[0]).filter(Boolean) : [],
+      npm: depsTag
+        ? depsTag
+            .split(/[,\s]+/)
+            .map((d) => d.split('@')[0])
+            .filter(Boolean)
+        : [],
     };
   }
 
@@ -511,7 +527,8 @@ export class PhotonDocExtractor {
 
     // Match: const varName = yield { ask: 'type', message: '...' }
     // or: yield { emit: 'type', message: '...' }
-    const yieldRegex = /(?:const\s+(\w+)\s*(?::\s*\w+)?\s*=\s*)?yield\s*\{\s*(ask|emit)\s*:\s*['"](\w+)['"]\s*(?:,\s*message\s*:\s*[`'"]([^`'"]*)[`'"])?/g;
+    const yieldRegex =
+      /(?:const\s+(\w+)\s*(?::\s*\w+)?\s*=\s*)?yield\s*\{\s*(ask|emit)\s*:\s*['"](\w+)['"]\s*(?:,\s*message\s*:\s*[`'"]([^`'"]*)[`'"])?/g;
 
     let match;
     while ((match = yieldRegex.exec(this.content)) !== null) {
@@ -573,14 +590,22 @@ export class PhotonDocExtractor {
    */
   private getAskEmoji(subtype: string): string {
     switch (subtype) {
-      case 'confirm': return '🙋';
-      case 'select': return '📋';
-      case 'text': return '✏️';
-      case 'number': return '🔢';
-      case 'password': return '🔒';
-      case 'date': return '📅';
-      case 'file': return '📁';
-      default: return '❓';
+      case 'confirm':
+        return '🙋';
+      case 'select':
+        return '📋';
+      case 'text':
+        return '✏️';
+      case 'number':
+        return '🔢';
+      case 'password':
+        return '🔒';
+      case 'date':
+        return '📅';
+      case 'file':
+        return '📁';
+      default:
+        return '❓';
     }
   }
 
@@ -589,14 +614,22 @@ export class PhotonDocExtractor {
    */
   private getEmitEmoji(subtype: string): string {
     switch (subtype) {
-      case 'status': return '📢';
-      case 'progress': return '⏳';
-      case 'log': return '📝';
-      case 'toast': return '🎉';
-      case 'thinking': return '🧠';
-      case 'artifact': return '📊';
-      case 'stream': return '💬';
-      default: return '📣';
+      case 'status':
+        return '📢';
+      case 'progress':
+        return '⏳';
+      case 'log':
+        return '📝';
+      case 'toast':
+        return '🎉';
+      case 'thinking':
+        return '🧠';
+      case 'artifact':
+        return '📊';
+      case 'stream':
+        return '💬';
+      default:
+        return '📣';
     }
   }
 
@@ -770,7 +803,7 @@ export class PhotonDocExtractor {
   private titleCase(str: string): string {
     return str
       .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
   }
 

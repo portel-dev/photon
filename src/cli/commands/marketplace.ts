@@ -14,9 +14,7 @@ const logger = new Logger({ component: 'marketplace' });
  * Register marketplace subcommands
  */
 export function registerMarketplaceCommands(program: Command): void {
-  const marketplace = program
-    .command('marketplace')
-    .description('Manage photon marketplaces');
+  const marketplace = program.command('marketplace').description('Manage photon marketplaces');
 
   marketplace
     .command('list')
@@ -40,7 +38,7 @@ export function registerMarketplaceCommands(program: Command): void {
         const counts = await manager.getMarketplaceCounts();
 
         // Build table data
-        const tableData = marketplaces.map(m => ({
+        const tableData = marketplaces.map((m) => ({
           name: m.name,
           source: m.source || m.repo || '-',
           photons: counts.get(m.name) || 0,
@@ -49,7 +47,6 @@ export function registerMarketplaceCommands(program: Command): void {
 
         printInfo(`Configured marketplaces (${marketplaces.length}):\n`);
         formatOutput(tableData, 'table');
-
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(getErrorMessage(error));
@@ -206,7 +203,9 @@ export function registerMarketplaceCommands(program: Command): void {
             }
           }
 
-          console.error(`\nUpdated ${successCount} marketplace(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
+          console.error(
+            `\nUpdated ${successCount} marketplace(s)${failCount > 0 ? `, ${failCount} failed` : ''}`
+          );
         }
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);

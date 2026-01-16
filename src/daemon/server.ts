@@ -14,10 +14,7 @@ import * as net from 'net';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager.js';
 import { DaemonRequest, DaemonResponse, isValidDaemonRequest } from './protocol.js';
-import {
-  setPromptHandler,
-  type PromptHandler,
-} from '@portel/photon-core';
+import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 
@@ -43,10 +40,13 @@ let idleTimer: NodeJS.Timeout | null = null;
 
 // Track pending prompts waiting for user input
 // Map: requestId -> { resolve, reject } for resolving prompt responses
-const pendingPrompts = new Map<string, {
-  resolve: (value: string | boolean | null) => void;
-  reject: (error: Error) => void;
-}>();
+const pendingPrompts = new Map<
+  string,
+  {
+    resolve: (value: string | boolean | null) => void;
+    reject: (error: Error) => void;
+  }
+>();
 
 // Current socket for sending prompts (set per-request)
 let currentSocket: net.Socket | null = null;
@@ -59,7 +59,12 @@ async function initializeSessionManager(): Promise<void> {
   try {
     logger.info(`Initializing session manager for ${photonName}`);
 
-    sessionManager = new SessionManager(photonPath, photonName, idleTimeout, logger.child({ scope: 'session' }));
+    sessionManager = new SessionManager(
+      photonPath,
+      photonName,
+      idleTimeout,
+      logger.child({ scope: 'session' })
+    );
 
     logger.info('Session manager initialized');
     logger.info('Session timeout configured', { timeoutMs: idleTimeout });
@@ -140,7 +145,10 @@ function createSocketPromptHandler(socket: net.Socket, requestId: string): Promp
 /**
  * Handle incoming command request
  */
-async function handleRequest(request: DaemonRequest, socket: net.Socket): Promise<DaemonResponse | null> {
+async function handleRequest(
+  request: DaemonRequest,
+  socket: net.Socket
+): Promise<DaemonResponse | null> {
   resetIdleTimer();
 
   if (request.type === 'ping') {
@@ -217,7 +225,10 @@ async function handleRequest(request: DaemonRequest, socket: net.Socket): Promis
         data: result,
       };
     } catch (error) {
-      logger.error('Error executing request', { method: request.method, error: getErrorMessage(error) });
+      logger.error('Error executing request', {
+        method: request.method,
+        error: getErrorMessage(error),
+      });
 
       // Clear prompt handler on error
       setPromptHandler(null);
@@ -258,14 +269,16 @@ function startServer(): void {
 
         try {
           const parsed = JSON.parse(line);
-          
+
           // Validate request structure
           if (!isValidDaemonRequest(parsed)) {
-            socket.write(JSON.stringify({
-              type: 'error',
-              id: 'unknown',
-              error: 'Invalid request format',
-            }) + '\n');
+            socket.write(
+              JSON.stringify({
+                type: 'error',
+                id: 'unknown',
+                error: 'Invalid request format',
+              }) + '\n'
+            );
             continue;
           }
 
@@ -278,11 +291,13 @@ function startServer(): void {
           }
         } catch (error) {
           logger.error('Error processing request', { error: getErrorMessage(error) });
-          socket.write(JSON.stringify({
-            type: 'error',
-            id: 'unknown',
-            error: getErrorMessage(error),
-          }) + '\n');
+          socket.write(
+            JSON.stringify({
+              type: 'error',
+              id: 'unknown',
+              error: getErrorMessage(error),
+            }) + '\n'
+          );
         }
       }
     });

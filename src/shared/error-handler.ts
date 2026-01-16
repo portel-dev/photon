@@ -34,7 +34,7 @@ export const ExitCode = {
   CANCELLED: 130,
 } as const;
 
-export type ExitCodeType = typeof ExitCode[keyof typeof ExitCode];
+export type ExitCodeType = (typeof ExitCode)[keyof typeof ExitCode];
 
 /**
  * Get appropriate exit code for an error
@@ -163,10 +163,13 @@ export function isNodeError(error: unknown, code?: string): error is NodeJS.Errn
 /**
  * Format error for user display
  */
-export function formatErrorMessage(error: unknown, options?: {
-  includeStack?: boolean;
-  context?: string;
-}): string {
+export function formatErrorMessage(
+  error: unknown,
+  options?: {
+    includeStack?: boolean;
+    context?: string;
+  }
+): string {
   const message = getErrorMessage(error);
   const parts: string[] = [];
 
@@ -194,10 +197,8 @@ export function formatErrorMessage(error: unknown, options?: {
  * Wrap Node.js ENOENT errors with helpful context
  */
 export function handleFileNotFound(path: string, context?: string): FileSystemError {
-  const message = context
-    ? `File not found: ${path} (${context})`
-    : `File not found: ${path}`;
-  
+  const message = context ? `File not found: ${path} (${context})` : `File not found: ${path}`;
+
   return new FileSystemError(
     message,
     { path },
@@ -212,7 +213,7 @@ export function handlePermissionDenied(path: string, context?: string): FileSyst
   const message = context
     ? `Permission denied: ${path} (${context})`
     : `Permission denied: ${path}`;
-  
+
   return new FileSystemError(
     message,
     { path },
@@ -228,9 +229,7 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
     return error;
   }
 
-  const message = context
-    ? `${context}: ${getErrorMessage(error)}`
-    : getErrorMessage(error);
+  const message = context ? `${context}: ${getErrorMessage(error)}` : getErrorMessage(error);
 
   // Handle Node.js errors
   if (isNodeError(error)) {
@@ -368,11 +367,7 @@ export async function tryAsync<T>(
 /**
  * Sync error wrapper for cleaner try-catch
  */
-export function trySync<T>(
-  fn: () => T,
-  context?: string,
-  suggestion?: string
-): T {
+export function trySync<T>(fn: () => T, context?: string, suggestion?: string): T {
   try {
     return fn();
   } catch (error) {
@@ -423,18 +418,14 @@ export async function retry<T>(
       }
 
       // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, delay));
-      
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
       // Exponential backoff
       delay = Math.min(delay * backoffFactor, maxDelay);
     }
   }
 
-  throw wrapError(
-    lastError,
-    context,
-    `Operation failed after ${maxAttempts} attempts`
-  );
+  throw wrapError(lastError, context, `Operation failed after ${maxAttempts} attempts`);
 }
 
 /**
@@ -442,10 +433,10 @@ export async function retry<T>(
  */
 export function isRetryableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  
+
   const message = error.message.toLowerCase();
   const name = error.name.toLowerCase();
-  
+
   // Network errors
   if (
     message.includes('econnrefused') ||

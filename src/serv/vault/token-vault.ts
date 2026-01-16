@@ -72,10 +72,7 @@ export class LocalTokenVault implements TokenVault {
     const iv = randomBytes(12); // 96 bits for GCM
 
     const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(plaintext, 'utf-8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     // Format: base64(iv + authTag + ciphertext)
@@ -95,10 +92,7 @@ export class LocalTokenVault implements TokenVault {
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(authTag);
 
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
 
     return decrypted.toString('utf-8');
   }
@@ -170,7 +164,8 @@ export interface KmsTokenVaultConfig {
 export class KmsTokenVault implements TokenVault {
   private kms: KmsClient;
   private getKeyId: (tenantId: string) => Promise<string>;
-  private dataKeyCache: Map<string, { key: Buffer; encrypted: Buffer; expires: number }> = new Map();
+  private dataKeyCache: Map<string, { key: Buffer; encrypted: Buffer; expires: number }> =
+    new Map();
 
   constructor(config: KmsTokenVaultConfig) {
     this.kms = config.kms;
@@ -183,10 +178,7 @@ export class KmsTokenVault implements TokenVault {
     // Encrypt with data key
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', dataKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(plaintext, 'utf-8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     // Format: base64(encryptedDataKeyLen(2) + encryptedDataKey + iv + authTag + ciphertext)
@@ -215,10 +207,7 @@ export class KmsTokenVault implements TokenVault {
     const decipher = createDecipheriv('aes-256-gcm', dataKey, iv);
     decipher.setAuthTag(authTag);
 
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
 
     return decrypted.toString('utf-8');
   }
@@ -231,7 +220,9 @@ export class KmsTokenVault implements TokenVault {
   /**
    * Get or generate a data key for envelope encryption
    */
-  private async getDataKey(tenantId: string): Promise<{ dataKey: Buffer; encryptedDataKey: Buffer }> {
+  private async getDataKey(
+    tenantId: string
+  ): Promise<{ dataKey: Buffer; encryptedDataKey: Buffer }> {
     const cached = this.dataKeyCache.get(tenantId);
 
     // Cache data keys for 1 hour

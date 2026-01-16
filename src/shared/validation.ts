@@ -91,22 +91,18 @@ export function notEmpty(fieldName: string): Validator<string> {
 /**
  * Validate string length
  */
-export function hasLength(
-  fieldName: string,
-  min?: number,
-  max?: number
-): Validator<string> {
+export function hasLength(fieldName: string, min?: number, max?: number): Validator<string> {
   return (value: string) => {
     const errors: string[] = [];
-    
+
     if (min !== undefined && value.length < min) {
       errors.push(`${fieldName} must be at least ${min} characters`);
     }
-    
+
     if (max !== undefined && value.length > max) {
       errors.push(`${fieldName} must be at most ${max} characters`);
     }
-    
+
     return createResult(errors.length === 0, errors);
   };
 }
@@ -157,22 +153,18 @@ export function isUrl(fieldName: string): Validator<string> {
 /**
  * Validate number is in range
  */
-export function inRange(
-  fieldName: string,
-  min?: number,
-  max?: number
-): Validator<number> {
+export function inRange(fieldName: string, min?: number, max?: number): Validator<number> {
   return (value: number) => {
     const errors: string[] = [];
-    
+
     if (min !== undefined && value < min) {
       errors.push(`${fieldName} must be at least ${min}`);
     }
-    
+
     if (max !== undefined && value > max) {
       errors.push(`${fieldName} must be at most ${max}`);
     }
-    
+
     return createResult(errors.length === 0, errors);
   };
 }
@@ -215,15 +207,15 @@ export function hasArrayLength(
 ): Validator<unknown[]> {
   return (value: unknown[]) => {
     const errors: string[] = [];
-    
+
     if (min !== undefined && value.length < min) {
       errors.push(`${fieldName} must have at least ${min} items`);
     }
-    
+
     if (max !== undefined && value.length > max) {
       errors.push(`${fieldName} must have at most ${max} items`);
     }
-    
+
     return createResult(errors.length === 0, errors);
   };
 }
@@ -231,20 +223,17 @@ export function hasArrayLength(
 /**
  * Validate all array items pass validation
  */
-export function arrayOf<T>(
-  fieldName: string,
-  itemValidator: Validator<T>
-): Validator<T[]> {
+export function arrayOf<T>(fieldName: string, itemValidator: Validator<T>): Validator<T[]> {
   return (value: T[]) => {
     const errors: string[] = [];
-    
+
     value.forEach((item, index) => {
       const result = itemValidator(item);
       if (!result.valid) {
         errors.push(`${fieldName}[${index}]: ${result.errors.join(', ')}`);
       }
     });
-    
+
     return createResult(errors.length === 0, errors);
   };
 }
@@ -262,13 +251,13 @@ export function hasFields(
 ): Validator<Record<string, unknown>> {
   return (value: Record<string, unknown>) => {
     const errors: string[] = [];
-    
+
     requiredFields.forEach((field) => {
       if (!(field in value)) {
         errors.push(`${fieldName} missing required field: ${field}`);
       }
     });
-    
+
     return createResult(errors.length === 0, errors);
   };
 }
@@ -280,10 +269,7 @@ export function hasFields(
 /**
  * Validate value with multiple validators
  */
-export function validate<T>(
-  value: T,
-  validators: Validator<T>[]
-): ValidationResult {
+export function validate<T>(value: T, validators: Validator<T>[]): ValidationResult {
   const results = validators.map((validator) => validator(value));
   return combineResults(...results);
 }
@@ -291,20 +277,12 @@ export function validate<T>(
 /**
  * Validate value and throw on error
  */
-export function validateOrThrow<T>(
-  value: T,
-  validators: Validator<T>[],
-  context?: string
-): void {
+export function validateOrThrow<T>(value: T, validators: Validator<T>[], context?: string): void {
   const result = validate(value, validators);
-  
+
   if (!result.valid) {
     const message = result.errors.join('; ');
-    throw new ValidationError(
-      message,
-      { value, context },
-      'Check input values and try again'
-    );
+    throw new ValidationError(message, { value, context }, 'Check input values and try again');
   }
 }
 
@@ -314,9 +292,7 @@ export function validateOrThrow<T>(
 export function oneOf<T>(fieldName: string, allowed: T[]): Validator<T> {
   return (value: T) => {
     if (!allowed.includes(value)) {
-      return createResult(false, [
-        `${fieldName} must be one of: ${allowed.join(', ')}`,
-      ]);
+      return createResult(false, [`${fieldName} must be one of: ${allowed.join(', ')}`]);
     }
     return createResult(true);
   };
@@ -342,10 +318,7 @@ export function pathExists(fieldName: string): Validator<string> {
 /**
  * Validate file extension
  */
-export function hasExtension(
-  fieldName: string,
-  extensions: string[]
-): Validator<string> {
+export function hasExtension(fieldName: string, extensions: string[]): Validator<string> {
   return (value: string) => {
     const ext = value.split('.').pop()?.toLowerCase();
     if (!ext || !extensions.includes(ext)) {
@@ -369,21 +342,14 @@ export function assertDefined<T>(
   fieldName: string
 ): asserts value is T {
   if (value === null || value === undefined) {
-    throw new ValidationError(
-      `${fieldName} is required`,
-      { value },
-      'Provide a valid value'
-    );
+    throw new ValidationError(`${fieldName} is required`, { value }, 'Provide a valid value');
   }
 }
 
 /**
  * Assert value is a string
  */
-export function assertString(
-  value: unknown,
-  fieldName: string
-): asserts value is string {
+export function assertString(value: unknown, fieldName: string): asserts value is string {
   if (!isString(value)) {
     throw new ValidationError(
       `${fieldName} must be a string, got ${typeof value}`,
@@ -396,10 +362,7 @@ export function assertString(
 /**
  * Assert value is a number
  */
-export function assertNumber(
-  value: unknown,
-  fieldName: string
-): asserts value is number {
+export function assertNumber(value: unknown, fieldName: string): asserts value is number {
   if (!isNumber(value)) {
     throw new ValidationError(
       `${fieldName} must be a number, got ${typeof value}`,
@@ -428,10 +391,7 @@ export function assertObject(
 /**
  * Assert value is an array
  */
-export function assertArray(
-  value: unknown,
-  fieldName: string
-): asserts value is unknown[] {
+export function assertArray(value: unknown, fieldName: string): asserts value is unknown[] {
   if (!isArray(value)) {
     throw new ValidationError(
       `${fieldName} must be an array, got ${typeof value}`,

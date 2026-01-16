@@ -9,7 +9,12 @@ import { randomUUID } from 'crypto';
 import type { Tenant, User, Membership, Session } from './types/index.js';
 import { MemorySessionStore } from './session/store.js';
 import { MemoryTenantStore } from './middleware/tenant.js';
-import { MemoryElicitationStore, MemoryGrantStore, OAuthProviderRegistry, OAuthFlowHandler } from './auth/oauth.js';
+import {
+  MemoryElicitationStore,
+  MemoryGrantStore,
+  OAuthProviderRegistry,
+  OAuthFlowHandler,
+} from './auth/oauth.js';
 import { LocalTokenVault } from './vault/token-vault.js';
 import { JwtService } from './auth/jwt.js';
 import { TenantResolver } from './middleware/tenant.js';
@@ -34,7 +39,7 @@ export class LocalUserStore {
 
   async findByEmail(email: string): Promise<User | null> {
     const id = this.emailIndex.get(email.toLowerCase());
-    return id ? this.users.get(id) ?? null : null;
+    return id ? (this.users.get(id) ?? null) : null;
   }
 
   async create(data: Omit<User, 'id' | 'createdAt'>): Promise<User> {
@@ -70,7 +75,7 @@ export class LocalMembershipStore {
   }
 
   async findByUser(userId: string): Promise<Membership[]> {
-    return Array.from(this.memberships.values()).filter(m => m.userId === userId);
+    return Array.from(this.memberships.values()).filter((m) => m.userId === userId);
   }
 
   async create(data: Omit<Membership, 'joinedAt'>): Promise<Membership> {
@@ -259,11 +264,7 @@ export class LocalServ {
   /**
    * Register an OAuth provider for testing
    */
-  registerOAuthProvider(
-    providerId: string,
-    clientId: string,
-    clientSecret: string
-  ): void {
+  registerOAuthProvider(providerId: string, clientId: string, clientSecret: string): void {
     this.oauthProviders.register(providerId, clientId, clientSecret);
     this.log('Registered OAuth provider', { providerId });
   }
@@ -275,7 +276,10 @@ export class LocalServ {
   /**
    * Create a session for a user in a tenant
    */
-  async createSession(tenant: Tenant, user?: User): Promise<{
+  async createSession(
+    tenant: Tenant,
+    user?: User
+  ): Promise<{
     session: Session;
     token: string;
   }> {
@@ -289,7 +293,7 @@ export class LocalServ {
       session,
       tenant,
       user,
-      user ? await this.memberships.find(tenant.id, user.id) ?? undefined : undefined
+      user ? ((await this.memberships.find(tenant.id, user.id)) ?? undefined) : undefined
     );
 
     this.log('Created session', {
@@ -375,10 +379,7 @@ export class LocalServ {
         const tenant = await this.resolveTenant(headers);
         if (!tenant) return this.notFound('Tenant not found');
 
-        const authResult = await this.auth.authenticate(
-          tenant,
-          headers['authorization']
-        );
+        const authResult = await this.auth.authenticate(tenant, headers['authorization']);
 
         if (!authResult.success) {
           return {

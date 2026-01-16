@@ -65,23 +65,27 @@ export function summarizeConstructorParams(
   params: ConstructorParam[],
   mcpName: string
 ): { docs: string; exampleEnv: Record<string, string> } {
-  const docs = params.map(param => {
-    const envVarName = toEnvVarName(mcpName, param.name);
-    const required = !param.isOptional && !param.hasDefault;
-    const status = required ? '[REQUIRED]' : '[OPTIONAL]';
-    const defaultInfo = param.hasDefault ? ` (default: ${JSON.stringify(param.defaultValue)})` : '';
-    const exampleValue = generateExampleValue(param.name, param.type);
+  const docs = params
+    .map((param) => {
+      const envVarName = toEnvVarName(mcpName, param.name);
+      const required = !param.isOptional && !param.hasDefault;
+      const status = required ? '[REQUIRED]' : '[OPTIONAL]';
+      const defaultInfo = param.hasDefault
+        ? ` (default: ${JSON.stringify(param.defaultValue)})`
+        : '';
+      const exampleValue = generateExampleValue(param.name, param.type);
 
-    let line = `  • ${envVarName} ${status}`;
-    line += `\n    Type: ${param.type}${defaultInfo}`;
-    if (exampleValue) {
-      line += `\n    Example: ${envVarName}="${exampleValue}"`;
-    }
-    return line;
-  }).join('\n\n');
+      let line = `  • ${envVarName} ${status}`;
+      line += `\n    Type: ${param.type}${defaultInfo}`;
+      if (exampleValue) {
+        line += `\n    Example: ${envVarName}="${exampleValue}"`;
+      }
+      return line;
+    })
+    .join('\n\n');
 
   const exampleEnv: Record<string, string> = {};
-  params.forEach(param => {
+  params.forEach((param) => {
     const envVarName = toEnvVarName(mcpName, param.name);
     if (!param.isOptional && !param.hasDefault) {
       exampleEnv[envVarName] = generateExampleValue(param.name, param.type) || `your-${param.name}`;
@@ -91,13 +95,12 @@ export function summarizeConstructorParams(
   return { docs, exampleEnv };
 }
 
-export function generateConfigErrorMessage(
-  mcpName: string,
-  missing: MissingParamInfo[]
-): string {
-  const envVarList = missing.map(m => `  • ${m.envVarName} (${m.paramName}: ${m.type})`).join('\n');
+export function generateConfigErrorMessage(mcpName: string, missing: MissingParamInfo[]): string {
+  const envVarList = missing
+    .map((m) => `  • ${m.envVarName} (${m.paramName}: ${m.type})`)
+    .join('\n');
   const exampleEnv = Object.fromEntries(
-    missing.map(m => [m.envVarName, `<your-${m.paramName}>`])
+    missing.map((m) => [m.envVarName, `<your-${m.paramName}>`])
   );
 
   return `

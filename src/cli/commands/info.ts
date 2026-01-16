@@ -22,7 +22,9 @@ function formatDefaultValue(value: unknown): string {
 }
 
 // Helper to extract constructor params from a photon file
-async function extractConstructorParams(filePath: string): Promise<Array<{ name: string; defaultValue?: unknown }>> {
+async function extractConstructorParams(
+  filePath: string
+): Promise<Array<{ name: string; defaultValue?: unknown }>> {
   const fs = await import('fs/promises');
   const { SchemaExtractor } = await import('@portel/photon-core');
   const source = await fs.readFile(filePath, 'utf-8');
@@ -73,7 +75,8 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
     .description('Show installed and available Photons')
     .action(async (name: string | undefined, options: any, command: Command) => {
       try {
-        const { formatOutput, printInfo, printError, printHeader, STATUS } = await import('../../cli-formatter.js');
+        const { formatOutput, printInfo, printError, printHeader, STATUS } =
+          await import('../../cli-formatter.js');
         // Get working directory from global/parent options
         const parentOpts = command.parent?.opts() || {};
         const workingDir = parentOpts.dir || defaultWorkingDir;
@@ -104,9 +107,10 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
             const env: Record<string, string> = {};
             for (const param of constructorParams) {
               const envVarName = toEnvVarName(name, param.name);
-              const defaultDisplay = param.defaultValue !== undefined
-                ? formatDefaultValue(param.defaultValue)
-                : `<your-${param.name}>`;
+              const defaultDisplay =
+                param.defaultValue !== undefined
+                  ? formatDefaultValue(param.defaultValue)
+                  : `<your-${param.name}>`;
               env[envVarName] = defaultDisplay;
             }
 
@@ -117,9 +121,7 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
             const config = globalPhotonPath
               ? {
                   command: globalPhotonPath,
-                  args: needsWorkingDir
-                    ? ['mcp', name, '--dir', workingDir]
-                    : ['mcp', name],
+                  args: needsWorkingDir ? ['mcp', name, '--dir', workingDir] : ['mcp', name],
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
@@ -142,7 +144,9 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
               const photonMetadata = await extractor.extractFullMetadata();
               const fileName = `${name}.photon.ts`;
               const metadata = await manager.getPhotonInstallMetadata(fileName);
-              const isModified = metadata ? await manager.isPhotonModified(filePath!, fileName) : false;
+              const isModified = metadata
+                ? await manager.isPhotonModified(filePath!, fileName)
+                : false;
 
               const installDetails: string[] = [
                 `Location: ${filePath}`,
@@ -160,15 +164,21 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
               const tools = photonMetadata.tools || [];
               if (tools.length > 0) {
                 console.log(`Tools: ${tools.length}`);
-                renderSection('Methods', tools.map(tool => {
-                  const desc = tool.description ? tool.description.split(/\.(?:\s|$)|  |\n/)[0].trim() : '';
-                  return desc ? `${tool.name} — ${desc}` : tool.name;
-                }));
+                renderSection(
+                  'Methods',
+                  tools.map((tool) => {
+                    const desc = tool.description
+                      ? tool.description.split(/\.(?:\s|$)|  |\n/)[0].trim()
+                      : '';
+                    return desc ? `${tool.name} — ${desc}` : tool.name;
+                  })
+                );
               }
 
-              const usageLines = metadata && !isModified
-                ? [`photon mcp ${name}`, `Customize: photon mcp ${name} --dev`]
-                : [`photon mcp ${name} --dev`];
+              const usageLines =
+                metadata && !isModified
+                  ? [`photon mcp ${name}`, `Customize: photon mcp ${name} --dev`]
+                  : [`photon mcp ${name} --dev`];
               renderSection('Usage', usageLines);
             } else {
               renderSection('Installation', [
@@ -184,9 +194,10 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
             if (sources.length > 0) {
               const fileName = `${name}.photon.ts`;
               const installMetadata = await manager.getPhotonInstallMetadata(fileName);
-              const marketplaceLines = sources.map(source => {
+              const marketplaceLines = sources.map((source) => {
                 const version = source.metadata?.version || 'unknown';
-                const mark = installMetadata?.marketplace === source.marketplace.name ? ' (installed)' : '';
+                const mark =
+                  installMetadata?.marketplace === source.marketplace.name ? ' (installed)' : '';
                 return `${source.marketplace.name} · v${version}${mark}`;
               });
               renderSection('Marketplace sources', marketplaceLines);
@@ -216,18 +227,17 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
             const env: Record<string, string> = {};
             for (const param of constructorParams) {
               const envVarName = toEnvVarName(mcpName, param.name);
-              const defaultDisplay = param.defaultValue !== undefined
-                ? formatDefaultValue(param.defaultValue)
-                : `<your-${param.name}>`;
+              const defaultDisplay =
+                param.defaultValue !== undefined
+                  ? formatDefaultValue(param.defaultValue)
+                  : `<your-${param.name}>`;
               env[envVarName] = defaultDisplay;
             }
 
             allConfigs[mcpName] = globalPhotonPath
               ? {
                   command: globalPhotonPath,
-                  args: needsWorkingDir
-                    ? ['mcp', mcpName, '--dir', workingDir]
-                    : ['mcp', mcpName],
+                  args: needsWorkingDir ? ['mcp', mcpName, '--dir', workingDir] : ['mcp', mcpName],
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
@@ -253,7 +263,12 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
         if (mcps.length > 0) {
           printHeader(`Installed · ${workingDir}`);
 
-          const tableData: Array<{ name: string; version: string; source: string; status: string }> = [];
+          const tableData: Array<{
+            name: string;
+            version: string;
+            source: string;
+            status: string;
+          }> = [];
 
           for (const mcpName of mcps) {
             const fileName = `${mcpName}.photon.ts`;
@@ -293,7 +308,7 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
         // Show marketplace availability in tree format
         printHeader('Marketplace availability');
 
-        const marketplaces = manager.getAll().filter(m => m.enabled);
+        const marketplaces = manager.getAll().filter((m) => m.enabled);
         const counts = await manager.getMarketplaceCounts();
 
         // Build marketplace tree

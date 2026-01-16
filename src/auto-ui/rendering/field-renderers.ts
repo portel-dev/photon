@@ -124,11 +124,12 @@ export function renderDate(
       return `<span class="field-date" title="${date.toISOString()}">${text}</span>`;
     }
 
-    const options: Intl.DateTimeFormatOptions = format === 'short'
-      ? { month: 'numeric', day: 'numeric', year: '2-digit' }
-      : format === 'long'
-        ? { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }
-        : { month: 'short', day: 'numeric', year: 'numeric' };
+    const options: Intl.DateTimeFormatOptions =
+      format === 'short'
+        ? { month: 'numeric', day: 'numeric', year: '2-digit' }
+        : format === 'long'
+          ? { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }
+          : { month: 'short', day: 'numeric', year: 'numeric' };
 
     return `<span class="field-date">${date.toLocaleDateString(locale, options)}</span>`;
   } catch {

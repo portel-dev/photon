@@ -38,10 +38,13 @@ interface TestCase {
 export class MCPTestClient {
   private process?: ChildProcess;
   private requestId = 0;
-  private pendingRequests = new Map<number | string, {
-    resolve: (response: MCPResponse) => void;
-    reject: (error: Error) => void;
-  }>();
+  private pendingRequests = new Map<
+    number | string,
+    {
+      resolve: (response: MCPResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >();
 
   async start(command: string, args: string[], env?: Record<string, string>): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -215,11 +218,13 @@ export const validators = {
     return fn(response.result);
   },
 
-  and: (...validators: Array<(response: MCPResponse) => boolean | string>) => (response: MCPResponse) => {
-    for (const validator of validators) {
-      const result = validator(response);
-      if (result !== true) return result;
-    }
-    return true;
-  },
+  and:
+    (...validators: Array<(response: MCPResponse) => boolean | string>) =>
+    (response: MCPResponse) => {
+      for (const validator of validators) {
+        const result = validator(response);
+        if (result !== true) return result;
+      }
+      return true;
+    },
 };

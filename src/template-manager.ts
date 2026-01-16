@@ -103,7 +103,10 @@ export class TemplateManager {
           return desc.split(' - ')[0];
         }
         // Fallback: title case the name
-        return fallbackName.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        return fallbackName
+          .split('-')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
       },
 
       // Extract description after " - " separator
@@ -207,11 +210,7 @@ export class TemplateManager {
    * Save template hashes to file
    */
   private async saveHashes(hashes: TemplateHashes): Promise<void> {
-    await fs.writeFile(
-      this.hashFile,
-      JSON.stringify(hashes, null, 2),
-      'utf-8'
-    );
+    await fs.writeFile(this.hashFile, JSON.stringify(hashes, null, 2), 'utf-8');
   }
 
   /**

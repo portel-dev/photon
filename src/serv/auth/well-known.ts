@@ -73,11 +73,7 @@ export function generateAuthServerMetadata(
       'mcp:admin',
     ],
     response_types_supported: ['code'],
-    grant_types_supported: [
-      'authorization_code',
-      'refresh_token',
-      'client_credentials',
-    ],
+    grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: [
       'client_secret_basic',
@@ -108,7 +104,9 @@ export interface ClientMetadataDocument {
 /**
  * Fetch and validate a Client ID Metadata Document
  */
-export async function fetchClientMetadata(clientId: string): Promise<ClientMetadataDocument | null> {
+export async function fetchClientMetadata(
+  clientId: string
+): Promise<ClientMetadataDocument | null> {
   // Client ID should be a URL for CIMD
   if (!clientId.startsWith('https://')) {
     return null;
@@ -121,7 +119,7 @@ export async function fetchClientMetadata(clientId: string): Promise<ClientMetad
 
     if (!response.ok) return null;
 
-    const metadata = await response.json() as ClientMetadataDocument;
+    const metadata = (await response.json()) as ClientMetadataDocument;
 
     // Validate required fields
     if (!metadata.client_id || metadata.client_id !== clientId) {

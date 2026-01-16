@@ -15,15 +15,15 @@
 export const spacing = {
   // Base unit: 4px (for fine adjustments)
   '0': '0',
-  '1': '4px',    // xs - minimal spacing
-  '2': '8px',    // sm - tight spacing
-  '3': '12px',   // md - default spacing
-  '4': '16px',   // lg - comfortable spacing
-  '5': '20px',   // xl - generous spacing
-  '6': '24px',   // 2xl - section spacing
-  '8': '32px',   // 3xl - large section spacing
-  '10': '40px',  // 4xl - hero spacing
-  '12': '48px',  // 5xl - page spacing
+  '1': '4px', // xs - minimal spacing
+  '2': '8px', // sm - tight spacing
+  '3': '12px', // md - default spacing
+  '4': '16px', // lg - comfortable spacing
+  '5': '20px', // xl - generous spacing
+  '6': '24px', // 2xl - section spacing
+  '8': '32px', // 3xl - large section spacing
+  '10': '40px', // 4xl - hero spacing
+  '12': '48px', // 5xl - page spacing
 } as const;
 
 // Semantic spacing aliases
@@ -228,7 +228,7 @@ export const colorsDark = {
 // System colors - Light Theme
 export const colorsLight = {
   // Surfaces (inverted - light backgrounds)
-  surface: colorPalette.neutral[100],   // white
+  surface: colorPalette.neutral[100], // white
   surfaceContainer: colorPalette.neutral[95],
   surfaceContainerHigh: colorPalette.neutral[90],
   surfaceContainerHighest: colorPalette.neutral[80],
@@ -242,25 +242,25 @@ export const colorsLight = {
   // Primary (darker for light theme)
   primary: colorPalette.primary[40],
   primaryContainer: colorPalette.primary[90],
-  onPrimary: colorPalette.neutral[100],  // white text on primary
+  onPrimary: colorPalette.neutral[100], // white text on primary
   onPrimaryContainer: colorPalette.primary[10],
 
   // Success
   success: colorPalette.success[40],
   successContainer: colorPalette.success[90],
-  onSuccess: colorPalette.neutral[100],  // white text
+  onSuccess: colorPalette.neutral[100], // white text
   onSuccessContainer: colorPalette.success[10],
 
   // Warning
   warning: colorPalette.warning[40],
   warningContainer: colorPalette.warning[90],
-  onWarning: colorPalette.neutral[100],  // white text
+  onWarning: colorPalette.neutral[100], // white text
   onWarningContainer: colorPalette.warning[10],
 
   // Error
   error: colorPalette.error[40],
   errorContainer: colorPalette.error[90],
-  onError: colorPalette.neutral[100],  // white text
+  onError: colorPalette.neutral[100], // white text
   onErrorContainer: colorPalette.error[10],
 
   // Outline (darker for light theme)
@@ -304,10 +304,10 @@ export const elevation = {
 
 export const radius = {
   none: '0',
-  sm: '6px',    // Small elements (chips, badges)
-  md: '10px',   // Cards, inputs (iOS default)
-  lg: '14px',   // Large cards
-  xl: '20px',   // Modal, sheet
+  sm: '6px', // Small elements (chips, badges)
+  md: '10px', // Cards, inputs (iOS default)
+  lg: '14px', // Large cards
+  xl: '20px', // Modal, sheet
   full: '9999px', // Pills, circles
 } as const;
 

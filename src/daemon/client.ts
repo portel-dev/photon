@@ -16,7 +16,8 @@ import { getErrorMessage } from '../shared/error-handler.js';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
-const SESSION_ID = process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+const SESSION_ID =
+  process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const logger = createLogger({ component: 'daemon-client', minimal: true });
 
 /**
@@ -29,9 +30,7 @@ async function promptUser(message: string, defaultValue?: string): Promise<strin
       output: process.stdout,
     });
 
-    const prompt = defaultValue
-      ? `${message} [${defaultValue}]: `
-      : `${message}: `;
+    const prompt = defaultValue ? `${message} [${defaultValue}]: ` : `${message}: `;
 
     rl.question(prompt, (answer) => {
       rl.close();
@@ -98,10 +97,7 @@ export async function sendCommand(
               clearTimeout(timeout);
 
               // Get user input via readline
-              const userInput = await promptUser(
-                response.prompt.message,
-                response.prompt.default
-              );
+              const userInput = await promptUser(response.prompt.message, response.prompt.default);
 
               // Send prompt response back to daemon
               const promptResponse: DaemonRequest = {

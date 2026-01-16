@@ -1,6 +1,6 @@
 /**
  * Auto-UI System for Photon Runtime
- * 
+ *
  * Automatically generates UI components based on method return types and docblock hints.
  * Supports MCP, ChatGPT Actions, and custom rendering.
  */
@@ -32,7 +32,7 @@ export {
   type AskNumberEvent,
   type PhotonContext,
   type HostToUIMessage,
-  type UIToHostMessage
+  type UIToHostMessage,
 } from './photon-bridge';
 
 // PhotonHost - host-side manager for custom UI iframes
@@ -40,7 +40,7 @@ export {
   PhotonHost,
   createHostOutputHandler,
   createHostInputProvider,
-  type PhotonHostOptions
+  type PhotonHostOptions,
 } from './photon-host';
 
 // Platform Compatibility Layer - MCP Apps, ChatGPT Apps SDK, Claude Artifacts
@@ -53,7 +53,7 @@ export {
   type McpAppsToolInput,
   type McpAppsToolResult,
   type OpenAiApi,
-  type OpenAiContext
+  type OpenAiContext,
 } from './platform-compat';
 
 // Design System with theming
@@ -63,5 +63,5 @@ export {
   generateTokensCSS,
   colorsDark,
   colorsLight,
-  type ThemeMode
+  type ThemeMode,
 } from './design-system/tokens';

@@ -52,12 +52,12 @@ export class ComponentRegistry {
       if (data.length === 0) {
         return 'list';
       }
-      
+
       if (typeof data[0] === 'object' && data[0] !== null) {
         const hasChildren = data[0].children !== undefined;
         return hasChildren ? 'tree' : 'table';
       }
-      
+
       return 'list';
     }
 
@@ -65,11 +65,11 @@ export class ComponentRegistry {
       if (data.children !== undefined) {
         return 'tree';
       }
-      
+
       if (data.type === 'progress') {
         return 'progress';
       }
-      
+
       return 'card';
     }
 
