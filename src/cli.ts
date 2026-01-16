@@ -1084,6 +1084,8 @@ program
 program
   .command('beam')
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
+  .option('-o, --open', 'Auto-open browser after starting')
+  .option('--no-open', 'Do not auto-open browser')
   .description('Launch Photon Beam - interactive control panel for all your photons')
   .action(async (options: any, command: Command) => {
     try {
@@ -1101,6 +1103,17 @@ program
       // Import and start Beam server
       const { startBeam } = await import('./auto-ui/beam.js');
       await startBeam(workingDir, port);
+
+      // Auto-open browser if requested
+      if (options.open) {
+        const url = `http://localhost:${port}`;
+        const { exec } = await import('child_process');
+        const openCmd =
+          process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+        exec(`${openCmd} ${url}`, (err) => {
+          if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
+        });
+      }
 
       // Handle shutdown signals
       const shutdown = () => {
@@ -2102,9 +2115,9 @@ program.on('command:*', async (operands) => {
 function preprocessArgs(): string[] {
   const args = process.argv.slice(2);
 
-  // No args - let commander handle it (shows help)
+  // No args - default to beam with auto-open browser
   if (args.length === 0) {
-    return process.argv;
+    return [...process.argv, 'beam', '--open'];
   }
 
   // Find the first non-flag argument
