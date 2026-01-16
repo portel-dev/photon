@@ -188,8 +188,9 @@ function formatTestName(name: string): string {
  */
 function printTestResult(result: TestResult): void {
   const icon = result.passed ? chalk.green('✓') : chalk.red('✗');
-  // Strip 'test' prefix for cleaner display
-  const displayName = result.test.replace(/^test/, '');
+  // Strip 'test' prefix and lowercase first char
+  const stripped = result.test.replace(/^test/, '');
+  const displayName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
   const name = chalk.gray(`${result.photon}.`) + displayName;
   const time = chalk.gray(`${result.duration}ms`);
 
