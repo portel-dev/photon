@@ -5646,6 +5646,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         }
       }
 
+      // Show filter for non-custom UI results
+      const filterWrapper = document.querySelector('.result-filter-wrapper');
+      if (filterWrapper) filterWrapper.style.display = '';
+
       // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
         renderMermaid(content, data);
@@ -6158,6 +6162,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     async function renderCustomUI(container, data, photonName, uiId) {
+      // Hide the filter input - can't filter iframe content
+      const filterWrapper = document.querySelector('.result-filter-wrapper');
+      if (filterWrapper) filterWrapper.style.display = 'none';
+
       try {
         // Fetch the UI template
         const response = await fetch(\`/api/ui?photon=\${encodeURIComponent(photonName)}&id=\${encodeURIComponent(uiId)}\`);
