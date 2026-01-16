@@ -444,11 +444,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         return;
       }
 
-      // Known photons with workdir constraints
-      // The filesystem photon defaults to ~/.photon
+      // For filesystem photon, use BEAM's working directory
+      // This ensures the file browser shows the same files BEAM is managing
       let photonWorkdir: string | null = null;
       if (photonName === 'filesystem') {
-        photonWorkdir = process.env.FILESYSTEM_WORKDIR || path.join(os.homedir(), '.photon');
+        photonWorkdir = workingDir;
       }
 
       res.writeHead(200);
