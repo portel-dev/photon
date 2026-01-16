@@ -2,18 +2,38 @@
  * Photon Test Runner
  *
  * Discovers and runs test* methods in photons
- * Usage: photon test [photon] [testName]
+ * Supports multiple test modes:
+ * - direct: Call methods directly on instance (unit tests)
+ * - cli: Call methods via CLI subprocess (integration tests)
+ * - mcp: Call methods via MCP protocol (integration tests)
+ *
+ * Usage: photon test [photon] [testName] [--mode direct|cli|all]
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { PhotonLoader } from './loader.js';
 import { listPhotonMCPs, resolvePhotonPath } from './path-resolver.js';
 import { logger } from './shared/logger.js';
+import { SchemaExtractor } from '@portel/photon-core';
 import chalk from 'chalk';
 
-interface TestResult {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Get the path to the CLI binary (either local dev or installed)
+const CLI_PATH = path.resolve(__dirname, 'cli.js');
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TYPES
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type TestMode = 'direct' | 'cli' | 'mcp' | 'all';
+
+export interface TestResult {
   photon: string;
   test: string;
   passed: boolean;
@@ -21,16 +41,71 @@ interface TestResult {
   duration: number;
   error?: string;
   message?: string;
+  mode: 'direct' | 'cli' | 'mcp';
+  issueUrl?: string; // Pre-filled issue URL for failures
 }
 
-interface TestSummary {
+export interface TestSummary {
   total: number;
   passed: number;
   failed: number;
   skipped: number;
   duration: number;
   results: TestResult[];
+  mode: TestMode;
 }
+
+interface MethodSchema {
+  name: string;
+  params: Array<{ name: string; type: string; required: boolean; example?: string }>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ISSUE URL GENERATOR
+// ══════════════════════════════════════════════════════════════════════════════
+
+const ISSUE_REPO = 'https://github.com/anthropics/photon';
+
+/**
+ * Generate a pre-filled GitHub issue URL for a failed test
+ */
+function generateIssueUrl(result: TestResult, workingDir: string): string {
+  const title = encodeURIComponent(
+    `[Test Failure] ${result.photon}.${result.test} (${result.mode} mode)`
+  );
+
+  const body = encodeURIComponent(`## Test Failure Report
+
+**Photon:** \`${result.photon}\`
+**Test:** \`${result.test}\`
+**Mode:** ${result.mode}
+**Duration:** ${result.duration}ms
+
+### Error
+\`\`\`
+${result.error || 'No error message'}
+\`\`\`
+
+### Environment
+- Working Directory: \`${workingDir}\`
+- Node Version: \`${process.version}\`
+- Platform: \`${process.platform}\`
+
+### Steps to Reproduce
+\`\`\`bash
+photon test ${result.photon} ${result.test} --mode ${result.mode}
+\`\`\`
+
+### Additional Context
+<!-- Add any additional context about the problem here -->
+`);
+
+  return `${ISSUE_REPO}/issues/new?title=${title}&body=${body}&labels=bug,test-failure`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DIRECT TEST EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Extract test methods from a photon instance
@@ -59,17 +134,17 @@ function getTestMethods(instance: any): string[] {
  * Check if photon has lifecycle hooks
  */
 function hasLifecycleHook(instance: any, hookName: string): boolean {
-  const proto = Object.getPrototypeOf(instance);
   return typeof instance[hookName] === 'function';
 }
 
 /**
- * Run a single test method
+ * Run a single test method directly
  */
-async function runTest(
+async function runDirectTest(
   instance: any,
   photonName: string,
-  testName: string
+  testName: string,
+  workingDir: string
 ): Promise<TestResult> {
   const start = Date.now();
 
@@ -88,17 +163,21 @@ async function runTest(
           skipped: true,
           duration,
           message: result.reason || 'Skipped',
+          mode: 'direct',
         };
       }
 
       if (result.passed === false) {
-        return {
+        const failResult: TestResult = {
           photon: photonName,
           test: testName,
           passed: false,
           duration,
           error: result.error || result.message || 'Test returned passed: false',
+          mode: 'direct',
         };
+        failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+        return failResult;
       }
       return {
         photon: photonName,
@@ -106,6 +185,7 @@ async function runTest(
         passed: true,
         duration,
         message: result.message,
+        mode: 'direct',
       };
     }
 
@@ -115,18 +195,325 @@ async function runTest(
       test: testName,
       passed: true,
       duration,
+      mode: 'direct',
     };
   } catch (error: any) {
     const duration = Date.now() - start;
-    return {
+    const failResult: TestResult = {
       photon: photonName,
       test: testName,
       passed: false,
       duration,
       error: error.message || String(error),
+      mode: 'direct',
     };
+    failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+    return failResult;
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CLI INTERFACE TEST EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Get public methods with their schemas for interface testing
+ */
+async function getPublicMethods(photonPath: string): Promise<MethodSchema[]> {
+  try {
+    const extractor = new SchemaExtractor();
+    const schemas = await extractor.extractFromFile(photonPath);
+
+    return schemas.map((schema: any) => ({
+      name: schema.name,
+      params: schema.inputSchema?.properties
+        ? Object.entries(schema.inputSchema.properties).map(([name, prop]: [string, any]) => ({
+            name,
+            type: prop.type || 'string',
+            required: schema.inputSchema?.required?.includes(name) || false,
+            example: prop.examples?.[0],
+          }))
+        : [],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Build example params for a method from its schema
+ */
+function buildExampleParams(method: MethodSchema): Record<string, any> {
+  const params: Record<string, any> = {};
+
+  for (const param of method.params) {
+    if (param.example !== undefined) {
+      params[param.name] = param.example;
+    } else if (param.required) {
+      // Generate default values based on type
+      switch (param.type) {
+        case 'string':
+          params[param.name] = 'test';
+          break;
+        case 'number':
+        case 'integer':
+          params[param.name] = 1;
+          break;
+        case 'boolean':
+          params[param.name] = true;
+          break;
+        case 'array':
+          params[param.name] = [];
+          break;
+        case 'object':
+          params[param.name] = {};
+          break;
+      }
+    }
+  }
+
+  return params;
+}
+
+/**
+ * Run a method via CLI subprocess
+ */
+async function runCliTest(
+  photonName: string,
+  methodName: string,
+  params: Record<string, any>,
+  workingDir: string
+): Promise<TestResult> {
+  const start = Date.now();
+
+  return new Promise((resolve) => {
+    // Build CLI arguments (use 'cli' command - the implicit run mode)
+    const args = ['cli', photonName, methodName, '--json', '--dir', workingDir];
+
+    // Add params as CLI flags
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value === 'object') {
+        args.push(`--${key}`, JSON.stringify(value));
+      } else {
+        args.push(`--${key}`, String(value));
+      }
+    }
+
+    const proc = spawn('node', [CLI_PATH, ...args], {
+      cwd: workingDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000, // 30 second timeout
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      const duration = Date.now() - start;
+
+      // Interface tests verify the transport layer works, not business logic.
+      // A method that returns an error still proves the CLI interface works.
+      // Check if we got any output (stdout or stderr) - indicates the CLI ran
+      const hasOutput = stdout.trim() || stderr.trim();
+
+      // Check for specific CLI infrastructure errors (not method errors)
+      const isInfraError =
+        stderr.includes('Photon not found') ||
+        stderr.includes('command not found') ||
+        stderr.includes('Cannot find module') ||
+        stderr.includes('ENOENT');
+
+      if (hasOutput && !isInfraError) {
+        // Got a response - interface test passes
+        // Note: method may have returned an error, but CLI transport worked
+        resolve({
+          photon: photonName,
+          test: `cli:${methodName}`,
+          passed: true,
+          duration,
+          mode: 'cli',
+        });
+      } else {
+        // CLI infrastructure failed
+        const failResult: TestResult = {
+          photon: photonName,
+          test: `cli:${methodName}`,
+          passed: false,
+          duration,
+          error: stderr || `CLI exited with code ${code} (no output)`,
+          mode: 'cli',
+        };
+        failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+        resolve(failResult);
+      }
+    });
+
+    proc.on('error', (err) => {
+      const duration = Date.now() - start;
+      const failResult: TestResult = {
+        photon: photonName,
+        test: `cli:${methodName}`,
+        passed: false,
+        duration,
+        error: `Failed to spawn CLI: ${err.message}`,
+        mode: 'cli',
+      };
+      failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+      resolve(failResult);
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MCP INTERFACE TEST EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Run a method via MCP protocol
+ * This starts a temporary MCP server and calls the method through it
+ */
+async function runMcpTest(
+  photonPath: string,
+  photonName: string,
+  methodName: string,
+  params: Record<string, any>,
+  workingDir: string
+): Promise<TestResult> {
+  const start = Date.now();
+
+  return new Promise((resolve) => {
+    // Start MCP server for this photon
+    const args = ['mcp', photonName, '--dir', workingDir];
+
+    const proc = spawn('node', [CLI_PATH, ...args], {
+      cwd: workingDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let initialized = false;
+    let responseReceived = false;
+    const requestId = 1;
+
+    // Send initialize request
+    const initRequest = {
+      jsonrpc: '2.0',
+      id: 0,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'photon-test', version: '1.0.0' },
+      },
+    };
+
+    proc.stdin?.write(JSON.stringify(initRequest) + '\n');
+
+    proc.stdout?.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+
+      for (const line of lines) {
+        try {
+          const response = JSON.parse(line);
+
+          if (response.id === 0 && !initialized) {
+            // Initialize response received, send tool call
+            initialized = true;
+
+            const toolRequest = {
+              jsonrpc: '2.0',
+              id: requestId,
+              method: 'tools/call',
+              params: {
+                name: methodName,
+                arguments: params,
+              },
+            };
+
+            proc.stdin?.write(JSON.stringify(toolRequest) + '\n');
+          } else if (response.id === requestId && !responseReceived) {
+            responseReceived = true;
+            const duration = Date.now() - start;
+
+            proc.kill();
+
+            // Interface tests verify the transport layer works, not business logic.
+            // A response (even an error response) proves the MCP protocol works.
+            // Only MCP-level errors (not method errors) should fail the test.
+            if (response.error && response.error.code && response.error.code < -32000) {
+              // JSON-RPC protocol error (not a method error)
+              const failResult: TestResult = {
+                photon: photonName,
+                test: `mcp:${methodName}`,
+                passed: false,
+                duration,
+                error: response.error.message || JSON.stringify(response.error),
+                mode: 'mcp',
+              };
+              failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+              resolve(failResult);
+            } else {
+              // Got a valid MCP response - interface test passes
+              // Note: method may have returned an error, but MCP transport worked
+              resolve({
+                photon: photonName,
+                test: `mcp:${methodName}`,
+                passed: true,
+                duration,
+                mode: 'mcp',
+              });
+            }
+          }
+        } catch {
+          // Ignore non-JSON lines
+        }
+      }
+    });
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (!responseReceived) {
+        proc.kill();
+        const duration = Date.now() - start;
+        const failResult: TestResult = {
+          photon: photonName,
+          test: `mcp:${methodName}`,
+          passed: false,
+          duration,
+          error: 'MCP request timed out after 30 seconds',
+          mode: 'mcp',
+        };
+        failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+        resolve(failResult);
+      }
+    }, 30000);
+
+    proc.on('error', (err) => {
+      const duration = Date.now() - start;
+      const failResult: TestResult = {
+        photon: photonName,
+        test: `mcp:${methodName}`,
+        passed: false,
+        duration,
+        error: `Failed to start MCP server: ${err.message}`,
+        mode: 'mcp',
+      };
+      failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+      resolve(failResult);
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TEST ORCHESTRATION
+// ══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Run tests for a single photon
@@ -134,6 +521,8 @@ async function runTest(
 async function runPhotonTests(
   photonPath: string,
   photonName: string,
+  workingDir: string,
+  mode: TestMode,
   specificTest?: string
 ): Promise<TestResult[]> {
   const results: TestResult[] = [];
@@ -151,68 +540,124 @@ async function runPhotonTests(
           passed: false,
           duration: 0,
           error: 'Failed to load photon instance',
+          mode: 'direct',
         },
       ];
     }
 
-    const testMethods = getTestMethods(instance);
+    // ─────────────────────────────────────────────────────────────────────────
+    // DIRECT TESTS (test* methods)
+    // ─────────────────────────────────────────────────────────────────────────
 
-    if (testMethods.length === 0) {
-      return []; // No tests, not an error
-    }
+    if (mode === 'direct' || mode === 'all') {
+      const testMethods = getTestMethods(instance);
 
-    // Filter to specific test if requested
-    const testsToRun = specificTest
-      ? testMethods.filter((t) => t === specificTest || t === `test${specificTest}`)
-      : testMethods;
+      if (testMethods.length > 0) {
+        // Filter to specific test if requested
+        const testsToRun = specificTest
+          ? testMethods.filter((t) => t === specificTest || t === `test${specificTest}`)
+          : testMethods;
 
-    if (specificTest && testsToRun.length === 0) {
-      return [
-        {
-          photon: photonName,
-          test: specificTest,
-          passed: false,
-          duration: 0,
-          error: `Test not found: ${specificTest}`,
-        },
-      ];
-    }
+        if (specificTest && testsToRun.length === 0 && mode === 'direct') {
+          return [
+            {
+              photon: photonName,
+              test: specificTest,
+              passed: false,
+              duration: 0,
+              error: `Test not found: ${specificTest}`,
+              mode: 'direct',
+            },
+          ];
+        }
 
-    // Run testBeforeAll if it exists
-    if (hasLifecycleHook(instance, 'testBeforeAll')) {
-      try {
-        await instance.testBeforeAll();
-      } catch (error: any) {
-        return [
-          {
-            photon: photonName,
-            test: 'beforeAll',
-            passed: false,
-            duration: 0,
-            error: `Setup failed: ${error.message}`,
-          },
-        ];
+        // Run testBeforeAll if it exists
+        if (hasLifecycleHook(instance, 'testBeforeAll')) {
+          try {
+            await instance.testBeforeAll();
+          } catch (error: any) {
+            return [
+              {
+                photon: photonName,
+                test: 'beforeAll',
+                passed: false,
+                duration: 0,
+                error: `Setup failed: ${error.message}`,
+                mode: 'direct',
+              },
+            ];
+          }
+        }
+
+        // Run direct tests
+        for (const testName of testsToRun) {
+          const result = await runDirectTest(instance, photonName, testName, workingDir);
+          results.push(result);
+        }
+
+        // Run testAfterAll if it exists
+        if (hasLifecycleHook(instance, 'testAfterAll')) {
+          try {
+            await instance.testAfterAll();
+          } catch (error: any) {
+            results.push({
+              photon: photonName,
+              test: 'afterAll',
+              passed: false,
+              duration: 0,
+              error: `Teardown failed: ${error.message}`,
+              mode: 'direct',
+            });
+          }
+        }
       }
     }
 
-    // Run tests
-    for (const testName of testsToRun) {
-      const result = await runTest(instance, photonName, testName);
-      results.push(result);
+    // ─────────────────────────────────────────────────────────────────────────
+    // CLI INTERFACE TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (mode === 'cli' || mode === 'all') {
+      const methods = await getPublicMethods(photonPath);
+
+      for (const method of methods) {
+        // Skip test methods and lifecycle hooks in interface tests
+        if (method.name.startsWith('test') || method.name.startsWith('on')) {
+          continue;
+        }
+
+        // Skip if specific test requested and doesn't match
+        if (specificTest && !`cli:${method.name}`.includes(specificTest)) {
+          continue;
+        }
+
+        const params = buildExampleParams(method);
+        const result = await runCliTest(photonName, method.name, params, workingDir);
+        results.push(result);
+      }
     }
 
-    // Run testAfterAll if it exists
-    if (hasLifecycleHook(instance, 'testAfterAll')) {
-      try {
-        await instance.testAfterAll();
-      } catch (error: any) {
-        results.push({
-          photon: photonName,
-          test: 'afterAll',
-          passed: false,
-          duration: 0,
-          error: `Teardown failed: ${error.message}`,
-        });
+    // ─────────────────────────────────────────────────────────────────────────
+    // MCP INTERFACE TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (mode === 'mcp') {
+      const methods = await getPublicMethods(photonPath);
+
+      for (const method of methods) {
+        // Skip test methods and lifecycle hooks in interface tests
+        if (method.name.startsWith('test') || method.name.startsWith('on')) {
+          continue;
+        }
+
+        // Skip if specific test requested and doesn't match
+        if (specificTest && !`mcp:${method.name}`.includes(specificTest)) {
+          continue;
+        }
+
+        const params = buildExampleParams(method);
+        const result = await runMcpTest(photonPath, photonName, method.name, params, workingDir);
+        results.push(result);
       }
     }
 
@@ -225,21 +670,15 @@ async function runPhotonTests(
         passed: false,
         duration: 0,
         error: `Failed to load photon: ${error.message}`,
+        mode: 'direct',
       },
     ];
   }
 }
 
-/**
- * Format test name for display (remove 'test' prefix, add spaces)
- */
-function formatTestName(name: string): string {
-  // Remove 'test' prefix
-  let formatted = name.replace(/^test/, '');
-  // Add spaces before capitals
-  formatted = formatted.replace(/([A-Z])/g, ' $1').trim();
-  return formatted;
-}
+// ══════════════════════════════════════════════════════════════════════════════
+// OUTPUT FORMATTING
+// ══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Print a single test result
@@ -254,21 +693,32 @@ function printTestResult(result: TestResult): void {
     icon = chalk.red('✗');
   }
 
-  // Strip 'test' prefix and lowercase first char
-  const stripped = result.test.replace(/^test/, '');
-  const displayName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+  // Format test name based on mode
+  let displayName: string;
+  if (result.test.startsWith('cli:') || result.test.startsWith('mcp:')) {
+    displayName = result.test;
+  } else {
+    // Strip 'test' prefix and lowercase first char for direct tests
+    const stripped = result.test.replace(/^test/, '');
+    displayName = stripped.charAt(0).toLowerCase() + stripped.slice(1);
+  }
+
+  const modeTag = chalk.gray(`[${result.mode}]`);
   const name = chalk.gray(`${result.photon}.`) + displayName;
   const time = chalk.gray(`${result.duration}ms`);
 
   if (result.skipped) {
-    console.log(`  ${icon} ${name} ${chalk.yellow('skipped')} ${time}`);
+    console.log(`  ${icon} ${modeTag} ${name} ${chalk.yellow('skipped')} ${time}`);
     if (result.message) {
-      console.log(chalk.yellow(`    ${result.message}`));
+      console.log(chalk.yellow(`      ${result.message}`));
     }
   } else {
-    console.log(`  ${icon} ${name} ${time}`);
+    console.log(`  ${icon} ${modeTag} ${name} ${time}`);
     if (!result.passed && result.error) {
-      console.log(chalk.red(`    ${result.error}`));
+      console.log(chalk.red(`      ${result.error}`));
+      if (result.issueUrl) {
+        console.log(chalk.gray(`      File issue: ${result.issueUrl.substring(0, 80)}...`));
+      }
     }
   }
 }
@@ -278,37 +728,56 @@ function printTestResult(result: TestResult): void {
  */
 function printSummary(summary: TestSummary): void {
   console.log('');
-  console.log(chalk.bold('─'.repeat(50)));
+  console.log(chalk.bold('─'.repeat(60)));
   console.log('');
 
   const skippedInfo = summary.skipped > 0 ? chalk.yellow(` (${summary.skipped} skipped)`) : '';
+  const modeInfo = chalk.gray(` [mode: ${summary.mode}]`);
 
   if (summary.failed === 0) {
     console.log(
       chalk.green.bold(`✓ All ${summary.passed} tests passed`) +
         skippedInfo +
-        chalk.gray(` (${summary.duration}ms)`)
+        chalk.gray(` (${summary.duration}ms)`) +
+        modeInfo
     );
   } else {
     console.log(
       chalk.red.bold(`✗ ${summary.failed} of ${summary.total} tests failed`) +
         skippedInfo +
-        chalk.gray(` (${summary.duration}ms)`)
+        chalk.gray(` (${summary.duration}ms)`) +
+        modeInfo
     );
 
     // List failed tests
     console.log('');
     console.log(chalk.red('Failed tests:'));
     for (const result of summary.results.filter((r) => !r.passed && !r.skipped)) {
-      console.log(chalk.red(`  • ${result.photon}.${result.test}`));
+      console.log(chalk.red(`  • [${result.mode}] ${result.photon}.${result.test}`));
       if (result.error) {
         console.log(chalk.gray(`    ${result.error}`));
       }
+    }
+
+    // Show issue filing hint
+    const interfaceFailures = summary.results.filter(
+      (r) => !r.passed && !r.skipped && (r.mode === 'cli' || r.mode === 'mcp')
+    );
+    if (interfaceFailures.length > 0) {
+      console.log('');
+      console.log(
+        chalk.yellow('Tip: Interface test failures may indicate MCP protocol issues.')
+      );
+      console.log(chalk.yellow('     Run with --json to get issue URLs for bug reports.'));
     }
   }
 
   console.log('');
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Main test runner
@@ -317,15 +786,17 @@ export async function runTests(
   workingDir: string,
   photonName?: string,
   testName?: string,
-  options: { json?: boolean } = {}
+  options: { json?: boolean; mode?: TestMode } = {}
 ): Promise<TestSummary> {
   const startTime = Date.now();
   const results: TestResult[] = [];
+  const mode = options.mode || 'direct';
 
   if (!options.json) {
     console.log('');
     console.log(chalk.bold('⚡ Photon Test Runner'));
     console.log(chalk.gray(`   ${workingDir}`));
+    console.log(chalk.gray(`   Mode: ${mode}`));
     console.log('');
   }
 
@@ -342,7 +813,7 @@ export async function runTests(
       console.log(chalk.bold(photonName));
     }
 
-    const photonResults = await runPhotonTests(photonPath, photonName, testName);
+    const photonResults = await runPhotonTests(photonPath, photonName, workingDir, mode, testName);
     results.push(...photonResults);
 
     // Print progress for each result
@@ -363,8 +834,10 @@ export async function runTests(
         total: 0,
         passed: 0,
         failed: 0,
+        skipped: 0,
         duration: 0,
         results: [],
+        mode,
       };
     }
 
@@ -375,35 +848,36 @@ export async function runTests(
         continue;
       }
 
-      // Check if photon has any test methods before printing header
-      const loader = new PhotonLoader(false);
-      try {
-        const loaded = await loader.loadFile(photonPath);
-        const testMethods = getTestMethods(loaded.instance);
+      // Check if photon has any test methods before printing header (for direct mode)
+      if (mode === 'direct') {
+        const loader = new PhotonLoader(false);
+        try {
+          const loaded = await loader.loadFile(photonPath);
+          const testMethods = getTestMethods(loaded.instance);
 
-        if (testMethods.length === 0) {
-          continue; // Skip photons with no tests
-        }
-
-        if (!options.json) {
-          console.log(chalk.bold(photon));
-        }
-
-        const photonResults = await runPhotonTests(photonPath, photon);
-        results.push(...photonResults);
-
-        // Print progress for each result
-        if (!options.json) {
-          for (const result of photonResults) {
-            printTestResult(result);
+          if (testMethods.length === 0) {
+            continue; // Skip photons with no tests in direct mode
           }
-          if (photonResults.length > 0) {
-            console.log('');
-          }
+        } catch {
+          continue;
         }
-      } catch {
-        // Skip photons that fail to load
-        continue;
+      }
+
+      if (!options.json) {
+        console.log(chalk.bold(photon));
+      }
+
+      const photonResults = await runPhotonTests(photonPath, photon, workingDir, mode);
+      results.push(...photonResults);
+
+      // Print progress for each result
+      if (!options.json) {
+        for (const result of photonResults) {
+          printTestResult(result);
+        }
+        if (photonResults.length > 0) {
+          console.log('');
+        }
       }
     }
   }
@@ -420,6 +894,7 @@ export async function runTests(
     skipped,
     duration,
     results,
+    mode,
   };
 
   if (options.json) {
@@ -456,4 +931,14 @@ export async function getTests(photonPath: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Get public methods for interface testing (for UI display)
+ */
+export async function getInterfaceTests(photonPath: string): Promise<string[]> {
+  const methods = await getPublicMethods(photonPath);
+  return methods
+    .filter((m) => !m.name.startsWith('test') && !m.name.startsWith('on'))
+    .map((m) => m.name);
 }
