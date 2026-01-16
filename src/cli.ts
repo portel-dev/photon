@@ -1882,6 +1882,29 @@ program
     await listAliases();
   });
 
+// Test command: run tests for photons
+program
+  .command('test')
+  .argument('[photon]', 'Photon to test (tests all if omitted)')
+  .argument('[test]', 'Specific test to run')
+  .option('--json', 'Output results as JSON')
+  .description('Run test methods in photons')
+  .action(async (photon: string | undefined, test: string | undefined, options: any) => {
+    try {
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const { runTests } = await import('./test-runner.js');
+      const summary = await runTests(workingDir, photon, test, { json: options.json });
+
+      // Exit with error code if any tests failed
+      if (summary.failed > 0) {
+        process.exit(1);
+      }
+    } catch (error) {
+      logger.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
 // Reserved commands that should NOT be treated as photon names
 // If first arg is not in this list, it's assumed to be a photon name (implicit CLI mode)
 const RESERVED_COMMANDS = [
@@ -1891,6 +1914,7 @@ const RESERVED_COMMANDS = [
   'list',
   'ls',
   'info',
+  'test',
   // Photon management
   'new',
   'init',
@@ -1940,6 +1964,7 @@ const knownCommands = [
   'list',
   'ls',
   'info',
+  'test',
   'serv',
   'new',
   'init',

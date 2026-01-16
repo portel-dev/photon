@@ -919,6 +919,77 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // Test API: Run a single test
+    if (url.pathname === '/api/test/run' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', async () => {
+        res.setHeader('Content-Type', 'application/json');
+
+        try {
+          const { photon: photonName, test: testName } = JSON.parse(body);
+
+          // Find the photon
+          const photon = photons.find((p) => p.name === photonName);
+          if (!photon) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ passed: false, error: 'Photon not found' }));
+            return;
+          }
+
+          // Get the MCP instance
+          const mcp = photonMCPs.get(photonName);
+          if (!mcp || !mcp.instance) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ passed: false, error: 'Photon not loaded' }));
+            return;
+          }
+
+          // Run the test method
+          const start = Date.now();
+          try {
+            const result = await mcp.instance[testName]();
+            const duration = Date.now() - start;
+
+            // Check result
+            if (result && typeof result === 'object' && result.passed === false) {
+              res.writeHead(200);
+              res.end(
+                JSON.stringify({
+                  passed: false,
+                  error: result.error || result.message || 'Test failed',
+                  duration,
+                })
+              );
+            } else {
+              res.writeHead(200);
+              res.end(
+                JSON.stringify({
+                  passed: true,
+                  message: result?.message,
+                  duration,
+                })
+              );
+            }
+          } catch (testError: any) {
+            const duration = Date.now() - start;
+            res.writeHead(200);
+            res.end(
+              JSON.stringify({
+                passed: false,
+                error: testError.message || String(testError),
+                duration,
+              })
+            );
+          }
+        } catch (err: any) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ passed: false, error: 'Invalid request' }));
+        }
+      });
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });
@@ -2152,6 +2223,103 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-primary);
       outline: 2px solid var(--accent);
       outline-offset: -2px;
+    }
+
+    /* Tests section */
+    .tests-section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border-color);
+    }
+
+    .tests-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 16px 4px 36px;
+      margin-bottom: 4px;
+    }
+
+    .tests-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    .run-tests-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .run-tests-btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .test-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px 6px 36px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .test-status {
+      font-size: 14px;
+      width: 16px;
+      text-align: center;
+    }
+
+    .test-status.passed { color: var(--success); }
+    .test-status.failed { color: var(--error); }
+    .test-status.running { color: var(--warning); animation: spin 1s linear infinite; }
+    .test-status.pending { color: var(--text-muted); }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .test-name {
+      flex: 1;
+    }
+
+    .run-test-btn {
+      padding: 2px 4px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0;
+      transition: var(--transition);
+    }
+
+    .test-item:hover .run-test-btn {
+      opacity: 1;
+    }
+
+    .run-test-btn:hover {
+      color: var(--accent);
+    }
+
+    .test-duration {
+      font-size: 10px;
+      color: var(--text-muted);
+      min-width: 32px;
+      text-align: right;
     }
 
     kbd {
@@ -5117,6 +5285,84 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       \`;
     }
 
+    function renderTestItem(photonName, method) {
+      // Format test name: testCalculateAddition -> Calculate Addition
+      const displayName = method.name.replace(/^test/, '').replace(/([A-Z])/g, ' $1').trim();
+      return \`
+        <div class="test-item" data-photon="\${photonName}" data-test="\${method.name}">
+          <span class="test-status" title="Not run">○</span>
+          <span class="test-name">\${displayName}</span>
+          <button class="run-test-btn" onclick="runSingleTest('\${photonName}', '\${method.name}')" title="Run test">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+          <span class="test-duration"></span>
+        </div>
+      \`;
+    }
+
+    async function runSingleTest(photonName, testName) {
+      const testItem = document.querySelector(\`.test-item[data-photon="\${photonName}"][data-test="\${testName}"]\`);
+      if (!testItem) return;
+
+      const statusEl = testItem.querySelector('.test-status');
+      const durationEl = testItem.querySelector('.test-duration');
+
+      // Set running state
+      statusEl.innerHTML = '◔';
+      statusEl.title = 'Running...';
+      statusEl.className = 'test-status running';
+      durationEl.textContent = '';
+
+      try {
+        const response = await fetch('/api/test/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photon: photonName, test: testName })
+        });
+
+        const result = await response.json();
+
+        if (result.passed) {
+          statusEl.innerHTML = '✓';
+          statusEl.title = 'Passed';
+          statusEl.className = 'test-status passed';
+        } else {
+          statusEl.innerHTML = '✗';
+          statusEl.title = result.error || 'Failed';
+          statusEl.className = 'test-status failed';
+        }
+        durationEl.textContent = result.duration + 'ms';
+      } catch (err) {
+        statusEl.innerHTML = '✗';
+        statusEl.title = err.message;
+        statusEl.className = 'test-status failed';
+      }
+    }
+
+    async function runPhotonTests(photonName) {
+      const testsContainer = document.getElementById(\`tests-\${photonName}\`);
+      if (!testsContainer) return;
+
+      const testItems = testsContainer.querySelectorAll('.test-item');
+
+      // Reset all tests
+      testItems.forEach(item => {
+        const statusEl = item.querySelector('.test-status');
+        statusEl.innerHTML = '◔';
+        statusEl.title = 'Pending...';
+        statusEl.className = 'test-status pending';
+        item.querySelector('.test-duration').textContent = '';
+      });
+
+      // Run tests sequentially
+      for (const item of testItems) {
+        const testName = item.dataset.test;
+        await runSingleTest(photonName, testName);
+      }
+    }
+
     function renderPhotonList() {
       const list = document.getElementById('photon-list');
       const count = document.getElementById('photon-count');
@@ -5243,16 +5489,38 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               </div>\`
             : '';
 
+          // Separate test methods from regular methods
+          const regularMethods = photon.methods.filter(m => !m.name.startsWith('test'));
+          const testMethods = photon.methods.filter(m => m.name.startsWith('test'));
+
+          const testsSection = testMethods.length > 0 ? \`
+            <div class="tests-section">
+              <div class="tests-header" onclick="event.stopPropagation()">
+                <span class="tests-label">Tests</span>
+                <button class="run-tests-btn" onclick="runPhotonTests('\${photon.name}')" title="Run all tests">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  Run All
+                </button>
+              </div>
+              <div class="test-methods" id="tests-\${photon.name}">
+                \${testMethods.map(method => renderTestItem(photon.name, method)).join('')}
+              </div>
+            </div>
+          \` : '';
+
           return \`
             <div class="photon-item">
               <div class="photon-header" data-photon="\${photon.name}" onclick="togglePhoton('\${photon.name}')">
                 <span class="photon-name">\${photon.name}</span>
                 \${templateIndicator}
-                <span class="method-count">\${photon.methods.length}</span>
+                <span class="method-count">\${regularMethods.length}\${testMethods.length > 0 ? ' · ' + testMethods.length + ' tests' : ''}</span>
               </div>
               <div class="method-list" id="methods-\${photon.name}">
                 \${templateMethod}
-                \${photon.methods.map(method => renderMethodItem(photon.name, method, false)).join('')}
+                \${regularMethods.map(method => renderMethodItem(photon.name, method, false)).join('')}
+                \${testsSection}
               </div>
             </div>
           \`;
