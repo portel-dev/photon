@@ -4309,6 +4309,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         if (query && hasMatch) {
           item.querySelector('.method-list').classList.add('expanded');
           item.querySelector('.photon-header').classList.add('expanded');
+        } else if (!query) {
+          // Collapse all items when search is cleared
+          item.querySelector('.method-list').classList.remove('expanded');
+          item.querySelector('.photon-header').classList.remove('expanded');
         }
       });
     });
