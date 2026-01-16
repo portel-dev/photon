@@ -13,7 +13,7 @@
  * @see https://www.reidbarber.com/blog/reverse-engineering-claude-artifacts
  */
 
-import { getThemeTokens, type ThemeMode } from './design-system/tokens';
+import { getThemeTokens, type ThemeMode } from './design-system/tokens.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // TYPES - MCP Apps Extension (SEP-1865)
