@@ -4627,7 +4627,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <h3 id="empty-state-title">Select a method to begin</h3>
         <p id="empty-state-subtitle">Choose a photon and method from the sidebar to get started</p>
         <div id="empty-state-content"></div>
-        <div id="empty-state-actions" style="display: none; margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+        <div id="empty-state-actions" style="display: none; margin-top: 24px; gap: 12px; flex-wrap: wrap; justify-content: center;">
           <button class="btn" onclick="showMarketplace()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"></circle>
@@ -5763,9 +5763,56 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         \`;
         document.getElementById('empty-state-actions').style.display = 'flex';
       } else {
-        document.getElementById('empty-state-title').textContent = 'Select a method to begin';
-        document.getElementById('empty-state-subtitle').textContent = 'Choose a photon and method from the sidebar to get started';
-        document.getElementById('empty-state-content').innerHTML = '';
+        document.getElementById('empty-state-title').textContent = 'Ready to go';
+        document.getElementById('empty-state-subtitle').textContent = \`You have \${photons.length} photon\${photons.length === 1 ? '' : 's'} loaded\`;
+
+        // Count methods and tests
+        const totalMethods = photons.reduce((sum, p) => sum + (p.methods?.length || 0), 0);
+        const photonsWithTests = photons.filter(p => p.methods?.some(m => m.name?.startsWith('test'))).length;
+
+        document.getElementById('empty-state-content').innerHTML = \`
+          <div style="max-width: 520px; margin: 20px auto; text-align: left;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+              <div style="background: var(--bg-secondary); border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--accent-color);">\${photons.length}</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Photons</div>
+              </div>
+              <div style="background: var(--bg-secondary); border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--accent-color);">\${totalMethods}</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Methods</div>
+              </div>
+              <div style="background: var(--bg-secondary); border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--accent-color);">\${photonsWithTests}</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">With Tests</div>
+              </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+              <p style="color: var(--text-primary); font-weight: 500; margin-bottom: 12px;">Quick Actions</p>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                <button class="btn btn-secondary" onclick="document.getElementById('search-input').focus()" style="font-size: 13px;">
+                  <span style="opacity: 0.6; margin-right: 4px;">/</span> Search
+                </button>
+                <button class="btn btn-secondary" onclick="showMarketplace()" style="font-size: 13px;">
+                  <span style="opacity: 0.6; margin-right: 4px;">P</span> Marketplace
+                </button>
+                <button class="btn btn-secondary" onclick="showHelp()" style="font-size: 13px;">
+                  <span style="opacity: 0.6; margin-right: 4px;">?</span> Help
+                </button>
+              </div>
+            </div>
+
+            <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
+              <p style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">How to use:</strong></p>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li>Click a <strong>photon</strong> in the sidebar to see its methods</li>
+                <li>Click a <strong>method</strong> to run it with custom parameters</li>
+                <li>Methods starting with <code style="background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px;">test</code> can be run to verify the photon works</li>
+                <li>Use <kbd style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; font-size: 11px;">↑</kbd> <kbd style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; font-size: 11px;">↓</kbd> to navigate, <kbd style="background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; font-size: 11px;">Enter</kbd> to select</li>
+              </ul>
+            </div>
+          </div>
+        \`;
         document.getElementById('empty-state-actions').style.display = 'none';
       }
     }
