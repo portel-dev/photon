@@ -4596,13 +4596,22 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       <div class="sidebar-header">
         <div class="logo">
           <div class="logo-icon">⚡</div>
-          <h1>Photon</h1>
-          <button class="header-add-btn" onclick="showMarketplace()" title="Add photons (p)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
+          <h1>Photon Beam</h1>
+          <div style="display: flex; gap: 4px;">
+            <button class="header-add-btn" onclick="showMarketplace()" title="Add photons (p)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <button class="header-add-btn" onclick="showHelp()" title="Help (?)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </button>
+          </div>
         </div>
         <p class="subtitle" id="photon-count">Loading...</p>
       </div>
@@ -4617,13 +4626,24 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <div class="empty-icon">⚡</div>
         <h3 id="empty-state-title">Select a method to begin</h3>
         <p id="empty-state-subtitle">Choose a photon and method from the sidebar to get started</p>
-        <button class="btn" id="empty-state-btn" style="display: none;" onclick="showMarketplace()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          Browse Marketplace
-        </button>
+        <div id="empty-state-content"></div>
+        <div id="empty-state-actions" style="display: none; margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+          <button class="btn" onclick="showMarketplace()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Browse Marketplace
+          </button>
+          <button class="btn btn-secondary" onclick="showHelp()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Learn More
+          </button>
+        </div>
       </div>
 
       <!-- Marketplace View -->
@@ -4881,6 +4901,74 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
   <!-- Image fullscreen container (created dynamically) -->
   <div id="image-fullscreen-container"></div>
+
+  <!-- Help Modal -->
+  <div id="help-modal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h2>Help & Documentation</h2>
+        <button class="btn btn-secondary" onclick="hideHelp()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div style="padding: 20px;">
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">What is Photon?</h3>
+        <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">
+          Photon is a runtime for single-file TypeScript tools called <strong>photons</strong>.
+          Each photon provides capabilities that AI assistants can use to help you with tasks.
+        </p>
+
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">What is Beam?</h3>
+        <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">
+          Beam is the interactive control panel for your photons. Here you can:
+        </p>
+        <ul style="color: var(--text-secondary); line-height: 1.8; margin-bottom: 20px; padding-left: 20px;">
+          <li>Browse and install photons from marketplaces</li>
+          <li>Run photon methods directly from the UI</li>
+          <li>Configure photon settings and credentials</li>
+          <li>View activity logs and test results</li>
+        </ul>
+
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">Keyboard Shortcuts</h3>
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; color: var(--text-secondary); font-size: 13px; margin-bottom: 20px;">
+          <kbd style="background: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; font-family: monospace;">P</kbd>
+          <span>Open marketplace</span>
+          <kbd style="background: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; font-family: monospace;">?</kbd>
+          <span>Show this help</span>
+          <kbd style="background: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; font-family: monospace;">Esc</kbd>
+          <span>Close modal / Go back</span>
+          <kbd style="background: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; font-family: monospace;">/</kbd>
+          <span>Focus search</span>
+        </div>
+
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">Using with Claude Desktop</h3>
+        <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
+          To use photons with Claude Desktop, add them to your MCP config:
+        </p>
+        <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin-bottom: 20px;"><code>{
+  "mcpServers": {
+    "photon": {
+      "command": "npx",
+      "args": ["@anthropic/photon"]
+    }
+  }
+}</code></pre>
+
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">Links</h3>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <a href="https://github.com/anthropics/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
+            GitHub Repository
+          </a>
+          <a href="https://docs.anthropic.com/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
+            Documentation
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Activity Panel -->
   <div class="activity-panel" id="activity-panel">
@@ -5655,14 +5743,40 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       // Show empty state with marketplace prompt if no photons
       if (photons.length === 0) {
-        document.getElementById('empty-state-title').textContent = 'No photons installed';
-        document.getElementById('empty-state-subtitle').textContent = 'Get started by adding photons from the marketplace';
-        document.getElementById('empty-state-btn').style.display = 'inline-flex';
+        document.getElementById('empty-state-title').textContent = 'Welcome to Photon Beam';
+        document.getElementById('empty-state-subtitle').textContent = 'Your control panel for AI-powered tools';
+        document.getElementById('empty-state-content').innerHTML = \`
+          <div style="max-width: 500px; margin: 20px auto; text-align: left; background: var(--bg-secondary); border-radius: 12px; padding: 20px;">
+            <p style="color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6;">
+              <strong style="color: var(--text-primary);">Photons</strong> are single-file TypeScript tools that work with AI assistants like Claude.
+              Each photon provides tools that AI can use to help you with tasks.
+            </p>
+            <div style="color: var(--text-secondary); font-size: 13px;">
+              <p style="margin-bottom: 12px;"><strong style="color: var(--text-primary);">Get started:</strong></p>
+              <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                <li>Browse the <strong>Marketplace</strong> to find photons</li>
+                <li>Install photons you need (filesystem, git, web, etc.)</li>
+                <li>Use them here or connect to Claude Desktop</li>
+              </ol>
+            </div>
+          </div>
+        \`;
+        document.getElementById('empty-state-actions').style.display = 'flex';
       } else {
         document.getElementById('empty-state-title').textContent = 'Select a method to begin';
         document.getElementById('empty-state-subtitle').textContent = 'Choose a photon and method from the sidebar to get started';
-        document.getElementById('empty-state-btn').style.display = 'none';
+        document.getElementById('empty-state-content').innerHTML = '';
+        document.getElementById('empty-state-actions').style.display = 'none';
       }
+    }
+
+    // ========== Help Functions ==========
+    function showHelp() {
+      document.getElementById('help-modal').classList.add('visible');
+    }
+
+    function hideHelp() {
+      document.getElementById('help-modal').classList.remove('visible');
     }
 
     // ========== Marketplace Functions ==========
@@ -8346,6 +8460,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         // 7. Close keyboard help
         else if (document.getElementById('keyboard-help-modal')?.classList.contains('visible')) {
           document.getElementById('keyboard-help-modal').classList.remove('visible');
+        }
+        // 7b. Close help modal
+        else if (document.getElementById('help-modal')?.classList.contains('visible')) {
+          hideHelp();
         }
         // 8. Clear search input
         else if (isInput && target.id === 'search-input') {
