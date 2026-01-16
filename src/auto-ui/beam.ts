@@ -25,18 +25,21 @@ import {
   type AskYield,
   type ConstructorParam,
   generateSmartRenderingJS,
-  generateSmartRenderingCSS
+  generateSmartRenderingCSS,
 } from '@portel/photon-core';
-import { generateTemplateEngineJS, generateTemplateEngineCSS } from './rendering/template-engine.js';
+import {
+  generateTemplateEngineJS,
+  generateTemplateEngineCSS,
+} from './rendering/template-engine.js';
 
 interface PhotonInfo {
   name: string;
   path: string;
   configured: true;
   methods: MethodInfo[];
-  templatePath?: string;  // @ui template.html - custom UI template
-  isApp?: boolean;  // True if photon has main() with @ui - listed under Apps section
-  appEntry?: MethodInfo;  // The main() method that serves as app entry point
+  templatePath?: string; // @ui template.html - custom UI template
+  isApp?: boolean; // True if photon has main() with @ui - listed under Apps section
+  appEntry?: MethodInfo; // The main() method that serves as app entry point
 }
 
 interface UnconfiguredPhotonInfo {
@@ -61,14 +64,14 @@ type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 interface MethodInfo {
   name: string;
   description: string;
-  icon?: string;  // Icon from @icon tag
+  icon?: string; // Icon from @icon tag
   params: any;
   returns: any;
-  autorun?: boolean;  // Auto-execute when selected (for idempotent methods)
-  outputFormat?: string;  // Format hint for rendering (mermaid, markdown, json, etc.)
-  layoutHints?: Record<string, string>;  // Layout hints from @format list {@title name, @subtitle email}
-  buttonLabel?: string;  // Custom button label from @returns {@label}
-  linkedUi?: string;  // UI template ID if linked via @ui annotation
+  autorun?: boolean; // Auto-execute when selected (for idempotent methods)
+  outputFormat?: string; // Format hint for rendering (mermaid, markdown, json, etc.)
+  layoutHints?: Record<string, string>; // Layout hints from @format list {@title name, @subtitle email}
+  buttonLabel?: string; // Custom button label from @returns {@label}
+  linkedUi?: string; // UI template ID if linked via @ui annotation
 }
 
 interface InvokeRequest {
@@ -76,7 +79,7 @@ interface InvokeRequest {
   photon: string;
   method: string;
   args: Record<string, any>;
-  invocationId?: string;  // For interactive UI invocations that need response routing
+  invocationId?: string; // For interactive UI invocations that need response routing
 }
 
 interface ConfigureRequest {
@@ -88,6 +91,11 @@ interface ConfigureRequest {
 interface ElicitationResponse {
   type: 'elicitation_response';
   value: any;
+  cancelled?: boolean;
+}
+
+interface CancelRequest {
+  type: 'cancel';
 }
 
 interface ReloadRequest {
@@ -106,7 +114,14 @@ interface OAuthCompleteMessage {
   success: boolean;
 }
 
-type ClientMessage = InvokeRequest | ConfigureRequest | ElicitationResponse | ReloadRequest | RemoveRequest | OAuthCompleteMessage;
+type ClientMessage =
+  | InvokeRequest
+  | ConfigureRequest
+  | ElicitationResponse
+  | CancelRequest
+  | ReloadRequest
+  | RemoveRequest
+  | OAuthCompleteMessage;
 
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
@@ -133,7 +148,7 @@ function migrateConfig(config: any): PhotonConfig {
   if (config.photons !== undefined || config.mcpServers !== undefined) {
     return {
       photons: config.photons || {},
-      mcpServers: config.mcpServers || {}
+      mcpServers: config.mcpServers || {},
     };
   }
 
@@ -141,7 +156,7 @@ function migrateConfig(config: any): PhotonConfig {
   console.error('📦 Migrating config.json to new nested format...');
   return {
     photons: { ...config },
-    mcpServers: {}
+    mcpServers: {},
   };
 }
 
@@ -188,7 +203,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   // Extract metadata for all photons
   const photons: AnyPhotonInfo[] = [];
-  const photonMCPs = new Map<string, any>();  // Store full MCP objects
+  const photonMCPs = new Map<string, any>(); // Store full MCP objects
 
   // Use PhotonLoader with silent logger to suppress verbose errors during loading
   // Beam handles errors gracefully by showing config forms, so we don't need loader error logs
@@ -217,14 +232,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const params = extractor.extractConstructorParams(source);
 
       constructorParams = params
-        .filter(p => p.isPrimitive)
-        .map(p => ({
+        .filter((p) => p.isPrimitive)
+        .map((p) => ({
           name: p.name,
           envVar: toEnvVarName(name, p.name),
           type: p.type,
           isOptional: p.isOptional,
           hasDefault: p.hasDefault,
-          defaultValue: p.defaultValue
+          defaultValue: p.defaultValue,
         }));
 
       // Extract @ui template path from class-level JSDoc
@@ -240,8 +255,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     }
 
     // Check if any required params are missing from environment
-    const missingRequired = constructorParams.filter(p =>
-      !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+    const missingRequired = constructorParams.filter(
+      (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
     );
 
     // Check for placeholder defaults or localhost URLs (which need local services running)
@@ -253,20 +268,24 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return false;
     };
 
-    const hasPlaceholderDefaults = constructorParams.some(p =>
-      p.hasDefault &&
-      typeof p.defaultValue === 'string' &&
-      isPlaceholderOrLocalDefault(p.defaultValue)
+    const hasPlaceholderDefaults = constructorParams.some(
+      (p) =>
+        p.hasDefault &&
+        typeof p.defaultValue === 'string' &&
+        isPlaceholderOrLocalDefault(p.defaultValue)
     );
 
     // If required params missing OR has placeholder/localhost defaults without env override, mark as unconfigured
-    const needsConfig = missingRequired.length > 0 ||
-      (hasPlaceholderDefaults && constructorParams.some(p =>
-        p.hasDefault &&
-        typeof p.defaultValue === 'string' &&
-        isPlaceholderOrLocalDefault(p.defaultValue) &&
-        !process.env[p.envVar]
-      ));
+    const needsConfig =
+      missingRequired.length > 0 ||
+      (hasPlaceholderDefaults &&
+        constructorParams.some(
+          (p) =>
+            p.hasDefault &&
+            typeof p.defaultValue === 'string' &&
+            isPlaceholderOrLocalDefault(p.defaultValue) &&
+            !process.env[p.envVar]
+        ));
 
     if (needsConfig && constructorParams.length > 0) {
       photons.push({
@@ -274,9 +293,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         path: photonPath,
         configured: false,
         requiredParams: constructorParams,
-        errorMessage: missingRequired.length > 0
-          ? `Missing required: ${missingRequired.map(p => p.name).join(', ')}`
-          : 'Has placeholder values that need configuration'
+        errorMessage:
+          missingRequired.length > 0
+            ? `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`
+            : 'Has placeholder values that need configuration',
       });
 
       continue;
@@ -289,7 +309,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         setTimeout(() => reject(new Error('Loading timeout (10s)')), 10000)
       );
 
-      const mcp = await Promise.race([loadPromise, timeoutPromise]) as any;
+      const mcp = (await Promise.race([loadPromise, timeoutPromise])) as any;
       const instance = mcp.instance;
 
       if (!instance) {
@@ -300,7 +320,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
       // Extract schema for UI
       const schemas = await extractor.extractFromFile(photonPath);
-      (mcp as any).schemas = schemas;  // Store schemas for result rendering
+      (mcp as any).schemas = schemas; // Store schemas for result rendering
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
@@ -322,12 +342,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             layoutHints: schema.layoutHints,
             buttonLabel: schema.buttonLabel,
             icon: schema.icon,
-            linkedUi: linkedAsset?.id
+            linkedUi: linkedAsset?.id,
           };
         });
 
       // Check if this is an App (has main() method with @ui)
-      const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+      const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
       photons.push({
         name,
@@ -336,7 +356,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         methods,
         templatePath,
         isApp: !!mainMethod,
-        appEntry: mainMethod
+        appEntry: mainMethod,
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -348,7 +368,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           path: photonPath,
           configured: false,
           requiredParams: constructorParams,
-          errorMessage: errorMsg.slice(0, 200)
+          errorMessage: errorMsg.slice(0, 200),
         });
       }
       // Skip photons without constructor params that fail to load
@@ -356,8 +376,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   }
 
   // Count configured vs unconfigured
-  const configuredCount = photons.filter(p => p.configured).length;
-  const unconfiguredCount = photons.filter(p => !p.configured).length;
+  const configuredCount = photons.filter((p) => p.configured).length;
+  const unconfiguredCount = photons.filter((p) => !p.configured).length;
 
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
@@ -398,11 +418,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         const entries = await fs.readdir(resolved, { withFileTypes: true });
         const items = entries
-          .filter(e => !e.name.startsWith('.') || e.name === '.photon')
-          .map(e => ({
+          .filter((e) => !e.name.startsWith('.') || e.name === '.photon')
+          .map((e) => ({
             name: e.name,
             path: path.join(resolved, e.name),
-            isDirectory: e.isDirectory()
+            isDirectory: e.isDirectory(),
           }))
           .sort((a, b) => {
             if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
@@ -410,12 +430,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           });
 
         res.writeHead(200);
-        res.end(JSON.stringify({
-          path: resolved,
-          parent: path.dirname(resolved),
-          root: root ? path.resolve(root) : null,
-          items
-        }));
+        res.end(
+          JSON.stringify({
+            path: resolved,
+            parent: path.dirname(resolved),
+            root: root ? path.resolve(root) : null,
+            items,
+          })
+        );
       } catch (error) {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to read directory' }));
@@ -431,13 +453,15 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // If no photon name provided, just return the default working directory
       if (!photonName) {
         res.writeHead(200);
-        res.end(JSON.stringify({
-          defaultWorkdir: workingDir
-        }));
+        res.end(
+          JSON.stringify({
+            defaultWorkdir: workingDir,
+          })
+        );
         return;
       }
 
-      const photon = photons.find(p => p.name === photonName);
+      const photon = photons.find((p) => p.name === photonName);
       if (!photon) {
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Photon not found' }));
@@ -452,11 +476,13 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       }
 
       res.writeHead(200);
-      res.end(JSON.stringify({
-        name: photonName,
-        workdir: photonWorkdir,
-        defaultWorkdir: workingDir
-      }));
+      res.end(
+        JSON.stringify({
+          name: photonName,
+          workdir: photonWorkdir,
+          defaultWorkdir: workingDir,
+        })
+      );
       return;
     }
 
@@ -471,7 +497,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         return;
       }
 
-      const photon = photons.find(p => p.name === photonName);
+      const photon = photons.find((p) => p.name === photonName);
       if (!photon) {
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Photon not found' }));
@@ -505,7 +531,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         return;
       }
 
-      const photon = photons.find(p => p.name === photonName);
+      const photon = photons.find((p) => p.name === photonName);
       if (!photon || !photon.configured) {
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Photon not found or not configured' }));
@@ -552,7 +578,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         photon: photonName,
         method: methodName,
         hostName: 'beam',
-        hostVersion: '1.5.0'
+        hostVersion: '1.5.0',
       });
 
       res.setHeader('Content-Type', 'text/html');
@@ -624,7 +650,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
 
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const { name } = JSON.parse(body);
@@ -658,12 +686,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           }
 
           res.writeHead(200);
-          res.end(JSON.stringify({
-            success: true,
-            name,
-            path: targetPath,
-            version: result.metadata?.version,
-          }));
+          res.end(
+            JSON.stringify({
+              success: true,
+              name,
+              path: targetPath,
+              version: result.metadata?.version,
+            })
+          );
 
           // Broadcast to connected clients to reload photon list
           broadcast({ type: 'photon_added', name });
@@ -711,7 +741,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
 
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const { source } = JSON.parse(body);
@@ -729,11 +761,13 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           }
 
           res.writeHead(200);
-          res.end(JSON.stringify({
-            success: true,
-            name: result.marketplace.name,
-            added: result.added,
-          }));
+          res.end(
+            JSON.stringify({
+              success: true,
+              name: result.marketplace.name,
+              added: result.added,
+            })
+          );
         } catch (err) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: (err as Error).message }));
@@ -747,7 +781,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
 
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const { name } = JSON.parse(body);
@@ -779,7 +815,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
 
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const { name, enabled } = JSON.parse(body);
@@ -811,7 +849,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'application/json');
 
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
       req.on('end', async () => {
         try {
           const { name } = JSON.parse(body || '{}');
@@ -903,10 +943,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     clients.add(ws);
 
     // Send photon list on connection
-    ws.send(JSON.stringify({
-      type: 'photons',
-      data: photons
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'photons',
+        data: photons,
+      })
+    );
 
     ws.on('message', async (data: Buffer) => {
       try {
@@ -942,10 +984,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           logger.info(`OAuth completed: ${message.elicitationId} (success: ${message.success})`);
         }
       } catch (error) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          })
+        );
       }
     });
 
@@ -972,7 +1016,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     if (parts.length > 1) {
       const folderName = parts[0];
       // Check if corresponding .photon.ts exists
-      const photon = photons.find(p => p.name === folderName);
+      const photon = photons.find((p) => p.name === folderName);
       if (photon) {
         return folderName;
       }
@@ -988,124 +1032,28 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     if (pending) clearTimeout(pending);
 
     // Debounce - wait 100ms for batch saves
-    pendingReloads.set(photonName, setTimeout(async () => {
-      pendingReloads.delete(photonName);
+    pendingReloads.set(
+      photonName,
+      setTimeout(async () => {
+        pendingReloads.delete(photonName);
 
-      const photonIndex = photons.findIndex(p => p.name === photonName);
-      const isNewPhoton = photonIndex === -1;
-      const photonPath = isNewPhoton
-        ? path.join(workingDir, `${photonName}.photon.ts`)
-        : photons[photonIndex].path;
+        const photonIndex = photons.findIndex((p) => p.name === photonName);
+        const isNewPhoton = photonIndex === -1;
+        const photonPath = isNewPhoton
+          ? path.join(workingDir, `${photonName}.photon.ts`)
+          : photons[photonIndex].path;
 
-      logger.info(isNewPhoton
-        ? `✨ New photon detected: ${photonName}`
-        : `🔄 File change detected, reloading ${photonName}...`);
-
-      // For new photons, check if configuration is needed first
-      if (isNewPhoton) {
-        const extractor = new SchemaExtractor();
-        let constructorParams: ConfigParam[] = [];
-
-        try {
-          const source = await fs.readFile(photonPath, 'utf-8');
-          const params = extractor.extractConstructorParams(source);
-          constructorParams = params
-            .filter((p: ConstructorParam) => p.isPrimitive)
-            .map((p: ConstructorParam) => ({
-              name: p.name,
-              envVar: toEnvVarName(photonName, p.name),
-              type: p.type,
-              isOptional: p.isOptional,
-              hasDefault: p.hasDefault,
-              defaultValue: p.defaultValue
-            }));
-        } catch {
-          // Can't extract params, try to load anyway
-        }
-
-        // Check if any required params are missing
-        const missingRequired = constructorParams.filter(p =>
-          !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+        logger.info(
+          isNewPhoton
+            ? `✨ New photon detected: ${photonName}`
+            : `🔄 File change detected, reloading ${photonName}...`
         );
 
-        if (missingRequired.length > 0 && constructorParams.length > 0) {
-          // Add as unconfigured photon
-          const unconfiguredPhoton: UnconfiguredPhotonInfo = {
-            name: photonName,
-            path: photonPath,
-            configured: false,
-            requiredParams: constructorParams,
-            errorMessage: `Missing required: ${missingRequired.map(p => p.name).join(', ')}`
-          };
-          photons.push(unconfiguredPhoton);
-          broadcast({ type: 'photons', data: photons });
-          logger.info(`⚙️ ${photonName} added (needs configuration)`);
-          return;
-        }
-      }
-
-      try {
-        // Load or reload the photon
-        const mcp = isNewPhoton
-          ? await loader.loadFile(photonPath)
-          : await loader.reloadFile(photonPath);
-        if (!mcp.instance) throw new Error('Failed to create instance');
-
-        photonMCPs.set(photonName, mcp);
-
-        // Re-extract schema
-        const extractor = new SchemaExtractor();
-        const schemas = await extractor.extractFromFile(photonPath);
-        (mcp as any).schemas = schemas;  // Store schemas for result rendering
-
-        const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
-        const uiAssets = mcp.assets?.ui || [];
-        const methods: MethodInfo[] = schemas
-          .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-          .map((schema: any) => {
-            const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
-            return {
-              name: schema.name,
-              description: schema.description || '',
-              params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-              returns: { type: 'object' },
-              autorun: schema.autorun || false,
-              outputFormat: schema.outputFormat,
-              layoutHints: schema.layoutHints,
-              buttonLabel: schema.buttonLabel,
-              icon: schema.icon,
-              linkedUi: linkedAsset?.id
-            };
-          });
-
-        // Check if this is an App (has main() method with @ui)
-        const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
-
-        const reloadedPhoton: PhotonInfo = {
-          name: photonName,
-          path: photonPath,
-          configured: true,
-          methods,
-          isApp: !!mainMethod,
-          appEntry: mainMethod
-        };
-
-        if (isNewPhoton) {
-          photons.push(reloadedPhoton);
-          broadcast({ type: 'photons', data: photons });
-          logger.info(`✅ ${photonName} added`);
-        } else {
-          photons[photonIndex] = reloadedPhoton;
-          broadcast({ type: 'hot-reload', photon: reloadedPhoton });
-          logger.info(`✅ ${photonName} hot reloaded`);
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-
-        // For new photons that fail to load, add as unconfigured
+        // For new photons, check if configuration is needed first
         if (isNewPhoton) {
           const extractor = new SchemaExtractor();
           let constructorParams: ConfigParam[] = [];
+
           try {
             const source = await fs.readFile(photonPath, 'utf-8');
             const params = extractor.extractConstructorParams(source);
@@ -1117,19 +1065,25 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                 type: p.type,
                 isOptional: p.isOptional,
                 hasDefault: p.hasDefault,
-                defaultValue: p.defaultValue
+                defaultValue: p.defaultValue,
               }));
           } catch {
-            // Ignore extraction errors
+            // Can't extract params, try to load anyway
           }
 
-          if (constructorParams.length > 0) {
+          // Check if any required params are missing
+          const missingRequired = constructorParams.filter(
+            (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+          );
+
+          if (missingRequired.length > 0 && constructorParams.length > 0) {
+            // Add as unconfigured photon
             const unconfiguredPhoton: UnconfiguredPhotonInfo = {
               name: photonName,
               path: photonPath,
               configured: false,
               requiredParams: constructorParams,
-              errorMessage: errorMsg.slice(0, 200)
+              errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
             };
             photons.push(unconfiguredPhoton);
             broadcast({ type: 'photons', data: photons });
@@ -1138,14 +1092,109 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           }
         }
 
-        logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
-        broadcast({
-          type: 'hot-reload-error',
-          photon: photonName,
-          message: errorMsg.slice(0, 200)
-        });
-      }
-    }, 100));
+        try {
+          // Load or reload the photon
+          const mcp = isNewPhoton
+            ? await loader.loadFile(photonPath)
+            : await loader.reloadFile(photonPath);
+          if (!mcp.instance) throw new Error('Failed to create instance');
+
+          photonMCPs.set(photonName, mcp);
+
+          // Re-extract schema
+          const extractor = new SchemaExtractor();
+          const schemas = await extractor.extractFromFile(photonPath);
+          (mcp as any).schemas = schemas; // Store schemas for result rendering
+
+          const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+          const uiAssets = mcp.assets?.ui || [];
+          const methods: MethodInfo[] = schemas
+            .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+            .map((schema: any) => {
+              const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+              return {
+                name: schema.name,
+                description: schema.description || '',
+                params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+                returns: { type: 'object' },
+                autorun: schema.autorun || false,
+                outputFormat: schema.outputFormat,
+                layoutHints: schema.layoutHints,
+                buttonLabel: schema.buttonLabel,
+                icon: schema.icon,
+                linkedUi: linkedAsset?.id,
+              };
+            });
+
+          // Check if this is an App (has main() method with @ui)
+          const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+
+          const reloadedPhoton: PhotonInfo = {
+            name: photonName,
+            path: photonPath,
+            configured: true,
+            methods,
+            isApp: !!mainMethod,
+            appEntry: mainMethod,
+          };
+
+          if (isNewPhoton) {
+            photons.push(reloadedPhoton);
+            broadcast({ type: 'photons', data: photons });
+            logger.info(`✅ ${photonName} added`);
+          } else {
+            photons[photonIndex] = reloadedPhoton;
+            broadcast({ type: 'hot-reload', photon: reloadedPhoton });
+            logger.info(`✅ ${photonName} hot reloaded`);
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+
+          // For new photons that fail to load, add as unconfigured
+          if (isNewPhoton) {
+            const extractor = new SchemaExtractor();
+            let constructorParams: ConfigParam[] = [];
+            try {
+              const source = await fs.readFile(photonPath, 'utf-8');
+              const params = extractor.extractConstructorParams(source);
+              constructorParams = params
+                .filter((p: ConstructorParam) => p.isPrimitive)
+                .map((p: ConstructorParam) => ({
+                  name: p.name,
+                  envVar: toEnvVarName(photonName, p.name),
+                  type: p.type,
+                  isOptional: p.isOptional,
+                  hasDefault: p.hasDefault,
+                  defaultValue: p.defaultValue,
+                }));
+            } catch {
+              // Ignore extraction errors
+            }
+
+            if (constructorParams.length > 0) {
+              const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+                name: photonName,
+                path: photonPath,
+                configured: false,
+                requiredParams: constructorParams,
+                errorMessage: errorMsg.slice(0, 200),
+              };
+              photons.push(unconfiguredPhoton);
+              broadcast({ type: 'photons', data: photons });
+              logger.info(`⚙️ ${photonName} added (needs configuration)`);
+              return;
+            }
+          }
+
+          logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
+          broadcast({
+            type: 'hot-reload-error',
+            photon: photonName,
+            message: errorMsg.slice(0, 200),
+          });
+        }
+      }, 100)
+    );
   };
 
   // Watch working directory recursively
@@ -1166,9 +1215,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    const status = unconfiguredCount > 0
-      ? `${configuredCount} ready, ${unconfiguredCount} need setup`
-      : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
+    const status =
+      unconfiguredCount > 0
+        ? `${configuredCount} ready, ${unconfiguredCount} need setup`
+        : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
     console.log(`\n⚡ Photon Beam → ${url} (${status})\n`);
   });
 }
@@ -1183,38 +1233,46 @@ async function handleInvoke(
 
   const mcp = photonMCPs.get(photon);
   if (!mcp || !mcp.instance) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Photon not found: ${photon}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Photon not found: ${photon}`,
+      })
+    );
     return;
   }
 
   const instance = mcp.instance;
   if (typeof instance[method] !== 'function') {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Method not found: ${method}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Method not found: ${method}`,
+      })
+    );
     return;
   }
 
   try {
     // Create output handler for streaming progress/status events
     const outputHandler: OutputHandler = (yieldValue: PhotonYield) => {
-      ws.send(JSON.stringify({
-        type: 'yield',
-        data: yieldValue
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'yield',
+          data: yieldValue,
+        })
+      );
     };
 
     // Create input provider for web-based elicitation (ask yields)
     const inputProvider: InputProvider = async (ask: AskYield): Promise<any> => {
       // Send elicitation request to web client
-      ws.send(JSON.stringify({
-        type: 'elicitation',
-        data: ask
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'elicitation',
+          data: ask,
+        })
+      );
 
       // Wait for response from client (can be cancelled via Escape)
       return new Promise((resolve, reject) => {
@@ -1230,45 +1288,52 @@ async function handleInvoke(
     const schemas = mcp.schemas || [];
     const methodSchema = schemas.find((s: any) => s.name === method);
 
-    ws.send(JSON.stringify({
-      type: 'result',
-      data: result,
-      photon,
-      method,
-      outputFormat: methodSchema?.outputFormat,
-      layoutHints: methodSchema?.layoutHints,
-      invocationId  // Pass back for interactive UI routing
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'result',
+        data: result,
+        photon,
+        method,
+        outputFormat: methodSchema?.outputFormat,
+        layoutHints: methodSchema?.layoutHints,
+        invocationId, // Pass back for interactive UI routing
+      })
+    );
   } catch (error) {
     // Check if this is an OAuth elicitation error
-    if (error instanceof Error && (
-      error.name === 'OAuthElicitationRequired' ||
-      (error as any).code === 'OAUTH_ELICITATION_REQUIRED'
-    )) {
+    if (
+      error instanceof Error &&
+      (error.name === 'OAuthElicitationRequired' ||
+        (error as any).code === 'OAUTH_ELICITATION_REQUIRED')
+    ) {
       const oauthError = error as any;
-      ws.send(JSON.stringify({
-        type: 'elicitation',
-        data: {
-          ask: 'oauth',
-          provider: oauthError.provider || 'OAuth',
-          scopes: oauthError.scopes || [],
-          url: oauthError.elicitationUrl || oauthError.url,
-          elicitationUrl: oauthError.elicitationUrl || oauthError.url,
-          elicitationId: oauthError.elicitationId || oauthError.id,
-          message: oauthError.message || 'Authorization required',
-          // Include context for retry
-          photon,
-          method,
-          params: args
-        }
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'elicitation',
+          data: {
+            ask: 'oauth',
+            provider: oauthError.provider || 'OAuth',
+            scopes: oauthError.scopes || [],
+            url: oauthError.elicitationUrl || oauthError.url,
+            elicitationUrl: oauthError.elicitationUrl || oauthError.url,
+            elicitationId: oauthError.elicitationId || oauthError.id,
+            message: oauthError.message || 'Authorization required',
+            // Include context for retry
+            photon,
+            method,
+            params: args,
+          },
+        })
+      );
       return;
     }
 
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+    );
   }
 }
 
@@ -1283,12 +1348,14 @@ async function handleConfigure(
   const { photon: photonName, config } = request;
 
   // Find the unconfigured photon
-  const photonIndex = photons.findIndex(p => p.name === photonName && !p.configured);
+  const photonIndex = photons.findIndex((p) => p.name === photonName && !p.configured);
   if (photonIndex === -1) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Photon not found or already configured: ${photonName}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Photon not found or already configured: ${photonName}`,
+      })
+    );
     return;
   }
 
@@ -1317,7 +1384,7 @@ async function handleConfigure(
     // Extract schema for UI
     const extractor = new SchemaExtractor();
     const schemas = await extractor.extractFromFile(unconfiguredPhoton.path);
-    (mcp as any).schemas = schemas;  // Store schemas for result rendering
+    (mcp as any).schemas = schemas; // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const methods: MethodInfo[] = schemas
@@ -1328,11 +1395,11 @@ async function handleConfigure(
         params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
         returns: { type: 'object' },
         autorun: schema.autorun || false,
-        buttonLabel: schema.buttonLabel
+        buttonLabel: schema.buttonLabel,
       }));
 
     // Check if this is an App (has main() method with @ui)
-    const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
     const isApp = !!mainMethod;
 
     // Replace unconfigured photon with configured one
@@ -1342,7 +1409,7 @@ async function handleConfigure(
       configured: true,
       methods,
       isApp,
-      appEntry: mainMethod
+      appEntry: mainMethod,
     };
 
     photons[photonIndex] = configuredPhoton;
@@ -1350,19 +1417,22 @@ async function handleConfigure(
     logger.info(`✅ ${photonName} configured successfully`);
 
     // Send updated photon info to client
-    ws.send(JSON.stringify({
-      type: 'configured',
-      photon: configuredPhoton
-    }));
-
+    ws.send(
+      JSON.stringify({
+        type: 'configured',
+        photon: configuredPhoton,
+      })
+    );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(`Failed to configure ${photonName}: ${errorMsg}`);
 
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Configuration failed: ${errorMsg.slice(0, 200)}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Configuration failed: ${errorMsg.slice(0, 200)}`,
+      })
+    );
   }
 }
 
@@ -1377,12 +1447,14 @@ async function handleReload(
   const { photon: photonName } = request;
 
   // Find the photon
-  const photonIndex = photons.findIndex(p => p.name === photonName);
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Photon not found: ${photonName}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Photon not found: ${photonName}`,
+      })
+    );
     return;
   }
 
@@ -1411,7 +1483,7 @@ async function handleReload(
     // Extract schema for UI
     const extractor = new SchemaExtractor();
     const schemas = await extractor.extractFromFile(photonPath);
-    (mcp as any).schemas = schemas;  // Store schemas for result rendering
+    (mcp as any).schemas = schemas; // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const uiAssets = mcp.assets?.ui || [];
@@ -1429,12 +1501,12 @@ async function handleReload(
           layoutHints: schema.layoutHints,
           buttonLabel: schema.buttonLabel,
           icon: schema.icon,
-          linkedUi: linkedAsset?.id
+          linkedUi: linkedAsset?.id,
         };
       });
 
     // Check if this is an App (has main() method with @ui)
-    const mainMethod = methods.find(m => m.name === 'main' && m.linkedUi);
+    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
     // Update photon info
     const reloadedPhoton: PhotonInfo = {
@@ -1443,26 +1515,29 @@ async function handleReload(
       configured: true,
       methods,
       isApp: !!mainMethod,
-      appEntry: mainMethod
+      appEntry: mainMethod,
     };
 
     photons[photonIndex] = reloadedPhoton;
 
     logger.info(`🔄 ${photonName} reloaded successfully`);
 
-    ws.send(JSON.stringify({
-      type: 'reloaded',
-      photon: reloadedPhoton
-    }));
-
+    ws.send(
+      JSON.stringify({
+        type: 'reloaded',
+        photon: reloadedPhoton,
+      })
+    );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(`Failed to reload ${photonName}: ${errorMsg}`);
 
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Reload failed: ${errorMsg.slice(0, 200)}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Reload failed: ${errorMsg.slice(0, 200)}`,
+      })
+    );
   }
 }
 
@@ -1476,12 +1551,14 @@ async function handleRemove(
   const { photon: photonName } = request;
 
   // Find and remove the photon
-  const photonIndex = photons.findIndex(p => p.name === photonName);
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: `Photon not found: ${photonName}`
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'error',
+        message: `Photon not found: ${photonName}`,
+      })
+    );
     return;
   }
 
@@ -1495,11 +1572,13 @@ async function handleRemove(
 
   logger.info(`🗑️ ${photonName} removed`);
 
-  ws.send(JSON.stringify({
-    type: 'removed',
-    photon: photonName,
-    photons: photons
-  }));
+  ws.send(
+    JSON.stringify({
+      type: 'removed',
+      photon: photonName,
+      photons: photons,
+    })
+  );
 }
 
 function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
