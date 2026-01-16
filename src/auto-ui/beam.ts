@@ -12,6 +12,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import { Writable } from 'stream';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { WebSocketServer, WebSocket } from 'ws';
 import { listPhotonMCPs, resolvePhotonPath, DEFAULT_PHOTON_DIR } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
