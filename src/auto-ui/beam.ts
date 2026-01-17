@@ -1839,35 +1839,36 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     /* Light theme - applied to :root for proper variable inheritance */
     /* Uses both .light-theme (BEAM) and .light (Design System) for compatibility */
+    /* Inspired by Saledash - soft grayish sidebar, clean whites */
     :root.light-theme,
     html.light-theme,
     :root.light,
     html.light {
-      --bg-primary: #f4f4f5;
-      --bg-secondary: #fafafa;
-      --bg-tertiary: #e4e4e7;
+      --bg-primary: #fafbfc;
+      --bg-secondary: #f1f5f9;
+      --bg-tertiary: #e2e8f0;
       --bg-elevated: #ffffff;
-      --bg-hover: #ececef;
-      --border-color: #d4d4d8;
-      --border-light: #e4e4e7;
-      --text-primary: #18181b;
-      --text-secondary: #52525b;
-      --text-muted: #a1a1aa;
-      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-      --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
-      --shadow-lg: 0 12px 32px rgba(0,0,0,0.08);
+      --bg-hover: #e8ecf1;
+      --border-color: #cbd5e1;
+      --border-light: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+      --shadow-md: 0 4px 12px rgba(15,23,42,0.06);
+      --shadow-lg: 0 12px 32px rgba(15,23,42,0.08);
       color-scheme: light;
 
-      /* Design System color tokens for light theme */
+      /* Design System color tokens for light theme - Slate scale */
       --color-surface: #ffffff;
-      --color-surface-container: #f4f4f5;
-      --color-surface-container-high: #e4e4e7;
-      --color-surface-container-highest: #d4d4d8;
-      --color-on-surface: #18181b;
-      --color-on-surface-variant: #52525b;
-      --color-on-surface-muted: #a1a1aa;
-      --color-outline: #a1a1aa;
-      --color-outline-variant: #e4e4e7;
+      --color-surface-container: #f1f5f9;
+      --color-surface-container-high: #e2e8f0;
+      --color-surface-container-highest: #cbd5e1;
+      --color-on-surface: #0f172a;
+      --color-on-surface-variant: #475569;
+      --color-on-surface-muted: #94a3b8;
+      --color-outline: #94a3b8;
+      --color-outline-variant: #e2e8f0;
       --color-primary: #3b82f6;
       --color-primary-container: #dbeafe;
       --color-on-primary-container: #1e40af;
@@ -6272,21 +6273,21 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function setBeamTheme(theme) {
       const root = document.documentElement;
       if (theme === 'light') {
-        // Elegant light theme - Linear/Notion/Apple inspired
-        // Layered depth with Zinc scale + warm undertones
-        root.style.setProperty('--bg-primary', '#f4f4f5');        // Zinc-100: Main canvas
-        root.style.setProperty('--bg-secondary', '#fafafa');      // Near-white: Sidebar/cards
-        root.style.setProperty('--bg-tertiary', '#e4e4e7');       // Zinc-200: Inputs, recessed
+        // Saledash-inspired light theme - soft grayish sidebar, clean whites
+        // Slate scale for subtle blue undertones
+        root.style.setProperty('--bg-primary', '#fafbfc');        // Very light: Main canvas
+        root.style.setProperty('--bg-secondary', '#f1f5f9');      // Slate-100: Sidebar/cards
+        root.style.setProperty('--bg-tertiary', '#e2e8f0');       // Slate-200: Inputs, recessed
         root.style.setProperty('--bg-elevated', '#ffffff');       // Pure white: Floating elements
-        root.style.setProperty('--bg-hover', '#ececef');          // Subtle hover state
-        root.style.setProperty('--border-color', '#d4d4d8');      // Zinc-300: Primary borders
-        root.style.setProperty('--border-light', '#e4e4e7');      // Zinc-200: Soft dividers
-        root.style.setProperty('--text-primary', '#18181b');      // Zinc-900: Headlines
-        root.style.setProperty('--text-secondary', '#52525b');    // Zinc-600: Body text
-        root.style.setProperty('--text-muted', '#a1a1aa');        // Zinc-400: Hints/disabled
-        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.04)');
-        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.06)');
-        root.style.setProperty('--shadow-lg', '0 12px 32px rgba(0,0,0,0.08)');
+        root.style.setProperty('--bg-hover', '#e8ecf1');          // Subtle hover state
+        root.style.setProperty('--border-color', '#cbd5e1');      // Slate-300: Primary borders
+        root.style.setProperty('--border-light', '#e2e8f0');      // Slate-200: Soft dividers
+        root.style.setProperty('--text-primary', '#0f172a');      // Slate-900: Headlines
+        root.style.setProperty('--text-secondary', '#475569');    // Slate-600: Body text
+        root.style.setProperty('--text-muted', '#94a3b8');        // Slate-400: Hints/disabled
+        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(15,23,42,0.04)');
+        root.style.setProperty('--shadow-md', '0 4px 12px rgba(15,23,42,0.06)');
+        root.style.setProperty('--shadow-lg', '0 12px 32px rgba(15,23,42,0.08)');
         root.style.setProperty('color-scheme', 'light');
         document.documentElement.classList.add('light-theme', 'light');
       } else {
@@ -7981,18 +7982,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     // Enhanced to match ChatGPT Apps SDK window.openai API
     function renderHtmlContent(container, htmlContent, photonName, toolInput, toolOutput) {
       // Theme CSS injected into iframe - provides light theme overrides for common variable names
+      // Saledash-inspired: Slate scale with soft blue undertones
       const themeStyles = \`
 <style id="photon-theme-css">
-  /* Light theme overrides for common app CSS variables */
+  /* Light theme overrides for common app CSS variables - Slate scale */
   :root.light-theme,
   html.light-theme,
   :root.light,
   html.light {
-    --bg: #f0f0f3 !important;
-    --card: #fafafa !important;
-    --border: #e4e4e7 !important;
-    --text: #18181b !important;
-    --muted: #71717a !important;
+    --bg: #f1f5f9 !important;
+    --card: #ffffff !important;
+    --border: #cbd5e1 !important;
+    --text: #0f172a !important;
+    --muted: #64748b !important;
     color-scheme: light;
   }
   html.light-theme body,
@@ -8493,15 +8495,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const bridgeResponse = await fetch(\`/api/platform-bridge?theme=\${currentTheme}&photon=\${encodeURIComponent(photonName)}&method=\${encodeURIComponent(uiId)}\`);
         const platformBridge = bridgeResponse.ok ? await bridgeResponse.text() : '';
 
-        // Theme CSS for light mode - overrides common app CSS variables
+        // Theme CSS for light mode - overrides common app CSS variables (Slate scale)
         const themeStyles = \`
 <style id="photon-theme-css">
   :root.light-theme, html.light-theme, :root.light, html.light {
-    --bg: #f0f0f3 !important;
-    --card: #fafafa !important;
-    --border: #e4e4e7 !important;
-    --text: #18181b !important;
-    --muted: #71717a !important;
+    --bg: #f1f5f9 !important;
+    --card: #ffffff !important;
+    --border: #cbd5e1 !important;
+    --text: #0f172a !important;
+    --muted: #64748b !important;
     color-scheme: light;
   }
   html.light-theme body, html.light body {
