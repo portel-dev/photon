@@ -50,6 +50,125 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
 
+## Daemon Feature Tags
+
+These tags enable daemon-specific features like webhooks, scheduled jobs, and distributed locks. They are extracted at build time and used by the Photon daemon to register handlers and schedule tasks.
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@webhook` | Exposes method as an HTTP webhook endpoint. | `@webhook` or `@webhook stripe` |
+| `@scheduled` | Schedules method to run on a cron schedule. | `@scheduled 0 0 * * *` |
+| `@cron` | Alias for `@scheduled`. | `@cron 30 2 * * 1-5` |
+| `@locked` | Acquires a distributed lock before executing. | `@locked` or `@locked board:write` |
+
+### Webhook Endpoints
+
+Methods can be exposed as HTTP webhook endpoints using the `@webhook` tag or the `handle*` prefix convention.
+
+```typescript
+/**
+ * Handle Stripe payment events
+ * @webhook stripe
+ */
+async handleStripePayment(params: { event: any }) {
+  // Accessible at POST /webhook/stripe
+}
+
+/**
+ * Auto-detected as webhook from handle* prefix
+ */
+async handleGithubIssue(params: { action: string; issue: any }) {
+  // Accessible at POST /webhook/handleGithubIssue
+}
+```
+
+**Conventions:**
+- `@webhook` - Uses method name as endpoint path
+- `@webhook <path>` - Uses custom path
+- `handle*` prefix - Auto-detected as webhook (uses method name)
+
+### Scheduled Jobs
+
+Methods can be scheduled to run periodically using cron expressions.
+
+```typescript
+/**
+ * Archive old tasks daily at midnight
+ * @scheduled 0 0 * * *
+ */
+async scheduledArchiveOldTasks(): Promise<{ archived: number }> {
+  // Runs daily at 00:00
+}
+
+/**
+ * Run cleanup every weekday at 2:30 AM
+ * @cron 30 2 * * 1-5
+ */
+async weekdayCleanup(): Promise<void> {
+  // Runs Mon-Fri at 02:30
+}
+```
+
+**Cron Format:** Standard 5-field cron expression: `minute hour day-of-month month day-of-week`
+
+| Field | Values | Special Characters |
+|-------|--------|-------------------|
+| Minute | 0-59 | `,` `-` |
+| Hour | 0-23 | `,` `-` |
+| Day of Month | 1-31 | `,` `-` |
+| Month | 1-12 | `,` `-` |
+| Day of Week | 0-6 (Sun=0) | `,` `-` |
+
+**Common Patterns:**
+- `0 0 * * *` - Daily at midnight
+- `0 * * * *` - Every hour
+- `0 0 * * 0` - Weekly on Sunday
+- `0 9-17 * * 1-5` - Every hour during business hours (Mon-Fri)
+- `0,30 * * * *` - Every 30 minutes
+
+### Distributed Locks
+
+Use `@locked` to ensure only one instance of a method runs at a time across all processes.
+
+```typescript
+/**
+ * Update board with exclusive access
+ * @locked
+ */
+async updateBoard(params: { board: string; data: any }) {
+  // Lock name: "updateBoard"
+}
+
+/**
+ * Batch process with custom lock name
+ * @locked board:write
+ */
+async batchUpdate(params: { taskIds: string[] }) {
+  // Lock name: "board:write"
+}
+```
+
+**Lock Behavior:**
+- `@locked` - Uses method name as lock name
+- `@locked <name>` - Uses custom lock name
+- Lock is held for the duration of method execution
+- Other processes/requests wait for lock release
+
+For programmatic locking with dynamic lock names, use `withLock()`:
+
+```typescript
+import { withLock } from '@portel/photon-core';
+
+async moveTask(params: { taskId: string; column: string }) {
+  return withLock(`task:${params.taskId}`, async () => {
+    const task = await this.loadTask(params.taskId);
+    task.column = params.column;
+    await this.saveTask(task);
+    return task;
+  });
+}
+```
+
 ## Inline Parameter Tags
 
 These tags are placed within `@param` descriptions to add validation and UI hints.

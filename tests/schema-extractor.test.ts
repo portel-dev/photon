@@ -1069,7 +1069,360 @@ async function runTests() {
     console.log('✅ Combined placeholder, hint, and label');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (54 tests)');
+  // ═══════════════════════════════════════════════════════════════════
+  // DAEMON FEATURE TAGS TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Test 55: @webhook tag extraction (boolean)
+  {
+    const source = `
+      /**
+       * Handle incoming webhook
+       * @webhook
+       */
+      async receiveWebhook(params: { payload: any }) {
+        return payload;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, true, 'Should have webhook=true with bare @webhook tag');
+    console.log('✅ @webhook tag extraction (boolean)');
+  }
+
+  // Test 56: @webhook tag with custom path
+  {
+    const source = `
+      /**
+       * Handle Stripe webhook
+       * @webhook stripe/payments
+       */
+      async handleStripePayment(params: { event: any }) {
+        return event;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, 'stripe/payments', 'Should have custom webhook path');
+    console.log('✅ @webhook tag with custom path');
+  }
+
+  // Test 57: handle* prefix auto-detection as webhook
+  {
+    const source = `
+      /**
+       * Handle GitHub issue event
+       */
+      async handleGithubIssue(params: { action: string; issue: any }) {
+        return issue;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, true, 'Should auto-detect handle* prefix as webhook');
+    console.log('✅ handle* prefix auto-detection as webhook');
+  }
+
+  // Test 58: Method without handle* or @webhook has no webhook property
+  {
+    const source = `
+      /**
+       * Regular method
+       */
+      async processData(params: { data: any }) {
+        return data;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, undefined, 'Regular method should not have webhook property');
+    console.log('✅ Regular method has no webhook property');
+  }
+
+  // Test 59: @scheduled tag with inline cron expression
+  {
+    const source = `
+      /**
+       * Run daily cleanup
+       * @scheduled 0 0 * * *
+       */
+      async dailyCleanup(params: {}) {
+        return 'cleaned';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0 0 * * *', 'Should have cron expression from @scheduled');
+    console.log('✅ @scheduled tag with inline cron expression');
+  }
+
+  // Test 60: @cron tag extraction
+  {
+    const source = `
+      /**
+       * Run at the top of every hour
+       * @cron 0 * * * *
+       */
+      async frequentTask(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0 * * * *', 'Should have cron expression from @cron');
+    console.log('✅ @cron tag extraction');
+  }
+
+  // Test 61: Complex cron expression (specific day/time)
+  {
+    const source = `
+      /**
+       * Run at 2:30 AM on weekdays
+       * @scheduled 30 2 * * 1-5
+       */
+      async weekdayTask(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '30 2 * * 1-5', 'Should parse complex cron expression');
+    console.log('✅ Complex cron expression (weekdays)');
+  }
+
+  // Test 62: Cron with ranges and lists
+  {
+    const source = `
+      /**
+       * Run every 15 minutes during business hours
+       * @cron 0,15,30,45 9-17 * * 1-5
+       */
+      async businessHoursTask(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0,15,30,45 9-17 * * 1-5', 'Should parse cron with ranges and lists');
+    console.log('✅ Cron with ranges and lists');
+  }
+
+  // Test 63: scheduled* prefix without @cron has no scheduled property
+  {
+    const source = `
+      /**
+       * Method named with scheduled prefix but no cron
+       */
+      async scheduledMissingCron(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, undefined, 'scheduled* prefix without @cron should have no scheduled property');
+    console.log('✅ scheduled* prefix without @cron has no scheduled property');
+  }
+
+  // Test 64: Method without scheduled tag has no scheduled property
+  {
+    const source = `
+      /**
+       * Regular method
+       */
+      async regularMethod(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, undefined, 'Regular method should not have scheduled property');
+    console.log('✅ Regular method has no scheduled property');
+  }
+
+  // Test 65: @locked tag extraction (boolean)
+  {
+    const source = `
+      /**
+       * Update board with lock
+       * @locked
+       */
+      async updateBoard(params: { board: string }) {
+        return board;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).locked, true, 'Should have locked=true with bare @locked tag');
+    console.log('✅ @locked tag extraction (boolean)');
+  }
+
+  // Test 66: @locked tag with custom lock name
+  {
+    const source = `
+      /**
+       * Batch update tasks
+       * @locked board:write
+       */
+      async batchUpdate(params: { taskIds: string[] }) {
+        return taskIds;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).locked, 'board:write', 'Should have custom lock name');
+    console.log('✅ @locked tag with custom lock name');
+  }
+
+  // Test 67: Method without @locked has no locked property
+  {
+    const source = `
+      /**
+       * Regular method without lock
+       */
+      async noLock(params: { data: any }) {
+        return data;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).locked, undefined, 'Regular method should not have locked property');
+    console.log('✅ Regular method has no locked property');
+  }
+
+  // Test 68: Combined daemon features (webhook + locked)
+  {
+    const source = `
+      /**
+       * Handle webhook with lock protection
+       * @webhook github/push
+       * @locked github:push
+       */
+      async handleGithubPush(params: { commits: any[] }) {
+        return commits;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, 'github/push', 'Should have custom webhook path');
+    assert.equal((tool as any).locked, 'github:push', 'Should have custom lock name');
+    console.log('✅ Combined daemon features (webhook + locked)');
+  }
+
+  // Test 69: Combined daemon features (scheduled + locked)
+  {
+    const source = `
+      /**
+       * Run scheduled task with lock
+       * @scheduled 0 0,12 * * *
+       * @locked cleanup:daily
+       */
+      async scheduledCleanup(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0 0,12 * * *', 'Should have cron expression');
+    assert.equal((tool as any).locked, 'cleanup:daily', 'Should have custom lock name');
+    console.log('✅ Combined daemon features (scheduled + locked)');
+  }
+
+  // Test 70: All daemon features with other metadata
+  {
+    const source = `
+      /**
+       * Process webhook data
+       * @webhook stripe
+       * @locked stripe:process
+       * @icon 💳
+       * @format json
+       * @param event The Stripe event
+       */
+      async handleStripeEvent(params: { event: any }) {
+        return event;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, 'stripe', 'Should have webhook path');
+    assert.equal((tool as any).locked, 'stripe:process', 'Should have lock name');
+    assert.equal((tool as any).icon, '💳', 'Should have icon');
+    assert.equal((tool as any).outputFormat, 'json', 'Should have format');
+    console.log('✅ All daemon features with other metadata');
+  }
+
+  // Test 71: @webhook takes precedence over handle* prefix
+  {
+    const source = `
+      /**
+       * Handle with custom webhook path
+       * @webhook custom/path
+       */
+      async handleCustomEvent(params: { data: any }) {
+        return data;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, 'custom/path', '@webhook should provide path even with handle* prefix');
+    console.log('✅ @webhook takes precedence over handle* prefix');
+  }
+
+  // Test 72: @internal combined with daemon features
+  {
+    const source = `
+      /**
+       * Internal scheduled cleanup
+       * @scheduled 0 0 * * 0
+       * @internal
+       */
+      async scheduledWeeklyCleanup(params: {}) {
+        return 'cleaned';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0 0 * * 0', 'Should have cron expression for @internal method');
+    console.log('✅ @internal combined with daemon features');
+  }
+
+  // Test 73: Cron with step and range values
+  {
+    const source = `
+      /**
+       * Run every 10 minutes during business hours
+       * @cron 0,10,20,30,40,50 9-17 * * *
+       */
+      async everyTenMinutes(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).scheduled, '0,10,20,30,40,50 9-17 * * *', 'Should parse step value cron');
+    console.log('✅ Cron with step and range values');
+  }
+
+  // Test 74: Case insensitivity of daemon tags
+  {
+    const source = `
+      /**
+       * Test case insensitivity
+       * @WEBHOOK github
+       * @LOCKED test
+       */
+      async testCaseInsensitive(params: {}) {
+        return 'done';
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).webhook, 'github', '@WEBHOOK should be recognized');
+    assert.equal((tool as any).locked, 'test', '@LOCKED should be recognized');
+    console.log('✅ Case insensitivity of daemon tags');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (74 tests)');
 }
 
 // Run if executed directly
