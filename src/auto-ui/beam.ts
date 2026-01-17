@@ -5489,7 +5489,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               </div>
 
               <div class="tab-panel" id="pv-data-panel">
-                <pre style="background: var(--bg-tertiary); padding: 20px; border-radius: var(--radius-md); overflow-x: auto;"><code id="pv-data-content" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-secondary);">No data yet</code></pre>
+                <pre style="background: var(--bg-elevated); padding: 20px; border-radius: var(--radius-md); overflow-x: auto; border: 1px solid var(--border-color);"><code id="pv-data-content" style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">No data yet</code></pre>
               </div>
             </div>
           </div>
