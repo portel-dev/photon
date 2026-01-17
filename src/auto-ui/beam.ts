@@ -2775,6 +2775,236 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       font-size: 14px;
     }
 
+    /* Photon View - Workspace-centric design */
+    .photon-view {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .photon-view-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+    }
+
+    .photon-view-header .pv-icon {
+      font-size: 32px;
+      flex-shrink: 0;
+    }
+
+    .photon-view-header .pv-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .photon-view-header .pv-name {
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -0.5px;
+    }
+
+    .photon-view-header .pv-desc {
+      color: var(--text-secondary);
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .photon-view-header .pv-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .photon-view-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+    }
+
+    /* Method Cards Grid */
+    .methods-section {
+      margin-bottom: 32px;
+    }
+
+    .methods-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .methods-section-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .methods-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .method-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .method-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .method-card.selected {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+    }
+
+    .method-card .mc-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .method-card .mc-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .method-card .mc-name {
+      font-weight: 600;
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .method-card .mc-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .method-card .mc-badges {
+      display: flex;
+      gap: 4px;
+      margin-top: auto;
+    }
+
+    .method-card .mc-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+    }
+
+    .method-card .mc-badge.autorun {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+    }
+
+    /* Method Panel (shows when method selected) */
+    .method-panel {
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      padding: 24px 32px;
+      margin: 0 -32px -24px;
+    }
+
+    .method-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .method-panel-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      margin: 0;
+    }
+
+    .method-panel-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+    }
+
+    .method-panel-close:hover {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+    }
+
+    /* Tests section in photon view */
+    .pv-tests-section {
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px dashed var(--border-color);
+    }
+
+    .pv-tests-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .pv-tests-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Flat photon list item (workspace-centric) */
+    .photon-item.flat {
+      margin-bottom: 2px;
+    }
+
+    .photon-item.flat .photon-header {
+      padding: 10px 16px;
+    }
+
+    .photon-item.flat .photon-header.selected {
+      background: var(--accent);
+      color: white;
+    }
+
+    .photon-item.flat .photon-header.selected .photon-name::before {
+      background: white;
+    }
+
+    .photon-item.flat .photon-header.selected .method-count {
+      background: rgba(255,255,255,0.2);
+      color: white;
+    }
+
     /* Config view in main content */
     .config-header {
       position: relative;
@@ -5152,6 +5382,104 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           </div>
         </div>
       </div>
+
+      <!-- Photon View - Workspace-centric design (shows when photon selected from flat sidebar) -->
+      <div id="photon-view" class="photon-view" style="display: none;">
+        <div class="photon-view-header">
+          <span class="pv-icon" id="pv-icon">⚡</span>
+          <div class="pv-info">
+            <h2 class="pv-name" id="pv-name"></h2>
+            <p class="pv-desc" id="pv-desc"></p>
+          </div>
+          <div class="pv-actions">
+            <button class="btn btn-secondary" onclick="togglePhotonSettings(event)" title="Photon settings">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+              </svg>
+            </button>
+            <div class="settings-menu" id="pv-settings-menu">
+              <button onclick="reconfigurePhoton()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+                Reconfigure
+              </button>
+              <button onclick="reloadPhoton()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 4v6h-6M1 20v-6h6"></path>
+                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+                </svg>
+                Reload
+              </button>
+              <div class="settings-divider"></div>
+              <button class="danger" onclick="removePhoton()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                </svg>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="photon-view-content" id="pv-content">
+          <!-- App UI container (for app photons) -->
+          <div id="pv-app-container" style="display: none;"></div>
+
+          <!-- Methods grid -->
+          <div class="methods-section" id="pv-methods-section">
+            <div class="methods-section-header">
+              <h3>Methods</h3>
+            </div>
+            <div class="methods-grid" id="pv-methods-grid"></div>
+          </div>
+
+          <!-- Tests section -->
+          <div class="pv-tests-section" id="pv-tests-section" style="display: none;">
+            <div class="pv-tests-header">
+              <h3>Tests</h3>
+              <button class="run-tests-btn" id="pv-run-tests-btn">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                Run All
+              </button>
+            </div>
+            <div class="methods-grid" id="pv-tests-grid"></div>
+          </div>
+
+          <!-- Method Panel (shows when method card clicked) -->
+          <div class="method-panel" id="pv-method-panel" style="display: none;">
+            <div class="method-panel-header">
+              <h3 id="pv-method-name"></h3>
+              <button class="method-panel-close" onclick="closeMethodPanel()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <form id="pv-invoke-form"></form>
+            <div class="result-container" id="pv-result-container">
+              <div class="result-header">
+                <span>Result</span>
+                <div class="result-actions">
+                  <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <polyline points="9 21 3 21 3 15"></polyline>
+                      <line x1="21" y1="3" x2="14" y2="10"></line>
+                      <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="result-content" id="pv-result-content"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -5463,17 +5791,21 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         return;
       }
 
-      // Expand the photon in sidebar
-      const methodList = document.getElementById(\`methods-\${route.photon}\`);
-      const header = document.querySelector(\`[data-photon="\${route.photon}"]\`);
-      if (methodList) methodList.classList.add('expanded');
-      if (header) header.classList.add('expanded');
+      // App photons use openApp
+      if (photon.isApp) {
+        openApp(route.photon);
+        return;
+      }
 
+      // Workspace-centric: select the photon to show photon view
+      selectPhoton(route.photon);
+
+      // If method specified, select it in the photon view
       if (route.method) {
         const method = photon.methods?.find(m => m.name === route.method);
         if (method) {
-          // Select the method
-          selectMethodByName(route.photon, route.method);
+          // Small delay to ensure photon view is rendered
+          setTimeout(() => selectMethodInView(route.method), 50);
         }
       }
     }
@@ -6098,51 +6430,22 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             </div>
         \`;
 
-        // Tool photons (expandable)
+        // Tool photons (flat list - workspace-centric design)
         html += tools.map(photon => {
           const templateIndicator = photon.templatePath
             ? '<span class="template-indicator" title="Has custom UI template">UI</span>'
             : '';
 
-          const templateMethod = photon.templatePath
-            ? \`<div class="method-item template-method" onclick="loadPhotonTemplate('\${photon.name}')">
-                <span class="method-icon">🎨</span>
-                <span class="method-name">Open Custom UI</span>
-              </div>\`
-            : '';
-
-          // Separate test methods from regular methods
+          // Count regular methods and tests for badge
           const regularMethods = photon.methods.filter(m => !m.name.startsWith('test'));
           const testMethods = photon.methods.filter(m => m.name.startsWith('test'));
 
-          const testsSection = testMethods.length > 0 ? \`
-            <div class="tests-section">
-              <div class="tests-header" onclick="event.stopPropagation()">
-                <span class="tests-label">Tests</span>
-                <button class="run-tests-btn" onclick="runPhotonTests('\${photon.name}')" title="Run all tests">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                  </svg>
-                  Run All
-                </button>
-              </div>
-              <div class="test-methods" id="tests-\${photon.name}">
-                \${renderTestItems(photon.name, testMethods)}
-              </div>
-            </div>
-          \` : '';
-
           return \`
-            <div class="photon-item">
-              <div class="photon-header" data-photon="\${photon.name}" onclick="togglePhoton('\${photon.name}')">
+            <div class="photon-item flat">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="selectPhoton('\${photon.name}')">
                 <span class="photon-name">\${photon.name}</span>
                 \${templateIndicator}
                 <span class="method-count">\${regularMethods.length}\${testMethods.length > 0 ? ' · ' + testMethods.length + ' tests' : ''}</span>
-              </div>
-              <div class="method-list" id="methods-\${photon.name}">
-                \${templateMethod}
-                \${regularMethods.map(method => renderMethodItem(photon.name, method, false)).join('')}
-                \${testsSection}
               </div>
             </div>
           \`;
@@ -6932,12 +7235,330 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
     }
 
+    // Toggle photon expansion (legacy - now redirects to selectPhoton)
     function togglePhoton(photonName) {
-      const header = event.currentTarget;
-      const methodList = document.getElementById(\`methods-\${photonName}\`);
-      header.classList.toggle('expanded');
-      methodList.classList.toggle('expanded');
+      selectPhoton(photonName);
     }
+
+    // ========== Workspace-Centric Photon View Functions ==========
+
+    // Select a photon and show the photon view
+    function selectPhoton(photonName) {
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon) return;
+
+      // If unconfigured, show config view instead
+      if (!photon.configured) {
+        selectUnconfigured(photonName);
+        return;
+      }
+
+      // If it's an app photon, redirect to openApp
+      if (photon.isApp) {
+        openApp(photonName);
+        return;
+      }
+
+      currentPhoton = photon;
+      currentMethod = null;
+
+      // Update sidebar selection
+      document.querySelectorAll('.photon-header, .app-item').forEach(el => el.classList.remove('selected'));
+      const header = document.querySelector(\`[data-photon="\${photonName}"]\`);
+      if (header) header.classList.add('selected');
+
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        toggleSidebar(false);
+      }
+
+      // Hide all views, show photon view
+      hideAllViews();
+      document.getElementById('photon-view').style.display = 'flex';
+
+      // Render the photon view
+      renderPhotonView();
+      updateHash(photonName, null);
+    }
+    window.selectPhoton = selectPhoton;
+
+    // Hide all main content views
+    function hideAllViews() {
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('method-view').style.display = 'none';
+      document.getElementById('config-view').style.display = 'none';
+      document.getElementById('marketplace-view').style.display = 'none';
+      document.getElementById('photon-view').style.display = 'none';
+    }
+
+    // Render the photon view with method cards
+    function renderPhotonView() {
+      if (!currentPhoton) return;
+
+      // Update header
+      document.getElementById('pv-name').textContent = currentPhoton.name;
+      document.getElementById('pv-desc').textContent = currentPhoton.description || 'No description available';
+      document.getElementById('pv-icon').textContent = currentPhoton.appEntry?.icon || '⚡';
+
+      // Separate methods and tests
+      const methods = currentPhoton.methods.filter(m => !m.name.startsWith('test'));
+      const tests = currentPhoton.methods.filter(m => m.name.startsWith('test'));
+
+      // Render method cards
+      const methodsGrid = document.getElementById('pv-methods-grid');
+      methodsGrid.innerHTML = methods.map(method => \`
+        <div class="method-card" data-method="\${method.name}" onclick="selectMethodInView('\${method.name}')">
+          <div class="mc-header">
+            <span class="mc-icon">\${method.icon || '⚙️'}</span>
+            <span class="mc-name">\${method.name}</span>
+          </div>
+          <div class="mc-desc">\${method.description || ''}</div>
+          <div class="mc-badges">
+            \${method.autorun ? '<span class="mc-badge autorun">Auto</span>' : ''}
+            \${method.outputFormat ? \`<span class="mc-badge">\${method.outputFormat}</span>\` : ''}
+          </div>
+        </div>
+      \`).join('');
+
+      // Render tests section
+      const testsSection = document.getElementById('pv-tests-section');
+      if (tests.length > 0) {
+        testsSection.style.display = 'block';
+        const testsGrid = document.getElementById('pv-tests-grid');
+        testsGrid.innerHTML = tests.map(test => \`
+          <div class="method-card" data-method="\${test.name}" onclick="selectMethodInView('\${test.name}')">
+            <div class="mc-header">
+              <span class="mc-icon">🧪</span>
+              <span class="mc-name">\${test.name.replace(/^test/, '')}</span>
+            </div>
+            <div class="mc-desc">\${test.description || ''}</div>
+          </div>
+        \`).join('');
+
+        // Wire up run all tests button
+        document.getElementById('pv-run-tests-btn').onclick = () => runPhotonTestsInView();
+      } else {
+        testsSection.style.display = 'none';
+      }
+
+      // Hide method panel initially
+      document.getElementById('pv-method-panel').style.display = 'none';
+      document.getElementById('pv-result-container').classList.remove('visible');
+    }
+
+    // Select a method from the method cards grid
+    function selectMethodInView(methodName) {
+      if (!currentPhoton) return;
+
+      currentMethod = currentPhoton.methods.find(m => m.name === methodName);
+      if (!currentMethod) return;
+
+      // Update card selection
+      document.querySelectorAll('.method-card').forEach(el => el.classList.remove('selected'));
+      const card = document.querySelector(\`.method-card[data-method="\${methodName}"]\`);
+      if (card) card.classList.add('selected');
+
+      // Track in recent history
+      addToRecent(currentPhoton.name, methodName);
+
+      // Update URL hash
+      updateHash(currentPhoton.name, methodName);
+
+      // Show method panel
+      const panel = document.getElementById('pv-method-panel');
+      panel.style.display = 'block';
+      document.getElementById('pv-method-name').textContent = \`\${currentPhoton.name}.\${methodName}()\`;
+
+      // Render form in the photon view's method panel
+      renderFormInPhotonView();
+
+      // Scroll to method panel
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    window.selectMethodInView = selectMethodInView;
+
+    // Render form in the photon view method panel
+    function renderFormInPhotonView() {
+      const form = document.getElementById('pv-invoke-form');
+      const params = currentMethod.params;
+
+      let properties = params.properties || {};
+      let required = params.required || [];
+
+      if (params.anyOf && Array.isArray(params.anyOf)) {
+        const objectOption = params.anyOf.find(opt => opt.type === 'object' && opt.properties);
+        if (objectOption) {
+          properties = objectOption.properties || {};
+          required = objectOption.required || [];
+        }
+      }
+
+      let html = '';
+
+      for (const [key, schema] of Object.entries(properties)) {
+        if (schema.hidden === true) continue;
+
+        const hasDefault = schema.default !== undefined;
+        const isRequired = required.includes(key) && !hasDefault;
+        const description = schema.description || '';
+        const cleanDesc = description.replace(/\\s*\\(default:.*?\\)/gi, '').trim();
+        const fieldLabel = schema.title || formatLabel(key);
+        const hintText = schema.hint || cleanDesc;
+
+        html += \`
+          <div class="form-group">
+            <label>
+              \${fieldLabel}
+              \${isRequired ? '<span class="required">*</span>' : ''}
+              \${hintText ? \`<span class="hint">\${hintText}</span>\` : ''}
+            </label>
+            \${renderInput(key, schema, isRequired)}
+          </div>
+        \`;
+      }
+
+      // Check if should auto-execute
+      const hasRequiredFields = Object.entries(properties).some(([key, schema]) => {
+        const hasDefault = schema.default !== undefined;
+        return required.includes(key) && !hasDefault;
+      });
+      const noParams = Object.keys(properties).length === 0;
+      const willAutoExecute = noParams || (!hasRequiredFields && currentMethod.autorun);
+
+      if (!willAutoExecute) {
+        const buttonLabel = currentMethod.buttonLabel || formatLabel(currentMethod.name);
+        html += \`<button type="submit" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>\${buttonLabel}</span></button>\`;
+      }
+
+      form.innerHTML = html;
+      form.onsubmit = handlePhotonViewSubmit;
+
+      // Auto-execute if applicable
+      if (willAutoExecute) {
+        handlePhotonViewSubmit({ preventDefault: () => {} });
+      }
+    }
+
+    // Handle form submit in photon view
+    function handlePhotonViewSubmit(e) {
+      e.preventDefault();
+
+      const form = document.getElementById('pv-invoke-form');
+      const formData = new FormData(form);
+      const args = {};
+
+      for (const [key, value] of formData.entries()) {
+        const input = form.querySelector(\`[name="\${key}"]\`);
+        const schema = currentMethod.params.properties?.[key] || {};
+
+        if (value === '' && schema.default !== undefined) {
+          continue; // Let server use default
+        }
+
+        if (input?.type === 'checkbox') {
+          args[key] = input.checked;
+        } else if (schema.type === 'number' || schema.type === 'integer') {
+          args[key] = value !== '' ? Number(value) : undefined;
+        } else if (schema.type === 'boolean') {
+          args[key] = value === 'true';
+        } else if (schema.type === 'array') {
+          try {
+            args[key] = JSON.parse(value);
+          } catch {
+            args[key] = value.split(',').map(s => s.trim()).filter(Boolean);
+          }
+        } else if (schema.type === 'object') {
+          try {
+            args[key] = JSON.parse(value);
+          } catch {
+            args[key] = value;
+          }
+        } else {
+          if (value !== '') args[key] = value;
+        }
+      }
+
+      lastInvocationArgs = args;
+      document.getElementById('pv-result-container').classList.add('visible');
+      showProgress(\`Running \${currentMethod.name}...\`);
+      addActivity('invoke', \`\${currentPhoton.name}.\${currentMethod.name}(\${Object.keys(args).length ? '...' : ''})\`);
+
+      ws.send(JSON.stringify({
+        type: 'invoke',
+        photon: currentPhoton.name,
+        method: currentMethod.name,
+        args
+      }));
+    }
+
+    // Close the method panel in photon view
+    function closeMethodPanel() {
+      document.getElementById('pv-method-panel').style.display = 'none';
+      document.getElementById('pv-result-container').classList.remove('visible');
+      document.querySelectorAll('.method-card').forEach(el => el.classList.remove('selected'));
+      currentMethod = null;
+      updateHash(currentPhoton?.name, null);
+    }
+    window.closeMethodPanel = closeMethodPanel;
+
+    // Toggle photon settings menu in photon view
+    function togglePhotonSettings(event) {
+      event.stopPropagation();
+      const menu = document.getElementById('pv-settings-menu');
+      menu.classList.toggle('visible');
+
+      // Close when clicking outside
+      if (menu.classList.contains('visible')) {
+        setTimeout(() => {
+          const closeMenu = (e) => {
+            if (!menu.contains(e.target)) {
+              menu.classList.remove('visible');
+              document.removeEventListener('click', closeMenu);
+            }
+          };
+          document.addEventListener('click', closeMenu);
+        }, 0);
+      }
+    }
+    window.togglePhotonSettings = togglePhotonSettings;
+
+    // Run all tests in photon view
+    async function runPhotonTestsInView() {
+      if (!currentPhoton) return;
+
+      const tests = currentPhoton.methods.filter(m => m.name.startsWith('test'));
+      const grid = document.getElementById('pv-tests-grid');
+
+      for (const test of tests) {
+        const card = grid.querySelector(\`[data-method="\${test.name}"]\`);
+        if (card) {
+          card.querySelector('.mc-icon').textContent = '⏳';
+        }
+
+        try {
+          const response = await fetch('/api/invoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              photon: currentPhoton.name,
+              method: test.name,
+              args: {}
+            })
+          });
+
+          const result = await response.json();
+          if (card) {
+            card.querySelector('.mc-icon').textContent = result.success ? '✅' : '❌';
+          }
+        } catch (err) {
+          if (card) {
+            card.querySelector('.mc-icon').textContent = '❌';
+          }
+        }
+      }
+    }
+
+    // ========== End Workspace-Centric Functions ==========
 
     // Load and render a custom UI template for a photon with @ui annotation
     async function loadPhotonTemplate(photonName) {
@@ -7169,14 +7790,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     function selectMethod(photonName, methodName, e) {
-      currentPhoton = photons.find(p => p.name === photonName);
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon) return;
 
       // If this is an app's main method, use openApp instead
-      if (currentPhoton?.isApp && methodName === 'main') {
+      if (photon.isApp && methodName === 'main') {
         openApp(photonName);
         return;
       }
 
+      // For tool photons, use workspace-centric approach:
+      // 1. Select the photon (shows photon view with method cards)
+      // 2. Then select the method (shows method panel in photon view)
+      if (!photon.isApp) {
+        selectPhoton(photonName);
+        // Small delay to ensure photon view is rendered
+        setTimeout(() => selectMethodInView(methodName), 50);
+        return;
+      }
+
+      // For apps with non-main methods, use method-view directly
+      currentPhoton = photon;
       currentMethod = currentPhoton.methods.find(m => m.name === methodName);
 
       // Track in recent history
@@ -7189,7 +7823,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.querySelectorAll('.method-item, .app-item').forEach(el => {
         el.classList.remove('selected');
       });
-      e.target.classList.add('selected');
+      if (e?.target) e.target.classList.add('selected');
 
       // Close sidebar on mobile
       if (window.innerWidth <= 768) {
@@ -7862,8 +8496,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       resetFilter(); // Clear filter when new result arrives
       addActivity('result', \`\${invokedPhoton || currentPhoton?.name}.\${invokedMethod || currentMethod?.name}() completed\`);
 
-      const container = document.getElementById('result-container');
-      const content = document.getElementById('result-content');
+      // Detect if we're in photon view mode and use appropriate containers
+      const isPhotonViewMode = document.getElementById('photon-view')?.style.display === 'flex';
+      const container = isPhotonViewMode
+        ? document.getElementById('pv-result-container')
+        : document.getElementById('result-container');
+      const content = isPhotonViewMode
+        ? document.getElementById('pv-result-content')
+        : document.getElementById('result-content');
 
       container.classList.add('visible');
 
