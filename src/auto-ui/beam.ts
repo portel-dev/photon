@@ -1105,7 +1105,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         const message: ClientMessage = JSON.parse(data.toString());
 
         if (message.type === 'invoke') {
-          await handleInvoke(ws, message, photonMCPs, loader);
+          await handleInvoke(ws, message, photonMCPs, loader, broadcast);
         } else if (message.type === 'configure') {
           await handleConfigure(ws, message, photons, photonMCPs, loader, savedConfig);
         } else if (message.type === 'elicitation_response') {
@@ -1377,7 +1377,8 @@ async function handleInvoke(
   ws: WebSocket,
   request: InvokeRequest,
   photonMCPs: Map<string, any>,
-  loader: PhotonLoader
+  loader: PhotonLoader,
+  broadcast?: (message: object) => void
 ): Promise<void> {
   const { photon, method, args, invocationId } = request;
 
@@ -1412,6 +1413,16 @@ async function handleInvoke(
           data: yieldValue,
         })
       );
+
+      // Broadcast board-update events to all clients (for real-time UI updates)
+      const yv = yieldValue as any;
+      if (broadcast && yv.emit === 'board-update') {
+        broadcast({
+          type: 'board-update',
+          photon,
+          board: yv.board,
+        });
+      }
     };
 
     // Create input provider for web-based elicitation (ask yields)
@@ -5346,6 +5357,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               renderPhotonList();
               addActivity('install', \`\${message.name} installed from marketplace\`);
             });
+          break;
+        case 'board-update':
+          // Forward board-update to any active custom UI iframes
+          document.querySelectorAll('iframe').forEach(iframe => {
+            try {
+              iframe.contentWindow?.postMessage({
+                type: 'photon:board-update',
+                photon: message.photon,
+                board: message.board,
+              }, '*');
+            } catch (e) {
+              // Ignore cross-origin errors
+            }
+          });
           break;
       }
     }
