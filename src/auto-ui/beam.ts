@@ -2963,7 +2963,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       height: 100%;
     }
 
-    #method-view.app-mode .html-content-iframe {
+    #method-view.app-mode .html-content-iframe,
+    #method-view.app-mode .custom-ui-iframe,
+    #method-view.app-mode iframe {
       height: calc(100vh - 40px) !important;
       min-height: calc(100vh - 40px) !important;
       border-radius: 0 !important;
