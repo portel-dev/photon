@@ -8512,11 +8512,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const format = message.outputFormat ?? currentMethod?.outputFormat;
       const layoutHints = message.layoutHints ?? currentMethod?.layoutHints;
 
+      // Helper to safely update data tab (photon view doesn't have data tab)
+      const updateDataTab = (html) => {
+        const dataContent = document.getElementById('data-content');
+        if (dataContent) dataContent.innerHTML = html;
+      };
+
       // Check for custom UI template (highest priority) - only if method matches currentMethod
       if (!invokedMethod || invokedMethod === currentMethod?.name) {
         if (currentMethod?.linkedUi && currentPhoton?.name) {
           renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
-          document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
+          updateDataTab(syntaxHighlightJson(data));
           return;
         }
       }
@@ -8543,21 +8549,21 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Handle mermaid diagrams (special async rendering)
       if (format === 'mermaid' && typeof data === 'string') {
         renderMermaid(content, data);
-        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
+        updateDataTab(syntaxHighlightJson(data));
         return;
       }
 
       // Check if object has a 'diagram' field with mermaid content
       if (data && data.diagram && typeof data.diagram === 'string') {
         renderMermaid(content, data.diagram);
-        document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
+        updateDataTab(syntaxHighlightJson(data));
         return;
       }
 
       // Handle HTML format - render in sandboxed iframe with MCP-style postMessage bridge
       if (format === 'html' && typeof data === 'string') {
         renderHtmlContent(content, data, invokedPhoton || currentPhoton?.name, lastInvocationArgs, null);
-        document.getElementById('data-content').innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(data)}</pre>\`;
+        updateDataTab(\`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(data)}</pre>\`);
         return;
       }
 
@@ -8576,7 +8582,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       }
 
       // Update data tab
-      document.getElementById('data-content').innerHTML = syntaxHighlightJson(data);
+      updateDataTab(syntaxHighlightJson(data));
     }
 
     async function renderMermaid(container, diagram) {
