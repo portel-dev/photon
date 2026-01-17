@@ -2015,36 +2015,6 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       color: var(--text-muted);
     }
 
-    .search-box {
-      padding: 12px 16px 16px;
-    }
-
-    .search-input {
-      width: 100%;
-      padding: 10px 14px;
-      padding-left: 38px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      color: var(--text-primary);
-      font-size: 14px;
-      font-family: inherit;
-      transition: var(--transition);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: 12px center;
-    }
-
-    .search-input:focus {
-      outline: none;
-      border-color: var(--accent);
-      background-color: var(--bg-elevated);
-    }
-
-    .search-input::placeholder {
-      color: var(--text-muted);
-    }
-
     .photon-list {
       flex: 1;
       overflow-y: auto;
@@ -5005,6 +4975,57 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       max-width: 300px;
     }
 
+    /* Home search bar */
+    .home-search-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      margin-bottom: 32px;
+    }
+
+    .home-search-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .home-search-input {
+      width: 100%;
+      padding: 16px 80px 16px 48px;
+      font-size: 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      outline: none;
+      transition: all 0.15s ease;
+    }
+
+    .home-search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .home-search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .home-search-hint {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      color: var(--text-muted);
+      background: var(--bg-tertiary);
+      padding: 4px 8px;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
     /* Mobile styles */
     @media (max-width: 768px) {
       .mobile-menu-btn {
@@ -5143,15 +5164,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         </div>
         <p class="subtitle" id="photon-count">Loading...</p>
       </div>
-      <div class="search-box">
-        <input type="text" class="search-input" id="search-input" placeholder="Search methods...">
-      </div>
       <div class="photon-list" id="photon-list"></div>
     </div>
 
     <div class="main-content">
       <div id="empty-state" class="empty-state">
-        <div class="empty-icon">⚡</div>
+        <div class="home-search-container">
+          <svg class="home-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" class="home-search-input" id="search-input" placeholder="Search photons and methods...">
+          <span class="home-search-hint">/ or ⌘K</span>
+        </div>
         <h3 id="empty-state-title">Select a method to begin</h3>
         <p id="empty-state-subtitle">Choose a photon and method from the sidebar to get started</p>
         <div id="empty-state-content"></div>
