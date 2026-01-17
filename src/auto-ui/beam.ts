@@ -2015,7 +2015,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .search-box {
-      padding: 0 16px 16px;
+      padding: 12px 16px 16px;
     }
 
     .search-input {
@@ -3702,8 +3702,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .activity-panel {
       position: fixed;
       bottom: 0;
+      left: 280px;
       right: 0;
-      width: calc(100% - 280px);
       max-height: 300px;
       background: var(--bg-elevated);
       border-top: 1px solid var(--border-color);
@@ -3832,7 +3832,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     @media (max-width: 768px) {
       .activity-panel {
-        width: 100%;
+        left: 0;
       }
     }
 
