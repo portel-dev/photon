@@ -2931,34 +2931,41 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     /* App mode - fullscreen UI without tabs */
     #method-view.app-mode .tabs,
     #method-view.app-mode #invoke-form,
-    #method-view.app-mode .result-header {
+    #method-view.app-mode .result-header,
+    #method-view.app-mode .method-header {
       display: none !important;
     }
 
     #method-view.app-mode .tab-content {
       padding: 0;
+      height: 100%;
+      flex: 1;
     }
 
     #method-view.app-mode .tab-panel {
       max-width: none;
+      height: 100%;
     }
 
     #method-view.app-mode .result-container {
       margin-top: 0;
       display: block !important;
+      height: 100%;
     }
 
     #method-view.app-mode .result-content {
       padding: 0;
+      height: 100%;
     }
 
     #method-view.app-mode .widget-container {
       border-radius: 0;
+      height: 100%;
     }
 
     #method-view.app-mode .html-content-iframe {
-      height: calc(100vh - 120px) !important;
-      min-height: calc(100vh - 120px) !important;
+      height: calc(100vh - 40px) !important;
+      min-height: calc(100vh - 40px) !important;
       border-radius: 0 !important;
     }
 
