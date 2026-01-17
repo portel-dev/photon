@@ -241,6 +241,12 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
       }
+      else if (m.type === 'photon:theme-change') {
+        // Theme change from BEAM
+        ctx.theme = m.theme || 'dark';
+        applyThemeClass();
+        listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
+      }
       else if (m.type === 'photon:call-tool-response') {
         var pending = pendingCalls[m.callId];
         if (pending) {
@@ -287,8 +293,14 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
   }
 
   function applyThemeClass() {
-    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.remove('light', 'dark', 'light-theme');
     document.documentElement.classList.add(ctx.theme);
+    if (ctx.theme === 'light') {
+      document.documentElement.classList.add('light-theme');
+      document.documentElement.style.colorScheme = 'light';
+    } else {
+      document.documentElement.style.colorScheme = 'dark';
+    }
     document.documentElement.setAttribute('data-theme', ctx.theme);
   }
 

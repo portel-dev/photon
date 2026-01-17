@@ -8491,10 +8491,28 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const bridgeResponse = await fetch(\`/api/platform-bridge?theme=\${currentTheme}&photon=\${encodeURIComponent(photonName)}&method=\${encodeURIComponent(uiId)}\`);
         const platformBridge = bridgeResponse.ok ? await bridgeResponse.text() : '';
 
+        // Theme CSS for light mode - overrides common app CSS variables
+        const themeStyles = \`
+<style id="photon-theme-css">
+  :root.light-theme, html.light-theme, :root.light, html.light {
+    --bg: #f0f0f3 !important;
+    --card: #fafafa !important;
+    --border: #e4e4e7 !important;
+    --text: #18181b !important;
+    --muted: #71717a !important;
+    color-scheme: light;
+  }
+  html.light-theme body, html.light body {
+    background: var(--bg) !important;
+    color: var(--text) !important;
+  }
+</style>
+\`;
+
         // Inject the data and platform bridge into the template
         // The template expects window.__PHOTON_DATA__ to be set
         const dataScript = '<scr' + 'ipt>window.__PHOTON_DATA__ = ' + JSON.stringify(data) + ';<\/scr' + 'ipt>';
-        const modifiedTemplate = template.replace('</head>', platformBridge + dataScript + '</head>');
+        const modifiedTemplate = template.replace('</head>', themeStyles + platformBridge + dataScript + '</head>');
 
         // Create a blob URL for the iframe
         const blob = new Blob([modifiedTemplate], { type: 'text/html' });
