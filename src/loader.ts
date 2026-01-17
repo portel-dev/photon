@@ -1703,7 +1703,11 @@ Run: photon mcp ${mcpName} --config
       }
 
       // Plain class - call method directly with implicit stateful support
-      const method = mcp.instance[toolName];
+      // Check instance first, then prototype (handles property/method name collisions)
+      let method = mcp.instance[toolName];
+      if (typeof method !== 'function') {
+        method = Object.getPrototypeOf(mcp.instance)?.[toolName];
+      }
 
       if (!method || typeof method !== 'function') {
         throw new Error(`Tool not found: ${toolName}`);

@@ -1426,7 +1426,13 @@ async function handleInvoke(
   }
 
   const instance = mcp.instance;
-  if (typeof instance[method] !== 'function') {
+
+  // Check if method exists - look on instance first, then prototype (handles property/method name collisions)
+  const methodFn = typeof instance[method] === 'function'
+    ? instance[method]
+    : Object.getPrototypeOf(instance)?.[method];
+
+  if (typeof methodFn !== 'function') {
     // Get available methods from schema for helpful error
     const schemas = (mcp as any).schemas || [];
     const availableMethods = schemas.map((s: any) => s.name).filter((n: string) =>
@@ -1435,10 +1441,17 @@ async function handleInvoke(
     const suggestion = availableMethods.length > 0
       ? ` Available methods: ${availableMethods.join(', ')}`
       : '';
+
+    // Check if there's a property with the same name (naming collision)
+    const hasPropertyCollision = method in instance && typeof instance[method] !== 'function';
+    const collisionHint = hasPropertyCollision
+      ? ` Note: "${method}" exists as a property, not a method. Check for naming collision.`
+      : '';
+
     ws.send(
       JSON.stringify({
         type: 'error',
-        message: `Method not found: ${method}.${suggestion}`,
+        message: `Method not found: ${method}.${suggestion}${collisionHint}`,
       })
     );
     return;
