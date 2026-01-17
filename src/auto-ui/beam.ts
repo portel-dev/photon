@@ -7978,6 +7978,29 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     // Render HTML content in a sandboxed iframe with MCP-style postMessage bridge
     // Enhanced to match ChatGPT Apps SDK window.openai API
     function renderHtmlContent(container, htmlContent, photonName, toolInput, toolOutput) {
+      // Theme CSS injected into iframe - provides light theme overrides for common variable names
+      const themeStyles = \`
+<style id="photon-theme-css">
+  /* Light theme overrides for common app CSS variables */
+  :root.light-theme,
+  html.light-theme,
+  :root.light,
+  html.light {
+    --bg: #f0f0f3 !important;
+    --card: #fafafa !important;
+    --border: #e4e4e7 !important;
+    --text: #18181b !important;
+    --muted: #71717a !important;
+    color-scheme: light;
+  }
+  html.light-theme body,
+  html.light body {
+    background: var(--bg) !important;
+    color: var(--text) !important;
+  }
+</style>
+\`;
+
       // Bridge script injected into the iframe
       // Provides window.mcp API matching ChatGPT's window.openai
       const bridgeScript = \`
@@ -8188,6 +8211,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       _theme = event.data.theme || 'dark';
       _widgetId = event.data.widgetId || _widgetId;
 
+      // Apply initial theme to document
+      if (_theme === 'light') {
+        document.documentElement.classList.add('light-theme', 'light');
+        document.documentElement.style.colorScheme = 'light';
+      } else {
+        document.documentElement.classList.remove('light-theme', 'light');
+        document.documentElement.style.colorScheme = 'dark';
+      }
+
       // Dispatch custom event for widgets to react
       window.dispatchEvent(new CustomEvent('mcp:initialized', { detail: window.mcp }));
     }
@@ -8198,9 +8230,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       window.dispatchEvent(new CustomEvent('mcp:display_mode_changed', { detail: { mode: _displayMode } }));
     }
 
-    // Theme changed
-    if (event.data.type === 'mcp:theme_changed') {
+    // Theme changed (mcp:theme_changed for legacy, photon:theme-change from BEAM)
+    if (event.data.type === 'mcp:theme_changed' || event.data.type === 'photon:theme-change') {
       _theme = event.data.theme;
+      // Apply theme to document
+      if (_theme === 'light') {
+        document.documentElement.classList.add('light-theme', 'light');
+        document.documentElement.style.colorScheme = 'light';
+      } else {
+        document.documentElement.classList.remove('light-theme', 'light');
+        document.documentElement.style.colorScheme = 'dark';
+      }
       window.dispatchEvent(new CustomEvent('mcp:theme_changed', { detail: { theme: _theme } }));
     }
   });
@@ -8234,18 +8274,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const hasHtmlTag = htmlContent.includes('<html') || htmlContent.includes('<!DOCTYPE');
 
       if (hasHtmlTag) {
-        // Full HTML document - inject bridge into head
+        // Full HTML document - inject theme styles and bridge into head
         if (htmlContent.includes('</head>')) {
-          modifiedHtml = htmlContent.replace('</head>', bridgeScript + '</head>');
+          modifiedHtml = htmlContent.replace('</head>', themeStyles + bridgeScript + '</head>');
         } else if (htmlContent.includes('<body')) {
-          modifiedHtml = htmlContent.replace('<body', bridgeScript + '<body');
+          modifiedHtml = htmlContent.replace('<body', themeStyles + bridgeScript + '<body');
         }
       } else {
-        // HTML fragment - wrap in full document with bridge
+        // HTML fragment - wrap in full document with theme styles and bridge
         modifiedHtml = \`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
+  \${themeStyles}
   \${bridgeScript}
 </head>
 <body>
