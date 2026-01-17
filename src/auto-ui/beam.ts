@@ -1427,10 +1427,18 @@ async function handleInvoke(
 
   const instance = mcp.instance;
   if (typeof instance[method] !== 'function') {
+    // Get available methods from schema for helpful error
+    const schemas = (mcp as any).schemas || [];
+    const availableMethods = schemas.map((s: any) => s.name).filter((n: string) =>
+      !['onInitialize', 'onShutdown', 'constructor'].includes(n)
+    );
+    const suggestion = availableMethods.length > 0
+      ? ` Available methods: ${availableMethods.join(', ')}`
+      : '';
     ws.send(
       JSON.stringify({
         type: 'error',
-        message: `Method not found: ${method}`,
+        message: `Method not found: ${method}.${suggestion}`,
       })
     );
     return;
@@ -1795,6 +1803,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       --bg-secondary: #161616;
       --bg-tertiary: #1c1c1c;
       --bg-elevated: #222222;
+      --bg-hover: #2a2a2a;
       --border-color: #2a2a2a;
       --border-light: #333;
       --text-primary: #f5f5f5;
@@ -1813,6 +1822,51 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
       --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
       --transition: 0.15s ease;
+    }
+
+    /* Light theme - applied to :root for proper variable inheritance */
+    /* Uses both .light-theme (BEAM) and .light (Design System) for compatibility */
+    :root.light-theme,
+    html.light-theme,
+    :root.light,
+    html.light {
+      --bg-primary: #f4f4f5;
+      --bg-secondary: #fafafa;
+      --bg-tertiary: #e4e4e7;
+      --bg-elevated: #ffffff;
+      --bg-hover: #ececef;
+      --border-color: #d4d4d8;
+      --border-light: #e4e4e7;
+      --text-primary: #18181b;
+      --text-secondary: #52525b;
+      --text-muted: #a1a1aa;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+      --shadow-lg: 0 12px 32px rgba(0,0,0,0.08);
+      color-scheme: light;
+
+      /* Design System color tokens for light theme */
+      --color-surface: #ffffff;
+      --color-surface-container: #f4f4f5;
+      --color-surface-container-high: #e4e4e7;
+      --color-surface-container-highest: #d4d4d8;
+      --color-on-surface: #18181b;
+      --color-on-surface-variant: #52525b;
+      --color-on-surface-muted: #a1a1aa;
+      --color-outline: #a1a1aa;
+      --color-outline-variant: #e4e4e7;
+      --color-primary: #3b82f6;
+      --color-primary-container: #dbeafe;
+      --color-on-primary-container: #1e40af;
+      --color-success: #22c55e;
+      --color-success-container: #dcfce7;
+      --color-on-success-container: #166534;
+      --color-error: #ef4444;
+      --color-error-container: #fee2e2;
+      --color-on-error-container: #991b1b;
+      --color-warning: #f59e0b;
+      --color-warning-container: #fef3c7;
+      --color-on-warning-container: #92400e;
     }
 
     * {
@@ -2205,6 +2259,44 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     .modal-body {
       padding: 20px;
+    }
+
+    /* Settings styles */
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+    }
+
+    .theme-toggle-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .theme-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s ease;
+    }
+
+    .theme-btn:hover {
+      border-color: var(--text-muted);
+      color: var(--text-primary);
+    }
+
+    .theme-btn.active {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--accent);
     }
 
     .modal-footer {
@@ -3009,9 +3101,109 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     #method-view.app-mode .html-content-iframe,
     #method-view.app-mode .custom-ui-iframe,
     #method-view.app-mode iframe {
-      height: calc(100vh - 40px) !important;
-      min-height: calc(100vh - 40px) !important;
+      height: calc(100vh - 90px) !important;
+      min-height: calc(100vh - 90px) !important;
       border-radius: 0 !important;
+    }
+
+    /* App header - only visible in app-mode */
+    .app-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    #method-view.app-mode .app-header {
+      display: flex;
+    }
+
+    .app-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .app-header-icon {
+      font-size: 20px;
+    }
+
+    .app-header-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .app-header-right {
+      position: relative;
+    }
+
+    .app-settings-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .app-settings-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .app-settings-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      min-width: 200px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 6px;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .app-settings-menu.visible {
+      display: block;
+    }
+
+    .app-settings-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .app-settings-item:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .app-settings-item .method-icon {
+      font-size: 16px;
+    }
+
+    .app-settings-divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 6px 0;
     }
 
     /* Form styles */
@@ -4690,6 +4882,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
+            <button class="header-add-btn" onclick="toggleBeamSettings()" title="Settings">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
+              </svg>
+            </button>
             <button class="header-add-btn" onclick="showHelp()" title="Help (?)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -4845,6 +5043,23 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             </div>
           </div>
           <p id="method-description"></p>
+        </div>
+
+        <!-- App header - only visible in app-mode -->
+        <div class="app-header" id="app-header">
+          <div class="app-header-left">
+            <span class="app-header-icon" id="app-header-icon">📱</span>
+            <span class="app-header-title" id="app-header-title">App</span>
+          </div>
+          <div class="app-header-right">
+            <button class="app-settings-btn" onclick="toggleAppSettingsMenu(event)" title="App settings">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
+              </svg>
+            </button>
+            <div class="app-settings-menu" id="app-settings-menu"></div>
+          </div>
         </div>
 
         <div class="tabs">
@@ -5051,6 +5266,60 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           <a href="https://docs.anthropic.com/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
             Documentation
           </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Beam Settings Modal -->
+  <div id="beam-settings-modal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="btn btn-secondary" onclick="hideBeamSettings()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div style="padding: 20px;">
+        <div class="settings-section">
+          <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">Appearance</h3>
+
+          <div class="settings-row">
+            <span style="color: var(--text-secondary);">Theme</span>
+            <div class="theme-toggle-group" id="theme-toggle-group">
+              <button class="theme-btn" data-theme="dark" onclick="setBeamTheme('dark')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                </svg>
+                Dark
+              </button>
+              <button class="theme-btn" data-theme="light" onclick="setBeamTheme('light')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="5"></circle>
+                  <line x1="12" y1="1" x2="12" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="23"></line>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                  <line x1="1" y1="12" x2="3" y2="12"></line>
+                  <line x1="21" y1="12" x2="23" y2="12"></line>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+                Light
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" style="margin-top: 24px;">
+          <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 14px; font-weight: 600;">About</h3>
+          <div style="color: var(--text-muted); font-size: 13px;">
+            <p>Photon Beam v1.0</p>
+            <p style="margin-top: 4px;">Interactive control panel for AI-powered tools</p>
+          </div>
         </div>
       </div>
     </div>
@@ -5964,6 +6233,92 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('help-modal').classList.remove('visible');
     }
 
+    // ========== Beam Settings Functions ==========
+    function toggleBeamSettings() {
+      const modal = document.getElementById('beam-settings-modal');
+      if (modal.classList.contains('visible')) {
+        hideBeamSettings();
+      } else {
+        showBeamSettings();
+      }
+    }
+    window.toggleBeamSettings = toggleBeamSettings;
+
+    function showBeamSettings() {
+      document.getElementById('beam-settings-modal').classList.add('visible');
+      updateThemeButtons();
+    }
+    window.showBeamSettings = showBeamSettings;
+
+    function hideBeamSettings() {
+      document.getElementById('beam-settings-modal').classList.remove('visible');
+    }
+    window.hideBeamSettings = hideBeamSettings;
+
+    function setBeamTheme(theme) {
+      const root = document.documentElement;
+      if (theme === 'light') {
+        // Elegant light theme - Linear/Notion/Apple inspired
+        // Layered depth with Zinc scale + warm undertones
+        root.style.setProperty('--bg-primary', '#f4f4f5');        // Zinc-100: Main canvas
+        root.style.setProperty('--bg-secondary', '#fafafa');      // Near-white: Sidebar/cards
+        root.style.setProperty('--bg-tertiary', '#e4e4e7');       // Zinc-200: Inputs, recessed
+        root.style.setProperty('--bg-elevated', '#ffffff');       // Pure white: Floating elements
+        root.style.setProperty('--bg-hover', '#ececef');          // Subtle hover state
+        root.style.setProperty('--border-color', '#d4d4d8');      // Zinc-300: Primary borders
+        root.style.setProperty('--border-light', '#e4e4e7');      // Zinc-200: Soft dividers
+        root.style.setProperty('--text-primary', '#18181b');      // Zinc-900: Headlines
+        root.style.setProperty('--text-secondary', '#52525b');    // Zinc-600: Body text
+        root.style.setProperty('--text-muted', '#a1a1aa');        // Zinc-400: Hints/disabled
+        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.04)');
+        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.06)');
+        root.style.setProperty('--shadow-lg', '0 12px 32px rgba(0,0,0,0.08)');
+        root.style.setProperty('color-scheme', 'light');
+        document.documentElement.classList.add('light-theme', 'light');
+      } else {
+        root.style.setProperty('--bg-primary', '#0f0f0f');
+        root.style.setProperty('--bg-secondary', '#161616');
+        root.style.setProperty('--bg-tertiary', '#1c1c1c');
+        root.style.setProperty('--bg-elevated', '#222222');
+        root.style.setProperty('--bg-hover', '#2a2a2a');
+        root.style.setProperty('--border-color', '#2a2a2a');
+        root.style.setProperty('--border-light', '#333');
+        root.style.setProperty('--text-primary', '#f5f5f5');
+        root.style.setProperty('--text-secondary', '#a0a0a0');
+        root.style.setProperty('--text-muted', '#666');
+        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.3)');
+        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.4)');
+        root.style.setProperty('--shadow-lg', '0 8px 24px rgba(0,0,0,0.5)');
+        root.style.setProperty('color-scheme', 'dark');
+        document.documentElement.classList.remove('light-theme', 'light');
+      }
+      localStorage.setItem('beam-theme', theme);
+      updateThemeButtons();
+
+      // Broadcast theme change to all iframes (apps)
+      document.querySelectorAll('iframe').forEach(iframe => {
+        try {
+          iframe.contentWindow.postMessage({ type: 'photon:theme-change', theme }, '*');
+        } catch (e) {}
+      });
+    }
+    window.setBeamTheme = setBeamTheme;
+
+    function updateThemeButtons() {
+      const currentTheme = localStorage.getItem('beam-theme') || 'dark';
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === currentTheme);
+      });
+    }
+
+    // Apply saved theme on load
+    (function initTheme() {
+      const savedTheme = localStorage.getItem('beam-theme');
+      if (savedTheme) {
+        setBeamTheme(savedTheme);
+      }
+    })();
+
     // ========== Marketplace Functions ==========
     let marketplacePhotons = [];
     let marketplaceSources = [];
@@ -6669,6 +7024,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('method-title').textContent = photonName;
       document.getElementById('method-description').textContent = currentMethod.description || 'interact with this board - humans through the UI, AI through MCP methods.';
 
+      // Update app header
+      document.getElementById('app-header-icon').textContent = currentMethod.icon || '📱';
+      document.getElementById('app-header-title').textContent = photonName;
+      populateAppSettingsMenu(photon);
+
       // Auto-execute the app's main method
       document.getElementById('result-container').classList.add('visible');
       showProgress('Loading app...');
@@ -6706,7 +7066,92 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       if (!e.target.closest('.app-menu-btn') && !e.target.closest('.app-menu')) {
         closeAllAppMenus();
       }
+      if (!e.target.closest('.app-settings-btn') && !e.target.closest('.app-settings-menu')) {
+        closeAppSettingsMenu();
+      }
     });
+
+    // Toggle app settings menu (gear icon in app header)
+    function toggleAppSettingsMenu(event) {
+      event.stopPropagation();
+      const menu = document.getElementById('app-settings-menu');
+      menu.classList.toggle('visible');
+    }
+    window.toggleAppSettingsMenu = toggleAppSettingsMenu;
+
+    function closeAppSettingsMenu() {
+      document.getElementById('app-settings-menu')?.classList.remove('visible');
+    }
+
+    // Populate app settings menu with configuration methods only
+    function populateAppSettingsMenu(photon) {
+      const menu = document.getElementById('app-settings-menu');
+      const settingsBtn = document.querySelector('.app-settings-btn');
+
+      // Filter to only configuration-related methods
+      // Match: set*, *Config, *Settings, or add/remove + Service/Repo/Name
+      const isConfigMethod = (name) => {
+        const lower = name.toLowerCase();
+        // Starts with set/configure
+        if (lower.startsWith('set') || lower.startsWith('configure')) return true;
+        // Contains config/settings/preference
+        if (lower.includes('config') || lower.includes('settings') || lower.includes('preference')) return true;
+        // add/remove + service/repo (but not task/column/comment)
+        if ((lower.startsWith('add') || lower.startsWith('remove')) &&
+            (lower.includes('service') || lower.includes('repo') || lower.includes('github'))) return true;
+        // list methods for settings items
+        if (lower.startsWith('list') && (lower.includes('repo') || lower.includes('service'))) return true;
+        return false;
+      };
+
+      const configMethods = photon.methods.filter(m => m.name !== 'main' && isConfigMethod(m.name));
+
+      // Hide settings button if no config methods
+      if (configMethods.length === 0) {
+        if (settingsBtn) settingsBtn.style.display = 'none';
+        return;
+      }
+
+      if (settingsBtn) settingsBtn.style.display = 'flex';
+
+      menu.innerHTML = configMethods.map(method => \`
+        <div class="app-settings-item" onclick="openAppMethod('\${photon.name}', '\${method.name}')">
+          \${method.icon ? \`<span class="method-icon">\${method.icon}</span>\` : '<span class="method-icon">⚡</span>'}
+          <span>\${formatMethodName(method.name)}</span>
+        </div>
+      \`).join('');
+    }
+
+    // Open a method from app settings menu
+    function openAppMethod(photonName, methodName) {
+      closeAppSettingsMenu();
+      const photon = photons.find(p => p.name === photonName);
+      if (!photon) return;
+
+      currentPhoton = photon;
+      currentMethod = photon.methods.find(m => m.name === methodName);
+      if (!currentMethod) return;
+
+      // Exit app mode to show the method form
+      const methodView = document.getElementById('method-view');
+      methodView.classList.remove('app-mode');
+
+      // Update header
+      document.getElementById('method-title').textContent = \`\${photonName}.\${methodName}()\`;
+      document.getElementById('method-description').textContent = currentMethod.description || 'No description available';
+
+      // Render form
+      renderForm();
+    }
+    window.openAppMethod = openAppMethod;
+
+    // Format method name for display (camelCase to Title Case)
+    function formatMethodName(name) {
+      return name
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .trim();
+    }
 
     function selectMethod(photonName, methodName, e) {
       currentPhoton = photons.find(p => p.name === photonName);
@@ -7845,6 +8290,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
           // Send initialization data to widget
           const storedState = widgetStates.get(widgetId) || {};
+          const currentTheme = localStorage.getItem('beam-theme') || 'dark';
           iframe.contentWindow.postMessage({
             type: 'mcp:init',
             widgetId: widgetId,
@@ -7852,7 +8298,13 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             toolOutput: toolOutput,
             widgetState: storedState,
             displayMode: 'inline',
-            theme: 'dark'
+            theme: currentTheme
+          }, '*');
+
+          // Also send theme change message for apps that listen to it
+          iframe.contentWindow.postMessage({
+            type: 'photon:theme-change',
+            theme: currentTheme
           }, '*');
         });
 
@@ -7981,7 +8433,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         const template = await response.text();
 
         // Fetch platform bridge script from server (includes MCP Apps, OpenAI, Claude compat)
-        const bridgeResponse = await fetch(\`/api/platform-bridge?theme=dark&photon=\${encodeURIComponent(photonName)}&method=\${encodeURIComponent(uiId)}\`);
+        const currentTheme = localStorage.getItem('beam-theme') || 'dark';
+        const bridgeResponse = await fetch(\`/api/platform-bridge?theme=\${currentTheme}&photon=\${encodeURIComponent(photonName)}&method=\${encodeURIComponent(uiId)}\`);
         const platformBridge = bridgeResponse.ok ? await bridgeResponse.text() : '';
 
         // Inject the data and platform bridge into the template
@@ -8003,10 +8456,17 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           ></iframe>
         \`;
 
-        // Clean up blob URL after iframe loads
+        // Clean up blob URL after iframe loads and send theme
         const iframe = container.querySelector('iframe');
         iframe.addEventListener('load', () => {
           setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+          // Send current theme to the iframe
+          const currentTheme = localStorage.getItem('beam-theme') || 'dark';
+          iframe.contentWindow.postMessage({
+            type: 'photon:theme-change',
+            theme: currentTheme
+          }, '*');
         });
       } catch (error) {
         console.error('Failed to render custom UI:', error);
@@ -8684,6 +9144,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         else if (document.getElementById('help-modal')?.classList.contains('visible')) {
           hideHelp();
         }
+        // 7c. Close beam settings modal
+        else if (document.getElementById('beam-settings-modal')?.classList.contains('visible')) {
+          hideBeamSettings();
+        }
         // 8. Clear search input
         else if (isInput && target.id === 'search-input') {
           target.value = '';
@@ -8845,46 +9309,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
     // Toggle theme (light/dark)
     function toggleTheme() {
-      const root = document.documentElement;
-      const isDark = root.style.getPropertyValue('--bg-primary') === '#f8f9fa' ? false :
-                     root.classList.contains('light-theme') ? true :
-                     !document.body.classList.contains('light-theme');
-
-      if (isDark) {
-        // Switch to light theme
-        root.style.setProperty('--bg-primary', '#f8f9fa');
-        root.style.setProperty('--bg-secondary', '#ffffff');
-        root.style.setProperty('--bg-tertiary', '#f1f3f4');
-        root.style.setProperty('--bg-elevated', '#ffffff');
-        root.style.setProperty('--border-color', '#e0e0e0');
-        root.style.setProperty('--border-light', '#eee');
-        root.style.setProperty('--text-primary', '#1f1f1f');
-        root.style.setProperty('--text-secondary', '#5f6368');
-        root.style.setProperty('--text-muted', '#9aa0a6');
-        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.1)');
-        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.15)');
-        root.style.setProperty('--shadow-lg', '0 8px 24px rgba(0,0,0,0.2)');
-        root.style.setProperty('color-scheme', 'light');
-        document.body.classList.add('light-theme');
-        showToast('Light theme', 'info');
-      } else {
-        // Switch to dark theme
-        root.style.setProperty('--bg-primary', '#0f0f0f');
-        root.style.setProperty('--bg-secondary', '#161616');
-        root.style.setProperty('--bg-tertiary', '#1c1c1c');
-        root.style.setProperty('--bg-elevated', '#222222');
-        root.style.setProperty('--border-color', '#2a2a2a');
-        root.style.setProperty('--border-light', '#333');
-        root.style.setProperty('--text-primary', '#f5f5f5');
-        root.style.setProperty('--text-secondary', '#a0a0a0');
-        root.style.setProperty('--text-muted', '#666');
-        root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0,0,0,0.3)');
-        root.style.setProperty('--shadow-md', '0 4px 12px rgba(0,0,0,0.4)');
-        root.style.setProperty('--shadow-lg', '0 8px 24px rgba(0,0,0,0.5)');
-        root.style.setProperty('color-scheme', 'dark');
-        document.body.classList.remove('light-theme');
-        showToast('Dark theme', 'info');
-      }
+      const currentTheme = localStorage.getItem('beam-theme') || 'dark';
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      setBeamTheme(newTheme);
+      showToast(newTheme === 'light' ? 'Light theme' : 'Dark theme', 'info');
     }
 
     // Toggle favorites filter
