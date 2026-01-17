@@ -10,21 +10,25 @@ import type { PhotonMCPClass } from '@portel/photon-core';
  * Message from CLI client to daemon server
  */
 export interface DaemonRequest {
-  type: 'command' | 'ping' | 'shutdown' | 'prompt_response';
+  type: 'command' | 'ping' | 'shutdown' | 'prompt_response' | 'subscribe' | 'unsubscribe' | 'publish';
   id: string;
   sessionId?: string; // Client session identifier for isolation
-  clientType?: 'cli' | 'mcp' | 'code-mode'; // Client type for debugging
+  clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
   method?: string;
   args?: Record<string, unknown>;
   /** Response to a prompt request */
   promptValue?: string | boolean | null;
+  /** Channel name for pub/sub operations */
+  channel?: string;
+  /** Message payload for publish operations */
+  message?: unknown;
 }
 
 /**
  * Response from daemon server to CLI client
  */
 export interface DaemonResponse {
-  type: 'result' | 'error' | 'pong' | 'prompt';
+  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message';
   id: string;
   success?: boolean;
   data?: unknown;
@@ -36,6 +40,10 @@ export interface DaemonResponse {
     default?: string;
     options?: Array<string | { value: string; label: string }>;
   };
+  /** Channel name for channel_message type */
+  channel?: string;
+  /** Message payload for channel_message type */
+  message?: unknown;
 }
 
 /**
@@ -69,11 +77,16 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   const req = obj as Partial<DaemonRequest>;
 
   if (typeof req.id !== 'string') return false;
-  if (!['command', 'ping', 'shutdown', 'prompt_response'].includes(req.type as string))
+  if (!['command', 'ping', 'shutdown', 'prompt_response', 'subscribe', 'unsubscribe', 'publish'].includes(req.type as string))
     return false;
 
   if (req.type === 'command') {
     if (typeof req.method !== 'string') return false;
+  }
+
+  // Channel operations require a channel name
+  if (['subscribe', 'unsubscribe', 'publish'].includes(req.type as string)) {
+    if (typeof req.channel !== 'string') return false;
   }
 
   return true;
@@ -87,7 +100,7 @@ export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
   const res = obj as Partial<DaemonResponse>;
 
   if (typeof res.id !== 'string') return false;
-  if (!['result', 'error', 'pong', 'prompt'].includes(res.type as string)) return false;
+  if (!['result', 'error', 'pong', 'prompt', 'channel_message'].includes(res.type as string)) return false;
 
   return true;
 }
