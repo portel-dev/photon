@@ -5,6 +5,8 @@
  * Each method returns a specific type of data for testing different renderers.
  */
 
+import { io } from '@portel/photon-core';
+
 export default class Demo {
   /**
    * Simple string result
@@ -219,5 +221,44 @@ Call any method to see its output rendered in BEAM UI.
       { name: 'Support', email: 'support@company.com', createdAt: '2024-01-15' },
       { name: 'Sales', email: 'sales@company.com', createdAt: '2024-02-20' }
     ];
+  }
+
+  // ============================================================================
+  // Progress & Status Test Methods
+  // ============================================================================
+
+  /**
+   * Demonstrates progress bar with determinate progress
+   * @param steps Number of steps to process
+   */
+  async *showProgress(params: { steps?: number }): AsyncGenerator<any> {
+    const steps = params.steps || 5;
+
+    yield io.emit.status('Starting process...');
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    for (let i = 1; i <= steps; i++) {
+      yield io.emit.progress(i / steps, `Processing step ${i} of ${steps}`);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    yield io.emit.progress(1, 'Complete!');
+    return `Completed ${steps} steps successfully`;
+  }
+
+  /**
+   * Shows indeterminate spinner (no progress bar)
+   */
+  async *showSpinner(): AsyncGenerator<any> {
+    yield io.emit.status('Loading data...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    yield io.emit.status('Processing...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    yield io.emit.status('Finalizing...');
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    return 'Done!';
   }
 }
