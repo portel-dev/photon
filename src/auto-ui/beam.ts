@@ -22,6 +22,7 @@ import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
+import { subscribeChannel, pingDaemon } from '../daemon/client.js';
 import {
   SchemaExtractor,
   type PhotonYield,
@@ -1088,6 +1089,37 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       }
     }
   };
+
+  // Subscribe to daemon channels for cross-process updates (e.g., MCP -> BEAM)
+  // This enables real-time updates when Claude modifies data via MCP
+  const channelSubscriptions: Array<() => void> = [];
+
+  async function subscribeToPhotonChannels() {
+    // Subscribe to kanban channels for real-time board updates
+    try {
+      const isRunning = await pingDaemon('kanban');
+      if (isRunning) {
+        // Subscribe to all kanban board updates using a pattern
+        // For now, subscribe to 'default' board - can be extended dynamically
+        const unsubscribe = await subscribeChannel('kanban', 'kanban:default', (message: any) => {
+          logger.info('Received channel message', { channel: 'kanban:default', event: message?.event });
+          broadcast({
+            type: 'channel',
+            channel: 'kanban:default',
+            data: message,
+          });
+        });
+        channelSubscriptions.push(unsubscribe);
+        logger.info('Subscribed to kanban:default channel');
+      }
+    } catch (err) {
+      // Daemon not running - that's fine, we'll use in-process events
+      logger.debug('Kanban daemon not running, using in-process events only');
+    }
+  }
+
+  // Subscribe after a short delay to allow daemon to start if needed
+  setTimeout(subscribeToPhotonChannels, 1000);
 
   wss.on('connection', (ws: WebSocket) => {
     clients.add(ws);
@@ -5371,6 +5403,35 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               // Ignore cross-origin errors
             }
           });
+          break;
+        case 'channel':
+          // Handle cross-process channel messages (e.g., from MCP daemon)
+          // Extract board name from channel (e.g., 'kanban:default' -> 'default')
+          const channelParts = message.channel?.split(':') || [];
+          const photonName = channelParts[0];
+          const boardName = channelParts[1];
+
+          console.log('[BEAM] Channel message received:', message.channel, message.data?.event);
+
+          // Forward to iframes as board-update for real-time refresh
+          document.querySelectorAll('iframe').forEach(iframe => {
+            try {
+              iframe.contentWindow?.postMessage({
+                type: 'photon:board-update',
+                photon: photonName,
+                board: boardName,
+                event: message.data?.event,
+                data: message.data?.data,
+              }, '*');
+            } catch (e) {
+              // Ignore cross-origin errors
+            }
+          });
+
+          // Show toast notification for cross-process updates
+          if (message.data?.event) {
+            showToast(\`Board updated: \${message.data.event}\`, 'info', 2000);
+          }
           break;
       }
     }
