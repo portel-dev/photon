@@ -5163,8 +5163,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       currentMethod = currentPhoton.methods?.find(m => m.name === methodName);
       if (!currentMethod) return;
 
-      // Update selection in sidebar
-      document.querySelectorAll('.method-item').forEach(el => {
+      // Update selection in sidebar - clear all including app items
+      document.querySelectorAll('.method-item, .app-item').forEach(el => {
         el.classList.remove('selected');
       });
       const methodItem = document.querySelector(\`.method-item[onclick*="'\${methodName}'"]\`);
@@ -6583,7 +6583,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       // Auto-execute the app's main method
       document.getElementById('result-container').classList.add('visible');
-      executeMethod({});
+      showProgress('Loading app...');
+      addActivity('invoke', \`\${photonName}.main()\`);
+      lastInvocationArgs = {};
+      ws.send(JSON.stringify({
+        type: 'invoke',
+        photon: photonName,
+        method: 'main',
+        args: {}
+      }));
     }
     window.openApp = openApp;
 
@@ -6629,8 +6637,8 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Update URL hash
       updateHash(photonName, methodName);
 
-      // Update selection
-      document.querySelectorAll('.method-item').forEach(el => {
+      // Update selection - clear all including app items
+      document.querySelectorAll('.method-item, .app-item').forEach(el => {
         el.classList.remove('selected');
       });
       e.target.classList.add('selected');
