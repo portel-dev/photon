@@ -5137,7 +5137,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   <div class="app">
     <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="logo">
+        <div class="logo" onclick="goHome()" style="cursor: pointer;" title="Go to home">
           <div class="logo-icon">⚡</div>
           <h1>Photon Beam</h1>
           <div style="display: flex; gap: 4px;">
@@ -7330,6 +7330,23 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('marketplace-view').style.display = 'none';
       document.getElementById('photon-view').style.display = 'none';
     }
+
+    // Go back to home view
+    function goHome() {
+      currentPhoton = null;
+      currentMethod = null;
+
+      // Clear sidebar selection
+      document.querySelectorAll('.photon-header.selected').forEach(el => el.classList.remove('selected'));
+
+      // Show home view
+      hideAllViews();
+      document.getElementById('empty-state').style.display = 'flex';
+
+      // Clear hash
+      history.pushState(null, '', window.location.pathname);
+    }
+    window.goHome = goHome;
 
     // Render the photon view with method cards
     function renderPhotonView() {
