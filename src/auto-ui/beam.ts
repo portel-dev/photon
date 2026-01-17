@@ -5460,22 +5460,37 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                 </svg>
               </button>
             </div>
-            <form id="pv-invoke-form"></form>
-            <div class="result-container" id="pv-result-container">
-              <div class="result-header">
-                <span>Result</span>
-                <div class="result-actions">
-                  <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="15 3 21 3 21 9"></polyline>
-                      <polyline points="9 21 3 21 3 15"></polyline>
-                      <line x1="21" y1="3" x2="14" y2="10"></line>
-                      <line x1="3" y1="21" x2="10" y2="14"></line>
-                    </svg>
-                  </button>
+
+            <div class="tabs" id="pv-tabs">
+              <div class="tab active" data-pv-tab="ui">Execute</div>
+              <div class="tab" data-pv-tab="data">Data</div>
+            </div>
+
+            <div class="tab-content">
+              <div class="tab-panel active" id="pv-ui-panel">
+                <form id="pv-invoke-form"></form>
+                <div class="result-container" id="pv-result-container">
+                  <div class="result-header">
+                    <span>Result</span>
+                    <div class="result-actions">
+                      <button class="result-expand-btn" onclick="openResultViewer()" title="Open in full view">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="15 3 21 3 21 9"></polyline>
+                          <polyline points="9 21 3 21 3 15"></polyline>
+                          <line x1="21" y1="3" x2="14" y2="10"></line>
+                          <line x1="3" y1="21" x2="10" y2="14"></line>
+                        </svg>
+                        Expand
+                      </button>
+                    </div>
+                  </div>
+                  <div class="result-content" id="pv-result-content"></div>
                 </div>
               </div>
-              <div class="result-content" id="pv-result-content"></div>
+
+              <div class="tab-panel" id="pv-data-panel">
+                <pre style="background: var(--bg-tertiary); padding: 20px; border-radius: var(--radius-md); overflow-x: auto;"><code id="pv-data-content" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-secondary);">No data yet</code></pre>
+              </div>
             </div>
           </div>
         </div>
@@ -8512,10 +8527,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       const format = message.outputFormat ?? currentMethod?.outputFormat;
       const layoutHints = message.layoutHints ?? currentMethod?.layoutHints;
 
-      // Helper to safely update data tab (photon view doesn't have data tab)
+      // Helper to safely update data tab (works for both method-view and photon-view)
       const updateDataTab = (html) => {
+        // Update method-view data tab
         const dataContent = document.getElementById('data-content');
         if (dataContent) dataContent.innerHTML = html;
+        // Update photon-view data tab
+        const pvDataContent = document.getElementById('pv-data-content');
+        if (pvDataContent) pvDataContent.innerHTML = html;
       };
 
       // Check for custom UI template (highest priority) - only if method matches currentMethod
@@ -10995,6 +11014,20 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         if (tabName === 'json' && currentPhoton) {
           updateConfigJson();
         }
+      });
+    });
+
+    // Tab switching for photon view method panel
+    document.querySelectorAll('.tab[data-pv-tab]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.pvTab;
+        const tabsContainer = tab.parentElement;
+
+        tabsContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        document.querySelectorAll('#pv-method-panel .tab-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(\`pv-\${tabName}-panel\`).classList.add('active');
       });
     });
 
