@@ -8304,6 +8304,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function showProgress(message, progress) {
       const overlay = document.getElementById('progress-overlay');
       const msgEl = document.getElementById('progress-message');
+      const spinner = overlay.querySelector('.progress-spinner');
       const barContainer = document.getElementById('progress-bar-container');
       const barFill = document.getElementById('progress-bar-fill');
       const percentEl = document.getElementById('progress-percent');
@@ -8312,19 +8313,27 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       msgEl.textContent = message || 'Processing...';
 
       if (progress !== undefined) {
+        // Determinate progress: show bar, hide spinner
         const percent = Math.round(progress * 100);
+        spinner.style.display = 'none';
         barContainer.style.display = 'block';
         barFill.style.width = percent + '%';
         percentEl.style.display = 'block';
         percentEl.textContent = percent + '%';
       } else {
+        // Indeterminate: show spinner, hide bar
+        spinner.style.display = 'block';
         barContainer.style.display = 'none';
         percentEl.style.display = 'none';
       }
     }
 
     function hideProgress() {
-      document.getElementById('progress-overlay').classList.remove('visible');
+      const overlay = document.getElementById('progress-overlay');
+      overlay.classList.remove('visible');
+      // Reset spinner visibility for next use
+      const spinner = overlay.querySelector('.progress-spinner');
+      spinner.style.display = 'block';
     }
 
     // Cancel current execution and close progress overlay
