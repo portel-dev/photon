@@ -9877,6 +9877,63 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           elicitationId: data.elicitationId
         };
         return;
+      } else if (data.ask === 'form') {
+        // Render form from JSON Schema
+        const schema = data.schema || {};
+        const properties = schema.properties || {};
+        const required = schema.required || [];
+
+        const fields = Object.entries(properties).map(([key, prop]) => {
+          const isRequired = required.includes(key);
+          const label = prop.title || key;
+          const format = prop.format || '';
+          const type = prop.type || 'string';
+
+          // Determine input type based on schema type and format
+          let inputType = 'text';
+          let inputEl = '';
+
+          if (format === 'email') {
+            inputType = 'email';
+          } else if (format === 'password') {
+            inputType = 'password';
+          } else if (format === 'uri' || format === 'url') {
+            inputType = 'url';
+          } else if (format === 'date') {
+            inputType = 'date';
+          } else if (format === 'date-time') {
+            inputType = 'datetime-local';
+          } else if (format === 'time') {
+            inputType = 'time';
+          } else if (format === 'textarea' || format === 'multiline') {
+            inputEl = \`<textarea id="form-field-\${key}" name="\${key}" rows="3" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; font-size: 14px; resize: vertical;" \${isRequired ? 'required' : ''}></textarea>\`;
+          } else if (type === 'number' || type === 'integer') {
+            inputType = 'number';
+          } else if (type === 'boolean') {
+            inputEl = \`<input type="checkbox" id="form-field-\${key}" name="\${key}" style="width: 18px; height: 18px;" />\`;
+          }
+
+          // Default input element if not already set
+          if (!inputEl) {
+            inputEl = \`<input type="\${inputType}" id="form-field-\${key}" name="\${key}" \${prop.placeholder ? \`placeholder="\${prop.placeholder}"\` : ''} \${prop.default !== undefined ? \`value="\${prop.default}"\` : ''} style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; font-size: 14px;" \${isRequired ? 'required' : ''} />\`;
+          }
+
+          return \`
+            <div class="form-field" style="margin-bottom: 16px;">
+              <label for="form-field-\${key}" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary, #1f2937);">
+                \${label}\${isRequired ? '<span style="color: #ef4444; margin-left: 4px;">*</span>' : ''}
+              </label>
+              \${inputEl}
+              \${prop.description ? \`<div style="font-size: 12px; color: var(--text-muted, #6b7280); margin-top: 4px;">\${prop.description}</div>\` : ''}
+            </div>
+          \`;
+        }).join('');
+
+        html = \`
+          <div class="form-fields" id="elicitation-form-fields">
+            \${fields}
+          </div>
+        \`;
       }
 
       html += \`<button class="btn" onclick="submitElicitation()">Submit</button>\`;
@@ -9955,18 +10012,37 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     function submitElicitation() {
       let value;
 
-      // Check for regular input first
-      const input = document.getElementById('elicitation-input');
-      if (input) {
-        value = input.value;
+      // Check for form fields first (JSON Schema form)
+      const formFields = document.getElementById('elicitation-form-fields');
+      if (formFields) {
+        value = {};
+        const inputs = formFields.querySelectorAll('input, textarea, select');
+        inputs.forEach(input => {
+          const name = input.name;
+          if (name) {
+            if (input.type === 'checkbox') {
+              value[name] = input.checked;
+            } else if (input.type === 'number') {
+              value[name] = input.value ? Number(input.value) : undefined;
+            } else {
+              value[name] = input.value;
+            }
+          }
+        });
       } else {
-        // Check for rich select (radio/checkbox inputs)
-        const checkboxes = document.querySelectorAll('input[name="elicitation-select"]:checked');
-        if (checkboxes.length > 0) {
-          const values = Array.from(checkboxes).map(cb => cb.value);
-          // If single radio, return single value; if multi checkbox, return array
-          const isMulti = document.querySelector('input[name="elicitation-select"][type="checkbox"]') !== null;
-          value = isMulti ? values : values[0];
+        // Check for regular input
+        const input = document.getElementById('elicitation-input');
+        if (input) {
+          value = input.value;
+        } else {
+          // Check for rich select (radio/checkbox inputs)
+          const checkboxes = document.querySelectorAll('input[name="elicitation-select"]:checked');
+          if (checkboxes.length > 0) {
+            const values = Array.from(checkboxes).map(cb => cb.value);
+            // If single radio, return single value; if multi checkbox, return array
+            const isMulti = document.querySelector('input[name="elicitation-select"][type="checkbox"]') !== null;
+            value = isMulti ? values : values[0];
+          }
         }
       }
 
