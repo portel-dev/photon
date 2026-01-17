@@ -481,15 +481,656 @@ async function testPubSubIntegration() {
 }
 
 // ============================================================================
+// Lock Validation Tests
+// ============================================================================
+
+async function testLockRequestValidation() {
+  console.log('\nLock Request Validation:');
+
+  await test('accepts lock with lockName', () => {
+    assert.equal(
+      isValidDaemonRequest({ type: 'lock', id: '1', lockName: 'my-lock' }),
+      true
+    );
+  });
+
+  await test('rejects lock without lockName', () => {
+    assert.equal(isValidDaemonRequest({ type: 'lock', id: '1' }), false);
+  });
+
+  await test('accepts unlock with lockName', () => {
+    assert.equal(
+      isValidDaemonRequest({ type: 'unlock', id: '1', lockName: 'my-lock' }),
+      true
+    );
+  });
+
+  await test('rejects unlock without lockName', () => {
+    assert.equal(isValidDaemonRequest({ type: 'unlock', id: '1' }), false);
+  });
+
+  await test('accepts list_locks', () => {
+    assert.equal(isValidDaemonRequest({ type: 'list_locks', id: '1' }), true);
+  });
+}
+
+// ============================================================================
+// Scheduled Jobs Validation Tests
+// ============================================================================
+
+async function testScheduleRequestValidation() {
+  console.log('\nSchedule Request Validation:');
+
+  await test('accepts schedule with all required fields', () => {
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'schedule',
+        id: '1',
+        jobId: 'job-1',
+        method: 'myMethod',
+        cron: '*/5 * * * *',
+      }),
+      true
+    );
+  });
+
+  await test('rejects schedule without jobId', () => {
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'schedule',
+        id: '1',
+        method: 'myMethod',
+        cron: '*/5 * * * *',
+      }),
+      false
+    );
+  });
+
+  await test('rejects schedule without method', () => {
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'schedule',
+        id: '1',
+        jobId: 'job-1',
+        cron: '*/5 * * * *',
+      }),
+      false
+    );
+  });
+
+  await test('rejects schedule without cron', () => {
+    assert.equal(
+      isValidDaemonRequest({
+        type: 'schedule',
+        id: '1',
+        jobId: 'job-1',
+        method: 'myMethod',
+      }),
+      false
+    );
+  });
+
+  await test('accepts unschedule with jobId', () => {
+    assert.equal(
+      isValidDaemonRequest({ type: 'unschedule', id: '1', jobId: 'job-1' }),
+      true
+    );
+  });
+
+  await test('rejects unschedule without jobId', () => {
+    assert.equal(isValidDaemonRequest({ type: 'unschedule', id: '1' }), false);
+  });
+
+  await test('accepts list_jobs', () => {
+    assert.equal(isValidDaemonRequest({ type: 'list_jobs', id: '1' }), true);
+  });
+}
+
+// ============================================================================
+// Mock Server with Lock & Schedule Support
+// ============================================================================
+
+class MockDaemonServerWithLocks {
+  private server: net.Server;
+  private socketPath: string;
+  private channelSubscriptions = new Map<string, Set<net.Socket>>();
+  private locks = new Map<string, { holder: string; acquiredAt: number; expiresAt: number }>();
+  private jobs = new Map<
+    string,
+    {
+      id: string;
+      method: string;
+      cron: string;
+      args?: Record<string, unknown>;
+      nextRun: number;
+      lastRun?: number;
+      runCount: number;
+      createdAt: number;
+    }
+  >();
+
+  constructor(socketPath: string) {
+    this.socketPath = socketPath;
+    this.server = net.createServer((socket) => this.handleConnection(socket));
+  }
+
+  private handleConnection(socket: net.Socket) {
+    let buffer = '';
+
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const request: DaemonRequest = JSON.parse(line);
+          const response = this.handleRequest(request, socket);
+          if (response) {
+            socket.write(JSON.stringify(response) + '\n');
+          }
+        } catch (err) {
+          socket.write(JSON.stringify({ type: 'error', id: 'unknown', error: 'Parse error' }) + '\n');
+        }
+      }
+    });
+
+    socket.on('end', () => this.cleanupSocket(socket));
+    socket.on('error', () => this.cleanupSocket(socket));
+  }
+
+  private handleRequest(request: DaemonRequest, socket: net.Socket): DaemonResponse | null {
+    if (request.type === 'ping') {
+      return { type: 'pong', id: request.id };
+    }
+
+    // Pub/Sub handlers
+    if (request.type === 'subscribe') {
+      const channel = request.channel!;
+      let subs = this.channelSubscriptions.get(channel);
+      if (!subs) {
+        subs = new Set();
+        this.channelSubscriptions.set(channel, subs);
+      }
+      subs.add(socket);
+      return { type: 'result', id: request.id, success: true, data: { subscribed: true, channel } };
+    }
+
+    if (request.type === 'unsubscribe') {
+      const channel = request.channel!;
+      const subs = this.channelSubscriptions.get(channel);
+      if (subs) {
+        subs.delete(socket);
+        if (subs.size === 0) this.channelSubscriptions.delete(channel);
+      }
+      return { type: 'result', id: request.id, success: true, data: { unsubscribed: true, channel } };
+    }
+
+    if (request.type === 'publish') {
+      const channel = request.channel!;
+      const message = request.message;
+      this.publishToSubscribers(channel, message, socket);
+      return { type: 'result', id: request.id, success: true, data: { published: true, channel } };
+    }
+
+    // Lock handlers
+    if (request.type === 'lock') {
+      const lockName = request.lockName!;
+      const holder = request.sessionId || request.id;
+      const timeout = request.lockTimeout || 30000;
+      const now = Date.now();
+
+      // Check if lock exists and not expired
+      const existing = this.locks.get(lockName);
+      if (existing && existing.expiresAt > now && existing.holder !== holder) {
+        return { type: 'result', id: request.id, data: { acquired: false, holder: existing.holder } };
+      }
+
+      // Acquire lock
+      this.locks.set(lockName, {
+        holder,
+        acquiredAt: now,
+        expiresAt: now + timeout,
+      });
+      return { type: 'result', id: request.id, data: { acquired: true, expiresAt: now + timeout } };
+    }
+
+    if (request.type === 'unlock') {
+      const lockName = request.lockName!;
+      const holder = request.sessionId || request.id;
+
+      const existing = this.locks.get(lockName);
+      if (!existing) {
+        return { type: 'result', id: request.id, data: { released: false, reason: 'Lock not found' } };
+      }
+      if (existing.holder !== holder) {
+        return { type: 'result', id: request.id, data: { released: false, reason: 'Not lock holder' } };
+      }
+
+      this.locks.delete(lockName);
+      return { type: 'result', id: request.id, data: { released: true } };
+    }
+
+    if (request.type === 'list_locks') {
+      const now = Date.now();
+      const activeLocks = Array.from(this.locks.entries())
+        .filter(([_, lock]) => lock.expiresAt > now)
+        .map(([name, lock]) => ({ name, ...lock }));
+      return { type: 'result', id: request.id, data: { locks: activeLocks } };
+    }
+
+    // Schedule handlers
+    if (request.type === 'schedule') {
+      const { jobId, method, cron, args } = request;
+      const now = Date.now();
+
+      // Simple next run calculation (just add 60s for testing)
+      const nextRun = now + 60000;
+
+      this.jobs.set(jobId!, {
+        id: jobId!,
+        method: method!,
+        cron: cron!,
+        args,
+        nextRun,
+        runCount: 0,
+        createdAt: now,
+      });
+
+      return { type: 'result', id: request.id, data: { scheduled: true, nextRun } };
+    }
+
+    if (request.type === 'unschedule') {
+      const { jobId } = request;
+      const existed = this.jobs.has(jobId!);
+      this.jobs.delete(jobId!);
+      return { type: 'result', id: request.id, data: { unscheduled: existed } };
+    }
+
+    if (request.type === 'list_jobs') {
+      const jobList = Array.from(this.jobs.values());
+      return { type: 'result', id: request.id, data: { jobs: jobList } };
+    }
+
+    return { type: 'error', id: request.id, error: `Unknown request type: ${request.type}` };
+  }
+
+  private publishToSubscribers(channel: string, message: unknown, excludeSocket: net.Socket) {
+    const subs = this.channelSubscriptions.get(channel);
+    if (!subs) return;
+
+    const payload =
+      JSON.stringify({
+        type: 'channel_message',
+        id: `ch_${Date.now()}`,
+        channel,
+        message,
+      }) + '\n';
+
+    for (const socket of subs) {
+      if (socket !== excludeSocket && !socket.destroyed) {
+        socket.write(payload);
+      }
+    }
+  }
+
+  private cleanupSocket(socket: net.Socket) {
+    for (const [channel, subs] of this.channelSubscriptions.entries()) {
+      subs.delete(socket);
+      if (subs.size === 0) this.channelSubscriptions.delete(channel);
+    }
+  }
+
+  async start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.server.listen(this.socketPath, () => resolve());
+      this.server.on('error', reject);
+    });
+  }
+
+  async stop(): Promise<void> {
+    return new Promise((resolve) => {
+      this.server.close(() => resolve());
+    });
+  }
+
+  getLockCount(): number {
+    return this.locks.size;
+  }
+
+  getJobCount(): number {
+    return this.jobs.size;
+  }
+}
+
+// ============================================================================
+// Lock Integration Tests
+// ============================================================================
+
+async function testLockIntegration() {
+  console.log('\nLock Integration:');
+
+  const socketPath = path.join(os.tmpdir(), `photon-lock-test-${Date.now()}.sock`);
+  const server = new MockDaemonServerWithLocks(socketPath);
+
+  try {
+    await server.start();
+
+    await test('acquire lock', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      const request: DaemonRequest = {
+        type: 'lock',
+        id: 'lock_1',
+        sessionId: 'session-a',
+        lockName: 'my-resource',
+        lockTimeout: 5000,
+      };
+
+      client.write(JSON.stringify(request) + '\n');
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).acquired, true);
+      assert.equal(server.getLockCount(), 1);
+
+      client.destroy();
+    });
+
+    await test('second client fails to acquire same lock', async () => {
+      const client1 = net.createConnection(socketPath);
+      const client2 = net.createConnection(socketPath);
+
+      await Promise.all([
+        new Promise<void>((resolve) => client1.on('connect', resolve)),
+        new Promise<void>((resolve) => client2.on('connect', resolve)),
+      ]);
+
+      // Client 1 acquires lock
+      client1.write(
+        JSON.stringify({
+          type: 'lock',
+          id: 'l1',
+          sessionId: 'session-1',
+          lockName: 'exclusive-resource',
+        }) + '\n'
+      );
+      await new Promise<void>((resolve) => client1.once('data', resolve));
+
+      // Client 2 tries to acquire same lock
+      client2.write(
+        JSON.stringify({
+          type: 'lock',
+          id: 'l2',
+          sessionId: 'session-2',
+          lockName: 'exclusive-resource',
+        }) + '\n'
+      );
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client2.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).acquired, false);
+      assert.equal((response.data as any).holder, 'session-1');
+
+      client1.destroy();
+      client2.destroy();
+    });
+
+    await test('release lock', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      // Acquire
+      client.write(
+        JSON.stringify({
+          type: 'lock',
+          id: 'l1',
+          sessionId: 'release-test',
+          lockName: 'release-lock',
+        }) + '\n'
+      );
+      await new Promise<void>((resolve) => client.once('data', resolve));
+
+      // Release
+      client.write(
+        JSON.stringify({
+          type: 'unlock',
+          id: 'u1',
+          sessionId: 'release-test',
+          lockName: 'release-lock',
+        }) + '\n'
+      );
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).released, true);
+
+      client.destroy();
+    });
+
+    await test('cannot release lock held by another', async () => {
+      const client1 = net.createConnection(socketPath);
+      const client2 = net.createConnection(socketPath);
+
+      await Promise.all([
+        new Promise<void>((resolve) => client1.on('connect', resolve)),
+        new Promise<void>((resolve) => client2.on('connect', resolve)),
+      ]);
+
+      // Client 1 acquires
+      client1.write(
+        JSON.stringify({
+          type: 'lock',
+          id: 'l1',
+          sessionId: 'holder',
+          lockName: 'guarded-lock',
+        }) + '\n'
+      );
+      await new Promise<void>((resolve) => client1.once('data', resolve));
+
+      // Client 2 tries to release
+      client2.write(
+        JSON.stringify({
+          type: 'unlock',
+          id: 'u1',
+          sessionId: 'thief',
+          lockName: 'guarded-lock',
+        }) + '\n'
+      );
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client2.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).released, false);
+      assert.equal((response.data as any).reason, 'Not lock holder');
+
+      client1.destroy();
+      client2.destroy();
+    });
+
+    await test('list active locks', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      client.write(JSON.stringify({ type: 'list_locks', id: 'list_1' }) + '\n');
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.ok(Array.isArray((response.data as any).locks));
+
+      client.destroy();
+    });
+  } finally {
+    await server.stop();
+    try {
+      await fs.unlink(socketPath);
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+// ============================================================================
+// Schedule Integration Tests
+// ============================================================================
+
+async function testScheduleIntegration() {
+  console.log('\nSchedule Integration:');
+
+  const socketPath = path.join(os.tmpdir(), `photon-schedule-test-${Date.now()}.sock`);
+  const server = new MockDaemonServerWithLocks(socketPath);
+
+  try {
+    await server.start();
+
+    await test('schedule a job', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      const request: DaemonRequest = {
+        type: 'schedule',
+        id: 'sched_1',
+        jobId: 'cleanup-job',
+        method: 'cleanupOldTasks',
+        cron: '0 * * * *',
+        args: { maxAge: 86400 },
+      };
+
+      client.write(JSON.stringify(request) + '\n');
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).scheduled, true);
+      assert.ok((response.data as any).nextRun > Date.now());
+      assert.equal(server.getJobCount(), 1);
+
+      client.destroy();
+    });
+
+    await test('list scheduled jobs', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      client.write(JSON.stringify({ type: 'list_jobs', id: 'list_1' }) + '\n');
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      const jobs = (response.data as any).jobs as any[];
+      assert.ok(Array.isArray(jobs));
+      assert.ok(jobs.length >= 1);
+      assert.equal(jobs[0].method, 'cleanupOldTasks');
+
+      client.destroy();
+    });
+
+    await test('unschedule a job', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      client.write(
+        JSON.stringify({
+          type: 'unschedule',
+          id: 'unsched_1',
+          jobId: 'cleanup-job',
+        }) + '\n'
+      );
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).unscheduled, true);
+      assert.equal(server.getJobCount(), 0);
+
+      client.destroy();
+    });
+
+    await test('unschedule non-existent job returns false', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      client.write(
+        JSON.stringify({
+          type: 'unschedule',
+          id: 'unsched_2',
+          jobId: 'non-existent-job',
+        }) + '\n'
+      );
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal((response.data as any).unscheduled, false);
+
+      client.destroy();
+    });
+  } finally {
+    await server.stop();
+    try {
+      await fs.unlink(socketPath);
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+// ============================================================================
 // Run All Tests
 // ============================================================================
 
 (async () => {
-  console.log('Daemon Pub/Sub Tests\n' + '='.repeat(50));
+  console.log('Daemon Protocol Tests\n' + '='.repeat(50));
 
   await testRequestValidation();
   await testResponseValidation();
+  await testLockRequestValidation();
+  await testScheduleRequestValidation();
   await testPubSubIntegration();
+  await testLockIntegration();
+  await testScheduleIntegration();
 
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
@@ -497,5 +1138,5 @@ async function testPubSubIntegration() {
   if (failed > 0) {
     process.exit(1);
   }
-  console.log('\nAll daemon pub/sub tests passed!');
+  console.log('\nAll daemon protocol tests passed!');
 })();

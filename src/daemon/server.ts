@@ -11,9 +11,16 @@
  */
 
 import * as net from 'net';
+import * as http from 'http';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager.js';
-import { DaemonRequest, DaemonResponse, isValidDaemonRequest } from './protocol.js';
+import {
+  DaemonRequest,
+  DaemonResponse,
+  isValidDaemonRequest,
+  type ScheduledJob,
+  type LockInfo,
+} from './protocol.js';
 import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
@@ -55,6 +62,342 @@ let currentRequestId: string | null = null;
 // Channel subscriptions for pub/sub
 // Map: channel name -> Set of subscribed sockets
 const channelSubscriptions = new Map<string, Set<net.Socket>>();
+
+// ════════════════════════════════════════════════════════════════════════════════
+// DISTRIBUTED LOCKS
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Active locks: lockName -> LockInfo
+const activeLocks = new Map<string, LockInfo>();
+const DEFAULT_LOCK_TIMEOUT = 30000; // 30 seconds
+
+/**
+ * Try to acquire a lock
+ */
+function acquireLock(lockName: string, holder: string, timeout: number = DEFAULT_LOCK_TIMEOUT): boolean {
+  const now = Date.now();
+
+  // Check if lock exists and is still valid
+  const existing = activeLocks.get(lockName);
+  if (existing && existing.expiresAt > now) {
+    // Lock is held by someone else
+    if (existing.holder !== holder) {
+      return false;
+    }
+    // Same holder - extend the lock
+    existing.expiresAt = now + timeout;
+    return true;
+  }
+
+  // Lock is free or expired - acquire it
+  activeLocks.set(lockName, {
+    name: lockName,
+    holder,
+    acquiredAt: now,
+    expiresAt: now + timeout,
+  });
+
+  logger.info('Lock acquired', { lockName, holder, timeout });
+  return true;
+}
+
+/**
+ * Release a lock
+ */
+function releaseLock(lockName: string, holder: string): boolean {
+  const existing = activeLocks.get(lockName);
+  if (!existing) {
+    return true; // Lock doesn't exist, consider it released
+  }
+
+  if (existing.holder !== holder) {
+    return false; // Can't release someone else's lock
+  }
+
+  activeLocks.delete(lockName);
+  logger.info('Lock released', { lockName, holder });
+  return true;
+}
+
+/**
+ * Clean up expired locks periodically
+ */
+function cleanupExpiredLocks(): void {
+  const now = Date.now();
+  for (const [name, lock] of activeLocks.entries()) {
+    if (lock.expiresAt <= now) {
+      activeLocks.delete(name);
+      logger.info('Lock expired', { lockName: name, holder: lock.holder });
+    }
+  }
+}
+
+// Run lock cleanup every 10 seconds
+setInterval(cleanupExpiredLocks, 10000);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// SCHEDULED JOBS
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Scheduled jobs: jobId -> ScheduledJob
+const scheduledJobs = new Map<string, ScheduledJob>();
+// Job timers: jobId -> NodeJS.Timeout
+const jobTimers = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Parse cron expression and get next run time
+ * Supports: * (every), *\/n (every n), n (specific value)
+ * Format: minute hour day month weekday
+ */
+function parseCron(cron: string): { isValid: boolean; nextRun: number } {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return { isValid: false, nextRun: 0 };
+  }
+
+  const [minute, hour, day, month, weekday] = parts;
+  const now = new Date();
+
+  // Simple implementation: find next matching time
+  // For full cron support, use a library like 'cron-parser'
+  const nextDate = new Date(now);
+  nextDate.setSeconds(0);
+  nextDate.setMilliseconds(0);
+
+  // Handle simple cases
+  if (minute === '*' && hour === '*') {
+    // Every minute
+    nextDate.setMinutes(nextDate.getMinutes() + 1);
+  } else if (minute.startsWith('*/')) {
+    // Every N minutes
+    const interval = parseInt(minute.slice(2));
+    const currentMinute = nextDate.getMinutes();
+    const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;
+    nextDate.setMinutes(nextMinute);
+  } else if (hour === '*') {
+    // Specific minute, every hour
+    const targetMinute = parseInt(minute);
+    if (nextDate.getMinutes() >= targetMinute) {
+      nextDate.setHours(nextDate.getHours() + 1);
+    }
+    nextDate.setMinutes(targetMinute);
+  } else {
+    // Specific minute and hour
+    const targetMinute = parseInt(minute);
+    const targetHour = parseInt(hour);
+    nextDate.setMinutes(targetMinute);
+    nextDate.setHours(targetHour);
+    if (nextDate <= now) {
+      nextDate.setDate(nextDate.getDate() + 1);
+    }
+  }
+
+  return { isValid: true, nextRun: nextDate.getTime() };
+}
+
+/**
+ * Schedule a job to run
+ */
+function scheduleJob(job: ScheduledJob): boolean {
+  const { isValid, nextRun } = parseCron(job.cron);
+  if (!isValid) {
+    logger.error('Invalid cron expression', { jobId: job.id, cron: job.cron });
+    return false;
+  }
+
+  job.nextRun = nextRun;
+  scheduledJobs.set(job.id, job);
+
+  // Clear existing timer if any
+  const existingTimer = jobTimers.get(job.id);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  // Schedule the job
+  const delay = nextRun - Date.now();
+  const timer = setTimeout(() => runJob(job.id), delay);
+  jobTimers.set(job.id, timer);
+
+  logger.info('Job scheduled', { jobId: job.id, method: job.method, nextRun: new Date(nextRun).toISOString() });
+  return true;
+}
+
+/**
+ * Run a scheduled job
+ */
+async function runJob(jobId: string): Promise<void> {
+  const job = scheduledJobs.get(jobId);
+  if (!job || !sessionManager) return;
+
+  logger.info('Running scheduled job', { jobId, method: job.method });
+
+  try {
+    // Get or create a session for scheduled jobs
+    const session = await sessionManager.getOrCreateSession('scheduler', 'scheduler');
+
+    // Execute the method
+    await sessionManager.loader.executeTool(session.instance, job.method, job.args || {});
+
+    // Update job stats
+    job.lastRun = Date.now();
+    job.runCount++;
+
+    // Publish job completion to channel
+    publishToChannel(`jobs:${photonName}`, {
+      event: 'job-completed',
+      jobId,
+      method: job.method,
+      runCount: job.runCount,
+    });
+
+    logger.info('Job completed', { jobId, method: job.method, runCount: job.runCount });
+  } catch (error) {
+    logger.error('Job failed', { jobId, method: job.method, error: getErrorMessage(error) });
+
+    // Publish job failure to channel
+    publishToChannel(`jobs:${photonName}`, {
+      event: 'job-failed',
+      jobId,
+      method: job.method,
+      error: getErrorMessage(error),
+    });
+  }
+
+  // Reschedule for next run
+  scheduleJob(job);
+}
+
+/**
+ * Cancel a scheduled job
+ */
+function unscheduleJob(jobId: string): boolean {
+  const timer = jobTimers.get(jobId);
+  if (timer) {
+    clearTimeout(timer);
+    jobTimers.delete(jobId);
+  }
+
+  const existed = scheduledJobs.delete(jobId);
+  if (existed) {
+    logger.info('Job unscheduled', { jobId });
+  }
+  return existed;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// WEBHOOK HTTP SERVER
+// ════════════════════════════════════════════════════════════════════════════════
+
+let webhookServer: http.Server | null = null;
+const WEBHOOK_PORT = parseInt(process.env.PHOTON_WEBHOOK_PORT || '0'); // 0 = disabled by default
+
+/**
+ * Start webhook HTTP server
+ */
+function startWebhookServer(port: number): void {
+  if (port <= 0) return;
+
+  webhookServer = http.createServer(async (req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Webhook-Secret');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Parse URL: /webhook/{method}
+    const url = new URL(req.url || '/', `http://localhost:${port}`);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+
+    if (pathParts[0] !== 'webhook' || !pathParts[1]) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found. Use /webhook/{method}' }));
+      return;
+    }
+
+    const method = pathParts[1];
+
+    // Verify webhook secret if configured
+    const expectedSecret = process.env.PHOTON_WEBHOOK_SECRET;
+    if (expectedSecret) {
+      const providedSecret = req.headers['x-webhook-secret'];
+      if (providedSecret !== expectedSecret) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid webhook secret' }));
+        return;
+      }
+    }
+
+    // Parse request body
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+
+    req.on('end', async () => {
+      let args: Record<string, unknown> = {};
+
+      try {
+        if (body) {
+          args = JSON.parse(body);
+        }
+
+        // Add webhook metadata
+        args._webhook = {
+          method: req.method,
+          headers: req.headers,
+          query: Object.fromEntries(url.searchParams),
+          timestamp: Date.now(),
+        };
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+
+      // Execute the photon method
+      if (!sessionManager) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Service not ready' }));
+        return;
+      }
+
+      try {
+        const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
+        const result = await sessionManager.loader.executeTool(session.instance, method, args);
+
+        logger.info('Webhook executed', { method, source: req.headers['user-agent'] });
+
+        // Publish webhook event to channel
+        publishToChannel(`webhooks:${photonName}`, {
+          event: 'webhook-received',
+          method,
+          timestamp: Date.now(),
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: result }));
+      } catch (error) {
+        logger.error('Webhook execution failed', { method, error: getErrorMessage(error) });
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: getErrorMessage(error) }));
+      }
+    });
+  });
+
+  webhookServer.listen(port, () => {
+    logger.info('Webhook server started', { port });
+  });
+
+  webhookServer.on('error', (error: any) => {
+    logger.error('Webhook server error', { error: getErrorMessage(error) });
+  });
+}
 
 /**
  * Clean up all subscriptions for a socket
@@ -272,6 +615,103 @@ async function handleRequest(
     };
   }
 
+  // Handle lock acquisition
+  if (request.type === 'lock') {
+    const lockName = request.lockName!;
+    const holder = request.sessionId || request.id;
+    const timeout = request.lockTimeout || DEFAULT_LOCK_TIMEOUT;
+    const acquired = acquireLock(lockName, holder, timeout);
+
+    return {
+      type: 'result',
+      id: request.id,
+      success: acquired,
+      data: {
+        acquired,
+        lockName,
+        holder,
+        ...(acquired ? {} : { reason: 'Lock held by another client' }),
+      },
+    };
+  }
+
+  // Handle lock release
+  if (request.type === 'unlock') {
+    const lockName = request.lockName!;
+    const holder = request.sessionId || request.id;
+    const released = releaseLock(lockName, holder);
+
+    return {
+      type: 'result',
+      id: request.id,
+      success: released,
+      data: {
+        released,
+        lockName,
+        ...(released ? {} : { reason: 'Cannot release lock held by another client' }),
+      },
+    };
+  }
+
+  // Handle list locks
+  if (request.type === 'list_locks') {
+    const locks = Array.from(activeLocks.values());
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { locks },
+    };
+  }
+
+  // Handle job scheduling
+  if (request.type === 'schedule') {
+    const job: ScheduledJob = {
+      id: request.jobId!,
+      method: request.method!,
+      args: request.args,
+      cron: request.cron!,
+      runCount: 0,
+      createdAt: Date.now(),
+      createdBy: request.sessionId,
+    };
+
+    const scheduled = scheduleJob(job);
+
+    return {
+      type: 'result',
+      id: request.id,
+      success: scheduled,
+      data: scheduled
+        ? { scheduled: true, jobId: job.id, nextRun: job.nextRun }
+        : { scheduled: false, reason: 'Invalid cron expression' },
+    };
+  }
+
+  // Handle job unscheduling
+  if (request.type === 'unschedule') {
+    const jobId = request.jobId!;
+    const unscheduled = unscheduleJob(jobId);
+
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { unscheduled, jobId },
+    };
+  }
+
+  // Handle list jobs
+  if (request.type === 'list_jobs') {
+    const jobs = Array.from(scheduledJobs.values());
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { jobs },
+    };
+  }
+
   if (request.type === 'command') {
     if (!request.method) {
       return {
@@ -434,9 +874,24 @@ function shutdown(): void {
     clearTimeout(idleTimer);
   }
 
+  // Clear all job timers
+  for (const timer of jobTimers.values()) {
+    clearTimeout(timer);
+  }
+  jobTimers.clear();
+  scheduledJobs.clear();
+
+  // Clear locks
+  activeLocks.clear();
+
   // Destroy session manager
   if (sessionManager) {
     sessionManager.destroy();
+  }
+
+  // Close webhook server
+  if (webhookServer) {
+    webhookServer.close();
   }
 
   // Clean up socket file (Unix only)
@@ -455,4 +910,5 @@ function shutdown(): void {
 (async () => {
   await initializeSessionManager();
   startServer();
+  startWebhookServer(WEBHOOK_PORT);
 })();

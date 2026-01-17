@@ -10,7 +10,20 @@ import type { PhotonMCPClass } from '@portel/photon-core';
  * Message from CLI client to daemon server
  */
 export interface DaemonRequest {
-  type: 'command' | 'ping' | 'shutdown' | 'prompt_response' | 'subscribe' | 'unsubscribe' | 'publish';
+  type:
+    | 'command'
+    | 'ping'
+    | 'shutdown'
+    | 'prompt_response'
+    | 'subscribe'
+    | 'unsubscribe'
+    | 'publish'
+    | 'lock'
+    | 'unlock'
+    | 'schedule'
+    | 'unschedule'
+    | 'list_jobs'
+    | 'list_locks';
   id: string;
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
@@ -22,6 +35,14 @@ export interface DaemonRequest {
   channel?: string;
   /** Message payload for publish operations */
   message?: unknown;
+  /** Lock name for lock/unlock operations */
+  lockName?: string;
+  /** Lock timeout in ms (default: 30000) */
+  lockTimeout?: number;
+  /** Job ID for schedule operations */
+  jobId?: string;
+  /** Cron expression for scheduled jobs */
+  cron?: string;
 }
 
 /**
@@ -70,6 +91,31 @@ export interface PhotonSession {
 }
 
 /**
+ * Scheduled job information
+ */
+export interface ScheduledJob {
+  id: string;
+  method: string;
+  args?: Record<string, unknown>;
+  cron: string;
+  lastRun?: number;
+  nextRun?: number;
+  runCount: number;
+  createdAt: number;
+  createdBy?: string;
+}
+
+/**
+ * Lock information
+ */
+export interface LockInfo {
+  name: string;
+  holder: string; // Session ID or client identifier
+  acquiredAt: number;
+  expiresAt: number;
+}
+
+/**
  * Runtime validation for DaemonRequest
  */
 export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
@@ -77,8 +123,23 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   const req = obj as Partial<DaemonRequest>;
 
   if (typeof req.id !== 'string') return false;
-  if (!['command', 'ping', 'shutdown', 'prompt_response', 'subscribe', 'unsubscribe', 'publish'].includes(req.type as string))
-    return false;
+
+  const validTypes = [
+    'command',
+    'ping',
+    'shutdown',
+    'prompt_response',
+    'subscribe',
+    'unsubscribe',
+    'publish',
+    'lock',
+    'unlock',
+    'schedule',
+    'unschedule',
+    'list_jobs',
+    'list_locks',
+  ];
+  if (!validTypes.includes(req.type as string)) return false;
 
   if (req.type === 'command') {
     if (typeof req.method !== 'string') return false;
@@ -87,6 +148,23 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   // Channel operations require a channel name
   if (['subscribe', 'unsubscribe', 'publish'].includes(req.type as string)) {
     if (typeof req.channel !== 'string') return false;
+  }
+
+  // Lock operations require a lock name
+  if (['lock', 'unlock'].includes(req.type as string)) {
+    if (typeof req.lockName !== 'string') return false;
+  }
+
+  // Schedule operations require jobId, method, and cron
+  if (req.type === 'schedule') {
+    if (typeof req.jobId !== 'string') return false;
+    if (typeof req.method !== 'string') return false;
+    if (typeof req.cron !== 'string') return false;
+  }
+
+  // Unschedule requires jobId
+  if (req.type === 'unschedule') {
+    if (typeof req.jobId !== 'string') return false;
   }
 
   return true;
