@@ -5508,6 +5508,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       renderForm();
       document.getElementById('result-container').classList.remove('visible');
+      document.getElementById('result-content').innerHTML = '';
     }
 
     function selectUnconfiguredByName(photonName) {
@@ -7210,6 +7211,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       // Clear previous results
       document.getElementById('result-container').classList.remove('visible');
+      document.getElementById('result-content').innerHTML = '';
     }
 
     function renderForm() {
