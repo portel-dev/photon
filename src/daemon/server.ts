@@ -52,6 +52,48 @@ const pendingPrompts = new Map<
 let currentSocket: net.Socket | null = null;
 let currentRequestId: string | null = null;
 
+// Channel subscriptions for pub/sub
+// Map: channel name -> Set of subscribed sockets
+const channelSubscriptions = new Map<string, Set<net.Socket>>();
+
+/**
+ * Clean up all subscriptions for a socket
+ */
+function cleanupSocketSubscriptions(socket: net.Socket): void {
+  for (const [channel, subs] of channelSubscriptions.entries()) {
+    subs.delete(socket);
+    // Remove empty channels
+    if (subs.size === 0) {
+      channelSubscriptions.delete(channel);
+    }
+  }
+}
+
+/**
+ * Publish a message to all subscribers of a channel
+ */
+function publishToChannel(channel: string, message: unknown, excludeSocket?: net.Socket): void {
+  const subscribers = channelSubscriptions.get(channel);
+  if (!subscribers || subscribers.size === 0) return;
+
+  const payload = JSON.stringify({
+    type: 'channel_message',
+    id: `ch_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    channel,
+    message,
+  }) + '\n';
+
+  for (const socket of subscribers) {
+    if (socket !== excludeSocket && !socket.destroyed) {
+      try {
+        socket.write(payload);
+      } catch {
+        // Socket write failed, will be cleaned up on 'end' event
+      }
+    }
+  }
+}
+
 /**
  * Initialize session manager
  */
@@ -179,6 +221,57 @@ async function handleRequest(
     return null;
   }
 
+  // Handle channel subscribe
+  if (request.type === 'subscribe') {
+    const channel = request.channel!;
+    let subs = channelSubscriptions.get(channel);
+    if (!subs) {
+      subs = new Set();
+      channelSubscriptions.set(channel, subs);
+    }
+    subs.add(socket);
+    logger.info('Client subscribed to channel', { channel, subscribers: subs.size });
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { subscribed: true, channel },
+    };
+  }
+
+  // Handle channel unsubscribe
+  if (request.type === 'unsubscribe') {
+    const channel = request.channel!;
+    const subs = channelSubscriptions.get(channel);
+    if (subs) {
+      subs.delete(socket);
+      if (subs.size === 0) {
+        channelSubscriptions.delete(channel);
+      }
+    }
+    logger.info('Client unsubscribed from channel', { channel });
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { unsubscribed: true, channel },
+    };
+  }
+
+  // Handle channel publish
+  if (request.type === 'publish') {
+    const channel = request.channel!;
+    const message = request.message;
+    publishToChannel(channel, message, socket);
+    logger.info('Published to channel', { channel });
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { published: true, channel },
+    };
+  }
+
   if (request.type === 'command') {
     if (!request.method) {
       return {
@@ -304,10 +397,16 @@ function startServer(): void {
 
     socket.on('end', () => {
       logger.info('Client disconnected');
+      cleanupSocketSubscriptions(socket);
     });
 
     socket.on('error', (error) => {
       logger.warn('Socket error', { error: getErrorMessage(error) });
+      cleanupSocketSubscriptions(socket);
+    });
+
+    socket.on('close', () => {
+      cleanupSocketSubscriptions(socket);
     });
   });
 
