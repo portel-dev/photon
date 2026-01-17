@@ -3702,7 +3702,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .activity-panel {
       position: fixed;
       bottom: 0;
-      left: 280px;
+      left: 300px;
       right: 0;
       max-height: 300px;
       background: var(--bg-elevated);
