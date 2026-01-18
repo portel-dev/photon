@@ -178,7 +178,8 @@ export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
   const res = obj as Partial<DaemonResponse>;
 
   if (typeof res.id !== 'string') return false;
-  if (!['result', 'error', 'pong', 'prompt', 'channel_message'].includes(res.type as string)) return false;
+  if (!['result', 'error', 'pong', 'prompt', 'channel_message'].includes(res.type as string))
+    return false;
 
   return true;
 }

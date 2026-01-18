@@ -74,7 +74,11 @@ const DEFAULT_LOCK_TIMEOUT = 30000; // 30 seconds
 /**
  * Try to acquire a lock
  */
-function acquireLock(lockName: string, holder: string, timeout: number = DEFAULT_LOCK_TIMEOUT): boolean {
+function acquireLock(
+  lockName: string,
+  holder: string,
+  timeout: number = DEFAULT_LOCK_TIMEOUT
+): boolean {
   const now = Date.now();
 
   // Check if lock exists and is still valid
@@ -219,7 +223,11 @@ function scheduleJob(job: ScheduledJob): boolean {
   const timer = setTimeout(() => runJob(job.id), delay);
   jobTimers.set(job.id, timer);
 
-  logger.info('Job scheduled', { jobId: job.id, method: job.method, nextRun: new Date(nextRun).toISOString() });
+  logger.info('Job scheduled', {
+    jobId: job.id,
+    method: job.method,
+    nextRun: new Date(nextRun).toISOString(),
+  });
   return true;
 }
 
@@ -419,12 +427,13 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
   const subscribers = channelSubscriptions.get(channel);
   if (!subscribers || subscribers.size === 0) return;
 
-  const payload = JSON.stringify({
-    type: 'channel_message',
-    id: `ch_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-    channel,
-    message,
-  }) + '\n';
+  const payload =
+    JSON.stringify({
+      type: 'channel_message',
+      id: `ch_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      channel,
+      message,
+    }) + '\n';
 
   for (const socket of subscribers) {
     if (socket !== excludeSocket && !socket.destroyed) {

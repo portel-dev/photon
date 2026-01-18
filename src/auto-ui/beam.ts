@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { WebSocketServer, WebSocket } from 'ws';
-import { listPhotonMCPs, resolvePhotonPath, DEFAULT_PHOTON_DIR } from '../path-resolver.js';
+import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { toEnvVarName } from '../shared/config-docs.js';
@@ -444,7 +444,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             items,
           })
         );
-      } catch (error) {
+      } catch {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to read directory' }));
       }
@@ -519,7 +519,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         res.setHeader('Content-Type', 'text/html');
         res.writeHead(200);
         res.end(uiContent);
-      } catch (err) {
+      } catch {
         res.writeHead(404);
         res.end(JSON.stringify({ error: `UI template not found: ${uiId}` }));
       }
@@ -563,7 +563,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         res.setHeader('Content-Type', 'text/html');
         res.writeHead(200);
         res.end(templateContent);
-      } catch (err) {
+      } catch {
         res.writeHead(404);
         res.end(JSON.stringify({ error: `Template not found: ${templateFile}` }));
       }
@@ -616,7 +616,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         res.writeHead(200);
         res.end(JSON.stringify({ photons: photonList }));
-      } catch (err) {
+      } catch {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Search failed' }));
       }
@@ -644,7 +644,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         res.writeHead(200);
         res.end(JSON.stringify({ photons: photonList }));
-      } catch (err) {
+      } catch {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to list photons' }));
       }
@@ -703,7 +703,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
           // Broadcast to connected clients to reload photon list
           broadcast({ type: 'photon_added', name });
-        } catch (err) {
+        } catch {
           res.writeHead(500);
           res.end(JSON.stringify({ error: 'Failed to add photon' }));
         }
@@ -735,7 +735,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         res.writeHead(200);
         res.end(JSON.stringify({ sources: sourcesWithCounts }));
-      } catch (err) {
+      } catch {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to get marketplace sources' }));
       }
@@ -918,7 +918,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
         res.writeHead(200);
         res.end(JSON.stringify({ updates }));
-      } catch (err) {
+      } catch {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Failed to check for updates' }));
       }
@@ -982,7 +982,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                 proc.on('close', (code) => {
                   const output = stdout.trim() || stderr.trim();
                   const hasOutput = output.length > 0;
-                  const infraErrors = ['Photon not found', 'command not found', 'Cannot find module', 'ENOENT'];
+                  const infraErrors = [
+                    'Photon not found',
+                    'command not found',
+                    'Cannot find module',
+                    'ENOENT',
+                  ];
                   const isInfraError = infraErrors.some((e) => (stdout + stderr).includes(e));
 
                   if (hasOutput && !isInfraError) {
@@ -991,7 +996,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                   } else if (isInfraError) {
                     resolve({ passed: false, error: `CLI infrastructure error: ${output}` });
                   } else {
-                    resolve({ passed: false, error: `CLI test failed with code ${code}: no output` });
+                    resolve({
+                      passed: false,
+                      error: `CLI test failed with code ${code}: no output`,
+                    });
                   }
                 });
 
@@ -1062,7 +1070,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
               })
             );
           }
-        } catch (err: any) {
+        } catch {
           res.writeHead(400);
           res.end(JSON.stringify({ passed: false, error: 'Invalid request' }));
         }
@@ -1102,7 +1110,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         // Subscribe to all kanban board updates using a pattern
         // For now, subscribe to 'default' board - can be extended dynamically
         const unsubscribe = await subscribeChannel('kanban', 'kanban:default', (message: any) => {
-          logger.info('Received channel message', { channel: 'kanban:default', event: message?.event });
+          logger.info('Received channel message', {
+            channel: 'kanban:default',
+            event: message?.event,
+          });
           broadcast({
             type: 'channel',
             channel: 'kanban:default',
@@ -1112,7 +1123,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         channelSubscriptions.push(unsubscribe);
         logger.info('Subscribed to kanban:default channel');
       }
-    } catch (err) {
+    } catch {
       // Daemon not running - that's fine, we'll use in-process events
       logger.debug('Kanban daemon not running, using in-process events only');
     }
@@ -1428,19 +1439,19 @@ async function handleInvoke(
   const instance = mcp.instance;
 
   // Check if method exists - look on instance first, then prototype (handles property/method name collisions)
-  const methodFn = typeof instance[method] === 'function'
-    ? instance[method]
-    : Object.getPrototypeOf(instance)?.[method];
+  const methodFn =
+    typeof instance[method] === 'function'
+      ? instance[method]
+      : Object.getPrototypeOf(instance)?.[method];
 
   if (typeof methodFn !== 'function') {
     // Get available methods from schema for helpful error
     const schemas = (mcp as any).schemas || [];
-    const availableMethods = schemas.map((s: any) => s.name).filter((n: string) =>
-      !['onInitialize', 'onShutdown', 'constructor'].includes(n)
-    );
-    const suggestion = availableMethods.length > 0
-      ? ` Available methods: ${availableMethods.join(', ')}`
-      : '';
+    const availableMethods = schemas
+      .map((s: any) => s.name)
+      .filter((n: string) => !['onInitialize', 'onShutdown', 'constructor'].includes(n));
+    const suggestion =
+      availableMethods.length > 0 ? ` Available methods: ${availableMethods.join(', ')}` : '';
 
     // Check if there's a property with the same name (naming collision)
     const hasPropertyCollision = method in instance && typeof instance[method] !== 'function';
@@ -2789,6 +2800,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .photon-view-header .pv-actions {
       display: flex;
       gap: 8px;
+      position: relative;
     }
 
     .photon-view-content {
@@ -5439,33 +5451,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
             <p class="pv-desc" id="pv-desc"></p>
           </div>
           <div class="pv-actions">
-            <button class="btn btn-secondary" onclick="togglePhotonSettings(event)" title="Photon settings">
+            <button class="btn btn-secondary" onclick="togglePhotonSettings(event)" title="Settings">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
               </svg>
             </button>
             <div class="settings-menu" id="pv-settings-menu">
-              <button onclick="reconfigurePhoton()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                </svg>
-                Reconfigure
-              </button>
-              <button onclick="reloadPhoton()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M23 4v6h-6M1 20v-6h6"></path>
-                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
-                </svg>
-                Reload
-              </button>
-              <div class="settings-divider"></div>
-              <button class="danger" onclick="removePhoton()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-                </svg>
-                Remove
-              </button>
+              <!-- Populated dynamically by renderPhotonView() -->
             </div>
           </div>
         </div>
@@ -5624,11 +5617,12 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
         <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">
           Photon is a runtime for single-file TypeScript tools called <strong>photons</strong>.
           Each photon provides capabilities that AI assistants can use to help you with tasks.
+          The <a href="https://github.com/portel-dev/photons" target="_blank" style="color: var(--accent);">official marketplace</a> includes 16+ production-ready photons.
         </p>
 
         <h3 style="margin-bottom: 12px; color: var(--text-primary);">What is Beam?</h3>
         <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">
-          Beam is the interactive control panel for your photons. Here you can:
+          Beam is the visual control panel for Photon. Just run <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">photon</code> to open it. Here you can:
         </p>
         <ul style="color: var(--text-secondary); line-height: 1.8; margin-bottom: 20px; padding-left: 20px;">
           <li>Browse and install photons from marketplaces</li>
@@ -5636,6 +5630,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
           <li>Configure photon settings and credentials</li>
           <li>View activity logs and test results</li>
         </ul>
+
+        <h3 style="margin-bottom: 12px; color: var(--text-primary);">Getting Started</h3>
+        <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
+          Press <kbd style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-family: monospace;">P</kbd> to browse the marketplace and install photons, or use the CLI:
+        </p>
+        <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin-bottom: 20px;"><code>photon add filesystem
+photon add github-issues
+photon add memory</code></pre>
 
         <h3 style="margin-bottom: 12px; color: var(--text-primary);">Keyboard Shortcuts</h3>
         <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; color: var(--text-secondary); font-size: 13px; margin-bottom: 20px;">
@@ -5651,24 +5653,24 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
         <h3 style="margin-bottom: 12px; color: var(--text-primary);">Using with Claude Desktop</h3>
         <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
-          To use photons with Claude Desktop, add them to your MCP config:
+          After installing a photon, add it to your MCP config:
         </p>
         <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin-bottom: 20px;"><code>{
   "mcpServers": {
-    "photon": {
-      "command": "npx",
-      "args": ["@anthropic/photon"]
+    "filesystem": {
+      "command": "photon",
+      "args": ["mcp", "filesystem"]
     }
   }
 }</code></pre>
 
         <h3 style="margin-bottom: 12px; color: var(--text-primary);">Links</h3>
         <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-          <a href="https://github.com/anthropics/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
-            GitHub Repository
+          <a href="https://github.com/portel-dev/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
+            Photon Runtime
           </a>
-          <a href="https://docs.anthropic.com/photon" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
-            Documentation
+          <a href="https://github.com/portel-dev/photons" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
+            Official Marketplace
           </a>
         </div>
       </div>
@@ -10044,10 +10046,10 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       // Don't process other shortcuts when in input
       if (isInput) return;
 
-      // ? - Show keyboard help
-      if (e.key === '?' && !hasModifier) {
+      // ? - Show help
+      if (e.key === '?') {
         e.preventDefault();
-        toggleKeyboardHelp();
+        showHelp();
         return;
       }
 

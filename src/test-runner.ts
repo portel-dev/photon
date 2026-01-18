@@ -765,9 +765,7 @@ function printSummary(summary: TestSummary): void {
     );
     if (interfaceFailures.length > 0) {
       console.log('');
-      console.log(
-        chalk.yellow('Tip: Interface test failures may indicate MCP protocol issues.')
-      );
+      console.log(chalk.yellow('Tip: Interface test failures may indicate MCP protocol issues.'));
       console.log(chalk.yellow('     Run with --json to get issue URLs for bug reports.'));
     }
   }
