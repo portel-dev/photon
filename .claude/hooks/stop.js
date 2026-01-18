@@ -3,7 +3,7 @@
  * Claude Code Stop Hook - Kanban Task Enforcement
  *
  * When Claude tries to finish, this hook checks for pending tasks.
- * If tasks exist, it returns an error which makes Claude continue working.
+ * If tasks exist, it blocks stopping and makes Claude continue working.
  */
 
 import { execSync } from 'child_process';
@@ -21,8 +21,11 @@ try {
   const tasks = JSON.parse(result.trim());
 
   if (Array.isArray(tasks) && tasks.length > 0) {
-    console.error(`Tasks pending. Check kanban board for project "${BOARD}"`);
-    process.exit(1);
+    // Output JSON to stdout with decision: block
+    console.log(JSON.stringify({
+      decision: 'block',
+      reason: `Tasks pending. Check kanban board for project "${BOARD}"`
+    }));
   }
 } catch {
   // Kanban not available - let it pass
