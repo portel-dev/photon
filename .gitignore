@@ -7,6 +7,7 @@ dist/
 .env
 .env.local
 coverage/
+tests/**/debug/
 .vscode/
 .idea/
 CLAUDE.md
