@@ -2,7 +2,7 @@
  * Tests for Photon Loader - Template and Static extraction
  */
 
-import { PhotonLoader } from '../src/loader.js';
+import { PhotonLoader } from '../dist/loader.js';
 import { strict as assert } from 'assert';
 import * as fs from 'fs/promises';
 import * as path from 'path';

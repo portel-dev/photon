@@ -2,7 +2,7 @@
  * Tests for Photon Server - MCP protocol handlers
  */
 
-import { PhotonServer } from '../src/server.js';
+import { PhotonServer } from '../dist/server.js';
 import { strict as assert } from 'assert';
 import * as fs from 'fs/promises';
 import * as path from 'path';
