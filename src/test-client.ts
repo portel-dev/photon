@@ -72,7 +72,7 @@ export class MCPTestClient {
             this.pendingRequests.delete(response.id);
             pending.resolve(response);
           }
-        } catch (error) {
+        } catch {
           logger.error('[test-client] Failed to parse response:', { line });
         }
       });
