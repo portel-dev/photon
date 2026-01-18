@@ -1109,7 +1109,11 @@ program
         const url = `http://localhost:${port}`;
         const { exec } = await import('child_process');
         const openCmd =
-          process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+          process.platform === 'darwin'
+            ? 'open'
+            : process.platform === 'win32'
+              ? 'start'
+              : 'xdg-open';
         exec(`${openCmd} ${url}`, (err) => {
           if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
         });

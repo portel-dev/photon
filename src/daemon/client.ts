@@ -568,9 +568,7 @@ export async function unscheduleJob(photonName: string, jobId: string): Promise<
 /**
  * List all scheduled jobs
  */
-export async function listJobs(
-  photonName: string
-): Promise<
+export async function listJobs(photonName: string): Promise<
   Array<{
     id: string;
     method: string;

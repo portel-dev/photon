@@ -217,6 +217,14 @@ No manual `npm install`. No `package.json`. Photon handles it.
 npm install -g @portel/photon
 ```
 
+### Launch Beam UI
+
+```bash
+photon
+```
+
+This opens Beam in your browser - a visual control panel where you can browse marketplaces, install photons, run methods, and configure settings. No CLI knowledge required.
+
 ### Use Ready-Made Photons
 
 The [**official Photon marketplace**](https://github.com/portel-dev/photons) comes pre-configured with 16+ production-ready photons:

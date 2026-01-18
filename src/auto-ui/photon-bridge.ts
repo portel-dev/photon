@@ -13,7 +13,7 @@
  */
 
 // Browser globals for client-side code (runs in iframe)
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 declare const window: {
   photon?: PhotonBridge;
   openai?: any;
