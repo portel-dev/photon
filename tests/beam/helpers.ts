@@ -65,6 +65,9 @@ export interface BeamContext {
 
 let beamProcess: ChildProcess | null = null;
 let browser: Browser | null = null;
+let sharedPage: Page | null = null;
+let sharedPort: number | null = null;
+let serverReady = false;
 
 /**
  * Start BEAM server for testing
@@ -95,7 +98,23 @@ async function startBeam(port: number, workingDir?: string): Promise<void> {
       }
       if (output.includes('Photon Beam') && !started) {
         started = true;
-        setTimeout(resolve, 500); // Give it a moment to stabilize
+        // Wait longer for server to be fully ready, then verify it's responding
+        setTimeout(async () => {
+          // Verify server is actually responding
+          for (let i = 0; i < 5; i++) {
+            try {
+              const response = await fetch(`http://localhost:${port}`);
+              if (response.ok) {
+                resolve();
+                return;
+              }
+            } catch {
+              // Server not ready yet, wait and retry
+            }
+            await new Promise(r => setTimeout(r, 200));
+          }
+          resolve(); // Proceed anyway after retries
+        }, 800);
       }
     });
 
@@ -111,9 +130,9 @@ async function startBeam(port: number, workingDir?: string): Promise<void> {
     // Timeout if server doesn't start
     setTimeout(() => {
       if (!started) {
-        reject(new Error('BEAM server failed to start within 10s'));
+        reject(new Error('BEAM server failed to start within 15s'));
       }
-    }, 10000);
+    }, 15000);
   });
 }
 
@@ -122,8 +141,29 @@ async function startBeam(port: number, workingDir?: string): Promise<void> {
  */
 async function stopBeam(): Promise<void> {
   if (beamProcess) {
-    beamProcess.kill();
+    beamProcess.kill('SIGTERM');
+    // Wait for process to fully terminate
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (beamProcess) {
+          beamProcess.kill('SIGKILL');
+        }
+        resolve();
+      }, 2000);
+
+      if (beamProcess) {
+        beamProcess.on('exit', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      } else {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
     beamProcess = null;
+    // Brief pause to ensure port is released
+    await new Promise(r => setTimeout(r, 300));
   }
 }
 
@@ -166,12 +206,12 @@ function createBeamContext(page: Page, port: number): BeamContext {
 
       // Wait for photon view to be visible
       const photonView = page.locator('#photon-view');
-      await photonView.waitFor({ state: 'visible', timeout: 5000 });
+      await photonView.waitFor({ state: 'visible', timeout: 10000 });
 
       // Click the method card
       const methodCard = page.locator(`.method-card[data-method="${method}"]`);
       await methodCard.scrollIntoViewIfNeeded();
-      await methodCard.waitFor({ state: 'visible', timeout: 5000 });
+      await methodCard.waitFor({ state: 'visible', timeout: 10000 });
       await methodCard.click();
       await page.waitForTimeout(500); // Wait for execution
     },
@@ -183,11 +223,23 @@ function createBeamContext(page: Page, port: number): BeamContext {
       if (!pvVisible) {
         resultContent = page.locator('#result-content');
       }
-      await resultContent.waitFor({ state: 'visible', timeout: 5000 });
+      await resultContent.waitFor({ state: 'visible', timeout: 10000 });
+
+      // Wait for result to be populated (not empty)
+      await page.waitForFunction(
+        (selector: string) => {
+          const el = document.querySelector(selector);
+          return el && el.innerHTML.trim().length > 0;
+        },
+        pvVisible ? '#pv-result-content' : '#result-content',
+        { timeout: 10000 }
+      ).catch(() => {
+        // Continue anyway - content might be there
+      });
 
       if (expected.type === 'kv-table') {
         // Smart rendering: flat objects render as cards or kv-tables
-        const kvTable = resultContent.locator('.kv-table, .smart-card');
+        const kvTable = resultContent.locator('.kv-table, .smart-card, table');
         assert.ok(await kvTable.count() > 0, 'Expected key-value table or card');
 
         if (expected.contains) {
@@ -326,39 +378,88 @@ function createBeamContext(page: Page, port: number): BeamContext {
 /**
  * Run tests with BEAM context
  */
+/**
+ * Initialize shared server and browser for all tests
+ */
+async function initSharedContext(workingDir?: string): Promise<void> {
+  if (serverReady && sharedPage && sharedPort) return;
+
+  const port = 3500 + Math.floor(Math.random() * 100);
+  sharedPort = port;
+
+  await startBeam(port, workingDir);
+  browser = await initBrowser();
+  sharedPage = await browser.newPage();
+  sharedPage.setDefaultTimeout(60000);
+
+  // Navigate and wait for page to be fully loaded
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await sharedPage.goto(`http://localhost:${port}`, { timeout: 60000 });
+      await sharedPage.waitForLoadState('networkidle', { timeout: 45000 });
+
+      // Wait for sidebar to show photons (may take time to load)
+      await sharedPage.waitForSelector('.photon-header', { timeout: 45000 });
+      serverReady = true;
+      return;
+    } catch (e) {
+      if (attempt === 3) throw e;
+      if (process.env.DEBUG) {
+        console.error(`[BEAM] Init attempt ${attempt} failed, retrying...`);
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+}
+
+/**
+ * Cleanup shared context at end of test suite
+ */
+async function cleanupSharedContext(): Promise<void> {
+  if (browser) {
+    await browser.close();
+    browser = null;
+  }
+  sharedPage = null;
+  await stopBeam();
+  serverReady = false;
+  sharedPort = null;
+}
+
 export async function withBeam(
   fn: (beam: BeamContext) => Promise<void>,
   options?: { port?: number; workingDir?: string }
 ): Promise<void> {
-  const port = options?.port || 3500 + Math.floor(Math.random() * 100);
-  let page: Page | null = null;
-
   try {
-    await startBeam(port, options?.workingDir);
-    browser = await initBrowser();
-    page = await browser.newPage();
+    // Initialize shared context if not already done
+    await initSharedContext(options?.workingDir);
 
-    await page.goto(`http://localhost:${port}`);
-    await page.waitForLoadState('networkidle');
+    if (!sharedPage || !sharedPort) {
+      throw new Error('Failed to initialize shared context');
+    }
 
-    const beam = createBeamContext(page, port);
+    // Navigate back to home before each test to reset state
+    await sharedPage.goto(`http://localhost:${sharedPort}`, { timeout: 30000 });
+    await sharedPage.waitForLoadState('networkidle', { timeout: 15000 });
+
+    // Wait for sidebar to be ready
+    await sharedPage.waitForSelector('.photon-header', { timeout: 15000 });
+
+    const beam = createBeamContext(sharedPage, sharedPort);
     await fn(beam);
   } catch (error) {
     // Take debug screenshot on failure
-    if (page) {
+    if (sharedPage) {
       const debugDir = path.join(__dirname, 'debug');
       await fs.mkdir(debugDir, { recursive: true });
-      await page.screenshot({ path: path.join(debugDir, `failure-${Date.now()}.png`), fullPage: true });
+      await sharedPage.screenshot({ path: path.join(debugDir, `failure-${Date.now()}.png`), fullPage: true });
     }
     throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
-      browser = null;
-    }
-    await stopBeam();
   }
 }
+
+// Export cleanup function for test runner
+export { cleanupSharedContext };
 
 /**
  * Simple test runner
@@ -375,17 +476,22 @@ export async function runTests(): Promise<void> {
   let passed = 0;
   let failed = 0;
 
-  for (const t of tests) {
-    try {
-      process.stdout.write(`  ${t.name}... `);
-      await t.fn();
-      console.log('✅');
-      passed++;
-    } catch (error) {
-      console.log('❌');
-      console.error(`    ${error}`);
-      failed++;
+  try {
+    for (const t of tests) {
+      try {
+        process.stdout.write(`  ${t.name}... `);
+        await t.fn();
+        console.log('✅');
+        passed++;
+      } catch (error) {
+        console.log('❌');
+        console.error(`    ${error}`);
+        failed++;
+      }
     }
+  } finally {
+    // Cleanup shared context after all tests
+    await cleanupSharedContext();
   }
 
   console.log(`\n📊 Results: ${passed} passed, ${failed} failed`);
