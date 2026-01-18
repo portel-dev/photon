@@ -16,24 +16,15 @@ import {
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
-  ToolListChangedNotificationSchema,
-  PromptListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import {
-  PhotonMCPClassExtended,
-  Template,
-  Static,
-  TemplateResponse,
-  TemplateMessage,
-} from '@portel/photon-core';
+import { PhotonMCPClassExtended } from '@portel/photon-core';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 import { PHOTON_VERSION } from './version.js';
-import { createLogger, Logger, LoggerOptions, LogLevel, type LogRecord } from './shared/logger.js';
+import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import {
   validateOrThrow,
@@ -1232,7 +1223,7 @@ export class PhotonServer {
             });
             res.end(content);
             return;
-          } catch (e) {
+          } catch {
             // Fall through to 404
           }
         }
@@ -1589,7 +1580,7 @@ export class PhotonServer {
    * Handle asset read (for both stdio and SSE handlers)
    */
   private async handleAssetRead(uri: string, assetMatch: RegExpMatchArray) {
-    const [, photonName, assetType, assetId] = assetMatch;
+    const [, _photonName, assetType, assetId] = assetMatch;
 
     let resolvedPath: string | undefined;
     let mimeType: string = 'text/plain';
@@ -1656,7 +1647,7 @@ export class PhotonServer {
       }
 
       // Close SSE sessions
-      for (const [sessionId, session] of this.sseSessions) {
+      for (const [_sessionId, session] of this.sseSessions) {
         await session.server.close();
       }
       this.sseSessions.clear();

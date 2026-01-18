@@ -11,7 +11,6 @@
  */
 
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
