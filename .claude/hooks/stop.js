@@ -7,8 +7,10 @@
  */
 
 import { execSync } from 'child_process';
+import { basename } from 'path';
 
-const BOARD = process.env.KANBAN_BOARD || 'photon';
+// Default to current directory name (project name)
+const BOARD = process.env.KANBAN_BOARD || basename(process.cwd());
 
 async function checkPendingTasks() {
   try {
