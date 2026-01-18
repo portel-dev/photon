@@ -1259,6 +1259,175 @@ export default class MyPhoton {
 
 ---
 
+## Beam UI
+
+Beam is a visual control panel for managing photons. Launch it with:
+
+```bash
+photon beam
+# or just
+photon
+```
+
+**Features:**
+- 📦 **Photon Browser** - View all installed photons and their tools
+- 🛒 **Marketplace** - Browse and install photons from any configured marketplace
+- ▶️ **Method Runner** - Execute photon methods with a visual interface
+- ⚙️ **Settings** - Configure environment variables and preferences
+- 📊 **Real-time Updates** - See live changes via pub/sub channels
+
+Beam runs as a local web server and opens in your default browser. It communicates with photon daemons via WebSocket for real-time updates.
+
+---
+
+## Daemon Protocol
+
+Photon includes a daemon infrastructure for advanced inter-process communication. This enables real-time coordination between CLI tools, MCP servers, and the Beam UI.
+
+### Overview
+
+The daemon provides four key capabilities:
+
+| Feature | Description |
+|---------|-------------|
+| **Pub/Sub Channels** | Real-time cross-process messaging |
+| **Distributed Locks** | Coordinate exclusive access to resources |
+| **Scheduled Jobs** | Cron-like background task execution |
+| **Webhooks** | HTTP endpoints for external service integration |
+
+### How It Works
+
+```
+┌─────────────────┐     ┌───────────────────────────────────┐     ┌────────────────┐
+│  Photon Tool    │────▶│   Daemon                          │────▶│  BEAM UI       │
+│  (MCP/Claude)   │     │   ~/.photon/daemons/kanban.sock   │     │  (WebSocket)   │
+└─────────────────┘     └───────────────────────────────────┘     └────────────────┘
+        │                             ▲                                    │
+        │                             │                                    │
+        └─────── emit({ channel }) ───┴──── subscribe(channel) ────────────┘
+```
+
+When Claude moves a Kanban task via MCP, the daemon broadcasts the change to all subscribers (including Beam UI), enabling real-time updates across all connected clients.
+
+### Pub/Sub Messaging
+
+Broadcast messages across processes in real-time:
+
+```typescript
+// In a photon method - publish to a channel
+async moveTask(params: { taskId: string; column: string }) {
+  // ... move task logic ...
+
+  // Broadcast to all subscribers
+  this.emit({
+    channel: `board:${this.boardName}`,
+    event: 'task-moved',
+    data: { taskId: params.taskId, newColumn: params.column }
+  });
+
+  return { success: true };
+}
+```
+
+**Use Cases:**
+- Real-time UI updates when data changes
+- Cross-tool coordination
+- Live dashboards and monitoring
+
+### Distributed Locks
+
+Coordinate exclusive access to shared resources:
+
+```typescript
+import { acquireLock, releaseLock } from '@portel/photon/daemon/client';
+
+const acquired = await acquireLock('kanban', 'board:default:write', 30000);
+
+if (acquired) {
+  try {
+    // Do exclusive work...
+  } finally {
+    await releaseLock('kanban', 'board:default:write');
+  }
+}
+```
+
+**Features:**
+- Auto-expiration (default 30s timeout)
+- Session-bound (only holder can release)
+- Re-entrant (same session can re-acquire)
+
+### Scheduled Jobs
+
+Cron-like background task execution:
+
+```typescript
+import { scheduleJob, unscheduleJob, listJobs } from '@portel/photon/daemon/client';
+
+// Schedule a daily cleanup
+await scheduleJob(
+  'kanban',
+  'daily-cleanup',
+  'cleanupOldTasks',
+  '0 0 * * *',  // Daily at midnight
+  { maxAge: 604800 }  // 7 days
+);
+
+// List all scheduled jobs
+const jobs = await listJobs('kanban');
+
+// Remove a job
+await unscheduleJob('kanban', 'daily-cleanup');
+```
+
+**Cron Syntax:**
+```
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+* * * * *
+```
+
+### Webhooks
+
+HTTP endpoints for external services (GitHub, Stripe, etc.):
+
+```typescript
+// In your photon
+async handleGithubPush(params: {
+  ref: string;
+  commits: Array<{ message: string }>;
+}) {
+  const branch = params.ref.replace('refs/heads/', '');
+
+  this.emit({
+    channel: 'github:updates',
+    event: 'push',
+    data: { branch, commitCount: params.commits.length }
+  });
+
+  return { processed: true };
+}
+```
+
+Configure your webhook URL:
+```
+POST http://localhost:3457/webhook/handleGithubPush
+X-Webhook-Secret: your-secret-token
+```
+
+### Limitations
+
+- **Local only**: Unix sockets work on a single machine
+- **No persistence**: Messages are not stored; missed messages are lost
+- **Memory-based**: All subscriptions and jobs are in-memory
+
+For production/cloud deployments, use Redis or HTTP channel brokers in `@portel/photon-core`.
+
+---
+
 ## Examples
 
 The repository includes example photons in `examples/`:
@@ -1441,6 +1610,7 @@ Photon's framework-agnostic design enables future deployment targets. More on th
 - **[GUIDE.md](GUIDE.md)** - Complete tutorial for creating photons
 - **[ADVANCED.md](ADVANCED.md)** - Lifecycle hooks, performance, production deployment
 - **[COMPARISON.md](COMPARISON.md)** - Detailed comparison vs traditional MCP
+- **[DAEMON-PUBSUB.md](DAEMON-PUBSUB.md)** - Full daemon protocol specification (pub/sub, locks, jobs, webhooks)
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
