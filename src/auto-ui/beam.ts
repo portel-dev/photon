@@ -3420,6 +3420,28 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       margin: 6px 0;
     }
 
+    .app-settings-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .app-settings-empty-icon {
+      font-size: 24px;
+      color: var(--success);
+      margin-bottom: 8px;
+    }
+
+    .app-settings-empty-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
     /* Form styles */
     .form-group {
       margin-bottom: 24px;
@@ -7357,6 +7379,52 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       document.getElementById('pv-desc').textContent = currentPhoton.description || 'No description available';
       document.getElementById('pv-icon').textContent = currentPhoton.appEntry?.icon || '⚡';
 
+      // Populate settings menu based on whether photon has configuration
+      const hasConfig = currentPhoton.constructorParams && currentPhoton.constructorParams.length > 0;
+      const settingsMenu = document.getElementById('pv-settings-menu');
+      settingsMenu.innerHTML = hasConfig ? \`
+        <button onclick="reconfigurePhoton()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+          Reconfigure
+        </button>
+        <button onclick="reloadPhoton()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+          </svg>
+          Reload
+        </button>
+        <div class="settings-divider"></div>
+        <button class="danger" onclick="removePhoton()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+          </svg>
+          Remove
+        </button>
+      \` : \`
+        <div class="app-settings-empty">
+          <span class="app-settings-empty-icon">✓</span>
+          <span>No configuration needed</span>
+          <span class="app-settings-empty-sub">You're all set!</span>
+        </div>
+        <div class="settings-divider"></div>
+        <button onclick="reloadPhoton()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+          </svg>
+          Reload
+        </button>
+        <button class="danger" onclick="removePhoton()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+          </svg>
+          Remove
+        </button>
+      \`;
+
       // Separate methods and tests
       const methods = currentPhoton.methods.filter(m => !m.name.startsWith('test'));
       const tests = currentPhoton.methods.filter(m => m.name.startsWith('test'));
@@ -7799,13 +7867,19 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
 
       const configMethods = photon.methods.filter(m => m.name !== 'main' && isConfigMethod(m.name));
 
-      // Hide settings button if no config methods
+      if (settingsBtn) settingsBtn.style.display = 'flex';
+
       if (configMethods.length === 0) {
-        if (settingsBtn) settingsBtn.style.display = 'none';
+        // Show friendly message when no configuration needed
+        menu.innerHTML = \`
+          <div class="app-settings-empty">
+            <span class="app-settings-empty-icon">✓</span>
+            <span>No configuration needed</span>
+            <span class="app-settings-empty-sub">You're all set!</span>
+          </div>
+        \`;
         return;
       }
-
-      if (settingsBtn) settingsBtn.style.display = 'flex';
 
       menu.innerHTML = configMethods.map(method => \`
         <div class="app-settings-item" onclick="openAppMethod('\${photon.name}', '\${method.name}')">
