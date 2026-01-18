@@ -155,34 +155,34 @@ function createBeamContext(page: Page, port: number): BeamContext {
     },
 
     async selectMethod(photon: string, method: string) {
-      // First expand the photon if not already
+      // New workspace-centric flow:
+      // 1. Click photon header to show photon-view with method cards
+      // 2. Click method card to show method panel
+
       const photonHeader = page.locator(`.photon-header[data-photon="${photon}"]`);
       await photonHeader.waitFor({ state: 'visible', timeout: 10000 });
+      await photonHeader.click();
+      await page.waitForTimeout(300);
 
-      // Check if the methods list is expanded (visible)
-      const methodsList = page.locator(`#methods-${photon}`);
-      const isExpanded = await methodsList.isVisible();
+      // Wait for photon view to be visible
+      const photonView = page.locator('#photon-view');
+      await photonView.waitFor({ state: 'visible', timeout: 5000 });
 
-      if (!isExpanded) {
-        await photonHeader.click();
-        await page.waitForTimeout(200);
-      }
-
-      // Scroll the sidebar to find the method
-      const sidebar = page.locator('#sidebar');
-      await sidebar.evaluate((el: HTMLElement) => el.scrollTop = 0);
-      await page.waitForTimeout(100);
-
-      // Then select the method (scroll into view)
-      const methodItem = page.locator(`#methods-${photon} .method-item:has-text("${method}")`);
-      await methodItem.scrollIntoViewIfNeeded();
-      await methodItem.waitFor({ state: 'visible', timeout: 5000 });
-      await methodItem.click();
+      // Click the method card
+      const methodCard = page.locator(`.method-card[data-method="${method}"]`);
+      await methodCard.scrollIntoViewIfNeeded();
+      await methodCard.waitFor({ state: 'visible', timeout: 5000 });
+      await methodCard.click();
       await page.waitForTimeout(500); // Wait for execution
     },
 
     async expectResult(expected: ResultExpectation) {
-      const resultContent = page.locator('#result-content');
+      // New UI uses #pv-result-content in photon view, fallback to #result-content
+      let resultContent = page.locator('#pv-result-content');
+      const pvVisible = await resultContent.isVisible().catch(() => false);
+      if (!pvVisible) {
+        resultContent = page.locator('#result-content');
+      }
       await resultContent.waitFor({ state: 'visible', timeout: 5000 });
 
       if (expected.type === 'kv-table') {
@@ -277,18 +277,33 @@ function createBeamContext(page: Page, port: number): BeamContext {
     },
 
     async getResultContent(): Promise<string> {
-      const resultContent = page.locator('#result-content');
+      // Try new photon view result first, then fallback
+      let resultContent = page.locator('#pv-result-content');
+      const pvVisible = await resultContent.isVisible().catch(() => false);
+      if (!pvVisible) {
+        resultContent = page.locator('#result-content');
+      }
       return resultContent.textContent() || '';
     },
 
     async fillField(name: string, value: string) {
-      const field = page.locator(`input[name="${name}"]`);
+      // Try photon view form first, then fallback
+      let field = page.locator(`#pv-invoke-form input[name="${name}"]`);
+      const pvVisible = await field.isVisible().catch(() => false);
+      if (!pvVisible) {
+        field = page.locator(`#invoke-form input[name="${name}"]`);
+      }
       await field.waitFor({ state: 'visible', timeout: 5000 });
       await field.fill(value);
     },
 
     async submit() {
-      const submitBtn = page.locator('button[type="submit"]');
+      // Try photon view submit first, then fallback
+      let submitBtn = page.locator('#pv-invoke-form button[type="submit"]');
+      const pvVisible = await submitBtn.isVisible().catch(() => false);
+      if (!pvVisible) {
+        submitBtn = page.locator('#invoke-form button[type="submit"]');
+      }
       await submitBtn.click();
       await page.waitForTimeout(500);
     },
