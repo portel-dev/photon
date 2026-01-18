@@ -9,8 +9,8 @@ import * as net from 'net';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { isValidDaemonRequest, isValidDaemonResponse } from '../src/daemon/protocol.js';
-import type { DaemonRequest, DaemonResponse } from '../src/daemon/protocol.js';
+import { isValidDaemonRequest, isValidDaemonResponse } from '../dist/daemon/protocol.js';
+import type { DaemonRequest, DaemonResponse } from '../dist/daemon/protocol.js';
 
 // Track test results
 let passed = 0;

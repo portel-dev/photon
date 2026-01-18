@@ -2,7 +2,7 @@
  * Tests for Marketplace Manager - Source type parsing
  */
 
-import { MarketplaceManager } from '../src/marketplace-manager.js';
+import { MarketplaceManager } from '../dist/marketplace-manager.js';
 import { strict as assert } from 'assert';
 
 async function runTests() {

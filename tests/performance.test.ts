@@ -2,7 +2,7 @@
  * Performance Utilities Tests
  */
 
-import { PerformanceMonitor, memoize, debounce, throttle } from '../src/shared/performance.js';
+import { PerformanceMonitor, memoize, debounce, throttle } from '../dist/shared/performance.js';
 
 console.log('🧪 Running Performance Utilities Tests...\n');
 

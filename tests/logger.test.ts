@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
-import { Logger } from '../src/shared/logger.js';
+import { Logger } from '../dist/shared/logger.js';
 
 class MemoryWritable extends Writable {
   public chunks: string[] = [];

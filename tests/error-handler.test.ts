@@ -16,7 +16,7 @@ import {
   wrapError,
   tryAsync,
   trySync,
-} from '../src/shared/error-handler.js';
+} from '../dist/shared/error-handler.js';
 
 function test(name: string, fn: () => void | Promise<void>) {
   return async () => {

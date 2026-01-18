@@ -23,8 +23,8 @@ import {
   validateOrThrow,
   oneOf,
   combineResults,
-} from '../src/shared/validation.js';
-import { ValidationError } from '../src/shared/error-handler.js';
+} from '../dist/shared/validation.js';
+import { ValidationError } from '../dist/shared/error-handler.js';
 
 console.log('🧪 Running Validation Utilities Tests...\n');
 
