@@ -195,7 +195,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const marketplace = new MarketplaceManager();
   await marketplace.initialize();
   // Auto-update stale caches in background
-  marketplace.autoUpdateStaleCaches().catch(() => {});
+  marketplace.autoUpdateStaleCaches().catch(() => { });
 
   // Discover all photons
   const photonList = await listPhotonMCPs(workingDir);
@@ -1820,37 +1820,61 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
       color-scheme: dark;
+      
+      /* Base Colors */
       --bg-primary: #0f0f0f;
       --bg-secondary: #161616;
       --bg-tertiary: #1c1c1c;
       --bg-elevated: #222222;
       --bg-hover: #2a2a2a;
-      --border-color: #2a2a2a;
-      --border-light: #333;
+      
+      /* Glassmorphism */
+      --bg-glass: rgba(22, 22, 22, 0.75);
+      --bg-glass-elevated: rgba(34, 34, 34, 0.75);
+      --blur-md: 12px;
+      --blur-lg: 20px;
+      
+      /* Borders */
+      --border-color: rgba(255, 255, 255, 0.1);
+      --border-light: rgba(255, 255, 255, 0.2);
+      
+      /* Text */
       --text-primary: #f5f5f5;
       --text-secondary: #a0a0a0;
       --text-muted: #666;
+      
+      /* Accents (Gradients) */
       --accent: #3b82f6;
       --accent-hover: #2563eb;
       --accent-light: #60a5fa;
+      --gradient-accent: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      --gradient-surface: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
+      
+      /* States */
       --success: #22c55e;
       --error: #ef4444;
       --warning: #f59e0b;
+      
+      /* Dimensions */
       --radius-sm: 6px;
       --radius-md: 8px;
       --radius-lg: 12px;
+      --radius-xl: 16px;
+      
+      /* Shadows */
       --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
       --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-      --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-      --transition: 0.15s ease;
+      --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+      --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.2);
+      
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    /* Light theme - applied to :root for proper variable inheritance */
-    /* Uses both .light-theme (BEAM) and .light (Design System) for compatibility */
-    /* Inspired by Saledash - soft grayish sidebar, clean whites */
+    /* Light theme */
     :root.light-theme,
     html.light-theme,
     :root.light,
@@ -1860,44 +1884,70 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       --bg-tertiary: #e2e8f0;
       --bg-elevated: #ffffff;
       --bg-hover: #e8ecf1;
-      --border-color: #cbd5e1;
-      --border-light: #e2e8f0;
+      
+      --bg-glass: rgba(255, 255, 255, 0.8);
+      --bg-glass-elevated: rgba(255, 255, 255, 0.9);
+      
+      --border-color: rgba(0, 0, 0, 0.08);
+      --border-light: rgba(0, 0, 0, 0.12);
+      
       --text-primary: #0f172a;
       --text-secondary: #475569;
       --text-muted: #94a3b8;
+      
       --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
       --shadow-md: 0 4px 12px rgba(15,23,42,0.06);
       --shadow-lg: 0 12px 32px rgba(15,23,42,0.08);
-      color-scheme: light;
+      --shadow-glow: 0 0 15px rgba(59, 130, 246, 0.15);
 
-      /* Design System color tokens for light theme - Slate scale */
       --color-surface: #ffffff;
       --color-surface-container: #f1f5f9;
-      --color-surface-container-high: #e2e8f0;
-      --color-surface-container-highest: #cbd5e1;
-      --color-on-surface: #0f172a;
-      --color-on-surface-variant: #475569;
-      --color-on-surface-muted: #94a3b8;
-      --color-outline: #94a3b8;
-      --color-outline-variant: #e2e8f0;
       --color-primary: #3b82f6;
-      --color-primary-container: #dbeafe;
-      --color-on-primary-container: #1e40af;
-      --color-success: #22c55e;
-      --color-success-container: #dcfce7;
-      --color-on-success-container: #166534;
-      --color-error: #ef4444;
-      --color-error-container: #fee2e2;
-      --color-on-error-container: #991b1b;
-      --color-warning: #f59e0b;
-      --color-warning-container: #fef3c7;
-      --color-on-warning-container: #92400e;
     }
 
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+    }
+
+    /* Animations */
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes slide-up {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    @keyframes scale-in {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+    
+    ::-webkit-scrollbar-corner {
+      background: transparent;
     }
 
     html, body {
@@ -1960,12 +2010,15 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     .sidebar {
       width: 300px;
       min-width: 300px;
-      background: var(--bg-secondary);
+      background: var(--bg-glass);
+      backdrop-filter: blur(var(--blur-md));
+      -webkit-backdrop-filter: blur(var(--blur-md));
       border-right: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
       height: 100%;
       transition: transform 0.3s ease;
+      z-index: 10;
     }
 
     .sidebar-header {
@@ -2185,6 +2238,92 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       margin-left: 8px;
     }
 
+
+    .presets-container {
+      margin-top: 4px;
+    }
+    .preset-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      padding-right: 6px;
+      border-radius: 9999px;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preset-tag:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+    .preset-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      font-size: 14px;
+      line-height: 1;
+      opacity: 0.6;
+    }
+    .preset-delete:hover {
+      background: rgba(255, 255, 255, 0.2);
+      opacity: 1;
+      color: var(--error, #ef4444);
+    }
+    .markdown-body {
+        font-family: 'Inter', sans-serif;
+    }
+    .markdown-body pre {
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        padding: 12px;
+        overflow-x: auto;
+    }
+    .markdown-body code {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.9em;
+        background: rgba(125, 125, 125, 0.1);
+        padding: 2px 4px;
+        border-radius: 4px;
+    }
+    .markdown-body pre code {
+        background: transparent;
+        padding: 0;
+    }
+    .markdown-body p {
+        margin-bottom: 1em;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+        margin-top: 1.5em;
+        margin-bottom: 0.5em;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .markdown-body ul, .markdown-body ol {
+        padding-left: 20px;
+        margin-bottom: 1em;
+    }
+    .markdown-body a {
+        color: var(--accent);
+        text-decoration: none;
+    }
+    .markdown-body a:hover {
+        text-decoration: underline;
+    }
+    .markdown-body blockquote {
+        border-left: 4px solid var(--border-color);
+        padding-left: 16px;
+        color: var(--text-secondary);
+        margin: 1em 0;
+    }
+
     /* Modal styles */
     .modal-overlay {
       position: fixed;
@@ -2208,7 +2347,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .modal-dialog {
-      background: var(--bg-secondary);
+      background: var(--bg-glass-elevated);
+      backdrop-filter: blur(var(--blur-lg));
+      -webkit-backdrop-filter: blur(var(--blur-lg));
       border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
       width: 90%;
@@ -2217,6 +2358,7 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       overflow: hidden;
       transform: scale(0.95);
       transition: transform 0.2s ease;
+      box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.05);
     }
 
     .modal-overlay.visible .modal-dialog {
@@ -2837,7 +2979,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .method-card {
-      background: var(--bg-secondary);
+      background: var(--bg-glass-elevated);
+      backdrop-filter: blur(var(--blur-md));
+      -webkit-backdrop-filter: blur(var(--blur-md));
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       padding: 16px;
@@ -2845,13 +2989,16 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      transition: all 0.15s ease;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      animation: fade-in 0.3s ease backwards;
     }
 
     .method-card:hover {
       border-color: var(--accent);
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-sm);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-glow), var(--shadow-md);
     }
 
     .method-card.selected {
@@ -3561,11 +3708,11 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       align-items: center;
       justify-content: center;
       gap: 8px;
-      padding: 12px 24px;
-      background: var(--accent);
+      padding: 10px 24px;
+      background: var(--gradient-accent);
       color: white;
       border: none;
-      border-radius: var(--radius-md);
+      border-radius: 9999px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
@@ -3575,9 +3722,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .btn:hover {
-      background: var(--accent-hover);
+      box-shadow: var(--shadow-glow);
       transform: translateY(-1px);
-      box-shadow: var(--shadow-md);
+      filter: brightness(1.05);
     }
 
     .btn:active {
@@ -3723,7 +3870,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
     }
 
     .toast {
-      background: var(--bg-elevated);
+      background: var(--bg-glass-elevated);
+      backdrop-filter: blur(var(--blur-md));
+      -webkit-backdrop-filter: blur(var(--blur-md));
       color: var(--text-primary);
       padding: 12px 20px;
       border-radius: var(--radius-md);
@@ -5774,7 +5923,22 @@ photon add memory</code></pre>
       if (activityLog.length > MAX_ACTIVITY_ITEMS) {
         activityLog.pop();
       }
+      localStorage.setItem('beam-activity-log', JSON.stringify(activityLog));
       renderActivityList();
+    }
+
+    function loadActivityLog() {
+      try {
+        const saved = localStorage.getItem('beam-activity-log');
+        if (saved) {
+          activityLog = JSON.parse(saved);
+          // Restore Date objects
+          activityLog.forEach(e => e.time = new Date(e.time));
+          renderActivityList();
+        }
+      } catch (e) {
+        console.error('Failed to load activity log', e);
+      }
     }
 
     function renderActivityList() {
@@ -5821,6 +5985,7 @@ photon add memory</code></pre>
     function clearActivity(e) {
       e.stopPropagation();
       activityLog = [];
+      localStorage.removeItem('beam-activity-log');
       renderActivityList();
     }
 
@@ -6008,6 +6173,8 @@ photon add memory</code></pre>
       ws.onopen = () => {
         console.log('Connected to Beam');
         addActivity('connect', 'Connected to Beam server');
+        // Initial activity load if empty (only once)
+        if (activityLog.length <= 1) loadActivityLog();
       };
 
       ws.onmessage = (event) => {
@@ -6267,6 +6434,112 @@ photon add memory</code></pre>
       const photon = photons.find(p => p.name === photonName && p.configured);
       const method = photon?.methods?.find(m => m.name === methodName);
       return method ? { photon, method, photonName, methodName } : null;
+    }
+
+    // ========== Presets ==========
+    const STORAGE_KEY_PRESETS = 'beam-presets';
+
+    function getPresets(photonName, methodName) {
+      try {
+        const all = JSON.parse(localStorage.getItem(STORAGE_KEY_PRESETS) || '{}');
+        const key = \`\${photonName}:\${methodName}\`;
+        return all[key] || {};
+      } catch { return {}; }
+    }
+
+    function savePreset() {
+      if (!currentPhoton || !currentMethod) return;
+      
+      const form = document.getElementById('invoke-form');
+      if (!form) return;
+
+      const name = prompt('Enter a name for this preset:');
+      if (!name) return;
+
+      const formData = new FormData(form);
+      const args = {};
+      
+      // Handle checkboxes
+      const booleanInputs = form.querySelectorAll('input[data-type="boolean"]');
+      booleanInputs.forEach(input => {
+        if (!formData.has(input.name)) {
+          args[input.name] = false;
+        }
+      });
+
+      for (const [key, value] of formData.entries()) {
+        const inputElement = form.querySelector(\`[name="\${key}"]\`);
+        const isJsonInput = inputElement && inputElement.classList.contains('json-input');
+
+        if (isJsonInput && value.trim()) {
+          try {
+            args[key] = JSON.parse(value);
+          } catch (e) {
+            args[key] = value; 
+          }
+        } 
+        else if (value === 'true') args[key] = true;
+        else if (value === 'false') args[key] = false;
+        else if (!isNaN(value) && value !== '') args[key] = parseFloat(value);
+        else args[key] = value;
+      }
+
+      const all = JSON.parse(localStorage.getItem(STORAGE_KEY_PRESETS) || '{}');
+      const key = \`\${currentPhoton.name}:\${currentMethod.name}\`;
+      if (!all[key]) all[key] = {};
+      all[key][name] = args;
+      
+      localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(all));
+      showToast('Preset saved');
+      renderForm(); // Re-render to show new preset
+    }
+
+    function applyPreset(name) {
+      if (!currentPhoton || !currentMethod) return;
+      const presets = getPresets(currentPhoton.name, currentMethod.name);
+      const args = presets[name];
+      if (!args) return;
+
+      Object.entries(args).forEach(([key, value]) => {
+        // Handle boolean toggle
+        const booleanInput = document.querySelector(\`input[name="\${key}"][data-type="boolean"]\`);
+        if (booleanInput) {
+            booleanInput.checked = !!value;
+            // Update UI
+            const label = booleanInput.closest('label');
+            const track = label.querySelector('.toggle-track');
+            const thumb = label.querySelector('.toggle-thumb');
+            const labelText = label.querySelector('.toggle-label');
+            thumb.style.transform = booleanInput.checked ? 'translateX(20px)' : 'translateX(0)';
+            track.style.background = booleanInput.checked ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary, #374151)';
+            labelText.textContent = booleanInput.checked ? 'Yes' : 'No';
+            return;
+        }
+
+        const input = document.querySelector(\`[name="\${key}"]\`);
+        if (input) {
+           if (typeof value === 'object') {
+             input.value = JSON.stringify(value, null, 2);
+           } else {
+             input.value = value;
+           }
+        }
+      });
+      
+      showToast(\`Applied preset: \${name}\`);
+    }
+
+    function deletePreset(name, e) {
+      e.stopPropagation();
+      if (!confirm(\`Delete preset "\${name}"?\`)) return;
+      
+      const all = JSON.parse(localStorage.getItem(STORAGE_KEY_PRESETS) || '{}');
+      const key = \`\${currentPhoton.name}:\${currentMethod.name}\`;
+      if (all[key]) {
+        delete all[key][name];
+        localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(all));
+        renderForm();
+      }
     }
 
     function renderMethodItem(photonName, method, showPhotonName = false) {
@@ -8054,12 +8327,31 @@ photon add memory</code></pre>
       const noParams = Object.keys(properties).length === 0;
       const willAutoExecute = noParams || (!hasRequiredFields && currentMethod.autorun) || (!hasRequiredFields && currentMethod.linkedUi);
 
+      // Render Presets
+      const presets = getPresets(currentPhoton.name, currentMethod.name);
+      if (Object.keys(presets).length > 0) {
+        html += '<div class="presets-container" style="margin-bottom: 24px;">';
+        html += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px;">Presets</div>';
+        html += '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
+        Object.keys(presets).forEach(name => {
+           html += \`<div class="preset-tag" onclick="applyPreset('\${name}')">
+             <span>\${name}</span>
+             <span class="preset-delete" onclick="deletePreset('\${name}', event)">×</span>
+           </div>\`;
+        });
+        html += '</div></div>';
+      }
+
       // Only show the Run button if user input is needed (not auto-executing)
       // Auto-executing methods can be re-run via the Reload option in settings menu
       if (!willAutoExecute) {
         // Use explicit buttonLabel from @returns {@label}, or format the method name
         const buttonLabel = currentMethod.buttonLabel || formatLabel(currentMethod.name);
+        html += \`<div style="display: flex; gap: 8px;">\`;
         html += \`<button type="submit" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>\${buttonLabel}</span></button>\`;
+        // Save Preset Button
+        html += \`<button type="button" class="btn" onclick="savePreset()" title="Save preset" style="background: var(--bg-tertiary); color: var(--text-secondary); width: 42px; padding: 0; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></button>\`;
+        html += \`</div>\`;
       }
 
       form.innerHTML = html;
@@ -8724,8 +9016,20 @@ photon add memory</code></pre>
       if (result) {
         content.innerHTML = result;
       } else {
-        // Fallback to JSON
-        content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(JSON.stringify(data, null, 2))}</pre>\`;
+        // Fallback: Check if string (Render Markdown) or JSON
+        if (typeof data === 'string') {
+          // Use marked if available, otherwise plain text
+          if (typeof marked !== 'undefined') {
+            // Configure marked for security (optional but good practice)
+            // marked.use({ headerIds: false, mangle: false });
+            content.innerHTML = \`<div class="markdown-body" style="padding: 20px; font-size: 14px; line-height: 1.6;">\${marked.parse(data)}</div>\`;
+          } else {
+            content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; white-space: pre-wrap;">\${escapeHtml(data)}</pre>\`;
+          }
+        } else {
+          // JSON
+          content.innerHTML = \`<pre style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px;">\${escapeHtml(JSON.stringify(data, null, 2))}</pre>\`;
+        }
       }
 
       // Update data tab
