@@ -1003,8 +1003,10 @@ Photon provides a comprehensive suite of commands for running, managing, and dev
 |---|---|
 | `photon mcp <name>` | Run a Photon as an MCP server. Use `--dev` for hot-reload. |
 | `photon cli <photon> [method]` | Execute Photon methods directly from the command line. |
-| `photon serve <name>` | Launch an SSE server for browser or remote access. |
-| `photon playground` | Open an interactive web UI for all your installed Photons. |
+| `photon sse <name>` | Launch a single-tenant SSE server for browser or remote access. |
+| `photon beam` | Open an interactive web UI for all your installed Photons (formerly playground). |
+| `photon serve` | Start a local multi-tenant MCP server host for development. |
+| `photon host <command>` | Manage cloud hosting: `deploy` (ship to cloud) or `preview` (run local sim). |
 
 ### Management Commands
 | Command | Usage |
@@ -1030,6 +1032,13 @@ Photon provides a comprehensive suite of commands for running, managing, and dev
 | `photon doctor` | Diagnose your environment (Node, npm, ports, config). |
 | `photon update` | Refresh marketplace indexes and check for CLI updates. |
 | `photon clear-cache` | Clear compiled Photon artifacts. |
+
+### Advanced
+| Command | Usage |
+|---|---|
+| `photon test [name]` | Run test methods defined in your Photons (supports unit/integration). |
+| `photon alias <name>` | Create a global CLI alias for a Photon (e.g. `run-my-tool`). |
+| `photon marketplace` | Manage marketplace sources (add/remove git repos). |
 
 ---
 
@@ -1246,10 +1255,14 @@ MY_TOOL_API_KEY=sk-...
 
 ### Cloudflare Workers
 
-Deploy your Photon to the edge with Cloudflare Workers:
-
+Test your Photon locally in a simulated Cloudflare environment:
 ```bash
-photon deploy cloudflare my-tool
+photon host preview cf my-tool
+```
+
+Deploy your Photon to the edge with Cloudflare Workers:
+```bash
+photon host deploy cloudflare my-tool
 ```
 
 This will:

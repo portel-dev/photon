@@ -482,8 +482,8 @@ async function performMarketplaceSync(
     description: options.description || undefined,
     owner: options.owner
       ? {
-          name: options.owner,
-        }
+        name: options.owner,
+      }
       : undefined,
     photons,
   };
@@ -833,6 +833,12 @@ program
 Runtime Commands:
   mcp <name>              Run a photon as MCP server (for AI assistants)
   cli <photon> [method]   Run photon methods from command line
+  sse <name>              Run Photon as HTTP server with SSE transport
+  beam                    Launch Photon Beam (interactive control panel)
+  serve                   Start local multi-tenant MCP hosting for development
+
+Hosting:
+  host <command>          Manage cloud hosting (preview, deploy)
 
 Package Management:
   add <name>              Install a photon from marketplace
@@ -1008,9 +1014,9 @@ program
     }
   });
 
-// Serve command: quick SSE server with auto port detection
+// SSE command: quick SSE server with auto port detection (formerly serve)
 program
-  .command('serve')
+  .command('sse', { hidden: true })
   .argument('<name>', 'Photon name (without .photon.ts extension)')
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
   .option('--dev', 'Enable development mode with hot reload')
@@ -1082,7 +1088,7 @@ program
 
 // Beam command: interactive UI for all photons
 program
-  .command('beam')
+  .command('beam', { hidden: true })
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
   .option('-o, --open', 'Auto-open browser after starting')
   .option('--no-open', 'Do not auto-open browser')
@@ -1133,12 +1139,12 @@ program
     }
   });
 
-// Serv command: local multi-tenant MCP server for testing
+// Serve command: multi-tenant MCP hosting (formerly serv)
 program
-  .command('serv')
+  .command('serve', { hidden: true })
   .option('-p, --port <number>', 'Port to run on', '4000')
   .option('-d, --debug', 'Enable debug logging')
-  .description('Start local SERV - multi-tenant MCP hosting for development')
+  .description('Start local multi-tenant MCP hosting for development')
   .action(async (options: any) => {
     try {
       const port = parseInt(options.port, 10);
@@ -1160,7 +1166,7 @@ program
       const token = await getTestToken(serv, tenant, user);
 
       console.error(`
-⚡ SERV Local Development Server
+⚡ Photon Serve (Multi-tenant Development)
 
    URL:     http://localhost:${availablePort}
    Tenant:  ${tenant.slug} (${tenant.name})
@@ -1208,7 +1214,7 @@ Press Ctrl+C to stop
 
       // Handle shutdown
       const shutdown = async () => {
-        console.error('\nShutting down SERV...');
+        console.error('\nShutting down Photon Serve...');
         await serv.shutdown();
         server.close();
         process.exit(0);
@@ -1222,8 +1228,50 @@ Press Ctrl+C to stop
     }
   });
 
-// Deploy command: deploy Photon to cloud platforms
-program
+// Host command: manage hosting and deployment (preview, deploy)
+const host = program.command('host', { hidden: true }).description('Manage cloud hosting and deployment');
+
+host
+  .command('preview')
+  .argument('<target>', 'Deployment target: cloudflare (or cf)')
+  .argument('<name>', 'Photon name (without .photon.ts extension)')
+  .option('--output <dir>', 'Output directory for generated project')
+  .description('Run Photon locally in a simulated deployment environment')
+  .action(async (target: string, name: string, options: any) => {
+    try {
+      // Get working directory from global options
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve file path from name
+      const photonPath = await resolvePhotonPath(name, workingDir);
+
+      if (!photonPath) {
+        logger.error(`Photon not found: ${name}`);
+        console.error(`Searched in: ${workingDir}`);
+        console.error(`Tip: Use 'photon info' to see available photons`);
+        process.exit(1);
+      }
+
+      const normalizedTarget = target.toLowerCase();
+
+      if (normalizedTarget === 'cloudflare' || normalizedTarget === 'cf') {
+        const { devCloudflare } = await import('./deploy/cloudflare.js');
+        await devCloudflare({
+          photonPath,
+          outputDir: options.output,
+        });
+      } else {
+        logger.error(`Unknown target: ${target}`);
+        console.error('Supported targets: cloudflare (cf)');
+        process.exit(1);
+      }
+    } catch (error) {
+      logger.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+host
   .command('deploy')
   .argument('<target>', 'Deployment target: cloudflare (or cf)')
   .argument('<name>', 'Photon name (without .photon.ts extension)')
@@ -1231,7 +1279,7 @@ program
   .option('--dry-run', 'Generate project without deploying')
   .option('--output <dir>', 'Output directory for generated project')
   .description('Deploy a Photon to cloud platforms')
-  .action(async (target: string, name: string, options: any, command: Command) => {
+  .action(async (target: string, name: string, options: any) => {
     try {
       // Get working directory from global options
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
@@ -1263,38 +1311,6 @@ program
       }
     } catch (error) {
       logger.error(`Deployment failed: ${getErrorMessage(error)}`);
-      process.exit(1);
-    }
-  });
-
-// Dev command: run local Cloudflare dev server
-program
-  .command('cf-dev')
-  .argument('<name>', 'Photon name (without .photon.ts extension)')
-  .option('--output <dir>', 'Output directory for generated project')
-  .description('Run Photon locally with Cloudflare Workers dev server')
-  .action(async (name: string, options: any) => {
-    try {
-      // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
-
-      // Resolve file path from name
-      const photonPath = await resolvePhotonPath(name, workingDir);
-
-      if (!photonPath) {
-        logger.error(`Photon not found: ${name}`);
-        console.error(`Searched in: ${workingDir}`);
-        console.error(`Tip: Use 'photon info' to see available photons`);
-        process.exit(1);
-      }
-
-      const { devCloudflare } = await import('./deploy/cloudflare.js');
-      await devCloudflare({
-        photonPath,
-        outputDir: options.output,
-      });
-    } catch (error) {
-      logger.error(`Error: ${getErrorMessage(error)}`);
       process.exit(1);
     }
   });
@@ -1336,7 +1352,7 @@ program
             version: entry.metadata?.version || PHOTON_VERSION,
             description: entry.metadata?.description
               ? entry.metadata.description.substring(0, 50) +
-                (entry.metadata.description.length > 50 ? '...' : '')
+              (entry.metadata.description.length > 50 ? '...' : '')
               : '-',
             marketplace: entry.marketplace.name,
           });
@@ -1598,10 +1614,10 @@ maker
 // Register marketplace commands (list, add, remove, enable, disable)
 registerMarketplaceCommands(program);
 
-// Register info command (photon info, photon list, photon ls)
+// Register info command
 registerInfoCommand(program, DEFAULT_WORKING_DIR);
 
-// Register package commands (add, remove, upgrade, clear-cache)
+// Register package management commands
 registerPackageCommands(program, DEFAULT_WORKING_DIR);
 
 // Doctor command: diagnose photon environment
@@ -1628,7 +1644,6 @@ program
       diagnostics['Node.js'] = {
         version: nodeVersion,
         status: majorVersion >= 18 ? STATUS.OK : STATUS.ERROR,
-        note: majorVersion >= 18 ? 'supported runtime' : 'Photon requires Node.js 18+',
       };
       if (majorVersion < 18) {
         issuesFound++;
@@ -1939,10 +1954,12 @@ program
   });
 
 // Reserved commands that should NOT be treated as photon names
+// Reserved commands that should NOT be treated as photon names
 // If first arg is not in this list, it's assumed to be a photon name (implicit CLI mode)
 const RESERVED_COMMANDS = [
   // Core commands
   'serve',
+  'sse',
   'beam',
   'list',
   'ls',
@@ -1974,13 +1991,11 @@ const RESERVED_COMMANDS = [
   'mcp',
   'search',
   'maker',
-  'deploy',
-  'cf-dev',
+  'host',
   'diagram',
   'diagrams',
   'enable',
   'disable',
-  'serv',
   // Help/version (handled by commander)
   'help',
   '--help',
@@ -1993,12 +2008,12 @@ const RESERVED_COMMANDS = [
 // All known commands for "did you mean" suggestions
 const knownCommands = [
   'serve',
+  'sse',
   'beam',
   'list',
   'ls',
   'info',
   'test',
-  'serv',
   'new',
   'init',
   'validate',
@@ -2020,7 +2035,7 @@ const knownCommands = [
   'search',
   'marketplace',
   'maker',
-  'deploy',
+  'host',
   'diagram',
   'diagrams',
 ];
