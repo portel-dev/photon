@@ -439,91 +439,125 @@ export default class MyMCP {
 
 ## Docblock Tags
 
-Photon uses JSDoc tags to extract rich metadata and configure runtime behavior.
+Photon uses JSDoc-style docblock tags to extract metadata, configure tools, and generate documentation.
 
 ### Class-Level Tags
-Place these in the main JSDoc comment at the top of your `.photon.ts` file.
+Place these in the JSDoc comment at the top of your `.photon.ts` file.
 
-| Tag | Usage |
-|---|---|
-| `@version` | Specifies Photon version (e.g., `1.0.0`) |
-| `@author` | Specifies the author |
-| `@license` | Specifies the license (e.g., `MIT`) |
-| `@repository` | Link to source repository |
-| `@homepage` | Link to project homepage |
-| `@dependencies` | NPM dependencies to auto-install (`axios@^1.0.0, lodash`) |
-| `@mcps` | MCP dependencies for injection and diagramming |
-| `@photons` | Photon dependencies for injection and diagramming |
-| `@stateful` | Set to `true` for stateful workflows (default: `false`) |
-| `@idleTimeout` | Idle timeout in ms before process exit |
-| `@mcp` | Declare an MCP dependency source |
-| `@photon` | Declare another Photon dependency source |
-| `@ui` | Define a UI template asset for MCP Apps |
-| `@prompt` | Define a static prompt asset |
-| `@resource` | Define a static resource asset |
+| Tag | Usage | Example |
+|---|---|---|
+| `@version` | Photon version | `@version 1.0.0` |
+| `@author` | Author name | `@author Jane Doe` |
+| `@license` | License type | `@license MIT` |
+| `@repository` | Source repository URL | `@repository github.com/user/repo` |
+| `@homepage` | Project homepage | `@homepage example.com` |
+| `@runtime` | **Required** runtime version range | `@runtime ^1.5.0` |
+| `@dependencies` | NPM packages to auto-install | `@dependencies axios@^1.0.0` |
+| `@mcp` | Inject MCP dependency | `@mcp github anthropics/mcp` |
+| `@photon` | Inject Photon dependency | `@photon utils ./utils.photon.ts` |
+| `@stateful` | Enable stateful mode | `@stateful true` |
+| `@idleTimeout` | Idle timeout in ms | `@idleTimeout 300000` |
+| `@ui` | Define UI template asset | `@ui main ./ui/index.html` |
+| `@prompt` | Define prompt asset | `@prompt system ./prompts/sys.txt` |
+| `@resource` | Define resource asset | `@resource data ./data.json` |
 
 ### Method-Level Tags
 Place these immediately preceding a tool method.
 
-| Tag | Usage |
-|---|---|
-| `@param` | Describes a parameter for MCP/CLI help |
-| `@example` | Provides a code example for the tool |
-| `@format` | Output format hint (see [Return Formatting](#return-formatting)) |
-| `@ui` | Link tool to a class-level UI asset |
+| Tag | Usage | Example |
+|---|---|---|
+| `@param` | Describe parameter | `@param name User name` |
+| `@returns` | Describe return value | `@returns The result` |
+| `@example` | Provide usage example | `@example await tool.run()` |
+| `@format` | Output format hint | `@format table` |
+| `@icon` | Tool icon (emoji/name) | `@icon 🧮` |
+| `@autorun` | Auto-run in UI | `@autorun` |
+| `@ui` | Link to UI template | `@ui main` |
 
-### Parameter Validation Tags
-Inline tags within `@param` descriptions to add schema constraints.
+### Daemon Tags (Advanced)
+Enable background features handled by the Photon Daemon.
 
 | Tag | Usage | Example |
 |---|---|---|
-| `{@min N}` | Minimum value | `* @param age Age {@min 0}` |
-| `{@max N}` | Maximum value | `* @param score Score {@max 100}` |
-| `{@format T}` | Data format | `* @param email Email {@format email}` |
-| `{@pattern R}` | Regex pattern | `* @param zip Zip {@pattern ^[0-9]{5}$}` |
-| `{@example V}` | Parameter example | `* @param city City {@example London}` |
+| `@webhook` | Expose as HTTP webhook | `@webhook stripe` |
+| `@scheduled` | Cron schedule | `@scheduled 0 0 * * *` |
+| `@locked` | Distributed lock | `@locked resource:write` |
+
+### Inline Parameter Tags
+Use these *within* `@param` descriptions for validation and UI generation.
+
+| Tag | functionality | Example |
+|---|---|---|
+| `{@min N}` | Minimum value | `@param age {@min 18}` |
+| `{@max N}` | Maximum value | `@param score {@max 100}` |
+| `{@pattern R}` | Regex pattern | `@param code {@pattern ^[A-Z]{3}$}` |
+| `{@choice A,B}` | Enum/Choice | `@param color {@choice red,blue}` |
+| `{@field T}` | HTML input type | `@param bio {@field textarea}` |
+| `{@format T}` | Data format | `@param email {@format email}` |
+| `{@example V}` | Example value | `@param city {@example London}` |
+| `{@label L}` | Custom UI label | `@param id {@label User ID}` |
 
 ---
 
 ## Return Formatting
-
-Photon allows hinting the data shape and type of return values using the `@format` tag. This helps the CLI and Web interfaces render the data optimally.
-
-### Structural Formats
-Structural hints tell Photon how to organize the data table or tree.
-
-| Format | Description | Used For |
-|---|---|---|
-| `primitive` | Formats result as a single value | Strings, numbers, booleans |
-| `table` | Formats results as a grid | Arrays of objects |
-| `list` | Formats results as a bulleted list | Arrays of primitives |
-| `tree` | Formats results as a hierarchy | Nested objects/JSON |
-| `none` | Raw JSON output | Complex data without specific shape |
-
-### Content & Code Formats
-Content hints specify the syntax for text coloring and highlighting.
-
-- **Content Types**: `json`, `markdown`, `yaml`, `xml`, `html`
-- **Code Blocks**: `code` (generic) or `code:language` (e.g., `code:typescript`)
-
-**Example:**
-```typescript
-/**
- * List files in directory
- * @format table
- */
-async ls(params: { path: string }) {
-  return await this._listFiles(params.path);
-}
-
-/**
- * Get system report
- * @format markdown
- */
-async report() {
-  return "# System Status\n- CPU: 10%\n- RAM: 4GB";
-}
-```
+ 
+ Photon allows hinting the data shape and type of return values using the `@format` tag. This helps the CLI and Web interfaces render the data optimally.
+ 
+ ### Structural Formats
+ Structural hints tell Photon how to organize the data table or tree.
+ 
+ | Format | Description | Used For |
+ |---|---|---|
+ | `primitive` | Formats result as a single value | Strings, numbers, booleans |
+ | `table` | Formats results as a grid | Arrays of objects |
+ | `list` | Formats results as a bulleted list | Arrays of primitives |
+ | `grid` | Formats results as a visual grid | Arrays of objects/images |
+ | `card` | Formats result as a detailed card | Single object |
+ | `tree` | Formats results as a hierarchy | Nested objects/JSON |
+ | `none` | Raw JSON output | Complex data without specific shape |
+ 
+ ### Content & Code Formats
+ Content hints specify the syntax for text coloring and highlighting.
+ 
+ - **Content Types**: `json`, `markdown`, `yaml`, `xml`, `html`, `mermaid`
+ - **Code Blocks**: `code` (generic) or `code:language` (e.g., `code:typescript`)
+ 
+ ### Advanced Layout Hints
+ For `list`, `table`, and `grid` formats, you can specify layout hints using nested syntax:
+ 
+ ```typescript
+ /**
+  * @format list {@title name, @subtitle email, @icon avatar}
+  */
+ ```
+ 
+ | Hint | Description |
+ |---|---|
+ | `@title field` | Primary display text |
+ | `@subtitle field` | Secondary display text |
+ | `@icon field` | Leading icon/image |
+ | `@badge field` | Status badge |
+ | `@columns N` | Grid column count |
+ | `@style S` | Style: `plain`, `grouped`, `inset` |
+ 
+ **Example:**
+ ```typescript
+ /**
+  * List files in directory
+  * @format table
+  */
+ async ls(params: { path: string }) {
+   return await this._listFiles(params.path);
+ }
+ 
+ /**
+  * Get system report
+  * @format markdown
+  */
+ async report() {
+   return "# System Status\n- CPU: 10%\n- RAM: 4GB";
+ }
+ ```
 
 ---
 
