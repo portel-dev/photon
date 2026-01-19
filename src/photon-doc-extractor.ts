@@ -98,7 +98,7 @@ export class PhotonDocExtractor {
       tools: await this.extractTools(),
       dependencies: this.extractTag('dependencies'),
       runtime: this.extractTag('runtime'),
-      stateful: statefulTag === 'true',
+      stateful: statefulTag !== undefined,
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
     };
   }
@@ -129,9 +129,20 @@ export class PhotonDocExtractor {
    * Extract a specific JSDoc tag value
    */
   private extractTag(tagName: string): string | undefined {
-    const regex = new RegExp(`@${tagName}\\s+(.+?)(?=\\n|$)`, 'm');
-    const match = this.content.match(regex);
-    return match ? match[1].trim() : undefined;
+    // First try to match tag with value: @tagName value
+    const regexWithValue = new RegExp(`@${tagName}\\s+(.+?)(?=\\n|$)`, 'm');
+    const matchWithValue = this.content.match(regexWithValue);
+    if (matchWithValue) {
+      return matchWithValue[1].trim();
+    }
+
+    // Then check for boolean tag without value: @tagName (followed by newline, *, or end)
+    const regexBoolean = new RegExp(`@${tagName}(?:\\s*\\n|\\s*\\*|$)`, 'm');
+    if (this.content.match(regexBoolean)) {
+      return 'true'; // Presence of tag means true
+    }
+
+    return undefined;
   }
 
   /**
