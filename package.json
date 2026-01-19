@@ -44,6 +44,8 @@
     "test:sqlite": "npm run build && npx tsx tests/sqlite.test.ts",
     "test:github": "npm run build && npx tsx tests/github-issues.test.ts",
     "test:beam": "npm run build && npx tsx tests/beam/rendering.test.ts",
+    "test:e2e": "npm run build && npx playwright test",
+    "test:e2e:ui": "npm run build && npx playwright test --ui",
     "release": "release-it",
     "release:minor": "release-it minor",
     "release:major": "release-it major",
