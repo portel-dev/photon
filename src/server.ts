@@ -88,6 +88,7 @@ export class PhotonServer {
   };
   private statusClients: Set<ServerResponse> = new Set();
   private channelUnsubscribers: Array<() => void> = [];
+  private daemonName: string | null = null;
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -943,6 +944,7 @@ export class PhotonServer {
       // Start daemon for stateful photons (enables cross-client communication)
       if (isStateful) {
         const photonName = metadata.name;
+        this.daemonName = photonName; // Store for subscription
         this.log('info', `Stateful photon detected: ${photonName}`);
 
         if (!isDaemonRunning(photonName)) {
@@ -996,25 +998,23 @@ export class PhotonServer {
    * This enables real-time updates when other processes (e.g., Beam UI, other MCP clients) modify data
    */
   private async subscribeToChannels() {
-    if (!this.mcp) return;
-
-    const photonName = this.mcp.name;
+    // Only subscribe if we have a daemon running (stateful photon)
+    if (!this.daemonName) return;
 
     try {
       // Subscribe to wildcard channel for all events from this photon
       // E.g., "kanban:*" receives "kanban:photon", "kanban:my-board", etc.
       const unsubscribe = await subscribeChannel(
-        photonName,
-        `${photonName}:*`,
+        this.daemonName,
+        `${this.daemonName}:*`,
         (message: unknown) => {
           this.handleChannelMessage(message);
         }
       );
       this.channelUnsubscribers.push(unsubscribe);
-      this.log('info', `Subscribed to daemon channel: ${photonName}:*`);
+      this.log('info', `Subscribed to daemon channel: ${this.daemonName}:*`);
     } catch (error) {
-      // Daemon may not be running - that's OK for non-stateful photons
-      this.log('debug', `No daemon available for ${photonName}: ${getErrorMessage(error)}`);
+      this.log('warn', `Failed to subscribe to daemon: ${getErrorMessage(error)}`);
     }
   }
 
