@@ -422,11 +422,9 @@ function cleanupSocketSubscriptions(socket: net.Socket): void {
 
 /**
  * Publish a message to all subscribers of a channel
+ * Supports wildcard subscriptions: "prefix:*" matches "prefix:anything"
  */
 function publishToChannel(channel: string, message: unknown, excludeSocket?: net.Socket): void {
-  const subscribers = channelSubscriptions.get(channel);
-  if (!subscribers || subscribers.size === 0) return;
-
   const payload =
     JSON.stringify({
       type: 'channel_message',
@@ -435,12 +433,38 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
       message,
     }) + '\n';
 
-  for (const socket of subscribers) {
-    if (socket !== excludeSocket && !socket.destroyed) {
-      try {
-        socket.write(payload);
-      } catch {
-        // Socket write failed, will be cleaned up on 'end' event
+  const sentSockets = new Set<net.Socket>();
+
+  // Send to exact channel subscribers
+  const exactSubscribers = channelSubscriptions.get(channel);
+  if (exactSubscribers) {
+    for (const socket of exactSubscribers) {
+      if (socket !== excludeSocket && !socket.destroyed && !sentSockets.has(socket)) {
+        try {
+          socket.write(payload);
+          sentSockets.add(socket);
+        } catch {
+          // Socket write failed, will be cleaned up on 'end' event
+        }
+      }
+    }
+  }
+
+  // Send to wildcard subscribers (e.g., "kanban:*" matches "kanban:photon")
+  const channelPrefix = channel.split(':')[0];
+  if (channelPrefix) {
+    const wildcardChannel = `${channelPrefix}:*`;
+    const wildcardSubscribers = channelSubscriptions.get(wildcardChannel);
+    if (wildcardSubscribers) {
+      for (const socket of wildcardSubscribers) {
+        if (socket !== excludeSocket && !socket.destroyed && !sentSockets.has(socket)) {
+          try {
+            socket.write(payload);
+            sentSockets.add(socket);
+          } catch {
+            // Socket write failed
+          }
+        }
       }
     }
   }

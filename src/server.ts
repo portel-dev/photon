@@ -35,6 +35,7 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
+import { subscribeChannel } from './daemon/client.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -84,6 +85,7 @@ export class PhotonServer {
     attempts: number;
   };
   private statusClients: Set<ServerResponse> = new Set();
+  private channelUnsubscribers: Array<() => void> = [];
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -935,6 +937,9 @@ export class PhotonServer {
       this.log('info', `Loading ${this.options.filePath}...`);
       this.mcp = await this.loader.loadFile(this.options.filePath);
 
+      // Subscribe to daemon channels for cross-process notifications
+      await this.subscribeToChannels();
+
       // Start with the appropriate transport
       const transport = this.options.transport || 'stdio';
 
@@ -954,6 +959,68 @@ export class PhotonServer {
         this.log('debug', error.stack);
       }
       process.exit(1);
+    }
+  }
+
+  /**
+   * Subscribe to daemon channels for cross-process notifications
+   * This enables real-time updates when other processes (e.g., Beam UI, other MCP clients) modify data
+   */
+  private async subscribeToChannels() {
+    if (!this.mcp) return;
+
+    const photonName = this.mcp.name;
+
+    try {
+      // Subscribe to wildcard channel for all events from this photon
+      // E.g., "kanban:*" receives "kanban:photon", "kanban:my-board", etc.
+      const unsubscribe = await subscribeChannel(
+        photonName,
+        `${photonName}:*`,
+        (message: unknown) => {
+          this.handleChannelMessage(message);
+        }
+      );
+      this.channelUnsubscribers.push(unsubscribe);
+      this.log('info', `Subscribed to daemon channel: ${photonName}:*`);
+    } catch (error) {
+      // Daemon may not be running - that's OK for non-stateful photons
+      this.log('debug', `No daemon available for ${photonName}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * Handle incoming channel messages and forward as MCP notifications
+   */
+  private async handleChannelMessage(message: unknown) {
+    if (!message || typeof message !== 'object') return;
+
+    const msg = message as Record<string, unknown>;
+
+    // Format message for display
+    const displayMessage = msg.event
+      ? `[${msg.event}] ${JSON.stringify(msg.data || {})}`
+      : JSON.stringify(msg);
+
+    // Forward as MCP status notification to all connected clients
+    const payload = {
+      method: 'notifications/status',
+      params: { type: 'info', message: displayMessage },
+    };
+
+    try {
+      await this.server.notification(payload);
+    } catch {
+      // ignore - client may not support notifications
+    }
+
+    // Also send to SSE sessions
+    for (const session of this.sseSessions.values()) {
+      try {
+        await session.server.notification(payload);
+      } catch {
+        // ignore session errors
+      }
     }
   }
 
