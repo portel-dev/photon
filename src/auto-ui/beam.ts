@@ -8630,6 +8630,7 @@ photon add memory</code></pre>
         const { resolve } = pendingInteractiveInvocations.get(invocationId);
         pendingInteractiveInvocations.delete(invocationId);
         addActivity('result', \`\${invokedPhoton}.\${invokedMethod}() completed (interactive)\`);
+        hideProgress();  // Still need to hide progress for interactive invocations
         resolve(data);  // Resolve the promise with the result data
         return;  // Don't update the main UI - the interactive UI handles it
       }
