@@ -35,7 +35,9 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
-import { subscribeChannel } from './daemon/client.js';
+import { subscribeChannel, pingDaemon } from './daemon/client.js';
+import { isDaemonRunning, startDaemon } from './daemon/manager.js';
+import { PhotonDocExtractor } from './photon-doc-extractor.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -931,6 +933,33 @@ export class PhotonServer {
         }
       } catch (error) {
         this.log('warn', `Failed to load MCP config: ${getErrorMessage(error)}`);
+      }
+
+      // Check if photon is stateful (requires daemon)
+      const extractor = new PhotonDocExtractor(this.options.filePath);
+      const metadata = await extractor.extractFullMetadata();
+      const isStateful = metadata.stateful;
+
+      // Start daemon for stateful photons (enables cross-client communication)
+      if (isStateful) {
+        const photonName = metadata.name;
+        this.log('info', `Stateful photon detected: ${photonName}`);
+
+        if (!isDaemonRunning(photonName)) {
+          this.log('info', `Starting daemon for ${photonName}...`);
+          await startDaemon(photonName, this.options.filePath, true);
+
+          // Wait for daemon to be ready
+          for (let i = 0; i < 10; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            if (await pingDaemon(photonName)) {
+              this.log('info', `Daemon ready for ${photonName}`);
+              break;
+            }
+          }
+        } else {
+          this.log('info', `Daemon already running for ${photonName}`);
+        }
       }
 
       // Load the Photon MCP file
