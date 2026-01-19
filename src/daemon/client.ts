@@ -211,9 +211,14 @@ export async function subscribeChannel(
             });
           }
 
-          // Handle channel messages
-          if (response.type === 'channel_message' && response.channel === channel) {
-            handler(response.message);
+          // Handle channel messages (supports wildcard subscriptions)
+          if (response.type === 'channel_message' && response.channel) {
+            const isMatch = channel.endsWith(':*')
+              ? response.channel.startsWith(channel.slice(0, -1)) // "kanban:*" matches "kanban:anything"
+              : response.channel === channel; // exact match
+            if (isMatch) {
+              handler(response.message);
+            }
           }
 
           // Handle errors

@@ -774,11 +774,22 @@ async function handleRequest(
       // Set up socket-based prompt handler for this request
       setPromptHandler(createSocketPromptHandler(socket, request.id));
 
+      // Create output handler that routes channel emits to pub/sub
+      const outputHandler = (emit: any) => {
+        if (emit && typeof emit === 'object' && emit.channel) {
+          // Route channel emits to daemon pub/sub
+          publishToChannel(emit.channel, emit, socket);
+          logger.debug('Published to channel', { channel: emit.channel });
+        }
+        // Other emits (progress, status) could be sent to the socket if needed
+      };
+
       // Execute method on session's photon instance using loader
       const result = await sessionManager.loader.executeTool(
         session.instance,
         request.method,
-        request.args || {}
+        request.args || {},
+        { outputHandler }
       );
 
       // Clear prompt handler after execution

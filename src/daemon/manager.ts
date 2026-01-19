@@ -131,7 +131,7 @@ export async function startDaemon(
   const child = spawn(process.execPath, [daemonScript, photonName, photonPath, socketPath], {
     detached: true,
     stdio: ['ignore', logStream, logStream],
-    env: { ...process.env, PHOTON_DAEMON: 'true' },
+    env: { ...process.env, PHOTON_DAEMON: 'true', PHOTON_NAME: photonName },
   });
 
   // Detach the child process so it can continue running independently
