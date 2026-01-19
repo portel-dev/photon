@@ -26,10 +26,23 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 
 ## Quick Start
 
-Create your first MCP in 3 steps:
+
+
+The fastest way to use Photon is via the **Beam**, a visual dashboard for managing your MCPs.
+
+### 1. Install & Launch
+Install the global package and run the `photon` command to open the dashboard in the web browser:
 
 ```bash
-# 1. Create new MCP
+npm install -g @portel/photon
+photon
+```
+
+### 2. Create an MCP
+Ready to code? Create a new tool in seconds:
+
+```bash
+# 1. Generate template
 photon maker new my-tool
 
 # 2. Edit ~/.photon/my-tool.photon.ts
@@ -39,7 +52,7 @@ export default class MyTool {
   }
 }
 
-# 3. Test it
+# 3. Run in dev mode
 photon mcp my-tool --dev
 ```
 
