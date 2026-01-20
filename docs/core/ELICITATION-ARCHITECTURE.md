@@ -184,15 +184,15 @@ ws.onmessage = (event) => {
 3. **E2E Tests**: Test playground with interactive asks
 4. **MCP Compliance**: Verify against official MCP test suite
 
-## Timeline
+## Implementation Status
 
-- ✅ **Phase 1**: Document architecture (this file)
-- **Phase 2**: Implement WebSocket transport (2-3 hours)
-- **Phase 3**: Wire elicitation to generators (2 hours)
-- **Phase 4**: Update playground UI (2 hours)
-- **Phase 5**: Testing and refinement (2 hours)
+- [x] **Phase 1**: Document architecture (this file)
+- [x] **Phase 2**: MCP elicitation support via SDK 1.25+ (`src/mcp-elicitation.ts`)
+- [x] **Phase 3**: Wire elicitation to generators (`server.ts` - `createMCPInputProvider`)
+- [x] **Phase 4**: Beam UI supports interactive asks via SSE
+- [x] **Phase 5**: Testing with kitchen-sink photon
 
-**Total**: ~8-9 hours of work
+**Note**: WebSocket transport was deprioritized as SSE with HTTP POST callbacks works well for Beam UI, and STDIO handles MCP elicitation natively.
 
 ## References
 

@@ -17,11 +17,11 @@ These conventions keep the CLI, MCP runtime, and playground output consistent an
 - When creating helper classes (watchers, transports, etc.), accept a `Logger` instance or derive one via `PhotonServer#createScopedLogger(scope)`.
 - Record structured metadata (port numbers, photon names, retry counts) so operators can trace issues from logs alone.
 
-## Playground status surface
+## Beam UI status surface
 
-- The developer playground now reserves the top of the sidebar for runtime status. Keep status payloads lightweight JSON broadcast via `/api/status` or `/api/status-stream`.
+- The Beam UI (`photon beam`) reserves the top of the sidebar for runtime status. Keep status payloads lightweight JSON broadcast via SSE.
 - Status objects should contain `type` (`info`, `success`, `warn`, `error`), a human sentence, and timestamps. Add warning strings when configuration is incomplete so the UI can surface them.
-- Avoid blocking UI interactions during long operations—instead, stream progress via `notifications/progress` and ensure the playground updates the pill + toolbar status text.
+- Avoid blocking UI interactions during long operations—instead, stream progress via SSE events and ensure the UI updates status indicators accordingly.
 
 ## Suggested workflow additions
 
