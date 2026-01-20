@@ -68,7 +68,7 @@ export {
 
 ### 3. Documentation
 
-Created `AUTO-UI.md` with:
+Read [`AUTO-UI.md`](./AUTO-UI.md) for:
 - Feature overview
 - Usage examples for all JSDoc hints
 - Component catalog
@@ -79,29 +79,29 @@ Created `AUTO-UI.md` with:
 ## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ 1. Developer writes .photon.ts method                  │
-│    - Returns raw data (object, array, string, etc.)    │
-│    - Optionally adds JSDoc hints (@format, @ui-*)      │
-└─────────────────┬───────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ 1. Developer writes .photon.ts method               │
+│    - Returns raw data (object, array, string, etc.) │
+│    - Optionally adds JSDoc hints (@format, @ui-*)   │
+└─────────────────┬───────────────────────────────────┘
                   │
                   ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. Auto-UI System (photon-core)                        │
-│    - Extracts JSDoc hints                              │
-│    - Introspects data structure                        │
-│    - Selects optimal component type                    │
-│    - Generates UIComponent descriptor                  │
-└─────────────────┬───────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ 2. Auto-UI System (photon-core)                     │
+│    - Extracts JSDoc hints                           │
+│    - Introspects data structure                     │
+│    - Selects optimal component type                 │
+│    - Generates UIComponent descriptor               │
+└─────────────────┬───────────────────────────────────┘
                   │
                   ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. Platform Renderer                                   │
-│    - CLI: CLIUIRenderer (terminal output)              │
-│    - MCP: Structured MCP responses                     │
-│    - Web: React/Vue components (future)                │
-│    - API: JSON with UI hints (future)                  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ 3. Platform Renderer                                │
+│    - CLI: CLIUIRenderer (terminal output)           │
+│    - MCP: Structured MCP responses                  │
+│    - Web: React/Vue components (future)             │
+│    - API: JSON with UI hints (future)               │
+└─────────────────────────────────────────────────────┘
 ```
 
 ## Example Usage
@@ -148,12 +148,12 @@ async getProfile() {
 
 Output:
 ```
-┌──────────────────────────────────────────┐
-│ Name: Alice                              │
-│ Email: alice@example.com                 │
-│ Role: Admin                              │
-│ Joined At: 2024-01-01                   │
-└──────────────────────────────────────────┘
+┌───────────────────────────┐
+│ Name: Alice               │
+│ Email: alice@example.com  │
+│ Role: Admin               │
+│ Joined At: 2024-01-01     │
+└───────────────────────────┘
 ```
 
 ## Benefits

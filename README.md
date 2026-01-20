@@ -1607,11 +1607,16 @@ Photon's framework-agnostic design enables future deployment targets. More on th
 
 ## Documentation
 
+### User Guides
 - **[GUIDE.md](GUIDE.md)** - Complete tutorial for creating photons
 - **[ADVANCED.md](ADVANCED.md)** - Lifecycle hooks, performance, production deployment
-- **[COMPARISON.md](COMPARISON.md)** - Detailed comparison vs traditional MCP
-- **[DAEMON-PUBSUB.md](DAEMON-PUBSUB.md)** - Full daemon protocol specification (pub/sub, locks, jobs, webhooks)
+- **[PHOTON_BEST_PRACTICES.md](PHOTON_BEST_PRACTICES.md)** - Best practices and patterns
+- **[DOCBLOCK-TAGS.md](DOCBLOCK-TAGS.md)** - JSDoc tag reference
+- **[NAMING-CONVENTIONS.md](NAMING-CONVENTIONS.md)** - Naming guidelines
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+
+### Development & Contributing
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Architecture overview and contributing guide
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
 ---
