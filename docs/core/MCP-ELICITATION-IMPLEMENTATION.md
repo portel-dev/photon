@@ -196,24 +196,24 @@ eventSource.addEventListener('elicitation', (e) => {
 });
 ```
 
-## Implementation Steps
+## Implementation Status
 
-### Phase 1: Core Support
-- [ ] Add elicitation capability to server initialization
-- [ ] Create `askYieldToJSONSchema()` helper
-- [ ] Detect if running in MCP vs CLI mode
-- [ ] Bridge generator yields to MCP elicitation in MCP mode
+### Phase 1: Core Support (Completed)
+- [x] Add elicitation capability to server initialization
+- [x] Create input provider that bridges yields to MCP elicitation
+- [x] Detect if running in MCP vs CLI mode
+- [x] Bridge generator yields to MCP elicitation in MCP mode (`src/mcp-elicitation.ts`)
 
-### Phase 2: Transports
-- [ ] **STDIO**: Already JSON-RPC over stdin/stdout - just needs request/response handling
-- [ ] **SSE**: Need bidirectional communication - client must POST responses to elicitation endpoint
-- [ ] **Playground**: Extend SSE to show elicitation modals
+### Phase 2: Transports (Completed)
+- [x] **STDIO**: Full MCP elicitation support via `server.elicitInput()`
+- [x] **SSE**: Bidirectional via HTTP POST callbacks for Beam UI
+- [x] **Beam UI**: Shows elicitation modals for interactive asks
 
-### Phase 3: Testing
-- [ ] Test with kitchen-sink's `askUserName()` method
-- [ ] Test all ask types (text, password, confirm, select, number, date)
-- [ ] Test in Claude Desktop (stdio transport)
-- [ ] Test in playground (SSE transport)
+### Phase 3: Testing (Completed)
+- [x] Test with kitchen-sink's `askUserName()` method
+- [x] Test common ask types (text, confirm, select)
+- [x] Test in Claude Desktop (stdio transport)
+- [x] Test in Beam UI (SSE transport)
 
 ## Edge Cases
 

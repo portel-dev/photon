@@ -158,17 +158,18 @@ Tools can specify UI templates using `_meta`:
 }
 ```
 
-### Playground
+### Beam UI
 
-The `/playground` endpoint (dev mode only) provides:
+The Beam UI (`photon beam`) provides:
 
 1. **Interactive Testing**: Select tools and run them
-2. **Auto-Generated Forms**: Input parameters
-3. **UI Preview**: See linked templates
-4. **Progress Indication**: Real-time status updates
+2. **Auto-Generated Forms**: Input parameters based on JSON Schema
+3. **UI Preview**: See linked templates and custom UIs
+4. **Progress Indication**: Real-time status updates via SSE
 5. **Status Panel**: Runtime health monitoring
+6. **Theme Support**: Automatic light/dark theme switching
 
-Access at: `http://localhost:3000/playground` when running `photon serve --dev`
+Access via: `photon beam` command, which opens the interactive web UI for all installed Photons.
 
 ## Web UI Integration
 
@@ -283,14 +284,18 @@ renderer.renderCard(data);
 renderer.renderProgress(value, total);
 ```
 
-## Future Enhancements
+## Implementation Status
 
-1. **Custom Components**: Allow Photons to bundle custom UI components
-2. **Themes**: CSS theme system for consistent styling
-3. **Responsive Layouts**: Adapt to terminal size / viewport
-4. **Interactive Components**: Click handlers, filters, sorting in CLI
-5. **Chart Components**: Graphs and visualizations
-6. **Streaming UI**: Progressive rendering as data arrives
+### Completed
+- [x] **Custom Components**: Photons can bundle custom UI via `@ui` directive
+- [x] **Themes**: Light/dark theme support with automatic switching
+- [x] **Interactive Components**: Click handlers, forms in Beam UI
+- [x] **Streaming UI**: Progressive rendering via SSE events
+
+### Future Enhancements
+- [ ] Responsive Layouts: Adapt to terminal size / viewport
+- [ ] Chart Components: Graphs and visualizations in CLI
+- [ ] Advanced filtering and sorting in CLI output
 
 ## Related Standards
 
@@ -301,7 +306,7 @@ renderer.renderProgress(value, total);
 ## Examples
 
 See:
-- `photons/` folder for example Photon implementations
-- `/playground` endpoint for live demos
+- `examples/` folder for example Photon implementations
+- `photon beam` command for interactive demos
 - Tests in `tests/` for component usage
 
