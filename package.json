@@ -76,6 +76,7 @@
     "cli-highlight": "^2.1.11",
     "commander": "^12.1.0",
     "esbuild": "^0.27.0",
+    "lit": "^3.3.2",
     "typescript": "^5.0.0",
     "ws": "^8.19.0"
   },

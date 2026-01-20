@@ -389,9 +389,31 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
-    if (url.pathname === '/' || url.pathname === '/index.html') {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(generateBeamHTML(photons, port));
+    // Serve static frontend bundle
+    if (url.pathname === '/beam.bundle.js') {
+      try {
+        const bundlePath = path.join(__dirname, '../../dist/beam.bundle.js');
+        const content = await fs.readFile(bundlePath, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'text/javascript' });
+        res.end(content);
+      } catch {
+        res.writeHead(404);
+        res.end('Bundle not found. Run npm run build:beam first.');
+      }
+      return;
+    }
+
+    // Default route: Serve Lit App
+    if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
+      try {
+        const indexPath = path.join(__dirname, 'frontend/index.html');
+        const content = await fs.readFile(indexPath, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(content);
+      } catch (err) {
+        res.writeHead(500);
+        res.end('Error serving UI: ' + String(err));
+      }
       return;
     }
 
