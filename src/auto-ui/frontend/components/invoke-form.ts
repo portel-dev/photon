@@ -3,16 +3,16 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 interface MethodParam {
-    type: string;
-    description?: string;
-    required?: boolean;
+  type: string;
+  description?: string;
+  required?: boolean;
 }
 
 @customElement('invoke-form')
 export class InvokeForm extends LitElement {
-    static styles = [
-        theme,
-        css`
+  static styles = [
+    theme,
+    css`
       :host {
         display: block;
       }
@@ -96,27 +96,18 @@ export class InvokeForm extends LitElement {
         color: var(--t-primary);
       }
     `
-    ];
+  ];
 
-    @property({ type: Object })
-    params: Record<string, MethodParam> = {};
+  @property({ type: Object })
+  params: Record<string, MethodParam> = {};
 
-    @state()
-    private _values: Record<string, any> = {};
+  @state()
+  private _values: Record<string, any> = {};
 
-    render() {
-        return html`
+  render() {
+    return html`
       <div class="form-container">
-        ${Object.entries(this.params).map(([key, schema]) => html`
-          <div class="form-group">
-            <label>
-              ${key}
-              ${schema.required ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
-              ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
-            </label>
-            ${this._renderInput(key, schema)}
-          </div>
-        `)}
+        ${this._renderFields()}
 
         <div class="actions">
           <button class="btn-secondary" @click=${this._handleCancel}>Cancel</button>
@@ -124,36 +115,108 @@ export class InvokeForm extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  private _renderFields() {
+    // Handle standard JSON Schema 'properties'
+    const properties = (this.params as any).properties || this.params;
+    const requiredList = (this.params as any).required || [];
+
+    // Check if properties is actual object to avoid crash
+    if (!properties || typeof properties !== 'object') {
+      return html`<p>No parameters required.</p>`;
     }
 
-    private _renderInput(key: string, schema: MethodParam) {
-        // Basic type mapping for now
-        if (schema.type === 'boolean') {
-            return html`
-        <select @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value === 'true')}>
-          <option value="true">True</option>
-          <option value="false">False</option>
-        </select>
-      `;
-        }
+    return Object.entries(properties).map(([key, schema]: [string, any]) => {
+      const isRequired = Array.isArray(requiredList)
+        ? requiredList.includes(key)
+        : !!schema.required;
 
-        return html`
+      return html`
+              <div class="form-group">
+                <label>
+                  ${key}
+                  ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
+                  ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
+                </label>
+                ${this._renderInput(key, schema)}
+              </div>
+            `;
+    });
+  }
+
+  private _renderInput(key: string, schema: MethodParam) {
+    const isBoolean = schema.type === 'boolean' || (schema as any).type === '"boolean"';
+
+    // Handle Boolean -> Toggle Switch
+    if (isBoolean) {
+      return html`
+        <label class="switch">
+            <input 
+                type="checkbox" 
+                @change=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).checked)}
+            >
+            <span class="slider"></span>
+        </label>
+        `;
+    }
+
+    // Handle Enums -> Select Dropdown
+    if ((schema as any).enum) {
+      return html`
+        <select @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
+            ${(schema as any).enum.map((val: string) => html`
+            <option value=${val}>${val}</option>
+            `)}
+        </select>
+        `;
+    }
+
+    // Handle Number -> Number Input
+    if (schema.type === 'number' || schema.type === 'integer') {
+      return html`
+        <input 
+            type="number"
+            @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+        >
+        `;
+    }
+
+    // Handle File Paths -> File Picker
+    // Heuristic: Key contains "path", "file", "dir" or schema.format matches
+    const isFile =
+      key.toLowerCase().includes('path') ||
+      key.toLowerCase().includes('file') ||
+      (schema as any).format === 'path' ||
+      (schema as any).format === 'file';
+
+    if (isFile) {
+      return html`
+          <file-picker
+            .value=${this._values[key] || ''}
+            @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+          ></file-picker>
+        `;
+    }
+
+    // Default -> Text Input
+    return html`
       <input 
-        type=${schema.type === 'number' ? 'number' : 'text'}
+        type="text"
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       >
     `;
-    }
+  }
 
-    private _handleChange(key: string, value: any) {
-        this._values = { ...this._values, [key]: value };
-    }
+  private _handleChange(key: string, value: any) {
+    this._values = { ...this._values, [key]: value };
+  }
 
-    private _handleSubmit() {
-        this.dispatchEvent(new CustomEvent('submit', { detail: { args: this._values } }));
-    }
+  private _handleSubmit() {
+    this.dispatchEvent(new CustomEvent('submit', { detail: { args: this._values } }));
+  }
 
-    private _handleCancel() {
-        this.dispatchEvent(new CustomEvent('cancel'));
-    }
+  private _handleCancel() {
+    this.dispatchEvent(new CustomEvent('cancel'));
+  }
 }

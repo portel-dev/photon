@@ -1,0 +1,31 @@
+{
+  "name": "photon-marketplace",
+  "owner": {
+    "name": "Portel",
+    "email": "arul@luracast.com"
+  },
+  "metadata": {
+    "description": "Official photon MCP servers",
+    "version": "1.4.1"
+  },
+  "plugins": [
+    {
+      "name": "test-ui",
+      "description": "Test Custom UI",
+      "source": "./",
+      "strict": false,
+      "hooks": [
+        "./.claude-plugin/hooks.json"
+      ],
+      "mcpServers": {
+        "test-ui": {
+          "command": "photon",
+          "args": [
+            "mcp",
+            "test-ui"
+          ]
+        }
+      }
+    }
+  ]
+}

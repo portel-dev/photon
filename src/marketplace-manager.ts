@@ -8,6 +8,7 @@ import * as os from 'os';
 import { existsSync } from 'fs';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
+import { getErrorMessage } from './shared/error-handler.js';
 
 export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
@@ -41,6 +42,7 @@ export interface PhotonMetadata {
   source: string;
   hash?: string; // SHA-256 hash of the file content
   tools?: string[];
+  assets?: string[]; // Relative paths to asset files
 }
 
 /**
@@ -672,6 +674,50 @@ export class MarketplaceManager {
     }
 
     return null;
+  }
+
+  /**
+   * Fetch assets for a photon from a specific marketplace
+   */
+  async fetchAssets(
+    marketplace: Marketplace,
+    assets: string[]
+  ): Promise<Map<string, string>> {
+    const results = new Map<string, string>();
+
+    for (const assetPath of assets) {
+      try {
+        if (marketplace.sourceType === 'local') {
+          // Local filesystem
+          const localPath = marketplace.url.replace('file://', '');
+          const fullPath = path.join(localPath, assetPath);
+
+          if (existsSync(fullPath)) {
+            const content = await fs.readFile(fullPath, 'utf-8');
+            results.set(assetPath, content);
+          }
+        } else {
+          // Remote fetch
+          // Use the marketplace URL as base, ensuring no double slashes
+          const baseUrl = marketplace.url.replace(/\/$/, '');
+          // Ensure asset path doesn't start with slash
+          const cleanPath = assetPath.replace(/^\//, '');
+          const url = `${baseUrl}/${cleanPath}`;
+
+          const response = await fetch(url);
+          if (response.ok) {
+            const content = await response.text();
+            results.set(assetPath, content);
+          } else {
+            this.logger.warn(`Failed to fetch asset ${assetPath}: ${response.status}`);
+          }
+        }
+      } catch (error) {
+        this.logger.warn(`Error fetching asset ${assetPath}: ${getErrorMessage(error)}`);
+      }
+    }
+
+    return results;
   }
 
   /**

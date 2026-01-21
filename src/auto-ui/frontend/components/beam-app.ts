@@ -56,15 +56,35 @@ export class BeamApp extends LitElement {
   @state() private _connected = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' = 'list';
+  @state() private _view: 'list' | 'form' | 'marketplace' = 'list';
+
+  // ... (existing code)
+
+
+
+  private _handleInstall(e: CustomEvent) {
+    // Just log for now, the socket update 'photon_added' will handle the actual refresh
+    this._log('info', `Installed ${e.detail.name}`);
+  }
   @state() private _selectedMethod: any = null;
+  @state() private _lastResult: any = null;
   @state() private _activityLog: any[] = [];
 
   private _ws: WebSocket | null = null;
+  private _pendingBridgeCalls = new Map<string, Window>();
 
   connectedCallback() {
     super.connectedCallback();
     this._connect();
+    this._connect();
+    window.addEventListener('hashchange', this._handleHashChange);
+    window.addEventListener('message', this._handleBridgeMessage);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener('hashchange', this._handleHashChange);
+    window.removeEventListener('message', this._handleBridgeMessage);
   }
 
   private _connect() {
@@ -80,17 +100,86 @@ export class BeamApp extends LitElement {
       const msg = JSON.parse(event.data);
       if (msg.type === 'photons') {
         this._photons = msg.data;
-        if (!this._selectedPhoton && this._photons.length > 0) {
+        // If we have a hash, restore state, otherwise select first
+        if (window.location.hash) {
+          this._handleHashChange();
+        } else if (!this._selectedPhoton && this._photons.length > 0) {
           this._selectedPhoton = this._photons[0];
+          this._updateHash();
         }
+      } else if (msg.type === 'result') {
+        // Check if this is a response to a bridge call
+        if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
+          const source = this._pendingBridgeCalls.get(msg.invocationId);
+          if (source) {
+            source.postMessage({
+              type: 'photon:call-tool-response',
+              callId: msg.invocationId,
+              result: msg.data,
+              error: msg.error
+            }, '*');
+          }
+          this._pendingBridgeCalls.delete(msg.invocationId);
+        }
+
+        this._lastResult = msg.data;
+        this._log('success', 'Execution completed');
+      } else if (msg.type === 'error') {
+        // Also handle errors for bridge calls
+        if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
+          const source = this._pendingBridgeCalls.get(msg.invocationId);
+          if (source) {
+            source.postMessage({
+              type: 'photon:call-tool-response',
+              callId: msg.invocationId,
+              error: msg.message
+            }, '*');
+          }
+          this._pendingBridgeCalls.delete(msg.invocationId);
+        }
+        this._log('error', msg.message);
       }
     };
 
+    // ... (onclose remains same)
     this._ws.onclose = () => {
       this._connected = false;
       this._log('error', 'Disconnected from server');
       setTimeout(() => this._connect(), 2000);
     };
+  }
+
+  private _handleHashChange = () => {
+    const hash = window.location.hash.slice(1);
+    const [photonName, methodName] = hash.split('/');
+
+    if (photonName) {
+      const photon = this._photons.find(p => p.name === photonName);
+      if (photon) {
+        this._selectedPhoton = photon;
+
+        if (methodName && photon.methods) {
+          const method = photon.methods.find((m: any) => m.name === methodName);
+          if (method) {
+            this._selectedMethod = method;
+            this._view = 'form';
+          }
+        } else {
+          this._selectedMethod = null;
+          this._view = 'list';
+        }
+      }
+    }
+  }
+
+  private _updateHash() {
+    if (!this._selectedPhoton) return;
+    let hash = this._selectedPhoton.name;
+    if (this._selectedMethod) {
+      hash += `/${this._selectedMethod.name}`;
+    }
+    // Update URL without scrolling
+    history.replaceState(null, '', `#${hash}`);
   }
 
   private _log(type: string, message: string) {
@@ -111,6 +200,7 @@ export class BeamApp extends LitElement {
           .photons=${this._photons} 
           .selectedPhoton=${this._selectedPhoton?.name}
           @select=${this._handlePhotonSelect}
+          @marketplace=${() => this._view = 'marketplace'}
         ></beam-sidebar>
       </div>
 
@@ -122,19 +212,71 @@ export class BeamApp extends LitElement {
   }
 
   private _renderContent() {
+    if (this._view === 'marketplace') {
+      return html`
+            <div style="margin-bottom: var(--space-md);">
+                <button 
+                  style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                  @click=${() => this._view = 'list'}
+                >← Back to Dashboard</button>
+            </div>
+            <h1 class="text-gradient">Marketplace</h1>
+            <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+              Discover and install new Photons.
+            </p>
+            <marketplace-view @install=${this._handleInstall}></marketplace-view>
+        `;
+    }
+
     if (!this._selectedPhoton) {
       return html`
            <h1>Welcome to Beam</h1>
-           <p style="color: var(--t-muted);">Select a Photon to begin.</p>
+           <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select a Photon to begin.</p>
+           
+           <div class="glass-panel" style="padding: var(--space-xl); text-align: center;">
+             <h3>No Photon Selected</h3>
+             <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select one from the sidebar or explore the marketplace.</p>
+             <button class="btn-primary" @click=${() => this._view = 'marketplace'}>
+               Browse Marketplace
+             </button>
+           </div>
          `;
     }
 
     if (this._view === 'form' && this._selectedMethod) {
+      // Check for Linked UI (Custom Interface)
+      if (this._selectedMethod.linkedUi) {
+        return html`
+          <div style="margin-bottom: var(--space-md);">
+            <button 
+              style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+              @click=${() => {
+            this._view = 'list';
+            this._selectedMethod = null;
+            this._updateHash();
+          }}
+            >← Back to Methods</button>
+          </div>
+          <div class="glass-panel" style="padding: 0; overflow: hidden; height: calc(100vh - 200px);">
+             <custom-ui-renderer
+                .photon=${this._selectedPhoton.name}
+                .method=${this._selectedMethod.name}
+                .uiId=${this._selectedMethod.linkedUi}
+             ></custom-ui-renderer>
+          </div>
+        `;
+      }
+
+      // Default Form Interface
       return html`
           <div style="margin-bottom: var(--space-md);">
             <button 
               style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-              @click=${() => this._view = 'list'}
+              @click=${() => {
+          this._view = 'list';
+          this._selectedMethod = null;
+          this._updateHash();
+        }}
             >← Back to Methods</button>
           </div>
           <div class="glass-panel" style="padding: var(--space-lg);">
@@ -143,8 +285,16 @@ export class BeamApp extends LitElement {
             <invoke-form 
               .params=${this._selectedMethod.params}
               @submit=${this._handleExecute}
-              @cancel=${() => this._view = 'list'}
+              @cancel=${() => {
+          this._view = 'list';
+          this._selectedMethod = null;
+          this._updateHash();
+        }}
             ></invoke-form>
+            
+            ${this._lastResult !== null ? html`
+              <result-viewer .result=${this._lastResult}></result-viewer>
+            ` : ''}
           </div>
         `;
     }
@@ -168,16 +318,19 @@ export class BeamApp extends LitElement {
     this._selectedPhoton = e.detail.photon;
     this._view = 'list';
     this._selectedMethod = null;
+    this._updateHash();
   }
 
   private _handleMethodSelect(e: CustomEvent) {
     this._selectedMethod = e.detail.method;
     this._view = 'form';
+    this._updateHash();
   }
 
   private _handleExecute(e: CustomEvent) {
     const args = e.detail.args;
     this._log('info', `Invoking ${this._selectedMethod.name}...`);
+    this._lastResult = null;
 
     this._ws?.send(JSON.stringify({
       type: 'invoke',
@@ -185,7 +338,28 @@ export class BeamApp extends LitElement {
       method: this._selectedMethod.name,
       args
     }));
+  }
+  private _handleBridgeMessage = (event: MessageEvent) => {
+    const msg = event.data;
+    if (!msg || typeof msg !== 'object') return;
 
-    this._view = 'list';
+    if (msg.type === 'photon:call-tool') {
+      const callId = msg.callId;
+      if (this._selectedPhoton) {
+        if (event.source) {
+          this._pendingBridgeCalls.set(callId, event.source as Window);
+        }
+
+        this._log('info', `Bridge invoking ${msg.toolName}...`);
+
+        this._ws?.send(JSON.stringify({
+          type: 'invoke',
+          photon: this._selectedPhoton.name,
+          method: msg.toolName,
+          args: msg.args,
+          invocationId: callId
+        }));
+      }
+    }
   }
 }
