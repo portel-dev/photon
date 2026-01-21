@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import { SchemaExtractor } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 
@@ -58,6 +59,7 @@ export interface PhotonMetadata {
   runtime?: string;
   stateful?: boolean;
   idleTimeout?: number;
+  assets?: string[]; // Relative paths to asset files
   hash: string;
 }
 
@@ -100,6 +102,7 @@ export class PhotonDocExtractor {
       runtime: this.extractTag('runtime'),
       stateful: statefulTag !== undefined,
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
+      assets: await this.extractAssets(),
     };
   }
 
@@ -235,6 +238,63 @@ export class PhotonDocExtractor {
       .filter((line) => line.length > 0)
       .join('\n')
       .trim();
+  }
+
+  /**
+   * Extract assets associated with the Photon
+   * Scans for ui/, prompts/, resources/ folders and @ui annotations
+   */
+  private async extractAssets(): Promise<string[]> {
+    const assets: Set<string> = new Set();
+    const dir = path.dirname(this.filePath);
+    const basename = path.basename(this.filePath, '.photon.ts');
+
+    // Convention: asset folder has same name as photon (without .photon.ts)
+    // e.g. test-ui.photon.ts -> test-ui/
+    const assetFolder = path.join(dir, basename);
+
+    // Check if asset folder exists
+    try {
+      const stats = await fs.stat(assetFolder);
+      if (stats.isDirectory()) {
+        // Recursively find all files in the asset folder
+        const findFiles = async (currentDir: string, relativePath: string) => {
+          const entries = await fs.readdir(currentDir, { withFileTypes: true });
+          for (const entry of entries) {
+            const entryPath = path.join(currentDir, entry.name);
+            const entryRelative = path.join(relativePath, entry.name);
+
+            if (entry.isDirectory()) {
+              await findFiles(entryPath, entryRelative);
+            } else {
+              // Add relative path from photon file's directory
+              // e.g. test-ui/ui/index.html
+              assets.add(path.join(basename, entryRelative));
+            }
+          }
+        };
+
+        await findFiles(assetFolder, '');
+      }
+    } catch {
+      // Asset folder doesn't exist, ignore
+    }
+
+    // Extract explicit @ui assets from JSDoc
+    // Format: @ui <id> <path>
+    const uiRegex = /@ui[ \t]+\S+[ \t]+(\S+)/g;
+    let match;
+    while ((match = uiRegex.exec(this.content)) !== null) {
+      const assetPath = match[1];
+      // Only include relative paths
+      if (assetPath.startsWith('./') || !path.isAbsolute(assetPath)) {
+        // Normalize path
+        const normalized = assetPath.startsWith('./') ? assetPath.slice(2) : assetPath;
+        assets.add(normalized);
+      }
+    }
+
+    return Array.from(assets);
   }
 
   /**
@@ -399,10 +459,10 @@ export class PhotonDocExtractor {
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
     const description = descMatch
       ? descMatch[1]
-          .split('\n')
-          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-          .join(' ')
-          .trim()
+        .split('\n')
+        .map((line) => line.replace(/^\s*\*\s?/, '').trim())
+        .join(' ')
+        .trim()
       : '';
 
     // Extract parameters from JSDoc @param tags
@@ -523,9 +583,9 @@ export class PhotonDocExtractor {
       photons: photonsTag ? photonsTag.split(/[,\s]+/).filter(Boolean) : [],
       npm: depsTag
         ? depsTag
-            .split(/[,\s]+/)
-            .map((d) => d.split('@')[0])
-            .filter(Boolean)
+          .split(/[,\s]+/)
+          .map((d) => d.split('@')[0])
+          .filter(Boolean)
         : [],
     };
   }

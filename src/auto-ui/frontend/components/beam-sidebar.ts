@@ -3,15 +3,15 @@ import { customElement, property } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 interface PhotonItem {
-    name: string;
-    description: string;
+  name: string;
+  description: string;
 }
 
 @customElement('beam-sidebar')
 export class BeamSidebar extends LitElement {
-    static styles = [
-        theme,
-        css`
+  static styles = [
+    theme,
+    css`
       :host {
         display: block;
         height: 100%;
@@ -90,21 +90,27 @@ export class BeamSidebar extends LitElement {
         color: var(--accent-secondary);
       }
     `
-    ];
+  ];
 
-    @property({ type: Array })
-    photons: PhotonItem[] = [];
+  @property({ type: Array })
+  photons: PhotonItem[] = [];
 
-    @property({ type: String })
-    selectedPhoton: string | null = null;
+  @property({ type: String })
+  selectedPhoton: string | null = null;
 
-    render() {
-        return html`
+  render() {
+    return html`
       <div class="header">
         <h2 class="text-gradient logo">Photon Beam</h2>
         <div class="search-box">
           <input type="text" placeholder="Search photons..." @input=${this._handleSearch}>
         </div>
+        <button 
+            style="width:100%; margin-top:10px; padding:8px; background:var(--bg-glass); border:1px solid var(--border-glass); color:var(--t-primary); cursor:pointer; border-radius:var(--radius-sm);"
+            @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+        >
+            🛍️ Open Marketplace
+        </button>
       </div>
       
       <ul class="photon-list">
@@ -122,14 +128,14 @@ export class BeamSidebar extends LitElement {
         `)}
       </ul>
     `;
-    }
+  }
 
-    private _handleSearch(e: Event) {
-        const query = (e.target as HTMLInputElement).value;
-        this.dispatchEvent(new CustomEvent('search', { detail: { query } }));
-    }
+  private _handleSearch(e: Event) {
+    const query = (e.target as HTMLInputElement).value;
+    this.dispatchEvent(new CustomEvent('search', { detail: { query } }));
+  }
 
-    private _selectPhoton(photon: PhotonItem) {
-        this.dispatchEvent(new CustomEvent('select', { detail: { photon } }));
-    }
+  private _selectPhoton(photon: PhotonItem) {
+    this.dispatchEvent(new CustomEvent('select', { detail: { photon } }));
+  }
 }

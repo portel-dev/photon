@@ -3,6 +3,7 @@
  *
  * A unified UI to interact with all your photons.
  * Uses WebSocket for real-time bidirectional communication.
+ * Version: 1.0.2 (Force Restart)
  */
 
 import * as http from 'http';
@@ -30,6 +31,7 @@ import {
   type InputProvider,
   type AskYield,
   type ConstructorParam,
+  type PhotonAssets,
   generateSmartRenderingJS,
   generateSmartRenderingCSS,
 } from '@portel/photon-core';
@@ -46,6 +48,7 @@ interface PhotonInfo {
   templatePath?: string; // @ui template.html - custom UI template
   isApp?: boolean; // True if photon has main() with @ui - listed under Apps section
   appEntry?: MethodInfo; // The main() method that serves as app entry point
+  assets?: PhotonAssets; // Assets (UI, prompts, etc.)
 }
 
 interface UnconfiguredPhotonInfo {
@@ -363,6 +366,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         templatePath,
         isApp: !!mainMethod,
         appEntry: mainMethod,
+        assets: mcp.assets,
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -534,7 +538,16 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
       // UI templates are in <photon-dir>/<photon-name>/ui/<id>.html
       const photonDir = path.dirname(photon.path);
-      const uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+
+      // Try to use resolved path from assets if available (respects JSDoc)
+      const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
+
+      let uiPath: string;
+      if (asset && asset.resolvedPath) {
+        uiPath = asset.resolvedPath;
+      } else {
+        uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      }
 
       try {
         const uiContent = await fs.readFile(uiPath, 'utf-8');
@@ -7870,7 +7883,7 @@ photon add memory</code></pre>
       const args = {};
 
       for (const [key, value] of formData.entries()) {
-        const input = form.querySelector(\`[name="\${key}"]\`);
+        const input = form.querySelector(`[name = "${key}"]`);
         const schema = currentMethod.params.properties?.[key] || {};
 
         if (value === '' && schema.default !== undefined) {

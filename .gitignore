@@ -16,3 +16,4 @@ ANNOUNCEMENT.md
 .cf-*
 test-github.ts
 *-credentials.json
+.marketplace/_templates/

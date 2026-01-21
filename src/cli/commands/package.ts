@@ -351,6 +351,20 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
             selectedMetadata,
             contentHash
           );
+
+          // Download assets if present
+          if (selectedMetadata.assets && selectedMetadata.assets.length > 0) {
+            console.error(`\n📦 Downloading assets...`);
+            const assets = await manager.fetchAssets(selectedMarketplace, selectedMetadata.assets);
+
+            for (const [assetPath, content] of assets) {
+              const targetPath = path.join(workingDir, assetPath);
+              const targetDir = path.dirname(targetPath);
+              await fs.mkdir(targetDir, { recursive: true });
+              await fs.writeFile(targetPath, content, 'utf-8');
+              console.error(`   📄 ${assetPath}`);
+            }
+          }
         }
 
         console.error(`✅ Added ${name} from ${selectedMarketplace.name}`);

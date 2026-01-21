@@ -465,6 +465,7 @@ async function performMarketplaceSync(
       source: `../${file}`,
       hash,
       tools: metadata.tools?.map((t) => t.name),
+      assets: metadata.assets,
     });
 
     // Generate individual photon documentation
