@@ -545,6 +545,10 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
   const themeColors = theme === 'light' ? colorsLight : colorsDark;
 
   return {
+    // ═══════════════════════════════════════════════════════════════════════
+    // DESIGN SYSTEM TOKENS (Material Design 3 naming)
+    // ═══════════════════════════════════════════════════════════════════════
+
     // Colors
     '--color-surface': themeColors.surface,
     '--color-surface-container': themeColors.surfaceContainer,
@@ -596,5 +600,53 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
     '--radius-md': radius.md,
     '--radius-lg': radius.lg,
     '--radius-full': radius.full,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COMMON ALIASES - For compatibility with various app conventions
+    // Apps use different naming conventions; these aliases ensure apps work
+    // regardless of whether they use --bg, --background, --bg-primary, etc.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Background aliases (apps use: --bg, --background, --bg-primary, --bg-secondary)
+    '--bg': themeColors.surface,
+    '--background': themeColors.surface,
+    '--bg-primary': themeColors.surface,
+    '--bg-secondary': themeColors.surfaceContainer,
+    '--bg-tertiary': themeColors.surfaceContainerHigh,
+    '--bg-card': themeColors.surfaceContainer,
+    '--card': themeColors.surfaceContainer,
+    '--card-background': themeColors.surfaceContainer,
+
+    // Text/foreground aliases (apps use: --text, --foreground, --text-primary, --text-muted)
+    '--text': themeColors.onSurface,
+    '--foreground': themeColors.onSurface,
+    '--text-primary': themeColors.onSurface,
+    '--text-secondary': themeColors.onSurfaceVariant,
+    '--text-muted': themeColors.onSurfaceMuted,
+    '--muted': themeColors.onSurfaceMuted,
+    '--muted-foreground': themeColors.onSurfaceMuted,
+
+    // Border aliases (apps use: --border, --border-color)
+    '--border': themeColors.outline,
+    '--border-color': themeColors.outline,
+    '--border-muted': themeColors.outlineVariant,
+
+    // Accent/primary aliases (apps use: --accent, --primary, --accent-color)
+    '--accent': themeColors.primary,
+    '--primary': themeColors.primary,
+    '--accent-color': themeColors.primary,
+    '--accent-foreground': themeColors.onPrimary,
+    '--accent-hover': themeColors.primaryContainer,
+
+    // Status colors (common naming)
+    '--success': themeColors.success,
+    '--warning': themeColors.warning,
+    '--error': themeColors.error,
+    '--danger': themeColors.error,
+
+    // Input/form aliases
+    '--input': themeColors.surfaceContainerHigh,
+    '--input-border': themeColors.outline,
+    '--ring': themeColors.primary,
   };
 }
