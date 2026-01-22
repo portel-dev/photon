@@ -89,6 +89,30 @@ export class BeamSidebar extends LitElement {
         font-size: 12px;
         color: var(--accent-secondary);
       }
+
+      .marketplace-btn {
+        width: 100%;
+        margin-top: var(--space-md);
+        padding: var(--space-sm);
+        background: linear-gradient(135deg, var(--bg-glass), hsla(220, 10%, 20%, 0.5));
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-sm);
+        font-weight: 500;
+        transition: all 0.2s ease;
+      }
+
+      .marketplace-btn:hover {
+        background: hsla(220, 10%, 25%, 0.8);
+        border-color: var(--accent-secondary);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(-1px);
+      }
     `
   ];
 
@@ -106,10 +130,10 @@ export class BeamSidebar extends LitElement {
           <input type="text" placeholder="Search photons..." @input=${this._handleSearch}>
         </div>
         <button 
-            style="width:100%; margin-top:10px; padding:8px; background:var(--bg-glass); border:1px solid var(--border-glass); color:var(--t-primary); cursor:pointer; border-radius:var(--radius-sm);"
+            class="marketplace-btn"
             @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
         >
-            🛍️ Open Marketplace
+            <span>🛍️</span> Open Marketplace
         </button>
       </div>
       

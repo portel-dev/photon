@@ -3,20 +3,22 @@ import { customElement, property } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 interface ActivityItem {
-    id: string;
-    type: 'info' | 'success' | 'error' | 'warning';
-    message: string;
-    timestamp: string;
+  id: string;
+  type: 'info' | 'success' | 'error' | 'warning';
+  message: string;
+  timestamp: string;
 }
 
 @customElement('activity-log')
 export class ActivityLog extends LitElement {
-    static styles = [
-        theme,
-        css`
+  static styles = [
+    theme,
+    css`
       :host {
         display: block;
         margin-top: var(--space-xl);
+        padding-top: var(--space-lg);
+        border-top: 1px solid var(--border-glass);
       }
 
       .log-header {
@@ -29,10 +31,11 @@ export class ActivityLog extends LitElement {
 
       h3 {
         margin: 0;
-        font-size: 0.9rem;
+        font-size: 0.8rem;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--t-muted);
+        letter-spacing: 0.1em;
+        color: var(--t-secondary); /* Brighter */
+        font-weight: 600;
       }
 
       .clear-btn {
@@ -59,8 +62,10 @@ export class ActivityLog extends LitElement {
       .log-item {
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
-        background: hsla(220, 10%, 10%, 0.4);
-        border-left: 3px solid transparent;
+        background: hsla(220, 15%, 13%, 0.6); /* Slightly lighter/more contrast */
+        border: 1px solid var(--border-glass); /* Definition */
+        border-left-width: 3px;
+        border-left-style: solid;
         font-family: var(--font-mono);
         font-size: 0.85rem;
         display: flex;
@@ -84,15 +89,15 @@ export class ActivityLog extends LitElement {
       .type-error { border-left-color: #f87171; }
       .type-warning { border-left-color: #fbbf24; }
     `
-    ];
+  ];
 
-    @property({ type: Array })
-    items: ActivityItem[] = [];
+  @property({ type: Array })
+  items: ActivityItem[] = [];
 
-    render() {
-        if (this.items.length === 0) return html``;
+  render() {
+    if (this.items.length === 0) return html``;
 
-        return html`
+    return html`
       <div class="log-header">
         <h3>Activity Log</h3>
         <button class="clear-btn" @click=${this._clear}>Clear</button>
@@ -107,9 +112,9 @@ export class ActivityLog extends LitElement {
         `)}
       </div>
     `;
-    }
+  }
 
-    private _clear() {
-        this.dispatchEvent(new CustomEvent('clear'));
-    }
+  private _clear() {
+    this.dispatchEvent(new CustomEvent('clear'));
+  }
 }

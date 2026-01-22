@@ -19,6 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
+    "build:beam": "tsx scripts/build-beam.ts",
     "dev:beam": "tsx watch src/cli.ts beam",
     "prepublishOnly": "npm run build",
     "test": "npm run test:all",
