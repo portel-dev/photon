@@ -19,10 +19,9 @@ export class MethodCard extends LitElement {
 
       .card {
         padding: var(--space-md);
-        height: 100%;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        gap: var(--space-sm);
         cursor: pointer;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
       }

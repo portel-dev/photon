@@ -70,6 +70,7 @@ export class BeamApp extends LitElement {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: var(--space-md);
         margin-bottom: var(--space-xl);
+        align-items: start;
       }
 
       .background-glow {
