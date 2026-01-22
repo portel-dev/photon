@@ -1,10 +1,12 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, Theme } from '../styles/theme.js';
 
 interface PhotonItem {
   name: string;
   description: string;
+  isApp?: boolean;
+  appEntry?: any;
 }
 
 @customElement('beam-sidebar')
@@ -24,10 +26,54 @@ export class BeamSidebar extends LitElement {
         border-bottom: 1px solid var(--border-glass);
       }
 
+      .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
       .logo {
         font-size: 1.2rem;
         font-weight: 600;
         margin: 0;
+      }
+
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 20px;
+        padding: 4px;
+        cursor: pointer;
+      }
+
+      .theme-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: all 0.2s;
+      }
+
+      .theme-btn.active {
+        background: var(--accent-primary);
+        color: white;
+      }
+
+      .theme-btn:not(.active) {
+        color: var(--t-muted);
+      }
+
+      .theme-btn:hover:not(.active) {
+        background: var(--bg-glass-strong);
       }
 
       .search-box {
@@ -52,9 +98,19 @@ export class BeamSidebar extends LitElement {
         box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
+      .section-header {
+        padding: var(--space-sm) var(--space-md);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--t-muted);
+        margin-top: var(--space-sm);
+      }
+
       .photon-list {
         list-style: none;
-        padding: var(--space-sm);
+        padding: 0 var(--space-sm);
         margin: 0;
       }
 
@@ -77,10 +133,10 @@ export class BeamSidebar extends LitElement {
         background: linear-gradient(90deg, var(--glow-primary), transparent);
         border-left: 2px solid var(--accent-primary);
       }
-      
+
       .photon-icon {
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         border-radius: 6px;
         background: var(--bg-glass);
         display: flex;
@@ -88,6 +144,43 @@ export class BeamSidebar extends LitElement {
         justify-content: center;
         font-size: 12px;
         color: var(--accent-secondary);
+        flex-shrink: 0;
+      }
+
+      .photon-icon.app-icon {
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        color: white;
+        border-radius: 8px;
+      }
+
+      .photon-info {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .photon-name {
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .photon-desc {
+        font-size: 0.8em;
+        color: var(--t-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .app-badge {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        background: var(--accent-primary);
+        color: white;
+        border-radius: 10px;
+        font-weight: 500;
+        flex-shrink: 0;
       }
 
       .marketplace-btn {
@@ -113,6 +206,13 @@ export class BeamSidebar extends LitElement {
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         transform: translateY(-1px);
       }
+
+      .empty-section {
+        padding: var(--space-sm) var(--space-md);
+        color: var(--t-muted);
+        font-size: 0.85rem;
+        font-style: italic;
+      }
     `
   ];
 
@@ -122,36 +222,87 @@ export class BeamSidebar extends LitElement {
   @property({ type: String })
   selectedPhoton: string | null = null;
 
+  @property({ type: String })
+  theme: Theme = 'dark';
+
+  private get _apps() {
+    return this.photons.filter(p => p.isApp);
+  }
+
+  private get _tools() {
+    return this.photons.filter(p => !p.isApp);
+  }
+
   render() {
     return html`
       <div class="header">
-        <h2 class="text-gradient logo">Photon Beam</h2>
+        <div class="header-row">
+          <h2 class="text-gradient logo">Photon Beam</h2>
+          <div class="theme-toggle">
+            <button
+              class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
+              @click=${() => this._setTheme('light')}
+              title="Light theme"
+            >☀️</button>
+            <button
+              class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
+              @click=${() => this._setTheme('dark')}
+              title="Dark theme"
+            >🌙</button>
+          </div>
+        </div>
         <div class="search-box">
           <input type="text" placeholder="Search photons..." @input=${this._handleSearch}>
         </div>
-        <button 
+        <button
             class="marketplace-btn"
             @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
         >
             <span>🛍️</span> Open Marketplace
         </button>
       </div>
-      
+
+      ${this._apps.length > 0 ? html`
+        <div class="section-header">Apps</div>
+        <ul class="photon-list">
+          ${this._apps.map(photon => this._renderPhotonItem(photon, true))}
+        </ul>
+      ` : ''}
+
+      <div class="section-header">Tools</div>
       <ul class="photon-list">
-        ${this.photons.map(photon => html`
-          <li 
-            class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
-            @click=${() => this._selectPhoton(photon)}
-          >
-            <div class="photon-icon">${photon.name.substring(0, 2).toUpperCase()}</div>
-            <div class="photon-info">
-              <div style="font-weight: 500;">${photon.name}</div>
-              <div style="font-size: 0.8em; color: var(--t-muted);">${photon.description}</div>
-            </div>
-          </li>
-        `)}
+        ${this._tools.length > 0
+          ? this._tools.map(photon => this._renderPhotonItem(photon, false))
+          : html`<li class="empty-section">No tools available</li>`
+        }
       </ul>
     `;
+  }
+
+  private _renderPhotonItem(photon: PhotonItem, isApp: boolean) {
+    return html`
+      <li
+        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
+        @click=${() => this._selectPhoton(photon)}
+      >
+        <div class="photon-icon ${isApp ? 'app-icon' : ''}">
+          ${isApp ? '📱' : photon.name.substring(0, 2).toUpperCase()}
+        </div>
+        <div class="photon-info">
+          <div class="photon-name">${photon.name}</div>
+          <div class="photon-desc">${photon.description || (isApp ? 'Full application' : 'Photon tool')}</div>
+        </div>
+        ${isApp ? html`<span class="app-badge">APP</span>` : ''}
+      </li>
+    `;
+  }
+
+  private _setTheme(theme: Theme) {
+    this.dispatchEvent(new CustomEvent('theme-change', {
+      detail: { theme },
+      bubbles: true,
+      composed: true
+    }));
   }
 
   private _handleSearch(e: Event) {
