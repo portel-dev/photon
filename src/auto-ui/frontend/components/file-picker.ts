@@ -101,6 +101,14 @@ export class FilePicker extends LitElement {
         box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
+      input.error {
+        border-color: #f87171;
+      }
+
+      input.error:focus {
+        box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+      }
+
       .input-wrapper {
         display: flex;
         gap: 0; /* Merged look */
@@ -151,6 +159,9 @@ export class FilePicker extends LitElement {
   @property({ type: String })
   value = '';
 
+  @property({ type: Boolean })
+  hasError = false;
+
   @state()
   private _isOpen = false;
 
@@ -173,8 +184,9 @@ export class FilePicker extends LitElement {
   render() {
     return html`
       <div class="input-wrapper" style="align-items: center;">
-        <input 
-          type="text" 
+        <input
+          type="text"
+          class="${this.hasError ? 'error' : ''}"
           .value=${this.value}
           @input=${this._handleInput}
           placeholder="/path/to/file"

@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { showToast } from './toast-manager.js';
 
 interface MethodParam {
   type: string;
@@ -95,14 +96,59 @@ export class InvokeForm extends LitElement {
         background: hsla(220, 10%, 80%, 0.1);
         color: var(--t-primary);
       }
+
+      .btn-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-loading {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .error-text {
+        color: #f87171;
+        font-size: 0.75rem;
+        margin-top: var(--space-xs);
+      }
+
+      input.error, textarea.error, select.error {
+        border-color: #f87171;
+      }
+
+      input.error:focus, textarea.error:focus {
+        box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+      }
     `
   ];
 
   @property({ type: Object })
   params: Record<string, MethodParam> = {};
 
+  @property({ type: Boolean })
+  loading = false;
+
   @state()
   private _values: Record<string, any> = {};
+
+  @state()
+  private _errors: Record<string, string> = {};
 
   render() {
     return html`
@@ -110,8 +156,12 @@ export class InvokeForm extends LitElement {
         ${this._renderFields()}
 
         <div class="actions">
-          <button class="btn-secondary" @click=${this._handleCancel}>Cancel</button>
-          <button class="btn-primary" @click=${this._handleSubmit}>Execute</button>
+          <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>Cancel</button>
+          <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
+            ${this.loading
+              ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
+              : 'Execute'}
+          </button>
         </div>
       </div>
     `;
@@ -131,6 +181,7 @@ export class InvokeForm extends LitElement {
       const isRequired = Array.isArray(requiredList)
         ? requiredList.includes(key)
         : !!schema.required;
+      const error = this._errors[key];
 
       return html`
               <div class="form-group">
@@ -139,21 +190,23 @@ export class InvokeForm extends LitElement {
                   ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
                   ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
                 </label>
-                ${this._renderInput(key, schema)}
+                ${this._renderInput(key, schema, !!error)}
+                ${error ? html`<div class="error-text">${error}</div>` : ''}
               </div>
             `;
     });
   }
 
-  private _renderInput(key: string, schema: MethodParam) {
+  private _renderInput(key: string, schema: MethodParam, hasError = false) {
     const isBoolean = schema.type === 'boolean' || (schema as any).type === '"boolean"';
+    const errorClass = hasError ? 'error' : '';
 
     // Handle Boolean -> Toggle Switch
     if (isBoolean) {
       return html`
         <label class="switch">
-            <input 
-                type="checkbox" 
+            <input
+                type="checkbox"
                 @change=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).checked)}
             >
             <span class="slider"></span>
@@ -164,7 +217,8 @@ export class InvokeForm extends LitElement {
     // Handle Enums -> Select Dropdown
     if ((schema as any).enum) {
       return html`
-        <select @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
+        <select class="${errorClass}" @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
+            <option value="">Select...</option>
             ${(schema as any).enum.map((val: string) => html`
             <option value=${val}>${val}</option>
             `)}
@@ -175,8 +229,9 @@ export class InvokeForm extends LitElement {
     // Handle Number -> Number Input
     if (schema.type === 'number' || schema.type === 'integer') {
       return html`
-        <input 
+        <input
             type="number"
+            class="${errorClass}"
             @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
         >
         `;
@@ -194,6 +249,7 @@ export class InvokeForm extends LitElement {
       return html`
           <file-picker
             .value=${this._values[key] || ''}
+            .hasError=${hasError}
             @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
           ></file-picker>
         `;
@@ -201,8 +257,9 @@ export class InvokeForm extends LitElement {
 
     // Default -> Text Input
     return html`
-      <input 
+      <input
         type="text"
+        class="${errorClass}"
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       >
     `;
@@ -213,6 +270,33 @@ export class InvokeForm extends LitElement {
   }
 
   private _handleSubmit() {
+    // Validate required fields
+    const properties = (this.params as any).properties || this.params;
+    const requiredList = (this.params as any).required || [];
+    const errors: Record<string, string> = {};
+
+    if (properties && typeof properties === 'object') {
+      for (const [key, schema] of Object.entries(properties)) {
+        const isRequired = Array.isArray(requiredList)
+          ? requiredList.includes(key)
+          : !!(schema as any).required;
+
+        if (isRequired) {
+          const value = this._values[key];
+          if (value === undefined || value === null || value === '') {
+            errors[key] = 'This field is required';
+          }
+        }
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      this._errors = errors;
+      showToast('Please fill in all required fields', 'warning');
+      return;
+    }
+
+    this._errors = {};
     this.dispatchEvent(new CustomEvent('submit', { detail: { args: this._values } }));
   }
 

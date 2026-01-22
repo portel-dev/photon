@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { showToast } from './toast-manager.js';
 
 @customElement('beam-app')
 export class BeamApp extends LitElement {
@@ -50,10 +51,45 @@ export class BeamApp extends LitElement {
         pointer-events: none;
         z-index: 0;
       }
+
+      .connection-banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background: #f87171;
+        color: white;
+        padding: var(--space-sm) var(--space-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-md);
+        z-index: 9998;
+        font-size: 0.9rem;
+      }
+
+      .connection-banner button {
+        background: rgba(255,255,255,0.2);
+        border: 1px solid rgba(255,255,255,0.3);
+        color: white;
+        padding: 4px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+
+      .connection-banner button:hover {
+        background: rgba(255,255,255,0.3);
+      }
+
+      .reconnecting {
+        background: #fbbf24;
+      }
     `
   ];
 
   @state() private _connected = false;
+  @state() private _reconnecting = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
   @state() private _view: 'list' | 'form' | 'marketplace' = 'list';
@@ -69,6 +105,7 @@ export class BeamApp extends LitElement {
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
   @state() private _activityLog: any[] = [];
+  @state() private _isExecuting = false;
 
   private _ws: WebSocket | null = null;
   private _pendingBridgeCalls = new Map<string, Window>();
@@ -97,7 +134,9 @@ export class BeamApp extends LitElement {
 
     this._ws.onopen = () => {
       this._connected = true;
+      this._reconnecting = false;
       this._log('info', 'Connected to Beam server');
+      showToast('Connected to Beam server', 'success');
     };
 
     this._ws.onmessage = (event) => {
@@ -127,7 +166,9 @@ export class BeamApp extends LitElement {
         }
 
         this._lastResult = msg.data;
+        this._isExecuting = false;
         this._log('success', 'Execution completed');
+        showToast('Execution completed successfully', 'success');
       } else if (msg.type === 'error') {
         // Also handle errors for bridge calls
         if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
@@ -141,14 +182,17 @@ export class BeamApp extends LitElement {
           }
           this._pendingBridgeCalls.delete(msg.invocationId);
         }
+        this._isExecuting = false;
         this._log('error', msg.message);
+        showToast(msg.message, 'error', 5000);
       }
     };
 
-    // ... (onclose remains same)
     this._ws.onclose = () => {
       this._connected = false;
+      this._reconnecting = true;
       this._log('error', 'Disconnected from server');
+      showToast('Connection lost. Reconnecting...', 'warning');
       setTimeout(() => this._connect(), 2000);
     };
   }
@@ -197,11 +241,18 @@ export class BeamApp extends LitElement {
 
   render() {
     return html`
+      ${!this._connected ? html`
+        <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
+          <span>${this._reconnecting ? 'Reconnecting to server...' : 'Disconnected from server'}</span>
+          <button @click=${() => this._connect()}>Retry Now</button>
+        </div>
+      ` : ''}
+
       <div class="background-glow"></div>
-      
+
       <div class="sidebar-area glass-panel" style="margin: var(--space-sm); border-radius: var(--radius-md);">
-        <beam-sidebar 
-          .photons=${this._photons} 
+        <beam-sidebar
+          .photons=${this._photons}
           .selectedPhoton=${this._selectedPhoton?.name}
           @select=${this._handlePhotonSelect}
           @marketplace=${() => this._view = 'marketplace'}
@@ -212,6 +263,8 @@ export class BeamApp extends LitElement {
         ${this._renderContent()}
         <activity-log .items=${this._activityLog} @clear=${() => this._activityLog = []}></activity-log>
       </main>
+
+      <toast-manager></toast-manager>
     `;
   }
 
@@ -286,8 +339,9 @@ export class BeamApp extends LitElement {
           <div class="glass-panel" style="padding: var(--space-lg);">
             <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
             <p style="color: var(--t-muted);">${this._selectedMethod.description}</p>
-            <invoke-form 
+            <invoke-form
               .params=${this._selectedMethod.params}
+              .loading=${this._isExecuting}
               @submit=${this._handleExecute}
               @cancel=${() => {
           this._view = 'list';
@@ -335,6 +389,7 @@ export class BeamApp extends LitElement {
     const args = e.detail.args;
     this._log('info', `Invoking ${this._selectedMethod.name}...`);
     this._lastResult = null;
+    this._isExecuting = true;
 
     this._ws?.send(JSON.stringify({
       type: 'invoke',
