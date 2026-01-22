@@ -4,6 +4,7 @@ import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import type { BeamSidebar } from './beam-sidebar.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
+import type { ElicitationData } from './elicitation-modal.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 
@@ -220,6 +221,8 @@ export class BeamApp extends LitElement {
   @state() private _isExecuting = false;
   @state() private _theme: Theme = 'dark';
   @state() private _showHelp = false;
+  @state() private _elicitationData: ElicitationData | null = null;
+  @state() private _showElicitation = false;
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -340,6 +343,11 @@ export class BeamApp extends LitElement {
         this._isExecuting = false;
         this._log('error', msg.message);
         showToast(msg.message, 'error', 5000);
+      } else if (msg.type === 'elicitation') {
+        // Show elicitation modal for user input
+        this._elicitationData = msg.data;
+        this._showElicitation = true;
+        this._log('info', `Input required: ${msg.data.message || msg.data.ask}`);
       }
     };
 
@@ -428,6 +436,14 @@ export class BeamApp extends LitElement {
       <toast-manager></toast-manager>
 
       ${this._showHelp ? this._renderHelpModal() : ''}
+
+      <elicitation-modal
+        ?open=${this._showElicitation}
+        .data=${this._elicitationData}
+        @submit=${this._handleElicitationSubmit}
+        @cancel=${this._handleElicitationCancel}
+        @oauth-complete=${this._handleOAuthComplete}
+      ></elicitation-modal>
     `;
   }
 
@@ -670,6 +686,44 @@ export class BeamApp extends LitElement {
     localStorage.setItem(THEME_STORAGE_KEY, newTheme);
     this._applyTheme();
     this._broadcastThemeToIframes();
+  }
+
+  private _handleElicitationSubmit = (e: CustomEvent) => {
+    const { value } = e.detail;
+    this._ws?.send(JSON.stringify({
+      type: 'elicitation_response',
+      value
+    }));
+    this._showElicitation = false;
+    this._elicitationData = null;
+    this._log('info', 'Input submitted');
+  }
+
+  private _handleElicitationCancel = () => {
+    this._ws?.send(JSON.stringify({
+      type: 'elicitation_response',
+      cancelled: true
+    }));
+    this._showElicitation = false;
+    this._elicitationData = null;
+    this._isExecuting = false;
+    this._log('info', 'Input cancelled');
+    showToast('Input cancelled', 'info');
+  }
+
+  private _handleOAuthComplete = (e: CustomEvent) => {
+    const { elicitationId, success } = e.detail;
+    this._ws?.send(JSON.stringify({
+      type: 'oauth_complete',
+      elicitationId,
+      success
+    }));
+    this._showElicitation = false;
+    this._elicitationData = null;
+    if (success) {
+      this._log('success', 'Authorization completed');
+      showToast('Authorization completed', 'success');
+    }
   }
 
   private _applyTheme() {
