@@ -62,8 +62,8 @@ export class ActivityLog extends LitElement {
       .log-item {
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
-        background: hsla(220, 15%, 13%, 0.6); /* Slightly lighter/more contrast */
-        border: 1px solid var(--border-glass); /* Definition */
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
         border-left-width: 3px;
         border-left-style: solid;
         font-family: var(--font-mono);
