@@ -135,6 +135,84 @@ export class InvokeForm extends LitElement {
       input.error:focus, textarea.error:focus {
         box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
       }
+
+      /* Multiselect Styles */
+      .multiselect-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+      }
+
+      .multiselect-option {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s;
+        user-select: none;
+      }
+
+      .multiselect-option:hover {
+        border-color: var(--accent-secondary);
+      }
+
+      .multiselect-option.selected {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .multiselect-option input {
+        width: auto;
+        margin: 0;
+        cursor: pointer;
+      }
+
+      /* Number Input with Range Slider */
+      .number-with-range {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-xs);
+      }
+
+      .number-with-range input[type="range"] {
+        width: 100%;
+        height: 6px;
+        background: var(--bg-glass);
+        border-radius: 3px;
+        border: none;
+        -webkit-appearance: none;
+      }
+
+      .number-with-range input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        background: var(--accent-primary);
+        border-radius: 50%;
+        cursor: pointer;
+      }
+
+      .number-input-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .number-input-row input[type="number"] {
+        width: 100px;
+      }
+
+      .range-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        color: var(--t-muted);
+      }
     `
   ];
 
@@ -214,6 +292,31 @@ export class InvokeForm extends LitElement {
         `;
     }
 
+    // Handle Array of Enums -> Multiselect
+    if (schema.type === 'array' && (schema as any).items?.enum) {
+      const enumValues = (schema as any).items.enum as string[];
+      const selectedValues = (this._values[key] as string[]) || [];
+
+      return html`
+        <div class="multiselect-container">
+          ${enumValues.map(val => html`
+            <label
+              class="multiselect-option ${selectedValues.includes(val) ? 'selected' : ''}"
+              @click=${() => this._toggleMultiselect(key, val)}
+            >
+              <input
+                type="checkbox"
+                .checked=${selectedValues.includes(val)}
+                @click=${(e: Event) => e.stopPropagation()}
+                @change=${() => this._toggleMultiselect(key, val)}
+              >
+              ${val}
+            </label>
+          `)}
+        </div>
+      `;
+    }
+
     // Handle Enums -> Select Dropdown
     if ((schema as any).enum) {
       return html`
@@ -226,8 +329,44 @@ export class InvokeForm extends LitElement {
         `;
     }
 
-    // Handle Number -> Number Input
+    // Handle Number with min/max -> Number Input with Range Slider
     if (schema.type === 'number' || schema.type === 'integer') {
+      const hasRange = (schema as any).minimum !== undefined && (schema as any).maximum !== undefined;
+      const min = (schema as any).minimum ?? 0;
+      const max = (schema as any).maximum ?? 100;
+      const step = schema.type === 'integer' ? 1 : 0.1;
+      const currentValue = this._values[key] ?? (schema as any).default ?? min;
+
+      if (hasRange) {
+        return html`
+          <div class="number-with-range">
+            <div class="number-input-row">
+              <input
+                type="number"
+                class="${errorClass}"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${String(currentValue)}
+                @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+              >
+              <input
+                type="range"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${String(currentValue)}
+                @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+              >
+            </div>
+            <div class="range-labels">
+              <span>${min}</span>
+              <span>${max}</span>
+            </div>
+          </div>
+        `;
+      }
+
       return html`
         <input
             type="number"
@@ -263,6 +402,19 @@ export class InvokeForm extends LitElement {
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       >
     `;
+  }
+
+  private _toggleMultiselect(key: string, value: string) {
+    const currentValues = (this._values[key] as string[]) || [];
+    let newValues: string[];
+
+    if (currentValues.includes(value)) {
+      newValues = currentValues.filter(v => v !== value);
+    } else {
+      newValues = [...currentValues, value];
+    }
+
+    this._values = { ...this._values, [key]: newValues };
   }
 
   private _handleChange(key: string, value: any) {
