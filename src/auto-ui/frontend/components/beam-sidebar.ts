@@ -195,7 +195,7 @@ export class BeamSidebar extends LitElement {
         width: 100%;
         margin-top: var(--space-md);
         padding: var(--space-sm);
-        background: linear-gradient(135deg, var(--bg-glass), hsla(220, 10%, 20%, 0.5));
+        background: var(--bg-glass-strong);
         border: 1px solid var(--border-glass);
         color: var(--t-primary);
         cursor: pointer;
@@ -209,7 +209,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .marketplace-btn:hover {
-        background: hsla(220, 10%, 25%, 0.8);
+        background: var(--bg-panel);
         border-color: var(--accent-secondary);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         transform: translateY(-1px);

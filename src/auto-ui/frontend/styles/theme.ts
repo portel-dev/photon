@@ -2,69 +2,27 @@ import { css } from 'lit';
 
 export type Theme = 'dark' | 'light';
 
+/**
+ * Base theme - only defines spacing, radius, typography
+ * Color variables are inherited from beam-app root
+ */
 export const theme = css`
   :host {
-    /* ===== Dark Theme (Default) ===== */
-    --hsl-bg: 220, 15%, 10%;
-    --hsl-glass: 220, 15%, 14%;
-    --hsl-primary: 260, 100%, 65%; /* Neon Violet */
-    --hsl-secondary: 190, 100%, 50%; /* Cyan */
-    --hsl-text: 220, 10%, 95%;
-    --hsl-text-muted: 220, 10%, 65%;
-    --hsl-border: 220, 10%, 25%;
-
-    /* Semantic Colors */
-    --bg-app: hsl(var(--hsl-bg));
-    --bg-glass: hsla(220, 15%, 14%, 0.6);
-    --bg-glass-strong: hsla(220, 15%, 14%, 0.85);
-    --bg-panel: hsl(220, 15%, 12%);
-    --t-primary: hsl(var(--hsl-text));
-    --t-muted: hsl(var(--hsl-text-muted));
-    --border-glass: hsla(220, 10%, 80%, 0.1);
-
-    /* Accents */
-    --accent-primary: hsl(var(--hsl-primary));
-    --accent-secondary: hsl(var(--hsl-secondary));
-    --glow-primary: hsla(var(--hsl-primary), 0.3);
-
-    /* Spacing */
+    /* Spacing - same for all themes */
     --space-xs: 4px;
     --space-sm: 8px;
     --space-md: 16px;
     --space-lg: 24px;
     --space-xl: 32px;
 
-    /* Radius */
+    /* Radius - same for all themes */
     --radius-sm: 6px;
     --radius-md: 12px;
     --radius-lg: 18px;
 
-    /* Typography */
+    /* Typography - same for all themes */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
-  }
-
-  /* ===== Light Theme ===== */
-  :host([data-theme="light"]) {
-    --hsl-bg: 220, 20%, 97%;
-    --hsl-glass: 220, 20%, 100%;
-    --hsl-primary: 260, 85%, 55%;
-    --hsl-secondary: 190, 85%, 40%;
-    --hsl-text: 220, 20%, 15%;
-    --hsl-text-muted: 220, 10%, 45%;
-    --hsl-border: 220, 15%, 85%;
-
-    --bg-app: hsl(var(--hsl-bg));
-    --bg-glass: hsla(220, 20%, 100%, 0.85);
-    --bg-glass-strong: hsla(220, 20%, 100%, 0.95);
-    --bg-panel: hsl(220, 20%, 98%);
-    --t-primary: hsl(var(--hsl-text));
-    --t-muted: hsl(var(--hsl-text-muted));
-    --border-glass: hsla(220, 20%, 15%, 0.1);
-
-    --accent-primary: hsl(var(--hsl-primary));
-    --accent-secondary: hsl(var(--hsl-secondary));
-    --glow-primary: hsla(var(--hsl-primary), 0.2);
   }
 
   /* Shared Utility Classes */
@@ -99,11 +57,12 @@ export const theme = css`
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsla(220, 10%, 80%, 0.1);
+    background: var(--border-glass);
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsla(220, 10%, 80%, 0.2);
+    background: var(--t-muted);
+    opacity: 0.5;
   }
   /* Toggle Switch */
   .switch {

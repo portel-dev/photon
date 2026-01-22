@@ -12,6 +12,18 @@ export class BeamApp extends LitElement {
     theme,
     css`
       :host {
+        /* ===== Dark Theme (Default) ===== */
+        --bg-app: hsl(220, 15%, 10%);
+        --bg-glass: hsla(220, 15%, 14%, 0.6);
+        --bg-glass-strong: hsla(220, 15%, 14%, 0.85);
+        --bg-panel: hsl(220, 15%, 12%);
+        --t-primary: hsl(220, 10%, 95%);
+        --t-muted: hsl(220, 10%, 65%);
+        --border-glass: hsla(220, 10%, 80%, 0.1);
+        --accent-primary: hsl(260, 100%, 65%);
+        --accent-secondary: hsl(190, 100%, 50%);
+        --glow-primary: hsla(260, 100%, 65%, 0.3);
+
         display: flex;
         height: 100vh;
         width: 100vw;
@@ -19,6 +31,20 @@ export class BeamApp extends LitElement {
         color: var(--t-primary);
         font-family: var(--font-sans);
         overflow: hidden;
+      }
+
+      /* ===== Light Theme - "Warm Editorial" ===== */
+      :host([data-theme="light"]) {
+        --bg-app: hsl(40, 20%, 94%);
+        --bg-glass: hsla(45, 40%, 99%, 0.92);
+        --bg-glass-strong: hsla(45, 50%, 100%, 0.97);
+        --bg-panel: hsl(42, 35%, 97%);
+        --t-primary: hsl(220, 30%, 15%);
+        --t-muted: hsl(220, 10%, 45%);
+        --border-glass: hsla(30, 20%, 50%, 0.15);
+        --accent-primary: hsl(215, 70%, 48%);
+        --accent-secondary: hsl(165, 60%, 38%);
+        --glow-primary: hsla(215, 70%, 48%, 0.15);
       }
 
       .sidebar-area {
