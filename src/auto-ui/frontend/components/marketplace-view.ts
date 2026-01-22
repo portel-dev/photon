@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { showToast } from './toast-manager.js';
 
 interface MarketplaceItem {
     name: string;
@@ -249,20 +250,18 @@ export class MarketplaceView extends LitElement {
             });
 
             if (res.ok) {
-                // Find existing sidebar (hacky but effective for now without global store)
-                // Ideally we emit an event that app listens to
                 this.dispatchEvent(new CustomEvent('install', {
                     detail: { name: item.name },
                     bubbles: true,
                     composed: true
                 }));
-                alert(`Successfully installed ${item.name}`);
+                showToast(`Successfully installed ${item.name}`, 'success');
             } else {
                 const err = await res.json();
-                alert(`Failed to install: ${err.error}`);
+                showToast(`Failed to install: ${err.error}`, 'error', 5000);
             }
         } catch (e) {
-            alert('Installation failed');
+            showToast('Installation failed', 'error', 5000);
         } finally {
             this._installing = null;
         }

@@ -7,5 +7,6 @@ import './components/result-viewer.js';
 import './components/file-picker.js';
 import './components/marketplace-view.js';
 import './components/custom-ui-renderer.js';
+import './components/toast-manager.js';
 
 console.log('✨ Beam UI Initialized');

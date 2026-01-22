@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { showToast } from './toast-manager.js';
 
 @customElement('result-viewer')
 export class ResultViewer extends LitElement {
@@ -213,6 +214,6 @@ export class ResultViewer extends LitElement {
       : String(this.result);
 
     navigator.clipboard.writeText(text);
-    // TODO: Show toast
+    showToast('Copied to clipboard', 'success');
   }
 }

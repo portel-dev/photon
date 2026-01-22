@@ -32,6 +32,45 @@ export class CustomUiRenderer extends LitElement {
         color: var(--t-muted);
         background: var(--bg-panel);
       }
+
+      .error-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-md);
+        height: 100%;
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        padding: var(--space-lg);
+        text-align: center;
+      }
+
+      .error-icon {
+        font-size: 3rem;
+        opacity: 0.5;
+      }
+
+      .error-message {
+        color: #f87171;
+        font-size: 0.9rem;
+        max-width: 400px;
+      }
+
+      .retry-btn {
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        padding: var(--space-sm) var(--space-lg);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-weight: 500;
+        transition: opacity 0.2s;
+      }
+
+      .retry-btn:hover {
+        opacity: 0.9;
+      }
     `
     ];
 
@@ -100,8 +139,12 @@ export class CustomUiRenderer extends LitElement {
     render() {
         if (this._error) {
             return html`
-            <div class="loading" style="color: var(--accent-error);">
-                Error: ${this._error}
+            <div class="error-container">
+                <div class="error-icon">⚠️</div>
+                <div class="error-message">${this._error}</div>
+                <button class="retry-btn" @click=${this._loadContent}>
+                    Retry
+                </button>
             </div>
           `;
         }

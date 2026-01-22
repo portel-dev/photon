@@ -7883,7 +7883,7 @@ photon add memory</code></pre>
       const args = {};
 
       for (const [key, value] of formData.entries()) {
-        const input = form.querySelector(`[name = "${key}"]`);
+        const input = form.querySelector(\`[name = "\${key}"]\`);
         const schema = currentMethod.params.properties?.[key] || {};
 
         if (value === '' && schema.default !== undefined) {
