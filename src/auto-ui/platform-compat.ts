@@ -244,6 +244,11 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
       else if (m.type === 'photon:theme-change') {
         // Theme change from BEAM
         ctx.theme = m.theme || 'dark';
+        // Update theme tokens if provided
+        if (m.themeTokens) {
+          themeTokens = m.themeTokens;
+          applyThemeTokens();
+        }
         applyThemeClass();
         listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
       }
@@ -295,11 +300,28 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
   function applyThemeClass() {
     document.documentElement.classList.remove('light', 'dark', 'light-theme');
     document.documentElement.classList.add(ctx.theme);
+
+    // Define colors for each theme (must match design-system/tokens.ts)
+    var lightBg = '#ffffff';
+    var lightText = '#1a1a1a';
+    var darkBg = '#0d0d0d';
+    var darkText = '#e6e6e6';
+
     if (ctx.theme === 'light') {
       document.documentElement.classList.add('light-theme');
       document.documentElement.style.colorScheme = 'light';
+      document.documentElement.style.backgroundColor = lightBg;
+      if (document.body) {
+        document.body.style.backgroundColor = lightBg;
+        document.body.style.color = lightText;
+      }
     } else {
       document.documentElement.style.colorScheme = 'dark';
+      document.documentElement.style.backgroundColor = darkBg;
+      if (document.body) {
+        document.body.style.backgroundColor = darkBg;
+        document.body.style.color = darkText;
+      }
     }
     document.documentElement.setAttribute('data-theme', ctx.theme);
   }
