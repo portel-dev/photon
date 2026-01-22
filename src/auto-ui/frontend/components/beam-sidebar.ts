@@ -282,14 +282,14 @@ export class BeamSidebar extends LitElement {
       ` : ''}
 
       ${this._configured.length > 0 ? html`
-        <div class="section-header">Photons</div>
+        <div class="section-header">MCPs</div>
         <ul class="photon-list">
           ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
         </ul>
       ` : ''}
 
       ${this._needsSetup.length > 0 ? html`
-        <div class="section-header">Needs Setup</div>
+        <div class="section-header">Setup</div>
         <ul class="photon-list">
           ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
         </ul>

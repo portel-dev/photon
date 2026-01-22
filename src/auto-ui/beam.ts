@@ -1646,17 +1646,28 @@ async function handleConfigure(
     const schemas = await extractor.extractFromFile(unconfiguredPhoton.path);
     (mcp as any).schemas = schemas; // Store schemas for result rendering
 
+    // Get UI assets for linking
+    const uiAssets = mcp.assets?.ui || [];
+
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const methods: MethodInfo[] = schemas
       .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-      .map((schema: any) => ({
-        name: schema.name,
-        description: schema.description || '',
-        params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-        returns: { type: 'object' },
-        autorun: schema.autorun || false,
-        buttonLabel: schema.buttonLabel,
-      }));
+      .map((schema: any) => {
+        // Find linked UI for this method
+        const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+        return {
+          name: schema.name,
+          description: schema.description || '',
+          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          autorun: schema.autorun || false,
+          outputFormat: schema.outputFormat,
+          layoutHints: schema.layoutHints,
+          buttonLabel: schema.buttonLabel,
+          icon: schema.icon,
+          linkedUi: linkedAsset?.id,
+        };
+      });
 
     // Check if this is an App (has main() method with @ui)
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
@@ -1670,6 +1681,7 @@ async function handleConfigure(
       methods,
       isApp,
       appEntry: mainMethod,
+      assets: mcp.assets,
     };
 
     photons[photonIndex] = configuredPhoton;
