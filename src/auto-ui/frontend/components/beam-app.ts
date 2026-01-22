@@ -223,6 +223,10 @@ export class BeamApp extends LitElement {
             this._selectedMethod = method;
             this._view = 'form';
           }
+        } else if (photon.isApp && photon.appEntry) {
+          // For Apps without method specified, auto-select main
+          this._selectedMethod = photon.appEntry;
+          this._view = 'form';
         } else {
           this._selectedMethod = null;
           this._view = 'list';
@@ -316,25 +320,46 @@ export class BeamApp extends LitElement {
     if (this._view === 'form' && this._selectedMethod) {
       // Check for Linked UI (Custom Interface)
       if (this._selectedMethod.linkedUi) {
+        const isAppMain = this._selectedPhoton.isApp && this._selectedMethod.name === 'main';
+        const otherMethods = isAppMain
+          ? (this._selectedPhoton.methods || []).filter((m: any) => m.name !== 'main')
+          : [];
+
         return html`
-          <div style="margin-bottom: var(--space-md);">
-            <button 
-              style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-              @click=${() => {
-            this._view = 'list';
-            this._selectedMethod = null;
-            this._updateHash();
-          }}
-            >← Back to Methods</button>
-          </div>
-          <div class="glass-panel" style="padding: 0; overflow: hidden; height: calc(100vh - 200px);">
+          ${!isAppMain ? html`
+            <div style="margin-bottom: var(--space-md);">
+              <button
+                style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                @click=${() => {
+              this._view = 'list';
+              this._selectedMethod = null;
+              this._updateHash();
+            }}
+              >← Back to Methods</button>
+            </div>
+          ` : ''}
+          <div class="glass-panel" style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);">
              <custom-ui-renderer
                 .photon=${this._selectedPhoton.name}
                 .method=${this._selectedMethod.name}
                 .uiId=${this._selectedMethod.linkedUi}
                 .theme=${this._theme}
+                style="height: calc(100vh - 80px);"
              ></custom-ui-renderer>
           </div>
+
+          ${isAppMain && otherMethods.length > 0 ? html`
+            <div style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);">
+              <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
+                Additional Methods
+              </h3>
+              <div class="cards-grid">
+                ${otherMethods.map((method: any) => html`
+                  <method-card .method=${method} @select=${this._handleMethodSelect}></method-card>
+                `)}
+              </div>
+            </div>
+          ` : ''}
         `;
       }
 
@@ -388,8 +413,15 @@ export class BeamApp extends LitElement {
 
   private _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
-    this._view = 'list';
     this._selectedMethod = null;
+
+    // For Apps, automatically select the main method to show Custom UI
+    if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
+      this._selectedMethod = this._selectedPhoton.appEntry;
+      this._view = 'form';
+    } else {
+      this._view = 'list';
+    }
     this._updateHash();
   }
 
