@@ -94,7 +94,7 @@ export class BeamApp extends LitElement {
   @state() private _reconnecting = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' | 'marketplace' = 'list';
+  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' = 'list';
 
   // ... (existing code)
 
@@ -180,6 +180,34 @@ export class BeamApp extends LitElement {
         this._isExecuting = false;
         this._log('success', 'Execution completed');
         showToast('Execution completed successfully', 'success');
+      } else if (msg.type === 'configured') {
+        // Photon was successfully configured
+        const configuredPhoton = msg.photon;
+        this._log('success', `${configuredPhoton.name} configured successfully`);
+        showToast(`${configuredPhoton.name} configured successfully!`, 'success');
+
+        // Update photon in list
+        const index = this._photons.findIndex(p => p.name === configuredPhoton.name);
+        if (index !== -1) {
+          this._photons = [
+            ...this._photons.slice(0, index),
+            configuredPhoton,
+            ...this._photons.slice(index + 1)
+          ];
+        }
+
+        // Update selected photon and switch to methods view
+        if (this._selectedPhoton?.name === configuredPhoton.name) {
+          this._selectedPhoton = configuredPhoton;
+          // If it's an app, show the custom UI
+          if (configuredPhoton.isApp && configuredPhoton.appEntry) {
+            this._selectedMethod = configuredPhoton.appEntry;
+            this._view = 'form';
+          } else {
+            this._view = 'list';
+          }
+          this._updateHash();
+        }
       } else if (msg.type === 'error') {
         // Also handle errors for bridge calls
         if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
@@ -306,7 +334,7 @@ export class BeamApp extends LitElement {
       return html`
            <h1>Welcome to Beam</h1>
            <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select a Photon to begin.</p>
-           
+
            <div class="glass-panel" style="padding: var(--space-xl); text-align: center;">
              <h3>No Photon Selected</h3>
              <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select one from the sidebar or explore the marketplace.</p>
@@ -315,6 +343,18 @@ export class BeamApp extends LitElement {
              </button>
            </div>
          `;
+    }
+
+    // Show configuration view for unconfigured photons
+    if (this._view === 'config' || this._selectedPhoton.configured === false) {
+      return html`
+        <div class="glass-panel" style="padding: var(--space-lg); max-width: 600px;">
+          <photon-config
+            .photon=${this._selectedPhoton}
+            @configure=${this._handleConfigure}
+          ></photon-config>
+        </div>
+      `;
     }
 
     if (this._view === 'form' && this._selectedMethod) {
@@ -381,7 +421,11 @@ export class BeamApp extends LitElement {
             ></invoke-form>
 
             ${this._lastResult !== null ? html`
-              <result-viewer .result=${this._lastResult}></result-viewer>
+              <result-viewer
+                .result=${this._lastResult}
+                .outputFormat=${this._selectedMethod?.outputFormat}
+                .layoutHints=${this._selectedMethod?.layoutHints}
+              ></result-viewer>
             ` : ''}
           </div>
         `;
@@ -405,6 +449,13 @@ export class BeamApp extends LitElement {
   private _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
+
+    // For unconfigured photons, show configuration view
+    if (this._selectedPhoton.configured === false) {
+      this._view = 'config';
+      this._updateHash();
+      return;
+    }
 
     // For Apps, automatically select the main method to show Custom UI
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
@@ -458,6 +509,17 @@ export class BeamApp extends LitElement {
       photon: this._selectedPhoton.name,
       method: this._selectedMethod.name,
       args
+    }));
+  }
+
+  private _handleConfigure(e: CustomEvent) {
+    const { photon, config } = e.detail;
+    this._log('info', `Configuring ${photon}...`);
+
+    this._ws?.send(JSON.stringify({
+      type: 'configure',
+      photon,
+      config
     }));
   }
   private _handleBridgeMessage = (event: MessageEvent) => {
