@@ -1,6 +1,7 @@
 import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
+import { getThemeTokens } from '../../design-system/tokens.js';
 
 @customElement('custom-ui-renderer')
 export class CustomUiRenderer extends LitElement {
@@ -94,11 +95,15 @@ export class CustomUiRenderer extends LitElement {
         }
 
         // Notify iframe of theme change without reloading
-        if (changedProperties.has('theme') && this._iframeRef?.contentWindow) {
-            this._iframeRef.contentWindow.postMessage({
-                type: 'photon:theme-change',
-                theme: this.theme
-            }, '*');
+        if (changedProperties.has('theme')) {
+            if (this._iframeRef?.contentWindow) {
+                const themeTokens = getThemeTokens(this.theme);
+                this._iframeRef.contentWindow.postMessage({
+                    type: 'photon:theme-change',
+                    theme: this.theme,
+                    themeTokens: themeTokens
+                }, '*');
+            }
         }
     }
 
@@ -174,10 +179,12 @@ export class CustomUiRenderer extends LitElement {
 
     private _handleIframeLoad(e: Event) {
         this._iframeRef = e.target as HTMLIFrameElement;
-        // Send initial theme to iframe after load
+        // Send initial theme to iframe after load (with tokens for immediate styling)
+        const themeTokens = getThemeTokens(this.theme);
         this._iframeRef?.contentWindow?.postMessage({
             type: 'photon:theme-change',
-            theme: this.theme
+            theme: this.theme,
+            themeTokens: themeTokens
         }, '*');
     }
 }

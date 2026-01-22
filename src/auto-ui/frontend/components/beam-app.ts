@@ -3,6 +3,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import type { BeamSidebar } from './beam-sidebar.js';
+import { getThemeTokens } from '../../design-system/tokens.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 
@@ -676,12 +677,29 @@ export class BeamApp extends LitElement {
   }
 
   private _broadcastThemeToIframes() {
-    // Find any custom-ui-renderer iframes and notify them of theme change
+    const themeTokens = getThemeTokens(this._theme);
+
+    // Find custom-ui-renderer components and notify their iframes
+    const renderers = this.shadowRoot?.querySelectorAll('custom-ui-renderer');
+    renderers?.forEach((renderer) => {
+      const shadowRoot = (renderer as any).shadowRoot;
+      const iframe = shadowRoot?.querySelector('iframe');
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'photon:theme-change',
+          theme: this._theme,
+          themeTokens: themeTokens
+        }, '*');
+      }
+    });
+
+    // Also check for any direct iframes (fallback)
     const iframes = this.shadowRoot?.querySelectorAll('iframe');
-    iframes?.forEach(iframe => {
+    iframes?.forEach((iframe) => {
       iframe.contentWindow?.postMessage({
         type: 'photon:theme-change',
-        theme: this._theme
+        theme: this._theme,
+        themeTokens: themeTokens
       }, '*');
     });
   }
