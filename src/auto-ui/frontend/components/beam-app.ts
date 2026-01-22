@@ -1,7 +1,9 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
+
+const THEME_STORAGE_KEY = 'beam-theme';
 
 @customElement('beam-app')
 export class BeamApp extends LitElement {
@@ -106,12 +108,21 @@ export class BeamApp extends LitElement {
   @state() private _lastResult: any = null;
   @state() private _activityLog: any[] = [];
   @state() private _isExecuting = false;
+  @state() private _theme: Theme = 'dark';
 
   private _ws: WebSocket | null = null;
   private _pendingBridgeCalls = new Map<string, Window>();
 
   connectedCallback() {
     super.connectedCallback();
+
+    // Load saved theme preference
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme;
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      this._theme = savedTheme;
+    }
+    this._applyTheme();
+
     this._connect();
 
     window.addEventListener('hashchange', this._handleHashChange);
@@ -254,8 +265,10 @@ export class BeamApp extends LitElement {
         <beam-sidebar
           .photons=${this._photons}
           .selectedPhoton=${this._selectedPhoton?.name}
+          .theme=${this._theme}
           @select=${this._handlePhotonSelect}
           @marketplace=${() => this._view = 'marketplace'}
+          @theme-change=${this._handleThemeChange}
         ></beam-sidebar>
       </div>
 
@@ -319,6 +332,7 @@ export class BeamApp extends LitElement {
                 .photon=${this._selectedPhoton.name}
                 .method=${this._selectedMethod.name}
                 .uiId=${this._selectedMethod.linkedUi}
+                .theme=${this._theme}
              ></custom-ui-renderer>
           </div>
         `;
@@ -420,5 +434,28 @@ export class BeamApp extends LitElement {
         }));
       }
     }
+  }
+
+  private _handleThemeChange = (e: CustomEvent) => {
+    const newTheme = e.detail.theme as Theme;
+    this._theme = newTheme;
+    localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+    this._applyTheme();
+    this._broadcastThemeToIframes();
+  }
+
+  private _applyTheme() {
+    this.setAttribute('data-theme', this._theme);
+  }
+
+  private _broadcastThemeToIframes() {
+    // Find any custom-ui-renderer iframes and notify them of theme change
+    const iframes = this.shadowRoot?.querySelectorAll('iframe');
+    iframes?.forEach(iframe => {
+      iframe.contentWindow?.postMessage({
+        type: 'photon:theme-change',
+        theme: this._theme
+      }, '*');
+    });
   }
 }

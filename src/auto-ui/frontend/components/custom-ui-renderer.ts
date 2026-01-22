@@ -1,6 +1,6 @@
 import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, Theme } from '../styles/theme.js';
 
 @customElement('custom-ui-renderer')
 export class CustomUiRenderer extends LitElement {
@@ -76,6 +76,7 @@ export class CustomUiRenderer extends LitElement {
 
     @property({ type: String }) photon = '';
     @property({ type: String }) method = '';
+    @property({ type: String }) theme: Theme = 'dark';
 
     // One of these will be set
     @property({ type: String }) templatePath = '';
@@ -84,11 +85,20 @@ export class CustomUiRenderer extends LitElement {
     @state() private _srcDoc = '';
     @state() private _loading = true;
     @state() private _error = '';
+    private _iframeRef: HTMLIFrameElement | null = null;
 
     protected updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
         if (changedProperties.has('photon') || changedProperties.has('method') ||
             changedProperties.has('templatePath') || changedProperties.has('uiId')) {
             this._loadContent();
+        }
+
+        // Notify iframe of theme change without reloading
+        if (changedProperties.has('theme') && this._iframeRef?.contentWindow) {
+            this._iframeRef.contentWindow.postMessage({
+                type: 'photon:theme-change',
+                theme: this.theme
+            }, '*');
         }
     }
 
@@ -115,7 +125,7 @@ export class CustomUiRenderer extends LitElement {
             const templateHtml = await templateRes.text();
 
             // 2. Fetch Bridge Script
-            const bridgeRes = await fetch(`/api/platform-bridge?photon=${encodeURIComponent(this.photon)}&method=${encodeURIComponent(this.method)}&theme=dark`);
+            const bridgeRes = await fetch(`/api/platform-bridge?photon=${encodeURIComponent(this.photon)}&method=${encodeURIComponent(this.method)}&theme=${encodeURIComponent(this.theme)}`);
             if (!bridgeRes.ok) throw new Error('Failed to load platform bridge');
             const bridgeScript = await bridgeRes.text();
 
@@ -154,10 +164,20 @@ export class CustomUiRenderer extends LitElement {
         }
 
         return html`
-        <iframe 
+        <iframe
             srcdoc=${this._srcDoc}
             sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            @load=${this._handleIframeLoad}
         ></iframe>
       `;
+    }
+
+    private _handleIframeLoad(e: Event) {
+        this._iframeRef = e.target as HTMLIFrameElement;
+        // Send initial theme to iframe after load
+        this._iframeRef?.contentWindow?.postMessage({
+            type: 'photon:theme-change',
+            theme: this.theme
+        }, '*');
     }
 }
