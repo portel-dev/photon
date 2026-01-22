@@ -7,6 +7,7 @@ interface PhotonItem {
   description: string;
   isApp?: boolean;
   appEntry?: any;
+  methods?: any[];
 }
 
 @customElement('beam-sidebar')
@@ -173,11 +174,12 @@ export class BeamSidebar extends LitElement {
         text-overflow: ellipsis;
       }
 
-      .app-badge {
+      .method-count {
         font-size: 0.65rem;
         padding: 2px 6px;
-        background: var(--accent-primary);
-        color: white;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
         border-radius: 10px;
         font-weight: 500;
         flex-shrink: 0;
@@ -280,6 +282,7 @@ export class BeamSidebar extends LitElement {
   }
 
   private _renderPhotonItem(photon: PhotonItem, isApp: boolean) {
+    const methodCount = photon.methods?.length || 0;
     return html`
       <li
         class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
@@ -292,7 +295,7 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           <div class="photon-desc">${photon.description || (isApp ? 'Full application' : 'Photon tool')}</div>
         </div>
-        ${isApp ? html`<span class="app-badge">APP</span>` : ''}
+        ${methodCount > 0 ? html`<span class="method-count">${methodCount}</span>` : ''}
       </li>
     `;
   }
