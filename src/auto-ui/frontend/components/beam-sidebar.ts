@@ -185,6 +185,12 @@ export class BeamSidebar extends LitElement {
         flex-shrink: 0;
       }
 
+      .method-count.unconfigured {
+        background: hsla(45, 80%, 50%, 0.15);
+        border-color: hsla(45, 80%, 50%, 0.3);
+        color: hsl(45, 80%, 50%);
+      }
+
       .marketplace-btn {
         width: 100%;
         margin-top: var(--space-md);
@@ -231,8 +237,12 @@ export class BeamSidebar extends LitElement {
     return this.photons.filter(p => p.isApp);
   }
 
-  private get _tools() {
-    return this.photons.filter(p => !p.isApp);
+  private get _configured() {
+    return this.photons.filter(p => !p.isApp && p.methods && p.methods.length > 0);
+  }
+
+  private get _needsSetup() {
+    return this.photons.filter(p => !p.isApp && (!p.methods || p.methods.length === 0));
   }
 
   render() {
@@ -267,22 +277,31 @@ export class BeamSidebar extends LitElement {
       ${this._apps.length > 0 ? html`
         <div class="section-header">Apps</div>
         <ul class="photon-list">
-          ${this._apps.map(photon => this._renderPhotonItem(photon, true))}
+          ${this._apps.map(photon => this._renderPhotonItem(photon, 'app'))}
         </ul>
       ` : ''}
 
-      <div class="section-header">Tools</div>
-      <ul class="photon-list">
-        ${this._tools.length > 0
-          ? this._tools.map(photon => this._renderPhotonItem(photon, false))
-          : html`<li class="empty-section">No tools available</li>`
-        }
-      </ul>
+      ${this._configured.length > 0 ? html`
+        <div class="section-header">Photons</div>
+        <ul class="photon-list">
+          ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
+        </ul>
+      ` : ''}
+
+      ${this._needsSetup.length > 0 ? html`
+        <div class="section-header">Needs Setup</div>
+        <ul class="photon-list">
+          ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
+        </ul>
+      ` : ''}
     `;
   }
 
-  private _renderPhotonItem(photon: PhotonItem, isApp: boolean) {
+  private _renderPhotonItem(photon: PhotonItem, type: 'app' | 'configured' | 'unconfigured') {
     const methodCount = photon.methods?.length || 0;
+    const isApp = type === 'app';
+    const isUnconfigured = type === 'unconfigured';
+
     return html`
       <li
         class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
@@ -295,7 +314,11 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           <div class="photon-desc">${photon.description || (isApp ? 'Full application' : 'Photon tool')}</div>
         </div>
-        ${methodCount > 0 ? html`<span class="method-count">${methodCount}</span>` : ''}
+        ${isUnconfigured
+          ? html`<span class="method-count unconfigured">?</span>`
+          : methodCount > 0
+            ? html`<span class="method-count">${methodCount}</span>`
+            : ''}
       </li>
     `;
   }
