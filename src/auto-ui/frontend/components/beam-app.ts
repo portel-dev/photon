@@ -1,7 +1,8 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
+import type { BeamSidebar } from './beam-sidebar.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 
@@ -87,6 +88,88 @@ export class BeamApp extends LitElement {
       .reconnecting {
         background: #fbbf24;
       }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .help-modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-xl);
+        max-width: 500px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      .help-modal h2 {
+        margin: 0 0 var(--space-lg) 0;
+        font-size: 1.5rem;
+      }
+
+      .help-modal-close {
+        position: absolute;
+        top: var(--space-md);
+        right: var(--space-md);
+        background: none;
+        border: none;
+        color: var(--t-muted);
+        font-size: 1.5rem;
+        cursor: pointer;
+      }
+
+      .shortcut-section {
+        margin-bottom: var(--space-lg);
+      }
+
+      .shortcut-section h3 {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--t-muted);
+        margin: 0 0 var(--space-sm) 0;
+      }
+
+      .shortcut-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-xs);
+      }
+
+      .shortcut-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--space-xs) 0;
+      }
+
+      .shortcut-key {
+        display: inline-flex;
+        gap: 4px;
+      }
+
+      .shortcut-key kbd {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+      }
+
+      .shortcut-desc {
+        color: var(--t-muted);
+        font-size: 0.9rem;
+      }
     `
   ];
 
@@ -109,6 +192,10 @@ export class BeamApp extends LitElement {
   @state() private _activityLog: any[] = [];
   @state() private _isExecuting = false;
   @state() private _theme: Theme = 'dark';
+  @state() private _showHelp = false;
+
+  @query('beam-sidebar')
+  private _sidebar!: BeamSidebar;
 
   private _ws: WebSocket | null = null;
   private _pendingBridgeCalls = new Map<string, Window>();
@@ -127,12 +214,14 @@ export class BeamApp extends LitElement {
 
     window.addEventListener('hashchange', this._handleHashChange);
     window.addEventListener('message', this._handleBridgeMessage);
+    window.addEventListener('keydown', this._handleKeydown);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('hashchange', this._handleHashChange);
     window.removeEventListener('message', this._handleBridgeMessage);
+    window.removeEventListener('keydown', this._handleKeydown);
   }
 
   private _connect() {
@@ -310,6 +399,8 @@ export class BeamApp extends LitElement {
       </main>
 
       <toast-manager></toast-manager>
+
+      ${this._showHelp ? this._renderHelpModal() : ''}
     `;
   }
 
@@ -567,5 +658,218 @@ export class BeamApp extends LitElement {
         theme: this._theme
       }, '*');
     });
+  }
+
+  private _handleKeydown = (e: KeyboardEvent) => {
+    // Skip if typing in an input field (unless it's a special key combo)
+    const target = e.target as HTMLElement;
+    const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+    // Ctrl/Cmd+K or / to focus search
+    if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !isInput)) {
+      e.preventDefault();
+      this._sidebar?.focusSearch();
+      return;
+    }
+
+    // Escape to close modals or clear
+    if (e.key === 'Escape') {
+      if (this._showHelp) {
+        this._showHelp = false;
+        return;
+      }
+      if (this._view === 'form' && this._selectedMethod) {
+        this._handleBackFromMethod();
+        return;
+      }
+      if (this._view === 'marketplace') {
+        this._view = 'list';
+        return;
+      }
+    }
+
+    // Skip other shortcuts if in input
+    if (isInput) return;
+
+    // ? to show help
+    if (e.key === '?' && e.shiftKey) {
+      this._showHelp = !this._showHelp;
+      return;
+    }
+
+    // t to toggle theme
+    if (e.key === 't') {
+      const newTheme = this._theme === 'dark' ? 'light' : 'dark';
+      this._theme = newTheme;
+      localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+      this._applyTheme();
+      this._broadcastThemeToIframes();
+      showToast(`Theme: ${newTheme}`, 'info');
+      return;
+    }
+
+    // p to show marketplace
+    if (e.key === 'p') {
+      this._view = 'marketplace';
+      return;
+    }
+
+    // f to toggle favorites filter
+    if (e.key === 'f') {
+      this._sidebar?.toggleFavoritesFilter();
+      const isActive = this._sidebar?.isFavoritesFilterActive();
+      showToast(isActive ? 'Showing favorites only' : 'Showing all photons', 'info');
+      return;
+    }
+
+    // h to go back
+    if (e.key === 'h') {
+      if (this._view === 'form') {
+        this._handleBackFromMethod();
+      } else if (this._view === 'marketplace') {
+        this._view = 'list';
+      }
+      return;
+    }
+
+    // [ and ] to navigate photons
+    if (e.key === '[' || e.key === ']') {
+      const photons = this._sidebar?.getAllPhotons() || this._photons;
+      if (photons.length === 0) return;
+
+      const currentIndex = this._selectedPhoton
+        ? photons.findIndex(p => p.name === this._selectedPhoton.name)
+        : -1;
+
+      let newIndex: number;
+      if (e.key === '[') {
+        newIndex = currentIndex <= 0 ? photons.length - 1 : currentIndex - 1;
+      } else {
+        newIndex = currentIndex >= photons.length - 1 ? 0 : currentIndex + 1;
+      }
+
+      const newPhoton = photons[newIndex];
+      if (newPhoton) {
+        this._handlePhotonSelect(new CustomEvent('select', { detail: { photon: newPhoton } }));
+      }
+      return;
+    }
+
+    // j/k or arrows to navigate methods
+    if ((e.key === 'j' || e.key === 'ArrowDown' || e.key === 'k' || e.key === 'ArrowUp') && this._view === 'list') {
+      const methods = this._selectedPhoton?.methods || [];
+      if (methods.length === 0) return;
+
+      const currentIndex = this._selectedMethod
+        ? methods.findIndex((m: any) => m.name === this._selectedMethod.name)
+        : -1;
+
+      let newIndex: number;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        newIndex = currentIndex >= methods.length - 1 ? 0 : currentIndex + 1;
+      } else {
+        newIndex = currentIndex <= 0 ? methods.length - 1 : currentIndex - 1;
+      }
+
+      this._selectedMethod = methods[newIndex];
+      // Highlight but don't navigate to form
+      return;
+    }
+
+    // Enter to select highlighted method
+    if (e.key === 'Enter' && this._selectedMethod && this._view === 'list') {
+      this._view = 'form';
+      this._updateHash();
+      return;
+    }
+
+    // r to reload/re-execute
+    if (e.key === 'r') {
+      if (this._view === 'form' && this._selectedMethod && this._lastResult !== null) {
+        // Re-execute last method (would need form data - skip for now)
+        showToast('Press Ctrl+Enter in form to re-execute', 'info');
+      }
+      return;
+    }
+  }
+
+  private _closeHelp() {
+    this._showHelp = false;
+  }
+
+  private _renderHelpModal() {
+    return html`
+      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeHelp(); }}>
+        <div class="help-modal glass-panel">
+          <h2 class="text-gradient">Keyboard Shortcuts</h2>
+
+          <div class="shortcut-section">
+            <h3>Navigation</h3>
+            <div class="shortcut-list">
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>⌘</kbd><kbd>K</kbd></span>
+                <span class="shortcut-desc">Focus search</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>/</kbd></span>
+                <span class="shortcut-desc">Focus search</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>[</kbd> <kbd>]</kbd></span>
+                <span class="shortcut-desc">Previous / Next photon</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>j</kbd> <kbd>k</kbd></span>
+                <span class="shortcut-desc">Navigate methods</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>Enter</kbd></span>
+                <span class="shortcut-desc">Select method</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>h</kbd></span>
+                <span class="shortcut-desc">Go back</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="shortcut-section">
+            <h3>Actions</h3>
+            <div class="shortcut-list">
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>⌘</kbd><kbd>Enter</kbd></span>
+                <span class="shortcut-desc">Submit form</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>Esc</kbd></span>
+                <span class="shortcut-desc">Close / Cancel</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>t</kbd></span>
+                <span class="shortcut-desc">Toggle theme</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>p</kbd></span>
+                <span class="shortcut-desc">Open marketplace</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>f</kbd></span>
+                <span class="shortcut-desc">Toggle favorites filter</span>
+              </div>
+              <div class="shortcut-item">
+                <span class="shortcut-key"><kbd>?</kbd></span>
+                <span class="shortcut-desc">Show this help</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            class="btn-primary"
+            style="width: 100%; margin-top: var(--space-md);"
+            @click=${this._closeHelp}
+          >Close</button>
+        </div>
+      </div>
+    `;
   }
 }

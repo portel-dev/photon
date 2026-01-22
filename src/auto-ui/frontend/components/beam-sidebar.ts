@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 
 interface PhotonItem {
@@ -221,6 +221,68 @@ export class BeamSidebar extends LitElement {
         font-size: 0.85rem;
         font-style: italic;
       }
+
+      /* Favorites */
+      .filter-row {
+        display: flex;
+        gap: var(--space-sm);
+        margin-top: var(--space-sm);
+      }
+
+      .filter-btn {
+        flex: 1;
+        padding: var(--space-xs) var(--space-sm);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: 0.8rem;
+        transition: all 0.2s;
+      }
+
+      .filter-btn:hover {
+        background: var(--bg-glass-strong);
+      }
+
+      .filter-btn.active {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .star-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px;
+        font-size: 0.9rem;
+        opacity: 0.3;
+        transition: all 0.2s;
+        flex-shrink: 0;
+      }
+
+      .star-btn:hover {
+        opacity: 0.7;
+        transform: scale(1.1);
+      }
+
+      .star-btn.favorited {
+        opacity: 1;
+      }
+
+      .photon-item .star-btn {
+        visibility: hidden;
+      }
+
+      .photon-item:hover .star-btn,
+      .photon-item .star-btn.favorited {
+        visibility: visible;
+      }
     `
   ];
 
@@ -233,16 +295,74 @@ export class BeamSidebar extends LitElement {
   @property({ type: String })
   theme: Theme = 'dark';
 
+  @state()
+  private _searchQuery = '';
+
+  @state()
+  private _showFavoritesOnly = false;
+
+  @state()
+  private _favorites: Set<string> = new Set();
+
+  @query('input')
+  private _searchInput!: HTMLInputElement;
+
+  private static FAVORITES_KEY = 'beam-favorites';
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._loadFavorites();
+  }
+
+  private _loadFavorites() {
+    try {
+      const stored = localStorage.getItem(BeamSidebar.FAVORITES_KEY);
+      if (stored) {
+        this._favorites = new Set(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn('Failed to load favorites:', e);
+    }
+  }
+
+  private _saveFavorites() {
+    try {
+      localStorage.setItem(BeamSidebar.FAVORITES_KEY, JSON.stringify([...this._favorites]));
+    } catch (e) {
+      console.warn('Failed to save favorites:', e);
+    }
+  }
+
+  private get _filteredPhotons() {
+    let filtered = this.photons;
+
+    // Filter by favorites if enabled
+    if (this._showFavoritesOnly) {
+      filtered = filtered.filter(p => this._favorites.has(p.name));
+    }
+
+    // Filter by search query
+    if (this._searchQuery.trim()) {
+      const query = this._searchQuery.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.name.toLowerCase().includes(query) ||
+        (p.description && p.description.toLowerCase().includes(query))
+      );
+    }
+
+    return filtered;
+  }
+
   private get _apps() {
-    return this.photons.filter(p => p.isApp);
+    return this._filteredPhotons.filter(p => p.isApp);
   }
 
   private get _configured() {
-    return this.photons.filter(p => !p.isApp && p.methods && p.methods.length > 0);
+    return this._filteredPhotons.filter(p => !p.isApp && p.methods && p.methods.length > 0);
   }
 
   private get _needsSetup() {
-    return this.photons.filter(p => !p.isApp && (!p.methods || p.methods.length === 0));
+    return this._filteredPhotons.filter(p => !p.isApp && (!p.methods || p.methods.length === 0));
   }
 
   render() {
@@ -264,14 +384,29 @@ export class BeamSidebar extends LitElement {
           </div>
         </div>
         <div class="search-box">
-          <input type="text" placeholder="Search photons..." @input=${this._handleSearch}>
+          <input
+            type="text"
+            placeholder="Search photons... (⌘K)"
+            .value=${this._searchQuery}
+            @input=${this._handleSearch}
+            @keydown=${this._handleSearchKeydown}
+          >
         </div>
-        <button
-            class="marketplace-btn"
+        <div class="filter-row">
+          <button
+            class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
+            @click=${this._toggleFavoritesFilter}
+            title="Show favorites only (f)"
+          >
+            ⭐ Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
+          </button>
+          <button
+            class="filter-btn"
             @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
-        >
-            <span>🛍️</span> Open Marketplace
-        </button>
+          >
+            🛍️ Marketplace
+          </button>
+        </div>
       </div>
 
       ${this._apps.length > 0 ? html`
@@ -301,6 +436,7 @@ export class BeamSidebar extends LitElement {
     const methodCount = photon.methods?.length || 0;
     const isApp = type === 'app';
     const isUnconfigured = type === 'unconfigured';
+    const isFavorited = this._favorites.has(photon.name);
 
     return html`
       <li
@@ -314,6 +450,11 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           <div class="photon-desc">${photon.description || (isApp ? 'Full application' : 'Photon tool')}</div>
         </div>
+        <button
+          class="star-btn ${isFavorited ? 'favorited' : ''}"
+          @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
+          title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
+        >${isFavorited ? '⭐' : '☆'}</button>
         ${isUnconfigured
           ? html`<span class="method-count unconfigured">?</span>`
           : methodCount > 0
@@ -332,11 +473,58 @@ export class BeamSidebar extends LitElement {
   }
 
   private _handleSearch(e: Event) {
-    const query = (e.target as HTMLInputElement).value;
-    this.dispatchEvent(new CustomEvent('search', { detail: { query } }));
+    this._searchQuery = (e.target as HTMLInputElement).value;
+  }
+
+  private _handleSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      this._searchQuery = '';
+      this._searchInput.value = '';
+      this._searchInput.blur();
+    }
   }
 
   private _selectPhoton(photon: PhotonItem) {
     this.dispatchEvent(new CustomEvent('select', { detail: { photon } }));
+  }
+
+  private _toggleFavorite(e: Event, photonName: string) {
+    e.stopPropagation(); // Don't select the photon
+    const newFavorites = new Set(this._favorites);
+    if (newFavorites.has(photonName)) {
+      newFavorites.delete(photonName);
+    } else {
+      newFavorites.add(photonName);
+    }
+    this._favorites = newFavorites;
+    this._saveFavorites();
+  }
+
+  private _toggleFavoritesFilter() {
+    this._showFavoritesOnly = !this._showFavoritesOnly;
+  }
+
+  // Public methods for keyboard navigation from parent
+  focusSearch() {
+    this._searchInput?.focus();
+  }
+
+  clearSearch() {
+    this._searchQuery = '';
+    if (this._searchInput) {
+      this._searchInput.value = '';
+    }
+  }
+
+  getAllPhotons(): PhotonItem[] {
+    return this._filteredPhotons;
+  }
+
+  toggleFavoritesFilter() {
+    this._toggleFavoritesFilter();
+  }
+
+  isFavoritesFilterActive(): boolean {
+    return this._showFavoritesOnly;
   }
 }
