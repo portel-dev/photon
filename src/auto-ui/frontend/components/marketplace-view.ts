@@ -117,6 +117,38 @@ export class MarketplaceView extends LitElement {
         color: var(--t-muted);
       }
 
+      .source-pill {
+        font-size: 0.65rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .source-official {
+        background: linear-gradient(135deg, hsl(210, 100%, 50%), hsl(240, 100%, 60%));
+        color: white;
+      }
+
+      .source-community {
+        background: linear-gradient(135deg, hsl(150, 60%, 45%), hsl(180, 60%, 45%));
+        color: white;
+      }
+
+      .source-local {
+        background: rgba(255,255,255,0.1);
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+      }
+
+      .card-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+      }
+
       .actions {
         display: flex;
         justify-content: flex-end;
@@ -184,6 +216,8 @@ export class MarketplaceView extends LitElement {
 
     private _renderItem(item: MarketplaceItem) {
         const isInstalling = this._installing === item.name;
+        const sourceClass = this._getSourceClass(item.marketplace);
+        const sourceLabel = this._getSourceLabel(item.marketplace);
 
         return html`
       <div class="card glass">
@@ -192,9 +226,12 @@ export class MarketplaceView extends LitElement {
             <div class="card-title">${item.name}</div>
             <div class="card-author">by ${item.author}</div>
           </div>
-          <div class="tag" style="background: var(--accent-secondary); color: black;">${item.version}</div>
+          <div class="card-meta">
+            <span class="source-pill ${sourceClass}">${sourceLabel}</span>
+            <div class="tag" style="background: var(--accent-secondary); color: black;">${item.version}</div>
+          </div>
         </div>
-        
+
         <div class="card-desc">${item.description}</div>
 
         <div class="tags">
@@ -202,8 +239,8 @@ export class MarketplaceView extends LitElement {
         </div>
 
         <div class="actions">
-          <button 
-            class="btn-install" 
+          <button
+            class="btn-install"
             ?disabled=${isInstalling}
             @click=${() => this._install(item)}
           >
@@ -212,6 +249,31 @@ export class MarketplaceView extends LitElement {
         </div>
       </div>
     `;
+    }
+
+    private _getSourceClass(marketplace: string): string {
+        const lower = marketplace?.toLowerCase() || '';
+        if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
+            return 'source-official';
+        }
+        if (lower.includes('community') || lower.includes('github')) {
+            return 'source-community';
+        }
+        return 'source-local';
+    }
+
+    private _getSourceLabel(marketplace: string): string {
+        const lower = marketplace?.toLowerCase() || '';
+        if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
+            return 'Official';
+        }
+        if (lower.includes('community')) {
+            return 'Community';
+        }
+        if (lower.includes('github')) {
+            return 'GitHub';
+        }
+        return marketplace || 'Local';
     }
 
     private async _fetchItems(query = '') {

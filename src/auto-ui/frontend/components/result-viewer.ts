@@ -528,6 +528,84 @@ export class ResultViewer extends LitElement {
       .tree-root::after {
         display: none;
       }
+
+      /* Fullscreen Modal */
+      .fullscreen-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.9);
+        backdrop-filter: blur(4px);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-xl);
+      }
+
+      .fullscreen-content {
+        max-width: 95vw;
+        max-height: 95vh;
+        position: relative;
+      }
+
+      .fullscreen-content img {
+        max-width: 100%;
+        max-height: 90vh;
+        object-fit: contain;
+        border-radius: var(--radius-md);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      }
+
+      .fullscreen-content .mermaid-container {
+        background: white;
+        padding: var(--space-xl);
+        border-radius: var(--radius-md);
+        max-width: 95vw;
+        max-height: 90vh;
+        overflow: auto;
+      }
+
+      .fullscreen-close {
+        position: absolute;
+        top: -40px;
+        right: 0;
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 1.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+      }
+
+      .fullscreen-close:hover {
+        background: rgba(255,255,255,0.2);
+      }
+
+      /* Clickable image in results */
+      .clickable-image {
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        max-width: 100%;
+        border-radius: var(--radius-sm);
+      }
+
+      .clickable-image:hover {
+        transform: scale(1.02);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      }
+
+      .expand-hint {
+        font-size: 0.75rem;
+        color: var(--t-muted);
+        margin-top: 4px;
+        opacity: 0.7;
+      }
     `
   ];
 
@@ -555,10 +633,37 @@ export class ResultViewer extends LitElement {
   @state()
   private _expandedNodes = new Set<string>();
 
+  @state()
+  private _fullscreenImage: string | null = null;
+
+  @state()
+  private _fullscreenMermaid: string | null = null;
+
   private _pageSize = 20;
 
   @query('.filter-input')
   private _filterInput!: HTMLInputElement;
+
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener('keydown', this._handleGlobalKeydown);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener('keydown', this._handleGlobalKeydown);
+  }
+
+  private _handleGlobalKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (this._fullscreenImage) {
+        this._fullscreenImage = null;
+      }
+      if (this._fullscreenMermaid) {
+        this._fullscreenMermaid = null;
+      }
+    }
+  }
 
   render() {
     if (this.result === null || this.result === undefined) return html``;
@@ -589,10 +694,30 @@ export class ResultViewer extends LitElement {
           <div class="actions">
             ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
             <button @click=${this._copy}>Copy</button>
+            <button @click=${() => this._download('json')}>↓ JSON</button>
+            ${this._isTabularData() ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>` : ''}
           </div>
         </div>
         <div class="content">${this._renderContent(layout, filteredData)}</div>
       </div>
+
+      ${this._fullscreenImage ? html`
+        <div class="fullscreen-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._fullscreenImage = null; }}>
+          <div class="fullscreen-content">
+            <button class="fullscreen-close" @click=${() => this._fullscreenImage = null}>✕</button>
+            <img src="${this._fullscreenImage}" alt="Fullscreen image">
+          </div>
+        </div>
+      ` : ''}
+
+      ${this._fullscreenMermaid ? html`
+        <div class="fullscreen-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._fullscreenMermaid = null; }}>
+          <div class="fullscreen-content">
+            <button class="fullscreen-close" @click=${() => this._fullscreenMermaid = null}>✕</button>
+            <div class="mermaid-container" id="fullscreen-mermaid"></div>
+          </div>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -1091,11 +1216,56 @@ export class ResultViewer extends LitElement {
                 const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
                 const parent = block.parentElement;
                 if (parent) {
+                  // Create wrapper with expand button
+                  const wrapper = document.createElement('div');
+                  wrapper.className = 'mermaid-wrapper';
+                  wrapper.style.cssText = 'position: relative; display: inline-block;';
+
                   const div = document.createElement('div');
                   div.id = id;
                   div.className = 'mermaid';
                   div.textContent = code;
-                  parent.replaceWith(div);
+
+                  const expandBtn = document.createElement('button');
+                  expandBtn.className = 'mermaid-expand-btn';
+                  expandBtn.innerHTML = '⛶';
+                  expandBtn.title = 'Fullscreen';
+                  expandBtn.style.cssText = `
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    background: rgba(0,0,0,0.5);
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    width: 28px;
+                    height: 28px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    opacity: 0.7;
+                    transition: opacity 0.2s;
+                  `;
+                  expandBtn.onmouseover = () => expandBtn.style.opacity = '1';
+                  expandBtn.onmouseout = () => expandBtn.style.opacity = '0.7';
+                  expandBtn.onclick = () => {
+                    this._fullscreenMermaid = code;
+                    // Re-render mermaid in fullscreen after DOM update
+                    setTimeout(async () => {
+                      const fullscreenContainer = this.shadowRoot?.querySelector('#fullscreen-mermaid');
+                      if (fullscreenContainer && (window as any).mermaid) {
+                        fullscreenContainer.innerHTML = '';
+                        const fullscreenDiv = document.createElement('div');
+                        fullscreenDiv.className = 'mermaid';
+                        fullscreenDiv.textContent = code;
+                        fullscreenContainer.appendChild(fullscreenDiv);
+                        await (window as any).mermaid.run({ nodes: [fullscreenDiv] });
+                      }
+                    }, 50);
+                  };
+
+                  wrapper.appendChild(div);
+                  wrapper.appendChild(expandBtn);
+                  parent.replaceWith(wrapper);
                 }
               }
               await (window as any).mermaid.run();
@@ -1190,6 +1360,22 @@ export class ResultViewer extends LitElement {
     if (value === null || value === undefined) return '—';
     if (typeof value === 'boolean') return value ? '✓' : '✗';
 
+    // Check for image URLs - make them clickable for fullscreen
+    if (this._isImageUrl(value)) {
+      return html`
+        <div>
+          <img
+            src="${value}"
+            alt="${key}"
+            class="clickable-image"
+            style="max-height: 80px; max-width: 150px;"
+            @click=${() => this._fullscreenImage = value}
+          >
+          <div class="expand-hint">Click to expand</div>
+        </div>
+      `;
+    }
+
     // Check for date fields
     if (this._isDateField(key) && (typeof value === 'string' || typeof value === 'number')) {
       const date = new Date(value);
@@ -1260,5 +1446,60 @@ export class ResultViewer extends LitElement {
 
     navigator.clipboard.writeText(text);
     showToast('Copied to clipboard', 'success');
+  }
+
+  private _isTabularData(): boolean {
+    return Array.isArray(this.result) &&
+           this.result.length > 0 &&
+           typeof this.result[0] === 'object' &&
+           this.result[0] !== null;
+  }
+
+  private _download(format: 'json' | 'csv') {
+    let content: string;
+    let mimeType: string;
+    let filename: string;
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    if (format === 'csv' && this._isTabularData()) {
+      content = this._convertToCsv(this.result);
+      mimeType = 'text/csv';
+      filename = `result-${timestamp}.csv`;
+    } else {
+      content = JSON.stringify(this.result, null, 2);
+      mimeType = 'application/json';
+      filename = `result-${timestamp}.json`;
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded as ${filename}`, 'success');
+  }
+
+  private _convertToCsv(data: any[]): string {
+    if (!data || data.length === 0) return '';
+
+    const headers = Object.keys(data[0]);
+    const rows = data.map(row =>
+      headers.map(header => {
+        const value = row[header];
+        if (value === null || value === undefined) return '';
+        const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        // Escape quotes and wrap in quotes if contains comma/newline/quote
+        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }).join(',')
+    );
+
+    return [headers.join(','), ...rows].join('\n');
   }
 }
