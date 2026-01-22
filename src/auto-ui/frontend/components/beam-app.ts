@@ -364,16 +364,15 @@ export class BeamApp extends LitElement {
       }
 
       // Default Form Interface
+      const isAppMethod = this._selectedPhoton.isApp && this._selectedPhoton.appEntry;
+      const backLabel = isAppMethod ? `← Back to ${this._selectedPhoton.name}` : '← Back to Methods';
+
       return html`
           <div style="margin-bottom: var(--space-md);">
-            <button 
+            <button
               style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-              @click=${() => {
-          this._view = 'list';
-          this._selectedMethod = null;
-          this._updateHash();
-        }}
-            >← Back to Methods</button>
+              @click=${() => this._handleBackFromMethod()}
+            >${backLabel}</button>
           </div>
           <div class="glass-panel" style="padding: var(--space-lg);">
             <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
@@ -382,13 +381,9 @@ export class BeamApp extends LitElement {
               .params=${this._selectedMethod.params}
               .loading=${this._isExecuting}
               @submit=${this._handleExecute}
-              @cancel=${() => {
-          this._view = 'list';
-          this._selectedMethod = null;
-          this._updateHash();
-        }}
+              @cancel=${() => this._handleBackFromMethod()}
             ></invoke-form>
-            
+
             ${this._lastResult !== null ? html`
               <result-viewer .result=${this._lastResult}></result-viewer>
             ` : ''}
@@ -429,6 +424,31 @@ export class BeamApp extends LitElement {
     this._selectedMethod = e.detail.method;
     this._view = 'form';
     this._updateHash();
+  }
+
+  private _handleBackFromMethod() {
+    if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
+      // For Apps, go back to the main Custom UI and scroll to methods
+      this._selectedMethod = this._selectedPhoton.appEntry;
+      this._view = 'form';
+      this._updateHash();
+
+      // Scroll to methods section after render
+      this.updateComplete.then(() => {
+        setTimeout(() => {
+          const mainArea = this.shadowRoot?.querySelector('.main-area');
+          if (mainArea) {
+            // Scroll past the Custom UI to show methods
+            mainArea.scrollTo({ top: mainArea.scrollHeight, behavior: 'smooth' });
+          }
+        }, 100);
+      });
+    } else {
+      // For regular photons, go back to methods list
+      this._view = 'list';
+      this._selectedMethod = null;
+      this._updateHash();
+    }
   }
 
   private _handleExecute(e: CustomEvent) {
