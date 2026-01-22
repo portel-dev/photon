@@ -76,7 +76,7 @@ export class BeamApp extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._connect();
-    this._connect();
+
     window.addEventListener('hashchange', this._handleHashChange);
     window.addEventListener('message', this._handleBridgeMessage);
   }
@@ -88,6 +88,10 @@ export class BeamApp extends LitElement {
   }
 
   private _connect() {
+    if (this._ws && (this._ws.readyState === WebSocket.CONNECTING || this._ws.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     this._ws = new WebSocket(`${protocol}//${window.location.host}`);
 

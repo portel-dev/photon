@@ -82,19 +82,68 @@ export class FilePicker extends LitElement {
         opacity: 0.7;
       }
 
+      /* Input Base Styles */
+      input {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        padding: var(--space-sm);
+        border-radius: var(--radius-sm);
+        font-family: var(--font-sans);
+        box-sizing: border-box;
+        width: 100%;
+        transition: all 0.2s;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
+      }
+
       .input-wrapper {
         display: flex;
-        gap: var(--space-sm);
+        gap: 0; /* Merged look */
       }
       
       .input-wrapper input {
         flex: 1;
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+        border-right: none;
+      }
+      
+      .input-wrapper button {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-left: 1px solid var(--border-glass);
       }
 
       /* Modal styling if we want it to be a popover later, 
          for now it's inline */
       .browser-area {
         border-top: 1px solid var(--border-glass);
+      }
+
+      /* Button Styles */
+      button {
+        font-family: var(--font-sans);
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+        padding: var(--space-sm) var(--space-md);
+        border-radius: var(--radius-sm);
+      }
+
+      .btn-secondary:hover {
+        background: hsla(220, 10%, 80%, 0.1);
+        color: var(--t-primary);
       }
     `
   ];
@@ -130,7 +179,7 @@ export class FilePicker extends LitElement {
           @input=${this._handleInput}
           placeholder="/path/to/file"
         >
-        <button class="btn-secondary" style="height: 38px; white-space: nowrap;" @click=${this._toggleBrowser}>
+        <button class="btn-secondary" style="height: auto; white-space: nowrap;" @click=${this._toggleBrowser}>
           ${this._isOpen ? 'Close' : 'Browse'}
         </button>
       </div>
