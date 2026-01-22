@@ -330,12 +330,8 @@ export class BeamApp extends LitElement {
             <div style="margin-bottom: var(--space-md);">
               <button
                 style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-                @click=${() => {
-              this._view = 'list';
-              this._selectedMethod = null;
-              this._updateHash();
-            }}
-              >← Back to Methods</button>
+                @click=${() => this._handleBackFromMethod()}
+              >← Back to ${this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}</button>
             </div>
           ` : ''}
           <div class="glass-panel" style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);">
