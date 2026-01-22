@@ -1435,6 +1435,15 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         handleFileChange(photonName);
       }
     });
+    // Handle watcher errors (e.g., EMFILE: too many open files)
+    watcher.on('error', (err: Error) => {
+      logger.warn(`File watcher error (continuing without hot-reload): ${err.message}`);
+      try {
+        watcher.close();
+      } catch {
+        // Ignore close errors
+      }
+    });
     watchers.push(watcher);
     logger.info(`👀 Watching for changes in ${workingDir}`);
   } catch (error) {

@@ -9,5 +9,6 @@ import './components/marketplace-view.js';
 import './components/custom-ui-renderer.js';
 import './components/toast-manager.js';
 import './components/photon-config.js';
+import './components/elicitation-modal.js';
 
 console.log('✨ Beam UI Initialized');
