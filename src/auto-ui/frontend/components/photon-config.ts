@@ -238,7 +238,7 @@ export class PhotonConfig extends LitElement {
   }
 
   private _renderToggle(param: ConfigParam, defaultValue: string) {
-    const isOn = defaultValue === 'true' || defaultValue === true;
+    const isOn = defaultValue === 'true';
     return html`
       <div class="toggle-switch">
         <button

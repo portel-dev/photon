@@ -940,7 +940,8 @@ export class ResultViewer extends LitElement {
 
   private _renderCard(data: any): TemplateResult {
     if (!data || typeof data !== 'object') {
-      return this._renderText(data);
+      const text = this._renderText(data);
+      return html`${text}`;
     }
 
     const mapping = this._analyzeFields(data);
