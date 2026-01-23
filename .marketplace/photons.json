@@ -20,22 +20,22 @@
     {
       "name": "serum",
       "version": "1.4.1",
-      "description": "Serum - A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /\nexport default class Serum {\n  /",
+      "description": "Serum - Inject clarity into any conversation @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /\nexport default class Serum {\n  /",
       "author": "Unknown",
       "license": "MIT",
       "source": "../serum.photon.ts",
-      "hash": "sha256:9eb3ec43d0194b3428f9fa6d9d7cd4181a8407332a246804933c00baaad7b54f",
+      "hash": "sha256:c1ee18b8242d4deabb6d7c18f0334f4338600913d2633782a2096a273ed37616",
       "tools": [
         "truth",
-        "explain",
-        "challenge",
-        "brainstorm",
-        "review",
-        "summarize",
-        "debug",
-        "decide",
-        "reframe",
-        "teach"
+        "clarity",
+        "challenger",
+        "focus",
+        "perspective",
+        "creative",
+        "action",
+        "simplify",
+        "empathy",
+        "custom"
       ],
       "assets": []
     },
