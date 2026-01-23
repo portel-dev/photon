@@ -72,7 +72,85 @@ export class BeamApp extends LitElement {
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: var(--space-md);
         margin-bottom: var(--space-xl);
-        align-items: start;
+        align-items: stretch; /* Make cards same height per row */
+      }
+
+      /* Photon Header */
+      .photon-header {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-lg);
+        margin-bottom: var(--space-xl);
+      }
+
+      .photon-icon-large {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        color: white;
+        flex-shrink: 0;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      }
+
+      .photon-icon-large.mcp-icon {
+        background: var(--bg-glass);
+        color: var(--accent-secondary);
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .photon-icon-large img {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+      }
+
+      .photon-header-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .photon-header-name {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 var(--space-sm) 0;
+        background: linear-gradient(135deg, var(--t-primary), var(--accent-secondary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .photon-header-desc {
+        color: var(--t-muted);
+        font-size: 1rem;
+        line-height: 1.5;
+        margin: 0;
+      }
+
+      .photon-header-meta {
+        display: flex;
+        gap: var(--space-md);
+        margin-top: var(--space-sm);
+      }
+
+      .photon-badge {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+        border-radius: 12px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+      }
+
+      .photon-badge.app {
+        background: hsla(260, 100%, 65%, 0.15);
+        border-color: hsla(260, 100%, 65%, 0.3);
+        color: hsl(260, 100%, 75%);
       }
 
       .background-glow {
@@ -779,10 +857,7 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-        <h1 class="text-gradient">${this._selectedPhoton.name}</h1>
-        <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
-          ${this._selectedPhoton.description || 'Manage this photon instance.'}
-        </p>
+        ${this._renderPhotonHeader()}
 
         <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">Methods</h3>
         <div class="cards-grid">
@@ -1192,6 +1267,35 @@ export class BeamApp extends LitElement {
 
   private _closeHelp() {
     this._showHelp = false;
+  }
+
+  private _renderPhotonHeader() {
+    if (!this._selectedPhoton) return '';
+
+    const isApp = this._selectedPhoton.isApp;
+    const methodCount = this._selectedPhoton.methods?.length || 0;
+
+    // Get icon from first method if available, or use default
+    const firstMethodIcon = this._selectedPhoton.methods?.[0]?.icon;
+    const photonInitials = this._selectedPhoton.name.substring(0, 2).toUpperCase();
+
+    return html`
+      <div class="photon-header">
+        <div class="photon-icon-large ${isApp ? '' : 'mcp-icon'}">
+          ${isApp ? '📱' : (firstMethodIcon || photonInitials)}
+        </div>
+        <div class="photon-header-info">
+          <h1 class="photon-header-name">${this._selectedPhoton.name}</h1>
+          ${this._selectedPhoton.description && !this._selectedPhoton.description.includes(` MCP`) ? html`
+            <p class="photon-header-desc">${this._selectedPhoton.description}</p>
+          ` : ''}
+          <div class="photon-header-meta">
+            ${isApp ? html`<span class="photon-badge app">App</span>` : html`<span class="photon-badge">MCP</span>`}
+            <span class="photon-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private _renderHelpModal() {
