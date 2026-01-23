@@ -962,6 +962,8 @@ export class BeamApp extends LitElement {
   }
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
+  @state() private _lastFormParams: Record<string, any> = {};
+  @state() private _sharedFormParams: Record<string, any> | null = null;
   @state() private _activityLog: any[] = [];
   @state() private _isExecuting = false;
   @state() private _theme: Theme = 'dark';
@@ -1243,8 +1245,24 @@ export class BeamApp extends LitElement {
   }
 
   private _handleHashChange = () => {
-    const hash = window.location.hash.slice(1);
-    const [photonName, methodName] = hash.split('/');
+    const fullHash = window.location.hash.slice(1);
+    // Parse hash format: photon/method?param1=value1&param2=value2
+    const [pathPart, queryPart] = fullHash.split('?');
+    const [photonName, methodName] = pathPart.split('/');
+
+    // Parse query parameters for shared links
+    let sharedParams: Record<string, any> = {};
+    if (queryPart) {
+      const params = new URLSearchParams(queryPart);
+      for (const [key, value] of params) {
+        // Try to parse JSON values (objects, arrays, numbers, booleans)
+        try {
+          sharedParams[key] = JSON.parse(value);
+        } catch {
+          sharedParams[key] = value;
+        }
+      }
+    }
 
     if (photonName) {
       const photon = this._photons.find(p => p.name === photonName);
@@ -1256,6 +1274,10 @@ export class BeamApp extends LitElement {
           if (method) {
             this._selectedMethod = method;
             this._view = 'form';
+            // Store shared params to pre-populate form
+            if (Object.keys(sharedParams).length > 0) {
+              this._sharedFormParams = sharedParams;
+            }
           }
         } else if (photon.isApp && photon.appEntry) {
           // For Apps without method specified, auto-select main
@@ -1489,6 +1511,7 @@ export class BeamApp extends LitElement {
               .photonName=${this._selectedPhoton.name}
               .methodName=${this._selectedMethod.name}
               .rememberValues=${this._rememberFormValues}
+              .sharedValues=${this._sharedFormParams}
               @submit=${this._handleExecute}
               @cancel=${() => this._handleBackFromMethod()}
             ></invoke-form>
@@ -1499,6 +1522,7 @@ export class BeamApp extends LitElement {
                 .outputFormat=${this._selectedMethod?.outputFormat}
                 .layoutHints=${this._selectedMethod?.layoutHints}
                 .theme=${this._theme}
+                @share=${this._handleShareResult}
               ></result-viewer>
             ` : ''}
           </div>
@@ -1664,6 +1688,8 @@ export class BeamApp extends LitElement {
 
   private async _handleExecute(e: CustomEvent) {
     const args = e.detail.args;
+    this._lastFormParams = args; // Store for sharing
+    this._sharedFormParams = null; // Clear shared params after use
     this._log('info', `Invoking ${this._selectedMethod.name}...`);
     this._lastResult = null;
     this._isExecuting = true;
@@ -1763,6 +1789,44 @@ export class BeamApp extends LitElement {
         }
       }
     }
+  }
+
+  // ===== Share Result Link =====
+  private _handleShareResult() {
+    if (!this._selectedPhoton || !this._selectedMethod) {
+      showToast('No method selected to share', 'error');
+      return;
+    }
+
+    // Build shareable URL with hash and query params
+    const baseUrl = window.location.origin + window.location.pathname;
+    const hash = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
+
+    // Encode form parameters as query string
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(this._lastFormParams)) {
+      if (value !== undefined && value !== null && value !== '') {
+        // Handle objects/arrays by JSON encoding
+        if (typeof value === 'object') {
+          params.set(key, JSON.stringify(value));
+        } else {
+          params.set(key, String(value));
+        }
+      }
+    }
+
+    let shareUrl = `${baseUrl}#${hash}`;
+    if (params.toString()) {
+      shareUrl += `?${params.toString()}`;
+    }
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      showToast('Share link copied to clipboard', 'success');
+    }).catch(() => {
+      // Fallback: show URL in prompt
+      prompt('Copy this link to share:', shareUrl);
+    });
   }
 
   private _handleThemeChange = (e: CustomEvent) => {

@@ -1076,6 +1076,7 @@ export class ResultViewer extends LitElement {
             <button @click=${this._copy}>Copy</button>
             <button @click=${() => this._downloadSmart(layout)}>↓ ${this._getDownloadLabel(layout)}</button>
             ${this._isTabularData() ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>` : ''}
+            <button @click=${this._share} title="Share link to this result">🔗 Share</button>
           </div>
         </div>
         <div class="content">${this._renderContent(layout, filteredData)}</div>
@@ -2063,6 +2064,13 @@ export class ResultViewer extends LitElement {
 
     navigator.clipboard.writeText(text);
     showToast('Copied to clipboard', 'success');
+  }
+
+  private _share() {
+    this.dispatchEvent(new CustomEvent('share', {
+      bubbles: true,
+      composed: true
+    }));
   }
 
   private _isTabularData(): boolean {
