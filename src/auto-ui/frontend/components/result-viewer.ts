@@ -635,12 +635,26 @@ export class ResultViewer extends LitElement {
       }
 
       .fullscreen-content .mermaid-container {
-        background: white;
+        background: #1e293b;
         padding: var(--space-xl);
         border-radius: var(--radius-md);
-        max-width: 95vw;
-        max-height: 90vh;
+        width: 95vw;
+        height: 90vh;
         overflow: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      :host([data-theme="light"]) .fullscreen-content .mermaid-container {
+        background: #f8fafc;
+      }
+
+      .fullscreen-content .mermaid-container svg {
+        max-width: 100%;
+        max-height: calc(90vh - 64px);
+        width: auto;
+        height: auto;
       }
 
       .fullscreen-close {
