@@ -15,6 +15,7 @@ export class MethodCard extends LitElement {
         css`
       :host {
         display: block;
+        height: 100%;
       }
 
       .card {
@@ -24,6 +25,8 @@ export class MethodCard extends LitElement {
         gap: var(--space-sm);
         cursor: pointer;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
+        height: 100%;
+        box-sizing: border-box;
       }
 
       .card:hover {
@@ -51,6 +54,12 @@ export class MethodCard extends LitElement {
         color: var(--t-muted);
         line-height: 1.5;
         margin-bottom: var(--space-md);
+        flex: 1; /* Push button to bottom */
+        /* Limit to 3 lines with ellipsis */
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
 
       .badge {

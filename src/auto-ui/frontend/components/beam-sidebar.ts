@@ -448,7 +448,6 @@ export class BeamSidebar extends LitElement {
         </div>
         <div class="photon-info">
           <div class="photon-name">${photon.name}</div>
-          <div class="photon-desc">${photon.description || (isApp ? 'Full application' : 'Photon tool')}</div>
         </div>
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"
