@@ -6322,14 +6322,21 @@ photon add memory</code></pre>
       }
     });
 
+    // Protocol mode: 'mcp' or 'legacy'
+    let protocolMode = 'legacy'; // Start with legacy, can be switched to 'mcp'
+    let mcpReady = false;
+
     function connect() {
       ws = new WebSocket('ws://localhost:${port}');
 
       ws.onopen = () => {
-        console.log('Connected to Beam');
+        console.log('Connected to Beam (legacy protocol)');
         addActivity('connect', 'Connected to Beam server');
         // Initial activity load if empty (only once)
         if (activityLog.length <= 1) loadActivityLog();
+
+        // Also connect MCP client for unified execution
+        connectMCP();
       };
 
       ws.onmessage = (event) => {
@@ -6345,6 +6352,150 @@ photon add memory</code></pre>
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
       };
+    }
+
+    // Connect MCP client
+    async function connectMCP() {
+      try {
+        // Set up MCP event handlers
+        window.beamMCP.onConnect = () => {
+          console.log('MCP client connected');
+          mcpReady = true;
+        };
+
+        window.beamMCP.onDisconnect = () => {
+          console.log('MCP client disconnected');
+          mcpReady = false;
+        };
+
+        window.beamMCP.onToolsChanged = async () => {
+          // Refresh tools list when photons change
+          if (protocolMode === 'mcp') {
+            const tools = await window.beamMCP.listTools();
+            updatePhotonsFromMCP(tools);
+          }
+        };
+
+        window.beamMCP.onProgress = (data) => {
+          // Convert MCP progress to legacy yield format
+          handleYield({
+            emit: 'progress',
+            message: data.message || 'Processing...',
+            value: data.total ? (data.progress / data.total) * 100 : data.progress
+          });
+        };
+
+        window.beamMCP.onElicitation = (requestId, schema, message) => {
+          // Convert MCP elicitation to legacy format
+          showElicitation({
+            requestId,
+            schema,
+            message: message || 'Please provide input'
+          });
+        };
+
+        await window.beamMCP.connect();
+      } catch (error) {
+        console.warn('MCP connection failed, using legacy protocol:', error);
+        mcpReady = false;
+      }
+    }
+
+    // Convert MCP tools list to photons format
+    function updatePhotonsFromMCP(tools) {
+      const photonMap = new Map();
+
+      for (const tool of tools) {
+        const [photonName, methodName] = tool.name.split('/');
+        if (!photonMap.has(photonName)) {
+          photonMap.set(photonName, {
+            name: photonName,
+            configured: true,
+            methods: []
+          });
+        }
+
+        photonMap.get(photonName).methods.push({
+          name: methodName,
+          description: tool.description || '',
+          params: tool.inputSchema || { type: 'object', properties: {} },
+          icon: tool['x-icon'],
+          autorun: tool['x-autorun'],
+          outputFormat: tool['x-output-format'],
+          layoutHints: tool['x-layout-hints'],
+          buttonLabel: tool['x-button-label']
+        });
+      }
+
+      photons = Array.from(photonMap.values());
+      renderPhotonList();
+    }
+
+    // Unified invoke function - uses MCP when available
+    async function invokeViaMCP(photonName, methodName, args, invocationId) {
+      if (!mcpReady) {
+        throw new Error('MCP not ready');
+      }
+
+      const toolName = photonName + '/' + methodName;
+      const progressToken = invocationId || ('progress-' + Date.now());
+
+      try {
+        const result = await window.beamMCP.callTool(toolName, args, progressToken);
+
+        // Convert MCP response to legacy result format
+        let data;
+        if (result.content && result.content.length > 0) {
+          const textContent = result.content.find(c => c.type === 'text');
+          if (textContent) {
+            try {
+              data = JSON.parse(textContent.text);
+            } catch {
+              data = textContent.text;
+            }
+          }
+        }
+
+        return {
+          type: 'result',
+          data: data,
+          photon: photonName,
+          method: methodName,
+          invocationId: invocationId,
+          isError: result.isError
+        };
+      } catch (error) {
+        return {
+          type: 'error',
+          message: error.message || 'Unknown error',
+          photon: photonName,
+          method: methodName,
+          invocationId: invocationId
+        };
+      }
+    }
+
+    // Invoke with automatic protocol selection
+    async function invoke(photonName, methodName, args, invocationId) {
+      if (protocolMode === 'mcp' && mcpReady) {
+        // Use MCP protocol
+        showProgress('Running ' + methodName + '...');
+        const result = await invokeViaMCP(photonName, methodName, args, invocationId);
+        if (result.type === 'error') {
+          handleError(result.message);
+        } else {
+          handleResult(result);
+        }
+      } else {
+        // Fall back to legacy protocol
+        ws.send(JSON.stringify({
+          type: 'invoke',
+          photon: photonName,
+          method: methodName,
+          args: args,
+          invocationId: invocationId
+        }));
+      }
     }
 
     function handleMessage(message) {
@@ -8038,12 +8189,7 @@ photon add memory</code></pre>
       showProgress(\`Running \${currentMethod.name}...\`);
       addActivity('invoke', \`\${currentPhoton.name}.\${currentMethod.name}(\${Object.keys(args).length ? '...' : ''})\`);
 
-      ws.send(JSON.stringify({
-        type: 'invoke',
-        photon: currentPhoton.name,
-        method: currentMethod.name,
-        args
-      }));
+      invoke(currentPhoton.name, currentMethod.name, args);
     }
 
     // Close the method panel in photon view
@@ -8225,12 +8371,7 @@ photon add memory</code></pre>
       showProgress('Loading app...');
       addActivity('invoke', \`\${photonName}.main()\`);
       lastInvocationArgs = {};
-      ws.send(JSON.stringify({
-        type: 'invoke',
-        photon: photonName,
-        method: 'main',
-        args: {}
-      }));
+      invoke(photonName, 'main', {});
     }
     window.openApp = openApp;
 
@@ -8791,12 +8932,7 @@ photon add memory</code></pre>
       lastInvocationArgs = args;
 
       // Send invoke request
-      ws.send(JSON.stringify({
-        type: 'invoke',
-        photon: currentPhoton.name,
-        method: currentMethod.name,
-        args
-      }));
+      invoke(currentPhoton.name, currentMethod.name, args);
     }
 
     // Track pending interactive invocations (from custom HTML UIs)
@@ -8808,9 +8944,23 @@ photon add memory</code></pre>
 
     // Global function for custom HTML UIs to invoke methods
     // Returns a Promise that resolves with the result
-    window.invokePhotonMethod = function(photon, method, args) {
+    window.invokePhotonMethod = async function(photon, method, args) {
       const invocationId = 'inv_' + (++invocationCounter) + '_' + Date.now();
 
+      // Try MCP first if available
+      if (protocolMode === 'mcp' && mcpReady) {
+        try {
+          const result = await invokeViaMCP(photon, method, args || {}, invocationId);
+          if (result.type === 'error') {
+            throw new Error(result.message);
+          }
+          return result.data;
+        } catch (error) {
+          throw error;
+        }
+      }
+
+      // Fall back to legacy protocol
       return new Promise((resolve, reject) => {
         pendingInteractiveInvocations.set(invocationId, { resolve, reject });
 
@@ -11532,12 +11682,7 @@ photon add memory</code></pre>
           const { photon, method, params } = window._pendingOAuth;
           if (photon && method) {
             // Re-invoke the tool
-            ws.send(JSON.stringify({
-              type: 'invoke',
-              photon,
-              method,
-              params: params || {}
-            }));
+            invoke(photon, method, params || {});
           }
           window._pendingOAuth = null;
         }
@@ -11641,30 +11786,47 @@ photon add memory</code></pre>
 
         const invocationId = 'iframe_' + callId;
 
-        pendingInteractiveInvocations.set(invocationId, {
-          resolve: function(result) {
+        // Try MCP first, fall back to legacy
+        if (protocolMode === 'mcp' && mcpReady) {
+          invokeViaMCP(targetPhoton, tool, args || {}, invocationId).then(result => {
             event.source?.postMessage({
               type: 'mcp:tool_result',
               callId: callId,
-              result: result
+              result: result.data
             }, '*');
-          },
-          reject: function(error) {
+          }).catch(error => {
             event.source?.postMessage({
               type: 'mcp:tool_result',
               callId: callId,
               error: error.message || String(error)
             }, '*');
-          }
-        });
+          });
+        } else {
+          pendingInteractiveInvocations.set(invocationId, {
+            resolve: function(result) {
+              event.source?.postMessage({
+                type: 'mcp:tool_result',
+                callId: callId,
+                result: result
+              }, '*');
+            },
+            reject: function(error) {
+              event.source?.postMessage({
+                type: 'mcp:tool_result',
+                callId: callId,
+                error: error.message || String(error)
+              }, '*');
+            }
+          });
 
-        ws.send(JSON.stringify({
-          type: 'invoke',
-          photon: targetPhoton,
-          method: tool,
-          args: args || {},
-          invocationId: invocationId
-        }));
+          ws.send(JSON.stringify({
+            type: 'invoke',
+            photon: targetPhoton,
+            method: tool,
+            args: args || {},
+            invocationId: invocationId
+          }));
+        }
         return;
       }
 
@@ -11684,30 +11846,47 @@ photon add memory</code></pre>
 
         const invocationId = 'photon_' + callId;
 
-        pendingInteractiveInvocations.set(invocationId, {
-          resolve: function(result) {
+        // Try MCP first, fall back to legacy
+        if (protocolMode === 'mcp' && mcpReady) {
+          invokeViaMCP(targetPhoton, toolName, args || {}, invocationId).then(result => {
             event.source?.postMessage({
               type: 'photon:call-tool-response',
               callId: callId,
-              result: result
+              result: result.data
             }, '*');
-          },
-          reject: function(error) {
+          }).catch(error => {
             event.source?.postMessage({
               type: 'photon:call-tool-response',
               callId: callId,
               error: error.message || String(error)
             }, '*');
-          }
-        });
+          });
+        } else {
+          pendingInteractiveInvocations.set(invocationId, {
+            resolve: function(result) {
+              event.source?.postMessage({
+                type: 'photon:call-tool-response',
+                callId: callId,
+                result: result
+              }, '*');
+            },
+            reject: function(error) {
+              event.source?.postMessage({
+                type: 'photon:call-tool-response',
+                callId: callId,
+                error: error.message || String(error)
+              }, '*');
+            }
+          });
 
-        ws.send(JSON.stringify({
-          type: 'invoke',
-          photon: targetPhoton,
-          method: toolName,
-          args: args || {},
-          invocationId: invocationId
-        }));
+          ws.send(JSON.stringify({
+            type: 'invoke',
+            photon: targetPhoton,
+            method: toolName,
+            args: args || {},
+            invocationId: invocationId
+          }));
+        }
         return;
       }
 
