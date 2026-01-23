@@ -39,6 +39,7 @@ import {
   generateTemplateEngineJS,
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
+import { generateOpenAPISpec } from './openapi-generator.js';
 
 interface PhotonInfo {
   name: string;
@@ -625,6 +626,24 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'text/html');
       res.writeHead(200);
       res.end(script);
+      return;
+    }
+
+    // OpenAPI Specification endpoint
+    // Serves auto-generated OpenAPI 3.1 spec from loaded photons
+    if (url.pathname === '/api/openapi.json') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      try {
+        const serverUrl = `http://${req.headers.host || 'localhost:' + port}`;
+        const spec = generateOpenAPISpec(photons, serverUrl);
+        res.writeHead(200);
+        res.end(JSON.stringify(spec, null, 2));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to generate OpenAPI spec' }));
+      }
       return;
     }
 
