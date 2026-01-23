@@ -3,6 +3,21 @@
   "version": "1.4.1",
   "photons": [
     {
+      "name": "code-diagram",
+      "version": "1.0.0",
+      "description": "Code Diagram - Generate Mermaid diagrams from TypeScript/JavaScript code",
+      "author": "Portel",
+      "license": "MIT",
+      "source": "../code-diagram.photon.ts",
+      "hash": "sha256:f7e659d5a8237ed5dd11b0216274068ad8abbe572de56142363fbc99eb009d44",
+      "tools": [
+        "generate",
+        "fromFile",
+        "types"
+      ],
+      "assets": []
+    },
+    {
       "name": "test-ui",
       "version": "1.4.1",
       "description": "Test Custom UI",
@@ -12,6 +27,9 @@
       "hash": "sha256:950406daa84db1a02d5b82878e0341d700b3c03cd0cf8cbbf2130d432a38f1ba",
       "tools": [
         "main"
+      ],
+      "assets": [
+        "test-ui/test-ui.html"
       ]
     }
   ]
