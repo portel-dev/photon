@@ -955,27 +955,19 @@ export class ResultViewer extends LitElement {
   }
 
   private _zoomIn() {
-    this._zoomLevel = Math.min(5, this._zoomLevel + 0.25);
-    if (this._zoomLevel === 1) {
-      this._panX = 0;
-      this._panY = 0;
-    }
+    this._zoomLevel = Math.min(10, this._zoomLevel * 1.25);
   }
 
   private _zoomOut() {
-    this._zoomLevel = Math.max(0.25, this._zoomLevel - 0.25);
-    if (this._zoomLevel === 1) {
-      this._panX = 0;
-      this._panY = 0;
-    }
+    this._zoomLevel = Math.max(0.1, this._zoomLevel / 1.25);
   }
 
   private _handleWheel = (e: WheelEvent) => {
     if (!this._fullscreenImage && !this._fullscreenMermaid) return;
     e.preventDefault();
 
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const newZoom = Math.max(0.25, Math.min(5, this._zoomLevel + delta));
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.max(0.1, Math.min(10, this._zoomLevel * factor));
 
     if (newZoom !== this._zoomLevel) {
       this._zoomLevel = newZoom;
@@ -1007,6 +999,50 @@ export class ResultViewer extends LitElement {
 
   private _handlePanEnd = () => {
     this._isPanning = false;
+  }
+
+  private _autoFitFullscreen() {
+    // Wait for SVG to be in DOM
+    requestAnimationFrame(() => {
+      const viewport = this.shadowRoot?.querySelector('.fullscreen-viewport');
+      const content = this.shadowRoot?.querySelector('.fullscreen-content');
+      const svg = content?.querySelector('svg');
+      const mermaidContainer = content?.querySelector('.mermaid-container');
+
+      if (!viewport || !content) return;
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportWidth = viewportRect.width * 0.9; // 90% of viewport
+      const viewportHeight = viewportRect.height * 0.85; // 85% of viewport (account for toolbar)
+
+      let contentWidth: number;
+      let contentHeight: number;
+
+      if (svg) {
+        // Get SVG dimensions
+        const svgRect = svg.getBoundingClientRect();
+        contentWidth = svgRect.width || parseFloat(svg.getAttribute('width') || '400');
+        contentHeight = svgRect.height || parseFloat(svg.getAttribute('height') || '300');
+      } else if (mermaidContainer) {
+        const containerRect = mermaidContainer.getBoundingClientRect();
+        contentWidth = containerRect.width;
+        contentHeight = containerRect.height;
+      } else {
+        return; // No content to fit
+      }
+
+      if (contentWidth > 0 && contentHeight > 0) {
+        // Calculate zoom to fit
+        const scaleX = viewportWidth / contentWidth;
+        const scaleY = viewportHeight / contentHeight;
+        const fitZoom = Math.min(scaleX, scaleY);
+
+        // Use fit zoom, but ensure it's at least 1x if content is small
+        this._zoomLevel = Math.max(1, fitZoom);
+        this._panX = 0;
+        this._panY = 0;
+      }
+    });
   }
 
   render() {
@@ -1649,12 +1685,9 @@ export class ResultViewer extends LitElement {
 
       const htmlContent = (window as any).marked.parse(processedStr);
 
-      // Store for fullscreen use
-      this._parsedMarkdownHtml = htmlContent;
-
       return html`
         <div class="markdown-body-wrapper">
-          <button class="expand-btn" @click=${() => this._fullscreenMarkdown = htmlContent} title="View fullscreen">⤢</button>
+          <button class="expand-btn" @click=${this._openMarkdownFullscreen} title="View fullscreen">⤢</button>
           <div class="markdown-body">${unsafeHTML(htmlContent)}</div>
         </div>
       `;
@@ -1663,7 +1696,47 @@ export class ResultViewer extends LitElement {
     return html`<pre>${str}</pre>`;
   }
 
-  private _parsedMarkdownHtml: string = '';
+  private _openMarkdownFullscreen = () => {
+    // Capture the rendered markdown (including mermaid SVGs) from the DOM
+    const markdownBody = this.shadowRoot?.querySelector('.markdown-body');
+    if (markdownBody) {
+      this._fullscreenMarkdown = markdownBody.innerHTML;
+    }
+  };
+
+  private _openImageFullscreen(src: string) {
+    this._resetZoom();
+    this._fullscreenImage = src;
+    // Auto-fit image after it loads
+    setTimeout(() => {
+      const img = this.shadowRoot?.querySelector('.fullscreen-content img') as HTMLImageElement;
+      if (img && img.complete) {
+        this._autoFitImage(img);
+      } else if (img) {
+        img.onload = () => this._autoFitImage(img);
+      }
+    }, 50);
+  }
+
+  private _autoFitImage(img: HTMLImageElement) {
+    const viewport = this.shadowRoot?.querySelector('.fullscreen-viewport');
+    if (!viewport) return;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const viewportWidth = viewportRect.width * 0.9;
+    const viewportHeight = viewportRect.height * 0.85;
+
+    const imgWidth = img.naturalWidth || img.width;
+    const imgHeight = img.naturalHeight || img.height;
+
+    if (imgWidth > 0 && imgHeight > 0) {
+      const scaleX = viewportWidth / imgWidth;
+      const scaleY = viewportHeight / imgHeight;
+      const fitZoom = Math.min(scaleX, scaleY);
+      // Use fit zoom, ensure at least 1x for small images
+      this._zoomLevel = Math.max(1, fitZoom);
+    }
+  }
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
@@ -1812,6 +1885,8 @@ export class ResultViewer extends LitElement {
               const fsId = 'fullscreen-' + id;
               const { svg: fsSvg } = await mermaid.render(fsId + '-svg', code);
               fullscreenContainer.innerHTML = fsSvg;
+              // Auto-fit: calculate zoom to fill viewport
+              this._autoFitFullscreen();
             }
           }, 50);
         };
@@ -1911,7 +1986,7 @@ export class ResultViewer extends LitElement {
             alt="${key}"
             class="clickable-image"
             style="max-height: 80px; max-width: 150px;"
-            @click=${() => this._fullscreenImage = value}
+            @click=${() => this._openImageFullscreen(value)}
           >
           <div class="expand-hint">Click to expand</div>
         </div>
