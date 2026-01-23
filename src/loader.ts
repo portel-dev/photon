@@ -645,7 +645,7 @@ export class PhotonLoader {
 
       this.log(`✅ Loaded: ${name} (${counts})`);
 
-      return {
+      const result: PhotonMCPClassExtended & { classConstructor?: any } = {
         name,
         description: `${name} MCP`,
         tools,
@@ -654,6 +654,9 @@ export class PhotonLoader {
         instance,
         assets,
       };
+      // Store class constructor for static method access
+      (result as any).classConstructor = MCPClass;
+      return result;
     } catch (error) {
       this.logger.error(`❌ Failed to load ${filePath}: ${getErrorMessage(error)}`);
       throw error;
@@ -1703,10 +1706,18 @@ Run: photon mcp ${mcpName} --config
       }
 
       // Plain class - call method directly with implicit stateful support
-      // Check instance first, then prototype (handles property/method name collisions)
+      // Check instance first, then prototype, then static methods on class
       let method = mcp.instance[toolName];
+      let isStatic = false;
+
       if (typeof method !== 'function') {
         method = Object.getPrototypeOf(mcp.instance)?.[toolName];
+      }
+
+      // Check for static method on class constructor
+      if (typeof method !== 'function' && (mcp as any).classConstructor) {
+        method = (mcp as any).classConstructor[toolName];
+        isStatic = true;
       }
 
       if (!method || typeof method !== 'function') {
@@ -1715,7 +1726,10 @@ Run: photon mcp ${mcpName} --config
 
       // Create a generator factory for maybeStatefulExecute
       // This allows re-execution on resume
-      const generatorFn = () => method.call(mcp.instance, parameters);
+      // For static methods, call on the class itself; for instance methods, bind to instance
+      const generatorFn = isStatic
+        ? () => method.call(null, parameters)
+        : () => method.call(mcp.instance, parameters);
 
       // Use maybeStatefulExecute for all executions
       // It handles both regular async and generators, detecting checkpoint yields
