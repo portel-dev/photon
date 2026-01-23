@@ -551,6 +551,8 @@ export class BeamApp extends LitElement {
             <invoke-form
               .params=${this._selectedMethod.params}
               .loading=${this._isExecuting}
+              .photonName=${this._selectedPhoton.name}
+              .methodName=${this._selectedMethod.name}
               @submit=${this._handleExecute}
               @cancel=${() => this._handleBackFromMethod()}
             ></invoke-form>
