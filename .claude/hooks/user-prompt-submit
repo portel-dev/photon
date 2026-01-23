@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+/**
+ * Claude Code UserPromptSubmit Hook - Message Logger
+ * Logs user messages for reference and compaction-proof history.
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+const LOG_FILE = path.join(process.cwd(), '.claude', 'user-prompts.log');
+
+let input = '';
+process.stdin.setEncoding('utf8');
+for await (const chunk of process.stdin) {
+  input += chunk;
+}
+
+try {
+  const data = JSON.parse(input);
+  const prompt = data.prompt?.trim();
+
+  if (prompt && prompt.length >= 10 && !prompt.startsWith('/')) {
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      prompt: prompt
+    }) + '\n';
+
+    await fs.mkdir(path.dirname(LOG_FILE), { recursive: true });
+    await fs.appendFile(LOG_FILE, entry);
+  }
+} catch {}
+
+process.exit(0);

@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 /**
  * Claude Code Stop Hook - Kanban Task Enforcement
- *
- * When Claude tries to finish, this hook checks for pending tasks.
- * If tasks exist, it blocks stopping and makes Claude continue working.
+ * Blocks stopping if there are incomplete tasks or unchecked items.
  */
 
 import { execSync } from 'child_process';
-import { basename } from 'path';
 
-// Default to current directory name (project name)
-const BOARD = process.env.KANBAN_BOARD || basename(process.cwd());
+const BOARD = 'photon';
+
+function hasUncheckedItems(text) {
+  if (!text) return false;
+  return /^[\s]*[-*]\s*\[\s*\]/m.test(text);
+}
+
+function countCheckboxes(text) {
+  if (!text) return { checked: 0, unchecked: 0 };
+  const unchecked = (text.match(/^[\s]*[-*]\s*\[\s*\]/gm) || []).length;
+  const checked = (text.match(/^[\s]*[-*]\s*\[[xX]\]/gm) || []).length;
+  return { checked, unchecked };
+}
 
 try {
   const result = execSync(`photon cli kanban getMyTasks --board ${BOARD} --json`, {
@@ -21,14 +29,24 @@ try {
   const tasks = JSON.parse(result.trim());
 
   if (Array.isArray(tasks) && tasks.length > 0) {
-    // Output JSON to stdout with decision: block
-    console.log(JSON.stringify({
-      decision: 'block',
-      reason: `Tasks pending. Check kanban board for project "${BOARD}"`
-    }));
+    const pendingDetails = [];
+
+    for (const task of tasks) {
+      const counts = countCheckboxes(task.description);
+      if (counts.unchecked > 0) {
+        pendingDetails.push(`"${task.title}": ${counts.unchecked} unchecked items`);
+      } else if (counts.checked === 0 && counts.unchecked === 0) {
+        pendingDetails.push(`"${task.title}": needs completion`);
+      }
+    }
+
+    if (pendingDetails.length > 0) {
+      console.log(JSON.stringify({
+        decision: 'block',
+        reason: `Incomplete tasks on board "${BOARD}":\n${pendingDetails.join('\n')}\n\nComplete all checkbox items or move tasks to Done.`
+      }));
+    }
   }
-} catch {
-  // Kanban not available - let it pass
-}
+} catch {}
 
 process.exit(0);
