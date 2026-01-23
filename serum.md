@@ -1,6 +1,6 @@
 # Serum
 
-A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /
+Inject clarity into any conversation @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
 export default class Serum {
   /
 
@@ -29,7 +29,7 @@ This photon provides **10** tools:
 
 ### `truth`
 
-Unfiltered truth-seeking prompt
+Truth Serum - Forces unfiltered honesty, no hedging or diplomacy
 
 
 
@@ -38,20 +38,9 @@ Unfiltered truth-seeking prompt
 ---
 
 
-### `explain`
+### `clarity`
 
-Explain like I'm five (or any level)
-
-
-
-
-
----
-
-
-### `challenge`
-
-Devil's advocate - challenge any idea
+Clarity Serum - Cuts through complexity, forces simple explanations
 
 
 
@@ -60,20 +49,9 @@ Devil's advocate - challenge any idea
 ---
 
 
-### `brainstorm`
+### `challenger`
 
-Structured brainstorming
-
-
-
-
-
----
-
-
-### `review`
-
-Code review with specific focus
+Challenger Serum - Injects healthy skepticism, finds weaknesses
 
 
 
@@ -82,20 +60,9 @@ Code review with specific focus
 ---
 
 
-### `summarize`
+### `focus`
 
-Summarize content at different depths
-
-
-
-
-
----
-
-
-### `debug`
-
-Debug helper - systematic problem solving
+Focus Serum - Eliminates noise, surfaces what actually matters
 
 
 
@@ -104,20 +71,9 @@ Debug helper - systematic problem solving
 ---
 
 
-### `decide`
+### `perspective`
 
-Decision matrix - structured decision making
-
-
-
-
-
----
-
-
-### `reframe`
-
-Reframe - see problems differently
+Perspective Serum - Forces you to see from other viewpoints
 
 
 
@@ -126,9 +82,53 @@ Reframe - see problems differently
 ---
 
 
-### `teach`
+### `creative`
 
-Teach me - Socratic learning
+Creative Serum - Unlocks non-obvious solutions and connections
+
+
+
+
+
+---
+
+
+### `action`
+
+Action Serum - Converts thinking into specific next steps
+
+
+
+
+
+---
+
+
+### `simplify`
+
+Simplify Serum - Reduces complexity ruthlessly
+
+
+
+
+
+---
+
+
+### `empathy`
+
+Empathy Serum - Forces genuine understanding of others
+
+
+
+
+
+---
+
+
+### `custom`
+
+Custom Serum - Create your own prompt injection
 
 
 

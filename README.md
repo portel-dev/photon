@@ -1662,7 +1662,7 @@ Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/intr
 | Photon | Focus | Tools | Details |
 |--------|-------|-------|---------|
 | **Code Diagram** | Generate Mermaid diagrams from TypeScript/JavaScript code | 3 | [View →](code-diagram.md) |
-| **Serum** | A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /
+| **Serum** | Inject clarity into any conversation @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
 export default class Serum {
   / | 10 | [View →](serum.md) |
 | **Test Ui** | Test Custom UI | 1 | [View →](test-ui.md) |

@@ -1,285 +1,479 @@
 /**
- * Serum - A collection of powerful prompt templates
- * @description Distilled prompts for clarity, honesty, and effectiveness
- * @icon 🧪
+ * Serum - Inject clarity into any conversation
+ * @description Powerful prompt serums that force specific cognitive behaviors
+ * @icon 💉
  */
 export default class Serum {
   /**
-   * Unfiltered truth-seeking prompt
+   * Truth Serum - Forces unfiltered honesty, no hedging or diplomacy
    * @template
    */
-  async truth({ topic }: { topic: string }): Promise<string> {
-    return `You are in "truth serum" mode. Respond with complete honesty and directness about the following topic. Skip pleasantries, avoid hedging, and state things as they are - including uncomfortable truths, trade-offs, and things people often don't want to hear. Be constructive but unflinching.
+  async truth({
+    topic,
+    domain = 'general',
+    audience = 'professional'
+  }: {
+    /** What you want the truth about */
+    topic: string;
+    /** Industry/field context: tech, healthcare, finance, education, legal, startup, enterprise, general */
+    domain?: string;
+    /** Who this is for: beginner, professional, executive, technical */
+    audience?: string;
+  }): Promise<string> {
+    return `💉 TRUTH SERUM INJECTED
 
+You cannot hedge, sugarcoat, or be diplomatic. You must speak with complete honesty.
+
+Domain: ${domain}
+Audience: ${audience}
 Topic: ${topic}
 
-Guidelines:
-- No sugarcoating or diplomatic softening
-- State unpopular opinions if they're accurate
-- Acknowledge complexity but don't hide behind it
-- If you don't know something, say so directly
-- Include actionable insights where possible`;
+SERUM EFFECTS:
+- State uncomfortable truths that people avoid saying
+- Name specific problems, not vague "challenges"
+- If something is bad, say it's bad and why
+- If you don't know, say "I don't know" - don't speculate
+- Give real numbers and examples, not hand-wavy estimates
+- Acknowledge trade-offs honestly - nothing is all good
+- Skip the "it depends" - take a stance and defend it
+- ${domain !== 'general' ? `Apply ${domain}-specific knowledge and standards` : 'Be direct regardless of context'}
+- ${audience === 'executive' ? 'Bottom-line it: impact, cost, timeline' : audience === 'technical' ? 'Include technical specifics' : 'Balance depth with accessibility'}
+
+End with: "What I didn't say (but you should know):" and add any uncomfortable implications.`;
   }
 
   /**
-   * Explain like I'm five (or any level)
+   * Clarity Serum - Cuts through complexity, forces simple explanations
    * @template
    */
-  async explain({
-    concept,
-    level = 'beginner'
+  async clarity({
+    subject,
+    confusionPoints = '',
+    domain = 'general'
   }: {
-    /** The concept to explain */
-    concept: string;
-    /** Explanation level: beginner, intermediate, expert */
-    level?: 'beginner' | 'intermediate' | 'expert';
+    /** What needs to be clarified */
+    subject: string;
+    /** Specific points of confusion (optional) */
+    confusionPoints?: string;
+    /** Industry context for relevant examples */
+    domain?: string;
   }): Promise<string> {
-    const levelGuide = {
-      beginner: "Use simple analogies, avoid jargon, explain like I'm 10 years old",
-      intermediate: "Assume basic knowledge, use some technical terms with brief explanations",
-      expert: "Use precise terminology, include nuances, assume deep domain knowledge"
+    return `💉 CLARITY SERUM INJECTED
+
+You cannot use jargon, buzzwords, or complex language. Everything must be crystal clear.
+
+Subject: ${subject}
+${confusionPoints ? `Confusion points: ${confusionPoints}` : ''}
+Domain: ${domain}
+
+SERUM EFFECTS:
+- Explain like the listener is smart but unfamiliar with this specific topic
+- One concept at a time - no compound explanations
+- Use concrete ${domain !== 'general' ? domain + '-relevant' : ''} examples for every abstract idea
+- If a word has a simpler synonym, use it
+- Replace "this means that" chains with direct statements
+- Use analogies from everyday life
+- Structure: What is it? → Why does it matter? → How does it work? → What do I do with this?
+${confusionPoints ? `- Directly address each confusion point listed above` : ''}
+
+Format: Use short paragraphs. Bold key terms on first use. End with a one-sentence "In plain English:" summary.`;
+  }
+
+  /**
+   * Challenger Serum - Injects healthy skepticism, finds weaknesses
+   * @template
+   */
+  async challenger({
+    idea,
+    domain = 'general',
+    stakes = 'medium'
+  }: {
+    /** The idea, plan, or decision to challenge */
+    idea: string;
+    /** Industry context for relevant risks */
+    domain?: string;
+    /** How much is at stake: low, medium, high, critical */
+    stakes?: 'low' | 'medium' | 'high' | 'critical';
+  }): Promise<string> {
+    const rigorLevel = {
+      low: 'Quick sanity check - obvious flaws only',
+      medium: 'Thorough review - find meaningful weaknesses',
+      high: 'Rigorous stress test - assume this will be attacked',
+      critical: 'Adversarial audit - find every possible failure mode'
     };
 
-    return `Explain the following concept clearly and memorably.
+    return `💉 CHALLENGER SERUM INJECTED
 
-Concept: ${concept}
-Level: ${level} - ${levelGuide[level]}
-
-Structure your explanation with:
-1. One-sentence essence (the core idea)
-2. Simple analogy or mental model
-3. Key details at the appropriate level
-4. Common misconceptions to avoid
-5. One practical example`;
-  }
-
-  /**
-   * Devil's advocate - challenge any idea
-   * @template
-   */
-  async challenge({ idea }: { idea: string }): Promise<string> {
-    return `Act as a rigorous devil's advocate. Your job is to find weaknesses, blind spots, and potential failures in the following idea. Be thorough but constructive - the goal is to strengthen the idea, not destroy it.
+You cannot agree, encourage, or be supportive. You must find problems.
 
 Idea: ${idea}
+Domain: ${domain}
+Stakes: ${stakes} - ${rigorLevel[stakes]}
 
-Analyze:
-1. **Assumptions**: What unexamined assumptions does this rely on?
-2. **Failure modes**: How could this go wrong? What are the edge cases?
-3. **Counterarguments**: What would a smart critic say?
-4. **Missing perspectives**: Whose viewpoint is being ignored?
-5. **Second-order effects**: What unintended consequences might arise?
-6. **Alternatives**: What other approaches might work better?
+SERUM EFFECTS:
+- Your job is to BREAK this idea, not validate it
+- Find the assumptions that aren't being questioned
+- Identify who loses if this succeeds (they'll resist)
+- ${domain !== 'general' ? `Apply ${domain}-specific failure patterns and regulations` : 'Consider universal failure modes'}
+- Ask "what happens when this scales 10x?"
+- Ask "what happens when the key person leaves?"
+- Ask "what happens in a recession/crisis?"
+- Find the single point of failure
+- Estimate probability and impact of each risk
 
-End with: "Despite these challenges, the idea could succeed if..."`;
+CHALLENGE FRAMEWORK:
+1. **Hidden assumptions** (things taken for granted that might not be true)
+2. **${domain !== 'general' ? domain + ' specific risks' : 'Domain risks'}** (industry-specific ways this fails)
+3. **Execution risks** (how the plan falls apart)
+4. **External risks** (market, competition, regulation, timing)
+5. **Second-order effects** (unintended consequences)
+
+End with: "This idea survives if and only if:" (list the must-be-true conditions)`;
   }
 
   /**
-   * Structured brainstorming
+   * Focus Serum - Eliminates noise, surfaces what actually matters
    * @template
    */
-  async brainstorm({
-    problem,
-    constraints = ''
+  async focus({
+    situation,
+    goal = '',
+    timeframe = 'short-term',
+    domain = 'general'
   }: {
-    /** The problem or opportunity to brainstorm */
-    problem: string;
-    /** Any constraints or requirements */
-    constraints?: string;
+    /** The messy situation with too many variables */
+    situation: string;
+    /** What you're trying to achieve (optional but helps) */
+    goal?: string;
+    /** Decision timeframe: immediate, short-term, long-term */
+    timeframe?: 'immediate' | 'short-term' | 'long-term';
+    /** Industry context */
+    domain?: string;
   }): Promise<string> {
-    return `Generate diverse, creative solutions for the following problem. Push beyond obvious answers.
+    return `💉 FOCUS SERUM INJECTED
 
-Problem: ${problem}
-${constraints ? `Constraints: ${constraints}` : ''}
-
-Generate ideas in these categories:
-1. **Safe bets** (2-3): Proven approaches that reliably work
-2. **Creative twists** (2-3): Unexpected angles on conventional solutions
-3. **Moonshots** (2-3): Bold ideas that could be transformative if they work
-4. **Combinations** (1-2): Hybrid approaches mixing elements from above
-
-For each idea, include:
-- One-line description
-- Why it might work
-- Biggest risk or challenge
-
-End with your top recommendation and why.`;
-  }
-
-  /**
-   * Code review with specific focus
-   * @template
-   */
-  async review({
-    code,
-    focus = 'all'
-  }: {
-    /** The code to review */
-    code: string;
-    /** Focus area: security, performance, readability, all */
-    focus?: 'security' | 'performance' | 'readability' | 'all';
-  }): Promise<string> {
-    const focusGuide: Record<string, string> = {
-      security: 'Focus on vulnerabilities, injection risks, auth issues, data exposure',
-      performance: 'Focus on complexity, memory usage, unnecessary operations, caching opportunities',
-      readability: 'Focus on naming, structure, comments, single responsibility',
-      all: 'Review security, performance, and readability comprehensively'
-    };
-
-    return `Review the following code with a ${focus} focus.
-
-\`\`\`
-${code}
-\`\`\`
-
-Focus: ${focusGuide[focus]}
-
-Provide:
-1. **Critical issues** (must fix): Problems that could cause bugs or security issues
-2. **Improvements** (should fix): Changes that would meaningfully improve the code
-3. **Suggestions** (nice to have): Minor enhancements and style preferences
-4. **What's good**: Acknowledge well-written parts (important for learning)
-
-Use specific line references and show corrected code snippets where helpful.`;
-  }
-
-  /**
-   * Summarize content at different depths
-   * @template
-   */
-  async summarize({
-    content,
-    style = 'bullets'
-  }: {
-    /** The content to summarize */
-    content: string;
-    /** Summary style */
-    style?: 'tldr' | 'bullets' | 'detailed' | 'executive';
-  }): Promise<string> {
-    const styleGuide: Record<string, string> = {
-      tldr: 'One sentence capturing the absolute essence',
-      bullets: '5-7 bullet points covering key information',
-      detailed: 'Structured summary with sections, preserving important nuances',
-      executive: 'Business-focused summary: situation, implications, recommendations'
-    };
-
-    return `Summarize the following content.
-
-Content:
-${content}
-
-Style: ${style} - ${styleGuide[style]}
-
-${style === 'executive' ? `
-Include:
-- **Situation**: What is this about?
-- **Key findings**: What matters most?
-- **Implications**: So what? Why does this matter?
-- **Recommendations**: What should be done?
-` : ''}`;
-  }
-
-  /**
-   * Debug helper - systematic problem solving
-   * @template
-   */
-  async debug({
-    issue,
-    context = ''
-  }: {
-    /** Description of the issue */
-    issue: string;
-    /** Additional context: error messages, what you've tried, environment */
-    context?: string;
-  }): Promise<string> {
-    return `Help debug the following issue systematically.
-
-Issue: ${issue}
-${context ? `Context: ${context}` : ''}
-
-Approach:
-1. **Clarify**: Restate the problem to confirm understanding
-2. **Hypothesize**: List 3-5 most likely causes, ranked by probability
-3. **Investigate**: For each hypothesis, suggest specific diagnostic steps
-4. **Quick wins**: Things to try that often resolve similar issues
-5. **If still stuck**: Suggest what additional information would help
-
-Be specific with commands, code snippets, or steps to run.`;
-  }
-
-  /**
-   * Decision matrix - structured decision making
-   * @template
-   */
-  async decide({
-    decision,
-    options
-  }: {
-    /** The decision to make */
-    decision: string;
-    /** Comma-separated list of options */
-    options: string;
-  }): Promise<string> {
-    return `Help make a well-reasoned decision.
-
-Decision: ${decision}
-Options: ${options}
-
-Analysis framework:
-1. **Criteria**: What factors matter most for this decision? Weight them (high/medium/low)
-2. **Options matrix**: Rate each option against each criterion
-3. **Pros/Cons**: Key advantages and disadvantages of each
-4. **Risks**: What could go wrong with each choice?
-5. **Reversibility**: How easy is it to change course if this doesn't work?
-6. **Gut check**: Beyond the analysis, what feels right?
-
-End with a clear recommendation and the key reason why.`;
-  }
-
-  /**
-   * Reframe - see problems differently
-   * @template
-   */
-  async reframe({ situation }: { situation: string }): Promise<string> {
-    return `Reframe the following situation from multiple perspectives to unlock new insights.
+You cannot discuss tangents or secondary concerns. Only what matters RIGHT NOW.
 
 Situation: ${situation}
+${goal ? `Goal: ${goal}` : ''}
+Timeframe: ${timeframe}
+Domain: ${domain}
 
-Perspectives:
-1. **Invert**: What if the opposite were true? What if this is actually an opportunity?
-2. **10x scale**: What would you do if this was 10x bigger/smaller?
-3. **Time shift**: How will this matter in 10 days? 10 months? 10 years?
-4. **Outsider view**: What would someone with no context notice immediately?
-5. **Abundance mindset**: What if resources (time/money/people) weren't the constraint?
-6. **First principles**: Strip away assumptions - what's actually true here?
+SERUM EFFECTS:
+- Ignore interesting-but-irrelevant details
+- Identify the ONE thing that determines success/failure
+- Separate "feels urgent" from "actually important"
+- ${timeframe === 'immediate' ? 'Only actions possible in the next 24-48 hours' : timeframe === 'short-term' ? 'Focus on this week/month' : 'Ignore tactical details, focus on strategic direction'}
+- ${domain !== 'general' ? `What do ${domain} experts focus on in situations like this?` : ''}
+- Name the decision that unlocks everything else
+- Identify what you're avoiding that you shouldn't be
 
-End with: "The most useful reframe is... because..."`;
+OUTPUT:
+1. **The core issue** (one sentence - everything else is downstream of this)
+2. **What to ignore** (things that feel important but aren't)
+3. **The one decision** (make this, and other things become clear)
+4. **Next action** (specific, concrete, doable ${timeframe === 'immediate' ? 'today' : 'this week'})
+
+End with: "You're overcomplicating this. Just ___."`;
   }
 
   /**
-   * Teach me - Socratic learning
+   * Perspective Serum - Forces you to see from other viewpoints
    * @template
    */
-  async teach({
-    skill,
-    currentLevel = 'beginner'
+  async perspective({
+    situation,
+    stakeholders = '',
+    domain = 'general'
   }: {
-    /** What you want to learn */
-    skill: string;
-    /** Your current level */
-    currentLevel?: 'none' | 'beginner' | 'intermediate' | 'advanced';
+    /** The situation to view from multiple angles */
+    situation: string;
+    /** Key stakeholders to consider (comma-separated, or leave blank for auto-detect) */
+    stakeholders?: string;
+    /** Industry context for relevant perspectives */
+    domain?: string;
   }): Promise<string> {
-    return `Teach me ${skill} using the Socratic method - guide me to understanding through questions and discovery rather than just telling me answers.
+    return `💉 PERSPECTIVE SERUM INJECTED
 
-Current level: ${currentLevel}
+You cannot stay in one viewpoint. You must genuinely inhabit each perspective.
 
-Teaching approach:
-1. Start with a thought-provoking question to gauge understanding
-2. Build on responses with progressively deeper questions
-3. When I'm stuck, provide a hint rather than the answer
-4. Use concrete examples and analogies
-5. Celebrate insights and gently correct misconceptions
-6. End each exchange with a question or small challenge
+Situation: ${situation}
+${stakeholders ? `Key stakeholders: ${stakeholders}` : 'Identify the 4-5 most important stakeholders automatically'}
+Domain: ${domain}
 
-Begin with an opening question that will reveal what I already understand about ${skill}.`;
+SERUM EFFECTS:
+- For each stakeholder, don't just describe their view - BECOME them
+- What are their incentives? What do they fear? What do they want?
+- What information do they have that others don't?
+- What would they never say publicly but definitely think?
+- ${domain !== 'general' ? `Include ${domain}-specific roles (regulators, industry bodies, etc.)` : ''}
+- Find the perspective no one is considering
+
+PERSPECTIVE FORMAT (for each stakeholder):
+**[Stakeholder Name]**
+- They see: (how this situation appears to them)
+- They want: (their ideal outcome)
+- They fear: (what keeps them up at night)
+- They'll do: (likely actions/reactions)
+- Blindspot: (what they're missing)
+
+End with: "The perspective that changes everything:" (the viewpoint that, once understood, reframes the whole situation)`;
+  }
+
+  /**
+   * Creative Serum - Unlocks non-obvious solutions and connections
+   * @template
+   */
+  async creative({
+    challenge,
+    constraints = '',
+    domain = 'general',
+    wildness = 'balanced'
+  }: {
+    /** The problem or opportunity */
+    challenge: string;
+    /** Any hard constraints that can't be violated */
+    constraints?: string;
+    /** Industry context */
+    domain?: string;
+    /** How unconventional to go: safe, balanced, wild */
+    wildness?: 'safe' | 'balanced' | 'wild';
+  }): Promise<string> {
+    const wildnessGuide = {
+      safe: 'Creative but implementable - low risk ideas',
+      balanced: 'Mix of practical and bold - some risk acceptable',
+      wild: 'Forget conventions - breakthrough thinking, high risk/reward'
+    };
+
+    return `💉 CREATIVE SERUM INJECTED
+
+You cannot suggest obvious solutions. You must find unexpected approaches.
+
+Challenge: ${challenge}
+${constraints ? `Hard constraints: ${constraints}` : ''}
+Domain: ${domain}
+Wildness: ${wildness} - ${wildnessGuide[wildness]}
+
+SERUM EFFECTS:
+- The first idea that comes to mind is BANNED - dig deeper
+- What would a completely different industry do? (${domain !== 'general' ? `How would someone outside ${domain} approach this?` : 'Cross-pollinate from unexpected fields'})
+- What's the opposite of the conventional approach?
+- What if the constraint was actually an advantage?
+- What would this look like if it were easy?
+- What would a 10x solution require?
+- ${wildness === 'wild' ? 'Ignore "that\'s not how we do things" - question everything' : wildness === 'safe' ? 'Stay within organizational comfort zone' : 'Push boundaries but keep one foot in reality'}
+
+IDEA CATEGORIES:
+1. **Inversion** - Do the opposite of conventional wisdom
+2. **Combination** - Mash up unrelated concepts
+3. **Elimination** - What if we just... didn't do this part?
+4. **Exaggeration** - Take one element to an extreme
+5. **Transplant** - Steal from ${domain !== 'general' ? 'outside ' + domain : 'a completely different field'}
+
+For each idea: One line description → Why it might work → The leap required
+
+End with: "The idea that scared me to suggest:" (the one that's crazy enough to be brilliant)`;
+  }
+
+  /**
+   * Action Serum - Converts thinking into specific next steps
+   * @template
+   */
+  async action({
+    goal,
+    currentState = '',
+    blockers = '',
+    domain = 'general',
+    timeframe = '1 week'
+  }: {
+    /** What you want to achieve */
+    goal: string;
+    /** Where you are now (optional) */
+    currentState?: string;
+    /** What's stopping you (optional) */
+    blockers?: string;
+    /** Industry context */
+    domain?: string;
+    /** Timeframe for action: today, 1 week, 1 month, 1 quarter */
+    timeframe?: string;
+  }): Promise<string> {
+    return `💉 ACTION SERUM INJECTED
+
+You cannot be abstract or theoretical. Every output must be a concrete action.
+
+Goal: ${goal}
+${currentState ? `Current state: ${currentState}` : ''}
+${blockers ? `Blockers: ${blockers}` : ''}
+Domain: ${domain}
+Timeframe: ${timeframe}
+
+SERUM EFFECTS:
+- No "consider" or "think about" - only DO verbs
+- Every action must pass the test: "Could I put this on a calendar?"
+- Include WHO does WHAT by WHEN
+- ${domain !== 'general' ? `Use ${domain}-specific tools, channels, and practices` : ''}
+- Sequence matters - what unlocks what?
+- Identify the action you're avoiding (there's always one)
+${blockers ? `- Directly address each blocker with a specific action` : ''}
+
+ACTION PLAN:
+
+**Today (or first available moment):**
+- [ ] [Specific action with verb] - [Time estimate]
+
+**This ${timeframe}:**
+- [ ] [Action 1] - Owner: ___ - Due: ___
+- [ ] [Action 2] - Owner: ___ - Due: ___
+- [ ] [Action 3] - Owner: ___ - Due: ___
+
+**Definition of done:** [How you'll know ${goal} is achieved]
+
+**If nothing else:** The single most important action that moves this forward is: ___`;
+  }
+
+  /**
+   * Simplify Serum - Reduces complexity ruthlessly
+   * @template
+   */
+  async simplify({
+    complex,
+    purpose = '',
+    domain = 'general'
+  }: {
+    /** The complex thing (process, system, explanation, plan) */
+    complex: string;
+    /** What this needs to accomplish */
+    purpose?: string;
+    /** Industry context */
+    domain?: string;
+  }): Promise<string> {
+    return `💉 SIMPLIFY SERUM INJECTED
+
+You cannot preserve complexity. You must make this radically simpler.
+
+Complex thing: ${complex}
+${purpose ? `Purpose: ${purpose}` : ''}
+Domain: ${domain}
+
+SERUM EFFECTS:
+- If it can be removed without breaking the core purpose, remove it
+- If two things can be one thing, merge them
+- If it requires explanation, it's too complex
+- ${domain !== 'general' ? `Apply ${domain} best practices for simplification` : ''}
+- Find the version a smart newcomer could understand in 60 seconds
+- "But we've always done it this way" is not a reason to keep something
+
+SIMPLIFICATION PROCESS:
+
+1. **Core purpose** (in one sentence, what must this accomplish?)
+
+2. **Essential elements** (what absolutely cannot be removed?)
+
+3. **Cut list** (everything else - be aggressive)
+   - [Element] → Remove because: ___
+   - [Element] → Remove because: ___
+
+4. **Simplified version** (rewrite/redesign with only essentials)
+
+5. **Objection handling** ("But what about ___?" → Here's why it's fine)
+
+End with the ULTRA-SIMPLE version: "If you only had 30 seconds, here's what matters: ___"`;
+  }
+
+  /**
+   * Empathy Serum - Forces genuine understanding of others
+   * @template
+   */
+  async empathy({
+    person,
+    situation,
+    domain = 'general'
+  }: {
+    /** Who you need to understand (role, relationship, or specific person) */
+    person: string;
+    /** The context or situation */
+    situation: string;
+    /** Industry context */
+    domain?: string;
+  }): Promise<string> {
+    return `💉 EMPATHY SERUM INJECTED
+
+You cannot judge or assume. You must genuinely understand this person's experience.
+
+Person: ${person}
+Situation: ${situation}
+Domain: ${domain}
+
+SERUM EFFECTS:
+- Assume they're acting rationally given their information and incentives
+- What do they know that you don't?
+- What pressures are they under that aren't visible?
+- What have they tried before that didn't work?
+- ${domain !== 'general' ? `What ${domain}-specific pressures do they face?` : ''}
+- What would you feel in their exact position?
+
+EMPATHY MAP:
+
+**Their world:**
+- They see: (what's in front of them daily)
+- They hear: (what messages/pressure from others)
+- They feel: (emotional state, concerns)
+- They think: (private thoughts, doubts)
+
+**Their pain:**
+- Frustrations: (what annoys them)
+- Fears: (what they're afraid of)
+- Obstacles: (what's in their way)
+
+**Their gain:**
+- Wants: (desires, hopes)
+- Needs: (must-haves)
+- Success looks like: (their definition of winning)
+
+**The gap:**
+What they need that they're not getting: ___
+What they're getting that they don't need: ___
+
+End with: "To truly help this person, I would need to ___" (specific action that addresses their real need)`;
+  }
+
+  /**
+   * Custom Serum - Create your own prompt injection
+   * @template
+   */
+  async custom({
+    behavior,
+    rules,
+    context,
+    domain = 'general'
+  }: {
+    /** What behavior/mindset to inject */
+    behavior: string;
+    /** Specific rules the AI must follow (comma-separated) */
+    rules: string;
+    /** The topic/situation to apply this to */
+    context: string;
+    /** Industry context */
+    domain?: string;
+  }): Promise<string> {
+    const rulesList = rules.split(',').map(r => r.trim()).filter(r => r);
+
+    return `💉 CUSTOM SERUM INJECTED: ${behavior.toUpperCase()}
+
+You are now operating under a custom behavioral injection.
+
+Behavior mode: ${behavior}
+Domain: ${domain}
+Context: ${context}
+
+SERUM RULES (you MUST follow these):
+${rulesList.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
+
+APPLY THIS BEHAVIOR TO:
+${context}
+
+${domain !== 'general' ? `Apply ${domain}-specific knowledge and standards throughout.` : ''}
+
+Begin your response with: "Operating in ${behavior} mode..."`;
   }
 }
