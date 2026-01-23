@@ -1200,8 +1200,8 @@ export class ResultViewer extends LitElement {
     this._expandedNodes = newExpanded;
   }
 
-  @state()
-  private _mermaidBlocks: { id: string; code: string }[] = [];
+  // Non-reactive property to avoid infinite update loops
+  private _pendingMermaidBlocks: { id: string; code: string }[] = [];
 
   private _renderMarkdown(): TemplateResult {
     const str = String(this.result);
@@ -1215,10 +1215,8 @@ export class ResultViewer extends LitElement {
         return `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
       });
 
-      // Store mermaid blocks for rendering after DOM update
-      if (mermaidBlocks.length > 0) {
-        this._mermaidBlocks = mermaidBlocks;
-      }
+      // Store mermaid blocks for rendering after DOM update (non-reactive)
+      this._pendingMermaidBlocks = mermaidBlocks;
 
       const htmlContent = (window as any).marked.parse(processedStr);
       return html`<div class="markdown-body">${unsafeHTML(htmlContent)}</div>`;
@@ -1230,10 +1228,11 @@ export class ResultViewer extends LitElement {
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
 
-    // Render mermaid blocks after DOM update
-    if (this._mermaidBlocks.length > 0 && (window as any).mermaid) {
-      this._renderMermaidBlocks(this._mermaidBlocks);
-      this._mermaidBlocks = [];
+    // Render mermaid blocks after DOM update (only if there are pending blocks)
+    if (this._pendingMermaidBlocks.length > 0 && (window as any).mermaid) {
+      const blocks = this._pendingMermaidBlocks;
+      this._pendingMermaidBlocks = []; // Clear before async render to prevent re-entry
+      this._renderMermaidBlocks(blocks);
     }
   }
 
