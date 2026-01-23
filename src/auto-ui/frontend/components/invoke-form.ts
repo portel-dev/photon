@@ -213,6 +213,48 @@ export class InvokeForm extends LitElement {
         font-size: 0.75rem;
         color: var(--t-muted);
       }
+
+      /* Persistence Controls */
+      .persistence-controls {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        margin-top: var(--space-md);
+        padding: var(--space-sm) 0;
+      }
+
+      .remember-toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--t-muted);
+        user-select: none;
+      }
+
+      .remember-toggle:hover {
+        color: var(--t-primary);
+      }
+
+      .remember-toggle input {
+        width: auto;
+        cursor: pointer;
+      }
+
+      .btn-clear {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        background: transparent;
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+      }
+
+      .btn-clear:hover {
+        color: #f87171;
+        border-color: #f87171;
+      }
     `
   ];
 
@@ -222,16 +264,103 @@ export class InvokeForm extends LitElement {
   @property({ type: Boolean })
   loading = false;
 
+  /** Photon name for localStorage key */
+  @property({ type: String })
+  photonName = '';
+
+  /** Method name for localStorage key */
+  @property({ type: String })
+  methodName = '';
+
   @state()
   private _values: Record<string, any> = {};
 
   @state()
   private _errors: Record<string, string> = {};
 
+  @state()
+  private _rememberValues = false;
+
+  private get _storageKey(): string {
+    return `beam-form:${this.photonName}:${this.methodName}`;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._loadPersistedValues();
+  }
+
+  updated(changedProps: Map<string, unknown>) {
+    // Reload persisted values when photon/method changes
+    if (changedProps.has('photonName') || changedProps.has('methodName')) {
+      this._loadPersistedValues();
+    }
+  }
+
+  private _loadPersistedValues() {
+    if (!this.photonName || !this.methodName) return;
+
+    try {
+      const stored = localStorage.getItem(this._storageKey);
+      if (stored) {
+        const data = JSON.parse(stored);
+        this._values = data.values || {};
+        this._rememberValues = data.remember ?? false;
+      }
+    } catch (e) {
+      console.warn('Failed to load persisted form values:', e);
+    }
+  }
+
+  private _savePersistedValues() {
+    if (!this.photonName || !this.methodName) return;
+
+    try {
+      if (this._rememberValues) {
+        localStorage.setItem(this._storageKey, JSON.stringify({
+          values: this._values,
+          remember: true
+        }));
+      } else {
+        localStorage.removeItem(this._storageKey);
+      }
+    } catch (e) {
+      console.warn('Failed to save form values:', e);
+    }
+  }
+
+  private _clearPersistedValues() {
+    if (!this.photonName || !this.methodName) return;
+
+    localStorage.removeItem(this._storageKey);
+    this._values = {};
+    this._rememberValues = false;
+    showToast('Form values cleared', 'info');
+    this.requestUpdate();
+  }
+
+  private _toggleRemember() {
+    this._rememberValues = !this._rememberValues;
+    this._savePersistedValues();
+    showToast(this._rememberValues ? 'Values will be remembered' : 'Values will not be remembered', 'info');
+  }
+
   render() {
     return html`
       <div class="form-container">
         ${this._renderFields()}
+
+        <div class="persistence-controls">
+          <label class="remember-toggle" @click=${this._toggleRemember}>
+            <input type="checkbox" .checked=${this._rememberValues} @click=${(e: Event) => e.stopPropagation()}>
+            <span>Remember values</span>
+          </label>
+          ${this._rememberValues ? html`
+            <button class="btn-clear" @click=${this._clearPersistedValues} title="Clear saved values">
+              Clear
+            </button>
+          ` : ''}
+        </div>
 
         <div class="actions">
           <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>Cancel</button>
@@ -285,6 +414,7 @@ export class InvokeForm extends LitElement {
         <label class="switch">
             <input
                 type="checkbox"
+                .checked=${!!this._values[key]}
                 @change=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).checked)}
             >
             <span class="slider"></span>
@@ -319,11 +449,12 @@ export class InvokeForm extends LitElement {
 
     // Handle Enums -> Select Dropdown
     if ((schema as any).enum) {
+      const currentValue = this._values[key] || '';
       return html`
-        <select class="${errorClass}" @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
+        <select class="${errorClass}" .value=${currentValue} @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
             <option value="">Select...</option>
             ${(schema as any).enum.map((val: string) => html`
-            <option value=${val}>${val}</option>
+            <option value=${val} ?selected=${val === currentValue}>${val}</option>
             `)}
         </select>
         `;
@@ -371,6 +502,7 @@ export class InvokeForm extends LitElement {
         <input
             type="number"
             class="${errorClass}"
+            .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
             @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
         >
         `;
@@ -385,10 +517,13 @@ export class InvokeForm extends LitElement {
       (schema as any).format === 'file';
 
     if (isFile) {
+      // Support @accept filter from schema (e.g., ".ts,.js" or "*.photon.ts")
+      const acceptFilter = (schema as any).accept || '';
       return html`
           <file-picker
             .value=${this._values[key] || ''}
             .hasError=${hasError}
+            .accept=${acceptFilter}
             @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
           ></file-picker>
         `;
@@ -399,6 +534,7 @@ export class InvokeForm extends LitElement {
       <input
         type="text"
         class="${errorClass}"
+        .value=${this._values[key] || ''}
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       >
     `;
@@ -415,10 +551,16 @@ export class InvokeForm extends LitElement {
     }
 
     this._values = { ...this._values, [key]: newValues };
+    if (this._rememberValues) {
+      this._savePersistedValues();
+    }
   }
 
   private _handleChange(key: string, value: any) {
     this._values = { ...this._values, [key]: value };
+    if (this._rememberValues) {
+      this._savePersistedValues();
+    }
   }
 
   private _handleSubmit() {

@@ -162,6 +162,10 @@ export class FilePicker extends LitElement {
   @property({ type: Boolean })
   hasError = false;
 
+  /** File extension filter (e.g., ".ts,.js,.tsx" or "*.photon.ts") */
+  @property({ type: String })
+  accept = '';
+
   @state()
   private _isOpen = false;
 
@@ -206,9 +210,9 @@ export class FilePicker extends LitElement {
           <div class="file-list">
             ${this._loading
           ? html`<div style="padding: var(--space-md); color: var(--t-muted);">Loading...</div>`
-          : this._items.map(item => this._renderItem(item))}
-            
-            ${!this._loading && this._items.length === 0 ? html`
+          : this._items.filter(item => this._matchesFilter(item)).map(item => this._renderItem(item))}
+
+            ${!this._loading && this._items.filter(item => this._matchesFilter(item)).length === 0 ? html`
               <div style="padding: var(--space-md); color: var(--t-muted);">Empty directory</div>
             ` : ''}
           </div>
@@ -268,12 +272,36 @@ export class FilePicker extends LitElement {
     } else {
       this.value = item.path;
       this._dispatchChange();
-      // Optional: Close on select? Maybe keep open for rapid changes.
+      // Auto-close on file selection
+      this._isOpen = false;
     }
   }
 
   private _goUp() {
     this._loadPath(this._currentPath + '/..');
+  }
+
+  /** Check if a file matches the accept filter */
+  private _matchesFilter(item: FileEntry): boolean {
+    // Always show directories
+    if (item.isDirectory) return true;
+
+    // No filter = show all
+    if (!this.accept) return true;
+
+    const filters = this.accept.split(',').map(f => f.trim().toLowerCase());
+    const fileName = item.name.toLowerCase();
+
+    return filters.some(filter => {
+      // Handle glob patterns like "*.photon.ts"
+      if (filter.startsWith('*.')) {
+        const suffix = filter.slice(1); // Remove leading *
+        return fileName.endsWith(suffix);
+      }
+      // Handle extension patterns like ".ts" or "ts"
+      const ext = filter.startsWith('.') ? filter : `.${filter}`;
+      return fileName.endsWith(ext);
+    });
   }
 
   private _dispatchChange() {
