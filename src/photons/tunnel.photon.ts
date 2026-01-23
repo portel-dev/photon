@@ -71,10 +71,11 @@ export default class Tunnel {
     // Check if tunnel already exists for this port
     if (activeTunnels.has(port)) {
       const existing = activeTunnels.get(port)!;
+      const publicIp = await this._getPublicIp();
       return {
-        message: `Tunnel already active on port ${port}`,
         url: existing.info.url,
         link: existing.info.url,
+        password: existing.info.provider === 'localtunnel' ? publicIp : undefined,
         provider: existing.info.provider,
         port
       };
@@ -107,6 +108,9 @@ export default class Tunnel {
           break;
       }
 
+      // Fetch public IP (needed for localtunnel password)
+      const publicIp = await this._getPublicIp();
+
       const info: TunnelInfo = {
         provider,
         port,
@@ -118,9 +122,9 @@ export default class Tunnel {
       activeTunnels.set(port, { process, info });
 
       return {
-        message: `Beam is now accessible from the internet!`,
         url,
         link: url,
+        password: provider === 'localtunnel' ? publicIp : undefined,
         provider,
         port
       };
@@ -192,6 +196,18 @@ export default class Tunnel {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async _getPublicIp(): Promise<string> {
+    try {
+      const result = execSync('curl -s https://loca.lt/mytunnelpassword || curl -s ifconfig.me', {
+        encoding: 'utf-8',
+        timeout: 5000
+      });
+      return result.trim();
+    } catch {
+      return 'unknown';
     }
   }
 
