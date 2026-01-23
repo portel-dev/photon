@@ -5,8 +5,10 @@ import { showToast } from './toast-manager.js';
 import type { BeamSidebar } from './beam-sidebar.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
+import { mcpClient } from '../services/mcp-client.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
+const PROTOCOL_STORAGE_KEY = 'beam-protocol';
 
 @customElement('beam-app')
 export class BeamApp extends LitElement {
@@ -224,6 +226,8 @@ export class BeamApp extends LitElement {
   @state() private _showHelp = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
+  @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
+  @state() private _mcpReady = false;
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -241,7 +245,14 @@ export class BeamApp extends LitElement {
     }
     this._applyTheme();
 
+    // Load saved protocol preference
+    const savedProtocol = localStorage.getItem(PROTOCOL_STORAGE_KEY) as 'legacy' | 'mcp';
+    if (savedProtocol === 'mcp') {
+      this._protocolMode = 'mcp';
+    }
+
     this._connect();
+    this._connectMCP();
 
     window.addEventListener('hashchange', this._handleHashChange);
     window.addEventListener('message', this._handleBridgeMessage);
@@ -253,6 +264,36 @@ export class BeamApp extends LitElement {
     window.removeEventListener('hashchange', this._handleHashChange);
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
+  }
+
+  private async _connectMCP() {
+    try {
+      mcpClient.on('connect', () => {
+        this._mcpReady = true;
+        console.log('MCP client connected');
+      });
+
+      mcpClient.on('disconnect', () => {
+        this._mcpReady = false;
+      });
+
+      mcpClient.on('tools-changed', async () => {
+        if (this._protocolMode === 'mcp') {
+          const tools = await mcpClient.listTools();
+          this._photons = mcpClient.toolsToPhotons(tools);
+        }
+      });
+
+      mcpClient.on('progress', (data: any) => {
+        // Handle progress notifications
+        this._log('info', data.message || 'Processing...');
+      });
+
+      await mcpClient.connect();
+    } catch (error) {
+      console.warn('MCP connection failed, using legacy protocol');
+      this._mcpReady = false;
+    }
   }
 
   private _connect() {
@@ -636,12 +677,38 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleExecute(e: CustomEvent) {
+  private async _handleExecute(e: CustomEvent) {
     const args = e.detail.args;
     this._log('info', `Invoking ${this._selectedMethod.name}...`);
     this._lastResult = null;
     this._isExecuting = true;
 
+    // Use MCP if enabled and ready
+    if (this._protocolMode === 'mcp' && this._mcpReady) {
+      try {
+        const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
+        const result = await mcpClient.callTool(toolName, args);
+
+        if (result.isError) {
+          const errorText = result.content.find(c => c.type === 'text')?.text || 'Unknown error';
+          this._log('error', errorText);
+          showToast(errorText, 'error', 5000);
+        } else {
+          this._lastResult = mcpClient.parseToolResult(result);
+          this._log('success', 'Execution completed');
+          showToast('Execution completed successfully', 'success');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        this._log('error', message);
+        showToast(message, 'error', 5000);
+      } finally {
+        this._isExecuting = false;
+      }
+      return;
+    }
+
+    // Fall back to legacy protocol
     this._ws?.send(JSON.stringify({
       type: 'invoke',
       photon: this._selectedPhoton.name,
