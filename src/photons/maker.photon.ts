@@ -75,22 +75,32 @@ export default class Maker {
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
+    // Helper to normalize input (handles string or array)
+    const toArray = (input: string | string[] | undefined): string[] => {
+      if (!input) return [];
+      if (Array.isArray(input)) return input.filter(Boolean);
+      return input.split(',').map(s => s.trim()).filter(Boolean);
+    };
+
     // Generate all stubs
     const allStubs: string[] = [];
+    const methodList = toArray(methods);
+    const promptList = toArray(prompts);
+    const resourceList = toArray(resources);
 
     // Tools
-    if (methods.length > 0) {
-      allStubs.push(...methods.map(m => Maker.generateMethodStub(m, 'tool')));
+    if (methodList.length > 0) {
+      allStubs.push(...methodList.map(m => Maker.generateMethodStub(m, 'tool')));
     }
 
     // Prompts (templates)
-    if (prompts.length > 0) {
-      allStubs.push(...prompts.map(p => Maker.generateMethodStub(p, 'prompt')));
+    if (promptList.length > 0) {
+      allStubs.push(...promptList.map(p => Maker.generateMethodStub(p, 'prompt')));
     }
 
     // Resources
-    if (resources.length > 0) {
-      allStubs.push(...resources.map(r => Maker.generateMethodStub(r, 'resource')));
+    if (resourceList.length > 0) {
+      allStubs.push(...resourceList.map(r => Maker.generateMethodStub(r, 'resource')));
     }
 
     // Default if nothing specified
