@@ -695,6 +695,35 @@ export class BeamApp extends LitElement {
           }
           this._updateHash();
         }
+      } else if (msg.type === 'reloaded') {
+        // Photon was reloaded - update in list and selected
+        const reloadedPhoton = msg.photon;
+        const index = this._photons.findIndex(p => p.name === reloadedPhoton.name);
+        if (index !== -1) {
+          this._photons = [
+            ...this._photons.slice(0, index),
+            reloadedPhoton,
+            ...this._photons.slice(index + 1)
+          ];
+        }
+
+        // Update selected photon if it's the one that was reloaded
+        if (this._selectedPhoton?.name === reloadedPhoton.name) {
+          this._selectedPhoton = reloadedPhoton;
+
+          // If we had a method selected, try to reselect it
+          if (this._selectedMethod) {
+            const updatedMethod = reloadedPhoton.methods?.find(
+              (m: any) => m.name === this._selectedMethod.name
+            );
+            if (updatedMethod) {
+              this._selectedMethod = updatedMethod;
+            }
+          }
+        }
+
+        this._log('success', `${reloadedPhoton.name} reloaded`);
+        showToast(`${reloadedPhoton.name} reloaded successfully`, 'success');
       } else if (msg.type === 'error') {
         // Also handle errors for bridge calls
         if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
@@ -1085,10 +1114,13 @@ export class BeamApp extends LitElement {
 
   private _handleRefresh = () => {
     this._closeSettingsMenu();
-    // Refresh photons list
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-      this._ws.send(JSON.stringify({ type: 'list' }));
-      showToast('Refreshing photons...', 'info');
+    // Reload the current photon
+    if (this._ws && this._ws.readyState === WebSocket.OPEN && this._selectedPhoton) {
+      this._ws.send(JSON.stringify({
+        type: 'reload',
+        photon: this._selectedPhoton.name
+      }));
+      showToast(`Reloading ${this._selectedPhoton.name}...`, 'info');
     }
   }
 
