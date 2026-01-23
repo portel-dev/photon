@@ -87,6 +87,7 @@ interface MethodInfo {
   layoutHints?: Record<string, string>; // Layout hints from @format list {@title name, @subtitle email}
   buttonLabel?: string; // Custom button label from @returns {@label}
   linkedUi?: string; // UI template ID if linked via @ui annotation
+  isTemplate?: boolean; // True if this is an MCP prompt template (marked with @template)
 }
 
 interface InvokeRequest {
@@ -408,8 +409,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
       photonMCPs.set(name, mcp);
 
-      // Extract schema for UI
-      const schemas = await extractor.extractFromFile(photonPath);
+      // Extract schema for UI - use extractAllFromSource to get both tools and templates
+      const source = await fs.readFile(photonPath, 'utf-8');
+      const { tools: schemas, templates } = extractor.extractAllFromSource(source);
       (mcp as any).schemas = schemas; // Store schemas for result rendering
 
       // Get UI assets for linking
@@ -435,6 +437,20 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             linkedUi: linkedAsset?.id,
           };
         });
+
+      // Add templates as methods with isTemplate flag and markdown output format
+      templates.forEach((template: any) => {
+        if (!lifecycleMethods.includes(template.name)) {
+          methods.push({
+            name: template.name,
+            description: template.description || '',
+            params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+            returns: { type: 'object' },
+            isTemplate: true,
+            outputFormat: 'markdown', // Templates return markdown by default
+          });
+        }
+      });
 
       // Check if this is an App (has main() method with @ui)
       const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
@@ -1515,9 +1531,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
           photonMCPs.set(photonName, mcp);
 
-          // Re-extract schema
+          // Re-extract schema - use extractAllFromSource to get both tools and templates
           const extractor = new SchemaExtractor();
-          const schemas = await extractor.extractFromFile(photonPath);
+          const reloadSource = await fs.readFile(photonPath, 'utf-8');
+          const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
           (mcp as any).schemas = schemas; // Store schemas for result rendering
 
           const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
@@ -1539,6 +1556,20 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                 linkedUi: linkedAsset?.id,
               };
             });
+
+          // Add templates as methods
+          templates.forEach((template: any) => {
+            if (!lifecycleMethods.includes(template.name)) {
+              methods.push({
+                name: template.name,
+                description: template.description || '',
+                params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+                returns: { type: 'object' },
+                isTemplate: true,
+                outputFormat: 'markdown',
+              });
+            }
+          });
 
           // Check if this is an App (has main() method with @ui)
           const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
@@ -2185,9 +2216,10 @@ async function handleConfigure(
 
     photonMCPs.set(photonName, mcp);
 
-    // Extract schema for UI
+    // Extract schema for UI - use extractAllFromSource to get both tools and templates
     const extractor = new SchemaExtractor();
-    const schemas = await extractor.extractFromFile(unconfiguredPhoton.path);
+    const configSource = await fs.readFile(unconfiguredPhoton.path, 'utf-8');
+    const { tools: schemas, templates } = extractor.extractAllFromSource(configSource);
     (mcp as any).schemas = schemas; // Store schemas for result rendering
 
     // Get UI assets for linking
@@ -2212,6 +2244,20 @@ async function handleConfigure(
           linkedUi: linkedAsset?.id,
         };
       });
+
+    // Add templates as methods
+    templates.forEach((template: any) => {
+      if (!lifecycleMethods.includes(template.name)) {
+        methods.push({
+          name: template.name,
+          description: template.description || '',
+          params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          isTemplate: true,
+          outputFormat: 'markdown',
+        });
+      }
+    });
 
     // Check if this is an App (has main() method with @ui)
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
@@ -2296,9 +2342,10 @@ async function handleReload(
 
     photonMCPs.set(photonName, mcp);
 
-    // Extract schema for UI
+    // Extract schema for UI - use extractAllFromSource to get both tools and templates
     const extractor = new SchemaExtractor();
-    const schemas = await extractor.extractFromFile(photonPath);
+    const reloadSrc = await fs.readFile(photonPath, 'utf-8');
+    const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSrc);
     (mcp as any).schemas = schemas; // Store schemas for result rendering
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
@@ -2320,6 +2367,20 @@ async function handleReload(
           linkedUi: linkedAsset?.id,
         };
       });
+
+    // Add templates as methods
+    templates.forEach((template: any) => {
+      if (!lifecycleMethods.includes(template.name)) {
+        methods.push({
+          name: template.name,
+          description: template.description || '',
+          params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          isTemplate: true,
+          outputFormat: 'markdown',
+        });
+      }
+    });
 
     // Check if this is an App (has main() method with @ui)
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
