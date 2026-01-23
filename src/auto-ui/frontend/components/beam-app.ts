@@ -251,6 +251,153 @@ export class BeamApp extends LitElement {
         transform: scale(1.1);
       }
 
+      /* Prompts & Resources Section */
+      .section-header {
+        color: var(--t-muted);
+        text-transform: uppercase;
+        font-size: 0.8rem;
+        letter-spacing: 0.1em;
+        margin-top: var(--space-xl);
+        margin-bottom: var(--space-md);
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .section-header .count {
+        background: var(--bg-glass);
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.7rem;
+      }
+
+      .asset-card {
+        padding: var(--space-md);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        height: 100%;
+        box-sizing: border-box;
+      }
+
+      .asset-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
+        border-color: var(--accent-secondary);
+      }
+
+      .asset-card .asset-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--bg-glass);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+
+      .asset-card .asset-icon.prompt {
+        background: hsla(45, 80%, 50%, 0.15);
+        color: hsl(45, 80%, 50%);
+      }
+
+      .asset-card .asset-icon.resource {
+        background: hsla(190, 80%, 50%, 0.15);
+        color: hsl(190, 80%, 50%);
+      }
+
+      .asset-card .asset-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .asset-card .asset-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--t-primary);
+      }
+
+      .asset-card .asset-desc {
+        font-size: 0.85rem;
+        color: var(--t-muted);
+        flex: 1;
+      }
+
+      .asset-card .asset-meta {
+        font-size: 0.75rem;
+        color: var(--t-muted);
+        opacity: 0.7;
+      }
+
+      /* Prompt/Resource Viewer */
+      .asset-viewer {
+        padding: var(--space-lg);
+      }
+
+      .asset-viewer-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        margin-bottom: var(--space-lg);
+      }
+
+      .asset-viewer-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+      }
+
+      .asset-viewer-icon.prompt {
+        background: hsla(45, 80%, 50%, 0.15);
+        color: hsl(45, 80%, 50%);
+      }
+
+      .asset-viewer-icon.resource {
+        background: hsla(190, 80%, 50%, 0.15);
+        color: hsl(190, 80%, 50%);
+      }
+
+      .asset-viewer-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin: 0;
+      }
+
+      .asset-viewer-desc {
+        color: var(--t-muted);
+        margin: 4px 0 0 0;
+      }
+
+      .prompt-preview {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        font-family: var(--font-mono);
+        font-size: 0.9rem;
+        white-space: pre-wrap;
+        line-height: 1.6;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+
+      .prompt-preview .variable {
+        background: hsla(45, 80%, 50%, 0.2);
+        color: hsl(45, 80%, 60%);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 500;
+      }
+
       .background-glow {
         position: absolute;
         top: -20%;
@@ -492,6 +639,167 @@ export class BeamApp extends LitElement {
       .toggle-switch.active::after {
         transform: translateX(16px);
       }
+
+      /* Asset Viewer Modal */
+      .asset-viewer-modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-xl);
+        max-width: 800px;
+        width: 90%;
+        max-height: 85vh;
+        overflow-y: auto;
+        position: relative;
+      }
+
+      .asset-viewer-modal .close-btn {
+        position: absolute;
+        top: var(--space-md);
+        right: var(--space-md);
+        background: none;
+        border: none;
+        color: var(--t-muted);
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+        transition: all 0.15s ease;
+      }
+
+      .asset-viewer-modal .close-btn:hover {
+        background: var(--bg-glass);
+        color: var(--t-primary);
+      }
+
+      .asset-viewer-modal h2 {
+        margin: 0 0 var(--space-md) 0;
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .asset-viewer-modal h2 .icon {
+        font-size: 1.5rem;
+      }
+
+      .asset-viewer-modal .description {
+        color: var(--t-muted);
+        margin-bottom: var(--space-lg);
+      }
+
+      /* Variables Form */
+      .variables-form {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin-bottom: var(--space-lg);
+      }
+
+      .variables-form h4 {
+        margin: 0 0 var(--space-md) 0;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--t-muted);
+      }
+
+      .variable-input {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        margin-bottom: var(--space-sm);
+      }
+
+      .variable-input label {
+        min-width: 120px;
+        font-family: var(--font-mono);
+        font-size: 0.9rem;
+        color: hsl(45, 80%, 60%);
+      }
+
+      .variable-input input {
+        flex: 1;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm) var(--space-md);
+        color: var(--t-primary);
+        font-size: 0.9rem;
+      }
+
+      .variable-input input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+      }
+
+      /* Content Preview */
+      .content-section {
+        margin-top: var(--space-lg);
+      }
+
+      .content-section h4 {
+        margin: 0 0 var(--space-sm) 0;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--t-muted);
+      }
+
+      .content-preview {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        line-height: 1.6;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .content-preview .var-highlight {
+        background: hsla(45, 80%, 50%, 0.2);
+        color: hsl(45, 80%, 60%);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      .content-preview .var-filled {
+        background: hsla(150, 80%, 50%, 0.2);
+        color: hsl(150, 80%, 60%);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      /* Copy Button */
+      .copy-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        border: none;
+        padding: var(--space-sm) var(--space-lg);
+        border-radius: var(--radius-sm);
+        color: white;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: var(--space-md);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .copy-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      }
+
+      .resource-image {
+        max-width: 100%;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-glass);
+      }
     `
   ];
 
@@ -524,6 +832,11 @@ export class BeamApp extends LitElement {
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
   @state() private _editedDescription = '';
+  @state() private _selectedPrompt: any = null;
+  @state() private _selectedResource: any = null;
+  @state() private _promptArguments: Record<string, string> = {};
+  @state() private _renderedPrompt: string = '';
+  @state() private _resourceContent: string = '';
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -745,6 +1058,34 @@ export class BeamApp extends LitElement {
         this._elicitationData = msg.data;
         this._showElicitation = true;
         this._log('info', `Input required: ${msg.data.message || msg.data.ask}`);
+      } else if (msg.type === 'prompt-content') {
+        // Prompt content loaded
+        if (this._selectedPrompt?.id === msg.promptId) {
+          this._selectedPrompt = {
+            ...this._selectedPrompt,
+            content: msg.content,
+            renderedContent: msg.renderedContent,
+            variables: msg.variables,
+            description: msg.description
+          };
+          // Initialize arguments for variables
+          this._promptArguments = {};
+          for (const v of msg.variables) {
+            this._promptArguments[v] = '';
+          }
+          this._renderedPrompt = msg.renderedContent;
+        }
+      } else if (msg.type === 'resource-content') {
+        // Resource content loaded
+        if (this._selectedResource?.id === msg.resourceId) {
+          this._selectedResource = {
+            ...this._selectedResource,
+            content: msg.content,
+            mimeType: msg.mimeType,
+            description: msg.description
+          };
+          this._resourceContent = msg.content;
+        }
       }
     };
 
@@ -833,6 +1174,8 @@ export class BeamApp extends LitElement {
       <toast-manager></toast-manager>
 
       ${this._showHelp ? this._renderHelpModal() : ''}
+      ${this._selectedPrompt?.content ? this._renderPromptModal() : ''}
+      ${this._selectedResource?.content ? this._renderResourceModal() : ''}
 
       <elicitation-modal
         ?open=${this._showElicitation}
@@ -1047,6 +1390,9 @@ export class BeamApp extends LitElement {
             <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
           `)}
         </div>
+
+        ${this._renderPromptsSection()}
+        ${this._renderResourcesSection()}
       `;
   }
 
@@ -1618,6 +1964,248 @@ export class BeamApp extends LitElement {
         `)}
       </div>
     `;
+  }
+
+  private _renderPromptsSection() {
+    const prompts = this._selectedPhoton?.assets?.prompts || [];
+    if (prompts.length === 0) return '';
+
+    return html`
+      <h3 class="section-header">
+        📝 Prompts
+        <span class="count">${prompts.length}</span>
+      </h3>
+      <div class="cards-grid">
+        ${prompts.map((prompt: any) => html`
+          <div class="asset-card glass-panel" @click=${() => this._handlePromptSelect(prompt)}>
+            <div class="asset-header">
+              <div class="asset-icon prompt">📝</div>
+              <span class="asset-name">${prompt.id}</span>
+            </div>
+            <div class="asset-desc">${prompt.description || 'Click to view and customize this prompt'}</div>
+            <div class="asset-meta">${prompt.path}</div>
+          </div>
+        `)}
+      </div>
+    `;
+  }
+
+  private _renderResourcesSection() {
+    const resources = this._selectedPhoton?.assets?.resources || [];
+    if (resources.length === 0) return '';
+
+    return html`
+      <h3 class="section-header">
+        📦 Resources
+        <span class="count">${resources.length}</span>
+      </h3>
+      <div class="cards-grid">
+        ${resources.map((resource: any) => html`
+          <div class="asset-card glass-panel" @click=${() => this._handleResourceSelect(resource)}>
+            <div class="asset-header">
+              <div class="asset-icon resource">📦</div>
+              <span class="asset-name">${resource.id}</span>
+            </div>
+            <div class="asset-desc">${resource.description || 'Click to view this resource'}</div>
+            <div class="asset-meta">${resource.mimeType || resource.path}</div>
+          </div>
+        `)}
+      </div>
+    `;
+  }
+
+  private _handlePromptSelect = async (prompt: any) => {
+    this._selectedPrompt = prompt;
+    this._promptArguments = {};
+    this._renderedPrompt = '';
+
+    // Load the prompt content
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify({
+        type: 'get-prompt',
+        photon: this._selectedPhoton.name,
+        promptId: prompt.id,
+        arguments: {}
+      }));
+    }
+  }
+
+  private _handleResourceSelect = async (resource: any) => {
+    this._selectedResource = resource;
+    this._resourceContent = '';
+
+    // Load the resource content
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify({
+        type: 'read-resource',
+        photon: this._selectedPhoton.name,
+        resourceId: resource.id
+      }));
+    }
+  }
+
+  private _renderPromptWithVariables(content: string): string {
+    // Highlight {{variables}} in the prompt
+    return content.replace(/\{\{(\w+)\}\}/g, '<span class="variable">{{$1}}</span>');
+  }
+
+  private _renderPromptModal() {
+    if (!this._selectedPrompt || !this._selectedPrompt.content) return '';
+
+    const variables = this._selectedPrompt.variables || [];
+    const hasVariables = variables.length > 0;
+
+    // Render the prompt with filled values highlighted
+    let renderedContent = this._selectedPrompt.content;
+    for (const [key, value] of Object.entries(this._promptArguments)) {
+      if (value) {
+        renderedContent = renderedContent.replace(
+          new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
+          `<span class="var-filled">${value}</span>`
+        );
+      } else {
+        renderedContent = renderedContent.replace(
+          new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
+          `<span class="var-highlight">{{${key}}}</span>`
+        );
+      }
+    }
+
+    return html`
+      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePromptModal(); }}>
+        <div class="asset-viewer-modal glass-panel">
+          <button class="close-btn" @click=${this._closePromptModal}>&times;</button>
+
+          <h2>
+            <span class="icon">📝</span>
+            ${this._selectedPrompt.id}
+          </h2>
+
+          ${this._selectedPrompt.description ? html`
+            <p class="description">${this._selectedPrompt.description}</p>
+          ` : ''}
+
+          ${hasVariables ? html`
+            <div class="variables-form">
+              <h4>Variables</h4>
+              ${variables.map((v: string) => html`
+                <div class="variable-input">
+                  <label>{{${v}}}</label>
+                  <input
+                    type="text"
+                    placeholder="Enter value..."
+                    .value=${this._promptArguments[v] || ''}
+                    @input=${(e: Event) => this._updatePromptArgument(v, (e.target as HTMLInputElement).value)}
+                  />
+                </div>
+              `)}
+            </div>
+          ` : ''}
+
+          <div class="content-section">
+            <h4>${hasVariables ? 'Rendered Prompt' : 'Content'}</h4>
+            <div class="content-preview" .innerHTML=${renderedContent}></div>
+          </div>
+
+          <button class="copy-btn" @click=${this._copyPromptContent}>
+            📋 Copy to Clipboard
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderResourceModal() {
+    if (!this._selectedResource || !this._selectedResource.content) return '';
+
+    const mimeType = this._selectedResource.mimeType || 'text/plain';
+    const isImage = mimeType.startsWith('image/');
+    const isJson = mimeType === 'application/json';
+
+    let displayContent = this._selectedResource.content;
+    if (isJson) {
+      try {
+        displayContent = JSON.stringify(JSON.parse(displayContent), null, 2);
+      } catch {
+        // Keep as-is
+      }
+    }
+
+    return html`
+      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeResourceModal(); }}>
+        <div class="asset-viewer-modal glass-panel">
+          <button class="close-btn" @click=${this._closeResourceModal}>&times;</button>
+
+          <h2>
+            <span class="icon">📦</span>
+            ${this._selectedResource.id}
+          </h2>
+
+          ${this._selectedResource.description ? html`
+            <p class="description">${this._selectedResource.description}</p>
+          ` : ''}
+
+          <div class="content-section">
+            <h4>Content <span style="opacity:0.5">(${mimeType})</span></h4>
+            ${isImage ? html`
+              <img class="resource-image" src="data:${mimeType};base64,${this._selectedResource.content}" alt="${this._selectedResource.id}" />
+            ` : html`
+              <div class="content-preview">${displayContent}</div>
+            `}
+          </div>
+
+          ${!isImage ? html`
+            <button class="copy-btn" @click=${this._copyResourceContent}>
+              📋 Copy to Clipboard
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  private _closePromptModal = () => {
+    this._selectedPrompt = null;
+    this._promptArguments = {};
+    this._renderedPrompt = '';
+  }
+
+  private _closeResourceModal = () => {
+    this._selectedResource = null;
+    this._resourceContent = '';
+  }
+
+  private _updatePromptArgument = (key: string, value: string) => {
+    this._promptArguments = {
+      ...this._promptArguments,
+      [key]: value
+    };
+  }
+
+  private _copyPromptContent = async () => {
+    // Build the rendered content
+    let content = this._selectedPrompt?.content || '';
+    for (const [key, value] of Object.entries(this._promptArguments)) {
+      if (value) {
+        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      showToast('Prompt copied to clipboard', 'success');
+    } catch {
+      showToast('Failed to copy', 'error');
+    }
+  }
+
+  private _copyResourceContent = async () => {
+    try {
+      await navigator.clipboard.writeText(this._resourceContent);
+      showToast('Resource copied to clipboard', 'success');
+    } catch {
+      showToast('Failed to copy', 'error');
+    }
   }
 
   private _renderHelpModal() {

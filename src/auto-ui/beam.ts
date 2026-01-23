@@ -53,6 +53,8 @@ interface PhotonInfo {
   isApp?: boolean; // True if photon has main() with @ui - listed under Apps section
   appEntry?: MethodInfo; // The main() method that serves as app entry point
   assets?: PhotonAssets; // Assets (UI, prompts, etc.)
+  description?: string; // User-editable description
+  icon?: string; // User-editable emoji icon
 }
 
 interface UnconfiguredPhotonInfo {
@@ -127,6 +129,33 @@ interface OAuthCompleteMessage {
   success: boolean;
 }
 
+interface UpdateMetadataMessage {
+  type: 'update-metadata';
+  photon: string;
+  metadata: { description?: string; icon?: string };
+}
+
+interface UpdateMethodMetadataMessage {
+  type: 'update-method-metadata';
+  photon: string;
+  method: string;
+  metadata: { description?: string | null; icon?: string | null };
+}
+
+interface GetPromptMessage {
+  type: 'get-prompt';
+  photon: string;
+  promptId: string;
+  arguments?: Record<string, string>;
+}
+
+interface ReadResourceMessage {
+  type: 'read-resource';
+  photon: string;
+  resourceId: string;
+  uri?: string;
+}
+
 type ClientMessage =
   | InvokeRequest
   | ConfigureRequest
@@ -134,7 +163,11 @@ type ClientMessage =
   | CancelRequest
   | ReloadRequest
   | RemoveRequest
-  | OAuthCompleteMessage;
+  | OAuthCompleteMessage
+  | UpdateMetadataMessage
+  | UpdateMethodMetadataMessage
+  | GetPromptMessage
+  | ReadResourceMessage;
 
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
@@ -202,7 +235,7 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
  */
 async function extractClassMetadata(photonPath: string): Promise<{ description?: string; icon?: string }> {
   try {
-    const content = await fs.promises.readFile(photonPath, 'utf-8');
+    const content = await fs.readFile(photonPath, 'utf-8');
 
     // Find class-level JSDoc (the JSDoc immediately before class declaration)
     const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
@@ -1359,6 +1392,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           await handleUpdateMetadata(ws, message, photons, broadcast);
         } else if (message.type === 'update-method-metadata') {
           await handleUpdateMethodMetadata(ws, message, photons, broadcast);
+        } else if (message.type === 'get-prompt') {
+          await handleGetPrompt(ws, message, photons);
+        } else if (message.type === 'read-resource') {
+          await handleReadResource(ws, message, photons);
         }
       } catch (error) {
         ws.send(
@@ -1774,7 +1811,7 @@ async function handleUpdateMetadata(
 
   try {
     // Read the photon file
-    const content = await fs.promises.readFile(photon.path, 'utf-8');
+    const content = await fs.readFile(photon.path, 'utf-8');
 
     let updatedContent = content;
 
@@ -1824,7 +1861,7 @@ async function handleUpdateMetadata(
     }
 
     // Write back to file
-    await fs.promises.writeFile(photon.path, updatedContent, 'utf-8');
+    await fs.writeFile(photon.path, updatedContent, 'utf-8');
 
     // Update in-memory photon info
     if (metadata.description) {
@@ -1839,7 +1876,7 @@ async function handleUpdateMetadata(
 
     logger.info(`Updated metadata for ${photonName}: ${JSON.stringify(metadata)}`);
   } catch (error) {
-    logger.error(`Failed to update metadata for ${photonName}:`, error);
+    logger.error(`Failed to update metadata for ${photonName}`, { error });
     ws.send(JSON.stringify({
       type: 'error',
       message: error instanceof Error ? error.message : 'Failed to update metadata'
@@ -1866,7 +1903,7 @@ async function handleUpdateMethodMetadata(
 
   try {
     // Read the photon file
-    const content = await fs.promises.readFile(photon.path, 'utf-8');
+    const content = await fs.readFile(photon.path, 'utf-8');
 
     let updatedContent = content;
 
@@ -1950,7 +1987,7 @@ async function handleUpdateMethodMetadata(
       }
 
       // Write back to file
-      await fs.promises.writeFile(photon.path, updatedContent, 'utf-8');
+      await fs.writeFile(photon.path, updatedContent, 'utf-8');
 
       // Update in-memory method info
       const photonData = photon as any;
@@ -1977,10 +2014,129 @@ async function handleUpdateMethodMetadata(
       }));
     }
   } catch (error) {
-    logger.error(`Failed to update method metadata for ${photonName}.${methodName}:`, error);
+    logger.error(`Failed to update method metadata for ${photonName}.${methodName}`, { error });
     ws.send(JSON.stringify({
       type: 'error',
       message: error instanceof Error ? error.message : 'Failed to update method metadata'
+    }));
+  }
+}
+
+async function handleGetPrompt(
+  ws: WebSocket,
+  message: { type: 'get-prompt'; photon: string; promptId: string; arguments?: Record<string, string> },
+  photons: AnyPhotonInfo[]
+): Promise<void> {
+  const { photon: photonName, promptId, arguments: promptArgs = {} } = message;
+
+  // Find the photon
+  const photon = photons.find((p) => p.name === photonName);
+  if (!photon) {
+    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
+    return;
+  }
+
+  // Find the prompt in assets
+  const photonData = photon as any;
+  const prompts = photonData.assets?.prompts || [];
+  const prompt = prompts.find((p: any) => p.id === promptId);
+
+  if (!prompt) {
+    ws.send(JSON.stringify({ type: 'error', message: `Prompt not found: ${promptId}` }));
+    return;
+  }
+
+  try {
+    // Read the prompt file
+    const content = await fs.readFile(prompt.resolvedPath, 'utf-8');
+
+    // Extract variables from the template ({{variableName}})
+    const variableRegex = /\{\{(\w+)\}\}/g;
+    const variables: string[] = [];
+    let match;
+    while ((match = variableRegex.exec(content)) !== null) {
+      if (!variables.includes(match[1])) {
+        variables.push(match[1]);
+      }
+    }
+
+    // Render the prompt with provided arguments
+    let renderedContent = content;
+    for (const [key, value] of Object.entries(promptArgs)) {
+      renderedContent = renderedContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+    }
+
+    ws.send(JSON.stringify({
+      type: 'prompt-content',
+      promptId,
+      content,
+      renderedContent,
+      variables,
+      description: prompt.description || ''
+    }));
+
+    logger.info(`Loaded prompt ${promptId} for ${photonName}`);
+  } catch (error) {
+    logger.error(`Failed to load prompt ${promptId}`, { error });
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to load prompt'
+    }));
+  }
+}
+
+async function handleReadResource(
+  ws: WebSocket,
+  message: { type: 'read-resource'; photon: string; resourceId: string; uri?: string },
+  photons: AnyPhotonInfo[]
+): Promise<void> {
+  const { photon: photonName, resourceId, uri } = message;
+
+  // Find the photon
+  const photon = photons.find((p) => p.name === photonName);
+  if (!photon) {
+    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
+    return;
+  }
+
+  // Find the resource in assets
+  const photonData = photon as any;
+  const resources = photonData.assets?.resources || [];
+  const resource = resources.find((r: any) => r.id === resourceId);
+
+  if (!resource) {
+    ws.send(JSON.stringify({ type: 'error', message: `Resource not found: ${resourceId}` }));
+    return;
+  }
+
+  try {
+    // Read the resource file
+    const mimeType = resource.mimeType || 'text/plain';
+    let content: string;
+
+    if (mimeType.startsWith('text/') || mimeType === 'application/json') {
+      content = await fs.readFile(resource.resolvedPath, 'utf-8');
+    } else {
+      // For binary files, return base64
+      const buffer = await fs.readFile(resource.resolvedPath);
+      content = buffer.toString('base64');
+    }
+
+    ws.send(JSON.stringify({
+      type: 'resource-content',
+      resourceId,
+      content,
+      mimeType,
+      uri: uri || resource.path,
+      description: resource.description || ''
+    }));
+
+    logger.info(`Loaded resource ${resourceId} for ${photonName}`);
+  } catch (error) {
+    logger.error(`Failed to load resource ${resourceId}`, { error });
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to load resource'
     }));
   }
 }
