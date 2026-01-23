@@ -40,6 +40,9 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
+import { createBeamMCPSession, notifyToolsListChanged } from './beam-mcp-handler.js';
+import { generateMCPClientJS } from './mcp-client.js';
+import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 
 interface PhotonInfo {
   name: string;
@@ -1136,13 +1139,79 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     res.end('Not Found');
   });
 
-  // Create WebSocket server
-  const wss = new WebSocketServer({ server });
+  // Create WebSocket servers
+  // Legacy WSS - for backward compatibility with custom protocol
+  const wss = new WebSocketServer({ noServer: true });
+  // MCP WSS - for standard MCP protocol over WebSocket
+  const mcpWss = new WebSocketServer({ noServer: true });
 
-  // Track connected clients for broadcasting
+  // Track connected clients for broadcasting (legacy)
   const clients = new Set<WebSocket>();
+  // Track MCP sessions
+  const mcpSessions = new Map<string, MCPServer>();
 
-  // Broadcast to all connected clients
+  // Handle HTTP upgrade to route between legacy and MCP WebSocket
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url || '/', `http://${request.headers.host}`).pathname;
+
+    if (pathname === '/mcp') {
+      // MCP WebSocket connection
+      mcpWss.handleUpgrade(request, socket, head, (ws) => {
+        mcpWss.emit('connection', ws, request);
+      });
+    } else {
+      // Legacy WebSocket connection
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
+  });
+
+  // Handle MCP WebSocket connections
+  mcpWss.on('connection', async (ws: WebSocket) => {
+    logger.info('MCP client connected');
+
+    // Create typed photon list for MCP handler
+    const typedPhotons = photons.map((p) => ({
+      name: p.name,
+      path: p.path,
+      configured: p.configured,
+      methods: p.configured ? (p as any).methods : undefined,
+      isApp: p.configured ? (p as any).isApp : undefined,
+    }));
+
+    // Create MCP session with progress handler
+    const { server: mcpServer, transport } = createBeamMCPSession(
+      ws,
+      typedPhotons,
+      photonMCPs,
+      (photonName, methodName, progress) => {
+        // Progress updates are handled internally by MCP protocol
+        logger.debug(`MCP progress: ${photonName}/${methodName}`, progress);
+      }
+    );
+
+    // Track session
+    const sessionId = transport.sessionId || `mcp-${Date.now()}`;
+    mcpSessions.set(sessionId, mcpServer);
+
+    // Start MCP server with transport
+    try {
+      await mcpServer.connect(transport);
+      logger.info(`MCP session started: ${sessionId}`);
+    } catch (error) {
+      logger.error('Failed to start MCP session', { error });
+      ws.close();
+      return;
+    }
+
+    ws.on('close', () => {
+      mcpSessions.delete(sessionId);
+      logger.info(`MCP session closed: ${sessionId}`);
+    });
+  });
+
+  // Broadcast to all connected legacy clients
   const broadcast = (message: object) => {
     const data = JSON.stringify(message);
     for (const client of clients) {
@@ -1150,6 +1219,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         client.send(data);
       }
     }
+  };
+
+  // Broadcast photon changes to both legacy and MCP clients
+  const broadcastPhotonChange = () => {
+    // Legacy clients get photons message
+    broadcast({ type: 'photons', data: photons });
+    // MCP clients get tools/list_changed notification
+    notifyToolsListChanged(mcpSessions);
   };
 
   // Subscribe to daemon channels for cross-process updates (e.g., MCP -> BEAM)
@@ -1333,7 +1410,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
               errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
             };
             photons.push(unconfiguredPhoton);
-            broadcast({ type: 'photons', data: photons });
+            broadcastPhotonChange();
             logger.info(`⚙️ ${photonName} added (needs configuration)`);
             return;
           }
@@ -1387,7 +1464,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
           if (isNewPhoton) {
             photons.push(reloadedPhoton);
-            broadcast({ type: 'photons', data: photons });
+            broadcastPhotonChange();
             logger.info(`✅ ${photonName} added`);
           } else {
             photons[photonIndex] = reloadedPhoton;
@@ -1427,7 +1504,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
                 errorMessage: errorMsg.slice(0, 200),
               };
               photons.push(unconfiguredPhoton);
-              broadcast({ type: 'photons', data: photons });
+              broadcastPhotonChange();
               logger.info(`⚙️ ${photonName} added (needs configuration)`);
               return;
             }
@@ -5976,6 +6053,9 @@ photon add memory</code></pre>
 
     // Template Engine for @ui templates
     ${generateTemplateEngineJS()}
+
+    // MCP Client for standard protocol communication
+    ${generateMCPClientJS()}
 
     let ws;
     let photons = [];
