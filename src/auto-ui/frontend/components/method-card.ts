@@ -7,6 +7,7 @@ interface MethodInfo {
     description: string;
     params: Record<string, any>;
     icon?: string;
+    isTemplate?: boolean;
 }
 
 @customElement('method-card')
@@ -149,6 +150,11 @@ export class MethodCard extends LitElement {
         flex-shrink: 0;
       }
 
+      .badge.prompt {
+        background: hsla(45, 80%, 50%, 0.15);
+        color: hsl(45, 80%, 60%);
+      }
+
       .run-btn {
         align-self: flex-start;
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
@@ -266,9 +272,11 @@ export class MethodCard extends LitElement {
               </div>
               <h3 class="title">${this.method.name}</h3>
             </div>
-            ${Object.keys(this.method.params || {}).length > 0
-                ? html`<span class="badge">Params</span>`
-                : html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`
+            ${this.method.isTemplate
+                ? html`<span class="badge prompt">Prompt</span>`
+                : Object.keys(this.method.params || {}).length > 0
+                  ? html`<span class="badge">Params</span>`
+                  : html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`
             }
           </div>
           ${this._editingDescription ? html`
