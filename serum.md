@@ -51,7 +51,7 @@ Clarity Serum - Cuts through complexity, forces simple explanations
 
 ### `challenger`
 
-Challenger Serum - Injects healthy skepticism, finds weaknesses
+Challenger Serum - Injects healthy skepticism, stress-tests ideas
 
 
 
@@ -73,7 +73,7 @@ Focus Serum - Eliminates noise, surfaces what actually matters
 
 ### `perspective`
 
-Perspective Serum - Forces you to see from other viewpoints
+Perspective Serum - Forces genuine multi-stakeholder viewpoint
 
 
 
@@ -128,7 +128,7 @@ Empathy Serum - Forces genuine understanding of others
 
 ### `custom`
 
-Custom Serum - Create your own prompt injection
+Custom Serum - Create your own behavioral injection
 
 
 

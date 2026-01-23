@@ -24,7 +24,7 @@
       "author": "Unknown",
       "license": "MIT",
       "source": "../serum.photon.ts",
-      "hash": "sha256:c1ee18b8242d4deabb6d7c18f0334f4338600913d2633782a2096a273ed37616",
+      "hash": "sha256:8ad638d2e33ba05d18fde9a61f8c4b4b553eeff2294ff666202b20e3b645148d",
       "tools": [
         "truth",
         "clarity",
