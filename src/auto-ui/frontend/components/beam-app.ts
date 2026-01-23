@@ -560,6 +560,7 @@ export class BeamApp extends LitElement {
                 .result=${this._lastResult}
                 .outputFormat=${this._selectedMethod?.outputFormat}
                 .layoutHints=${this._selectedMethod?.layoutHints}
+                .theme=${this._theme}
               ></result-viewer>
             ` : ''}
           </div>

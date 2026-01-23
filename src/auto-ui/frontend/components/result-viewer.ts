@@ -1,7 +1,7 @@
 import { LitElement, html, css, TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 
 type LayoutType = 'table' | 'list' | 'card' | 'tree' | 'json' | 'markdown' | 'mermaid' | 'code' | 'text' | 'chips';
@@ -93,12 +93,53 @@ export class ResultViewer extends LitElement {
         line-height: 1.5;
       }
 
-      /* JSON Syntax Highlighting */
-      .json-key { color: var(--accent-secondary); }
-      .json-string { color: #a5d6ff; }
-      .json-number { color: #ff9e64; }
-      .json-boolean { color: #ff007c; }
-      .json-null { color: #79c0ff; }
+      /* JSON Syntax Highlighting - Theme Aware */
+      .json-key { color: var(--syntax-key, var(--accent-secondary)); }
+      .json-string { color: var(--syntax-string, #a5d6ff); }
+      .json-number { color: var(--syntax-number, #ff9e64); }
+      .json-boolean { color: var(--syntax-boolean, #ff007c); }
+      .json-null { color: var(--syntax-null, #79c0ff); }
+
+      /* Syntax Highlighting Colors - Dark Theme (default) */
+      :host {
+        --syntax-key: var(--accent-secondary);
+        --syntax-string: #a5d6ff;
+        --syntax-number: #ff9e64;
+        --syntax-boolean: #ff007c;
+        --syntax-null: #79c0ff;
+        --syntax-comment: #6a737d;
+        --syntax-keyword: #ff7b72;
+        --syntax-function: #d2a8ff;
+        --syntax-operator: #79c0ff;
+        --syntax-punctuation: #8b949e;
+        --code-bg: rgba(0, 0, 0, 0.3);
+      }
+
+      /* Syntax Highlighting Colors - Light Theme */
+      :host([data-theme="light"]) {
+        --syntax-key: #0550ae;
+        --syntax-string: #0a3069;
+        --syntax-number: #953800;
+        --syntax-boolean: #cf222e;
+        --syntax-null: #0550ae;
+        --syntax-comment: #57606a;
+        --syntax-keyword: #cf222e;
+        --syntax-function: #8250df;
+        --syntax-operator: #0550ae;
+        --syntax-punctuation: #24292f;
+        --code-bg: rgba(0, 0, 0, 0.05);
+      }
+
+      /* Prism.js Code Highlighting Overrides */
+      .token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--syntax-comment); }
+      .token.punctuation { color: var(--syntax-punctuation); }
+      .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: var(--syntax-key); }
+      .token.boolean, .token.number { color: var(--syntax-number); }
+      .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: var(--syntax-string); }
+      .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: var(--syntax-operator); }
+      .token.atrule, .token.attr-value, .token.keyword { color: var(--syntax-keyword); }
+      .token.function, .token.class-name { color: var(--syntax-function); }
+      .token.regex, .token.important, .token.variable { color: var(--syntax-boolean); }
 
       /* Table Styles */
       .smart-table {
@@ -303,15 +344,51 @@ export class ResultViewer extends LitElement {
       }
 
       .markdown-body p { margin-bottom: 0.5em; }
-      .markdown-body code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; }
-      .markdown-body pre { background: rgba(0,0,0,0.3); padding: 1em; border-radius: 8px; overflow-x: auto; }
+      .markdown-body code {
+        background: var(--code-bg);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+      }
+      .markdown-body pre {
+        background: var(--code-bg);
+        padding: 1em;
+        border-radius: 8px;
+        overflow-x: auto;
+        border: 1px solid var(--border-glass);
+      }
+      .markdown-body pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 0.85em;
+        line-height: 1.5;
+      }
       .markdown-body ul, .markdown-body ol { margin-left: 1.5em; margin-bottom: 0.5em; }
       .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1em; margin-bottom: 0.5em; color: var(--t-primary); }
       .markdown-body a { color: var(--accent-primary); text-decoration: none; }
       .markdown-body a:hover { text-decoration: underline; }
       .markdown-body table { border-collapse: collapse; width: 100%; margin: 1em 0; }
       .markdown-body th, .markdown-body td { border: 1px solid var(--border-glass); padding: 8px; text-align: left; }
-      .markdown-body th { background: rgba(255,255,255,0.05); }
+      .markdown-body th { background: var(--code-bg); }
+
+      /* Code block language label */
+      .code-block-wrapper {
+        position: relative;
+        margin: 1em 0;
+      }
+      .code-block-wrapper .language-label {
+        position: absolute;
+        top: 0;
+        right: 0;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        color: var(--t-muted);
+        background: var(--bg-glass-strong);
+        border-radius: 0 8px 0 4px;
+        font-family: var(--font-mono);
+      }
 
       /* Empty State */
       .empty-state {
@@ -618,6 +695,9 @@ export class ResultViewer extends LitElement {
 
   @property({ type: Object })
   layoutHints?: LayoutHints;
+
+  @property({ type: String, reflect: true, attribute: 'data-theme' })
+  theme: Theme = 'dark';
 
   @state()
   private _filterQuery = '';
@@ -1203,20 +1283,35 @@ export class ResultViewer extends LitElement {
   // Non-reactive property to avoid infinite update loops
   private _pendingMermaidBlocks: { id: string; code: string }[] = [];
 
+  // Store code blocks for Prism highlighting after DOM update
+  private _pendingCodeBlocks: { id: string; code: string; language: string }[] = [];
+
   private _renderMarkdown(): TemplateResult {
     const str = String(this.result);
 
     if ((window as any).marked) {
       // Extract mermaid blocks before parsing to handle them separately
       const mermaidBlocks: { id: string; code: string }[] = [];
+      const codeBlocks: { id: string; code: string; language: string }[] = [];
+
+      // First extract mermaid blocks
       let processedStr = str.replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match, code) => {
         const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
         mermaidBlocks.push({ id, code: code.trim() });
         return `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
       });
 
-      // Store mermaid blocks for rendering after DOM update (non-reactive)
+      // Extract other code blocks for Prism highlighting
+      processedStr = processedStr.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
+        const id = `code-${Math.random().toString(36).substr(2, 9)}`;
+        const language = lang || 'text';
+        codeBlocks.push({ id, code: code.trimEnd(), language });
+        return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
+      });
+
+      // Store blocks for rendering after DOM update (non-reactive)
       this._pendingMermaidBlocks = mermaidBlocks;
+      this._pendingCodeBlocks = codeBlocks;
 
       const htmlContent = (window as any).marked.parse(processedStr);
       return html`<div class="markdown-body">${unsafeHTML(htmlContent)}</div>`;
@@ -1234,11 +1329,107 @@ export class ResultViewer extends LitElement {
       this._pendingMermaidBlocks = []; // Clear before async render to prevent re-entry
       this._renderMermaidBlocks(blocks);
     }
+
+    // Highlight code blocks with Prism after DOM update
+    if (this._pendingCodeBlocks.length > 0 && (window as any).Prism) {
+      const codeBlocks = this._pendingCodeBlocks;
+      this._pendingCodeBlocks = []; // Clear before render to prevent re-entry
+      this._highlightCodeBlocks(codeBlocks);
+    }
+
+    // Re-render mermaid if theme changed
+    if (changedProperties.has('theme') && changedProperties.get('theme') !== undefined) {
+      this._reRenderMermaidOnThemeChange();
+    }
+  }
+
+  private _highlightCodeBlocks(blocks: { id: string; code: string; language: string }[]) {
+    const Prism = (window as any).Prism;
+    if (!Prism) return;
+
+    for (const { id, code, language } of blocks) {
+      const preElement = this.shadowRoot?.querySelector(`[data-code-id="${id}"]`);
+      if (!preElement) continue;
+
+      const codeElement = preElement.querySelector('code');
+      if (!codeElement) continue;
+
+      // Map common language aliases
+      const langMap: Record<string, string> = {
+        'ts': 'typescript',
+        'js': 'javascript',
+        'py': 'python',
+        'sh': 'bash',
+        'shell': 'bash',
+        'yml': 'yaml',
+        'md': 'markdown',
+      };
+      const prismLang = langMap[language] || language;
+
+      // Check if Prism has the language, fall back to text
+      const grammar = Prism.languages[prismLang] || Prism.languages['text'];
+
+      try {
+        const highlighted = Prism.highlight(code, grammar, prismLang);
+        codeElement.innerHTML = highlighted;
+      } catch (e) {
+        // Fall back to plain text
+        codeElement.textContent = code;
+      }
+    }
+  }
+
+  private _reRenderMermaidOnThemeChange() {
+    // Find all existing mermaid wrappers and re-render them
+    const wrappers = this.shadowRoot?.querySelectorAll('.mermaid-wrapper');
+    if (!wrappers || wrappers.length === 0) return;
+
+    const mermaid = (window as any).mermaid;
+    if (!mermaid) return;
+
+    // Update background color for existing wrappers
+    const bgColor = this.theme === 'light' ? '#f8fafc' : '#1e293b';
+    wrappers.forEach(wrapper => {
+      (wrapper as HTMLElement).style.background = bgColor;
+    });
+
+    // Note: Full re-render of mermaid diagrams would require storing the original code
+    // For now, we just update the background color. Full re-render happens on next result.
   }
 
   private async _renderMermaidBlocks(blocks: { id: string; code: string }[]) {
     const mermaid = (window as any).mermaid;
     if (!mermaid) return;
+
+    // Configure mermaid theme based on current theme
+    const mermaidTheme = this.theme === 'light' ? 'default' : 'dark';
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: mermaidTheme,
+      themeVariables: this.theme === 'light' ? {
+        primaryColor: '#e0e7ff',
+        primaryTextColor: '#1e293b',
+        primaryBorderColor: '#6366f1',
+        lineColor: '#64748b',
+        secondaryColor: '#f1f5f9',
+        tertiaryColor: '#f8fafc',
+        background: '#ffffff',
+        mainBkg: '#f8fafc',
+        textColor: '#1e293b',
+        nodeBorder: '#cbd5e1',
+      } : {
+        primaryColor: '#3730a3',
+        primaryTextColor: '#e2e8f0',
+        primaryBorderColor: '#6366f1',
+        lineColor: '#64748b',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a',
+        background: '#0f172a',
+        mainBkg: '#1e293b',
+        textColor: '#e2e8f0',
+        nodeBorder: '#334155',
+      }
+    });
 
     for (const { id, code } of blocks) {
       const placeholder = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`);
@@ -1248,10 +1439,11 @@ export class ResultViewer extends LitElement {
       }
 
       try {
-        // Create mermaid container
+        // Create mermaid container with theme-aware background
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
-        wrapper.style.cssText = 'position: relative; background: white; border-radius: 8px; padding: 16px; margin: 16px 0;';
+        const bgColor = this.theme === 'light' ? '#f8fafc' : '#1e293b';
+        wrapper.style.cssText = `position: relative; background: ${bgColor}; border-radius: 8px; padding: 16px; margin: 16px 0;`;
 
         const diagramDiv = document.createElement('div');
         diagramDiv.id = id;
