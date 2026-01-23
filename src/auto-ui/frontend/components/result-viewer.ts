@@ -611,36 +611,139 @@ export class ResultViewer extends LitElement {
       .fullscreen-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.9);
-        backdrop-filter: blur(4px);
+        background: rgba(0, 0, 0, 0.95);
+        backdrop-filter: blur(8px);
         z-index: 10000;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .fullscreen-toolbar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 20px;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+        z-index: 10;
+      }
+
+      .fullscreen-toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .fullscreen-toolbar-center {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 4px;
+      }
+
+      .fullscreen-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .fullscreen-btn {
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1.1rem;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: var(--space-xl);
+        transition: all 0.2s;
       }
 
-      .fullscreen-content {
-        max-width: 95vw;
-        max-height: 95vh;
+      .fullscreen-btn:hover {
+        background: rgba(255,255,255,0.2);
+      }
+
+      .fullscreen-btn:active {
+        transform: scale(0.95);
+      }
+
+      .fullscreen-btn.close-btn {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.3);
+      }
+
+      .fullscreen-btn.close-btn:hover {
+        background: rgba(239, 68, 68, 0.4);
+      }
+
+      .zoom-level {
+        color: rgba(255,255,255,0.7);
+        font-size: 0.8rem;
+        min-width: 50px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .fullscreen-hint {
+        color: rgba(255,255,255,0.5);
+        font-size: 0.75rem;
+      }
+
+      .fullscreen-viewport {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
         position: relative;
       }
 
+      .fullscreen-viewport.dragging {
+        cursor: grabbing;
+      }
+
+      .fullscreen-viewport.zoom-1 {
+        cursor: default;
+      }
+
+      .fullscreen-content {
+        transform-origin: center center;
+        transition: transform 0.1s ease-out;
+        will-change: transform;
+      }
+
+      .fullscreen-content.no-transition {
+        transition: none;
+      }
+
       .fullscreen-content img {
-        max-width: 100%;
-        max-height: 90vh;
+        max-width: 90vw;
+        max-height: 85vh;
         object-fit: contain;
         border-radius: var(--radius-md);
         box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        user-select: none;
+        -webkit-user-drag: none;
       }
 
       .fullscreen-content .mermaid-container {
         background: #1e293b;
         padding: var(--space-xl);
         border-radius: var(--radius-md);
-        width: 95vw;
-        height: 90vh;
-        overflow: auto;
+        min-width: 300px;
+        min-height: 200px;
+        max-width: 95vw;
+        max-height: 85vh;
+        overflow: visible;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -652,9 +755,24 @@ export class ResultViewer extends LitElement {
 
       .fullscreen-content .mermaid-container svg {
         max-width: 100%;
-        max-height: calc(90vh - 64px);
+        max-height: 100%;
         width: auto;
         height: auto;
+      }
+
+      .fullscreen-content .markdown-container {
+        background: var(--bg-glass);
+        padding: var(--space-xl);
+        border-radius: var(--radius-md);
+        width: 90vw;
+        max-width: 900px;
+        max-height: 85vh;
+        overflow: auto;
+        color: var(--t-default);
+      }
+
+      :host([data-theme="light"]) .fullscreen-content .markdown-container {
+        background: #ffffff;
       }
 
       .fullscreen-close {
@@ -698,6 +816,43 @@ export class ResultViewer extends LitElement {
         margin-top: 4px;
         opacity: 0.7;
       }
+
+      /* Expand button for markdown/mermaid */
+      .markdown-body-wrapper,
+      .mermaid-wrapper {
+        position: relative;
+      }
+
+      .expand-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        opacity: 0;
+        z-index: 5;
+      }
+
+      .markdown-body-wrapper:hover .expand-btn,
+      .mermaid-wrapper:hover .expand-btn {
+        opacity: 1;
+      }
+
+      .expand-btn:hover {
+        background: var(--primary);
+        color: white;
+        border-color: var(--primary);
+      }
     `
   ];
 
@@ -734,6 +889,24 @@ export class ResultViewer extends LitElement {
   @state()
   private _fullscreenMermaid: string | null = null;
 
+  @state()
+  private _fullscreenMarkdown: string | null = null;
+
+  @state()
+  private _zoomLevel = 1;
+
+  @state()
+  private _panX = 0;
+
+  @state()
+  private _panY = 0;
+
+  private _isPanning = false;
+  private _panStartX = 0;
+  private _panStartY = 0;
+  private _lastPanX = 0;
+  private _lastPanY = 0;
+
   private _pageSize = 20;
 
   @query('.filter-input')
@@ -751,13 +924,89 @@ export class ResultViewer extends LitElement {
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (this._fullscreenImage) {
-        this._fullscreenImage = null;
-      }
-      if (this._fullscreenMermaid) {
-        this._fullscreenMermaid = null;
+      this._closeFullscreen();
+    }
+    // Zoom with + and - keys when fullscreen is open
+    if (this._fullscreenImage || this._fullscreenMermaid) {
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        this._zoomIn();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        this._zoomOut();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        this._resetZoom();
       }
     }
+  }
+
+  private _closeFullscreen() {
+    this._fullscreenImage = null;
+    this._fullscreenMermaid = null;
+    this._fullscreenMarkdown = null;
+    this._resetZoom();
+  }
+
+  private _resetZoom() {
+    this._zoomLevel = 1;
+    this._panX = 0;
+    this._panY = 0;
+  }
+
+  private _zoomIn() {
+    this._zoomLevel = Math.min(5, this._zoomLevel + 0.25);
+    if (this._zoomLevel === 1) {
+      this._panX = 0;
+      this._panY = 0;
+    }
+  }
+
+  private _zoomOut() {
+    this._zoomLevel = Math.max(0.25, this._zoomLevel - 0.25);
+    if (this._zoomLevel === 1) {
+      this._panX = 0;
+      this._panY = 0;
+    }
+  }
+
+  private _handleWheel = (e: WheelEvent) => {
+    if (!this._fullscreenImage && !this._fullscreenMermaid) return;
+    e.preventDefault();
+
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const newZoom = Math.max(0.25, Math.min(5, this._zoomLevel + delta));
+
+    if (newZoom !== this._zoomLevel) {
+      this._zoomLevel = newZoom;
+      if (this._zoomLevel === 1) {
+        this._panX = 0;
+        this._panY = 0;
+      }
+    }
+  }
+
+  private _handlePanStart = (e: MouseEvent) => {
+    if (this._zoomLevel <= 1) return;
+    e.preventDefault();
+    this._isPanning = true;
+    this._panStartX = e.clientX;
+    this._panStartY = e.clientY;
+    this._lastPanX = this._panX;
+    this._lastPanY = this._panY;
+  }
+
+  private _handlePanMove = (e: MouseEvent) => {
+    if (!this._isPanning) return;
+    e.preventDefault();
+    const dx = e.clientX - this._panStartX;
+    const dy = e.clientY - this._panStartY;
+    this._panX = this._lastPanX + dx;
+    this._panY = this._lastPanY + dy;
+  }
+
+  private _handlePanEnd = () => {
+    this._isPanning = false;
   }
 
   render() {
@@ -797,19 +1046,90 @@ export class ResultViewer extends LitElement {
       </div>
 
       ${this._fullscreenImage ? html`
-        <div class="fullscreen-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._fullscreenImage = null; }}>
-          <div class="fullscreen-content">
-            <button class="fullscreen-close" @click=${() => this._fullscreenImage = null}>✕</button>
-            <img src="${this._fullscreenImage}" alt="Fullscreen image">
+        <div class="fullscreen-overlay">
+          <div class="fullscreen-toolbar">
+            <div class="fullscreen-toolbar-left">
+              <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
+            </div>
+            <div class="fullscreen-toolbar-center">
+              <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">−</button>
+              <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
+              <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">+</button>
+              <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">⟲</button>
+            </div>
+            <div class="fullscreen-toolbar-right">
+              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
+            </div>
+          </div>
+          <div
+            class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <= 1 ? 'zoom-1' : ''}"
+            @wheel=${this._handleWheel}
+            @mousedown=${this._handlePanStart}
+            @mousemove=${this._handlePanMove}
+            @mouseup=${this._handlePanEnd}
+            @mouseleave=${this._handlePanEnd}
+          >
+            <div
+              class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
+              style="transform: scale(${this._zoomLevel}) translate(${this._panX / this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
+            >
+              <img src="${this._fullscreenImage}" alt="Fullscreen image" draggable="false">
+            </div>
           </div>
         </div>
       ` : ''}
 
       ${this._fullscreenMermaid ? html`
-        <div class="fullscreen-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._fullscreenMermaid = null; }}>
-          <div class="fullscreen-content">
-            <button class="fullscreen-close" @click=${() => this._fullscreenMermaid = null}>✕</button>
-            <div class="mermaid-container" id="fullscreen-mermaid"></div>
+        <div class="fullscreen-overlay">
+          <div class="fullscreen-toolbar">
+            <div class="fullscreen-toolbar-left">
+              <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
+            </div>
+            <div class="fullscreen-toolbar-center">
+              <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">−</button>
+              <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
+              <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">+</button>
+              <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">⟲</button>
+            </div>
+            <div class="fullscreen-toolbar-right">
+              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
+            </div>
+          </div>
+          <div
+            class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <= 1 ? 'zoom-1' : ''}"
+            @wheel=${this._handleWheel}
+            @mousedown=${this._handlePanStart}
+            @mousemove=${this._handlePanMove}
+            @mouseup=${this._handlePanEnd}
+            @mouseleave=${this._handlePanEnd}
+          >
+            <div
+              class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
+              style="transform: scale(${this._zoomLevel}) translate(${this._panX / this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
+            >
+              <div class="mermaid-container" id="fullscreen-mermaid"></div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${this._fullscreenMarkdown ? html`
+        <div class="fullscreen-overlay">
+          <div class="fullscreen-toolbar">
+            <div class="fullscreen-toolbar-left">
+              <span class="fullscreen-hint">Esc to close</span>
+            </div>
+            <div class="fullscreen-toolbar-center"></div>
+            <div class="fullscreen-toolbar-right">
+              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
+            </div>
+          </div>
+          <div class="fullscreen-viewport zoom-1" style="padding-top: 60px;">
+            <div class="fullscreen-content">
+              <div class="markdown-container markdown-content">
+                ${unsafeHTML(this._fullscreenMarkdown)}
+              </div>
+            </div>
           </div>
         </div>
       ` : ''}
@@ -1328,11 +1648,22 @@ export class ResultViewer extends LitElement {
       this._pendingCodeBlocks = codeBlocks;
 
       const htmlContent = (window as any).marked.parse(processedStr);
-      return html`<div class="markdown-body">${unsafeHTML(htmlContent)}</div>`;
+
+      // Store for fullscreen use
+      this._parsedMarkdownHtml = htmlContent;
+
+      return html`
+        <div class="markdown-body-wrapper">
+          <button class="expand-btn" @click=${() => this._fullscreenMarkdown = htmlContent} title="View fullscreen">⤢</button>
+          <div class="markdown-body">${unsafeHTML(htmlContent)}</div>
+        </div>
+      `;
     }
 
     return html`<pre>${str}</pre>`;
   }
+
+  private _parsedMarkdownHtml: string = '';
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
@@ -1468,26 +1799,12 @@ export class ResultViewer extends LitElement {
 
         // Add expand button
         const expandBtn = document.createElement('button');
-        expandBtn.innerHTML = '⛶';
-        expandBtn.title = 'Fullscreen';
-        expandBtn.style.cssText = `
-          position: absolute;
-          top: 8px;
-          right: 8px;
-          background: rgba(0,0,0,0.6);
-          color: white;
-          border: none;
-          border-radius: 4px;
-          width: 28px;
-          height: 28px;
-          cursor: pointer;
-          font-size: 14px;
-          opacity: 0.7;
-          transition: opacity 0.2s;
-        `;
-        expandBtn.onmouseover = () => expandBtn.style.opacity = '1';
-        expandBtn.onmouseout = () => expandBtn.style.opacity = '0.7';
+        expandBtn.innerHTML = '⤢';
+        expandBtn.title = 'View fullscreen';
+        expandBtn.className = 'expand-btn';
+        expandBtn.style.opacity = '0'; // Start hidden, show on hover via CSS
         expandBtn.onclick = () => {
+          this._resetZoom();
           this._fullscreenMermaid = code;
           setTimeout(async () => {
             const fullscreenContainer = this.shadowRoot?.querySelector('#fullscreen-mermaid');
