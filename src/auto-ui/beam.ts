@@ -1357,6 +1357,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           logger.info(`OAuth completed: ${message.elicitationId} (success: ${message.success})`);
         } else if (message.type === 'update-metadata') {
           await handleUpdateMetadata(ws, message, photons, broadcast);
+        } else if (message.type === 'update-method-metadata') {
+          await handleUpdateMethodMetadata(ws, message, photons, broadcast);
         }
       } catch (error) {
         ws.send(
@@ -1841,6 +1843,144 @@ async function handleUpdateMetadata(
     ws.send(JSON.stringify({
       type: 'error',
       message: error instanceof Error ? error.message : 'Failed to update metadata'
+    }));
+  }
+}
+
+async function handleUpdateMethodMetadata(
+  ws: WebSocket,
+  message: { type: 'update-method-metadata'; photon: string; method: string; metadata: { description?: string | null; icon?: string | null } },
+  photons: AnyPhotonInfo[],
+  broadcast: (msg: any) => void
+): Promise<void> {
+  const { photon: photonName, method: methodName, metadata } = message;
+
+  // Find the photon
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
+  if (photonIndex === -1) {
+    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
+    return;
+  }
+
+  const photon = photons[photonIndex];
+
+  try {
+    // Read the photon file
+    const content = await fs.promises.readFile(photon.path, 'utf-8');
+
+    let updatedContent = content;
+
+    // Find the method and its JSDoc
+    // Pattern: /**...*/ followed by methodName( or async methodName(
+    const methodDocRegex = new RegExp(
+      `(\\/\\*\\*[\\s\\S]*?\\*\\/\\s*)?((?:async\\s+)?${methodName}\\s*\\()`,
+      'm'
+    );
+    const match = content.match(methodDocRegex);
+
+    if (match) {
+      const existingDoc = match[1] || '';
+      const methodDecl = match[2];
+      let newDoc = existingDoc.trim();
+
+      // Update description
+      if (metadata.description !== undefined) {
+        if (metadata.description) {
+          if (newDoc) {
+            // Check if there's already a description line (first non-tag line)
+            const lines = newDoc.split('\n');
+            let hasDescLine = false;
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].replace(/^\s*\*\s?/, '').trim();
+              if (line && !line.startsWith('@') && !line.startsWith('/')) {
+                // Found existing description, replace it
+                lines[i] = lines[i].replace(line, metadata.description);
+                hasDescLine = true;
+                break;
+              }
+            }
+            if (!hasDescLine) {
+              // Add description after opening
+              newDoc = newDoc.replace(/\/\*\*\s*\n?/, `/**\n * ${metadata.description}\n`);
+            } else {
+              newDoc = lines.join('\n');
+            }
+          } else {
+            newDoc = `/**\n * ${metadata.description}\n */`;
+          }
+        } else if (newDoc) {
+          // Remove description (keep only tags)
+          const lines = newDoc.split('\n').filter(line => {
+            const trimmed = line.replace(/^\s*\*\s?/, '').trim();
+            return !trimmed || trimmed.startsWith('@') || trimmed.startsWith('/') || trimmed === '*';
+          });
+          newDoc = lines.join('\n');
+        }
+      }
+
+      // Update icon
+      if (metadata.icon !== undefined) {
+        if (metadata.icon) {
+          if (newDoc) {
+            if (newDoc.includes('@icon')) {
+              newDoc = newDoc.replace(/@icon\s+\S+/, `@icon ${metadata.icon}`);
+            } else {
+              newDoc = newDoc.replace(/\s*\*\//, `\n * @icon ${metadata.icon}\n */`);
+            }
+          } else {
+            newDoc = `/**\n * @icon ${metadata.icon}\n */`;
+          }
+        } else if (newDoc) {
+          // Remove @icon tag
+          newDoc = newDoc.replace(/\s*\*\s*@icon\s+\S+\n?/g, '\n');
+        }
+      }
+
+      // Clean up empty JSDoc
+      if (newDoc && newDoc.replace(/\/\*\*|\*\/|\*|\s/g, '') === '') {
+        newDoc = '';
+      }
+
+      // Replace in content
+      if (newDoc) {
+        updatedContent = content.replace(methodDocRegex, `${newDoc}\n  ${methodDecl}`);
+      } else {
+        // Remove JSDoc entirely if empty
+        updatedContent = content.replace(methodDocRegex, `${methodDecl}`);
+      }
+
+      // Write back to file
+      await fs.promises.writeFile(photon.path, updatedContent, 'utf-8');
+
+      // Update in-memory method info
+      const photonData = photon as any;
+      if (photonData.methods) {
+        const method = photonData.methods.find((m: any) => m.name === methodName);
+        if (method) {
+          if (metadata.description !== undefined) {
+            method.description = metadata.description || '';
+          }
+          if (metadata.icon !== undefined) {
+            method.icon = metadata.icon || undefined;
+          }
+        }
+      }
+
+      // Broadcast update to all clients
+      broadcast({ type: 'photons', data: photons });
+
+      logger.info(`Updated method metadata for ${photonName}.${methodName}: ${JSON.stringify(metadata)}`);
+    } else {
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: `Method not found in source: ${methodName}`
+      }));
+    }
+  } catch (error) {
+    logger.error(`Failed to update method metadata for ${photonName}.${methodName}:`, error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update method metadata'
     }));
   }
 }
