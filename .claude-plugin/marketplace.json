@@ -10,6 +10,24 @@
   },
   "plugins": [
     {
+      "name": "code-diagram",
+      "description": "Code Diagram - Generate Mermaid diagrams from TypeScript/JavaScript code",
+      "source": "./",
+      "strict": false,
+      "hooks": [
+        "./.claude-plugin/hooks.json"
+      ],
+      "mcpServers": {
+        "code-diagram": {
+          "command": "photon",
+          "args": [
+            "mcp",
+            "code-diagram"
+          ]
+        }
+      }
+    },
+    {
       "name": "test-ui",
       "description": "Test Custom UI",
       "source": "./",
