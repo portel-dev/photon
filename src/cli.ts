@@ -48,6 +48,49 @@ import { registerInfoCommand } from './cli/commands/info.js';
 import { registerPackageCommands } from './cli/commands/package.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
+// BUNDLED PHOTONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Bundled photon names that ship with the runtime */
+const BUNDLED_PHOTONS = ['maker'];
+
+/**
+ * Get path to a bundled photon (ships with runtime)
+ */
+function getBundledPhotonPath(name: string): string | null {
+  if (!BUNDLED_PHOTONS.includes(name)) {
+    return null;
+  }
+
+  // Bundled photons are in src/photons/ (dev) or dist/photons/ (prod)
+  const devPath = path.join(__dirname, '..', 'src', 'photons', `${name}.photon.ts`);
+  const prodPath = path.join(__dirname, 'photons', `${name}.photon.ts`);
+
+  if (existsSync(devPath)) {
+    return devPath;
+  }
+  if (existsSync(prodPath)) {
+    return prodPath;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve photon path - checks bundled first, then user directory
+ */
+async function resolvePhotonPathWithBundled(name: string, workingDir: string): Promise<string | null> {
+  // Check bundled photons first
+  const bundledPath = getBundledPhotonPath(name);
+  if (bundledPath) {
+    return bundledPath;
+  }
+
+  // Fall back to user photons
+  return resolvePhotonPath(name, workingDir);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // PORT UTILITIES
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -942,14 +985,16 @@ program
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
       const logOptions = getLogOptionsFromCommand(command);
 
-      // Resolve file path from name in working directory
-      const filePath = await resolvePhotonPath(name, workingDir);
+      // Resolve file path - check bundled photons first, then user directory
+      const filePath = await resolvePhotonPathWithBundled(name, workingDir);
 
       if (!filePath) {
         exitWithError(`MCP not found: ${name}`, {
           exitCode: ExitCode.NOT_FOUND,
           searchedIn: workingDir,
-          suggestion: "Use 'photon info' to see available MCPs",
+          suggestion: BUNDLED_PHOTONS.includes(name)
+            ? `'${name}' is a bundled photon but could not be found`
+            : "Use 'photon info' to see available MCPs",
         });
       }
 

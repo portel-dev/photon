@@ -12,7 +12,7 @@
     "templates"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/photons dist/",
     "dev": "tsc --watch",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

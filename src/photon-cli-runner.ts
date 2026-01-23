@@ -20,6 +20,49 @@ import chalk from 'chalk';
 import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
 import { PhotonLoader } from './loader.js';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/** Bundled photon names that ship with the runtime */
+const BUNDLED_PHOTONS = ['maker'];
+
+/**
+ * Get path to a bundled photon (ships with runtime)
+ */
+function getBundledPhotonPath(name: string): string | null {
+  if (!BUNDLED_PHOTONS.includes(name)) {
+    return null;
+  }
+
+  // Bundled photons are in src/photons/ (dev) or dist/photons/ (prod)
+  const devPath = path.join(__dirname, '..', 'src', 'photons', `${name}.photon.ts`);
+  const prodPath = path.join(__dirname, 'photons', `${name}.photon.ts`);
+
+  if (existsSync(devPath)) {
+    return devPath;
+  }
+  if (existsSync(prodPath)) {
+    return prodPath;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve photon path - checks bundled first, then user directory
+ */
+async function resolvePhotonPathWithBundled(name: string): Promise<string | null> {
+  // Check bundled photons first
+  const bundledPath = getBundledPhotonPath(name);
+  if (bundledPath) {
+    return bundledPath;
+  }
+
+  // Fall back to user photons
+  return resolvePhotonPath(name);
+}
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { sendCommand, pingDaemon } from './daemon/client.js';
@@ -63,8 +106,8 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const methods: MethodInfo[] = [];
 
   // Extract methods using the schema extractor
-  // Also match async generator methods (async *methodName)
-  const methodMatches = source.matchAll(/async\s+\*?\s*(\w+)\s*\(([^)]*)\)/g);
+  // Also match async generator methods (async *methodName) and static methods
+  const methodMatches = source.matchAll(/(?:static\s+)?async\s+\*?\s*(\w+)\s*\(([^)]*)\)/g);
 
   for (const match of methodMatches) {
     const methodName = match[1];
@@ -1258,7 +1301,7 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
  */
 export async function listMethods(photonName: string): Promise<void> {
   try {
-    const resolvedPath = await resolvePhotonPath(photonName);
+    const resolvedPath = await resolvePhotonPathWithBundled(photonName);
 
     if (!resolvedPath) {
       logger.error(`Photon '${photonName}' not found`);
@@ -1340,7 +1383,7 @@ export async function runMethod(
 
   try {
     // Resolve photon path
-    const resolvedPath = await resolvePhotonPath(photonName);
+    const resolvedPath = await resolvePhotonPathWithBundled(photonName);
 
     if (!resolvedPath) {
       logger.error(`Photon '${photonName}' not found`);
