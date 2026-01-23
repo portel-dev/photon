@@ -234,6 +234,10 @@ export class InvokeForm extends LitElement {
   @property({ type: Boolean })
   rememberValues = false;
 
+  /** Pre-populated values from shared link */
+  @property({ type: Object })
+  sharedValues: Record<string, any> | null = null;
+
   @state()
   private _values: Record<string, any> = {};
 
@@ -253,6 +257,11 @@ export class InvokeForm extends LitElement {
     // Reload persisted values when photon/method or remember setting changes
     if (changedProps.has('photonName') || changedProps.has('methodName') || changedProps.has('rememberValues')) {
       this._loadPersistedValues();
+    }
+    // Apply shared values from URL (takes priority over persisted values)
+    if (changedProps.has('sharedValues') && this.sharedValues) {
+      this._values = { ...this._values, ...this.sharedValues };
+      showToast('Form pre-filled from shared link', 'info');
     }
   }
 
