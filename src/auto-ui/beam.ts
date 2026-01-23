@@ -8,7 +8,7 @@
 
 import * as http from 'http';
 import * as fs from 'fs/promises';
-import { watch, type FSWatcher } from 'fs';
+import { watch, existsSync, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
@@ -43,6 +43,34 @@ import { generateOpenAPISpec } from './openapi-generator.js';
 import { createBeamMCPSession, notifyToolsListChanged } from './beam-mcp-handler.js';
 import { generateMCPClientJS } from './mcp-client.js';
 import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
+
+// Bundled photons that ship with the runtime
+const BUNDLED_PHOTONS = ['maker'];
+
+/**
+ * Get path to a bundled photon (ships with runtime)
+ */
+function getBundledPhotonPath(name: string): string | null {
+  if (!BUNDLED_PHOTONS.includes(name)) {
+    return null;
+  }
+
+  // Bundled photons are in src/photons/ (dev) or dist/photons/ (prod)
+  const devPath = path.join(__dirname, '..', 'photons', `${name}.photon.ts`);
+  const prodPath = path.join(__dirname, 'photons', `${name}.photon.ts`);
+
+  // Also check relative to auto-ui directory structure
+  const altDevPath = path.join(__dirname, '..', '..', 'src', 'photons', `${name}.photon.ts`);
+  const altProdPath = path.join(__dirname, '..', 'photons', `${name}.photon.ts`);
+
+  for (const p of [devPath, prodPath, altDevPath, altProdPath]) {
+    if (existsSync(p)) {
+      return p;
+    }
+  }
+
+  return null;
+}
 
 interface PhotonInfo {
   name: string;
@@ -282,8 +310,25 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   // Auto-update stale caches in background
   marketplace.autoUpdateStaleCaches().catch(() => { });
 
-  // Discover all photons
-  const photonList = await listPhotonMCPs(workingDir);
+  // Discover all photons (user photons + bundled photons)
+  const userPhotonList = await listPhotonMCPs(workingDir);
+
+  // Add bundled photons with their paths
+  const bundledPhotonPaths = new Map<string, string>();
+  for (const name of BUNDLED_PHOTONS) {
+    const bundledPath = getBundledPhotonPath(name);
+    if (bundledPath) {
+      bundledPhotonPaths.set(name, bundledPath);
+    }
+  }
+
+  // Combine: user photons first, then bundled photons (avoid duplicates)
+  const photonList = [...userPhotonList];
+  for (const name of BUNDLED_PHOTONS) {
+    if (!photonList.includes(name) && bundledPhotonPaths.has(name)) {
+      photonList.push(name);
+    }
+  }
 
   if (photonList.length === 0) {
     logger.info('No photons found - showing management UI');
@@ -303,7 +348,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const loader = new PhotonLoader(false, silentLogger);
 
   for (const name of photonList) {
-    const photonPath = await resolvePhotonPath(name, workingDir);
+    // Check bundled photons first, then user photons
+    const photonPath = bundledPhotonPaths.get(name) || await resolvePhotonPath(name, workingDir);
     if (!photonPath) continue;
 
     // Apply saved config to environment before loading
