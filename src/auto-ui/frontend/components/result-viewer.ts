@@ -789,7 +789,7 @@ export class ResultViewer extends LitElement {
           <div class="actions">
             ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
             <button @click=${this._copy}>Copy</button>
-            <button @click=${() => this._download('json')}>↓ JSON</button>
+            <button @click=${() => this._downloadSmart(layout)}>↓ ${this._getDownloadLabel(layout)}</button>
             ${this._isTabularData() ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>` : ''}
           </div>
         </div>
@@ -1678,6 +1678,66 @@ export class ResultViewer extends LitElement {
            this.result.length > 0 &&
            typeof this.result[0] === 'object' &&
            this.result[0] !== null;
+  }
+
+  private _getDownloadLabel(layout: LayoutType): string {
+    switch (layout) {
+      case 'markdown': return 'MD';
+      case 'mermaid': return 'MMD';
+      case 'text': return 'TXT';
+      case 'code': return 'TXT';
+      default: return 'JSON';
+    }
+  }
+
+  private _downloadSmart(layout: LayoutType) {
+    let content: string;
+    let mimeType: string;
+    let extension: string;
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    switch (layout) {
+      case 'markdown':
+        content = String(this.result);
+        mimeType = 'text/markdown';
+        extension = 'md';
+        break;
+      case 'mermaid':
+        // Extract mermaid code from result
+        content = String(this.result);
+        mimeType = 'text/plain';
+        extension = 'mmd';
+        break;
+      case 'text':
+      case 'code':
+        content = String(this.result);
+        mimeType = 'text/plain';
+        extension = 'txt';
+        break;
+      case 'chips':
+        // Array of strings - save as newline-separated
+        content = Array.isArray(this.result) ? this.result.join('\n') : String(this.result);
+        mimeType = 'text/plain';
+        extension = 'txt';
+        break;
+      default:
+        // JSON for table, list, card, tree, json
+        content = JSON.stringify(this.result, null, 2);
+        mimeType = 'application/json';
+        extension = 'json';
+    }
+
+    const filename = `result-${timestamp}.${extension}`;
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded as ${filename}`, 'success');
   }
 
   private _download(format: 'json' | 'csv') {
