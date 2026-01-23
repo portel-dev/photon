@@ -64,21 +64,20 @@ export default class Tunnel {
   }: {
     /** Provider: localtunnel, ngrok, or cloudflared */
     provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
-  } = {}): AsyncGenerator<{ step: string; message?: string; url?: string; link?: string; info?: TunnelInfo }> {
+  } = {}): AsyncGenerator<{ step: string; message: string }, { message: string; url: string; link: string; provider: string; port: number }> {
     // Auto-detect Beam port from environment
     const port = parseInt(process.env.BEAM_PORT || '3117', 10);
 
     // Check if tunnel already exists for this port
     if (activeTunnels.has(port)) {
       const existing = activeTunnels.get(port)!;
-      yield {
-        step: 'exists',
+      return {
         message: `Tunnel already active on port ${port}`,
         url: existing.info.url,
         link: existing.info.url,
-        info: existing.info
+        provider: existing.info.provider,
+        port
       };
-      return;
     }
 
     yield { step: 'starting', message: `Starting ${provider} tunnel for Beam (port ${port})...` };
@@ -118,16 +117,16 @@ export default class Tunnel {
 
       activeTunnels.set(port, { process, info });
 
-      yield {
-        step: 'done',
+      return {
         message: `Beam is now accessible from the internet!`,
         url,
         link: url,
-        info
+        provider,
+        port
       };
 
     } catch (error: any) {
-      yield { step: 'error', message: error.message };
+      throw new Error(error.message);
     }
   }
 
