@@ -1,4 +1,5 @@
 import { LitElement, html, css } from 'lit';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
@@ -823,6 +824,7 @@ export class BeamApp extends LitElement {
   @state() private _isExecuting = false;
   @state() private _theme: Theme = 'dark';
   @state() private _showHelp = false;
+  @state() private _showPhotonHelp = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
@@ -1163,6 +1165,7 @@ export class BeamApp extends LitElement {
           @select=${this._handlePhotonSelect}
           @marketplace=${() => this._view = 'marketplace'}
           @theme-change=${this._handleThemeChange}
+          @show-shortcuts=${this._showHelpModal}
         ></beam-sidebar>
       </div>
 
@@ -1174,6 +1177,7 @@ export class BeamApp extends LitElement {
       <toast-manager></toast-manager>
 
       ${this._showHelp ? this._renderHelpModal() : ''}
+      ${this._showPhotonHelp ? this._renderPhotonHelpModal() : ''}
       ${this._selectedPrompt?.content ? this._renderPromptModal() : ''}
       ${this._selectedResource?.content ? this._renderResourceModal() : ''}
 
@@ -1311,9 +1315,9 @@ export class BeamApp extends LitElement {
                     <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
                   </button>
                   <div class="settings-dropdown-divider"></div>
-                  <button class="settings-dropdown-item" @click=${this._showHelpModal}>
-                    <span class="icon">❓</span>
-                    <span>Help & Shortcuts</span>
+                  <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
+                    <span class="icon">📖</span>
+                    <span>Photon Help</span>
                   </button>
                 </div>
               ` : ''}
@@ -1687,6 +1691,10 @@ export class BeamApp extends LitElement {
         this._showHelp = false;
         return;
       }
+      if (this._showPhotonHelp) {
+        this._showPhotonHelp = false;
+        return;
+      }
       if (this._view === 'form' && this._selectedMethod) {
         this._handleBackFromMethod();
         return;
@@ -1809,6 +1817,87 @@ export class BeamApp extends LitElement {
   private _showHelpModal = () => {
     this._closeSettingsMenu();
     this._showHelp = true;
+  }
+
+  private _showPhotonHelpModal = () => {
+    this._closeSettingsMenu();
+    this._showPhotonHelp = true;
+  }
+
+  private _closePhotonHelp() {
+    this._showPhotonHelp = false;
+  }
+
+  private _generatePhotonHelpMarkdown(): string {
+    if (!this._selectedPhoton) return '';
+
+    const photon = this._selectedPhoton;
+    const lines: string[] = [];
+
+    // Header
+    lines.push(`# ${photon.name}`);
+    lines.push('');
+    if (photon.description) {
+      lines.push(photon.description);
+      lines.push('');
+    }
+
+    // Methods (Tools)
+    if (photon.methods && photon.methods.length > 0) {
+      lines.push('## Methods');
+      lines.push('');
+
+      for (const method of photon.methods) {
+        lines.push(`### ${method.name}`);
+        lines.push('');
+        if (method.description) {
+          lines.push(method.description);
+          lines.push('');
+        }
+
+        // Parameters
+        if (method.params && method.params.length > 0) {
+          lines.push('**Parameters:**');
+          lines.push('');
+          lines.push('| Name | Type | Required | Description |');
+          lines.push('|------|------|----------|-------------|');
+          for (const param of method.params) {
+            const required = param.required ? '✓' : '';
+            const desc = param.description || '-';
+            lines.push(`| \`${param.name}\` | ${param.type || 'any'} | ${required} | ${desc} |`);
+          }
+          lines.push('');
+        }
+
+        // Return type
+        if (method.returnType) {
+          lines.push(`**Returns:** \`${method.returnType}\``);
+          lines.push('');
+        }
+      }
+    }
+
+    // Prompts
+    if (photon.prompts && photon.prompts.length > 0) {
+      lines.push('## Prompts');
+      lines.push('');
+      for (const prompt of photon.prompts) {
+        lines.push(`- **${prompt.name}**: ${prompt.description || 'No description'}`);
+      }
+      lines.push('');
+    }
+
+    // Resources
+    if (photon.resources && photon.resources.length > 0) {
+      lines.push('## Resources');
+      lines.push('');
+      for (const resource of photon.resources) {
+        lines.push(`- **${resource.name}** (\`${resource.uri || '-'}\`): ${resource.description || 'No description'}`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
   }
 
   private _renderPhotonHeader() {
@@ -2285,6 +2374,34 @@ export class BeamApp extends LitElement {
             style="width: 100%; margin-top: var(--space-md);"
             @click=${this._closeHelp}
           >Close</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderPhotonHelpModal() {
+    const markdown = this._generatePhotonHelpMarkdown();
+    let htmlContent = markdown;
+
+    // Parse markdown if marked is available
+    if ((window as any).marked) {
+      htmlContent = (window as any).marked.parse(markdown);
+    }
+
+    return html`
+      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePhotonHelp(); }}>
+        <div class="help-modal glass-panel" style="max-width: 700px; max-height: 80vh; overflow: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+            <h2 class="text-gradient" style="margin: 0;">${this._selectedPhoton?.name || 'Photon'} Help</h2>
+            <button
+              class="btn-secondary"
+              style="padding: 6px 12px; font-size: 0.85rem;"
+              @click=${this._closePhotonHelp}
+            >✕</button>
+          </div>
+          <div class="markdown-body" style="color: var(--t-default);">
+            ${(window as any).marked ? html`${unsafeHTML(htmlContent)}` : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
+          </div>
         </div>
       </div>
     `;
