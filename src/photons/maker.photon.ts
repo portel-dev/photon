@@ -34,20 +34,24 @@ export default class Maker {
   /**
    * Create a new photon
    * @param name Name for the new photon (kebab-case recommended)
-   * @param methods Optional method names to scaffold
-   * @param type Type of photon to create
+   * @param methods Tool method names to scaffold
+   * @param prompts Prompt template names to scaffold
+   * @param resources Resource method names to scaffold
    */
   static async *new({
     name,
     methods = [],
-    type = 'tools'
+    prompts = [],
+    resources = []
   }: {
     /** Name for the new photon */
     name: string;
-    /** Method names to scaffold (optional) */
+    /** Tool method names (optional) */
     methods?: string[];
-    /** Primary purpose */
-    type?: 'tools' | 'prompts' | 'api' | 'utility';
+    /** Prompt template names (optional) */
+    prompts?: string[];
+    /** Resource method names (optional) */
+    resources?: string[];
   }): AsyncGenerator<{ step: string; message?: string; path?: string; code?: string }> {
     const workingDir = process.env.PHOTON_DIR || path.join(process.env.HOME || '', '.photon');
     const fileName = `${name}.photon.ts`;
@@ -71,17 +75,35 @@ export default class Maker {
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
-    // Generate methods
-    const methodsCode = methods.length > 0
-      ? methods.map(m => Maker.generateMethodStub(m, type)).join('\n\n')
-      : Maker.generateMethodStub('example', type);
+    // Generate all stubs
+    const allStubs: string[] = [];
+
+    // Tools
+    if (methods.length > 0) {
+      allStubs.push(...methods.map(m => Maker.generateMethodStub(m, 'tool')));
+    }
+
+    // Prompts (templates)
+    if (prompts.length > 0) {
+      allStubs.push(...prompts.map(p => Maker.generateMethodStub(p, 'prompt')));
+    }
+
+    // Resources
+    if (resources.length > 0) {
+      allStubs.push(...resources.map(r => Maker.generateMethodStub(r, 'resource')));
+    }
+
+    // Default if nothing specified
+    if (allStubs.length === 0) {
+      allStubs.push(Maker.generateMethodStub('example', 'tool'));
+    }
 
     const code = `/**
  * ${className}
  * @description [Add description]
  */
 export default class ${className} {
-${methodsCode}
+${allStubs.join('\n\n')}
 }
 `;
 
@@ -206,30 +228,37 @@ ${methodsCode}
       validate: 'required|kebab'
     };
 
-    // Step 2: Choose type
-    const type = yield {
-      type: 'select',
-      id: 'type',
-      label: 'Photon Type',
-      options: [
-        { value: 'tools', label: 'Tools', description: 'Methods that perform actions' },
-        { value: 'prompts', label: 'Prompts', description: 'Template methods that return prompts' },
-        { value: 'api', label: 'API Wrapper', description: 'Wrap an external API' },
-        { value: 'utility', label: 'Utility', description: 'Helper functions' }
-      ]
-    };
-
-    // Step 3: Add methods
+    // Step 2: Add tool methods
     const methods = yield {
       type: 'multi-input',
       id: 'methods',
-      label: 'Methods',
+      label: 'Tool Methods',
       placeholder: 'Add method name...',
-      description: 'Press Enter to add each method (leave empty for default)',
+      description: 'Methods that perform actions (leave empty to skip)',
       optional: true
     };
 
-    // Step 4: Progress
+    // Step 3: Add prompt templates
+    const prompts = yield {
+      type: 'multi-input',
+      id: 'prompts',
+      label: 'Prompt Templates',
+      placeholder: 'Add template name...',
+      description: 'Templates that return prompts (leave empty to skip)',
+      optional: true
+    };
+
+    // Step 4: Add resources
+    const resources = yield {
+      type: 'multi-input',
+      id: 'resources',
+      label: 'Resources',
+      placeholder: 'Add resource name...',
+      description: 'Static resources to expose (leave empty to skip)',
+      optional: true
+    };
+
+    // Step 5: Progress
     yield { type: 'progress', message: 'Creating photon...' };
 
     const workingDir = process.env.PHOTON_DIR || path.join(process.env.HOME || '', '.photon');
@@ -242,18 +271,34 @@ ${methodsCode}
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
-    // Generate methods
-    const methodList = Array.isArray(methods) && methods.length > 0 ? methods : ['example'];
-    const methodsCode = methodList
-      .map(m => Maker.generateMethodStub(m as string, type as string))
-      .join('\n\n');
+    // Generate all stubs
+    const allStubs: string[] = [];
+
+    const methodList = Array.isArray(methods) ? methods : [];
+    const promptList = Array.isArray(prompts) ? prompts : [];
+    const resourceList = Array.isArray(resources) ? resources : [];
+
+    if (methodList.length > 0) {
+      allStubs.push(...methodList.map(m => Maker.generateMethodStub(m as string, 'tool')));
+    }
+    if (promptList.length > 0) {
+      allStubs.push(...promptList.map(p => Maker.generateMethodStub(p as string, 'prompt')));
+    }
+    if (resourceList.length > 0) {
+      allStubs.push(...resourceList.map(r => Maker.generateMethodStub(r as string, 'resource')));
+    }
+
+    // Default if nothing specified
+    if (allStubs.length === 0) {
+      allStubs.push(Maker.generateMethodStub('example', 'tool'));
+    }
 
     const code = `/**
  * ${className}
  * @description [Add description]
  */
 export default class ${className} {
-${methodsCode}
+${allStubs.join('\n\n')}
 }
 `;
 
@@ -348,13 +393,13 @@ ${methodsCode}
     /** Method name */
     name: string;
     /** Method type */
-    type?: 'tool' | 'template' | 'resource';
-  }): Promise<{ added: string }> {
+    type?: 'tool' | 'prompt' | 'resource';
+  }): Promise<{ added: string; type: string }> {
     if (!this.photonPath) throw new Error('No photon context');
 
     let content = await fs.readFile(this.photonPath, 'utf-8');
 
-    const methodCode = Maker.generateMethodStub(name, type === 'template' ? 'prompts' : 'tools');
+    const methodCode = Maker.generateMethodStub(name, type);
 
     // Insert before the closing brace of the class
     const lastBraceIndex = content.lastIndexOf('}');
@@ -362,7 +407,7 @@ ${methodsCode}
 
     await fs.writeFile(this.photonPath, content, 'utf-8');
 
-    return { added: name };
+    return { added: name, type };
   }
 
   /**
@@ -394,7 +439,7 @@ ${methodsCode}
   private static generateMethodStub(name: string, type: string): string {
     const indent = '  ';
 
-    if (type === 'prompts') {
+    if (type === 'prompt' || type === 'prompts') {
       return `${indent}/**
 ${indent} * ${name}
 ${indent} * @template
@@ -409,6 +454,20 @@ ${indent}  return \`Prompt about: \${topic}\`;
 ${indent}}`;
     }
 
+    if (type === 'resource') {
+      return `${indent}/**
+${indent} * ${name}
+${indent} * @resource
+${indent} * @uri ${name}://default
+${indent} * @mimetype text/plain
+${indent} */
+${indent}async ${name}(): Promise<string> {
+${indent}  // TODO: implement resource content
+${indent}  return 'Resource content here';
+${indent}}`;
+    }
+
+    // Default: tool
     return `${indent}/**
 ${indent} * ${name}
 ${indent} */
