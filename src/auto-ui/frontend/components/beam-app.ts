@@ -938,6 +938,11 @@ export class BeamApp extends LitElement {
                     </span>
                     <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
                   </button>
+                  <div class="settings-dropdown-divider"></div>
+                  <button class="settings-dropdown-item" @click=${this._showHelpModal}>
+                    <span class="icon">❓</span>
+                    <span>Help & Shortcuts</span>
+                  </button>
                 </div>
               ` : ''}
             </div>
@@ -968,6 +973,43 @@ export class BeamApp extends LitElement {
     }
 
     return html`
+        <div class="header-toolbar">
+          <div class="header-left"></div>
+          <div class="settings-container">
+            <button class="settings-btn" @click=${this._toggleSettingsMenu}>
+              <span>⚙️</span>
+              <span>Settings</span>
+            </button>
+            ${this._showSettingsMenu ? html`
+              <div class="settings-dropdown">
+                <button class="settings-dropdown-item" @click=${this._handleRefresh}>
+                  <span class="icon">🔄</span>
+                  <span>Refresh</span>
+                </button>
+                ${this._selectedPhoton.configured !== false ? html`
+                  <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
+                    <span class="icon">🔧</span>
+                    <span>Reconfigure</span>
+                  </button>
+                ` : ''}
+                <div class="settings-dropdown-divider"></div>
+                <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
+                  <span style="display:flex;align-items:center;gap:10px;">
+                    <span class="icon">💾</span>
+                    <span>Remember Values</span>
+                  </span>
+                  <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
+                </button>
+                <div class="settings-dropdown-divider"></div>
+                <button class="settings-dropdown-item" @click=${this._showHelpModal}>
+                  <span class="icon">❓</span>
+                  <span>Help & Shortcuts</span>
+                </button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
         ${this._renderPhotonHeader()}
 
         <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">Methods</h3>
@@ -1378,6 +1420,11 @@ export class BeamApp extends LitElement {
 
   private _closeHelp() {
     this._showHelp = false;
+  }
+
+  private _showHelpModal = () => {
+    this._closeSettingsMenu();
+    this._showHelp = true;
   }
 
   private _renderPhotonHeader() {
