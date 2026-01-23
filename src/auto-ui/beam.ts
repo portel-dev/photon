@@ -197,6 +197,50 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
+/**
+ * Extract class-level metadata (description, icon) from JSDoc comments
+ */
+async function extractClassMetadata(photonPath: string): Promise<{ description?: string; icon?: string }> {
+  try {
+    const content = await fs.promises.readFile(photonPath, 'utf-8');
+
+    // Find class-level JSDoc (the JSDoc immediately before class declaration)
+    const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
+    const match = content.match(classDocRegex);
+
+    if (!match) {
+      return {};
+    }
+
+    const docContent = match[1];
+    const metadata: { description?: string; icon?: string } = {};
+
+    // Extract @icon
+    const iconMatch = docContent.match(/@icon\s+(\S+)/);
+    if (iconMatch) {
+      metadata.icon = iconMatch[1];
+    }
+
+    // Extract @description or first line of doc (not starting with @)
+    const descMatch = docContent.match(/@description\s+([^\n@]+)/);
+    if (descMatch) {
+      metadata.description = descMatch[1].trim();
+    } else {
+      // Get first non-empty line that's not a tag
+      const lines = docContent.split('\n')
+        .map(l => l.replace(/^\s*\*\s?/, '').trim())
+        .filter(l => l && !l.startsWith('@'));
+      if (lines.length > 0) {
+        metadata.description = lines[0];
+      }
+    }
+
+    return metadata;
+  } catch {
+    return {};
+  }
+}
+
 export async function startBeam(workingDir: string, port: number): Promise<void> {
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
@@ -362,6 +406,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Check if this is an App (has main() method with @ui)
       const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
+      // Extract class-level metadata (description, icon) from JSDoc
+      const classMetadata = await extractClassMetadata(photonPath);
+
       photons.push({
         name,
         path: photonPath,
@@ -371,6 +418,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         isApp: !!mainMethod,
         appEntry: mainMethod,
         assets: mcp.assets,
+        description: classMetadata.description || mcp.description || `${name} MCP`,
+        icon: classMetadata.icon,
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -1306,6 +1355,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         } else if (message.type === 'oauth_complete') {
           // OAuth flow completed - client will retry the tool call
           logger.info(`OAuth completed: ${message.elicitationId} (success: ${message.success})`);
+        } else if (message.type === 'update-metadata') {
+          await handleUpdateMetadata(ws, message, photons, broadcast);
         }
       } catch (error) {
         ws.send(
@@ -1699,6 +1750,98 @@ async function handleInvoke(
         message: error instanceof Error ? error.message : 'Unknown error',
       })
     );
+  }
+}
+
+async function handleUpdateMetadata(
+  ws: WebSocket,
+  message: { type: 'update-metadata'; photon: string; metadata: { description?: string; icon?: string } },
+  photons: AnyPhotonInfo[],
+  broadcast: (msg: any) => void
+): Promise<void> {
+  const { photon: photonName, metadata } = message;
+
+  // Find the photon
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
+  if (photonIndex === -1) {
+    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
+    return;
+  }
+
+  const photon = photons[photonIndex];
+
+  try {
+    // Read the photon file
+    const content = await fs.promises.readFile(photon.path, 'utf-8');
+
+    let updatedContent = content;
+
+    // Update or add class-level JSDoc
+    if (metadata.description || metadata.icon) {
+      // Check if there's an existing class-level JSDoc
+      const classDocRegex = /(\/\*\*[\s\S]*?\*\/\s*)?(\n?(?:export\s+)?(?:default\s+)?class\s+\w+)/;
+      const match = content.match(classDocRegex);
+
+      if (match) {
+        const existingDoc = match[1] || '';
+        const classDecl = match[2];
+
+        let newDoc = existingDoc.trim();
+
+        if (metadata.description) {
+          if (newDoc) {
+            // Update existing description or add @description
+            if (newDoc.includes('@description')) {
+              newDoc = newDoc.replace(/@description\s+[^\n*]+/, `@description ${metadata.description}`);
+            } else {
+              // Add description after opening comment
+              newDoc = newDoc.replace(/\/\*\*\s*\n?/, `/**\n * ${metadata.description}\n *\n`);
+            }
+          } else {
+            // Create new JSDoc
+            newDoc = `/**\n * ${metadata.description}\n */`;
+          }
+        }
+
+        if (metadata.icon) {
+          if (newDoc) {
+            if (newDoc.includes('@icon')) {
+              newDoc = newDoc.replace(/@icon\s+\S+/, `@icon ${metadata.icon}`);
+            } else {
+              // Add icon before closing */
+              newDoc = newDoc.replace(/\s*\*\//, `\n * @icon ${metadata.icon}\n */`);
+            }
+          } else {
+            newDoc = `/**\n * @icon ${metadata.icon}\n */`;
+          }
+        }
+
+        // Replace in content
+        updatedContent = content.replace(classDocRegex, `${newDoc}\n${classDecl}`);
+      }
+    }
+
+    // Write back to file
+    await fs.promises.writeFile(photon.path, updatedContent, 'utf-8');
+
+    // Update in-memory photon info
+    if (metadata.description) {
+      (photon as any).description = metadata.description;
+    }
+    if (metadata.icon) {
+      (photon as any).icon = metadata.icon;
+    }
+
+    // Broadcast update to all clients
+    broadcast({ type: 'photons', data: photons });
+
+    logger.info(`Updated metadata for ${photonName}: ${JSON.stringify(metadata)}`);
+  } catch (error) {
+    logger.error(`Failed to update metadata for ${photonName}:`, error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update metadata'
+    }));
   }
 }
 

@@ -153,6 +153,104 @@ export class BeamApp extends LitElement {
         color: hsl(260, 100%, 75%);
       }
 
+      /* Inline Editable Elements */
+      .editable {
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        padding: 2px 6px;
+        margin: -2px -6px;
+        transition: background 0.15s ease, box-shadow 0.15s ease;
+        position: relative;
+      }
+
+      .editable:hover {
+        background: var(--bg-glass);
+      }
+
+      .editable:hover::after {
+        content: '✏️';
+        position: absolute;
+        right: -24px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.8rem;
+        opacity: 0.6;
+      }
+
+      .editable.editing {
+        background: var(--bg-glass-strong);
+        box-shadow: 0 0 0 2px var(--accent-primary);
+      }
+
+      .editable-input {
+        background: transparent;
+        border: none;
+        color: inherit;
+        font: inherit;
+        width: 100%;
+        outline: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .editable-input::placeholder {
+        color: var(--t-muted);
+        font-style: italic;
+      }
+
+      .photon-header-desc.editable {
+        min-width: 200px;
+        display: inline-block;
+      }
+
+      .photon-header-desc.placeholder {
+        color: var(--t-muted);
+        font-style: italic;
+      }
+
+      /* Editable Icon */
+      .photon-icon-large.editable {
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .photon-icon-large.editable:hover {
+        transform: scale(1.05);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 3px var(--accent-primary);
+      }
+
+      /* Emoji Picker */
+      .emoji-picker {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 100;
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 4px;
+        max-width: 280px;
+      }
+
+      .emoji-picker button {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        padding: 4px;
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        transition: background 0.15s ease, transform 0.1s ease;
+      }
+
+      .emoji-picker button:hover {
+        background: var(--bg-glass);
+        transform: scale(1.1);
+      }
+
       .background-glow {
         position: absolute;
         top: -20%;
@@ -423,6 +521,9 @@ export class BeamApp extends LitElement {
   @state() private _mcpReady = false;
   @state() private _showSettingsMenu = false;
   @state() private _rememberFormValues = false;
+  @state() private _editingDescription = false;
+  @state() private _editingIcon = false;
+  @state() private _editedDescription = '';
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -472,11 +573,21 @@ export class BeamApp extends LitElement {
   }
 
   private _handleDocumentClick = (e: MouseEvent) => {
+    const path = e.composedPath();
+
     if (this._showSettingsMenu) {
-      const path = e.composedPath();
       const settingsContainer = this.shadowRoot?.querySelector('.settings-container');
       if (settingsContainer && !path.includes(settingsContainer)) {
         this._showSettingsMenu = false;
+      }
+    }
+
+    // Close emoji picker when clicking outside
+    if (this._editingIcon) {
+      const emojiPicker = this.shadowRoot?.querySelector('.emoji-picker');
+      const iconElement = this.shadowRoot?.querySelector('.photon-icon-large');
+      if (emojiPicker && !path.includes(emojiPicker) && !path.includes(iconElement!)) {
+        this._editingIcon = false;
       }
     }
   }
@@ -1274,26 +1385,128 @@ export class BeamApp extends LitElement {
 
     const isApp = this._selectedPhoton.isApp;
     const methodCount = this._selectedPhoton.methods?.length || 0;
+    const description = this._selectedPhoton.description || `${this._selectedPhoton.name} MCP`;
+    const isGenericDesc = description.endsWith(' MCP') || description === 'Photon tool';
 
-    // Get icon from first method if available, or use default
-    const firstMethodIcon = this._selectedPhoton.methods?.[0]?.icon;
+    // Get icon - check for custom icon first, then app icon, then initials
+    const customIcon = this._selectedPhoton.icon;
     const photonInitials = this._selectedPhoton.name.substring(0, 2).toUpperCase();
+    const defaultIcon = isApp ? '📱' : photonInitials;
+    const displayIcon = customIcon || defaultIcon;
 
     return html`
       <div class="photon-header">
-        <div class="photon-icon-large ${isApp ? '' : 'mcp-icon'}">
-          ${isApp ? '📱' : (firstMethodIcon || photonInitials)}
+        <div class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
+             @click=${this._startEditingIcon}
+             title="Click to change icon">
+          ${displayIcon}
         </div>
+        ${this._editingIcon ? this._renderEmojiPicker() : ''}
         <div class="photon-header-info">
           <h1 class="photon-header-name">${this._selectedPhoton.name}</h1>
-          ${this._selectedPhoton.description && !this._selectedPhoton.description.includes(` MCP`) ? html`
-            <p class="photon-header-desc">${this._selectedPhoton.description}</p>
-          ` : ''}
+          ${this._editingDescription ? html`
+            <p class="photon-header-desc editable editing">
+              <input
+                class="editable-input"
+                type="text"
+                .value=${this._editedDescription}
+                placeholder="Add a description..."
+                @input=${(e: Event) => this._editedDescription = (e.target as HTMLInputElement).value}
+                @blur=${this._saveDescription}
+                @keydown=${this._handleDescriptionKeydown}
+                autofocus
+              />
+            </p>
+          ` : html`
+            <p class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
+               @click=${this._startEditingDescription}
+               title="Click to edit description">
+              ${isGenericDesc ? 'Click to add a description...' : description}
+            </p>
+          `}
           <div class="photon-header-meta">
             ${isApp ? html`<span class="photon-badge app">App</span>` : html`<span class="photon-badge">MCP</span>`}
             <span class="photon-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private _startEditingDescription = () => {
+    const desc = this._selectedPhoton?.description || '';
+    const isGeneric = desc.endsWith(' MCP') || desc === 'Photon tool';
+    this._editedDescription = isGeneric ? '' : desc;
+    this._editingDescription = true;
+  }
+
+  private _handleDescriptionKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      this._saveDescription();
+    } else if (e.key === 'Escape') {
+      this._editingDescription = false;
+    }
+  }
+
+  private _saveDescription = () => {
+    this._editingDescription = false;
+    const newDesc = this._editedDescription.trim();
+
+    if (newDesc && this._selectedPhoton) {
+      // Update local state optimistically
+      const oldDesc = this._selectedPhoton.description;
+      this._selectedPhoton = { ...this._selectedPhoton, description: newDesc };
+
+      // Send to server to persist
+      this._ws?.send(JSON.stringify({
+        type: 'update-metadata',
+        photon: this._selectedPhoton.name,
+        metadata: { description: newDesc }
+      }));
+
+      showToast('Description updated', 'success');
+    }
+  }
+
+  private _startEditingIcon = () => {
+    this._editingIcon = !this._editingIcon;
+  }
+
+  private _selectIcon = (icon: string) => {
+    this._editingIcon = false;
+
+    if (this._selectedPhoton) {
+      // Update local state optimistically
+      this._selectedPhoton = { ...this._selectedPhoton, icon };
+
+      // Send to server to persist
+      this._ws?.send(JSON.stringify({
+        type: 'update-metadata',
+        photon: this._selectedPhoton.name,
+        metadata: { icon }
+      }));
+
+      showToast('Icon updated', 'success');
+    }
+  }
+
+  private _renderEmojiPicker() {
+    const emojis = [
+      '🔧', '⚙️', '🛠️', '🔨', '🔩', '⚡', '💡', '🎯',
+      '📊', '📈', '📉', '📋', '📝', '📁', '📂', '🗂️',
+      '🌐', '🔗', '🔒', '🔓', '🔑', '🛡️', '🔍', '🔎',
+      '💾', '💿', '📀', '🖥️', '💻', '📱', '⌨️', '🖱️',
+      '🤖', '🧠', '🎨', '🎭', '🎬', '🎮', '🎲', '🧩',
+      '📧', '💬', '💭', '🗨️', '📣', '📢', '🔔', '🔕',
+      '✅', '❌', '⭐', '🌟', '💫', '✨', '🔥', '💥',
+    ];
+
+    return html`
+      <div class="emoji-picker" @click=${(e: Event) => e.stopPropagation()}>
+        ${emojis.map(emoji => html`
+          <button @click=${() => this._selectIcon(emoji)}>${emoji}</button>
+        `)}
       </div>
     `;
   }
