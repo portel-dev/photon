@@ -45,7 +45,7 @@ import { generateMCPClientJS } from './mcp-client.js';
 import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 
 // Bundled photons that ship with the runtime
-const BUNDLED_PHOTONS = ['maker'];
+const BUNDLED_PHOTONS = ['maker', 'tunnel'];
 
 /**
  * Get path to a bundled photon (ships with runtime)
