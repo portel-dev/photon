@@ -801,11 +801,153 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-md);
         border: 1px solid var(--border-glass);
       }
+
+      /* ===== Mobile Menu Button ===== */
+      .mobile-menu-btn {
+        display: none;
+        position: fixed;
+        top: var(--space-md);
+        left: var(--space-md);
+        z-index: 1001;
+        width: 44px;
+        height: 44px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transition: all 0.2s;
+      }
+
+      .mobile-menu-btn:hover {
+        background: var(--bg-glass-strong);
+        transform: scale(1.05);
+      }
+
+      .mobile-menu-btn.open {
+        background: var(--accent-primary);
+        color: white;
+      }
+
+      /* ===== Sidebar Overlay (mobile) ===== */
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        z-index: 999;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .sidebar-overlay.visible {
+        opacity: 1;
+      }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .mobile-menu-btn {
+          display: flex;
+        }
+
+        .sidebar-overlay {
+          display: block;
+          pointer-events: none;
+        }
+
+        .sidebar-overlay.visible {
+          pointer-events: auto;
+        }
+
+        .sidebar-area {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          width: 85%;
+          max-width: 320px;
+          margin: 0 !important;
+          border-radius: 0 var(--radius-md) var(--radius-md) 0 !important;
+          transform: translateX(-100%);
+          transition: transform 0.3s ease;
+          z-index: 1000;
+        }
+
+        .sidebar-area.visible {
+          transform: translateX(0);
+        }
+
+        .main-area {
+          padding: var(--space-md);
+          padding-top: calc(var(--space-md) + 60px); /* Space for mobile menu button */
+        }
+
+        .photon-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--space-md);
+        }
+
+        .photon-header-name {
+          font-size: 1.5rem;
+        }
+
+        .cards-grid {
+          grid-template-columns: 1fr;
+        }
+
+        /* Touch-friendly targets - min 44px */
+        .asset-card,
+        .method-card,
+        button,
+        .filter-btn {
+          min-height: 44px;
+        }
+
+        .photon-header-meta {
+          flex-wrap: wrap;
+        }
+
+        /* Settings dropdown positioning */
+        .settings-dropdown {
+          right: 0;
+          left: auto;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .main-area {
+          padding: var(--space-sm);
+          padding-top: calc(var(--space-sm) + 60px);
+        }
+
+        .photon-icon-large {
+          width: 48px;
+          height: 48px;
+          font-size: 20px;
+        }
+
+        .photon-header-name {
+          font-size: 1.25rem;
+        }
+
+        .modal-content,
+        .glass-panel {
+          max-width: 100%;
+          border-radius: var(--radius-sm);
+        }
+      }
     `
   ];
 
   @state() private _connected = false;
   @state() private _reconnecting = false;
+  @state() private _sidebarVisible = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
   @state() private _view: 'list' | 'form' | 'marketplace' | 'config' = 'list';
@@ -1157,13 +1299,28 @@ export class BeamApp extends LitElement {
 
       <div class="background-glow"></div>
 
-      <div class="sidebar-area glass-panel" style="margin: var(--space-sm); border-radius: var(--radius-md);">
+      <!-- Mobile Menu Button -->
+      <button
+        class="mobile-menu-btn ${this._sidebarVisible ? 'open' : ''}"
+        @click=${this._toggleSidebar}
+        aria-label="${this._sidebarVisible ? 'Close menu' : 'Open menu'}"
+      >
+        ${this._sidebarVisible ? '✕' : '☰'}
+      </button>
+
+      <!-- Sidebar Overlay (mobile) -->
+      <div
+        class="sidebar-overlay ${this._sidebarVisible ? 'visible' : ''}"
+        @click=${this._closeSidebar}
+      ></div>
+
+      <div class="sidebar-area glass-panel ${this._sidebarVisible ? 'visible' : ''}" style="margin: var(--space-sm); border-radius: var(--radius-md);">
         <beam-sidebar
           .photons=${this._photons}
           .selectedPhoton=${this._selectedPhoton?.name}
           .theme=${this._theme}
-          @select=${this._handlePhotonSelect}
-          @marketplace=${() => this._view = 'marketplace'}
+          @select=${this._handlePhotonSelectMobile}
+          @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
           @show-shortcuts=${this._showHelpModal}
         ></beam-sidebar>
@@ -1398,6 +1555,25 @@ export class BeamApp extends LitElement {
         ${this._renderPromptsSection()}
         ${this._renderResourcesSection()}
       `;
+  }
+
+  // ===== Mobile Sidebar Methods =====
+  private _toggleSidebar() {
+    this._sidebarVisible = !this._sidebarVisible;
+  }
+
+  private _closeSidebar() {
+    this._sidebarVisible = false;
+  }
+
+  private _handlePhotonSelectMobile(e: CustomEvent) {
+    this._closeSidebar();
+    this._handlePhotonSelect(e);
+  }
+
+  private _handleMarketplaceMobile() {
+    this._closeSidebar();
+    this._view = 'marketplace';
   }
 
   private _handlePhotonSelect(e: CustomEvent) {
@@ -1687,6 +1863,10 @@ export class BeamApp extends LitElement {
 
     // Escape to close modals or clear
     if (e.key === 'Escape') {
+      if (this._sidebarVisible) {
+        this._closeSidebar();
+        return;
+      }
       if (this._showHelp) {
         this._showHelp = false;
         return;

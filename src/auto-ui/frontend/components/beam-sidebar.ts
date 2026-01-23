@@ -324,6 +324,44 @@ export class BeamSidebar extends LitElement {
       .photon-item .star-btn.favorited {
         visibility: visible;
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .header {
+          padding: var(--space-lg) var(--space-md);
+          padding-top: calc(var(--space-lg) + 8px);
+        }
+
+        .photon-item {
+          padding: var(--space-md);
+          min-height: 44px;
+        }
+
+        .photon-item .star-btn {
+          visibility: visible;
+          padding: var(--space-sm);
+        }
+
+        .filter-btn {
+          min-height: 44px;
+          font-size: 0.85rem;
+        }
+
+        input {
+          min-height: 44px;
+          font-size: 16px; /* Prevent iOS zoom on focus */
+        }
+
+        .theme-btn {
+          width: 36px;
+          height: 36px;
+        }
+
+        .footer-link {
+          min-height: 44px;
+          padding: var(--space-sm) var(--space-md);
+        }
+      }
     `
   ];
 
