@@ -200,15 +200,28 @@ export default class Tunnel {
   }
 
   private async _getPublicIp(): Promise<string> {
-    try {
-      const result = execSync('curl -s https://loca.lt/mytunnelpassword || curl -s ifconfig.me', {
-        encoding: 'utf-8',
-        timeout: 5000
-      });
-      return result.trim();
-    } catch {
-      return 'unknown';
+    // Try multiple services in order
+    const services = [
+      'https://api.ipify.org',
+      'https://ifconfig.me/ip',
+      'https://icanhazip.com'
+    ];
+
+    for (const service of services) {
+      try {
+        const result = execSync(`curl -s --max-time 3 ${service}`, {
+          encoding: 'utf-8',
+          timeout: 5000
+        });
+        const ip = result.trim();
+        if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+          return ip;
+        }
+      } catch {
+        continue;
+      }
     }
+    return 'unknown';
   }
 
   private async _startLocaltunnel(port: number): Promise<{ url: string; process: ChildProcess }> {
