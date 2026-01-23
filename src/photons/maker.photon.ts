@@ -2,6 +2,40 @@
  * Photon Maker - Create and manage photons
  * @description System photon for scaffolding and managing photons
  * @internal
+ *
+ * ## Method Types
+ *
+ * This photon demonstrates two patterns for organizing methods:
+ *
+ * ### Static Methods (Global Actions)
+ * - Called on the class itself, no instance needed
+ * - In Beam UI: Appear in the Marketplace dropdown menu
+ * - In CLI: `photon cli maker <method>`
+ * - In MCP: Available as tools without instance context
+ * - Use for: Creating new photons, syncing marketplace, validating
+ *
+ * ### Instance Methods (Contextual Actions)
+ * - Called on a specific photon instance
+ * - In Beam UI: Appear in the per-photon gear menu
+ * - In CLI: Require photon context (future: `photon cli maker rename --photon serum`)
+ * - Use for: Renaming, describing, adding methods to a specific photon
+ *
+ * ### Generator Functions (Progress Streaming)
+ * - Use `async *method()` syntax for step-by-step progress
+ * - Yield `{ step, message }` objects for UI updates
+ * - Final yield should include `{ step: 'done', result }` or `{ type: 'done', result }`
+ *
+ * ### Wizard Pattern (Multi-Step UI)
+ * - Mark with `@wizard` JSDoc tag
+ * - Yield step definitions, receive user input via `yield`
+ * - Steps: input, select, multi-input, progress, done
+ *
+ * ## Decorators
+ *
+ * - `@internal` - Bundled with runtime, special UI treatment
+ * - `@wizard` - Renders as multi-step wizard instead of form
+ * - `@template` - Returns a prompt string (for MCP prompts)
+ * - `@resource` - Exposes as MCP resource with URI
  */
 
 import * as fs from 'fs/promises';
