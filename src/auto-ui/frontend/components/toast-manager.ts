@@ -153,17 +153,27 @@ export class ToastManager extends LitElement {
 
   render() {
     return html`
-      ${this._toasts.map(toast => html`
-        <div class="toast ${toast.type} ${this._exitingToasts.has(toast.id) ? 'exiting' : ''}">
-          ${this._renderIcon(toast.type)}
-          <span class="message">${toast.message}</span>
-          <button class="close" @click=${() => this._dismissToast(toast.id)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-      `)}
+      <div role="status" aria-live="polite" aria-atomic="false">
+        ${this._toasts.map(toast => html`
+          <div
+            class="toast ${toast.type} ${this._exitingToasts.has(toast.id) ? 'exiting' : ''}"
+            role="alert"
+            aria-live="${toast.type === 'error' ? 'assertive' : 'polite'}"
+          >
+            ${this._renderIcon(toast.type)}
+            <span class="message">${toast.message}</span>
+            <button
+              class="close"
+              @click=${() => this._dismissToast(toast.id)}
+              aria-label="Dismiss notification"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        `)}
+      </div>
     `;
   }
 

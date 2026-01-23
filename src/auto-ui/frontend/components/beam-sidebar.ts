@@ -446,43 +446,51 @@ export class BeamSidebar extends LitElement {
 
   render() {
     return html`
-      <div class="sidebar-content">
+      <nav class="sidebar-content" role="navigation" aria-label="Photon navigation">
         <div class="header">
           <div class="header-row">
             <h2 class="text-gradient logo">Photon Beam</h2>
-            <div class="theme-toggle">
+            <div class="theme-toggle" role="group" aria-label="Theme selection">
               <button
                 class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
                 @click=${() => this._setTheme('light')}
                 title="Light theme"
+                aria-label="Switch to light theme"
+                aria-pressed="${this.theme === 'light'}"
               >☀️</button>
               <button
                 class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
                 @click=${() => this._setTheme('dark')}
                 title="Dark theme"
+                aria-label="Switch to dark theme"
+                aria-pressed="${this.theme === 'dark'}"
               >🌙</button>
             </div>
           </div>
-          <div class="search-box">
+          <div class="search-box" role="search">
             <input
-              type="text"
+              type="search"
               placeholder="Search photons... (⌘K)"
               .value=${this._searchQuery}
               @input=${this._handleSearch}
               @keydown=${this._handleSearchKeydown}
+              aria-label="Search photons"
             >
           </div>
-          <div class="filter-row">
+          <div class="filter-row" role="group" aria-label="Filter options">
             <button
               class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
               @click=${this._toggleFavoritesFilter}
               title="Show favorites only (f)"
+              aria-pressed="${this._showFavoritesOnly}"
+              aria-label="Filter by favorites"
             >
               ⭐ Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
             </button>
             <button
               class="filter-btn"
               @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+              aria-label="Open marketplace"
             >
               🛍️ Marketplace
             </button>
@@ -490,29 +498,29 @@ export class BeamSidebar extends LitElement {
         </div>
 
         ${this._apps.length > 0 ? html`
-          <div class="section-header">Apps</div>
-          <ul class="photon-list">
+          <div class="section-header" id="apps-header">Apps</div>
+          <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
             ${this._apps.map(photon => this._renderPhotonItem(photon, 'app'))}
           </ul>
         ` : ''}
 
         ${this._configured.length > 0 ? html`
-          <div class="section-header">MCPs</div>
-          <ul class="photon-list">
+          <div class="section-header" id="mcps-header">MCPs</div>
+          <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
             ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
           </ul>
         ` : ''}
 
         ${this._needsSetup.length > 0 ? html`
-          <div class="section-header">Setup</div>
-          <ul class="photon-list">
+          <div class="section-header" id="setup-header">Setup</div>
+          <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
             ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
           </ul>
         ` : ''}
-      </div>
+      </nav>
 
       <div class="sidebar-footer">
-        <button class="footer-link" @click=${this._showShortcuts} title="Keyboard shortcuts">
+        <button class="footer-link" @click=${this._showShortcuts} title="Keyboard shortcuts" aria-label="Show keyboard shortcuts">
           ⌨️ Shortcuts <kbd>?</kbd>
         </button>
       </div>
@@ -532,9 +540,13 @@ export class BeamSidebar extends LitElement {
     return html`
       <li
         class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
+        role="option"
+        aria-selected="${this.selectedPhoton === photon.name}"
+        tabindex="0"
         @click=${() => this._selectPhoton(photon)}
+        @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
       >
-        <div class="photon-icon ${isApp ? 'app-icon' : ''}">
+        <div class="photon-icon ${isApp ? 'app-icon' : ''}" aria-hidden="true">
           ${isApp ? '📱' : photon.name.substring(0, 2).toUpperCase()}
         </div>
         <div class="photon-info">
@@ -544,11 +556,13 @@ export class BeamSidebar extends LitElement {
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
           title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
+          aria-label="${isFavorited ? `Remove ${photon.name} from favorites` : `Add ${photon.name} to favorites`}"
+          aria-pressed="${isFavorited}"
         >${isFavorited ? '⭐' : '☆'}</button>
         ${isUnconfigured
-          ? html`<span class="method-count unconfigured">?</span>`
+          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
           : methodCount > 0
-            ? html`<span class="method-count">${methodCount}</span>`
+            ? html`<span class="method-count" aria-label="${methodCount} methods">${methodCount}</span>`
             : ''}
       </li>
     `;
