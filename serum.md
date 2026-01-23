@@ -1,6 +1,6 @@
-# Serum
+# Truth Serum
 
-Inject clarity into any conversation @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
+Forces unfiltered honesty, no hedging or diplomacy @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
 export default class Serum {
   /
 

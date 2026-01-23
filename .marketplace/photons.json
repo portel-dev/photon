@@ -20,11 +20,11 @@
     {
       "name": "serum",
       "version": "1.4.1",
-      "description": "Serum - Inject clarity into any conversation @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /\nexport default class Serum {\n  /",
+      "description": "Truth Serum - Forces unfiltered honesty, no hedging or diplomacy @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /\nexport default class Serum {\n  /",
       "author": "Unknown",
       "license": "MIT",
       "source": "../serum.photon.ts",
-      "hash": "sha256:8ad638d2e33ba05d18fde9a61f8c4b4b553eeff2294ff666202b20e3b645148d",
+      "hash": "sha256:84cab982d704f2b18d1d71285d993661551ee772bb3fb23f973cc9dfa27ecbb3",
       "tools": [
         "truth",
         "clarity",
