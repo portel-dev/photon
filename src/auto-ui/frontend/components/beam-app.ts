@@ -942,6 +942,37 @@ export class BeamApp extends LitElement {
           border-radius: var(--radius-sm);
         }
       }
+
+      /* ===== Animation & Performance Optimization ===== */
+      /* Use transform and opacity for GPU-accelerated animations */
+      .sidebar-area,
+      .mobile-menu-btn,
+      .modal-overlay,
+      .asset-card,
+      .photon-icon-large {
+        will-change: transform, opacity;
+      }
+
+      /* Remove will-change after animation completes to free GPU memory */
+      .sidebar-area:not(.visible),
+      .modal-overlay:not(:hover) {
+        will-change: auto;
+      }
+
+      /* Reduce motion for users who prefer it */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .sidebar-area {
+          transition: none;
+        }
+      }
     `
   ];
 
@@ -1348,7 +1379,7 @@ export class BeamApp extends LitElement {
         ></beam-sidebar>
       </div>
 
-      <main class="main-area">
+      <main class="main-area" role="main" aria-label="Main content">
         ${this._renderContent()}
         <activity-log .items=${this._activityLog} @clear=${() => this._activityLog = []}></activity-log>
       </main>
@@ -2549,9 +2580,9 @@ export class BeamApp extends LitElement {
 
   private _renderHelpModal() {
     return html`
-      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeHelp(); }}>
+      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeHelp(); }}>
         <div class="help-modal glass-panel">
-          <h2 class="text-gradient">Keyboard Shortcuts</h2>
+          <h2 id="help-modal-title" class="text-gradient">Keyboard Shortcuts</h2>
 
           <div class="shortcut-section">
             <h3>Navigation</h3>
@@ -2633,14 +2664,15 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePhotonHelp(); }}>
+      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="photon-help-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePhotonHelp(); }}>
         <div class="help-modal glass-panel" style="max-width: 700px; max-height: 80vh; overflow: auto;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-            <h2 class="text-gradient" style="margin: 0;">${this._selectedPhoton?.name || 'Photon'} Help</h2>
+            <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">${this._selectedPhoton?.name || 'Photon'} Help</h2>
             <button
               class="btn-secondary"
               style="padding: 6px 12px; font-size: 0.85rem;"
               @click=${this._closePhotonHelp}
+              aria-label="Close help"
             >✕</button>
           </div>
           <div class="markdown-body" style="color: var(--t-default);">
