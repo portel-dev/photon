@@ -174,6 +174,57 @@ export class MarketplaceView extends LitElement {
         cursor: not-allowed;
         background: var(--t-muted);
       }
+
+      /* Maker Actions Toolbar */
+      .maker-toolbar {
+        display: flex;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-lg);
+        padding: var(--space-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+      }
+
+      .maker-toolbar-title {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--t-muted);
+        margin-right: var(--space-md);
+        display: flex;
+        align-items: center;
+      }
+
+      .maker-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        background: var(--bg-glass-strong);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .maker-btn:hover {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .maker-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .maker-btn .icon {
+        font-size: 1rem;
+      }
     `
     ];
 
@@ -193,11 +244,28 @@ export class MarketplaceView extends LitElement {
 
     render() {
         return html`
+      <!-- Maker Actions Toolbar -->
+      <div class="maker-toolbar">
+        <span class="maker-toolbar-title">⚡ Quick Actions</span>
+        <button class="maker-btn" @click=${this._createNew} title="Create a new photon">
+          <span class="icon">✨</span>
+          <span>New Photon</span>
+        </button>
+        <button class="maker-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
+          <span class="icon">🔄</span>
+          <span>Sync</span>
+        </button>
+        <button class="maker-btn" @click=${this._validatePhotons} title="Validate all photons">
+          <span class="icon">✓</span>
+          <span>Validate</span>
+        </button>
+      </div>
+
       <div class="toolbar">
         <div class="search-box">
-          <input 
-            type="text" 
-            placeholder="Search photons..." 
+          <input
+            type="text"
+            placeholder="Search photons..."
             @input=${this._handleSearch}
           >
         </div>
@@ -327,5 +395,30 @@ export class MarketplaceView extends LitElement {
         } finally {
             this._installing = null;
         }
+    }
+
+    // Maker static method actions
+    private _createNew() {
+        this.dispatchEvent(new CustomEvent('maker-action', {
+            detail: { action: 'new' },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    private _syncPhotons() {
+        this.dispatchEvent(new CustomEvent('maker-action', {
+            detail: { action: 'sync' },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    private _validatePhotons() {
+        this.dispatchEvent(new CustomEvent('maker-action', {
+            detail: { action: 'validate' },
+            bubbles: true,
+            composed: true
+        }));
     }
 }

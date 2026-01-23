@@ -363,22 +363,25 @@ ${allStubs.join('\n\n')}
   /**
    * Rename this photon
    * @param name New name for the photon
+   * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async rename({ name }: { name: string }): Promise<{ oldPath: string; newPath: string }> {
-    if (!this.photonPath) throw new Error('No photon context');
+  async rename({ name, photonPath }: { name: string; photonPath?: string }): Promise<{ oldPath: string; newPath: string }> {
+    const targetPath = photonPath || this.photonPath;
+    if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
-    const dir = path.dirname(this.photonPath);
+    const dir = path.dirname(targetPath);
     const newPath = path.join(dir, `${name}.photon.ts`);
 
     // Read content and update class name
-    let content = await fs.readFile(this.photonPath, 'utf-8');
+    let content = await fs.readFile(targetPath, 'utf-8');
 
     const newClassName = name
       .split(/[-_]/)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
-    const oldClassName = this.photonName
+    const oldPhotonName = path.basename(targetPath, '.photon.ts');
+    const oldClassName = oldPhotonName
       .split(/[-_]/)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
@@ -392,19 +395,21 @@ ${allStubs.join('\n\n')}
     await fs.writeFile(newPath, content, 'utf-8');
 
     // Remove old file
-    await fs.unlink(this.photonPath);
+    await fs.unlink(targetPath);
 
-    return { oldPath: this.photonPath, newPath };
+    return { oldPath: targetPath, newPath };
   }
 
   /**
    * Update photon description
    * @param description New description
+   * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async describe({ description }: { description: string }): Promise<{ updated: boolean }> {
-    if (!this.photonPath) throw new Error('No photon context');
+  async describe({ description, photonPath }: { description: string; photonPath?: string }): Promise<{ updated: boolean }> {
+    const targetPath = photonPath || this.photonPath;
+    if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
-    let content = await fs.readFile(this.photonPath, 'utf-8');
+    let content = await fs.readFile(targetPath, 'utf-8');
 
     // Update @description in JSDoc
     if (content.includes('@description')) {
@@ -420,7 +425,7 @@ ${allStubs.join('\n\n')}
       );
     }
 
-    await fs.writeFile(this.photonPath, content, 'utf-8');
+    await fs.writeFile(targetPath, content, 'utf-8');
 
     return { updated: true };
   }
@@ -429,19 +434,24 @@ ${allStubs.join('\n\n')}
    * Add a new method to this photon
    * @param name Method name
    * @param type Method type
+   * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
   async addmethod({
     name,
-    type = 'tool'
+    type = 'tool',
+    photonPath
   }: {
     /** Method name */
     name: string;
     /** Method type */
     type?: 'tool' | 'prompt' | 'resource';
+    /** Path to the photon file */
+    photonPath?: string;
   }): Promise<{ added: string; type: string }> {
-    if (!this.photonPath) throw new Error('No photon context');
+    const targetPath = photonPath || this.photonPath;
+    if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
-    let content = await fs.readFile(this.photonPath, 'utf-8');
+    let content = await fs.readFile(targetPath, 'utf-8');
 
     const methodCode = Maker.generateMethodStub(name, type);
 
@@ -449,31 +459,35 @@ ${allStubs.join('\n\n')}
     const lastBraceIndex = content.lastIndexOf('}');
     content = content.slice(0, lastBraceIndex) + '\n' + methodCode + '\n' + content.slice(lastBraceIndex);
 
-    await fs.writeFile(this.photonPath, content, 'utf-8');
+    await fs.writeFile(targetPath, content, 'utf-8');
 
     return { added: name, type };
   }
 
   /**
    * Delete this photon
+   * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async delete(): Promise<{ deleted: string }> {
-    if (!this.photonPath) throw new Error('No photon context');
+  async delete({ photonPath }: { photonPath?: string } = {}): Promise<{ deleted: string }> {
+    const targetPath = photonPath || this.photonPath;
+    if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
-    await fs.unlink(this.photonPath);
+    await fs.unlink(targetPath);
 
-    return { deleted: this.photonPath };
+    return { deleted: targetPath };
   }
 
   /**
    * View source code of this photon
+   * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async source(): Promise<{ path: string; code: string }> {
-    if (!this.photonPath) throw new Error('No photon context');
+  async source({ photonPath }: { photonPath?: string } = {}): Promise<{ path: string; code: string }> {
+    const targetPath = photonPath || this.photonPath;
+    if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
-    const code = await fs.readFile(this.photonPath, 'utf-8');
+    const code = await fs.readFile(targetPath, 'utf-8');
 
-    return { path: this.photonPath, code };
+    return { path: targetPath, code };
   }
 
   // ============================================
