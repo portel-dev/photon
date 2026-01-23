@@ -1665,8 +1665,14 @@ export class BeamApp extends LitElement {
 
   private _handleKeydown = (e: KeyboardEvent) => {
     // Skip if typing in an input field (unless it's a special key combo)
-    const target = e.target as HTMLElement;
-    const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+    // Use composedPath() to check through shadow DOM boundaries
+    const path = e.composedPath();
+    const isInput = path.some((el) => {
+      if (el instanceof HTMLElement) {
+        return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+      }
+      return false;
+    });
 
     // Ctrl/Cmd+K or / to focus search
     if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !isInput)) {
