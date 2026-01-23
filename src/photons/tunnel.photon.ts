@@ -55,20 +55,19 @@ export default class Tunnel {
   }
 
   /**
-   * Start a tunnel to expose a local port
+   * Start a tunnel to expose Beam to the internet
    * @icon 🚀
-   * @param port Local port to expose (default: 3117 for Beam)
    * @param provider Tunnel provider to use
    */
   async *start({
-    port = 3117,
     provider = 'localtunnel'
   }: {
-    /** Local port to expose */
-    port?: number;
     /** Provider: localtunnel, ngrok, or cloudflared */
     provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
-  }): AsyncGenerator<{ step: string; message?: string; url?: string; info?: TunnelInfo }> {
+  } = {}): AsyncGenerator<{ step: string; message?: string; url?: string; link?: string; info?: TunnelInfo }> {
+    // Auto-detect Beam port from environment
+    const port = parseInt(process.env.BEAM_PORT || '3117', 10);
+
     // Check if tunnel already exists for this port
     if (activeTunnels.has(port)) {
       const existing = activeTunnels.get(port)!;
@@ -76,12 +75,13 @@ export default class Tunnel {
         step: 'exists',
         message: `Tunnel already active on port ${port}`,
         url: existing.info.url,
+        link: existing.info.url,
         info: existing.info
       };
       return;
     }
 
-    yield { step: 'starting', message: `Starting ${provider} tunnel on port ${port}...` };
+    yield { step: 'starting', message: `Starting ${provider} tunnel for Beam (port ${port})...` };
 
     try {
       let url: string;
@@ -120,8 +120,9 @@ export default class Tunnel {
 
       yield {
         step: 'done',
-        message: `Tunnel active!`,
+        message: `Beam is now accessible from the internet!`,
         url,
+        link: url,
         info
       };
 

@@ -1713,7 +1713,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     logger.warn(`File watching not available: ${error}`);
   }
 
-  server.listen(port, () => {
+  // Bind to 0.0.0.0 for tunnel access
+  server.listen(port, '0.0.0.0', () => {
+    // Set port for bundled photons (e.g., tunnel) to discover
+    process.env.BEAM_PORT = String(port);
+
     const url = `http://localhost:${port}`;
     const status =
       unconfiguredCount > 0
