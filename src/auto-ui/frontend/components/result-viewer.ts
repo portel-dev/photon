@@ -260,6 +260,32 @@ export class ResultViewer extends LitElement {
         color: hsl(45, 80%, 50%);
       }
 
+      /* Link Styles */
+      .result-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        color: white;
+        text-decoration: none;
+        border-radius: var(--radius-sm);
+        font-weight: 500;
+        font-size: 0.9rem;
+        word-break: break-all;
+        transition: opacity 0.2s, transform 0.2s;
+      }
+
+      .result-link:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+
+      .result-link .link-icon {
+        font-size: 0.8em;
+        opacity: 0.8;
+      }
+
       /* Card Styles */
       .smart-card {
         padding: var(--space-md);
@@ -2003,9 +2029,13 @@ export class ResultViewer extends LitElement {
       }
     }
 
-    // Check for URL fields
+    // Check for URL fields - render as clickable link with full URL visible
     if (this._isUrlField(key) && typeof value === 'string' && value.startsWith('http')) {
-      return html`<a href="${value}" target="_blank" style="color: var(--accent-primary);">Link ↗</a>`;
+      return html`
+        <a href="${value}" target="_blank" rel="noopener" class="result-link">
+          ${value} <span class="link-icon">↗</span>
+        </a>
+      `;
     }
 
     // Check for status fields
