@@ -893,7 +893,7 @@ export class BeamApp extends LitElement {
               </h3>
               <div class="cards-grid">
                 ${otherMethods.map((method: any) => html`
-                  <method-card .method=${method} @select=${this._handleMethodSelect}></method-card>
+                  <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
                 `)}
               </div>
             </div>
@@ -973,7 +973,7 @@ export class BeamApp extends LitElement {
         <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">Methods</h3>
         <div class="cards-grid">
           ${(this._selectedPhoton.methods || []).map((method: any) => html`
-            <method-card .method=${method} @select=${this._handleMethodSelect}></method-card>
+            <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
           `)}
         </div>
       `;
@@ -1488,6 +1488,36 @@ export class BeamApp extends LitElement {
       }));
 
       showToast('Icon updated', 'success');
+    }
+  }
+
+  private _handleMethodMetadataUpdate = (e: CustomEvent) => {
+    const { photonName, methodName, metadata } = e.detail;
+
+    if (this._selectedPhoton && this._selectedPhoton.name === photonName) {
+      // Update local state optimistically
+      const methods = this._selectedPhoton.methods?.map((m: any) => {
+        if (m.name === methodName) {
+          return {
+            ...m,
+            ...(metadata.description !== undefined ? { description: metadata.description || '' } : {}),
+            ...(metadata.icon !== undefined ? { icon: metadata.icon || undefined } : {})
+          };
+        }
+        return m;
+      });
+
+      this._selectedPhoton = { ...this._selectedPhoton, methods };
+
+      // Send to server to persist
+      this._ws?.send(JSON.stringify({
+        type: 'update-method-metadata',
+        photon: photonName,
+        method: methodName,
+        metadata
+      }));
+
+      showToast(`Method ${metadata.description !== undefined ? 'description' : 'icon'} updated`, 'success');
     }
   }
 
