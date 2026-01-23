@@ -1662,10 +1662,13 @@ Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/intr
 | Photon | Focus | Tools | Details |
 |--------|-------|-------|---------|
 | **Code Diagram** | Generate Mermaid diagrams from TypeScript/JavaScript code | 3 | [View →](code-diagram.md) |
+| **Serum** | A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /
+export default class Serum {
+  / | 10 | [View →](serum.md) |
 | **Test Ui** | Test Custom UI | 1 | [View →](test-ui.md) |
 
 
-**Total:** 2 photons ready to use
+**Total:** 3 photons ready to use
 
 ---
 
@@ -1709,7 +1712,7 @@ Output (paste directly into your MCP client config):
 
 Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
 
-**That's it!** Your AI assistant now has 2 focused tools at its fingertips.
+**That's it!** Your AI assistant now has 3 focused tools at its fingertips.
 
 ---
 
@@ -1775,7 +1778,7 @@ Each photon delivers **singular focus** to a **precise target**.
 
 **Key Features:**
 - 🎯 Each photon does one thing perfectly
-- 📦 2 production-ready photons available
+- 📦 3 production-ready photons available
 - ⚡ Auto-installs dependencies
 - 🔧 Works out of the box
 - 📄 Single-file design (easy to fork and customize)

@@ -28,6 +28,24 @@
       }
     },
     {
+      "name": "serum",
+      "description": "Serum - A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /\nexport default class Serum {\n  /",
+      "source": "./",
+      "strict": false,
+      "hooks": [
+        "./.claude-plugin/hooks.json"
+      ],
+      "mcpServers": {
+        "serum": {
+          "command": "photon",
+          "args": [
+            "mcp",
+            "serum"
+          ]
+        }
+      }
+    },
+    {
       "name": "test-ui",
       "description": "Test Custom UI",
       "source": "./",

@@ -18,6 +18,28 @@
       "assets": []
     },
     {
+      "name": "serum",
+      "version": "1.4.1",
+      "description": "Serum - A collection of powerful prompt templates @description Distilled prompts for clarity, honesty, and effectiveness @icon 🧪 /\nexport default class Serum {\n  /",
+      "author": "Unknown",
+      "license": "MIT",
+      "source": "../serum.photon.ts",
+      "hash": "sha256:9eb3ec43d0194b3428f9fa6d9d7cd4181a8407332a246804933c00baaad7b54f",
+      "tools": [
+        "truth",
+        "explain",
+        "challenge",
+        "brainstorm",
+        "review",
+        "summarize",
+        "debug",
+        "decide",
+        "reframe",
+        "teach"
+      ],
+      "assets": []
+    },
+    {
       "name": "test-ui",
       "version": "1.4.1",
       "description": "Test Custom UI",
