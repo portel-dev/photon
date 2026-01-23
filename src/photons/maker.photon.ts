@@ -34,9 +34,9 @@ export default class Maker {
   /**
    * Create a new photon
    * @param name Name for the new photon (kebab-case recommended)
-   * @param methods Tool method names to scaffold
-   * @param prompts Prompt template names to scaffold
-   * @param resources Resource method names to scaffold
+   * @param methods Tool method names to scaffold (optional)
+   * @param prompts Prompt template names to scaffold (optional)
+   * @param resources Resource method names to scaffold (optional)
    */
   static async *new({
     name,
