@@ -260,6 +260,14 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           else pending.resolve(m.result);
         }
       }
+      else if (m.type === 'photon:init-state') {
+        // Restore persisted widget state from host
+        if (m.state !== null && m.state !== undefined) {
+          widgetState = m.state;
+          // Dispatch event for apps listening to state changes
+          window.dispatchEvent(new CustomEvent('photon:state-restored', { detail: m.state }));
+        }
+      }
       return;
     }
 
@@ -497,6 +505,9 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
 
   // Notify host that bridge is ready
   postToHost({ type: 'photon:ready' });
+
+  // Request persisted state from host
+  postToHost({ type: 'photon:get-state' });
 
   // Also send MCP Apps ready (JSON-RPC style)
   postToHost({
