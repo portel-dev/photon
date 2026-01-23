@@ -175,8 +175,8 @@ export class MarketplaceView extends LitElement {
         background: var(--t-muted);
       }
 
-      /* Maker Actions Toolbar */
-      .maker-toolbar {
+      /* Actions Toolbar */
+      .actions-toolbar {
         display: flex;
         gap: var(--space-sm);
         margin-bottom: var(--space-lg);
@@ -184,23 +184,39 @@ export class MarketplaceView extends LitElement {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
+        flex-wrap: wrap;
+        align-items: center;
       }
 
-      .maker-toolbar-title {
-        font-size: 0.75rem;
+      .toolbar-section {
+        display: flex;
+        gap: var(--space-sm);
+        align-items: center;
+      }
+
+      .toolbar-section-title {
+        font-size: 0.7rem;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--t-muted);
-        margin-right: var(--space-md);
-        display: flex;
-        align-items: center;
+        margin-right: var(--space-sm);
       }
 
-      .maker-btn {
-        display: flex;
+      .toolbar-divider {
+        width: 1px;
+        height: 24px;
+        background: var(--border-glass);
+        margin: 0 var(--space-sm);
+      }
+
+      /* Unified button style for all toolbar buttons */
+      .toolbar-btn {
+        display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        padding: 8px 14px;
+        height: 36px;
+        padding: 0 14px;
         background: var(--bg-glass-strong);
         border: 1px solid var(--border-glass);
         color: var(--t-primary);
@@ -209,6 +225,52 @@ export class MarketplaceView extends LitElement {
         font-size: 0.85rem;
         font-weight: 500;
         transition: all 0.2s;
+        white-space: nowrap;
+      }
+
+      .toolbar-btn:hover {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .toolbar-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .toolbar-btn .icon {
+        font-size: 1rem;
+        line-height: 1;
+      }
+
+      .toolbar-btn.primary {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .toolbar-btn.primary:hover {
+        opacity: 0.9;
+      }
+
+      /* Legacy alias for backwards compatibility */
+      .maker-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 14px;
+        background: var(--bg-glass-strong);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        white-space: nowrap;
       }
 
       .maker-btn:hover {
@@ -224,6 +286,96 @@ export class MarketplaceView extends LitElement {
 
       .maker-btn .icon {
         font-size: 1rem;
+        line-height: 1;
+      }
+
+      /* Add Repository Modal */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+      }
+
+      .modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        width: 90%;
+        max-width: 450px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--space-md);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .modal-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .modal-close {
+        background: none;
+        border: none;
+        color: var(--t-muted);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: var(--radius-sm);
+      }
+
+      .modal-close:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass);
+      }
+
+      .modal-body {
+        padding: var(--space-md);
+      }
+
+      .modal-body input {
+        width: 100%;
+        padding: var(--space-sm) var(--space-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        border-radius: var(--radius-sm);
+        font-size: 0.95rem;
+        margin-bottom: var(--space-sm);
+      }
+
+      .modal-body input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+      }
+
+      .modal-hint {
+        font-size: 0.8rem;
+        color: var(--t-muted);
+        line-height: 1.5;
+      }
+
+      .modal-hint code {
+        background: var(--bg-glass);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+      }
+
+      .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-sm);
+        padding: var(--space-md);
+        border-top: 1px solid var(--border-glass);
       }
     `
     ];
@@ -237,6 +389,12 @@ export class MarketplaceView extends LitElement {
     @state()
     private _installing: string | null = null;
 
+    @state()
+    private _showAddRepoModal = false;
+
+    @state()
+    private _repoInput = '';
+
     async connectedCallback() {
         super.connectedCallback();
         this._fetchItems();
@@ -244,21 +402,39 @@ export class MarketplaceView extends LitElement {
 
     render() {
         return html`
-      <!-- Maker Actions Toolbar -->
-      <div class="maker-toolbar">
-        <span class="maker-toolbar-title">⚡ Quick Actions</span>
-        <button class="maker-btn" @click=${this._createNew} title="Create a new photon">
-          <span class="icon">✨</span>
-          <span>New Photon</span>
-        </button>
-        <button class="maker-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
-          <span class="icon">🔄</span>
-          <span>Sync</span>
-        </button>
-        <button class="maker-btn" @click=${this._validatePhotons} title="Validate all photons">
-          <span class="icon">✓</span>
-          <span>Validate</span>
-        </button>
+      <!-- Actions Toolbar -->
+      <div class="actions-toolbar">
+        <div class="toolbar-section">
+          <span class="toolbar-section-title">Create</span>
+          <button class="toolbar-btn" @click=${this._createNew} title="Create a new photon">
+            <span class="icon">✨</span>
+            <span>New Photon</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-section">
+          <span class="toolbar-section-title">Sources</span>
+          <button class="toolbar-btn primary" @click=${() => this._showAddRepoModal = true} title="Add a repository source">
+            <span class="icon">+</span>
+            <span>Add Repository</span>
+          </button>
+          <button class="toolbar-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
+            <span class="icon">🔄</span>
+            <span>Sync</span>
+          </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-section">
+          <span class="toolbar-section-title">Tools</span>
+          <button class="toolbar-btn" @click=${this._validatePhotons} title="Validate all photons">
+            <span class="icon">✓</span>
+            <span>Validate</span>
+          </button>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -279,6 +455,45 @@ export class MarketplaceView extends LitElement {
             </div>
           `
             }
+
+      ${this._showAddRepoModal ? this._renderAddRepoModal() : ''}
+    `;
+    }
+
+    private _renderAddRepoModal() {
+        return html`
+      <div class="modal-overlay" @click=${(e: Event) => {
+            if (e.target === e.currentTarget) this._showAddRepoModal = false;
+        }}>
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Add Repository</h3>
+            <button class="modal-close" @click=${() => this._showAddRepoModal = false}>✕</button>
+          </div>
+          <div class="modal-body">
+            <input
+              type="text"
+              placeholder="username/repo or URL"
+              .value=${this._repoInput}
+              @input=${(e: Event) => this._repoInput = (e.target as HTMLInputElement).value}
+              @keydown=${(e: KeyboardEvent) => {
+            if (e.key === 'Enter') this._addRepository();
+        }}
+              autofocus
+            >
+            <div class="modal-hint">
+              Supported formats:<br>
+              <code>username/repo</code> — GitHub repository<br>
+              <code>https://github.com/user/repo</code> — GitHub URL<br>
+              <code>https://example.com/photons.json</code> — Direct URL
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="toolbar-btn" @click=${() => this._showAddRepoModal = false}>Cancel</button>
+            <button class="toolbar-btn primary" @click=${this._addRepository}>Add</button>
+          </div>
+        </div>
+      </div>
     `;
     }
 
@@ -420,5 +635,36 @@ export class MarketplaceView extends LitElement {
             bubbles: true,
             composed: true
         }));
+    }
+
+    private async _addRepository() {
+        const source = this._repoInput.trim();
+        if (!source) {
+            showToast('Please enter a repository source', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/marketplace/sources/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to add repository');
+            }
+
+            this._showAddRepoModal = false;
+            this._repoInput = '';
+            showToast(data.added ? `Added: ${data.name}` : `Already exists: ${data.name}`, 'success');
+
+            // Refresh the marketplace list
+            this._fetchItems();
+        } catch (e: any) {
+            showToast(e.message || 'Failed to add repository', 'error', 5000);
+        }
     }
 }
