@@ -213,48 +213,6 @@ export class InvokeForm extends LitElement {
         font-size: 0.75rem;
         color: var(--t-muted);
       }
-
-      /* Persistence Controls */
-      .persistence-controls {
-        display: flex;
-        align-items: center;
-        gap: var(--space-md);
-        margin-top: var(--space-md);
-        padding: var(--space-sm) 0;
-      }
-
-      .remember-toggle {
-        display: flex;
-        align-items: center;
-        gap: var(--space-xs);
-        cursor: pointer;
-        font-size: 0.85rem;
-        color: var(--t-muted);
-        user-select: none;
-      }
-
-      .remember-toggle:hover {
-        color: var(--t-primary);
-      }
-
-      .remember-toggle input {
-        width: auto;
-        cursor: pointer;
-      }
-
-      .btn-clear {
-        padding: 4px 8px;
-        font-size: 0.75rem;
-        background: transparent;
-        color: var(--t-muted);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-sm);
-      }
-
-      .btn-clear:hover {
-        color: #f87171;
-        border-color: #f87171;
-      }
     `
   ];
 
@@ -272,14 +230,15 @@ export class InvokeForm extends LitElement {
   @property({ type: String })
   methodName = '';
 
+  /** Whether to remember form values (controlled by parent settings menu) */
+  @property({ type: Boolean })
+  rememberValues = false;
+
   @state()
   private _values: Record<string, any> = {};
 
   @state()
   private _errors: Record<string, string> = {};
-
-  @state()
-  private _rememberValues = false;
 
   private get _storageKey(): string {
     return `beam-form:${this.photonName}:${this.methodName}`;
@@ -291,8 +250,8 @@ export class InvokeForm extends LitElement {
   }
 
   updated(changedProps: Map<string, unknown>) {
-    // Reload persisted values when photon/method changes
-    if (changedProps.has('photonName') || changedProps.has('methodName')) {
+    // Reload persisted values when photon/method or remember setting changes
+    if (changedProps.has('photonName') || changedProps.has('methodName') || changedProps.has('rememberValues')) {
       this._loadPersistedValues();
     }
   }
@@ -300,12 +259,17 @@ export class InvokeForm extends LitElement {
   private _loadPersistedValues() {
     if (!this.photonName || !this.methodName) return;
 
+    // Only load persisted values if remember is enabled
+    if (!this.rememberValues) {
+      this._values = {};
+      return;
+    }
+
     try {
       const stored = localStorage.getItem(this._storageKey);
       if (stored) {
         const data = JSON.parse(stored);
         this._values = data.values || {};
-        this._rememberValues = data.remember ?? false;
       }
     } catch (e) {
       console.warn('Failed to load persisted form values:', e);
@@ -316,13 +280,10 @@ export class InvokeForm extends LitElement {
     if (!this.photonName || !this.methodName) return;
 
     try {
-      if (this._rememberValues) {
+      if (this.rememberValues) {
         localStorage.setItem(this._storageKey, JSON.stringify({
-          values: this._values,
-          remember: true
+          values: this._values
         }));
-      } else {
-        localStorage.removeItem(this._storageKey);
       }
     } catch (e) {
       console.warn('Failed to save form values:', e);
@@ -334,33 +295,14 @@ export class InvokeForm extends LitElement {
 
     localStorage.removeItem(this._storageKey);
     this._values = {};
-    this._rememberValues = false;
     showToast('Form values cleared', 'info');
     this.requestUpdate();
-  }
-
-  private _toggleRemember() {
-    this._rememberValues = !this._rememberValues;
-    this._savePersistedValues();
-    showToast(this._rememberValues ? 'Values will be remembered' : 'Values will not be remembered', 'info');
   }
 
   render() {
     return html`
       <div class="form-container">
         ${this._renderFields()}
-
-        <div class="persistence-controls">
-          <label class="remember-toggle" @click=${this._toggleRemember}>
-            <input type="checkbox" .checked=${this._rememberValues} @click=${(e: Event) => e.stopPropagation()}>
-            <span>Remember values</span>
-          </label>
-          ${this._rememberValues ? html`
-            <button class="btn-clear" @click=${this._clearPersistedValues} title="Clear saved values">
-              Clear
-            </button>
-          ` : ''}
-        </div>
 
         <div class="actions">
           <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>Cancel</button>
@@ -551,14 +493,14 @@ export class InvokeForm extends LitElement {
     }
 
     this._values = { ...this._values, [key]: newValues };
-    if (this._rememberValues) {
+    if (this.rememberValues) {
       this._savePersistedValues();
     }
   }
 
   private _handleChange(key: string, value: any) {
     this._values = { ...this._values, [key]: value };
-    if (this._rememberValues) {
+    if (this.rememberValues) {
       this._savePersistedValues();
     }
   }

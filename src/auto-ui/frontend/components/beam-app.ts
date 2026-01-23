@@ -201,6 +201,121 @@ export class BeamApp extends LitElement {
         color: var(--t-muted);
         font-size: 0.9rem;
       }
+
+      /* Settings Menu Dropdown */
+      .header-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-md);
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+      }
+
+      .settings-container {
+        position: relative;
+      }
+
+      .settings-btn {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        padding: 8px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+      }
+
+      .settings-btn:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass-strong);
+        border-color: var(--accent-primary);
+      }
+
+      .settings-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        min-width: 200px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 100;
+        overflow: hidden;
+      }
+
+      .settings-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        cursor: pointer;
+        color: var(--t-primary);
+        font-size: 0.9rem;
+        transition: background 0.15s ease;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+      }
+
+      .settings-dropdown-item:hover {
+        background: var(--bg-glass);
+      }
+
+      .settings-dropdown-item .icon {
+        font-size: 1rem;
+        width: 20px;
+        text-align: center;
+      }
+
+      .settings-dropdown-divider {
+        height: 1px;
+        background: var(--border-glass);
+        margin: 4px 0;
+      }
+
+      .settings-dropdown-item.toggle {
+        justify-content: space-between;
+      }
+
+      .toggle-switch {
+        width: 36px;
+        height: 20px;
+        background: var(--bg-glass);
+        border-radius: 10px;
+        position: relative;
+        transition: background 0.2s ease;
+      }
+
+      .toggle-switch.active {
+        background: var(--accent-primary);
+      }
+
+      .toggle-switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: white;
+        border-radius: 50%;
+        transition: transform 0.2s ease;
+      }
+
+      .toggle-switch.active::after {
+        transform: translateX(16px);
+      }
     `
   ];
 
@@ -228,6 +343,8 @@ export class BeamApp extends LitElement {
   @state() private _showElicitation = false;
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
   @state() private _mcpReady = false;
+  @state() private _showSettingsMenu = false;
+  @state() private _rememberFormValues = false;
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -251,6 +368,15 @@ export class BeamApp extends LitElement {
       this._protocolMode = 'mcp';
     }
 
+    // Load saved remember values preference
+    const savedRemember = localStorage.getItem('beam-remember-values');
+    if (savedRemember === 'true') {
+      this._rememberFormValues = true;
+    }
+
+    // Click outside to close settings menu
+    document.addEventListener('click', this._handleDocumentClick);
+
     this._connect();
     this._connectMCP();
 
@@ -264,6 +390,17 @@ export class BeamApp extends LitElement {
     window.removeEventListener('hashchange', this._handleHashChange);
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
+    document.removeEventListener('click', this._handleDocumentClick);
+  }
+
+  private _handleDocumentClick = (e: MouseEvent) => {
+    if (this._showSettingsMenu) {
+      const path = e.composedPath();
+      const settingsContainer = this.shadowRoot?.querySelector('.settings-container');
+      if (settingsContainer && !path.includes(settingsContainer)) {
+        this._showSettingsMenu = false;
+      }
+    }
   }
 
   private async _connectMCP() {
@@ -580,11 +717,41 @@ export class BeamApp extends LitElement {
       const backLabel = isAppMethod ? `← Back to ${this._selectedPhoton.name}` : '← Back to Methods';
 
       return html`
-          <div style="margin-bottom: var(--space-md);">
-            <button
-              style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-              @click=${() => this._handleBackFromMethod()}
-            >${backLabel}</button>
+          <div class="header-toolbar">
+            <div class="header-left">
+              <button
+                style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                @click=${() => this._handleBackFromMethod()}
+              >${backLabel}</button>
+            </div>
+            <div class="settings-container">
+              <button class="settings-btn" @click=${this._toggleSettingsMenu}>
+                <span>⚙️</span>
+                <span>Settings</span>
+              </button>
+              ${this._showSettingsMenu ? html`
+                <div class="settings-dropdown">
+                  <button class="settings-dropdown-item" @click=${this._handleRefresh}>
+                    <span class="icon">🔄</span>
+                    <span>Refresh</span>
+                  </button>
+                  ${this._selectedPhoton.configured !== false ? html`
+                    <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
+                      <span class="icon">🔧</span>
+                      <span>Reconfigure</span>
+                    </button>
+                  ` : ''}
+                  <div class="settings-dropdown-divider"></div>
+                  <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
+                    <span style="display:flex;align-items:center;gap:10px;">
+                      <span class="icon">💾</span>
+                      <span>Remember Values</span>
+                    </span>
+                    <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
+                  </button>
+                </div>
+              ` : ''}
+            </div>
           </div>
           <div class="glass-panel" style="padding: var(--space-lg);">
             <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
@@ -594,6 +761,7 @@ export class BeamApp extends LitElement {
               .loading=${this._isExecuting}
               .photonName=${this._selectedPhoton.name}
               .methodName=${this._selectedMethod.name}
+              .rememberValues=${this._rememberFormValues}
               @submit=${this._handleExecute}
               @cancel=${() => this._handleBackFromMethod()}
             ></invoke-form>
@@ -628,6 +796,7 @@ export class BeamApp extends LitElement {
   private _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
+    this._lastResult = null;
 
     // For unconfigured photons, show configuration view
     if (this._selectedPhoton.configured === false) {
@@ -648,6 +817,7 @@ export class BeamApp extends LitElement {
 
   private _handleMethodSelect(e: CustomEvent) {
     this._selectedMethod = e.detail.method;
+    this._lastResult = null;
     this._view = 'form';
     this._updateHash();
   }
@@ -675,6 +845,35 @@ export class BeamApp extends LitElement {
       this._selectedMethod = null;
       this._updateHash();
     }
+  }
+
+  private _toggleSettingsMenu = () => {
+    this._showSettingsMenu = !this._showSettingsMenu;
+  }
+
+  private _closeSettingsMenu = () => {
+    this._showSettingsMenu = false;
+  }
+
+  private _handleRefresh = () => {
+    this._closeSettingsMenu();
+    // Refresh photons list
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify({ type: 'list' }));
+      showToast('Refreshing photons...', 'info');
+    }
+  }
+
+  private _handleReconfigure = () => {
+    this._closeSettingsMenu();
+    this._view = 'config';
+    this._updateHash();
+  }
+
+  private _toggleRememberValues = () => {
+    this._rememberFormValues = !this._rememberFormValues;
+    localStorage.setItem('beam-remember-values', String(this._rememberFormValues));
+    showToast(this._rememberFormValues ? 'Form values will be remembered' : 'Form values will not be remembered', 'info');
   }
 
   private async _handleExecute(e: CustomEvent) {
@@ -747,6 +946,35 @@ export class BeamApp extends LitElement {
           args: msg.args,
           invocationId: callId
         }));
+      }
+    }
+
+    // Handle app state persistence
+    if (msg.type === 'photon:set-state') {
+      if (this._selectedPhoton && this._selectedMethod) {
+        const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
+        try {
+          localStorage.setItem(stateKey, JSON.stringify(msg.state));
+        } catch (e) {
+          console.warn('Failed to persist app state:', e);
+        }
+      }
+    }
+
+    // Handle request for persisted state
+    if (msg.type === 'photon:get-state') {
+      if (this._selectedPhoton && this._selectedMethod && event.source) {
+        const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
+        try {
+          const savedState = localStorage.getItem(stateKey);
+          const state = savedState ? JSON.parse(savedState) : null;
+          (event.source as Window).postMessage({
+            type: 'photon:init-state',
+            state
+          }, '*');
+        } catch (e) {
+          console.warn('Failed to load app state:', e);
+        }
       }
     }
   }
