@@ -169,6 +169,21 @@ export class ResultViewer extends LitElement {
         background: hsla(220, 10%, 80%, 0.05);
       }
 
+      /* Key-Value Table (single object) */
+      .kv-table {
+        max-width: 600px;
+      }
+
+      .kv-table th:first-child,
+      .kv-table .kv-key {
+        width: 140px;
+        font-weight: 600;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+      }
+
       /* List Styles */
       .smart-list {
         list-style: none;
@@ -1547,37 +1562,26 @@ export class ResultViewer extends LitElement {
       return html`${text}`;
     }
 
-    const mapping = this._analyzeFields(data);
-    const displayFields = Object.keys(data).filter(k =>
-      ![mapping.title, mapping.subtitle, mapping.icon].includes(k)
-    );
+    // Render single object as vertical key-value table
+    const keys = Object.keys(data).filter(k => data[k] !== undefined);
 
     return html`
-      <div class="smart-card">
-        ${(mapping.icon || mapping.title || mapping.subtitle) ? html`
-          <div class="card-header">
-            ${mapping.icon ? html`
-              <div class="card-icon">
-                ${this._isImageUrl(data[mapping.icon])
-                  ? html`<img src="${data[mapping.icon]}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`
-                  : data[mapping.icon]}
-              </div>
-            ` : ''}
-            <div>
-              ${mapping.title ? html`<div class="card-title">${this._highlightText(String(data[mapping.title]))}</div>` : ''}
-              ${mapping.subtitle ? html`<div class="card-subtitle">${this._highlightText(String(data[mapping.subtitle]))}</div>` : ''}
-            </div>
-          </div>
-        ` : ''}
-        <div class="card-fields">
-          ${displayFields.map(key => html`
-            <div class="card-field">
-              <div class="card-field-label">${this._formatColumnName(key)}</div>
-              <div class="card-field-value">${this._formatCellValue(data[key], key, true)}</div>
-            </div>
+      <table class="smart-table kv-table">
+        <thead>
+          <tr>
+            <th>Property</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${keys.map(key => html`
+            <tr>
+              <td class="kv-key">${this._formatColumnName(key)}</td>
+              <td>${this._formatCellValue(data[key], key, true)}</td>
+            </tr>
           `)}
-        </div>
-      </div>
+        </tbody>
+      </table>
     `;
   }
 
