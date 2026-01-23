@@ -1,0 +1,305 @@
+/**
+ * Tunnel - Expose local servers to the internet
+ * @description Multi-provider tunneling for remote access to Beam and local services
+ */
+
+import { spawn, execSync, ChildProcess } from 'child_process';
+
+interface TunnelInfo {
+  provider: string;
+  port: number;
+  url: string;
+  pid: number;
+  startedAt: Date;
+}
+
+// Track active tunnels
+const activeTunnels: Map<number, { process: ChildProcess; info: TunnelInfo }> = new Map();
+
+export default class Tunnel {
+  /**
+   * Check available tunnel providers
+   * @icon 🔍
+   */
+  async status(): Promise<{
+    providers: Array<{
+      name: string;
+      available: boolean;
+      install?: string;
+      note?: string;
+    }>;
+    activeTunnels: TunnelInfo[];
+  }> {
+    const providers = [
+      {
+        name: 'localtunnel',
+        available: true, // Always available via npx
+        note: 'Ready (uses npx, no install needed)'
+      },
+      {
+        name: 'ngrok',
+        available: this._checkCommand('ngrok'),
+        install: 'brew install ngrok  OR  https://ngrok.com/download'
+      },
+      {
+        name: 'cloudflared',
+        available: this._checkCommand('cloudflared'),
+        install: 'brew install cloudflared  OR  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation'
+      }
+    ];
+
+    return {
+      providers,
+      activeTunnels: Array.from(activeTunnels.values()).map(t => t.info)
+    };
+  }
+
+  /**
+   * Start a tunnel to expose a local port
+   * @icon 🚀
+   * @param port Local port to expose (default: 3117 for Beam)
+   * @param provider Tunnel provider to use
+   */
+  async *start({
+    port = 3117,
+    provider = 'localtunnel'
+  }: {
+    /** Local port to expose */
+    port?: number;
+    /** Provider: localtunnel, ngrok, or cloudflared */
+    provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
+  }): AsyncGenerator<{ step: string; message?: string; url?: string; info?: TunnelInfo }> {
+    // Check if tunnel already exists for this port
+    if (activeTunnels.has(port)) {
+      const existing = activeTunnels.get(port)!;
+      yield {
+        step: 'exists',
+        message: `Tunnel already active on port ${port}`,
+        url: existing.info.url,
+        info: existing.info
+      };
+      return;
+    }
+
+    yield { step: 'starting', message: `Starting ${provider} tunnel on port ${port}...` };
+
+    try {
+      let url: string;
+      let process: ChildProcess;
+
+      switch (provider) {
+        case 'ngrok':
+          if (!this._checkCommand('ngrok')) {
+            throw new Error('ngrok not installed. Run: brew install ngrok');
+          }
+          ({ url, process } = await this._startNgrok(port));
+          break;
+
+        case 'cloudflared':
+          if (!this._checkCommand('cloudflared')) {
+            throw new Error('cloudflared not installed. Run: brew install cloudflared');
+          }
+          ({ url, process } = await this._startCloudflared(port));
+          break;
+
+        case 'localtunnel':
+        default:
+          ({ url, process } = await this._startLocaltunnel(port));
+          break;
+      }
+
+      const info: TunnelInfo = {
+        provider,
+        port,
+        url,
+        pid: process.pid!,
+        startedAt: new Date()
+      };
+
+      activeTunnels.set(port, { process, info });
+
+      yield {
+        step: 'done',
+        message: `Tunnel active!`,
+        url,
+        info
+      };
+
+    } catch (error: any) {
+      yield { step: 'error', message: error.message };
+    }
+  }
+
+  /**
+   * Stop a tunnel
+   * @icon ⏹️
+   * @param port Port of the tunnel to stop
+   */
+  async stop({ port }: {
+    /** Port of the tunnel to stop */
+    port: number
+  }): Promise<{ stopped: boolean; message: string }> {
+    const tunnel = activeTunnels.get(port);
+
+    if (!tunnel) {
+      return { stopped: false, message: `No active tunnel on port ${port}` };
+    }
+
+    tunnel.process.kill();
+    activeTunnels.delete(port);
+
+    return {
+      stopped: true,
+      message: `Stopped ${tunnel.info.provider} tunnel on port ${port}`
+    };
+  }
+
+  /**
+   * Stop all active tunnels
+   * @icon ⏹️
+   */
+  async stopAll(): Promise<{ stopped: number; message: string }> {
+    const count = activeTunnels.size;
+
+    for (const [port, tunnel] of activeTunnels) {
+      tunnel.process.kill();
+      activeTunnels.delete(port);
+    }
+
+    return {
+      stopped: count,
+      message: count > 0 ? `Stopped ${count} tunnel(s)` : 'No active tunnels'
+    };
+  }
+
+  /**
+   * List active tunnels
+   * @icon 📋
+   */
+  async list(): Promise<{ tunnels: TunnelInfo[] }> {
+    return {
+      tunnels: Array.from(activeTunnels.values()).map(t => t.info)
+    };
+  }
+
+  // ============================================
+  // Provider Implementations
+  // ============================================
+
+  private _checkCommand(cmd: string): boolean {
+    try {
+      execSync(`which ${cmd}`, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async _startLocaltunnel(port: number): Promise<{ url: string; process: ChildProcess }> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('npx', ['localtunnel', '--port', String(port)], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let output = '';
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for localtunnel URL'));
+      }, 30000);
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+        // localtunnel outputs: "your url is: https://xxx.loca.lt"
+        const match = output.match(/your url is: (https?:\/\/[^\s]+)/i);
+        if (match) {
+          clearTimeout(timeout);
+          resolve({ url: match[1], process: proc });
+        }
+      });
+
+      proc.stderr?.on('data', (data) => {
+        const err = data.toString();
+        if (err.includes('error')) {
+          clearTimeout(timeout);
+          reject(new Error(err));
+        }
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0 && !output.includes('your url is')) {
+          clearTimeout(timeout);
+          reject(new Error(`localtunnel exited with code ${code}`));
+        }
+      });
+    });
+  }
+
+  private async _startNgrok(port: number): Promise<{ url: string; process: ChildProcess }> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('ngrok', ['http', String(port), '--log', 'stdout'], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let output = '';
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for ngrok URL'));
+      }, 15000);
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+        // ngrok outputs JSON logs, look for the URL
+        const match = output.match(/url=(https?:\/\/[^\s"]+\.ngrok[^\s"]*)/i);
+        if (match) {
+          clearTimeout(timeout);
+          resolve({ url: match[1], process: proc });
+        }
+      });
+
+      proc.stderr?.on('data', (data) => {
+        output += data.toString();
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  private async _startCloudflared(port: number): Promise<{ url: string; process: ChildProcess }> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let output = '';
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for cloudflared URL'));
+      }, 30000);
+
+      // cloudflared outputs to stderr
+      proc.stderr?.on('data', (data) => {
+        output += data.toString();
+        // Look for the trycloudflare.com URL
+        const match = output.match(/(https?:\/\/[^\s]+\.trycloudflare\.com)/i);
+        if (match) {
+          clearTimeout(timeout);
+          resolve({ url: match[1], process: proc });
+        }
+      });
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+}
