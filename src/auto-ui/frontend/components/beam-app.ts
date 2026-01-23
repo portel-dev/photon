@@ -991,6 +991,28 @@ export class BeamApp extends LitElement {
     // Just log for now, the socket update 'photon_added' will handle the actual refresh
     this._log('info', `Installed ${e.detail.name}`);
   }
+
+  private _handleMakerAction(e: CustomEvent) {
+    const action = e.detail.action;
+    // Find maker photon and invoke the static method
+    const maker = this._photons.find(p => p.name === 'maker');
+    if (!maker) {
+      showToast('Maker photon not found', 'error');
+      return;
+    }
+
+    // Navigate to maker photon and select the method
+    this._selectedPhoton = maker;
+    const method = maker.methods?.find((m: any) => m.name === action);
+    if (method) {
+      this._selectedMethod = method;
+      this._view = 'form';
+      this._updateHash();
+    } else {
+      showToast(`Method '${action}' not found on maker`, 'error');
+    }
+  }
+
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
   @state() private _lastFormParams: Record<string, any> = {};
@@ -1414,7 +1436,7 @@ export class BeamApp extends LitElement {
             <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
               Discover and install new Photons.
             </p>
-            <marketplace-view @install=${this._handleInstall}></marketplace-view>
+            <marketplace-view @install=${this._handleInstall} @maker-action=${this._handleMakerAction}></marketplace-view>
         `;
     }
 
@@ -1588,10 +1610,25 @@ export class BeamApp extends LitElement {
                   </span>
                   <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
                 </button>
+                ${this._selectedPhoton.name !== 'maker' ? html`
+                  <div class="settings-dropdown-divider"></div>
+                  <button class="settings-dropdown-item" @click=${this._handleRenamePhoton}>
+                    <span class="icon">✏️</span>
+                    <span>Rename</span>
+                  </button>
+                  <button class="settings-dropdown-item" @click=${this._handleViewSource}>
+                    <span class="icon">📄</span>
+                    <span>View Source</span>
+                  </button>
+                  <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleDeletePhoton}>
+                    <span class="icon">🗑️</span>
+                    <span>Delete</span>
+                  </button>
+                ` : ''}
                 <div class="settings-dropdown-divider"></div>
-                <button class="settings-dropdown-item" @click=${this._showHelpModal}>
-                  <span class="icon">❓</span>
-                  <span>Help & Shortcuts</span>
+                <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
+                  <span class="icon">📖</span>
+                  <span>Photon Help</span>
                 </button>
               </div>
             ` : ''}
@@ -1715,6 +1752,55 @@ export class BeamApp extends LitElement {
     this._rememberFormValues = !this._rememberFormValues;
     localStorage.setItem('beam-remember-values', String(this._rememberFormValues));
     showToast(this._rememberFormValues ? 'Form values will be remembered' : 'Form values will not be remembered', 'info');
+  }
+
+  // Maker instance method handlers - operate on the current photon
+  private _handleRenamePhoton = () => {
+    this._closeSettingsMenu();
+    const currentName = this._selectedPhoton?.name || '';
+    const newName = prompt(`Enter new name for "${currentName}":`, currentName);
+    if (newName && newName !== currentName) {
+      this._invokeMakerMethod('rename', { name: newName });
+    }
+  }
+
+  private _handleViewSource = () => {
+    this._closeSettingsMenu();
+    this._invokeMakerMethod('source');
+  }
+
+  private _handleDeletePhoton = () => {
+    this._closeSettingsMenu();
+    if (confirm(`Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`)) {
+      this._invokeMakerMethod('delete');
+    }
+  }
+
+  private _invokeMakerMethod(methodName: string, additionalArgs: Record<string, any> = {}) {
+    // Find maker photon
+    const maker = this._photons.find(p => p.name === 'maker');
+    if (!maker) {
+      showToast('Maker photon not available', 'error');
+      return;
+    }
+
+    // Invoke the maker method with the current photon's path
+    const photonPath = this._selectedPhoton?.path;
+    if (!photonPath) {
+      showToast('Photon path not available', 'error');
+      return;
+    }
+
+    // Send invoke request to backend
+    this._ws?.send(JSON.stringify({
+      type: 'invoke',
+      photon: 'maker',
+      method: methodName,
+      args: { photonPath, ...additionalArgs },
+      invocationId: `maker-${methodName}-${Date.now()}`
+    }));
+
+    this._log('info', `Invoking maker.${methodName} on ${this._selectedPhoton?.name}...`);
   }
 
   private async _handleExecute(e: CustomEvent) {
