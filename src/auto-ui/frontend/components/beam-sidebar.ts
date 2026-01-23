@@ -16,10 +16,51 @@ export class BeamSidebar extends LitElement {
     theme,
     css`
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
         color: var(--t-primary);
+      }
+
+      .sidebar-content {
+        flex: 1;
         overflow-y: auto;
+      }
+
+      .sidebar-footer {
+        padding: var(--space-sm) var(--space-md);
+        border-top: 1px solid var(--border-glass);
+        display: flex;
+        justify-content: center;
+        gap: var(--space-md);
+      }
+
+      .footer-link {
+        color: var(--t-muted);
+        font-size: 0.75rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        transition: color 0.2s;
+        background: none;
+        border: none;
+        padding: var(--space-xs) var(--space-sm);
+        border-radius: var(--radius-sm);
+      }
+
+      .footer-link:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass);
+      }
+
+      .footer-link kbd {
+        font-size: 0.65rem;
+        padding: 1px 4px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 3px;
+        font-family: var(--font-mono);
       }
 
       .header {
@@ -367,69 +408,81 @@ export class BeamSidebar extends LitElement {
 
   render() {
     return html`
-      <div class="header">
-        <div class="header-row">
-          <h2 class="text-gradient logo">Photon Beam</h2>
-          <div class="theme-toggle">
+      <div class="sidebar-content">
+        <div class="header">
+          <div class="header-row">
+            <h2 class="text-gradient logo">Photon Beam</h2>
+            <div class="theme-toggle">
+              <button
+                class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
+                @click=${() => this._setTheme('light')}
+                title="Light theme"
+              >☀️</button>
+              <button
+                class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
+                @click=${() => this._setTheme('dark')}
+                title="Dark theme"
+              >🌙</button>
+            </div>
+          </div>
+          <div class="search-box">
+            <input
+              type="text"
+              placeholder="Search photons... (⌘K)"
+              .value=${this._searchQuery}
+              @input=${this._handleSearch}
+              @keydown=${this._handleSearchKeydown}
+            >
+          </div>
+          <div class="filter-row">
             <button
-              class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
-              @click=${() => this._setTheme('light')}
-              title="Light theme"
-            >☀️</button>
+              class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
+              @click=${this._toggleFavoritesFilter}
+              title="Show favorites only (f)"
+            >
+              ⭐ Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
+            </button>
             <button
-              class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
-              @click=${() => this._setTheme('dark')}
-              title="Dark theme"
-            >🌙</button>
+              class="filter-btn"
+              @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+            >
+              🛍️ Marketplace
+            </button>
           </div>
         </div>
-        <div class="search-box">
-          <input
-            type="text"
-            placeholder="Search photons... (⌘K)"
-            .value=${this._searchQuery}
-            @input=${this._handleSearch}
-            @keydown=${this._handleSearchKeydown}
-          >
-        </div>
-        <div class="filter-row">
-          <button
-            class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
-            @click=${this._toggleFavoritesFilter}
-            title="Show favorites only (f)"
-          >
-            ⭐ Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
-          </button>
-          <button
-            class="filter-btn"
-            @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
-          >
-            🛍️ Marketplace
-          </button>
-        </div>
+
+        ${this._apps.length > 0 ? html`
+          <div class="section-header">Apps</div>
+          <ul class="photon-list">
+            ${this._apps.map(photon => this._renderPhotonItem(photon, 'app'))}
+          </ul>
+        ` : ''}
+
+        ${this._configured.length > 0 ? html`
+          <div class="section-header">MCPs</div>
+          <ul class="photon-list">
+            ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
+          </ul>
+        ` : ''}
+
+        ${this._needsSetup.length > 0 ? html`
+          <div class="section-header">Setup</div>
+          <ul class="photon-list">
+            ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
+          </ul>
+        ` : ''}
       </div>
 
-      ${this._apps.length > 0 ? html`
-        <div class="section-header">Apps</div>
-        <ul class="photon-list">
-          ${this._apps.map(photon => this._renderPhotonItem(photon, 'app'))}
-        </ul>
-      ` : ''}
-
-      ${this._configured.length > 0 ? html`
-        <div class="section-header">MCPs</div>
-        <ul class="photon-list">
-          ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
-        </ul>
-      ` : ''}
-
-      ${this._needsSetup.length > 0 ? html`
-        <div class="section-header">Setup</div>
-        <ul class="photon-list">
-          ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
-        </ul>
-      ` : ''}
+      <div class="sidebar-footer">
+        <button class="footer-link" @click=${this._showShortcuts} title="Keyboard shortcuts">
+          ⌨️ Shortcuts <kbd>?</kbd>
+        </button>
+      </div>
     `;
+  }
+
+  private _showShortcuts() {
+    this.dispatchEvent(new CustomEvent('show-shortcuts', { bubbles: true, composed: true }));
   }
 
   private _renderPhotonItem(photon: PhotonItem, type: 'app' | 'configured' | 'unconfigured') {
