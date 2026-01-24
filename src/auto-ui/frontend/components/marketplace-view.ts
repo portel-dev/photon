@@ -375,24 +375,19 @@ export class MarketplaceView extends LitElement {
         width: 100%;
         font-size: 0.8rem;
         border-collapse: collapse;
-        margin-top: var(--space-sm);
-      }
-
-      .formats-table th {
-        text-align: left;
-        color: var(--t-muted);
-        font-weight: 500;
-        padding: var(--space-xs) var(--space-sm);
-        border-bottom: 1px solid var(--border-glass);
+        margin-top: var(--space-md);
       }
 
       .formats-table td {
-        padding: var(--space-xs) var(--space-sm);
+        padding: 6px 0;
         vertical-align: middle;
       }
 
-      .formats-table td:first-child {
-        white-space: nowrap;
+      .formats-table .type-label {
+        color: var(--t-muted);
+        font-size: 0.75rem;
+        width: 80px;
+        font-weight: 500;
       }
 
       .formats-table td code {
@@ -400,11 +395,7 @@ export class MarketplaceView extends LitElement {
         padding: 2px 6px;
         border-radius: 3px;
         font-size: 0.75rem;
-      }
-
-      .formats-table .type-label {
-        color: var(--t-muted);
-        font-size: 0.75rem;
+        color: var(--t-secondary);
       }
 
       .modal-footer {
@@ -510,7 +501,7 @@ export class MarketplaceView extends LitElement {
           <div class="modal-body">
             <input
               type="text"
-              placeholder="username/repo or URL"
+              placeholder="Enter GitHub repo, local path, or URL"
               .value=${this._repoInput}
               @input=${(e: Event) => this._repoInput = (e.target as HTMLInputElement).value}
               @keydown=${(e: KeyboardEvent) => {
@@ -518,38 +509,15 @@ export class MarketplaceView extends LitElement {
         }}
               autofocus
             >
-            <div class="modal-hint">
-              <table class="formats-table">
-                <thead>
-                  <tr>
-                    <th>Format</th>
-                    <th>Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><code>username/repo</code></td>
-                    <td class="type-label">GitHub</td>
-                  </tr>
-                  <tr>
-                    <td><code>https://github.com/user/repo</code></td>
-                    <td class="type-label">GitHub URL</td>
-                  </tr>
-                  <tr>
-                    <td><code>git@github.com:user/repo.git</code></td>
-                    <td class="type-label">SSH</td>
-                  </tr>
-                  <tr>
-                    <td><code>~/path/to/folder</code></td>
-                    <td class="type-label">Local</td>
-                  </tr>
-                  <tr>
-                    <td><code>https://example.com/photons.json</code></td>
-                    <td class="type-label">URL</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <table class="formats-table">
+              <tbody>
+                <tr><td class="type-label">GitHub</td><td><code>username/repo</code></td></tr>
+                <tr><td class="type-label">GitHub URL</td><td><code>https://github.com/user/repo</code></td></tr>
+                <tr><td class="type-label">SSH</td><td><code>git@github.com:user/repo.git</code></td></tr>
+                <tr><td class="type-label">Local</td><td><code>~/path/to/folder</code></td></tr>
+                <tr><td class="type-label">URL</td><td><code>https://example.com/photons.json</code></td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="modal-footer">
             <button class="toolbar-btn" @click=${() => this._showAddRepoModal = false}>Cancel</button>
