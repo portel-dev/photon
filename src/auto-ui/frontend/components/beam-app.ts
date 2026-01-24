@@ -1495,9 +1495,38 @@ export class BeamApp extends LitElement {
 
           ${isAppMain && otherMethods.length > 0 ? html`
             <div style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);">
-              <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
-                Additional Methods
-              </h3>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg);">
+                <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                  <span style="font-size: 1.5rem;">${this._selectedPhoton.appEntry?.icon || '📱'}</span>
+                  <h3 style="margin: 0; font-size: 1.2rem; color: var(--t-primary);">${this._selectedPhoton.name}</h3>
+                </div>
+                <div class="settings-container">
+                  <button class="settings-btn" @click=${this._toggleSettingsMenu}>
+                    <span>⚙️</span>
+                    <span>Settings</span>
+                  </button>
+                  ${this._showSettingsMenu ? html`
+                    <div class="settings-dropdown">
+                      <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
+                        <span class="icon">🖥️</span>
+                        <span>Launch as App</span>
+                      </button>
+                      <button class="settings-dropdown-item" @click=${this._handleRefresh}>
+                        <span class="icon">🔄</span>
+                        <span>Reload</span>
+                      </button>
+                      <div class="settings-dropdown-divider"></div>
+                      <button class="settings-dropdown-item danger" @click=${this._handleRemove}>
+                        <span class="icon">🗑️</span>
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+              <h4 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
+                Methods
+              </h4>
               <div class="cards-grid">
                 ${otherMethods.map((method: any) => html`
                   <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
@@ -1738,6 +1767,25 @@ export class BeamApp extends LitElement {
         photon: this._selectedPhoton.name
       }));
       showToast(`Reloading ${this._selectedPhoton.name}...`, 'info');
+    }
+  }
+
+  private _launchAsApp = () => {
+    this._closeSettingsMenu();
+    if (this._selectedPhoton) {
+      window.open(`/api/pwa/app?photon=${encodeURIComponent(this._selectedPhoton.name)}`, '_blank');
+    }
+  }
+
+  private _handleRemove = () => {
+    this._closeSettingsMenu();
+    if (this._ws && this._ws.readyState === WebSocket.OPEN && this._selectedPhoton) {
+      if (confirm(`Remove ${this._selectedPhoton.name} from this workspace?`)) {
+        this._ws.send(JSON.stringify({
+          type: 'remove',
+          photon: this._selectedPhoton.name
+        }));
+      }
     }
   }
 
