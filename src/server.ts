@@ -661,8 +661,10 @@ export class PhotonServer {
 
         // Add UI assets (format depends on client capabilities)
         for (const ui of this.mcp.assets.ui) {
+          // Use pre-generated URI from loader, or build one
+          const uiUri = (ui as any).uri || this.buildUIResourceUri(ui.id);
           resources.push({
-            uri: this.buildUIResourceUri(ui.id),
+            uri: uiUri,
             name: `ui:${ui.id}`,
             description: ui.linkedTool
               ? `UI template for ${ui.linkedTool} tool`
@@ -722,7 +724,14 @@ export class PhotonServer {
 
       const { uri } = request.params;
 
-      // Check for asset URI
+      // Check for SEP-1865 ui:// URI format
+      const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+      if (uiMatch && this.mcp.assets) {
+        const [, _photonName, assetId] = uiMatch;
+        return this.handleUIAssetRead(uri, assetId);
+      }
+
+      // Check for legacy photon:// asset URI format
       const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
       if (assetMatch && this.mcp.assets) {
         return this.handleAssetRead(uri, assetMatch);
@@ -1611,8 +1620,10 @@ export class PhotonServer {
       // Add asset resources (UI format depends on client capabilities)
       if (this.mcp.assets) {
         for (const ui of this.mcp.assets.ui) {
+          // Use pre-generated URI from loader, or build one
+          const uiUri = (ui as any).uri || this.buildUIResourceUri(ui.id, sessionServer);
           resources.push({
-            uri: this.buildUIResourceUri(ui.id, sessionServer),
+            uri: uiUri,
             name: `ui:${ui.id}`,
             description: ui.linkedTool
               ? `UI template for ${ui.linkedTool} tool`
@@ -1661,7 +1672,14 @@ export class PhotonServer {
       if (!this.mcp) throw new Error('MCP not loaded');
       const { uri } = request.params;
 
-      // Check for asset URI
+      // Check for SEP-1865 ui:// URI format
+      const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+      if (uiMatch && this.mcp.assets) {
+        const [, _photonName, assetId] = uiMatch;
+        return this.handleUIAssetRead(uri, assetId);
+      }
+
+      // Check for legacy photon:// asset URI format
       const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
       if (assetMatch && this.mcp.assets) {
         return this.handleAssetRead(uri, assetMatch);
@@ -1674,6 +1692,24 @@ export class PhotonServer {
 
   /**
    * Handle asset read (for both stdio and SSE handlers)
+   */
+  /**
+   * Handle SEP-1865 ui:// resource read
+   */
+  private async handleUIAssetRead(uri: string, assetId: string) {
+    const ui = this.mcp!.assets!.ui.find((u) => u.id === assetId);
+    if (!ui || !ui.resolvedPath) {
+      throw new Error(`UI asset not found: ${uri}`);
+    }
+
+    const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+    return {
+      contents: [{ uri, mimeType: ui.mimeType || 'text/html+mcp', text: content }],
+    };
+  }
+
+  /**
+   * Handle legacy photon:// asset read
    */
   private async handleAssetRead(uri: string, assetMatch: RegExpMatchArray) {
     const [, _photonName, assetType, assetId] = assetMatch;
