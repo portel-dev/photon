@@ -49,13 +49,16 @@ try {
       const counts = countCheckboxes(task.description);
       if (counts.unchecked > 0) {
         pendingDetails.push(`"${task.title}": ${counts.unchecked} unchecked items`);
+      } else {
+        // Task is in progress but has no checkboxes (or all checked) - still block
+        pendingDetails.push(`"${task.title}": still in progress`);
       }
     }
 
     if (pendingDetails.length > 0) {
       console.log(JSON.stringify({
         decision: 'block',
-        reason: `Incomplete tasks IN PROGRESS on board "${BOARD}":\n${pendingDetails.join('\n')}\n\nComplete all checkbox items or move tasks to Done.`
+        reason: `Tasks still IN PROGRESS on board "${BOARD}":\n${pendingDetails.join('\n')}\n\nComplete work and move tasks to Done before stopping.`
       }));
     }
   }
