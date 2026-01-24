@@ -47,7 +47,28 @@ interface MCPResourceContent {
   blob?: string; // base64 encoded
 }
 
-type MCPEventType = 'connect' | 'disconnect' | 'error' | 'tools-changed' | 'progress';
+/**
+ * Configuration schema for unconfigured photons (SEP-1596 inspired)
+ */
+interface ConfigurationSchema {
+  [photonName: string]: {
+    title?: string;
+    description?: string;
+    type: 'object';
+    properties: Record<string, {
+      type: string;
+      description?: string;
+      default?: any;
+      'x-env-var'?: string;
+      'x-sensitive'?: boolean;
+      'x-ui-widget'?: string;
+      format?: string;
+    }>;
+    required?: string[];
+  };
+}
+
+type MCPEventType = 'connect' | 'disconnect' | 'error' | 'tools-changed' | 'progress' | 'configuration-available';
 
 class MCPClientService {
   private sessionId: string | null = null;
@@ -59,6 +80,7 @@ class MCPClientService {
   private reconnectDelay = 1000;
   private eventListeners = new Map<MCPEventType, Set<Function>>();
   private baseUrl: string;
+  private _configurationSchema: ConfigurationSchema | null = null;
 
   constructor() {
     this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
@@ -112,12 +134,21 @@ class MCPClientService {
         name: 'beam-ui',
         version: '1.0.0',
       },
-    });
+    }) as {
+      protocolVersion: string;
+      serverInfo: { name: string; version: string };
+      capabilities: Record<string, unknown>;
+      configurationSchema?: ConfigurationSchema;
+    };
+
+    // Capture configuration schema for unconfigured photons
+    if (result.configurationSchema) {
+      this._configurationSchema = result.configurationSchema;
+      this.emit('configuration-available', this._configurationSchema);
+    }
 
     // Send initialized notification
     await this.sendNotification('notifications/initialized', {});
-
-    return result as void;
   }
 
   /**
@@ -230,6 +261,71 @@ class MCPClientService {
       contents: MCPResourceContent[];
     };
     return result.contents?.[0] || null;
+  }
+
+  /**
+   * Get configuration schema for unconfigured photons
+   */
+  getConfigurationSchema(): ConfigurationSchema | null {
+    return this._configurationSchema;
+  }
+
+  /**
+   * Check if a photon needs configuration
+   */
+  needsConfiguration(photonName: string): boolean {
+    return !!this._configurationSchema?.[photonName];
+  }
+
+  /**
+   * Configure a photon via beam/configure tool
+   */
+  async configurePhoton(
+    photonName: string,
+    config: Record<string, string>
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.callTool('beam/configure', {
+        photon: photonName,
+        config,
+      });
+
+      if (result.isError) {
+        const errorText = result.content.find(c => c.type === 'text')?.text || 'Configuration failed';
+        return { success: false, error: errorText };
+      }
+
+      // Clear configuration schema for this photon on success
+      if (this._configurationSchema) {
+        delete this._configurationSchema[photonName];
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Browse server filesystem via beam/browse tool
+   */
+  async browseFilesystem(
+    path?: string,
+    filter?: string
+  ): Promise<{ path: string; parent: string; items: Array<{ name: string; path: string; isDirectory: boolean }> } | null> {
+    try {
+      const result = await this.callTool('beam/browse', { path, filter });
+
+      if (result.isError) {
+        return null;
+      }
+
+      const data = this.parseToolResult(result);
+      return data as any;
+    } catch {
+      return null;
+    }
   }
 
   /**

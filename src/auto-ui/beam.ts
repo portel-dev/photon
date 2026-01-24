@@ -577,9 +577,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     // ══════════════════════════════════════════════════════════════════════════
     if (url.pathname === '/mcp') {
       const handled = await handleStreamableHTTP(req, res, {
-        photons: photons.filter((p): p is PhotonInfo => p.configured),
+        photons, // Pass all photons including unconfigured for configurationSchema
         photonMCPs,
         loadUIAsset,
+        configurePhoton: async (photonName: string, config: Record<string, any>) => {
+          return configurePhotonViaMCP(photonName, config, photons, photonMCPs, loader, savedConfig);
+        },
       });
       if (handled) return;
     }
@@ -2394,6 +2397,118 @@ async function handleConfigure(
         message: `Configuration failed: ${errorMsg.slice(0, 200)}`,
       })
     );
+  }
+}
+
+/**
+ * Configure a photon via MCP (beam/configure tool)
+ * This is a callback for the Streamable HTTP transport
+ */
+async function configurePhotonViaMCP(
+  photonName: string,
+  config: Record<string, any>,
+  photons: AnyPhotonInfo[],
+  photonMCPs: Map<string, any>,
+  loader: PhotonLoader,
+  savedConfig: PhotonConfig
+): Promise<{ success: boolean; error?: string }> {
+  // Find the unconfigured photon
+  const photonIndex = photons.findIndex((p) => p.name === photonName && !p.configured);
+  if (photonIndex === -1) {
+    return { success: false, error: `Photon not found or already configured: ${photonName}` };
+  }
+
+  const unconfiguredPhoton = photons[photonIndex] as UnconfiguredPhotonInfo;
+
+  // Apply config to environment
+  for (const [key, value] of Object.entries(config)) {
+    process.env[key] = String(value);
+  }
+
+  // Save config to file
+  savedConfig.photons[photonName] = config;
+  await saveConfig(savedConfig);
+
+  // Try to reload the photon
+  try {
+    const mcp = await loader.loadFile(unconfiguredPhoton.path);
+    const instance = mcp.instance;
+
+    if (!instance) {
+      throw new Error('Failed to create instance');
+    }
+
+    photonMCPs.set(photonName, mcp);
+
+    // Extract schema for UI
+    const extractor = new SchemaExtractor();
+    const configSource = await fs.readFile(unconfiguredPhoton.path, 'utf-8');
+    const { tools: schemas, templates } = extractor.extractAllFromSource(configSource);
+    (mcp as any).schemas = schemas;
+
+    // Get UI assets for linking
+    const uiAssets = mcp.assets?.ui || [];
+
+    const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+    const methods: MethodInfo[] = schemas
+      .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+      .map((schema: any) => {
+        const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+        return {
+          name: schema.name,
+          description: schema.description || '',
+          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          autorun: schema.autorun || false,
+          outputFormat: schema.outputFormat,
+          layoutHints: schema.layoutHints,
+          buttonLabel: schema.buttonLabel,
+          icon: schema.icon,
+          linkedUi: linkedAsset?.id,
+        };
+      });
+
+    // Add templates as methods
+    templates.forEach((template: any) => {
+      if (!lifecycleMethods.includes(template.name)) {
+        methods.push({
+          name: template.name,
+          description: template.description || '',
+          params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+          returns: { type: 'object' },
+          isTemplate: true,
+          outputFormat: 'markdown',
+        });
+      }
+    });
+
+    // Check if this is an App
+    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+    const isApp = !!mainMethod;
+
+    // Replace unconfigured photon with configured one
+    const configuredPhoton: PhotonInfo = {
+      name: photonName,
+      path: unconfiguredPhoton.path,
+      configured: true,
+      methods,
+      isApp,
+      appEntry: mainMethod,
+      assets: mcp.assets,
+    };
+
+    photons[photonIndex] = configuredPhoton;
+
+    logger.info(`✅ ${photonName} configured via MCP`);
+
+    // Notify connected MCP clients about tools list change
+    broadcastNotification('notifications/tools/list_changed', {});
+
+    return { success: true };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to configure ${photonName} via MCP: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   }
 }
 
