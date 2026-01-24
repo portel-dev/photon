@@ -289,7 +289,7 @@ export class MarketplaceView extends LitElement {
         line-height: 1;
       }
 
-      /* Add Source Modal */
+      /* Add Marketplace Modal */
       .modal-overlay {
         position: fixed;
         inset: 0;
@@ -416,10 +416,10 @@ export class MarketplaceView extends LitElement {
         <div class="toolbar-divider"></div>
 
         <div class="toolbar-section">
-          <span class="toolbar-section-title">Sources</span>
-          <button class="toolbar-btn primary" @click=${() => this._showAddRepoModal = true} title="Add a repository source">
+          <span class="toolbar-section-title">Marketplaces</span>
+          <button class="toolbar-btn primary" @click=${() => this._showAddRepoModal = true} title="Add a new marketplace">
             <span class="icon">+</span>
-            <span>Add Source</span>
+            <span>Add Marketplace</span>
           </button>
           <button class="toolbar-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
             <span class="icon">🔄</span>
@@ -468,7 +468,7 @@ export class MarketplaceView extends LitElement {
         }}>
         <div class="modal">
           <div class="modal-header">
-            <h3>Add Source</h3>
+            <h3>Add Marketplace</h3>
             <button class="modal-close" @click=${() => this._showAddRepoModal = false}>✕</button>
           </div>
           <div class="modal-body">
@@ -643,7 +643,7 @@ export class MarketplaceView extends LitElement {
     private async _addRepository() {
         const source = this._repoInput.trim();
         if (!source) {
-            showToast('Please enter a repository source', 'error');
+            showToast('Please enter a marketplace location', 'error');
             return;
         }
 
