@@ -10468,12 +10468,30 @@ photon add memory</code></pre>
       if (filterWrapper) filterWrapper.style.display = 'none';
 
       try {
-        // Fetch the UI template
-        const response = await fetch(\`/api/ui?photon=\${encodeURIComponent(photonName)}&id=\${encodeURIComponent(uiId)}\`);
-        if (!response.ok) {
-          throw new Error(\`Failed to load UI template: \${response.statusText}\`);
+        // Fetch the UI template via MCP resources/read (ui:// scheme)
+        const uiUri = \`ui://\${photonName}/\${uiId}\`;
+        let template;
+
+        if (window.beamMCP && window.beamMCP.isConnected()) {
+          // Use MCP resources/read for ui:// URIs
+          try {
+            const resource = await window.beamMCP.readResource(uiUri);
+            if (resource && resource.text) {
+              template = resource.text;
+            }
+          } catch (e) {
+            console.warn('MCP resources/read failed, falling back to HTTP:', e);
+          }
         }
-        const template = await response.text();
+
+        // Fallback to HTTP /api/ui endpoint
+        if (!template) {
+          const response = await fetch(\`/api/ui?photon=\${encodeURIComponent(photonName)}&id=\${encodeURIComponent(uiId)}\`);
+          if (!response.ok) {
+            throw new Error(\`Failed to load UI template: \${response.statusText}\`);
+          }
+          template = await response.text();
+        }
 
         // Fetch platform bridge script from server (includes MCP Apps, OpenAI, Claude compat)
         const currentTheme = localStorage.getItem('beam-theme') || 'dark';

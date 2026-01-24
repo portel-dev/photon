@@ -2,6 +2,7 @@ import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
+import { mcpClient } from '../services/mcp-client.js';
 
 @customElement('custom-ui-renderer')
 export class CustomUiRenderer extends LitElement {
@@ -79,7 +80,8 @@ export class CustomUiRenderer extends LitElement {
     @property({ type: String }) method = '';
     @property({ type: String }) theme: Theme = 'dark';
 
-    // One of these will be set
+    // One of these will be set (in order of preference)
+    @property({ type: String }) uiUri = '';      // MCP Apps: ui://photon/id
     @property({ type: String }) templatePath = '';
     @property({ type: String }) uiId = '';
 
@@ -90,7 +92,8 @@ export class CustomUiRenderer extends LitElement {
 
     protected updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
         if (changedProperties.has('photon') || changedProperties.has('method') ||
-            changedProperties.has('templatePath') || changedProperties.has('uiId')) {
+            changedProperties.has('templatePath') || changedProperties.has('uiId') ||
+            changedProperties.has('uiUri')) {
             this._loadContent();
         }
 
@@ -108,28 +111,36 @@ export class CustomUiRenderer extends LitElement {
     }
 
     private async _loadContent() {
-        if (!this.photon) return;
+        if (!this.photon && !this.uiUri) return;
 
         this._loading = true;
         this._error = '';
         this._srcDoc = '';
 
         try {
-            // 1. Fetch Template
-            let url = '';
-            if (this.templatePath) {
-                url = `/api/template?photon=${encodeURIComponent(this.photon)}&path=${encodeURIComponent(this.templatePath)}`;
-            } else if (this.uiId) {
-                url = `/api/ui?photon=${encodeURIComponent(this.photon)}&id=${encodeURIComponent(this.uiId)}`;
+            // 1. Fetch Template via MCP resources/read (ui:// scheme)
+            let templateHtml: string;
+
+            // Determine the ui:// URI
+            let uri = this.uiUri;
+            if (!uri && this.uiId) {
+                uri = `ui://${this.photon}/${this.uiId}`;
+            }
+
+            if (uri) {
+                // Use MCP resources/read for ui:// URIs
+                templateHtml = await this._fetchViaMCP(uri);
+            } else if (this.templatePath) {
+                // Fall back to HTTP for templatePath (legacy)
+                const url = `/api/template?photon=${encodeURIComponent(this.photon)}&path=${encodeURIComponent(this.templatePath)}`;
+                const templateRes = await fetch(url);
+                if (!templateRes.ok) throw new Error(`Failed to load template: ${templateRes.statusText}`);
+                templateHtml = await templateRes.text();
             } else {
                 throw new Error('No template source specified');
             }
 
-            const templateRes = await fetch(url);
-            if (!templateRes.ok) throw new Error(`Failed to load template: ${templateRes.statusText}`);
-            const templateHtml = await templateRes.text();
-
-            // 2. Fetch Bridge Script
+            // 2. Fetch Bridge Script (still via HTTP - it's dynamically generated)
             const bridgeRes = await fetch(`/api/platform-bridge?photon=${encodeURIComponent(this.photon)}&method=${encodeURIComponent(this.method)}&theme=${encodeURIComponent(this.theme)}`);
             if (!bridgeRes.ok) throw new Error('Failed to load platform bridge');
             const bridgeScript = await bridgeRes.text();
@@ -149,6 +160,35 @@ export class CustomUiRenderer extends LitElement {
         } finally {
             this._loading = false;
         }
+    }
+
+    /**
+     * Fetch UI template via MCP resources/read with HTTP fallback
+     */
+    private async _fetchViaMCP(uri: string): Promise<string> {
+        // Try MCP first
+        if (mcpClient.isConnected()) {
+            try {
+                const resource = await mcpClient.readResource(uri);
+                if (resource?.text) {
+                    return resource.text;
+                }
+            } catch (e) {
+                console.warn('MCP resources/read failed, falling back to HTTP:', e);
+            }
+        }
+
+        // Fallback to HTTP /api/ui endpoint
+        const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+        if (!match) {
+            throw new Error(`Invalid ui:// URI: ${uri}`);
+        }
+
+        const [, photonName, uiId] = match;
+        const url = `/api/ui?photon=${encodeURIComponent(photonName)}&id=${encodeURIComponent(uiId)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Failed to load UI: ${res.statusText}`);
+        return res.text();
     }
 
     render() {

@@ -32,6 +32,20 @@ interface MCPTool {
   'x-button-label'?: string;
 }
 
+interface MCPResource {
+  uri: string;
+  name: string;
+  mimeType?: string;
+  description?: string;
+}
+
+interface MCPResourceContent {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+  blob?: string; // base64 encoded
+}
+
 type MCPEventType = 'connect' | 'disconnect' | 'error' | 'tools-changed' | 'progress';
 
 class MCPClientService {
@@ -156,6 +170,24 @@ class MCPClientService {
       isError?: boolean;
     };
     return result;
+  }
+
+  /**
+   * List available resources (MCP Apps Extension - ui:// scheme)
+   */
+  async listResources(): Promise<MCPResource[]> {
+    const result = (await this.sendRequest('resources/list', {})) as { resources: MCPResource[] };
+    return result.resources || [];
+  }
+
+  /**
+   * Read a resource by URI (MCP Apps Extension - ui:// scheme)
+   */
+  async readResource(uri: string): Promise<MCPResourceContent | null> {
+    const result = (await this.sendRequest('resources/read', { uri })) as {
+      contents: MCPResourceContent[];
+    };
+    return result.contents?.[0] || null;
   }
 
   /**
