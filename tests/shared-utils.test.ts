@@ -3,6 +3,8 @@
  */
 
 import { strict as assert } from 'assert';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import {
   toEnvVarName,
   generateExampleValue,
@@ -11,6 +13,16 @@ import {
 } from '../dist/shared/config-docs.js';
 import { renderSection, renderKeyValueSection } from '../dist/shared/cli-sections.js';
 import { runTask } from '../dist/shared/task-runner.js';
+import {
+  getBundledPhotonPath,
+  DEFAULT_BUNDLED_PHOTONS,
+  BEAM_BUNDLED_PHOTONS,
+  getErrorMessage,
+  withErrorContext,
+  withErrorContextSync,
+} from '../dist/shared-utils.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 console.log('🧪 Running Shared Utilities Tests...\n');
 
@@ -329,6 +341,170 @@ console.log('\n📋 task-runner.ts Tests');
   test(
     errorCaught === true,
     'runTask: propagates errors'
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BUNDLED PHOTON PATH TESTS
+// ═══════════════════════════════════════════════════════════════════
+
+console.log('\n📋 shared-utils.ts Tests (Bundled Photon Paths)');
+
+// DEFAULT_BUNDLED_PHOTONS tests
+{
+  test(
+    DEFAULT_BUNDLED_PHOTONS.includes('maker'),
+    'DEFAULT_BUNDLED_PHOTONS: includes maker'
+  );
+}
+
+// BEAM_BUNDLED_PHOTONS tests
+{
+  test(
+    BEAM_BUNDLED_PHOTONS.includes('maker'),
+    'BEAM_BUNDLED_PHOTONS: includes maker'
+  );
+
+  test(
+    BEAM_BUNDLED_PHOTONS.includes('tunnel'),
+    'BEAM_BUNDLED_PHOTONS: includes tunnel'
+  );
+}
+
+// getBundledPhotonPath tests
+{
+  test(
+    getBundledPhotonPath('non-existent', __dirname) === null,
+    'getBundledPhotonPath: returns null for non-bundled photon'
+  );
+
+  test(
+    getBundledPhotonPath('tunnel', __dirname, DEFAULT_BUNDLED_PHOTONS) === null,
+    'getBundledPhotonPath: respects bundledList parameter'
+  );
+
+  // Test from dist directory (where bundled photons should be found)
+  const distDir = path.join(__dirname, '..', 'dist');
+  const makerPath = getBundledPhotonPath('maker', distDir);
+  test(
+    makerPath === null || makerPath.endsWith('maker.photon.ts'),
+    'getBundledPhotonPath: finds or returns null for maker from dist'
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ERROR HANDLING UTILITY TESTS
+// ═══════════════════════════════════════════════════════════════════
+
+console.log('\n📋 shared-utils.ts Tests (Error Handling)');
+
+// getErrorMessage tests
+{
+  test(
+    getErrorMessage(new Error('Test error')) === 'Test error',
+    'getErrorMessage: extracts message from Error'
+  );
+
+  test(
+    getErrorMessage('String error') === 'String error',
+    'getErrorMessage: handles string errors'
+  );
+
+  test(
+    getErrorMessage({ code: 404 }) === '[object Object]',
+    'getErrorMessage: stringifies object errors'
+  );
+}
+
+// withErrorContext tests
+{
+  let contextResult: string | null = null;
+  (async () => {
+    contextResult = await withErrorContext(
+      async () => 'success',
+      'Test operation'
+    );
+  })();
+
+  // Give async a moment
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  test(
+    contextResult === 'success',
+    'withErrorContext: passes through successful result'
+  );
+}
+
+{
+  let errorWrapped = false;
+  try {
+    await withErrorContext(
+      async () => { throw new Error('Inner error'); },
+      'Loading file'
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      errorWrapped = error.message.includes('Loading file') && error.message.includes('Inner error');
+    }
+  }
+
+  test(
+    errorWrapped,
+    'withErrorContext: wraps errors with context'
+  );
+}
+
+{
+  let loggedMessage = '';
+  const mockLogger = {
+    error: (msg: string) => { loggedMessage = msg; }
+  };
+
+  try {
+    await withErrorContext(
+      async () => { throw new Error('Logged error'); },
+      'Test context',
+      mockLogger
+    );
+  } catch {
+    // Expected
+  }
+
+  test(
+    loggedMessage.includes('Test context') && loggedMessage.includes('Logged error'),
+    'withErrorContext: calls logger when provided'
+  );
+}
+
+// withErrorContextSync tests
+{
+  const syncResult = withErrorContextSync(
+    () => 42,
+    'Sync operation'
+  );
+
+  test(
+    syncResult === 42,
+    'withErrorContextSync: works synchronously'
+  );
+}
+
+{
+  let syncErrorWrapped = false;
+  try {
+    withErrorContextSync(
+      () => { throw new Error('Sync error'); },
+      'Sync context'
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      syncErrorWrapped = error.message.includes('Sync context');
+    }
+  }
+
+  test(
+    syncErrorWrapped,
+    'withErrorContextSync: wraps sync errors'
   );
 }
 

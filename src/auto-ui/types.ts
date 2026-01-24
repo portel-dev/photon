@@ -313,3 +313,79 @@ export interface UIComponent {
   render(props: ComponentProps): string | object;
   supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean;
 }
+
+// ════════════════════════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build MCP tool metadata extensions from MethodInfo
+ *
+ * Adds x-icon, x-autorun, x-output-format, x-layout-hints, x-button-label
+ * to a tool object based on method configuration.
+ *
+ * @param method - MethodInfo to extract metadata from
+ * @returns Object with x-* properties to spread into tool definition
+ *
+ * @example
+ * ```typescript
+ * const tool = {
+ *   name: 'photon/method',
+ *   description: method.description,
+ *   inputSchema: method.params,
+ *   ...buildToolMetadataExtensions(method)
+ * };
+ * ```
+ */
+export function buildToolMetadataExtensions(method: MethodInfo): Record<string, unknown> {
+  const extensions: Record<string, unknown> = {};
+
+  if (method.icon) {
+    extensions['x-icon'] = method.icon;
+  }
+  if (method.autorun) {
+    extensions['x-autorun'] = true;
+  }
+  if (method.outputFormat) {
+    extensions['x-output-format'] = method.outputFormat;
+  }
+  if (method.layoutHints) {
+    extensions['x-layout-hints'] = method.layoutHints;
+  }
+  if (method.buttonLabel) {
+    extensions['x-button-label'] = method.buttonLabel;
+  }
+  if (method.linkedUi) {
+    extensions['x-linked-ui'] = method.linkedUi;
+  }
+
+  return extensions;
+}
+
+/**
+ * Build UI metadata for tool response (MCP Apps Extension)
+ *
+ * @param photonName - Name of the photon
+ * @param method - MethodInfo to extract metadata from
+ * @returns Object with x-* properties for response metadata
+ */
+export function buildResponseUIMetadata(
+  photonName: string,
+  method: MethodInfo | undefined
+): Record<string, unknown> {
+  if (!method) return {};
+
+  const metadata: Record<string, unknown> = {};
+
+  if (method.linkedUi) {
+    metadata['x-ui-uri'] = `ui://${photonName}/${method.linkedUi}`;
+  }
+  if (method.outputFormat) {
+    metadata['x-output-format'] = method.outputFormat;
+  }
+  if (method.layoutHints) {
+    metadata['x-layout-hints'] = method.layoutHints;
+  }
+
+  return metadata;
+}

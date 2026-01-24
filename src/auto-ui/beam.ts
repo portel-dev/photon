@@ -56,34 +56,9 @@ import type {
   ReloadRequest,
   RemoveRequest,
 } from './types.js';
+import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
 
-// Bundled photons that ship with the runtime
-const BUNDLED_PHOTONS = ['maker', 'tunnel'];
-
-/**
- * Get path to a bundled photon (ships with runtime)
- */
-function getBundledPhotonPath(name: string): string | null {
-  if (!BUNDLED_PHOTONS.includes(name)) {
-    return null;
-  }
-
-  // Bundled photons are in src/photons/ (dev) or dist/photons/ (prod)
-  const devPath = path.join(__dirname, '..', 'photons', `${name}.photon.ts`);
-  const prodPath = path.join(__dirname, 'photons', `${name}.photon.ts`);
-
-  // Also check relative to auto-ui directory structure
-  const altDevPath = path.join(__dirname, '..', '..', 'src', 'photons', `${name}.photon.ts`);
-  const altProdPath = path.join(__dirname, '..', 'photons', `${name}.photon.ts`);
-
-  for (const p of [devPath, prodPath, altDevPath, altProdPath]) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-
-  return null;
-}
+// BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
 // Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
 // InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
@@ -257,8 +232,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   // Add bundled photons with their paths
   const bundledPhotonPaths = new Map<string, string>();
-  for (const name of BUNDLED_PHOTONS) {
-    const bundledPath = getBundledPhotonPath(name);
+  for (const name of BEAM_BUNDLED_PHOTONS) {
+    const bundledPath = getBundledPhotonPath(name, __dirname, BEAM_BUNDLED_PHOTONS);
     if (bundledPath) {
       bundledPhotonPaths.set(name, bundledPath);
     }
@@ -266,7 +241,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   // Combine: user photons first, then bundled photons (avoid duplicates)
   const photonList = [...userPhotonList];
-  for (const name of BUNDLED_PHOTONS) {
+  for (const name of BEAM_BUNDLED_PHOTONS) {
     if (!photonList.includes(name) && bundledPhotonPaths.has(name)) {
       photonList.push(name);
     }

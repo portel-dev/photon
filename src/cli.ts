@@ -28,6 +28,7 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 import { ProgressRenderer } from '@portel/photon-core';
+import { getBundledPhotonPath, DEFAULT_BUNDLED_PHOTONS } from './shared-utils.js';
 import { PHOTON_VERSION } from './version.js';
 import { toEnvVarName } from './shared/config-docs.js';
 import { renderSection } from './shared/cli-sections.js';
@@ -52,36 +53,14 @@ import { registerPackageCommands } from './cli/commands/package.js';
 // ══════════════════════════════════════════════════════════════════════════════
 
 /** Bundled photon names that ship with the runtime */
-const BUNDLED_PHOTONS = ['maker'];
-
-/**
- * Get path to a bundled photon (ships with runtime)
- */
-function getBundledPhotonPath(name: string): string | null {
-  if (!BUNDLED_PHOTONS.includes(name)) {
-    return null;
-  }
-
-  // Bundled photons are in src/photons/ (dev) or dist/photons/ (prod)
-  const devPath = path.join(__dirname, '..', 'src', 'photons', `${name}.photon.ts`);
-  const prodPath = path.join(__dirname, 'photons', `${name}.photon.ts`);
-
-  if (existsSync(devPath)) {
-    return devPath;
-  }
-  if (existsSync(prodPath)) {
-    return prodPath;
-  }
-
-  return null;
-}
+// BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
 /**
  * Resolve photon path - checks bundled first, then user directory
  */
 async function resolvePhotonPathWithBundled(name: string, workingDir: string): Promise<string | null> {
   // Check bundled photons first
-  const bundledPath = getBundledPhotonPath(name);
+  const bundledPath = getBundledPhotonPath(name, __dirname);
   if (bundledPath) {
     return bundledPath;
   }
@@ -992,7 +971,7 @@ program
         exitWithError(`MCP not found: ${name}`, {
           exitCode: ExitCode.NOT_FOUND,
           searchedIn: workingDir,
-          suggestion: BUNDLED_PHOTONS.includes(name)
+          suggestion: DEFAULT_BUNDLED_PHOTONS.includes(name)
             ? `'${name}' is a bundled photon but could not be found`
             : "Use 'photon info' to see available MCPs",
         });
