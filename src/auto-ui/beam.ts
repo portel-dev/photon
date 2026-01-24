@@ -1612,6 +1612,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             logger.info(`✅ ${photonName} added`);
           } else {
             photons[photonIndex] = reloadedPhoton;
+            logger.info(`📡 Broadcasting hot-reload for ${photonName} to ${clients.size} clients`);
             broadcast({ type: 'hot-reload', photon: reloadedPhoton });
             logger.info(`✅ ${photonName} hot reloaded`);
           }
@@ -1714,6 +1715,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     try {
       const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
         if (filename) {
+          logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
           handleFileChange(photonName);
         }
       });
