@@ -32,6 +32,12 @@ import {
   buildToolMetadataExtensions,
   buildResponseUIMetadata,
 } from './types.js';
+import {
+  getDaemonTools,
+  handleDaemonTool,
+  isDaemonTool,
+  cleanupDaemonSession,
+} from './daemon-tools.js';
 
 /**
  * Function to load UI asset content (provided by beam.ts)
@@ -67,10 +73,28 @@ export function createBeamMCPSession(
     }
   );
 
-  // Handle tools/list - aggregate all photon methods
+  // Generate a unique session ID for this MCP connection
+  const sessionId = `mcp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // Helper to send notifications to this client
+  const sendNotification = (method: string, params: unknown) => {
+    try {
+      server.notification({ method, params } as any);
+    } catch (error) {
+      // Ignore notification errors (client may have disconnected)
+    }
+  };
+
+  // Clean up subscriptions when transport closes
+  transport.onclose = () => {
+    cleanupDaemonSession(sessionId);
+  };
+
+  // Handle tools/list - aggregate all photon methods + daemon tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools: any[] = [];
 
+    // Add photon method tools
     for (const photon of photons) {
       if (!photon.configured || !photon.methods) continue;
 
@@ -90,12 +114,22 @@ export function createBeamMCPSession(
       }
     }
 
+    // Add daemon tools (pub/sub, locks, scheduled jobs)
+    for (const daemonTool of getDaemonTools()) {
+      tools.push(daemonTool);
+    }
+
     return { tools };
   });
 
-  // Handle tools/call - route to correct photon method
+  // Handle tools/call - route to correct photon method or daemon tool
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+
+    // Check if this is a daemon tool (beam/daemon/*)
+    if (isDaemonTool(name)) {
+      return handleDaemonTool(name, args || {}, sessionId, sendNotification);
+    }
 
     // Parse tool name: photon-name/method-name
     const slashIndex = name.indexOf('/');
