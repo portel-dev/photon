@@ -168,14 +168,14 @@ function configParamToJsonSchema(param: ConfigParam): Record<string, any> {
     case 'string':
     default:
       schema.type = 'string';
-      // Check for common sensitive parameter names
+      // Check for common sensitive parameter names - use OpenAPI standard
       if (/password|secret|token|key|credential/i.test(param.name)) {
-        schema['x-sensitive'] = true;
+        schema.format = 'password';
+        schema.writeOnly = true;
       }
       // Check for path-like parameter names
-      if (/path|file|dir|directory|folder/i.test(param.name)) {
+      else if (/path|file|dir|directory|folder/i.test(param.name)) {
         schema.format = 'path';
-        schema['x-ui-widget'] = 'file-picker';
       }
       break;
   }
