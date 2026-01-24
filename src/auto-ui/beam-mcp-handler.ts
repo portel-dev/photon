@@ -2,13 +2,20 @@
  * Beam MCP Handler
  *
  * Handles MCP protocol messages for aggregated Photon instances.
- * Implements tools/list and tools/call for all loaded photons.
+ * Implements tools/list, tools/call, resources/list, and resources/read
+ * for all loaded photons.
+ *
+ * MCP Apps Extension Support (SEP-1865):
+ * - Exposes UI assets as MCP resources with ui:// scheme
+ * - URI format: ui://<photon-name>/<asset-id>
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '../mcp-websocket-transport.js';
 import { WebSocketServerTransport } from '../mcp-websocket-transport.js';
@@ -28,12 +35,28 @@ interface MethodInfo {
   linkedUi?: string;
 }
 
+interface UIAssetInfo {
+  id: string;
+  uri: string;
+  path: string;
+  resolvedPath?: string;
+  mimeType?: string;
+  linkedTool?: string;
+}
+
+interface PhotonAssets {
+  ui: UIAssetInfo[];
+  prompts: any[];
+  resources: any[];
+}
+
 interface PhotonInfo {
   name: string;
   path: string;
   configured: boolean;
   methods?: MethodInfo[];
   isApp?: boolean;
+  assets?: PhotonAssets;
 }
 
 interface PhotonMCPInstance {
@@ -42,13 +65,19 @@ interface PhotonMCPInstance {
 }
 
 /**
+ * Function to load UI asset content (provided by beam.ts)
+ */
+export type UIAssetLoader = (photonName: string, uiId: string) => Promise<string | null>;
+
+/**
  * Create an MCP server session for a WebSocket connection
  */
 export function createBeamMCPSession(
   ws: WebSocket,
   photons: PhotonInfo[],
   photonMCPs: Map<string, PhotonMCPInstance>,
-  onProgress?: (photon: string, method: string, progress: any) => void
+  onProgress?: (photon: string, method: string, progress: any) => void,
+  loadUIAsset?: UIAssetLoader
 ): { server: Server; transport: Transport } {
   const transport = new WebSocketServerTransport(ws);
 
@@ -60,6 +89,9 @@ export function createBeamMCPSession(
     {
       capabilities: {
         tools: {
+          listChanged: true,
+        },
+        resources: {
           listChanged: true,
         },
       },
@@ -178,6 +210,67 @@ export function createBeamMCPSession(
         isError: true,
       };
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MCP Apps Extension: resources/list - expose UI assets with ui:// scheme
+  // ═══════════════════════════════════════════════════════════════════════════════
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const resources: any[] = [];
+
+    for (const photon of photons) {
+      if (!photon.configured || !photon.assets?.ui) continue;
+
+      for (const uiAsset of photon.assets.ui) {
+        const uri = (uiAsset as any).uri || `ui://${photon.name}/${uiAsset.id}`;
+
+        resources.push({
+          uri,
+          name: uiAsset.id,
+          mimeType: uiAsset.mimeType || 'text/html',
+          description: uiAsset.linkedTool
+            ? `UI template for ${photon.name}/${uiAsset.linkedTool}`
+            : `UI template: ${uiAsset.id}`,
+        });
+      }
+    }
+
+    return { resources };
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MCP Apps Extension: resources/read - serve UI template content
+  // ═══════════════════════════════════════════════════════════════════════════════
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+
+    // Parse ui:// URI: ui://<photon-name>/<ui-id>
+    const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+    if (!uiMatch) {
+      throw new Error(`Invalid resource URI: ${uri}. Expected format: ui://<photon>/<id>`);
+    }
+
+    const [, photonName, uiId] = uiMatch;
+
+    // Load UI content via the provided loader
+    if (!loadUIAsset) {
+      throw new Error('UI asset loading not configured');
+    }
+
+    const content = await loadUIAsset(photonName, uiId);
+    if (!content) {
+      throw new Error(`UI asset not found: ${uri}`);
+    }
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'text/html',
+          text: content,
+        },
+      ],
+    };
   });
 
   return { server, transport };

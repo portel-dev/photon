@@ -2052,7 +2052,23 @@ Run: photon mcp ${mcpName} --config
       this.applyMethodUILinks(source, assets);
     }
 
+    // Generate ui:// URIs for MCP Apps Extension support (SEP-1865)
+    // URI format: ui://<photon-name>/<asset-id>
+    this.generateAssetURIs(basename, assets);
+
     return assets;
+  }
+
+  /**
+   * Generate ui:// URIs for all UI assets (MCP Apps Extension support)
+   * URI format: ui://<photon-name>/<asset-id>
+   */
+  private generateAssetURIs(photonName: string, assets: PhotonAssets): void {
+    for (const ui of assets.ui) {
+      // Add uri field for MCP Apps compatibility
+      (ui as any).uri = `ui://${photonName}/${ui.id}`;
+      this.log(`  🔗 URI: ${(ui as any).uri}`);
+    }
   }
 
   /**

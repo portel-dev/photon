@@ -64,7 +64,7 @@ export default class Tunnel {
   }: {
     /** Provider: localtunnel, ngrok, or cloudflared */
     provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
-  } = {}): AsyncGenerator<{ step: string; message: string }, { message: string; url: string; link: string; provider: string; port: number }> {
+  } = {}): AsyncGenerator<{ step: string; message: string }, { message: string; url: string; link: string; provider: string; port: number; password?: string }> {
     // Auto-detect Beam port from environment
     const port = parseInt(process.env.BEAM_PORT || '3117', 10);
 
@@ -73,6 +73,7 @@ export default class Tunnel {
       const existing = activeTunnels.get(port)!;
       const publicIp = await this._getPublicIp();
       return {
+        message: `Tunnel already active on port ${port}`,
         url: existing.info.url,
         link: existing.info.url,
         password: existing.info.provider === 'localtunnel' ? publicIp : undefined,
@@ -122,6 +123,7 @@ export default class Tunnel {
       activeTunnels.set(port, { process, info });
 
       return {
+        message: `Tunnel started successfully`,
         url,
         link: url,
         password: provider === 'localtunnel' ? publicIp : undefined,
