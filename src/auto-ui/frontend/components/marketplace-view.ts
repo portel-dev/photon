@@ -12,6 +12,14 @@ interface MarketplaceItem {
     version: string;
 }
 
+interface MarketplaceSource {
+    name: string;
+    source: string;
+    sourceType: string;
+    enabled: boolean;
+    photonCount: number;
+}
+
 @customElement('marketplace-view')
 export class MarketplaceView extends LitElement {
     static styles = [
@@ -140,6 +148,71 @@ export class MarketplaceView extends LitElement {
         background: rgba(255,255,255,0.1);
         color: var(--t-muted);
         border: 1px solid var(--border-glass);
+      }
+
+      /* Marketplace filter pills */
+      .source-filters {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: var(--space-lg);
+      }
+
+      .filter-pill {
+        padding: 6px 12px;
+        border-radius: 16px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        font-size: 0.85rem;
+        color: var(--t-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .filter-pill:hover {
+        border-color: var(--accent-primary);
+        color: var(--t-primary);
+      }
+
+      .filter-pill.active {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .filter-pill .count {
+        background: rgba(255,255,255,0.2);
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .filter-pill.active .count {
+        background: rgba(255,255,255,0.3);
+      }
+
+      .filter-pill .remove-btn {
+        opacity: 0;
+        margin-left: 4px;
+        padding: 0;
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .filter-pill:hover .remove-btn {
+        opacity: 0.6;
+      }
+
+      .filter-pill .remove-btn:hover {
+        opacity: 1;
       }
 
       .card-meta {
@@ -412,6 +485,15 @@ export class MarketplaceView extends LitElement {
     private _items: MarketplaceItem[] = [];
 
     @state()
+    private _allItems: MarketplaceItem[] = [];
+
+    @state()
+    private _sources: MarketplaceSource[] = [];
+
+    @state()
+    private _activeFilter: string | null = null;
+
+    @state()
     private _loading = false;
 
     @state()
@@ -425,7 +507,8 @@ export class MarketplaceView extends LitElement {
 
     async connectedCallback() {
         super.connectedCallback();
-        this._fetchItems();
+        await this._fetchSources();
+        await this._fetchItems();
     }
 
     render() {
@@ -473,6 +556,28 @@ export class MarketplaceView extends LitElement {
             @input=${this._handleSearch}
           >
         </div>
+      </div>
+
+      <!-- Marketplace filters -->
+      <div class="source-filters">
+        <button
+          class="filter-pill ${this._activeFilter === null ? 'active' : ''}"
+          @click=${() => this._filterBySource(null)}
+        >
+          All
+          <span class="count">${this._allItems.length}</span>
+        </button>
+        ${this._sources.filter(s => s.enabled).map(source => html`
+          <button
+            class="filter-pill ${this._activeFilter === source.name ? 'active' : ''}"
+            @click=${() => this._filterBySource(source.name)}
+            title=${source.source}
+          >
+            ${source.name}
+            <span class="count">${source.photonCount}</span>
+            <span class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeSource(source.name); }} title="Remove marketplace">✕</span>
+          </button>
+        `)}
       </div>
 
       ${this._loading
@@ -531,7 +636,6 @@ export class MarketplaceView extends LitElement {
     private _renderItem(item: MarketplaceItem) {
         const isInstalling = this._installing === item.name;
         const sourceClass = this._getSourceClass(item.marketplace);
-        const sourceLabel = this._getSourceLabel(item.marketplace);
 
         return html`
       <div class="card glass">
@@ -541,7 +645,7 @@ export class MarketplaceView extends LitElement {
             <div class="card-author">by ${item.author}</div>
           </div>
           <div class="card-meta">
-            <span class="source-pill ${sourceClass}">${sourceLabel}</span>
+            <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
             <div class="tag" style="background: var(--accent-secondary); color: black;">${item.version}</div>
           </div>
         </div>
@@ -590,6 +694,16 @@ export class MarketplaceView extends LitElement {
         return marketplace || 'Local';
     }
 
+    private async _fetchSources() {
+        try {
+            const res = await fetch('/api/marketplace/sources');
+            const data = await res.json();
+            this._sources = data.sources || [];
+        } catch (e) {
+            console.error('Failed to fetch marketplace sources', e);
+        }
+    }
+
     private async _fetchItems(query = '') {
         this._loading = true;
         try {
@@ -599,11 +713,53 @@ export class MarketplaceView extends LitElement {
 
             const res = await fetch(endpoint);
             const data = await res.json();
-            this._items = data.photons || [];
+            this._allItems = data.photons || [];
+            this._applyFilter();
         } catch (e) {
             console.error('Failed to fetch marketplace', e);
         } finally {
             this._loading = false;
+        }
+    }
+
+    private _filterBySource(sourceName: string | null) {
+        this._activeFilter = sourceName;
+        this._applyFilter();
+    }
+
+    private _applyFilter() {
+        if (this._activeFilter === null) {
+            this._items = this._allItems;
+        } else {
+            this._items = this._allItems.filter(item => item.marketplace === this._activeFilter);
+        }
+    }
+
+    private async _removeSource(name: string) {
+        if (!confirm(`Remove marketplace "${name}"? This will not uninstall any photons.`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/marketplace/sources/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+
+            if (res.ok) {
+                showToast(`Removed marketplace: ${name}`, 'success');
+                if (this._activeFilter === name) {
+                    this._activeFilter = null;
+                }
+                await this._fetchSources();
+                await this._fetchItems();
+            } else {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to remove marketplace');
+            }
+        } catch (e: any) {
+            showToast(e.message, 'error');
         }
     }
 
@@ -690,10 +846,11 @@ export class MarketplaceView extends LitElement {
 
             this._showAddRepoModal = false;
             this._repoInput = '';
-            showToast(data.added ? `Added: ${data.name}` : `Already exists: ${data.name}`, 'success');
+            showToast(data.added ? `Added marketplace: ${data.name}` : `Already exists: ${data.name}`, 'success');
 
-            // Refresh the marketplace list
-            this._fetchItems();
+            // Refresh sources and photons
+            await this._fetchSources();
+            await this._fetchItems();
         } catch (e: any) {
             showToast(e.message || 'Failed to add repository', 'error', 5000);
         }
