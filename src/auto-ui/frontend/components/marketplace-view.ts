@@ -289,7 +289,7 @@ export class MarketplaceView extends LitElement {
         line-height: 1;
       }
 
-      /* Add Repository Modal */
+      /* Add Source Modal */
       .modal-overlay {
         position: fixed;
         inset: 0;
@@ -419,7 +419,7 @@ export class MarketplaceView extends LitElement {
           <span class="toolbar-section-title">Sources</span>
           <button class="toolbar-btn primary" @click=${() => this._showAddRepoModal = true} title="Add a repository source">
             <span class="icon">+</span>
-            <span>Add Repository</span>
+            <span>Add Source</span>
           </button>
           <button class="toolbar-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
             <span class="icon">🔄</span>
@@ -468,7 +468,7 @@ export class MarketplaceView extends LitElement {
         }}>
         <div class="modal">
           <div class="modal-header">
-            <h3>Add Repository</h3>
+            <h3>Add Source</h3>
             <button class="modal-close" @click=${() => this._showAddRepoModal = false}>✕</button>
           </div>
           <div class="modal-body">
