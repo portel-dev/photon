@@ -1668,6 +1668,41 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     logger.warn(`File watching not available: ${error}`);
   }
 
+  // Watch bundled photon asset folders (outside workingDir)
+  for (const [photonName, photonPath] of bundledPhotonPaths) {
+    const photonDir = path.dirname(photonPath);
+    // Skip if bundled photon is inside working directory (already watched)
+    if (photonDir.startsWith(workingDir)) continue;
+
+    // Watch the photon file itself
+    try {
+      const photonWatcher = watch(photonPath, (eventType) => {
+        if (eventType === 'change') {
+          handleFileChange(photonName);
+        }
+      });
+      photonWatcher.on('error', () => {});
+      watchers.push(photonWatcher);
+    } catch {
+      // Ignore errors
+    }
+
+    // Watch the asset folder if it exists
+    const assetFolder = path.join(photonDir, photonName);
+    try {
+      const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
+        if (filename) {
+          handleFileChange(photonName);
+        }
+      });
+      assetWatcher.on('error', () => {});
+      watchers.push(assetWatcher);
+      logger.info(`👀 Watching ${photonName}/ for asset changes`);
+    } catch {
+      // Asset folder doesn't exist or can't be watched - that's okay
+    }
+  }
+
   // Bind to 0.0.0.0 for tunnel access
   server.listen(port, '0.0.0.0', () => {
     // Set port for bundled photons (e.g., tunnel) to discover
