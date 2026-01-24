@@ -42,6 +42,7 @@ import {
 import { generateOpenAPISpec } from './openapi-generator.js';
 import { createBeamMCPSession, notifyToolsListChanged } from './beam-mcp-handler.js';
 import { generateMCPClientJS } from './mcp-client.js';
+import { handleStreamableHTTP, broadcastNotification } from './streamable-http-transport.js';
 import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 
 // Bundled photons that ship with the runtime
@@ -544,9 +545,44 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const configuredCount = photons.filter((p) => p.configured).length;
   const unconfiguredCount = photons.filter((p) => !p.configured).length;
 
+  // UI asset loader for MCP resources/read (shared between WebSocket and HTTP transports)
+  const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
+    const photon = photons.find((p) => p.name === photonName);
+    if (!photon || !photon.configured) return null;
+
+    const photonDir = path.dirname(photon.path);
+    const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
+
+    let uiPath: string;
+    if (asset?.resolvedPath) {
+      uiPath = asset.resolvedPath;
+    } else {
+      uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+    }
+
+    try {
+      return await fs.readFile(uiPath, 'utf-8');
+    } catch {
+      return null;
+    }
+  };
+
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // MCP Streamable HTTP Transport (standard MCP clients like Claude Desktop)
+    // Endpoint: /mcp (POST for requests, GET for SSE notifications)
+    // ══════════════════════════════════════════════════════════════════════════
+    if (url.pathname === '/mcp') {
+      const handled = await handleStreamableHTTP(req, res, {
+        photons: photons.filter((p): p is PhotonInfo => p.configured),
+        photonMCPs,
+        loadUIAsset,
+      });
+      if (handled) return;
+    }
 
     // Serve static frontend bundle
     if (url.pathname === '/beam.bundle.js') {
@@ -1334,29 +1370,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       assets: p.configured ? (p as any).assets : undefined,
     }));
 
-    // UI asset loader for MCP resources/read (ui:// scheme)
-    const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
-      const photon = photons.find((p) => p.name === photonName);
-      if (!photon || !photon.configured) return null;
-
-      const photonDir = path.dirname(photon.path);
-      const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
-
-      let uiPath: string;
-      if (asset?.resolvedPath) {
-        uiPath = asset.resolvedPath;
-      } else {
-        uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
-      }
-
-      try {
-        return await fs.readFile(uiPath, 'utf-8');
-      } catch {
-        return null;
-      }
-    };
-
-    // Create MCP session with progress handler and UI asset loader
+    // Create MCP session with progress handler and UI asset loader (uses shared loadUIAsset)
     const { server: mcpServer, transport } = createBeamMCPSession(
       ws,
       typedPhotons,
@@ -1398,12 +1412,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     }
   };
 
-  // Broadcast photon changes to both legacy and MCP clients
+  // Broadcast photon changes to all connected clients
   const broadcastPhotonChange = () => {
-    // Legacy clients get photons message
+    // Legacy WebSocket clients get photons message
     broadcast({ type: 'photons', data: photons });
-    // MCP clients get tools/list_changed notification
+    // MCP WebSocket clients get tools/list_changed notification
     notifyToolsListChanged(mcpSessions);
+    // MCP Streamable HTTP clients (SSE) get tools/list_changed notification
+    broadcastNotification('notifications/tools/list_changed');
   };
 
   // Subscribe to daemon channels for cross-process updates (e.g., MCP -> BEAM)
