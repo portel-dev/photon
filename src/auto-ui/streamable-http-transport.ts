@@ -8,11 +8,20 @@
  * - POST: Client sends JSON-RPC requests, server responds with JSON or SSE
  * - GET: Opens SSE stream for server-initiated messages
  *
+ * Configuration Schema (SEP-1596 inspired):
+ * - Returns configurationSchema in initialize response
+ * - Uses JSON Schema for rich UI generation (dropdowns, file pickers, etc.)
+ * - beam/configure tool for submitting configuration
+ * - beam/browse tool for server filesystem browsing
+ *
  * @see https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+import { readdir, stat } from 'fs/promises';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -67,6 +76,15 @@ interface MethodInfo {
   layoutHints?: Record<string, string>;
 }
 
+interface ConfigParam {
+  name: string;
+  envVar: string;
+  type: string;
+  isOptional: boolean;
+  hasDefault: boolean;
+  defaultValue?: any;
+}
+
 interface PhotonInfo {
   name: string;
   path: string;
@@ -76,6 +94,16 @@ interface PhotonInfo {
     ui: Array<{ id: string; uri?: string; mimeType?: string; linkedTool?: string }>;
   };
 }
+
+interface UnconfiguredPhotonInfo {
+  name: string;
+  path: string;
+  configured: false;
+  requiredParams: ConfigParam[];
+  errorMessage: string;
+}
+
+type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 
 interface PhotonMCPInstance {
   instance: any;
@@ -117,6 +145,86 @@ function getOrCreateSession(sessionId?: string): MCPSession {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// CONFIGURATION SCHEMA GENERATION
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Convert ConfigParam to JSON Schema property
+ */
+function configParamToJsonSchema(param: ConfigParam): Record<string, any> {
+  const schema: Record<string, any> = {
+    description: `Environment variable: ${param.envVar}`,
+    'x-env-var': param.envVar,
+  };
+
+  // Map TypeScript types to JSON Schema types
+  switch (param.type.toLowerCase()) {
+    case 'number':
+      schema.type = 'number';
+      break;
+    case 'boolean':
+      schema.type = 'boolean';
+      break;
+    case 'string':
+    default:
+      schema.type = 'string';
+      // Check for common sensitive parameter names
+      if (/password|secret|token|key|credential/i.test(param.name)) {
+        schema['x-sensitive'] = true;
+      }
+      // Check for path-like parameter names
+      if (/path|file|dir|directory|folder/i.test(param.name)) {
+        schema.format = 'path';
+        schema['x-ui-widget'] = 'file-picker';
+      }
+      break;
+  }
+
+  // Add default value if present
+  if (param.hasDefault && param.defaultValue !== undefined) {
+    schema.default = param.defaultValue;
+  }
+
+  return schema;
+}
+
+/**
+ * Generate configurationSchema for all unconfigured photons
+ * Uses JSON Schema format for rich UI generation
+ */
+function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, any> {
+  const schema: Record<string, any> = {};
+
+  for (const photon of photons) {
+    // Only include unconfigured photons with params
+    if (photon.configured) continue;
+    const unconfigured = photon as UnconfiguredPhotonInfo;
+    if (!unconfigured.requiredParams || unconfigured.requiredParams.length === 0) continue;
+
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    for (const param of unconfigured.requiredParams) {
+      properties[param.name] = configParamToJsonSchema(param);
+
+      // Mark as required if not optional and no default
+      if (!param.isOptional && !param.hasDefault) {
+        required.push(param.name);
+      }
+    }
+
+    schema[photon.name] = {
+      type: 'object',
+      properties,
+      required: required.length > 0 ? required : undefined,
+      'x-error-message': unconfigured.errorMessage,
+    };
+  }
+
+  return schema;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // REQUEST HANDLERS
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -127,17 +235,22 @@ type RequestHandler = (
 ) => Promise<JSONRPCResponse>;
 
 interface HandlerContext {
-  photons: PhotonInfo[];
+  photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
 }
 
 const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   // Lifecycle
   // ─────────────────────────────────────────────────────────────────────────────
-  'initialize': async (req, session) => {
+  'initialize': async (req, session, ctx) => {
     session.initialized = true;
+
+    // Generate configuration schema for unconfigured photons
+    const configurationSchema = generateConfigurationSchema(ctx.photons);
+
     return {
       jsonrpc: '2.0',
       id: req.id,
@@ -151,6 +264,9 @@ const handlers: Record<string, RequestHandler> = {
           tools: { listChanged: true },
           resources: { listChanged: true },
         },
+        // SEP-1596 inspired: configuration schema for unconfigured photons
+        // Uses JSON Schema for rich UI generation
+        configurationSchema: Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined,
       },
     };
   },
@@ -170,6 +286,7 @@ const handlers: Record<string, RequestHandler> = {
   'tools/list': async (req, session, ctx) => {
     const tools: MCPTool[] = [];
 
+    // Add configured photon methods as tools
     for (const photon of ctx.photons) {
       if (!photon.configured || !photon.methods) continue;
 
@@ -182,11 +299,59 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
+    // Add beam system tools
+    tools.push({
+      name: 'beam/configure',
+      description: 'Configure a photon with required parameters. Use initialize response configurationSchema to get required fields.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photon: {
+            type: 'string',
+            description: 'Name of the photon to configure',
+          },
+          config: {
+            type: 'object',
+            description: 'Configuration values (key-value pairs matching the configurationSchema)',
+            additionalProperties: true,
+          },
+        },
+        required: ['photon', 'config'],
+      },
+    });
+
+    tools.push({
+      name: 'beam/browse',
+      description: 'Browse server filesystem for file/directory selection',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Directory path to list (defaults to home directory)',
+          },
+          filter: {
+            type: 'string',
+            description: 'File extension filter (e.g., ".pem,.crt" or "*.photon.ts")',
+          },
+        },
+      },
+    });
+
     return { jsonrpc: '2.0', id: req.id, result: { tools } };
   },
 
   'tools/call': async (req, session, ctx) => {
     const { name, arguments: args } = req.params as { name: string; arguments?: Record<string, unknown> };
+
+    // Handle beam system tools
+    if (name === 'beam/configure') {
+      return handleBeamConfigure(req, ctx, args || {});
+    }
+
+    if (name === 'beam/browse') {
+      return handleBeamBrowse(req, args || {});
+    }
 
     // Parse tool name: photon-name/method-name
     const slashIndex = name.indexOf('/');
@@ -206,7 +371,7 @@ const handlers: Record<string, RequestHandler> = {
 
     // Find photon info for UI metadata
     const photonInfo = ctx.photons.find(p => p.name === photonName);
-    const methodInfo = photonInfo?.methods?.find(m => m.name === methodName);
+    const methodInfo = photonInfo?.configured ? photonInfo.methods?.find(m => m.name === methodName) : undefined;
 
     // Build UI metadata
     const uiMetadata: Record<string, any> = {};
@@ -348,13 +513,189 @@ const handlers: Record<string, RequestHandler> = {
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
+// BEAM SYSTEM TOOLS
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Handle beam/configure tool - configure a photon with provided values
+ */
+async function handleBeamConfigure(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { photon: photonName, config } = args as { photon: string; config: Record<string, any> };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!config || typeof config !== 'object') {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: config object is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  // Check if configurePhoton callback is available
+  if (!ctx.configurePhoton) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Configuration not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const result = await ctx.configurePhoton(photonName, config);
+
+    if (result.success) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Successfully configured ${photonName}. Tools list will be updated.` }],
+          isError: false,
+        },
+      };
+    } else {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Failed to configure ${photonName}: ${result.error}` }],
+          isError: true,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error configuring ${photonName}: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/browse tool - browse server filesystem
+ */
+async function handleBeamBrowse(
+  req: JSONRPCRequest,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { path: requestedPath, filter } = args as { path?: string; filter?: string };
+
+  // Default to home directory
+  let targetPath = requestedPath || homedir();
+
+  // Handle relative navigation (.. for parent)
+  if (targetPath.endsWith('/..') || targetPath === '..') {
+    targetPath = dirname(targetPath.replace(/\/?\.\.$/, ''));
+  }
+
+  try {
+    const stats = await stat(targetPath);
+    if (!stats.isDirectory()) {
+      targetPath = dirname(targetPath);
+    }
+
+    const entries = await readdir(targetPath, { withFileTypes: true });
+
+    // Parse filter
+    const filters = filter ? filter.split(',').map(f => f.trim().toLowerCase()) : [];
+
+    const items = entries
+      .filter(entry => {
+        // Always show directories
+        if (entry.isDirectory()) return true;
+
+        // No filter = show all
+        if (filters.length === 0) return true;
+
+        const fileName = entry.name.toLowerCase();
+        return filters.some(f => {
+          // Handle glob patterns like "*.photon.ts"
+          if (f.startsWith('*.')) {
+            const suffix = f.slice(1);
+            return fileName.endsWith(suffix);
+          }
+          // Handle extension patterns like ".ts" or "ts"
+          const ext = f.startsWith('.') ? f : `.${f}`;
+          return fileName.endsWith(ext);
+        });
+      })
+      .map(entry => ({
+        name: entry.name,
+        path: join(targetPath, entry.name),
+        isDirectory: entry.isDirectory(),
+      }))
+      .sort((a, b) => {
+        // Directories first, then alphabetical
+        if (a.isDirectory !== b.isDirectory) {
+          return a.isDirectory ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+    // Calculate parent path
+    const parent = dirname(targetPath);
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            path: targetPath,
+            parent: parent !== targetPath ? parent : null,
+            items,
+          }, null, 2),
+        }],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error browsing ${targetPath}: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // HTTP HANDLER
 // ════════════════════════════════════════════════════════════════════════════════
 
 export interface StreamableHTTPOptions {
-  photons: PhotonInfo[];
+  photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
 }
 
 /**
@@ -450,6 +791,7 @@ export async function handleStreamableHTTP(
       photons: options.photons,
       photonMCPs: options.photonMCPs,
       loadUIAsset: options.loadUIAsset,
+      configurePhoton: options.configurePhoton,
     };
 
     // Process requests
