@@ -37,6 +37,8 @@ export interface PhotonMetadata {
   homepage?: string;
   repository?: string;
   license?: string;
+  icon?: string;
+  internal?: boolean;
   tags?: string[];
   category?: string;
   source: string;

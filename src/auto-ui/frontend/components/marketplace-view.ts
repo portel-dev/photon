@@ -10,6 +10,8 @@ interface MarketplaceItem {
     tags: string[];
     marketplace: string;
     version: string;
+    icon?: string;
+    internal?: boolean;
 }
 
 interface MarketplaceSource {
@@ -148,6 +150,20 @@ export class MarketplaceView extends LitElement {
         background: rgba(255,255,255,0.1);
         color: var(--t-muted);
         border: 1px solid var(--border-glass);
+      }
+
+      .source-internal {
+        background: linear-gradient(135deg, hsl(280, 60%, 50%), hsl(320, 60%, 50%));
+        color: white;
+      }
+
+      .card.internal {
+        border-color: hsl(280, 40%, 40%);
+      }
+
+      .photon-icon {
+        margin-right: 6px;
+        font-size: 1.1em;
       }
 
       /* Marketplace filter pills */
@@ -638,13 +654,17 @@ export class MarketplaceView extends LitElement {
         const sourceClass = this._getSourceClass(item.marketplace);
 
         return html`
-      <div class="card glass">
+      <div class="card glass ${item.internal ? 'internal' : ''}">
         <div class="card-header">
           <div>
-            <div class="card-title">${item.name}</div>
+            <div class="card-title">
+              ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''}
+              ${item.name}
+            </div>
             <div class="card-author">by ${item.author}</div>
           </div>
           <div class="card-meta">
+            ${item.internal ? html`<span class="source-pill source-internal">System</span>` : ''}
             <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
             <div class="tag" style="background: var(--accent-secondary); color: black;">${item.version}</div>
           </div>

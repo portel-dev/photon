@@ -52,6 +52,8 @@ export interface PhotonMetadata {
   license?: string;
   repository?: string;
   homepage?: string;
+  icon?: string;
+  internal?: boolean;
   configParams?: ConfigParam[];
   setupInstructions?: string;
   tools?: Tool[];
@@ -86,6 +88,7 @@ export class PhotonDocExtractor {
 
     const statefulTag = this.extractTag('stateful');
     const idleTimeoutTag = this.extractTag('idleTimeout');
+    const internalTag = this.extractTag('internal');
 
     return {
       name: this.extractName(),
@@ -95,6 +98,8 @@ export class PhotonDocExtractor {
       license: this.extractTag('license'),
       repository: this.extractTag('repository'),
       homepage: this.extractTag('homepage'),
+      icon: this.extractTag('icon'),
+      internal: internalTag !== undefined,
       configParams: this.extractConfigParams(),
       setupInstructions: this.extractSetupInstructions(),
       tools: await this.extractTools(),

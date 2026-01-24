@@ -840,6 +840,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             author: metadata.author || '',
             tags: metadata.tags || [],
             marketplace: mp.name,
+            icon: metadata.icon,
+            internal: metadata.internal,
           });
         }
 
