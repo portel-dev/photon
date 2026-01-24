@@ -350,6 +350,7 @@ export class MarketplaceView extends LitElement {
         border-radius: var(--radius-sm);
         font-size: 0.95rem;
         margin-bottom: var(--space-sm);
+        box-sizing: border-box;
       }
 
       .modal-body input:focus {
