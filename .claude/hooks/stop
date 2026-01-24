@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 /**
  * Claude Code Stop Hook - Kanban Task Enforcement
- * Blocks stopping if there are incomplete tasks or unchecked items.
+ * Only blocks stopping if there are incomplete tasks IN PROGRESS.
+ * Backlog and Todo tasks are ignored - they're just planned, not active work.
  */
 
 import { execSync } from 'child_process';
 
 const BOARD = 'photon';
 
-function hasUncheckedItems(text) {
-  if (!text) return false;
-  return /^[\s]*[-*]\s*\[\s*\]/m.test(text);
+// Column names that indicate active work (case-insensitive)
+const IN_PROGRESS_PATTERNS = [
+  /^in\s*progress$/i,
+  /^doing$/i,
+  /^active$/i,
+  /^wip$/i,
+  /^working$/i,
+  /^current$/i,
+];
+
+function isInProgressColumn(column) {
+  if (!column) return false;
+  return IN_PROGRESS_PATTERNS.some(pattern => pattern.test(column.trim()));
 }
 
 function countCheckboxes(text) {
@@ -32,18 +43,19 @@ try {
     const pendingDetails = [];
 
     for (const task of tasks) {
+      // Only check tasks that are IN PROGRESS
+      if (!isInProgressColumn(task.column)) continue;
+
       const counts = countCheckboxes(task.description);
       if (counts.unchecked > 0) {
         pendingDetails.push(`"${task.title}": ${counts.unchecked} unchecked items`);
-      } else if (counts.checked === 0 && counts.unchecked === 0) {
-        pendingDetails.push(`"${task.title}": needs completion`);
       }
     }
 
     if (pendingDetails.length > 0) {
       console.log(JSON.stringify({
         decision: 'block',
-        reason: `Incomplete tasks on board "${BOARD}":\n${pendingDetails.join('\n')}\n\nComplete all checkbox items or move tasks to Done.`
+        reason: `Incomplete tasks IN PROGRESS on board "${BOARD}":\n${pendingDetails.join('\n')}\n\nComplete all checkbox items or move tasks to Done.`
       }));
     }
   }
