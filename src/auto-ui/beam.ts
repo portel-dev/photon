@@ -1671,8 +1671,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     const watcher = watch(workingDir, { recursive: true }, (eventType, filename) => {
       if (!filename) return;
       const fullPath = path.join(workingDir, filename);
+      logger.debug(`📂 File event: ${eventType} ${filename}`);
       const photonName = getPhotonForPath(fullPath);
       if (photonName) {
+        logger.info(`📁 Change detected: ${filename} → ${photonName}`);
         handleFileChange(photonName);
       }
     });
@@ -1691,11 +1693,19 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     logger.warn(`File watching not available: ${error}`);
   }
 
-  // Watch bundled photon asset folders (outside workingDir)
+  // Watch bundled photon asset folders
   for (const [photonName, photonPath] of bundledPhotonPaths) {
     const photonDir = path.dirname(photonPath);
-    // Skip if bundled photon is inside working directory (already watched)
-    if (photonDir.startsWith(workingDir)) continue;
+    const isInWorkingDir = photonDir.startsWith(workingDir);
+
+    // Log if bundled photon is in working directory (covered by main watcher)
+    if (isInWorkingDir) {
+      const assetFolder = path.join(photonDir, photonName);
+      if (existsSync(assetFolder)) {
+        logger.info(`👀 Watching ${photonName}/ via main watcher`);
+      }
+      continue;
+    }
 
     // Watch the photon file itself
     try {
