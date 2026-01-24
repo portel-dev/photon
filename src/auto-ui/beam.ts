@@ -6144,14 +6144,21 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
               <label class="form-label">Source</label>
               <input type="text" id="source-input" class="form-input" placeholder="username/repo or URL" style="width: 100%;" onkeydown="if(event.key==='Enter'){addMarketplaceSource();event.preventDefault();}">
               <div class="form-hint">
-                Supported formats:
-                <ul style="margin: 8px 0 0 16px; padding: 0;">
-                  <li><code>username/repo</code> - GitHub repository</li>
-                  <li><code>https://github.com/user/repo</code> - GitHub URL</li>
-                  <li><code>git@github.com:user/repo.git</code> - SSH</li>
-                  <li><code>~/path/to/folder</code> - Local folder</li>
-                  <li><code>https://example.com/photons.json</code> - Direct URL</li>
-                </ul>
+                <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 8px;">
+                  <thead>
+                    <tr>
+                      <th style="text-align: left; color: var(--text-muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border);">Format</th>
+                      <th style="text-align: left; color: var(--text-muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border);">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td style="padding: 4px 8px;"><code>username/repo</code></td><td style="padding: 4px 8px; color: var(--text-muted);">GitHub</td></tr>
+                    <tr><td style="padding: 4px 8px;"><code>https://github.com/user/repo</code></td><td style="padding: 4px 8px; color: var(--text-muted);">GitHub URL</td></tr>
+                    <tr><td style="padding: 4px 8px;"><code>git@github.com:user/repo.git</code></td><td style="padding: 4px 8px; color: var(--text-muted);">SSH</td></tr>
+                    <tr><td style="padding: 4px 8px;"><code>~/path/to/folder</code></td><td style="padding: 4px 8px; color: var(--text-muted);">Local</td></tr>
+                    <tr><td style="padding: 4px 8px;"><code>https://example.com/photons.json</code></td><td style="padding: 4px 8px; color: var(--text-muted);">URL</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
