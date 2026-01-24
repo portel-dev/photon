@@ -49,6 +49,7 @@ interface MCPResourceContent {
 
 /**
  * Configuration schema for unconfigured photons (SEP-1596 inspired)
+ * Uses OpenAPI-compliant format values where possible
  */
 interface ConfigurationSchema {
   [photonName: string]: {
@@ -59,12 +60,12 @@ interface ConfigurationSchema {
       type: string;
       description?: string;
       default?: any;
-      'x-env-var'?: string;
-      'x-sensitive'?: boolean;
-      'x-ui-widget'?: string;
-      format?: string;
+      format?: string;      // 'password', 'path', 'email', 'uri', etc.
+      writeOnly?: boolean;  // OpenAPI standard for sensitive fields
+      'x-env-var'?: string; // Custom: maps to environment variable
     }>;
     required?: string[];
+    'x-error-message'?: string;
   };
 }
 
