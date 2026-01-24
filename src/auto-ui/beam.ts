@@ -709,6 +709,281 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // PWA Manifest - Auto-generated for any photon
+    if (url.pathname === '/api/pwa/manifest.json') {
+      const photonName = url.searchParams.get('photon');
+      if (!photonName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon parameter' }));
+        return;
+      }
+
+      const photon = photons.find((p) => p.name === photonName);
+      const displayName = photon?.name || photonName;
+      const description = (photon as any)?.description || `${displayName} - Photon App`;
+
+      const manifest = {
+        name: displayName,
+        short_name: displayName,
+        description,
+        start_url: `/api/pwa/app?photon=${encodeURIComponent(photonName)}`,
+        display: 'standalone',
+        background_color: '#1a1a1a',
+        theme_color: '#1a1a1a',
+        orientation: 'any',
+        icons: [
+          {
+            src: `/api/pwa/icon.svg?photon=${encodeURIComponent(photonName)}`,
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+        ],
+        categories: ['developer', 'utilities'],
+      };
+
+      res.setHeader('Content-Type', 'application/manifest+json');
+      res.writeHead(200);
+      res.end(JSON.stringify(manifest, null, 2));
+      return;
+    }
+
+    // PWA Icon - Auto-generated SVG from photon emoji
+    if (url.pathname === '/api/pwa/icon.svg') {
+      const photonName = url.searchParams.get('photon');
+      const photon = photons.find((p) => p.name === photonName);
+      const emoji = (photon as any)?.icon || '📦';
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="20" fill="#1a1a1a"/>
+  <text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="central">${emoji}</text>
+</svg>`;
+
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.writeHead(200);
+      res.end(svg);
+      return;
+    }
+
+    // PWA App Entry - Serves the photon UI with PWA tags injected
+    if (url.pathname === '/api/pwa/app') {
+      const photonName = url.searchParams.get('photon');
+
+      if (!photonName) {
+        res.writeHead(400);
+        res.end('Missing photon parameter');
+        return;
+      }
+
+      const photon = photons.find((p) => p.name === photonName);
+      if (!photon) {
+        res.writeHead(404);
+        res.end(`Photon not found: ${photonName}`);
+        return;
+      }
+
+      const displayName = photon.name;
+      const emoji = (photon as any)?.icon || '📦';
+      const uiAssets = (photon as any).assets?.ui || [];
+      const asset = uiAssets.find((u: any) => u.linkedTool === 'main') || uiAssets[0];
+      const uiId = asset?.id || 'main';
+
+      // PWA Host page - embeds photon UI in iframe, handles postMessage
+      const pwaHost = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${emoji} ${displayName}</title>
+  <link rel="manifest" href="/api/pwa/manifest.json?photon=${encodeURIComponent(photonName)}">
+  <meta name="theme-color" content="#1a1a1a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="${displayName}">
+  <link rel="apple-touch-icon" href="/api/pwa/icon.svg?photon=${encodeURIComponent(photonName)}">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { min-height: 100%; background: #1a1a1a; font-family: system-ui, sans-serif; color: #e5e5e5; }
+    .app-container { display: flex; flex-direction: column; min-height: 100vh; }
+    .app-frame { flex: 1; min-height: 80vh; }
+    iframe { width: 100%; height: 100%; min-height: 80vh; border: none; }
+
+    .offline {
+      display: none;
+      height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      text-align: center;
+      padding: 40px;
+    }
+    .offline.show { display: flex; }
+    .offline h1 { font-size: 48px; margin-bottom: 20px; }
+    .offline p { font-size: 18px; margin-bottom: 30px; max-width: 400px; line-height: 1.6; }
+    .offline code {
+      background: #2a2a2a;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 16px;
+      color: #4ade80;
+      font-family: monospace;
+    }
+    .offline .retry {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #333;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .offline .retry:hover { background: #444; }
+  </style>
+</head>
+<body>
+  <div id="offline" class="offline">
+    <h1>${emoji}</h1>
+    <p>Server is not running. Start Photon to use ${displayName}:</p>
+    <code>photon</code>
+    <button class="retry" onclick="location.reload()">Retry</button>
+  </div>
+
+  <div class="app-container" id="app-container" style="display:none">
+    <iframe id="app"></iframe>
+  </div>
+
+  <script>
+    const iframe = document.getElementById('app');
+    const offline = document.getElementById('offline');
+    const appContainer = document.getElementById('app-container');
+    const photonName = '${photonName}';
+    const uiId = '${uiId}';
+
+    // Load UI with platform bridge injected
+    async function loadApp() {
+      try {
+        // Fetch UI template and platform bridge
+        const [uiRes, bridgeRes] = await Promise.all([
+          fetch('/api/ui?photon=' + encodeURIComponent(photonName) + '&id=' + encodeURIComponent(uiId)),
+          fetch('/api/platform-bridge?photon=' + encodeURIComponent(photonName) + '&method=' + encodeURIComponent(uiId) + '&theme=dark')
+        ]);
+
+        if (!uiRes.ok) {
+          offline.classList.add('show');
+          return;
+        }
+
+        let html = await uiRes.text();
+        const bridge = bridgeRes.ok ? await bridgeRes.text() : '';
+
+        // Inject platform bridge before </head>
+        html = html.replace('</head>', bridge + '</head>');
+
+        // Create blob URL and load in iframe
+        const blob = new Blob([html], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+        appContainer.style.display = 'flex';
+        initBridge();
+      } catch (e) {
+        offline.classList.add('show');
+      }
+    }
+
+    function initBridge() {
+      // Listen for messages from iframe
+      window.addEventListener('message', async (e) => {
+        const msg = e.data;
+        if (!msg || typeof msg !== 'object') return;
+
+        // Handle photon:call-tool from iframe
+        if (msg.type === 'photon:call-tool') {
+          const { callId, toolName, args } = msg;
+          try {
+            const res = await fetch('/api/invoke', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ photon: photonName, method: toolName, args: args || {} })
+            });
+            const data = await res.json();
+            iframe.contentWindow.postMessage({
+              type: 'photon:call-tool-response',
+              callId: callId,
+              result: data.error ? undefined : (data.result !== undefined ? data.result : data),
+              error: data.error
+            }, '*');
+          } catch (err) {
+            iframe.contentWindow.postMessage({
+              type: 'photon:call-tool-response',
+              callId: callId,
+              error: err.message
+            }, '*');
+          }
+        }
+      });
+
+      // Send init message to iframe once loaded
+      iframe.onload = () => {
+        iframe.contentWindow.postMessage({
+          type: 'photon:init',
+          context: { photon: photonName, theme: 'dark', displayMode: 'fullscreen' }
+        }, '*');
+      };
+    }
+
+    loadApp();
+  </script>
+</body>
+</html>`;
+
+      res.setHeader('Content-Type', 'text/html');
+      res.writeHead(200);
+      res.end(pwaHost);
+      return;
+    }
+
+    // Invoke API: Direct HTTP endpoint for method invocation (used by PWA)
+    if (url.pathname === '/api/invoke' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', async () => {
+        try {
+          const { photon: photonName, method, args } = JSON.parse(body);
+
+          if (!photonName || !method) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing photon or method' }));
+            return;
+          }
+
+          const mcp = photonMCPs.get(photonName);
+          if (!mcp || !mcp.instance) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Photon not found: ${photonName}` }));
+            return;
+          }
+
+          if (typeof mcp.instance[method] !== 'function') {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Method not found: ${method}` }));
+            return;
+          }
+
+          const result = await mcp.instance[method](args || {});
+          res.setHeader('Content-Type', 'application/json');
+          res.writeHead(200);
+          res.end(JSON.stringify({ result }));
+        } catch (err: any) {
+          res.setHeader('Content-Type', 'application/json');
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message || String(err) }));
+        }
+      });
+      return;
+    }
+
     // Platform Bridge API: Generate platform compatibility script
     if (url.pathname === '/api/platform-bridge') {
       const theme = (url.searchParams.get('theme') || 'dark') as 'light' | 'dark';
@@ -4252,6 +4527,50 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
       background: rgba(239, 68, 68, 0.1);
     }
 
+    /* Photon context menu */
+    .photon-context-menu {
+      position: fixed;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px;
+      min-width: 160px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      z-index: 10000;
+      display: none;
+    }
+    .photon-context-menu.visible {
+      display: block;
+    }
+    .photon-context-menu button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 4px;
+      text-align: left;
+    }
+    .photon-context-menu button:hover {
+      background: var(--bg-hover);
+    }
+    .photon-context-menu button.danger {
+      color: #ef4444;
+    }
+    .photon-context-menu button.danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+    .photon-context-menu .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+
     .settings-divider {
       height: 1px;
       background: var(--border-color);
@@ -6172,6 +6491,32 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
   </style>
 </head>
 <body>
+  <!-- Photon context menu -->
+  <div class="photon-context-menu" id="photon-context-menu">
+    <button onclick="launchAsApp(window.contextMenuPhoton)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <line x1="8" y1="21" x2="16" y2="21"></line>
+        <line x1="12" y1="17" x2="12" y2="21"></line>
+      </svg>
+      Launch as App
+    </button>
+    <button onclick="reloadPhotonByName(window.contextMenuPhoton)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 4v6h-6M1 20v-6h6"></path>
+        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+      </svg>
+      Reload
+    </button>
+    <div class="divider"></div>
+    <button class="danger" onclick="removePhotonByName(window.contextMenuPhoton)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+      </svg>
+      Remove
+    </button>
+  </div>
+
   <!-- Mobile menu button -->
   <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle menu">
     <svg viewBox="0 0 24 24" fill="none">
@@ -6348,6 +6693,14 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                     <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
                   </svg>
                   Reload
+                </button>
+                <button onclick="launchAsApp()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                  Launch as App
                 </button>
                 <div class="settings-divider"></div>
                 <button class="danger" onclick="removePhoton()">
@@ -7821,7 +8174,7 @@ photon add memory</code></pre>
 
           return \`
             <div class="photon-item flat">
-              <div class="photon-header" data-photon="\${photon.name}" onclick="selectPhoton('\${photon.name}')">
+              <div class="photon-header" data-photon="\${photon.name}" onclick="selectPhoton('\${photon.name}')" oncontextmenu="showPhotonContextMenu(event, '\${photon.name}')">
                 <span class="photon-name">\${photon.name}</span>
                 \${templateIndicator}
                 <span class="method-count">\${regularMethods.length}\${testMethods.length > 0 ? ' · ' + testMethods.length + ' tests' : ''}</span>
@@ -7833,7 +8186,7 @@ photon add memory</code></pre>
         // Unconfigured photons
         html += unconfigured.map(photon => \`
           <div class="photon-item unconfigured">
-            <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')" title="Click to configure">
+            <div class="photon-header" data-photon="\${photon.name}" onclick="selectUnconfigured('\${photon.name}')" oncontextmenu="showPhotonContextMenu(event, '\${photon.name}')" title="Click to configure">
               <span class="photon-name">\${photon.name}</span>
               <span class="setup-indicator" title="Needs setup">?</span>
             </div>
@@ -8533,6 +8886,50 @@ photon add memory</code></pre>
         photon: currentPhoton.name
       }));
     }
+
+    function launchAsApp(photonName) {
+      const name = photonName || currentPhoton?.name;
+      if (!name) return;
+      document.getElementById('settings-menu')?.classList.remove('visible');
+      hideContextMenu();
+      window.open('/api/pwa/app?photon=' + encodeURIComponent(name), '_blank');
+    }
+
+    // Context menu for photons (global for onclick access)
+    window.contextMenuPhoton = null;
+
+    function showPhotonContextMenu(e, photonName) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.contextMenuPhoton = photonName;
+      const menu = document.getElementById('photon-context-menu');
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+      menu.classList.add('visible');
+    }
+
+    function hideContextMenu() {
+      document.getElementById('photon-context-menu')?.classList.remove('visible');
+      window.contextMenuPhoton = null;
+    }
+
+    function reloadPhotonByName(name) {
+      hideContextMenu();
+      if (!name) return;
+      showProgress(\`Reloading \${name}...\`);
+      ws.send(JSON.stringify({ type: 'reload', photon: name }));
+    }
+
+    function removePhotonByName(name) {
+      hideContextMenu();
+      if (!name) return;
+      showConfirmDialog(\`Remove \${name} from this workspace?\`, () => {
+        ws.send(JSON.stringify({ type: 'remove', photon: name }));
+      });
+    }
+
+    // Close context menu on click outside
+    document.addEventListener('click', hideContextMenu);
 
     function removePhoton() {
       if (!currentPhoton) return;
@@ -10471,7 +10868,7 @@ photon add memory</code></pre>
             src="\${blobUrl}"
             class="html-content-iframe"
             style="width: 100%; height: calc(100vh - 280px); min-height: 500px; border: none; border-radius: 8px; background: transparent;"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
           ></iframe>
         </div>
       \`;

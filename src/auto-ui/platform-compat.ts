@@ -343,7 +343,6 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     return new Promise(function(resolve, reject) {
       pendingCalls[callId] = { resolve: resolve, reject: reject };
 
-      // Send via Photon protocol
       postToHost({
         type: 'photon:call-tool',
         toolName: name,

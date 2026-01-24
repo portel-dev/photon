@@ -211,7 +211,7 @@ export class CustomUiRenderer extends LitElement {
         return html`
         <iframe
             srcdoc=${this._srcDoc}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
             @load=${this._handleIframeLoad}
         ></iframe>
       `;
