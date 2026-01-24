@@ -7300,6 +7300,20 @@ photon add memory</code></pre>
           }
         }
       }
+
+      // Refresh any iframes showing this photon's UI (hot reload for asset changes)
+      document.querySelectorAll('iframe').forEach(iframe => {
+        try {
+          // Check if this iframe is showing content from the reloaded photon
+          const src = iframe.src || '';
+          if (src.includes(\`photon=\${photon.name}\`) || src.includes(\`/\${photon.name}/\`)) {
+            // Reload the iframe by resetting its src
+            iframe.src = iframe.src;
+          }
+        } catch (e) {
+          // Ignore cross-origin errors
+        }
+      });
     }
 
     function handleReloaded(photon) {
