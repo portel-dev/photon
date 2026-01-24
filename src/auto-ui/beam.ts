@@ -31,7 +31,6 @@ import {
   type InputProvider,
   type AskYield,
   type ConstructorParam,
-  type PhotonAssets,
   generateSmartRenderingJS,
   generateSmartRenderingCSS,
 } from '@portel/photon-core';
@@ -44,6 +43,19 @@ import { createBeamMCPSession, notifyToolsListChanged } from './beam-mcp-handler
 import { generateMCPClientJS } from './mcp-client.js';
 import { handleStreamableHTTP, broadcastNotification } from './streamable-http-transport.js';
 import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
+import type {
+  PhotonInfo,
+  UnconfiguredPhotonInfo,
+  AnyPhotonInfo,
+  ConfigParam,
+  MethodInfo,
+  InvokeRequest,
+  ConfigureRequest,
+  ElicitationResponse,
+  CancelRequest,
+  ReloadRequest,
+  RemoveRequest,
+} from './types.js';
 
 // Bundled photons that ship with the runtime
 const BUNDLED_PHOTONS = ['maker', 'tunnel'];
@@ -73,86 +85,9 @@ function getBundledPhotonPath(name: string): string | null {
   return null;
 }
 
-interface PhotonInfo {
-  name: string;
-  path: string;
-  configured: true;
-  methods: MethodInfo[];
-  templatePath?: string; // @ui template.html - custom UI template
-  isApp?: boolean; // True if photon has main() with @ui - listed under Apps section
-  appEntry?: MethodInfo; // The main() method that serves as app entry point
-  assets?: PhotonAssets; // Assets (UI, prompts, etc.)
-  description?: string; // User-editable description
-  icon?: string; // Emoji icon from @icon tag
-  internal?: boolean; // True if marked with @internal (system photon)
-}
-
-interface UnconfiguredPhotonInfo {
-  name: string;
-  path: string;
-  configured: false;
-  requiredParams: ConfigParam[];
-  errorMessage: string;
-}
-
-interface ConfigParam {
-  name: string;
-  envVar: string;
-  type: string;
-  isOptional: boolean;
-  hasDefault: boolean;
-  defaultValue?: any;
-}
-
-type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
-
-interface MethodInfo {
-  name: string;
-  description: string;
-  icon?: string; // Icon from @icon tag
-  params: any;
-  returns: any;
-  autorun?: boolean; // Auto-execute when selected (for idempotent methods)
-  outputFormat?: string; // Format hint for rendering (mermaid, markdown, json, etc.)
-  layoutHints?: Record<string, string>; // Layout hints from @format list {@title name, @subtitle email}
-  buttonLabel?: string; // Custom button label from @returns {@label}
-  linkedUi?: string; // UI template ID if linked via @ui annotation
-  isTemplate?: boolean; // True if this is an MCP prompt template (marked with @template)
-}
-
-interface InvokeRequest {
-  type: 'invoke';
-  photon: string;
-  method: string;
-  args: Record<string, any>;
-  invocationId?: string; // For interactive UI invocations that need response routing
-}
-
-interface ConfigureRequest {
-  type: 'configure';
-  photon: string;
-  config: Record<string, string>;
-}
-
-interface ElicitationResponse {
-  type: 'elicitation_response';
-  value: any;
-  cancelled?: boolean;
-}
-
-interface CancelRequest {
-  type: 'cancel';
-}
-
-interface ReloadRequest {
-  type: 'reload';
-  photon: string;
-}
-
-interface RemoveRequest {
-  type: 'remove';
-  photon: string;
-}
+// Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
+// InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
+// RemoveRequest are imported from ./types.js
 
 interface OAuthCompleteMessage {
   type: 'oauth_complete';
@@ -1363,20 +1298,13 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   mcpWss.on('connection', async (ws: WebSocket) => {
     logger.info('MCP client connected');
 
-    // Create typed photon list for MCP handler (includes assets for ui:// resources)
-    const typedPhotons = photons.map((p) => ({
-      name: p.name,
-      path: p.path,
-      configured: p.configured,
-      methods: p.configured ? (p as any).methods : undefined,
-      isApp: p.configured ? (p as any).isApp : undefined,
-      assets: p.configured ? (p as any).assets : undefined,
-    }));
+    // Filter to only configured photons for MCP handler
+    const configuredPhotons = photons.filter((p): p is PhotonInfo => p.configured);
 
     // Create MCP session with progress handler and UI asset loader (uses shared loadUIAsset)
     const { server: mcpServer, transport } = createBeamMCPSession(
       ws,
-      typedPhotons,
+      configuredPhotons,
       photonMCPs,
       (photonName, methodName, progress) => {
         // Progress updates are handled internally by MCP protocol
