@@ -28,6 +28,10 @@ import type {
   PhotonAssets,
   UIAssetInfo,
 } from './types.js';
+import {
+  buildToolMetadataExtensions,
+  buildResponseUIMetadata,
+} from './types.js';
 
 /**
  * Function to load UI asset content (provided by beam.ts)
@@ -74,28 +78,13 @@ export function createBeamMCPSession(
         // Tool name format: photon-name/method-name
         const toolName = `${photon.name}/${method.name}`;
 
-        const tool: any = {
+        const tool = {
           name: toolName,
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
+          // Add UI extensions (x-icon, x-autorun, x-output-format, etc.)
+          ...buildToolMetadataExtensions(method),
         };
-
-        // Add UI extensions
-        if (method.icon) {
-          tool['x-icon'] = method.icon;
-        }
-        if (method.autorun) {
-          tool['x-autorun'] = true;
-        }
-        if (method.outputFormat) {
-          tool['x-output-format'] = method.outputFormat;
-        }
-        if (method.layoutHints) {
-          tool['x-layout-hints'] = method.layoutHints;
-        }
-        if (method.buttonLabel) {
-          tool['x-button-label'] = method.buttonLabel;
-        }
 
         tools.push(tool);
       }
@@ -125,16 +114,7 @@ export function createBeamMCPSession(
     const methodInfo = photonInfo?.methods?.find(m => m.name === methodName);
 
     // Build UI metadata for response (MCP Apps Extension)
-    const uiMetadata: Record<string, any> = {};
-    if (methodInfo?.linkedUi) {
-      uiMetadata['x-ui-uri'] = `ui://${photonName}/${methodInfo.linkedUi}`;
-    }
-    if (methodInfo?.outputFormat) {
-      uiMetadata['x-output-format'] = methodInfo.outputFormat;
-    }
-    if (methodInfo?.layoutHints) {
-      uiMetadata['x-layout-hints'] = methodInfo.layoutHints;
-    }
+    const uiMetadata = buildResponseUIMetadata(photonName, methodInfo);
 
     const mcp = photonMCPs.get(photonName);
     if (!mcp || !mcp.instance) {
