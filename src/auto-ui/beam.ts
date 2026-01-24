@@ -1331,30 +1331,52 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   // Subscribe to daemon channels for cross-process updates (e.g., MCP -> BEAM)
   // This enables real-time updates when Claude modifies data via MCP
   const channelSubscriptions: Array<() => void> = [];
+  const subscribedChannels = new Set<string>();
 
-  async function subscribeToPhotonChannels() {
-    // Subscribe to kanban channels for real-time board updates
+  async function subscribeToKanbanChannel(boardName: string) {
+    const channel = `kanban:${boardName}`;
+    if (subscribedChannels.has(channel)) return;
+
     try {
       const isRunning = await pingDaemon('kanban');
       if (isRunning) {
-        // Subscribe to all kanban board updates using a pattern
-        // For now, subscribe to 'default' board - can be extended dynamically
-        const unsubscribe = await subscribeChannel('kanban', 'kanban:default', (message: any) => {
+        const unsubscribe = await subscribeChannel('kanban', channel, (message: any) => {
           logger.info('Received channel message', {
-            channel: 'kanban:default',
+            channel,
             event: message?.event,
           });
           broadcast({
             type: 'channel',
-            channel: 'kanban:default',
+            channel,
             data: message,
           });
         });
         channelSubscriptions.push(unsubscribe);
-        logger.info('Subscribed to kanban:default channel');
+        subscribedChannels.add(channel);
+        logger.info(`Subscribed to ${channel} channel`);
       }
     } catch {
-      // Daemon not running - that's fine, we'll use in-process events
+      // Daemon not running - that's fine
+    }
+  }
+
+  async function subscribeToPhotonChannels() {
+    // Subscribe to kanban channels for real-time board updates
+    // Try to get list of boards and subscribe to each
+    try {
+      const kanbanMCP = photonMCPs.get('kanban');
+      if (kanbanMCP?.instance && typeof kanbanMCP.instance.listBoards === 'function') {
+        const boards = await kanbanMCP.instance.listBoards({});
+        for (const board of boards) {
+          await subscribeToKanbanChannel(board.name);
+        }
+      } else {
+        // Fallback: subscribe to common board names
+        await subscribeToKanbanChannel('default');
+        await subscribeToKanbanChannel('photon');
+      }
+    } catch {
+      // Daemon not running or error - that's fine, we'll use in-process events
       logger.debug('Kanban daemon not running, using in-process events only');
     }
   }
