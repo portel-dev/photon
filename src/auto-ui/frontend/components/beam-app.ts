@@ -1178,7 +1178,6 @@ export class BeamApp extends LitElement {
         this._lastResult = msg.data;
         this._isExecuting = false;
         this._log('success', 'Execution completed');
-        showToast('Execution completed successfully', 'success');
       } else if (msg.type === 'configured') {
         // Photon was successfully configured
         const configuredPhoton = msg.photon;
@@ -1824,7 +1823,6 @@ export class BeamApp extends LitElement {
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
           this._log('success', 'Execution completed');
-          showToast('Execution completed successfully', 'success');
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
