@@ -68,6 +68,26 @@ interface ImageContent {
 type MCPContent = TextContent | ImageContent;
 
 /**
+ * MCP Resource definition (ui:// scheme for MCP Apps)
+ */
+interface MCPResource {
+  uri: string;
+  name: string;
+  mimeType?: string;
+  description?: string;
+}
+
+/**
+ * MCP Resource content
+ */
+interface MCPResourceContent {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+  blob?: string; // base64 encoded
+}
+
+/**
  * Progress notification data
  */
 interface ProgressNotification {
@@ -225,6 +245,24 @@ export class BeamMCPClient {
       isError?: boolean;
     };
     return result;
+  }
+
+  /**
+   * List available resources (MCP Apps Extension - ui:// scheme)
+   */
+  async listResources(): Promise<MCPResource[]> {
+    const result = (await this.sendRequest('resources/list', {})) as { resources: MCPResource[] };
+    return result.resources || [];
+  }
+
+  /**
+   * Read a resource by URI (MCP Apps Extension - ui:// scheme)
+   */
+  async readResource(uri: string): Promise<MCPResourceContent | null> {
+    const result = (await this.sendRequest('resources/read', { uri })) as {
+      contents: MCPResourceContent[];
+    };
+    return result.contents?.[0] || null;
   }
 
   /**
@@ -478,6 +516,16 @@ class BeamMCPClient {
     const params = { name, arguments: args };
     if (progressToken !== undefined) params._meta = { progressToken };
     return await this.sendRequest('tools/call', params);
+  }
+
+  async listResources() {
+    const r = await this.sendRequest('resources/list', {});
+    return r.resources || [];
+  }
+
+  async readResource(uri) {
+    const r = await this.sendRequest('resources/read', { uri });
+    return r.contents ? r.contents[0] : null;
   }
 
   respondToElicitation(id, value) {
