@@ -1,8 +1,9 @@
 /**
  * MCP Client Service for Beam UI
  *
- * Provides MCP protocol communication for LitElement components.
- * Supports both MCP and legacy WebSocket protocols with automatic fallback.
+ * Pure Streamable HTTP transport implementation (2025-03-26 spec).
+ * Uses POST for requests and SSE for server notifications.
+ * No WebSocket - acts like a standard external MCP client.
  */
 
 type JSONRPCMessage = {
@@ -49,67 +50,38 @@ interface MCPResourceContent {
 type MCPEventType = 'connect' | 'disconnect' | 'error' | 'tools-changed' | 'progress';
 
 class MCPClientService {
-  private ws: WebSocket | null = null;
+  private sessionId: string | null = null;
   private requestId = 0;
-  private pendingRequests = new Map<
-    string | number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >();
   private connected = false;
+  private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private eventListeners = new Map<MCPEventType, Set<Function>>();
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
+  }
 
   /**
-   * Connect to the MCP WebSocket endpoint
+   * Connect to the MCP endpoint via Streamable HTTP
    */
   async connect(): Promise<void> {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/mcp`;
+    try {
+      // Initialize session via POST
+      await this.initialize();
 
-    return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(url);
+      // Open SSE stream for server notifications
+      this.openSSEStream();
 
-        this.ws.onopen = async () => {
-          this.connected = true;
-          this.reconnectAttempts = 0;
-
-          try {
-            await this.initialize();
-            this.emit('connect');
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        };
-
-        this.ws.onclose = () => {
-          this.connected = false;
-          this.emit('disconnect');
-
-          if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => this.connect(), this.reconnectDelay * this.reconnectAttempts);
-          }
-        };
-
-        this.ws.onerror = () => {
-          const error = new Error('WebSocket error');
-          this.emit('error', error);
-          if (!this.connected) {
-            reject(error);
-          }
-        };
-
-        this.ws.onmessage = (event) => {
-          this.handleMessage(event.data);
-        };
-      } catch (error) {
-        reject(error);
-      }
-    });
+      this.connected = true;
+      this.reconnectAttempts = 0;
+      this.emit('connect');
+    } catch (error) {
+      this.emit('error', error);
+      throw error;
+    }
   }
 
   /**
@@ -117,19 +89,21 @@ class MCPClientService {
    */
   disconnect(): void {
     this.maxReconnectAttempts = 0;
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
     }
     this.connected = false;
+    this.sessionId = null;
+    this.emit('disconnect');
   }
 
   /**
    * Initialize MCP session
    */
   private async initialize(): Promise<void> {
-    await this.sendRequest('initialize', {
-      protocolVersion: '2024-11-05',
+    const result = await this.sendRequest('initialize', {
+      protocolVersion: '2025-03-26',
       capabilities: {
         roots: { listChanged: false },
         sampling: {},
@@ -140,7 +114,75 @@ class MCPClientService {
       },
     });
 
-    this.sendNotification('notifications/initialized', {});
+    // Send initialized notification
+    await this.sendNotification('notifications/initialized', {});
+
+    return result as void;
+  }
+
+  /**
+   * Open SSE stream for server-to-client notifications
+   */
+  private openSSEStream(): void {
+    // Build URL with session ID if available
+    let sseUrl = this.baseUrl;
+    if (this.sessionId) {
+      sseUrl += `?sessionId=${encodeURIComponent(this.sessionId)}`;
+    }
+
+    this.eventSource = new EventSource(sseUrl);
+
+    this.eventSource.onopen = () => {
+      // SSE connected
+    };
+
+    this.eventSource.onmessage = (event) => {
+      this.handleSSEMessage(event.data);
+    };
+
+    this.eventSource.onerror = () => {
+      if (this.eventSource?.readyState === EventSource.CLOSED) {
+        this.handleSSEDisconnect();
+      }
+    };
+  }
+
+  /**
+   * Handle SSE disconnect with reconnection
+   */
+  private handleSSEDisconnect(): void {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      setTimeout(() => {
+        if (this.connected) {
+          this.openSSEStream();
+        }
+      }, this.reconnectDelay * this.reconnectAttempts);
+    } else {
+      this.connected = false;
+      this.emit('disconnect');
+    }
+  }
+
+  /**
+   * Handle incoming SSE message
+   */
+  private handleSSEMessage(data: string): void {
+    try {
+      const message = JSON.parse(data) as JSONRPCMessage;
+
+      // Server notifications come through SSE
+      if (message.method && message.id === undefined) {
+        this.handleNotification(message);
+      }
+    } catch (error) {
+      this.emit('error', error);
+    }
   }
 
   /**
@@ -281,80 +323,75 @@ class MCPClientService {
   }
 
   /**
-   * Send JSON-RPC request
+   * Send JSON-RPC request via HTTP POST
    */
   private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('WebSocket not connected'));
-        return;
-      }
+    const id = ++this.requestId;
+    const request: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
 
-      const id = ++this.requestId;
-      const request: JSONRPCMessage = {
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
 
-      this.pendingRequests.set(id, { resolve, reject });
+    // Include session ID if we have one
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
 
-      setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          reject(new Error(`Request timeout: ${method}`));
-        }
-      }, 30000);
-
-      this.ws.send(JSON.stringify(request));
+    const response = await fetch(this.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(request),
     });
+
+    // Capture session ID from response
+    const newSessionId = response.headers.get('Mcp-Session-Id');
+    if (newSessionId) {
+      this.sessionId = newSessionId;
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = (await response.json()) as JSONRPCMessage;
+
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+
+    return result.result;
   }
 
   /**
-   * Send JSON-RPC notification
+   * Send JSON-RPC notification via HTTP POST
    */
-  private sendNotification(method: string, params: Record<string, unknown>): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
+  private async sendNotification(method: string, params: Record<string, unknown>): Promise<void> {
     const notification: JSONRPCMessage = {
       jsonrpc: '2.0',
       method,
       params,
     };
 
-    this.ws.send(JSON.stringify(notification));
-  }
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
 
-  /**
-   * Handle incoming message
-   */
-  private handleMessage(data: string): void {
-    try {
-      const message = JSON.parse(data) as JSONRPCMessage;
-
-      // Response
-      if (message.id !== undefined && (message.result !== undefined || message.error)) {
-        const pending = this.pendingRequests.get(message.id);
-        if (pending) {
-          this.pendingRequests.delete(message.id);
-          if (message.error) {
-            pending.reject(new Error(message.error.message));
-          } else {
-            pending.resolve(message.result);
-          }
-        }
-        return;
-      }
-
-      // Notification
-      if (message.method && message.id === undefined) {
-        this.handleNotification(message);
-        return;
-      }
-    } catch (error) {
-      this.emit('error', error);
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
     }
+
+    await fetch(this.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(notification),
+    });
   }
 
   /**
@@ -378,7 +415,7 @@ class MCPClientService {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.connected && this.ws?.readyState === WebSocket.OPEN;
+    return this.connected;
   }
 }
 
