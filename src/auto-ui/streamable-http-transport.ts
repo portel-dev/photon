@@ -386,7 +386,11 @@ export async function handleStreamableHTTP(
   }
 
   // Get or create session
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  // Check header first, then query parameter (for SSE which can't set headers)
+  let sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (!sessionId) {
+    sessionId = url.searchParams.get('sessionId') || undefined;
+  }
   const session = getOrCreateSession(sessionId);
 
   // GET - Open SSE stream for server notifications
