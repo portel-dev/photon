@@ -7039,13 +7039,22 @@ photon add memory</code></pre>
           }
         }
 
+        // Extract MCP Apps UI metadata from response
+        const uiUri = result['x-ui-uri'];
+        const outputFormat = result['x-output-format'];
+        const layoutHints = result['x-layout-hints'];
+
         return {
           type: 'result',
           data: data,
           photon: photonName,
           method: methodName,
           invocationId: invocationId,
-          isError: result.isError
+          isError: result.isError,
+          // MCP Apps UI metadata
+          uiUri: uiUri,
+          outputFormat: outputFormat,
+          layoutHints: layoutHints
         };
       } catch (error) {
         return {
@@ -9845,7 +9854,20 @@ photon add memory</code></pre>
         if (pvDataContent) pvDataContent.innerHTML = html;
       };
 
-      // Check for custom UI template (highest priority) - only if method matches currentMethod
+      // Check for custom UI template via MCP Apps ui:// URI (highest priority)
+      // The uiUri comes from MCP tools/call response x-ui-uri field
+      if (message.uiUri) {
+        // Parse ui://<photon>/<id> to get photon name and UI id
+        const uiMatch = message.uiUri.match(/^ui:\\/\\/([^/]+)\\/(.+)$/);
+        if (uiMatch) {
+          const [, photonName, uiId] = uiMatch;
+          renderCustomUI(content, data, photonName, uiId);
+          updateDataTab(syntaxHighlightJson(data));
+          return;
+        }
+      }
+
+      // Fall back to currentMethod.linkedUi (legacy path) - only if method matches currentMethod
       if (!invokedMethod || invokedMethod === currentMethod?.name) {
         if (currentMethod?.linkedUi && currentPhoton?.name) {
           renderCustomUI(content, data, currentPhoton.name, currentMethod.linkedUi);
