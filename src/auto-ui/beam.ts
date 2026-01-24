@@ -1324,16 +1324,39 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   mcpWss.on('connection', async (ws: WebSocket) => {
     logger.info('MCP client connected');
 
-    // Create typed photon list for MCP handler
+    // Create typed photon list for MCP handler (includes assets for ui:// resources)
     const typedPhotons = photons.map((p) => ({
       name: p.name,
       path: p.path,
       configured: p.configured,
       methods: p.configured ? (p as any).methods : undefined,
       isApp: p.configured ? (p as any).isApp : undefined,
+      assets: p.configured ? (p as any).assets : undefined,
     }));
 
-    // Create MCP session with progress handler
+    // UI asset loader for MCP resources/read (ui:// scheme)
+    const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
+      const photon = photons.find((p) => p.name === photonName);
+      if (!photon || !photon.configured) return null;
+
+      const photonDir = path.dirname(photon.path);
+      const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
+
+      let uiPath: string;
+      if (asset?.resolvedPath) {
+        uiPath = asset.resolvedPath;
+      } else {
+        uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      }
+
+      try {
+        return await fs.readFile(uiPath, 'utf-8');
+      } catch {
+        return null;
+      }
+    };
+
+    // Create MCP session with progress handler and UI asset loader
     const { server: mcpServer, transport } = createBeamMCPSession(
       ws,
       typedPhotons,
@@ -1341,7 +1364,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       (photonName, methodName, progress) => {
         // Progress updates are handled internally by MCP protocol
         logger.debug(`MCP progress: ${photonName}/${methodName}`, progress);
-      }
+      },
+      loadUIAsset
     );
 
     // Track session
