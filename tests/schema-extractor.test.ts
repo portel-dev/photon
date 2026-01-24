@@ -1422,7 +1422,156 @@ async function runTests() {
     console.log('✅ Case insensitivity of daemon tags');
   }
 
-  console.log('\n✅ All Schema Extractor tests passed! (74 tests)');
+  // ═══════════════════════════════════════════════════════════════════
+  // CHOICE AND FIELD TAG TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Test 75: {@choice} tag generates enum
+  {
+    const source = `
+      /**
+       * Set user status
+       * @param status User status {@choice active,inactive,pending}
+       */
+      async setStatus(params: { status: string }) {
+        return status;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.deepEqual(schema.properties.status.enum, ['active', 'inactive', 'pending'], 'Should generate enum from {@choice}');
+    assert.equal(schema.properties.status.type, 'string', 'Should be string type');
+    console.log('✅ {@choice} tag generates enum');
+  }
+
+  // Test 76: {@choice} with spaces around values
+  {
+    const source = `
+      /**
+       * Select priority
+       * @param priority Priority level {@choice low, medium, high}
+       */
+      async setPriority(params: { priority: string }) {
+        return priority;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.deepEqual(schema.properties.priority.enum, ['low', 'medium', 'high'], 'Should trim spaces from choices');
+    console.log('✅ {@choice} with spaces around values');
+  }
+
+  // Test 77: {@field} tag sets field type
+  {
+    const source = `
+      /**
+       * Update profile
+       * @param bio Biography {@field textarea}
+       */
+      async updateProfile(params: { bio: string }) {
+        return bio;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.bio.field, 'textarea', 'Should set field type from {@field}');
+    console.log('✅ {@field} tag sets field type');
+  }
+
+  // Test 78: {@field} combined with other tags
+  {
+    const source = `
+      /**
+       * Set password
+       * @param password New password {@field password} {@min 8}
+       */
+      async setPassword(params: { password: string }) {
+        return password;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.password.field, 'password', 'Should have field type');
+    assert.equal(schema.properties.password.minLength, 8, 'Should also have minLength');
+    console.log('✅ {@field} combined with other tags');
+  }
+
+  // Test 79: {@choice} combined with {@label}
+  {
+    const source = `
+      /**
+       * Set theme
+       * @param theme {@label Theme Mode} {@choice light,dark,auto} Select theme
+       */
+      async setTheme(params: { theme: string }) {
+        return theme;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const schema = result.tools[0].inputSchema;
+    assert.equal(schema.properties.theme.title, 'Theme Mode', 'Should have custom label');
+    assert.deepEqual(schema.properties.theme.enum, ['light', 'dark', 'auto'], 'Should have enum');
+    assert.equal(schema.properties.theme.description, 'Select theme', 'Tags should be removed from description');
+    console.log('✅ {@choice} combined with {@label}');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTORUN TAG TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Test 80: @autorun tag extraction
+  {
+    const source = `
+      /**
+       * Get current status
+       * @autorun
+       */
+      async getStatus(params: {}) {
+        return { status: 'online' };
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).autorun, true, 'Should have autorun=true');
+    console.log('✅ @autorun tag extraction');
+  }
+
+  // Test 81: Method without @autorun has no autorun property
+  {
+    const source = `
+      /**
+       * Regular method
+       */
+      async regularMethod(params: {}) {
+        return true;
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).autorun, undefined, 'Should not have autorun property');
+    console.log('✅ Method without @autorun has no autorun property');
+  }
+
+  // Test 82: @autorun combined with @icon
+  {
+    const source = `
+      /**
+       * Get system info
+       * @autorun
+       * @icon 📊
+       */
+      async systemInfo(params: {}) {
+        return { uptime: 100 };
+      }
+    `;
+    const result = extractor.extractAllFromSource(source);
+    const tool = result.tools[0];
+    assert.equal((tool as any).autorun, true, 'Should have autorun');
+    assert.equal((tool as any).icon, '📊', 'Should have icon');
+    console.log('✅ @autorun combined with @icon');
+  }
+
+  console.log('\n✅ All Schema Extractor tests passed! (82 tests)');
 }
 
 // Run if executed directly

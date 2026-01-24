@@ -24,6 +24,8 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@ui` | Defines a UI template asset for MCP Apps. | `@ui my-view ./ui/view.html` |
 | `@prompt` | Defines a static prompt asset. | `@prompt greet ./prompts/greet.txt` |
 | `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
+| `@icon` | Sets the photon icon (emoji). | `@icon 🔧` |
+| `@internal` | Marks photon as internal (hidden from main UI). | `@internal` |
 
 ### Runtime Version Ranges
 
@@ -338,6 +340,116 @@ export default class UserManager {
   async status(): Promise<SystemStatus> { ... }
 }
 ```
+
+## MCP Configuration Schema
+
+When connecting via MCP (Streamable HTTP transport), Photon exposes configuration requirements in the `initialize` response. This allows MCP clients like Claude Desktop to prompt users for missing configuration values.
+
+### How It Works
+
+1. **Constructor parameters** define what configuration a photon needs
+2. **Environment variables** are auto-generated: `PHOTON_<NAME>_<PARAM>`
+3. **configurationSchema** is returned in MCP `initialize` response
+4. **beam/configure** tool allows setting values at runtime
+
+### Constructor Parameter Mapping
+
+```typescript
+export default class MyPhoton {
+  constructor(
+    private apiKey: string,           // Required, sensitive
+    private dataPath?: string,        // Optional path
+    private region: string = 'us-east-1'  // Has default
+  ) {}
+}
+```
+
+This generates the following configuration schema:
+
+```json
+{
+  "MyPhoton": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "format": "password",
+        "writeOnly": true,
+        "x-env-var": "PHOTON_MYPHOTON_APIKEY"
+      },
+      "dataPath": {
+        "type": "string",
+        "format": "path",
+        "x-env-var": "PHOTON_MYPHOTON_DATAPATH"
+      },
+      "region": {
+        "type": "string",
+        "default": "us-east-1",
+        "x-env-var": "PHOTON_MYPHOTON_REGION"
+      }
+    },
+    "required": ["apiKey"]
+  }
+}
+```
+
+### JSON Schema Format Values
+
+Photon uses OpenAPI-compliant `format` values for special field types:
+
+| Parameter Name Pattern | Format | Behavior |
+|------------------------|--------|----------|
+| `*key`, `*secret`, `*token`, `*password`, `*credential` | `password` | Masked input, `writeOnly: true` |
+| `*path`, `*file`, `*dir`, `*directory`, `*folder` | `path` | File/folder picker in UI |
+| TypeScript union types | `enum` | Dropdown selector |
+
+### Configuration Tools
+
+#### beam/configure
+
+Sets configuration values for unconfigured photons:
+
+```typescript
+// MCP tools/call
+{
+  "name": "beam/configure",
+  "arguments": {
+    "photon": "my-photon",
+    "config": {
+      "apiKey": "sk-xxx",
+      "dataPath": "/data"
+    }
+  }
+}
+```
+
+#### beam/browse
+
+Browse the filesystem for path selection:
+
+```typescript
+// MCP tools/call
+{
+  "name": "beam/browse",
+  "arguments": {
+    "path": "/home/user",    // Optional, defaults to cwd
+    "showHidden": false      // Optional
+  }
+}
+// Returns: { path: "/home/user", items: [...] }
+```
+
+### Environment Variables
+
+Configuration can also be set via environment variables:
+
+```bash
+export PHOTON_MYPHOTON_APIKEY="sk-xxx"
+export PHOTON_MYPHOTON_DATAPATH="/data"
+photon beam
+```
+
+The naming convention is: `PHOTON_<PHOTONNAME>_<PARAMNAME>` (uppercase, no hyphens).
 
 ## Notes
 
