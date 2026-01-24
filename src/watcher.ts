@@ -1,11 +1,12 @@
 /**
  * File Watcher for Dev Mode
  *
- * Watches .photon.ts file for changes and triggers hot reload
+ * Watches .photon.ts file and its asset folder for changes and triggers hot reload
  */
 
 import chokidar, { type FSWatcher } from 'chokidar';
 import * as path from 'path';
+import * as fs from 'fs';
 import { PhotonServer, HotReloadDisabledError } from './server.js';
 import { Logger, createLogger } from './shared/logger.js';
 
@@ -13,6 +14,7 @@ export class FileWatcher {
   private watcher: FSWatcher | null = null;
   private server: PhotonServer;
   private filePath: string;
+  private assetFolderPath: string | null = null;
   private reloadTimeout: NodeJS.Timeout | null = null;
   private logger: Logger;
 
@@ -21,15 +23,34 @@ export class FileWatcher {
     this.filePath = path.resolve(filePath);
     this.logger =
       logger ?? createLogger({ component: 'file-watcher', scope: path.basename(filePath) });
+
+    // Determine asset folder path (same name as photon file without .photon.ts)
+    const dir = path.dirname(this.filePath);
+    const baseName = path.basename(this.filePath).replace(/\.photon\.ts$/, '');
+    const assetFolder = path.join(dir, baseName);
+
+    // Check if asset folder exists
+    if (fs.existsSync(assetFolder) && fs.statSync(assetFolder).isDirectory()) {
+      this.assetFolderPath = assetFolder;
+    }
   }
 
   /**
-   * Start watching the file
+   * Start watching the file and asset folder
    */
   start() {
-    this.logger.info(`Watching ${path.basename(this.filePath)} for changes...`);
+    const watchPaths: string[] = [this.filePath];
 
-    this.watcher = chokidar.watch(this.filePath, {
+    if (this.assetFolderPath) {
+      watchPaths.push(this.assetFolderPath);
+      this.logger.info(
+        `Watching ${path.basename(this.filePath)} and ${path.basename(this.assetFolderPath)}/ for changes...`
+      );
+    } else {
+      this.logger.info(`Watching ${path.basename(this.filePath)} for changes...`);
+    }
+
+    this.watcher = chokidar.watch(watchPaths, {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
@@ -42,6 +63,13 @@ export class FileWatcher {
       this.handleFileChange(changedPath);
     });
 
+    // Also watch for new files in asset folder
+    this.watcher.on('add', (changedPath: string) => {
+      if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
+        this.handleFileChange(changedPath);
+      }
+    });
+
     this.watcher.on('error', (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Watcher error: ${message}`);
@@ -52,7 +80,12 @@ export class FileWatcher {
    * Handle file change event
    */
   private handleFileChange(changedPath: string) {
-    this.logger.info(`File changed: ${path.basename(changedPath)}`);
+    // Show relative path for asset files, basename for photon file
+    let displayPath = path.basename(changedPath);
+    if (this.assetFolderPath && changedPath.startsWith(this.assetFolderPath)) {
+      displayPath = path.relative(path.dirname(this.assetFolderPath), changedPath);
+    }
+    this.logger.info(`File changed: ${displayPath}`);
 
     // Debounce rapid changes
     if (this.reloadTimeout) {
