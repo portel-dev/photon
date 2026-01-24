@@ -23,28 +23,20 @@ import { readdir, stat } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
+import type {
+  JSONRPCRequest,
+  JSONRPCResponse,
+  ConfigParam,
+  MethodInfo,
+  PhotonInfo,
+  UnconfiguredPhotonInfo,
+  AnyPhotonInfo,
+  PhotonMCPInstance,
+} from './types.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
-// TYPES
+// LOCAL TYPES (specific to this transport)
 // ════════════════════════════════════════════════════════════════════════════════
-
-interface JSONRPCRequest {
-  jsonrpc: '2.0';
-  id?: string | number;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-interface JSONRPCResponse {
-  jsonrpc: '2.0';
-  id?: string | number;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
-}
 
 interface MCPSession {
   id: string;
@@ -65,48 +57,6 @@ interface MCPResource {
   name: string;
   mimeType?: string;
   description?: string;
-}
-
-interface MethodInfo {
-  name: string;
-  description: string;
-  params: any;
-  linkedUi?: string;
-  outputFormat?: string;
-  layoutHints?: Record<string, string>;
-}
-
-interface ConfigParam {
-  name: string;
-  envVar: string;
-  type: string;
-  isOptional: boolean;
-  hasDefault: boolean;
-  defaultValue?: any;
-}
-
-interface PhotonInfo {
-  name: string;
-  path: string;
-  configured: boolean;
-  methods?: MethodInfo[];
-  assets?: {
-    ui: Array<{ id: string; uri?: string; mimeType?: string; linkedTool?: string }>;
-  };
-}
-
-interface UnconfiguredPhotonInfo {
-  name: string;
-  path: string;
-  configured: false;
-  requiredParams: ConfigParam[];
-  errorMessage: string;
-}
-
-type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
-
-interface PhotonMCPInstance {
-  instance: any;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

@@ -21,48 +21,13 @@ import type { Transport } from '../mcp-websocket-transport.js';
 import { WebSocketServerTransport } from '../mcp-websocket-transport.js';
 import type { WebSocket } from 'ws';
 import { PHOTON_VERSION } from '../version.js';
-
-interface MethodInfo {
-  name: string;
-  description: string;
-  icon?: string;
-  params: any;
-  returns: any;
-  autorun?: boolean;
-  outputFormat?: string;
-  layoutHints?: Record<string, string>;
-  buttonLabel?: string;
-  linkedUi?: string;
-}
-
-interface UIAssetInfo {
-  id: string;
-  uri: string;
-  path: string;
-  resolvedPath?: string;
-  mimeType?: string;
-  linkedTool?: string;
-}
-
-interface PhotonAssets {
-  ui: UIAssetInfo[];
-  prompts: any[];
-  resources: any[];
-}
-
-interface PhotonInfo {
-  name: string;
-  path: string;
-  configured: boolean;
-  methods?: MethodInfo[];
-  isApp?: boolean;
-  assets?: PhotonAssets;
-}
-
-interface PhotonMCPInstance {
-  instance: any;
-  schemas?: any[];
-}
+import type {
+  MethodInfo,
+  PhotonInfo,
+  PhotonMCPInstance,
+  PhotonAssets,
+  UIAssetInfo,
+} from './types.js';
 
 /**
  * Function to load UI asset content (provided by beam.ts)
