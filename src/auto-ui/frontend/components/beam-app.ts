@@ -2195,9 +2195,20 @@ export class BeamApp extends LitElement {
     const photon = this._selectedPhoton;
     const lines: string[] = [];
 
-    // Header
-    lines.push(`# ${photon.name}`);
+    // Header with icon
+    const icon = photon.icon ? `${photon.icon} ` : '';
+    lines.push(`# ${icon}${photon.name}`);
     lines.push('');
+
+    // Badges
+    const badges: string[] = [];
+    if (photon.internal) badges.push('`System`');
+    if (photon.isApp) badges.push('`App`');
+    if (badges.length > 0) {
+      lines.push(badges.join(' '));
+      lines.push('');
+    }
+
     if (photon.description) {
       lines.push(photon.description);
       lines.push('');

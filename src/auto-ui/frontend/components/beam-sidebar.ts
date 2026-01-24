@@ -8,6 +8,8 @@ interface PhotonItem {
   isApp?: boolean;
   appEntry?: any;
   methods?: any[];
+  icon?: string;
+  internal?: boolean;
 }
 
 @customElement('beam-sidebar')
@@ -189,10 +191,27 @@ export class BeamSidebar extends LitElement {
         flex-shrink: 0;
       }
 
-      .photon-icon.app-icon {
+      .photon-icon.app-icon,
+      .photon-icon.emoji-icon {
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
         color: white;
         border-radius: 8px;
+        font-size: 16px;
+      }
+
+      .photon-item.internal {
+        opacity: 0.85;
+      }
+
+      .internal-badge {
+        font-size: 0.6rem;
+        padding: 1px 4px;
+        background: linear-gradient(135deg, hsl(280, 60%, 50%), hsl(320, 60%, 50%));
+        color: white;
+        border-radius: 3px;
+        text-transform: uppercase;
+        font-weight: 600;
+        letter-spacing: 0.03em;
       }
 
       .photon-info {
@@ -537,20 +556,26 @@ export class BeamSidebar extends LitElement {
     const isUnconfigured = type === 'unconfigured';
     const isFavorited = this._favorites.has(photon.name);
 
+    // Determine icon: use photon's icon if available, otherwise default
+    const displayIcon = photon.icon || (isApp ? '📱' : photon.name.substring(0, 2).toUpperCase());
+    const hasCustomIcon = !!photon.icon;
+
     return html`
       <li
-        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''}"
+        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''} ${photon.internal ? 'internal' : ''}"
         role="option"
         aria-selected="${this.selectedPhoton === photon.name}"
         tabindex="0"
         @click=${() => this._selectPhoton(photon)}
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
+        title="${photon.description || photon.name}"
       >
-        <div class="photon-icon ${isApp ? 'app-icon' : ''}" aria-hidden="true">
-          ${isApp ? '📱' : photon.name.substring(0, 2).toUpperCase()}
+        <div class="photon-icon ${isApp || hasCustomIcon ? 'emoji-icon' : ''}" aria-hidden="true">
+          ${displayIcon}
         </div>
         <div class="photon-info">
           <div class="photon-name">${photon.name}</div>
+          ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
         </div>
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"

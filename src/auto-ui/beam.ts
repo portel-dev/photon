@@ -82,7 +82,8 @@ interface PhotonInfo {
   appEntry?: MethodInfo; // The main() method that serves as app entry point
   assets?: PhotonAssets; // Assets (UI, prompts, etc.)
   description?: string; // User-editable description
-  icon?: string; // User-editable emoji icon
+  icon?: string; // Emoji icon from @icon tag
+  internal?: boolean; // True if marked with @internal (system photon)
 }
 
 interface UnconfiguredPhotonInfo {
@@ -262,7 +263,7 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
 /**
  * Extract class-level metadata (description, icon) from JSDoc comments
  */
-async function extractClassMetadata(photonPath: string): Promise<{ description?: string; icon?: string }> {
+async function extractClassMetadata(photonPath: string): Promise<{ description?: string; icon?: string; internal?: boolean }> {
   try {
     const content = await fs.readFile(photonPath, 'utf-8');
 
@@ -275,12 +276,17 @@ async function extractClassMetadata(photonPath: string): Promise<{ description?:
     }
 
     const docContent = match[1];
-    const metadata: { description?: string; icon?: string } = {};
+    const metadata: { description?: string; icon?: string; internal?: boolean } = {};
 
     // Extract @icon
     const iconMatch = docContent.match(/@icon\s+(\S+)/);
     if (iconMatch) {
       metadata.icon = iconMatch[1];
+    }
+
+    // Extract @internal (presence indicates internal photon)
+    if (/@internal\b/.test(docContent)) {
+      metadata.internal = true;
     }
 
     // Extract @description or first line of doc (not starting with @)
@@ -515,6 +521,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         assets: mcp.assets,
         description: classMetadata.description || mcp.description || `${name} MCP`,
         icon: classMetadata.icon,
+        internal: classMetadata.internal,
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
