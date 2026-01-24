@@ -155,6 +155,22 @@ export function createBeamMCPSession(
     const photonName = name.slice(0, slashIndex);
     const methodName = name.slice(slashIndex + 1);
 
+    // Find photon info for UI metadata
+    const photonInfo = photons.find(p => p.name === photonName);
+    const methodInfo = photonInfo?.methods?.find(m => m.name === methodName);
+
+    // Build UI metadata for response (MCP Apps Extension)
+    const uiMetadata: Record<string, any> = {};
+    if (methodInfo?.linkedUi) {
+      uiMetadata['x-ui-uri'] = `ui://${photonName}/${methodInfo.linkedUi}`;
+    }
+    if (methodInfo?.outputFormat) {
+      uiMetadata['x-output-format'] = methodInfo.outputFormat;
+    }
+    if (methodInfo?.layoutHints) {
+      uiMetadata['x-layout-hints'] = methodInfo.layoutHints;
+    }
+
     const mcp = photonMCPs.get(photonName);
     if (!mcp || !mcp.instance) {
       return {
@@ -195,13 +211,15 @@ export function createBeamMCPSession(
         return {
           content: [{ type: 'text', text: JSON.stringify(finalResult, null, 2) }],
           isError: false,
+          ...uiMetadata,
         };
       }
 
-      // Regular result
+      // Regular result - include UI metadata for MCP Apps
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         isError: false,
+        ...uiMetadata,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
