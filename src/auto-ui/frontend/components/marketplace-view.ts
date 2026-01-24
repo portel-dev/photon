@@ -371,6 +371,42 @@ export class MarketplaceView extends LitElement {
         font-size: 0.75rem;
       }
 
+      .formats-table {
+        width: 100%;
+        font-size: 0.8rem;
+        border-collapse: collapse;
+        margin-top: var(--space-sm);
+      }
+
+      .formats-table th {
+        text-align: left;
+        color: var(--t-muted);
+        font-weight: 500;
+        padding: var(--space-xs) var(--space-sm);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .formats-table td {
+        padding: var(--space-xs) var(--space-sm);
+        vertical-align: middle;
+      }
+
+      .formats-table td:first-child {
+        white-space: nowrap;
+      }
+
+      .formats-table td code {
+        background: var(--bg-glass);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+      }
+
+      .formats-table .type-label {
+        color: var(--t-muted);
+        font-size: 0.75rem;
+      }
+
       .modal-footer {
         display: flex;
         justify-content: flex-end;
@@ -483,12 +519,36 @@ export class MarketplaceView extends LitElement {
               autofocus
             >
             <div class="modal-hint">
-              Supported formats:<br>
-              <code>username/repo</code> — GitHub repository<br>
-              <code>https://github.com/user/repo</code> — GitHub URL<br>
-              <code>git@github.com:user/repo.git</code> — SSH<br>
-              <code>~/path/to/folder</code> — Local folder<br>
-              <code>https://example.com/photons.json</code> — Direct URL
+              <table class="formats-table">
+                <thead>
+                  <tr>
+                    <th>Format</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>username/repo</code></td>
+                    <td class="type-label">GitHub</td>
+                  </tr>
+                  <tr>
+                    <td><code>https://github.com/user/repo</code></td>
+                    <td class="type-label">GitHub URL</td>
+                  </tr>
+                  <tr>
+                    <td><code>git@github.com:user/repo.git</code></td>
+                    <td class="type-label">SSH</td>
+                  </tr>
+                  <tr>
+                    <td><code>~/path/to/folder</code></td>
+                    <td class="type-label">Local</td>
+                  </tr>
+                  <tr>
+                    <td><code>https://example.com/photons.json</code></td>
+                    <td class="type-label">URL</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
           <div class="modal-footer">
