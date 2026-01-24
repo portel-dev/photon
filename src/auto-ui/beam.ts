@@ -8,7 +8,7 @@
 
 import * as http from 'http';
 import * as fs from 'fs/promises';
-import { watch, existsSync, type FSWatcher } from 'fs';
+import { existsSync, lstatSync, realpathSync, watch, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
@@ -1691,6 +1691,33 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     logger.info(`👀 Watching for changes in ${workingDir}`);
   } catch (error) {
     logger.warn(`File watching not available: ${error}`);
+  }
+
+  // Watch symlinked photon asset folders (symlinks aren't followed by fs.watch)
+  for (const photon of photons) {
+    if (!photon.path) continue;
+    try {
+      const stat = lstatSync(photon.path);
+      if (stat.isSymbolicLink()) {
+        const realPath = realpathSync(photon.path);
+        const realDir = path.dirname(realPath);
+        const assetFolder = path.join(realDir, photon.name);
+
+        if (existsSync(assetFolder)) {
+          const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
+            if (filename) {
+              logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
+              handleFileChange(photon.name);
+            }
+          });
+          assetWatcher.on('error', () => {});
+          watchers.push(assetWatcher);
+          logger.info(`👀 Watching ${photon.name}/ (symlinked → ${assetFolder})`);
+        }
+      }
+    } catch {
+      // Ignore errors checking symlinks
+    }
   }
 
   // Watch bundled photon asset folders
