@@ -486,6 +486,8 @@ export class MarketplaceView extends LitElement {
               Supported formats:<br>
               <code>username/repo</code> — GitHub repository<br>
               <code>https://github.com/user/repo</code> — GitHub URL<br>
+              <code>git@github.com:user/repo.git</code> — SSH<br>
+              <code>~/path/to/folder</code> — Local folder<br>
               <code>https://example.com/photons.json</code> — Direct URL
             </div>
           </div>

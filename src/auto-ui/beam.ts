@@ -6148,8 +6148,9 @@ function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
                 <ul style="margin: 8px 0 0 16px; padding: 0;">
                   <li><code>username/repo</code> - GitHub repository</li>
                   <li><code>https://github.com/user/repo</code> - GitHub URL</li>
+                  <li><code>git@github.com:user/repo.git</code> - SSH</li>
+                  <li><code>~/path/to/folder</code> - Local folder</li>
                   <li><code>https://example.com/photons.json</code> - Direct URL</li>
-                  <li><code>./local/path</code> - Local directory</li>
                 </ul>
               </div>
             </div>
