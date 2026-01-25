@@ -1960,6 +1960,16 @@ export class BeamApp extends LitElement {
         }
       }
     }
+
+    // Handle custom UI notifying what board/resource it's viewing
+    // This enables on-demand channel subscriptions
+    if (msg.type === 'photon:viewing') {
+      const photon = msg.photon || this._selectedPhoton?.name;
+      const board = msg.board;
+      if (photon && board) {
+        mcpClient.notifyViewing(photon, board);
+      }
+    }
   }
 
   // ===== Share Result Link =====
