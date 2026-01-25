@@ -1232,8 +1232,15 @@ export class BeamApp extends LitElement {
 
       // Handle channel events (task-moved, task-updated, etc.) - forward with delta
       mcpClient.on('channel-event', (data: any) => {
-        const iframes = this.shadowRoot?.querySelectorAll('iframe');
-        iframes?.forEach(iframe => {
+        // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
+        const iframes: HTMLIFrameElement[] = [];
+        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach(renderer => {
+          const iframe = renderer.shadowRoot?.querySelector('iframe');
+          if (iframe) iframes.push(iframe);
+        });
+        // Also check direct iframes (legacy)
+        this.shadowRoot?.querySelectorAll('iframe').forEach(iframe => iframes.push(iframe));
+        iframes.forEach(iframe => {
           iframe.contentWindow?.postMessage({
             type: 'photon:channel-event',
             ...data
@@ -1243,8 +1250,14 @@ export class BeamApp extends LitElement {
 
       // Handle board updates (legacy) - forward to custom UI iframes
       mcpClient.on('board-update', (data: any) => {
-        const iframes = this.shadowRoot?.querySelectorAll('iframe');
-        iframes?.forEach(iframe => {
+        // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
+        const iframes: HTMLIFrameElement[] = [];
+        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach(renderer => {
+          const iframe = renderer.shadowRoot?.querySelector('iframe');
+          if (iframe) iframes.push(iframe);
+        });
+        this.shadowRoot?.querySelectorAll('iframe').forEach(iframe => iframes.push(iframe));
+        iframes.forEach(iframe => {
           iframe.contentWindow?.postMessage({
             type: 'photon:board-update',
             ...data
