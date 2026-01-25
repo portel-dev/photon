@@ -1986,6 +1986,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         if (existsSync(assetFolder)) {
           const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
             if (filename) {
+              // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
+              // Data files like boards/*.json, data.json should not trigger reload
+              if (filename.endsWith('.json') || filename.startsWith('boards/') || filename === 'data.json') {
+                logger.debug(`⏭️ Ignoring data file change: ${photon.name}/${filename}`);
+                return;
+              }
               logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
               handleFileChange(photon.name);
             }
@@ -2038,6 +2044,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     try {
       const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
         if (filename) {
+          // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
+          if (filename.endsWith('.json') || filename.startsWith('boards/') || filename === 'data.json') {
+            logger.debug(`⏭️ Ignoring data file change: ${photonName}/${filename}`);
+            return;
+          }
           logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
           handleFileChange(photonName);
         }
