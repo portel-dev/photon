@@ -1551,7 +1551,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     // Filter to only configured photons for MCP handler
     const configuredPhotons = photons.filter((p): p is PhotonInfo => p.configured);
 
-    // Create MCP session with progress handler and UI asset loader (uses shared loadUIAsset)
+    // Create MCP session with progress handler, UI asset loader, broadcast function, and loader
     const { server: mcpServer, transport } = createBeamMCPSession(
       ws,
       configuredPhotons,
@@ -1560,7 +1560,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         // Progress updates are handled internally by MCP protocol
         logger.debug(`MCP progress: ${photonName}/${methodName}`, progress);
       },
-      loadUIAsset
+      loadUIAsset,
+      broadcast, // Forward board-update events from MCP calls to WebSocket clients
+      loader // Pass loader for proper execution context (this.emit() support)
     );
 
     // Track session
@@ -1970,7 +1972,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   // Watch symlinked photon asset folders (symlinks aren't followed by fs.watch)
   for (const photon of photons) {
-    if (!photon.path) continue;
+    if (!photon.path) {
+      logger.debug(`⏭️ Skipping ${photon.name}: no path`);
+      continue;
+    }
     try {
       const stat = lstatSync(photon.path);
       if (stat.isSymbolicLink()) {
@@ -1985,13 +1990,19 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
               handleFileChange(photon.name);
             }
           });
-          assetWatcher.on('error', () => {});
+          assetWatcher.on('error', (err) => {
+            logger.warn(`Watcher error for ${photon.name}/: ${err.message}`);
+          });
           watchers.push(assetWatcher);
           logger.info(`👀 Watching ${photon.name}/ (symlinked → ${assetFolder})`);
+        } else {
+          logger.debug(`⏭️ Skipping ${photon.name}: asset folder not found at ${assetFolder}`);
         }
+      } else {
+        logger.debug(`⏭️ Skipping ${photon.name}: not a symlink`);
       }
-    } catch {
-      // Ignore errors checking symlinks
+    } catch (err) {
+      logger.debug(`⏭️ Skipping ${photon.name}: ${err instanceof Error ? err.message : err}`);
     }
   }
 

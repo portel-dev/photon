@@ -38,11 +38,18 @@ import {
   isDaemonTool,
   cleanupDaemonSession,
 } from './daemon-tools.js';
+import type { PhotonLoader } from '../loader.js';
+import type { OutputHandler } from '@portel/photon-core';
 
 /**
  * Function to load UI asset content (provided by beam.ts)
  */
 export type UIAssetLoader = (photonName: string, uiId: string) => Promise<string | null>;
+
+/**
+ * Broadcast function type for real-time UI updates
+ */
+export type BroadcastFunction = (message: any) => void;
 
 /**
  * Create an MCP server session for a WebSocket connection
@@ -52,7 +59,9 @@ export function createBeamMCPSession(
   photons: PhotonInfo[],
   photonMCPs: Map<string, PhotonMCPInstance>,
   onProgress?: (photon: string, method: string, progress: any) => void,
-  loadUIAsset?: UIAssetLoader
+  loadUIAsset?: UIAssetLoader,
+  broadcast?: BroadcastFunction,
+  loader?: PhotonLoader
 ): { server: Server; transport: Transport } {
   const transport = new WebSocketServerTransport(ws);
 
@@ -169,8 +178,30 @@ export function createBeamMCPSession(
     }
 
     try {
-      // Check if method is a generator (for streaming/progress)
-      const result = await method.call(instance, args || {});
+      // Create output handler to capture emits (especially board-update for real-time UI)
+      const outputHandler: OutputHandler = (yieldValue: any) => {
+        if (yieldValue.emit === 'progress' && onProgress) {
+          onProgress(photonName, methodName, yieldValue);
+        } else if (yieldValue.emit === 'board-update' && broadcast) {
+          // Forward board-update events for real-time UI updates
+          broadcast({
+            type: 'board-update',
+            photon: photonName,
+            board: yieldValue.board,
+          });
+        }
+        // Other emits are ignored for MCP (no streaming response)
+      };
+
+      // Use loader.executeTool if available (sets up execution context for this.emit())
+      // Fall back to direct call for backward compatibility
+      let result: any;
+      if (loader) {
+        // Cast mcp to any - it's actually PhotonMCPClassExtended from loader.loadFile()
+        result = await loader.executeTool(mcp as any, methodName, args || {}, { outputHandler });
+      } else {
+        result = await method.call(instance, args || {});
+      }
 
       // Handle generator results (yield/progress)
       if (result && typeof result[Symbol.asyncIterator] === 'function') {
@@ -181,6 +212,13 @@ export function createBeamMCPSession(
             onProgress(photonName, methodName, chunk);
           } else if (chunk.emit === 'result') {
             chunks.push(chunk.data);
+          } else if (chunk.emit === 'board-update' && broadcast) {
+            // Forward board-update events for real-time UI updates
+            broadcast({
+              type: 'board-update',
+              photon: photonName,
+              board: chunk.board,
+            });
           } else {
             chunks.push(chunk);
           }
