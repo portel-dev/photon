@@ -33,6 +33,7 @@ import type {
   AnyPhotonInfo,
   PhotonMCPInstance,
 } from './types.js';
+import { buildToolMetadataExtensions } from './types.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // LOCAL TYPES (specific to this transport)
@@ -44,6 +45,8 @@ interface MCPSession {
   createdAt: Date;
   lastActivity: Date;
   sseResponse?: ServerResponse; // For server-to-client notifications
+  isBeam?: boolean;              // True if client is Beam UI
+  clientInfo?: { name: string; version: string };
 }
 
 interface MCPTool {
@@ -189,6 +192,9 @@ interface HandlerContext {
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  reloadPhoton?: (photonName: string) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
+  updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
 }
@@ -199,6 +205,13 @@ const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   'initialize': async (req, session, ctx) => {
     session.initialized = true;
+
+    // Capture client info and detect Beam clients
+    const clientInfo = req.params?.clientInfo as { name: string; version: string } | undefined;
+    if (clientInfo) {
+      session.clientInfo = clientInfo;
+      session.isBeam = clientInfo.name === 'beam';
+    }
 
     // Generate configuration schema for unconfigured photons
     const configurationSchema = generateConfigurationSchema(ctx.photons);
@@ -247,6 +260,7 @@ const handlers: Record<string, RequestHandler> = {
           name: `${photon.name}/${method.name}`,
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
+          ...buildToolMetadataExtensions(method),
         });
       }
     }
@@ -290,6 +304,63 @@ const handlers: Record<string, RequestHandler> = {
       },
     });
 
+    tools.push({
+      name: 'beam/reload',
+      description: 'Reload a photon to pick up file changes',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photon: {
+            type: 'string',
+            description: 'Name of the photon to reload',
+          },
+        },
+        required: ['photon'],
+      },
+    });
+
+    tools.push({
+      name: 'beam/remove',
+      description: 'Remove a photon from the workspace',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photon: {
+            type: 'string',
+            description: 'Name of the photon to remove',
+          },
+        },
+        required: ['photon'],
+      },
+    });
+
+    tools.push({
+      name: 'beam/update-metadata',
+      description: 'Update photon or method metadata (icon, description)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photon: {
+            type: 'string',
+            description: 'Name of the photon',
+          },
+          method: {
+            type: 'string',
+            description: 'Name of the method (optional, for method metadata)',
+          },
+          metadata: {
+            type: 'object',
+            description: 'Metadata to update (icon, description)',
+            properties: {
+              icon: { type: 'string' },
+              description: { type: 'string' },
+            },
+          },
+        },
+        required: ['photon', 'metadata'],
+      },
+    });
+
     return { jsonrpc: '2.0', id: req.id, result: { tools } };
   },
 
@@ -303,6 +374,18 @@ const handlers: Record<string, RequestHandler> = {
 
     if (name === 'beam/browse') {
       return handleBeamBrowse(req, args || {});
+    }
+
+    if (name === 'beam/reload') {
+      return handleBeamReload(req, ctx, args || {});
+    }
+
+    if (name === 'beam/remove') {
+      return handleBeamRemove(req, ctx, args || {});
+    }
+
+    if (name === 'beam/update-metadata') {
+      return handleBeamUpdateMetadata(req, ctx, args || {});
     }
 
     // Parse tool name: photon-name/method-name
@@ -359,17 +442,23 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     try {
-      // Create outputHandler to capture emits (especially board-update for real-time UI)
+      // Create outputHandler to capture emits for real-time UI updates
       const outputHandler = (yieldValue: any) => {
-        if (yieldValue?.emit === 'board-update' && ctx.broadcast) {
-          // Forward board-update events for real-time UI updates
+        if (!ctx.broadcast) return;
+
+        // Forward channel events (task-moved, task-updated, etc.) with full delta
+        // These contain specific event type + data for efficient UI updates
+        if (yieldValue?.channel && yieldValue?.event) {
           ctx.broadcast({
-            type: 'board-update',
+            type: 'channel-event',
             photon: photonName,
-            board: yieldValue.board,
+            channel: yieldValue.channel,
+            event: yieldValue.event,
+            data: yieldValue.data,
           });
         }
-        // Progress and other emits are ignored in MCP (no streaming response)
+        // Note: board-update emits are intentionally not forwarded here
+        // Channel events provide more specific info for real-time updates
       };
 
       // Use loader.executeTool if available (sets up execution context for this.emit())
@@ -666,6 +755,224 @@ async function handleBeamBrowse(
   }
 }
 
+/**
+ * Handle beam/reload tool - reload a photon
+ */
+async function handleBeamReload(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { photon: photonName } = args as { photon: string };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!ctx.reloadPhoton) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Reload not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const result = await ctx.reloadPhoton(photonName);
+
+    if (result.success) {
+      // Notify Beam clients about the reload
+      broadcastToBeam('beam/hot-reload', { photon: result.photon });
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Successfully reloaded ${photonName}` }],
+          isError: false,
+        },
+      };
+    } else {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Failed to reload ${photonName}: ${result.error}` }],
+          isError: true,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error reloading ${photonName}: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/remove tool - remove a photon from the workspace
+ */
+async function handleBeamRemove(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { photon: photonName } = args as { photon: string };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!ctx.removePhoton) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Remove not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const result = await ctx.removePhoton(photonName);
+
+    if (result.success) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Successfully removed ${photonName}` }],
+          isError: false,
+        },
+      };
+    } else {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Failed to remove ${photonName}: ${result.error}` }],
+          isError: true,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error removing ${photonName}: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/update-metadata tool - update photon or method metadata
+ */
+async function handleBeamUpdateMetadata(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { photon: photonName, method: methodName, metadata } = args as {
+    photon: string;
+    method?: string;
+    metadata: Record<string, any>;
+  };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!metadata || typeof metadata !== 'object') {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: metadata object is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!ctx.updateMetadata) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Update metadata not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const result = await ctx.updateMetadata(photonName, methodName || null, metadata);
+
+    if (result.success) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Successfully updated metadata for ${methodName ? `${photonName}/${methodName}` : photonName}` }],
+          isError: false,
+        },
+      };
+    } else {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Failed to update metadata: ${result.error}` }],
+          isError: true,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error updating metadata: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // HTTP HANDLER
 // ════════════════════════════════════════════════════════════════════════════════
@@ -675,6 +982,9 @@ export interface StreamableHTTPOptions {
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  reloadPhoton?: (photonName: string) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
+  updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
 }
@@ -728,8 +1038,12 @@ export async function handleStreamableHTTP(
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no', // Disable nginx buffering
       'Mcp-Session-Id': session.id,
     });
+
+    // Disable Nagle's algorithm for immediate writes
+    res.socket?.setNoDelay(true);
 
     // Store SSE response for server-initiated messages
     session.sseResponse = res;
@@ -839,8 +1153,15 @@ export async function handleStreamableHTTP(
 
 /**
  * Send a notification to all connected SSE clients
+ * @param method - The notification method name
+ * @param params - Optional parameters for the notification
+ * @param beamOnly - If true, only send to Beam clients (clientInfo.name === "beam")
  */
-export function broadcastNotification(method: string, params?: Record<string, unknown>): void {
+export function broadcastNotification(
+  method: string,
+  params?: Record<string, unknown>,
+  beamOnly = false
+): void {
   const notification: JSONRPCRequest = {
     jsonrpc: '2.0',
     method,
@@ -849,7 +1170,31 @@ export function broadcastNotification(method: string, params?: Record<string, un
 
   for (const session of sessions.values()) {
     if (session.sseResponse && !session.sseResponse.writableEnded) {
+      // Skip non-Beam clients if beamOnly is true
+      if (beamOnly && !session.isBeam) continue;
       session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
     }
   }
+}
+
+/**
+ * Send a notification to Beam clients only
+ */
+export function broadcastToBeam(method: string, params?: Record<string, unknown>): void {
+  broadcastNotification(method, params, true);
+}
+
+/**
+ * Get count of active sessions (for debugging)
+ */
+export function getActiveSessionCount(): { total: number; beam: number } {
+  let total = 0;
+  let beam = 0;
+  for (const session of sessions.values()) {
+    if (session.sseResponse && !session.sseResponse.writableEnded) {
+      total++;
+      if (session.isBeam) beam++;
+    }
+  }
+  return { total, beam };
 }
