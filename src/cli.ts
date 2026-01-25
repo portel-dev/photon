@@ -998,6 +998,10 @@ program
         });
       }
 
+      // Set PHOTON_NAME for daemon broker pub/sub to work
+      // This ensures channel messages go to the correct daemon socket
+      process.env.PHOTON_NAME = name;
+
       // Start MCP server
       const server = new PhotonServer({
         filePath,
