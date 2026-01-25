@@ -493,6 +493,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         configurePhoton: async (photonName: string, config: Record<string, any>) => {
           return configurePhotonViaMCP(photonName, config, photons, photonMCPs, loader, savedConfig);
         },
+        loader, // Pass loader for proper execution context (this.emit() support)
+        broadcast, // Forward board-update events from MCP calls to WebSocket clients
       });
       if (handled) return;
     }
