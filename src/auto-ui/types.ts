@@ -79,6 +79,8 @@ import type { PhotonAssets } from '@portel/photon-core';
  * Fully configured photon ready for use
  */
 export interface PhotonInfo {
+  /** Unique ID (hash of path) - stable across restarts, unique across servers */
+  id: string;
   /** Photon name (derived from filename) */
   name: string;
   /** Absolute path to .photon.ts file */
@@ -107,6 +109,8 @@ export interface PhotonInfo {
  * Photon that needs configuration before use
  */
 export interface UnconfiguredPhotonInfo {
+  /** Unique ID (hash of path) - stable across restarts, unique across servers */
+  id: string;
   /** Photon name (derived from filename) */
   name: string;
   /** Absolute path to .photon.ts file */

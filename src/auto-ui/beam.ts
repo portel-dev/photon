@@ -14,6 +14,16 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { Writable } from 'stream';
 import { fileURLToPath } from 'url';
+import { createHash } from 'crypto';
+
+/**
+ * Generate a unique ID for a photon based on its path.
+ * This ensures photons with the same name from different paths are distinguishable.
+ * Returns first 12 chars of SHA-256 hash for brevity while maintaining uniqueness.
+ */
+function generatePhotonId(photonPath: string): string {
+  return createHash('sha256').update(photonPath).digest('hex').slice(0, 12);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -343,6 +353,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
     if (needsConfig && constructorParams.length > 0) {
       photons.push({
+        id: generatePhotonId(photonPath),
         name,
         path: photonPath,
         configured: false,
@@ -422,6 +433,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const classMetadata = await extractClassMetadata(photonPath);
 
       photons.push({
+        id: generatePhotonId(photonPath),
         name,
         path: photonPath,
         configured: true,
@@ -440,6 +452,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
       if (constructorParams.length > 0) {
         photons.push({
+          id: generatePhotonId(photonPath),
           name,
           path: photonPath,
           configured: false,
@@ -468,6 +481,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const channelSubscriptions = new Map<string, ChannelSubscription>();
 
   // Subscribe to a channel (increment ref count, actually subscribe if first)
+  // Channel format: {photonId}:{itemId} (e.g., "a3f2b1c4d5e6:photon")
   async function subscribeToChannel(channel: string): Promise<void> {
     const existing = channelSubscriptions.get(channel);
 
@@ -482,22 +496,35 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     channelSubscriptions.set(channel, subscription);
 
     try {
-      // Extract photon name from channel (e.g., "kanban:photon" -> "kanban")
-      const photonName = channel.split(':')[0];
+      // Extract photonId and itemId from channel (e.g., "a3f2b1:photon" -> photonId, itemId)
+      const [photonId, itemId] = channel.split(':');
+
+      // Look up photon name from ID
+      const photon = photons.find(p => p.id === photonId);
+      if (!photon) {
+        logger.warn(`Cannot subscribe to ${channel}: unknown photon ID ${photonId}`);
+        return;
+      }
+      const photonName = photon.name;
+
+      // Daemon uses photonName:itemId as channel (not photonId)
+      const daemonChannel = `${photonName}:${itemId}`;
       const isRunning = await pingDaemon(photonName);
 
       if (isRunning) {
-        const unsubscribe = await subscribeChannel(photonName, channel, (message: any) => {
+        const unsubscribe = await subscribeChannel(photonName, daemonChannel, (message: any) => {
           // Forward channel messages as events with delta
+          // Include both photonId (for client) and photonName (for display)
           broadcastToBeam('photon/channel-event', {
+            photonId,
             photon: photonName,
-            channel,
+            channel: daemonChannel,
             event: message?.event,
             data: message?.data || message,
           });
         });
         subscription.unsubscribe = unsubscribe;
-        logger.info(`📡 Subscribed to ${channel} (ref: 1)`);
+        logger.info(`📡 Subscribed to ${daemonChannel} (id: ${photonId}, ref: 1)`);
       }
     } catch {
       // Daemon not running - that's fine, in-process events still work
@@ -523,29 +550,32 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   }
 
   // Track what each session is viewing for cleanup on disconnect
-  const sessionViewState = new Map<string, { photon?: string; board?: string }>();
+  // Uses photonId (hash) for unique identification across servers
+  const sessionViewState = new Map<string, { photonId?: string; itemId?: string }>();
 
   // Called when a client starts viewing a board (from MCP notification)
-  function onClientViewingBoard(sessionId: string, photon: string, board: string): void {
+  // photonId: hash of photon path (unique across servers)
+  // itemId: whatever the photon uses to identify the item (e.g., board name)
+  function onClientViewingBoard(sessionId: string, photonId: string, itemId: string): void {
     const prevState = sessionViewState.get(sessionId);
 
-    // Unsubscribe from previous board if different
-    if (prevState?.board && (prevState.photon !== photon || prevState.board !== board)) {
-      const prevChannel = `${prevState.photon}:${prevState.board}`;
+    // Unsubscribe from previous item if different
+    if (prevState?.itemId && (prevState.photonId !== photonId || prevState.itemId !== itemId)) {
+      const prevChannel = `${prevState.photonId}:${prevState.itemId}`;
       unsubscribeFromChannel(prevChannel);
     }
 
-    // Subscribe to new board
-    const channel = `${photon}:${board}`;
-    sessionViewState.set(sessionId, { photon, board });
+    // Subscribe to new item
+    const channel = `${photonId}:${itemId}`;
+    sessionViewState.set(sessionId, { photonId, itemId });
     subscribeToChannel(channel);
   }
 
   // Called when a client disconnects
   function onClientDisconnect(sessionId: string): void {
     const state = sessionViewState.get(sessionId);
-    if (state?.photon && state?.board) {
-      const channel = `${state.photon}:${state.board}`;
+    if (state?.photonId && state?.itemId) {
+      const channel = `${state.photonId}:${state.itemId}`;
       unsubscribeFromChannel(channel);
     }
     sessionViewState.delete(sessionId);
@@ -1737,6 +1767,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           if (missingRequired.length > 0 && constructorParams.length > 0) {
             // Add as unconfigured photon
             const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+              id: generatePhotonId(photonPath),
               name: photonName,
               path: photonPath,
               configured: false,
@@ -1803,6 +1834,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
           const reloadedPhoton: PhotonInfo = {
+            id: generatePhotonId(photonPath),
             name: photonName,
             path: photonPath,
             configured: true,
@@ -1848,6 +1880,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
             if (constructorParams.length > 0) {
               const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+                id: generatePhotonId(photonPath),
                 name: photonName,
                 path: photonPath,
                 configured: false,
@@ -2091,6 +2124,7 @@ async function configurePhotonViaMCP(
 
     // Replace unconfigured photon with configured one
     const configuredPhoton: PhotonInfo = {
+      id: generatePhotonId(unconfiguredPhoton.path),
       name: photonName,
       path: unconfiguredPhoton.path,
       configured: true,
@@ -2200,6 +2234,7 @@ async function reloadPhotonViaMCP(
 
     // Update photon info
     const reloadedPhoton: PhotonInfo = {
+      id: generatePhotonId(photonPath),
       name: photonName,
       path: photonPath,
       configured: true,

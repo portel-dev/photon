@@ -53,6 +53,8 @@ interface MCPTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  'x-photon-id'?: string;
+  [key: string]: unknown; // Allow additional x-* properties
 }
 
 interface MCPResource {
@@ -245,13 +247,15 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0' } as JSONRPCResponse;
   },
 
-  // Client notifies what board they're viewing (for on-demand subscriptions)
+  // Client notifies what resource they're viewing (for on-demand subscriptions)
+  // photonId: hash of photon path (unique across servers)
+  // itemId: whatever the photon uses to identify the item (e.g., board name)
   'beam/viewing': async (req, session, ctx) => {
-    const params = req.params as { photon?: string; board?: string } | undefined;
-    const photon = params?.photon;
-    const board = params?.board;
-    if (photon && board && ctx.subscriptionManager) {
-      ctx.subscriptionManager.onClientViewingBoard(session.id, photon, board);
+    const params = req.params as { photonId?: string; itemId?: string } | undefined;
+    const photonId = params?.photonId;
+    const itemId = params?.itemId;
+    if (photonId && itemId && ctx.subscriptionManager) {
+      ctx.subscriptionManager.onClientViewingBoard(session.id, photonId, itemId);
     }
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
@@ -276,6 +280,7 @@ const handlers: Record<string, RequestHandler> = {
           name: `${photon.name}/${method.name}`,
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
+          'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
           ...buildToolMetadataExtensions(method),
         });
       }

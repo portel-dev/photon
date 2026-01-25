@@ -26,6 +26,7 @@ interface MCPTool {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  'x-photon-id'?: string;
   'x-icon'?: string;
   'x-autorun'?: boolean;
   'x-output-format'?: string;
@@ -431,6 +432,7 @@ class MCPClientService {
    * Convert MCP tools to photons format
    */
   toolsToPhotons(tools: MCPTool[]): Array<{
+    id: string;
     name: string;
     configured: boolean;
     isApp?: boolean;
@@ -458,6 +460,7 @@ class MCPClientService {
 
       if (!photonMap.has(photonName)) {
         photonMap.set(photonName, {
+          id: tool['x-photon-id'] || photonName, // Use hash ID, fallback to name
           name: photonName,
           configured: true,
           methods: [],
@@ -561,11 +564,13 @@ class MCPClientService {
   }
 
   /**
-   * Notify server that client is viewing a board (for on-demand subscriptions)
+   * Notify server that client is viewing a resource (for on-demand subscriptions)
+   * @param photonId - Hash of photon path (unique across servers)
+   * @param itemId - Whatever the photon uses to identify the item (e.g., board name)
    */
-  async notifyViewing(photon: string, board: string): Promise<void> {
+  async notifyViewing(photonId: string, itemId: string): Promise<void> {
     if (!this.connected) return;
-    await this.sendNotification('beam/viewing', { photon, board });
+    await this.sendNotification('beam/viewing', { photonId, itemId });
   }
 
   /**

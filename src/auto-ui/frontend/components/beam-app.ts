@@ -1961,13 +1961,15 @@ export class BeamApp extends LitElement {
       }
     }
 
-    // Handle custom UI notifying what board/resource it's viewing
+    // Handle custom UI notifying what resource it's viewing
     // This enables on-demand channel subscriptions
+    // photonId: hash of photon path (from selected photon)
+    // itemId: whatever the photon uses to identify the item (e.g., board name)
     if (msg.type === 'photon:viewing') {
-      const photon = msg.photon || this._selectedPhoton?.name;
-      const board = msg.board;
-      if (photon && board) {
-        mcpClient.notifyViewing(photon, board);
+      const photonId = this._selectedPhoton?.id;
+      const itemId = msg.itemId || msg.board; // Support both new and legacy field names
+      if (photonId && itemId) {
+        mcpClient.notifyViewing(photonId, itemId);
       }
     }
   }
