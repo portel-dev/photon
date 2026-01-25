@@ -1040,7 +1040,6 @@ export class BeamApp extends LitElement {
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
 
-  private _ws: WebSocket | null = null;
   private _pendingBridgeCalls = new Map<string, Window>();
 
   connectedCallback() {
@@ -1068,7 +1067,7 @@ export class BeamApp extends LitElement {
     // Click outside to close settings menu
     document.addEventListener('click', this._handleDocumentClick);
 
-    this._connect();
+    // Connect via MCP Streamable HTTP (SSE for notifications)
     this._connectMCP();
 
     window.addEventListener('hashchange', this._handleHashChange);
@@ -1106,194 +1105,173 @@ export class BeamApp extends LitElement {
 
   private async _connectMCP() {
     try {
-      mcpClient.on('connect', () => {
+      mcpClient.on('connect', async () => {
         this._mcpReady = true;
+        this._connected = true;
+        this._reconnecting = false;
         console.log('MCP client connected');
-      });
+        this._log('info', 'Connected to Beam server');
+        showToast('Connected to Beam server', 'success');
 
-      mcpClient.on('disconnect', () => {
-        this._mcpReady = false;
-      });
+        // Load initial photon list
+        const tools = await mcpClient.listTools();
+        this._photons = mcpClient.toolsToPhotons(tools);
 
-      mcpClient.on('tools-changed', async () => {
-        if (this._protocolMode === 'mcp') {
-          const tools = await mcpClient.listTools();
-          this._photons = mcpClient.toolsToPhotons(tools);
-        }
-      });
-
-      mcpClient.on('progress', (data: any) => {
-        // Handle progress notifications
-        this._log('info', data.message || 'Processing...');
-      });
-
-      await mcpClient.connect();
-    } catch (error) {
-      console.warn('MCP connection failed, using legacy protocol');
-      this._mcpReady = false;
-    }
-  }
-
-  private _connect() {
-    if (this._ws && (this._ws.readyState === WebSocket.CONNECTING || this._ws.readyState === WebSocket.OPEN)) {
-      return;
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this._ws = new WebSocket(`${protocol}//${window.location.host}`);
-
-    this._ws.onopen = () => {
-      this._connected = true;
-      this._reconnecting = false;
-      this._log('info', 'Connected to Beam server');
-      showToast('Connected to Beam server', 'success');
-    };
-
-    this._ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'photons') {
-        this._photons = msg.data;
-        // If we have a hash, restore state, otherwise select first
+        // Restore state from hash or select first photon
         if (window.location.hash) {
           this._handleHashChange();
         } else if (!this._selectedPhoton && this._photons.length > 0) {
           this._selectedPhoton = this._photons[0];
           this._updateHash();
         }
-      } else if (msg.type === 'result') {
-        // Check if this is a response to a bridge call
-        if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
-          const source = this._pendingBridgeCalls.get(msg.invocationId);
-          if (source) {
-            source.postMessage({
-              type: 'photon:call-tool-response',
-              callId: msg.invocationId,
-              result: msg.data,
-              error: msg.error
-            }, '*');
-          }
-          this._pendingBridgeCalls.delete(msg.invocationId);
-        }
+      });
 
-        this._lastResult = msg.data;
-        this._isExecuting = false;
-        this._log('success', 'Execution completed');
-      } else if (msg.type === 'configured') {
-        // Photon was successfully configured
-        const configuredPhoton = msg.photon;
-        this._log('success', `${configuredPhoton.name} configured successfully`);
-        showToast(`${configuredPhoton.name} configured successfully!`, 'success');
+      mcpClient.on('disconnect', () => {
+        this._mcpReady = false;
+        this._connected = false;
+        this._reconnecting = true;
+        this._log('error', 'Disconnected from server');
+        showToast('Connection lost. Reconnecting...', 'warning');
+      });
 
-        // Update photon in list
-        const index = this._photons.findIndex(p => p.name === configuredPhoton.name);
-        if (index !== -1) {
-          this._photons = [
-            ...this._photons.slice(0, index),
-            configuredPhoton,
-            ...this._photons.slice(index + 1)
-          ];
-        }
+      mcpClient.on('tools-changed', async () => {
+        const tools = await mcpClient.listTools();
+        this._photons = mcpClient.toolsToPhotons(tools);
+      });
 
-        // Update selected photon and switch to methods view
-        if (this._selectedPhoton?.name === configuredPhoton.name) {
-          this._selectedPhoton = configuredPhoton;
-          // If it's an app, show the custom UI
-          if (configuredPhoton.isApp && configuredPhoton.appEntry) {
-            this._selectedMethod = configuredPhoton.appEntry;
-            this._view = 'form';
-          } else {
-            this._view = 'list';
-          }
-          this._updateHash();
-        }
-      } else if (msg.type === 'reloaded') {
-        // Photon was reloaded - update in list and selected
-        const reloadedPhoton = msg.photon;
-        const index = this._photons.findIndex(p => p.name === reloadedPhoton.name);
-        if (index !== -1) {
-          this._photons = [
-            ...this._photons.slice(0, index),
-            reloadedPhoton,
-            ...this._photons.slice(index + 1)
-          ];
-        }
+      mcpClient.on('progress', (data: any) => {
+        this._log('info', data.message || 'Processing...');
+      });
 
-        // Update selected photon if it's the one that was reloaded
-        if (this._selectedPhoton?.name === reloadedPhoton.name) {
-          this._selectedPhoton = reloadedPhoton;
-
-          // If we had a method selected, try to reselect it
-          if (this._selectedMethod) {
-            const updatedMethod = reloadedPhoton.methods?.find(
-              (m: any) => m.name === this._selectedMethod.name
-            );
-            if (updatedMethod) {
-              this._selectedMethod = updatedMethod;
+      // Handle photons list update from SSE
+      mcpClient.on('photons', (data: any) => {
+        if (data?.photons) {
+          this._photons = data.photons;
+          // Update selected photon if it was in the list
+          if (this._selectedPhoton) {
+            const updated = this._photons.find(p => p.name === this._selectedPhoton?.name);
+            if (updated) {
+              this._selectedPhoton = updated;
             }
           }
         }
+      });
 
-        this._log('success', `${reloadedPhoton.name} reloaded`);
-        showToast(`${reloadedPhoton.name} reloaded successfully`, 'success');
-      } else if (msg.type === 'error') {
-        // Also handle errors for bridge calls
-        if (msg.invocationId && this._pendingBridgeCalls.has(msg.invocationId)) {
-          const source = this._pendingBridgeCalls.get(msg.invocationId);
-          if (source) {
-            source.postMessage({
-              type: 'photon:call-tool-response',
-              callId: msg.invocationId,
-              error: msg.message
-            }, '*');
+      // Handle hot-reload notifications
+      mcpClient.on('hot-reload', (data: any) => {
+        if (data?.photon) {
+          const reloadedPhoton = data.photon;
+          const index = this._photons.findIndex(p => p.name === reloadedPhoton.name);
+          if (index !== -1) {
+            this._photons = [
+              ...this._photons.slice(0, index),
+              reloadedPhoton,
+              ...this._photons.slice(index + 1)
+            ];
           }
-          this._pendingBridgeCalls.delete(msg.invocationId);
-        }
-        this._isExecuting = false;
-        this._log('error', msg.message);
-        showToast(msg.message, 'error', 5000);
-      } else if (msg.type === 'elicitation') {
-        // Show elicitation modal for user input
-        this._elicitationData = msg.data;
-        this._showElicitation = true;
-        this._log('info', `Input required: ${msg.data.message || msg.data.ask}`);
-      } else if (msg.type === 'prompt-content') {
-        // Prompt content loaded
-        if (this._selectedPrompt?.id === msg.promptId) {
-          this._selectedPrompt = {
-            ...this._selectedPrompt,
-            content: msg.content,
-            renderedContent: msg.renderedContent,
-            variables: msg.variables,
-            description: msg.description
-          };
-          // Initialize arguments for variables
-          this._promptArguments = {};
-          for (const v of msg.variables) {
-            this._promptArguments[v] = '';
-          }
-          this._renderedPrompt = msg.renderedContent;
-        }
-      } else if (msg.type === 'resource-content') {
-        // Resource content loaded
-        if (this._selectedResource?.id === msg.resourceId) {
-          this._selectedResource = {
-            ...this._selectedResource,
-            content: msg.content,
-            mimeType: msg.mimeType,
-            description: msg.description
-          };
-          this._resourceContent = msg.content;
-        }
-      }
-    };
 
-    this._ws.onclose = () => {
+          // Update selected photon if it was reloaded
+          if (this._selectedPhoton?.name === reloadedPhoton.name) {
+            this._selectedPhoton = reloadedPhoton;
+
+            // Reselect method if it still exists
+            if (this._selectedMethod) {
+              const updatedMethod = reloadedPhoton.methods?.find(
+                (m: any) => m.name === this._selectedMethod.name
+              );
+              if (updatedMethod) {
+                this._selectedMethod = updatedMethod;
+              }
+            }
+          }
+
+          this._log('success', `${reloadedPhoton.name} reloaded`);
+          showToast(`${reloadedPhoton.name} reloaded successfully`, 'success');
+        }
+      });
+
+      // Handle configuration complete notifications
+      mcpClient.on('configured', (data: any) => {
+        if (data?.photon) {
+          const configuredPhoton = data.photon;
+          this._log('success', `${configuredPhoton.name} configured successfully`);
+          showToast(`${configuredPhoton.name} configured successfully!`, 'success');
+
+          // Update photon in list
+          const index = this._photons.findIndex(p => p.name === configuredPhoton.name);
+          if (index !== -1) {
+            this._photons = [
+              ...this._photons.slice(0, index),
+              configuredPhoton,
+              ...this._photons.slice(index + 1)
+            ];
+          }
+
+          // Update selected photon and switch to methods view
+          if (this._selectedPhoton?.name === configuredPhoton.name) {
+            this._selectedPhoton = configuredPhoton;
+            if (configuredPhoton.isApp && configuredPhoton.appEntry) {
+              this._selectedMethod = configuredPhoton.appEntry;
+              this._view = 'form';
+            } else {
+              this._view = 'list';
+            }
+            this._updateHash();
+          }
+        }
+      });
+
+      // Handle elicitation requests
+      mcpClient.on('elicitation', (data: any) => {
+        if (data) {
+          this._elicitationData = data;
+          this._showElicitation = true;
+          this._log('info', `Input required: ${data.message || data.ask}`);
+        }
+      });
+
+      // Handle channel events (task-moved, task-updated, etc.) - forward with delta
+      mcpClient.on('channel-event', (data: any) => {
+        const iframes = this.shadowRoot?.querySelectorAll('iframe');
+        iframes?.forEach(iframe => {
+          iframe.contentWindow?.postMessage({
+            type: 'photon:channel-event',
+            ...data
+          }, '*');
+        });
+      });
+
+      // Handle board updates (legacy) - forward to custom UI iframes
+      mcpClient.on('board-update', (data: any) => {
+        const iframes = this.shadowRoot?.querySelectorAll('iframe');
+        iframes?.forEach(iframe => {
+          iframe.contentWindow?.postMessage({
+            type: 'photon:board-update',
+            ...data
+          }, '*');
+        });
+      });
+
+      // Handle errors
+      mcpClient.on('error', (data: any) => {
+        if (data?.message) {
+          this._isExecuting = false;
+          this._log('error', data.message);
+          showToast(data.message, 'error', 5000);
+        }
+      });
+
+      await mcpClient.connect();
+    } catch (error) {
+      console.error('MCP connection failed:', error);
+      this._mcpReady = false;
       this._connected = false;
       this._reconnecting = true;
-      this._log('error', 'Disconnected from server');
-      showToast('Connection lost. Reconnecting...', 'warning');
-      setTimeout(() => this._connect(), 2000);
-    };
+      this._log('error', 'Failed to connect to server');
+      showToast('Connection failed. Retrying...', 'error');
+      // Retry connection after a delay
+      setTimeout(() => this._connectMCP(), 3000);
+    }
   }
 
   private _handleHashChange = () => {
@@ -1758,15 +1736,15 @@ export class BeamApp extends LitElement {
     this._showSettingsMenu = false;
   }
 
-  private _handleRefresh = () => {
+  private _handleRefresh = async () => {
     this._closeSettingsMenu();
-    // Reload the current photon
-    if (this._ws && this._ws.readyState === WebSocket.OPEN && this._selectedPhoton) {
-      this._ws.send(JSON.stringify({
-        type: 'reload',
-        photon: this._selectedPhoton.name
-      }));
+    // Reload the current photon via MCP
+    if (this._selectedPhoton && this._mcpReady) {
       showToast(`Reloading ${this._selectedPhoton.name}...`, 'info');
+      const result = await mcpClient.reloadPhoton(this._selectedPhoton.name);
+      if (!result.success) {
+        showToast(result.error || 'Reload failed', 'error');
+      }
     }
   }
 
@@ -1777,14 +1755,14 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleRemove = () => {
+  private _handleRemove = async () => {
     this._closeSettingsMenu();
-    if (this._ws && this._ws.readyState === WebSocket.OPEN && this._selectedPhoton) {
+    if (this._selectedPhoton && this._mcpReady) {
       if (confirm(`Remove ${this._selectedPhoton.name} from this workspace?`)) {
-        this._ws.send(JSON.stringify({
-          type: 'remove',
-          photon: this._selectedPhoton.name
-        }));
+        const result = await mcpClient.removePhoton(this._selectedPhoton.name);
+        if (!result.success) {
+          showToast(result.error || 'Remove failed', 'error');
+        }
       }
     }
   }
@@ -1823,7 +1801,7 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _invokeMakerMethod(methodName: string, additionalArgs: Record<string, any> = {}) {
+  private async _invokeMakerMethod(methodName: string, additionalArgs: Record<string, any> = {}) {
     // Find maker photon
     const maker = this._photons.find(p => p.name === 'maker');
     if (!maker) {
@@ -1838,16 +1816,33 @@ export class BeamApp extends LitElement {
       return;
     }
 
-    // Send invoke request to backend
-    this._ws?.send(JSON.stringify({
-      type: 'invoke',
-      photon: 'maker',
-      method: methodName,
-      args: { photonPath, ...additionalArgs },
-      invocationId: `maker-${methodName}-${Date.now()}`
-    }));
-
     this._log('info', `Invoking maker.${methodName} on ${this._selectedPhoton?.name}...`);
+
+    // Use MCP to invoke the maker method
+    if (this._mcpReady) {
+      try {
+        const toolName = `maker/${methodName}`;
+        const result = await mcpClient.callTool(toolName, { photonPath, ...additionalArgs });
+
+        if (result.isError) {
+          const errorText = result.content.find(c => c.type === 'text')?.text || 'Unknown error';
+          this._log('error', errorText);
+          showToast(errorText, 'error', 5000);
+        } else {
+          const data = mcpClient.parseToolResult(result);
+          this._log('success', `maker.${methodName} completed`);
+          // Handle result if needed
+          if (methodName === 'source' && data) {
+            // Show source in a new window or modal
+            console.log('Source:', data);
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        this._log('error', message);
+        showToast(message, 'error', 5000);
+      }
+    }
   }
 
   private async _handleExecute(e: CustomEvent) {
@@ -1858,8 +1853,8 @@ export class BeamApp extends LitElement {
     this._lastResult = null;
     this._isExecuting = true;
 
-    // Use MCP if enabled and ready
-    if (this._protocolMode === 'mcp' && this._mcpReady) {
+    // Use MCP for all tool invocations
+    if (this._mcpReady) {
       try {
         const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
         const result = await mcpClient.callTool(toolName, args);
@@ -1879,48 +1874,61 @@ export class BeamApp extends LitElement {
       } finally {
         this._isExecuting = false;
       }
-      return;
+    } else {
+      this._log('error', 'Not connected to server');
+      showToast('Not connected to server', 'error');
+      this._isExecuting = false;
     }
-
-    // Fall back to legacy protocol
-    this._ws?.send(JSON.stringify({
-      type: 'invoke',
-      photon: this._selectedPhoton.name,
-      method: this._selectedMethod.name,
-      args
-    }));
   }
 
-  private _handleConfigure(e: CustomEvent) {
+  private async _handleConfigure(e: CustomEvent) {
     const { photon, config } = e.detail;
     this._log('info', `Configuring ${photon}...`);
 
-    this._ws?.send(JSON.stringify({
-      type: 'configure',
-      photon,
-      config
-    }));
+    if (this._mcpReady) {
+      const result = await mcpClient.configurePhoton(photon, config);
+      if (!result.success) {
+        this._log('error', result.error || 'Configuration failed');
+        showToast(result.error || 'Configuration failed', 'error');
+      }
+      // Success notification will come via SSE beam/configured
+    } else {
+      this._log('error', 'Not connected to server');
+      showToast('Not connected to server', 'error');
+    }
   }
-  private _handleBridgeMessage = (event: MessageEvent) => {
+  private _handleBridgeMessage = async (event: MessageEvent) => {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'photon:call-tool') {
       const callId = msg.callId;
-      if (this._selectedPhoton) {
-        if (event.source) {
-          this._pendingBridgeCalls.set(callId, event.source as Window);
-        }
-
+      if (this._selectedPhoton && this._mcpReady) {
         this._log('info', `Bridge invoking ${msg.toolName}...`);
 
-        this._ws?.send(JSON.stringify({
-          type: 'invoke',
-          photon: this._selectedPhoton.name,
-          method: msg.toolName,
-          args: msg.args,
-          invocationId: callId
-        }));
+        try {
+          const toolName = `${this._selectedPhoton.name}/${msg.toolName}`;
+          const result = await mcpClient.callTool(toolName, msg.args || {});
+
+          // Send response back to iframe
+          if (event.source) {
+            (event.source as Window).postMessage({
+              type: 'photon:call-tool-response',
+              callId,
+              result: result.isError ? undefined : mcpClient.parseToolResult(result),
+              error: result.isError ? result.content.find(c => c.type === 'text')?.text : undefined
+            }, '*');
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (event.source) {
+            (event.source as Window).postMessage({
+              type: 'photon:call-tool-response',
+              callId,
+              error: errorMessage
+            }, '*');
+          }
+        }
       }
     }
 
@@ -2000,22 +2008,19 @@ export class BeamApp extends LitElement {
     this._broadcastThemeToIframes();
   }
 
-  private _handleElicitationSubmit = (e: CustomEvent) => {
+  private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
-    this._ws?.send(JSON.stringify({
-      type: 'elicitation_response',
-      value
-    }));
+    // TODO: Implement elicitation response via MCP
+    // Elicitation in MCP requires a different flow - the server needs to
+    // track pending elicitations and match responses to them
     this._showElicitation = false;
     this._elicitationData = null;
     this._log('info', 'Input submitted');
+    showToast('Elicitation response submitted', 'info');
   }
 
   private _handleElicitationCancel = () => {
-    this._ws?.send(JSON.stringify({
-      type: 'elicitation_response',
-      cancelled: true
-    }));
+    // TODO: Implement elicitation cancel via MCP
     this._showElicitation = false;
     this._elicitationData = null;
     this._isExecuting = false;
@@ -2023,13 +2028,9 @@ export class BeamApp extends LitElement {
     showToast('Input cancelled', 'info');
   }
 
-  private _handleOAuthComplete = (e: CustomEvent) => {
+  private _handleOAuthComplete = async (e: CustomEvent) => {
     const { elicitationId, success } = e.detail;
-    this._ws?.send(JSON.stringify({
-      type: 'oauth_complete',
-      elicitationId,
-      success
-    }));
+    // TODO: Implement OAuth completion via MCP
     this._showElicitation = false;
     this._elicitationData = null;
     if (success) {
@@ -2387,23 +2388,21 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _saveDescription = () => {
+  private _saveDescription = async () => {
     this._editingDescription = false;
     const newDesc = this._editedDescription.trim();
 
-    if (newDesc && this._selectedPhoton) {
+    if (newDesc && this._selectedPhoton && this._mcpReady) {
       // Update local state optimistically
-      const oldDesc = this._selectedPhoton.description;
       this._selectedPhoton = { ...this._selectedPhoton, description: newDesc };
 
-      // Send to server to persist
-      this._ws?.send(JSON.stringify({
-        type: 'update-metadata',
-        photon: this._selectedPhoton.name,
-        metadata: { description: newDesc }
-      }));
-
-      showToast('Description updated', 'success');
+      // Send to server to persist via MCP
+      const result = await mcpClient.updateMetadata(this._selectedPhoton.name, null, { description: newDesc });
+      if (result.success) {
+        showToast('Description updated', 'success');
+      } else {
+        showToast(result.error || 'Failed to update description', 'error');
+      }
     }
   }
 
@@ -2411,28 +2410,27 @@ export class BeamApp extends LitElement {
     this._editingIcon = !this._editingIcon;
   }
 
-  private _selectIcon = (icon: string) => {
+  private _selectIcon = async (icon: string) => {
     this._editingIcon = false;
 
-    if (this._selectedPhoton) {
+    if (this._selectedPhoton && this._mcpReady) {
       // Update local state optimistically
       this._selectedPhoton = { ...this._selectedPhoton, icon };
 
-      // Send to server to persist
-      this._ws?.send(JSON.stringify({
-        type: 'update-metadata',
-        photon: this._selectedPhoton.name,
-        metadata: { icon }
-      }));
-
-      showToast('Icon updated', 'success');
+      // Send to server to persist via MCP
+      const result = await mcpClient.updateMetadata(this._selectedPhoton.name, null, { icon });
+      if (result.success) {
+        showToast('Icon updated', 'success');
+      } else {
+        showToast(result.error || 'Failed to update icon', 'error');
+      }
     }
   }
 
-  private _handleMethodMetadataUpdate = (e: CustomEvent) => {
+  private _handleMethodMetadataUpdate = async (e: CustomEvent) => {
     const { photonName, methodName, metadata } = e.detail;
 
-    if (this._selectedPhoton && this._selectedPhoton.name === photonName) {
+    if (this._selectedPhoton && this._selectedPhoton.name === photonName && this._mcpReady) {
       // Update local state optimistically
       const methods = this._selectedPhoton.methods?.map((m: any) => {
         if (m.name === methodName) {
@@ -2447,15 +2445,13 @@ export class BeamApp extends LitElement {
 
       this._selectedPhoton = { ...this._selectedPhoton, methods };
 
-      // Send to server to persist
-      this._ws?.send(JSON.stringify({
-        type: 'update-method-metadata',
-        photon: photonName,
-        method: methodName,
-        metadata
-      }));
-
-      showToast(`Method ${metadata.description !== undefined ? 'description' : 'icon'} updated`, 'success');
+      // Send to server to persist via MCP
+      const result = await mcpClient.updateMetadata(photonName, methodName, metadata);
+      if (result.success) {
+        showToast(`Method ${metadata.description !== undefined ? 'description' : 'icon'} updated`, 'success');
+      } else {
+        showToast(result.error || 'Failed to update method metadata', 'error');
+      }
     }
   }
 
@@ -2532,28 +2528,56 @@ export class BeamApp extends LitElement {
     this._promptArguments = {};
     this._renderedPrompt = '';
 
-    // Load the prompt content
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-      this._ws.send(JSON.stringify({
-        type: 'get-prompt',
-        photon: this._selectedPhoton.name,
-        promptId: prompt.id,
-        arguments: {}
-      }));
+    // Load the prompt content via MCP
+    if (this._mcpReady && this._selectedPhoton) {
+      try {
+        const uri = `prompt://${this._selectedPhoton.name}/${prompt.id}`;
+        const content = await mcpClient.readResource(uri);
+        if (content?.text) {
+          this._selectedPrompt = {
+            ...this._selectedPrompt,
+            content: content.text,
+            renderedContent: content.text,
+            variables: this._extractVariables(content.text),
+            description: prompt.description
+          };
+          for (const v of this._selectedPrompt.variables) {
+            this._promptArguments[v] = '';
+          }
+          this._renderedPrompt = content.text;
+        }
+      } catch (error) {
+        console.error('Failed to load prompt:', error);
+      }
     }
+  }
+
+  private _extractVariables(content: string): string[] {
+    const matches = content.match(/\{\{(\w+)\}\}/g) || [];
+    return [...new Set(matches.map(m => m.slice(2, -2)))];
   }
 
   private _handleResourceSelect = async (resource: any) => {
     this._selectedResource = resource;
     this._resourceContent = '';
 
-    // Load the resource content
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-      this._ws.send(JSON.stringify({
-        type: 'read-resource',
-        photon: this._selectedPhoton.name,
-        resourceId: resource.id
-      }));
+    // Load the resource content via MCP
+    if (this._mcpReady && this._selectedPhoton) {
+      try {
+        const uri = `ui://${this._selectedPhoton.name}/${resource.id}`;
+        const content = await mcpClient.readResource(uri);
+        if (content) {
+          this._selectedResource = {
+            ...this._selectedResource,
+            content: content.text,
+            mimeType: content.mimeType,
+            description: resource.description
+          };
+          this._resourceContent = content.text || '';
+        }
+      } catch (error) {
+        console.error('Failed to load resource:', error);
+      }
     }
   }
 

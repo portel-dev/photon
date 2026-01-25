@@ -31,6 +31,7 @@ interface MCPTool {
   'x-output-format'?: string;
   'x-layout-hints'?: Record<string, string>;
   'x-button-label'?: string;
+  'x-linked-ui'?: string;
 }
 
 interface MCPResource {
@@ -69,7 +70,21 @@ interface ConfigurationSchema {
   };
 }
 
-type MCPEventType = 'connect' | 'disconnect' | 'error' | 'tools-changed' | 'progress' | 'configuration-available';
+type MCPEventType =
+  | 'connect'
+  | 'disconnect'
+  | 'error'
+  | 'tools-changed'
+  | 'progress'
+  | 'configuration-available'
+  | 'photons'           // Photon list changed
+  | 'hot-reload'        // File changed, photon reloaded
+  | 'elicitation'       // User input needed
+  | 'board-update'      // Kanban board update (legacy, triggers refresh)
+  | 'channel-event'     // Specific event with delta (task-moved, task-updated, etc.)
+  | 'result'            // Tool execution result
+  | 'configured'        // Photon configuration complete
+  | 'notification';     // Generic notification
 
 class MCPClientService {
   private sessionId: string | null = null;
@@ -132,7 +147,7 @@ class MCPClientService {
         sampling: {},
       },
       clientInfo: {
-        name: 'beam-ui',
+        name: 'beam',  // Identifies as Beam client for server-side notifications
         version: '1.0.0',
       },
     }) as {
@@ -330,6 +345,72 @@ class MCPClientService {
   }
 
   /**
+   * Reload a photon via beam/reload tool
+   */
+  async reloadPhoton(photonName: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.callTool('beam/reload', { photon: photonName });
+
+      if (result.isError) {
+        const errorText = result.content.find(c => c.type === 'text')?.text || 'Reload failed';
+        return { success: false, error: errorText };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Remove a photon via beam/remove tool
+   */
+  async removePhoton(photonName: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.callTool('beam/remove', { photon: photonName });
+
+      if (result.isError) {
+        const errorText = result.content.find(c => c.type === 'text')?.text || 'Remove failed';
+        return { success: false, error: errorText };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Update photon or method metadata via beam/update-metadata tool
+   */
+  async updateMetadata(
+    photonName: string,
+    methodName: string | null,
+    metadata: Record<string, any>
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const args: Record<string, unknown> = { photon: photonName, metadata };
+      if (methodName) {
+        args.method = methodName;
+      }
+
+      const result = await this.callTool('beam/update-metadata', args);
+
+      if (result.isError) {
+        const errorText = result.content.find(c => c.type === 'text')?.text || 'Update failed';
+        return { success: false, error: errorText };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
    * Parse tool result content to data
    */
   parseToolResult(result: { content: Array<{ type: string; text?: string }> }): unknown {
@@ -352,6 +433,8 @@ class MCPClientService {
   toolsToPhotons(tools: MCPTool[]): Array<{
     name: string;
     configured: boolean;
+    isApp?: boolean;
+    appEntry?: any;
     methods: Array<{
       name: string;
       description: string;
@@ -361,6 +444,7 @@ class MCPClientService {
       outputFormat?: string;
       layoutHints?: Record<string, string>;
       buttonLabel?: string;
+      linkedUi?: string;
     }>;
   }> {
     const photonMap = new Map<string, any>();
@@ -389,7 +473,17 @@ class MCPClientService {
         outputFormat: tool['x-output-format'],
         layoutHints: tool['x-layout-hints'],
         buttonLabel: tool['x-button-label'],
+        linkedUi: tool['x-linked-ui'],
       });
+    }
+
+    // Post-process: set isApp and appEntry for photons with main() + linkedUi
+    for (const photon of photonMap.values()) {
+      const mainMethod = photon.methods.find((m: any) => m.name === 'main' && m.linkedUi);
+      if (mainMethod) {
+        photon.isApp = true;
+        photon.appEntry = mainMethod;
+      }
     }
 
     return Array.from(photonMap.values());
@@ -504,6 +598,44 @@ class MCPClientService {
         if (notification.params) {
           this.emit('progress', notification.params as ProgressNotification);
         }
+        break;
+
+      // Beam-specific notifications
+      case 'beam/photons':
+        this.emit('photons', notification.params);
+        break;
+
+      case 'beam/hot-reload':
+        this.emit('hot-reload', notification.params);
+        break;
+
+      case 'beam/elicitation':
+        this.emit('elicitation', notification.params);
+        break;
+
+      case 'beam/result':
+        this.emit('result', notification.params);
+        break;
+
+      case 'beam/configured':
+        this.emit('configured', notification.params);
+        break;
+
+      case 'beam/error':
+        this.emit('error', notification.params);
+        break;
+
+      case 'photon/board-update':
+        this.emit('board-update', notification.params);
+        break;
+
+      case 'photon/channel-event':
+        this.emit('channel-event', notification.params);
+        break;
+
+      default:
+        // Emit generic notification for unknown methods
+        this.emit('notification', notification);
         break;
     }
   }

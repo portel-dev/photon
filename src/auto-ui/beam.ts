@@ -2,8 +2,8 @@
  * Photon Beam - Interactive Control Panel
  *
  * A unified UI to interact with all your photons.
- * Uses WebSocket for real-time bidirectional communication.
- * Version: 1.0.2 (Force Restart)
+ * Uses MCP Streamable HTTP (POST + SSE) for real-time communication.
+ * Version: 2.0.0 (SSE Architecture)
  */
 
 import * as http from 'http';
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { WebSocketServer, WebSocket } from 'ws';
+// WebSocket removed - now using MCP Streamable HTTP (SSE) only
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
@@ -39,10 +39,10 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
-import { createBeamMCPSession, notifyToolsListChanged } from './beam-mcp-handler.js';
+// MCP WebSocket handler removed - now using Streamable HTTP only
 import { generateMCPClientJS } from './mcp-client.js';
-import { handleStreamableHTTP, broadcastNotification } from './streamable-http-transport.js';
-import type { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
+import { handleStreamableHTTP, broadcastNotification, broadcastToBeam } from './streamable-http-transport.js';
+// MCPServer type removed - no longer needed for WebSocket transport
 import type {
   PhotonInfo,
   UnconfiguredPhotonInfo,
@@ -493,8 +493,36 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         configurePhoton: async (photonName: string, config: Record<string, any>) => {
           return configurePhotonViaMCP(photonName, config, photons, photonMCPs, loader, savedConfig);
         },
+        reloadPhoton: async (photonName: string) => {
+          return reloadPhotonViaMCP(photonName, photons, photonMCPs, loader, savedConfig, broadcastPhotonChange);
+        },
+        removePhoton: async (photonName: string) => {
+          return removePhotonViaMCP(photonName, photons, photonMCPs, savedConfig, broadcastPhotonChange);
+        },
+        updateMetadata: async (photonName: string, methodName: string | null, metadata: Record<string, any>) => {
+          return updateMetadataViaMCP(photonName, methodName, metadata, photons);
+        },
         loader, // Pass loader for proper execution context (this.emit() support)
-        broadcast, // Forward board-update events from MCP calls to WebSocket clients
+        broadcast: (message: object) => {
+          const msg = message as { type?: string; photon?: string; board?: string; channel?: string; event?: string; data?: any };
+
+          // Forward channel events (task-moved, task-updated, etc.) with delta
+          if (msg.type === 'channel-event') {
+            broadcastToBeam('photon/channel-event', {
+              photon: msg.photon,
+              channel: msg.channel,
+              event: msg.event,
+              data: msg.data,
+            });
+          }
+          // Forward board-update for backwards compatibility
+          else if (msg.type === 'board-update') {
+            broadcastToBeam('photon/board-update', {
+              photon: msg.photon,
+              board: msg.board,
+            });
+          }
+        },
       });
       if (handled) return;
     }
@@ -1138,7 +1166,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           );
 
           // Broadcast to connected clients to reload photon list
-          broadcast({ type: 'photon_added', name });
+          broadcastPhotonChange();
         } catch {
           res.writeHead(500);
           res.end(JSON.stringify({ error: 'Failed to add photon' }));
@@ -1518,217 +1546,115 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     res.end('Not Found');
   });
 
-  // Create WebSocket servers
-  // Legacy WSS - for backward compatibility with custom protocol
-  const wss = new WebSocketServer({ noServer: true });
-  // MCP WSS - for standard MCP protocol over WebSocket
-  const mcpWss = new WebSocketServer({ noServer: true });
+  // Broadcast photon changes to all connected clients via MCP SSE
+  const broadcastPhotonChange = () => {
+    // MCP Streamable HTTP clients (SSE) get tools/list_changed notification
+    broadcastNotification('notifications/tools/list_changed');
+    // Beam SSE clients get full photons list
+    broadcastToBeam('beam/photons', { photons });
+  };
 
-  // Track connected clients for broadcasting (legacy)
-  const clients = new Set<WebSocket>();
-  // Track MCP sessions
-  const mcpSessions = new Map<string, MCPServer>();
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DYNAMIC SUBSCRIPTION MANAGEMENT (Reference Counting)
+  // Channels are subscribed only when clients are viewing them
+  // ══════════════════════════════════════════════════════════════════════════════
 
-  // Handle HTTP upgrade to route between legacy and MCP WebSocket
-  server.on('upgrade', (request, socket, head) => {
-    const pathname = new URL(request.url || '/', `http://${request.headers.host}`).pathname;
+  interface ChannelSubscription {
+    refCount: number;
+    unsubscribe: (() => void) | null;
+  }
 
-    if (pathname === '/mcp') {
-      // MCP WebSocket connection
-      mcpWss.handleUpgrade(request, socket, head, (ws) => {
-        mcpWss.emit('connection', ws, request);
-      });
-    } else {
-      // Legacy WebSocket connection
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
-    }
-  });
+  const channelSubscriptions = new Map<string, ChannelSubscription>();
 
-  // Handle MCP WebSocket connections
-  mcpWss.on('connection', async (ws: WebSocket) => {
-    logger.info('MCP client connected');
+  // Subscribe to a channel (increment ref count, actually subscribe if first)
+  async function subscribeToChannel(channel: string): Promise<void> {
+    const existing = channelSubscriptions.get(channel);
 
-    // Filter to only configured photons for MCP handler
-    const configuredPhotons = photons.filter((p): p is PhotonInfo => p.configured);
-
-    // Create MCP session with progress handler, UI asset loader, broadcast function, and loader
-    const { server: mcpServer, transport } = createBeamMCPSession(
-      ws,
-      configuredPhotons,
-      photonMCPs,
-      (photonName, methodName, progress) => {
-        // Progress updates are handled internally by MCP protocol
-        logger.debug(`MCP progress: ${photonName}/${methodName}`, progress);
-      },
-      loadUIAsset,
-      broadcast, // Forward board-update events from MCP calls to WebSocket clients
-      loader // Pass loader for proper execution context (this.emit() support)
-    );
-
-    // Track session
-    const sessionId = transport.sessionId || `mcp-${Date.now()}`;
-    mcpSessions.set(sessionId, mcpServer);
-
-    // Start MCP server with transport
-    try {
-      await mcpServer.connect(transport);
-      logger.info(`MCP session started: ${sessionId}`);
-    } catch (error) {
-      logger.error('Failed to start MCP session', { error });
-      ws.close();
+    if (existing) {
+      existing.refCount++;
+      logger.debug(`Channel ${channel} ref count: ${existing.refCount}`);
       return;
     }
 
-    ws.on('close', () => {
-      mcpSessions.delete(sessionId);
-      logger.info(`MCP session closed: ${sessionId}`);
-    });
-  });
-
-  // Broadcast to all connected legacy clients
-  const broadcast = (message: object) => {
-    const data = JSON.stringify(message);
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    }
-  };
-
-  // Broadcast photon changes to all connected clients
-  const broadcastPhotonChange = () => {
-    // Legacy WebSocket clients get photons message
-    broadcast({ type: 'photons', data: photons });
-    // MCP WebSocket clients get tools/list_changed notification
-    notifyToolsListChanged(mcpSessions);
-    // MCP Streamable HTTP clients (SSE) get tools/list_changed notification
-    broadcastNotification('notifications/tools/list_changed');
-  };
-
-  // Subscribe to daemon channels for cross-process updates (e.g., MCP -> BEAM)
-  // This enables real-time updates when Claude modifies data via MCP
-  const channelSubscriptions: Array<() => void> = [];
-  const subscribedChannels = new Set<string>();
-
-  async function subscribeToKanbanChannel(boardName: string) {
-    const channel = `kanban:${boardName}`;
-    if (subscribedChannels.has(channel)) return;
+    // First subscriber - actually subscribe to daemon
+    const subscription: ChannelSubscription = { refCount: 1, unsubscribe: null };
+    channelSubscriptions.set(channel, subscription);
 
     try {
-      const isRunning = await pingDaemon('kanban');
+      // Extract photon name from channel (e.g., "kanban:photon" -> "kanban")
+      const photonName = channel.split(':')[0];
+      const isRunning = await pingDaemon(photonName);
+
       if (isRunning) {
-        const unsubscribe = await subscribeChannel('kanban', channel, (message: any) => {
-          logger.info('Received channel message', {
+        const unsubscribe = await subscribeChannel(photonName, channel, (message: any) => {
+          // Forward channel messages as events with delta
+          broadcastToBeam('photon/channel-event', {
+            photon: photonName,
             channel,
             event: message?.event,
-          });
-          broadcast({
-            type: 'channel',
-            channel,
-            data: message,
+            data: message?.data || message,
           });
         });
-        channelSubscriptions.push(unsubscribe);
-        subscribedChannels.add(channel);
-        logger.info(`Subscribed to ${channel} channel`);
+        subscription.unsubscribe = unsubscribe;
+        logger.info(`Subscribed to ${channel} (ref: 1)`);
       }
     } catch {
-      // Daemon not running - that's fine
+      // Daemon not running - that's fine, in-process events still work
     }
   }
 
-  async function subscribeToPhotonChannels() {
-    // Subscribe to kanban channels for real-time board updates
-    // Try to get list of boards and subscribe to each
-    try {
-      const kanbanMCP = photonMCPs.get('kanban');
-      if (kanbanMCP?.instance && typeof kanbanMCP.instance.listBoards === 'function') {
-        const boards = await kanbanMCP.instance.listBoards({});
-        for (const board of boards) {
-          await subscribeToKanbanChannel(board.name);
-        }
-      } else {
-        // Fallback: subscribe to common board names
-        await subscribeToKanbanChannel('default');
-        await subscribeToKanbanChannel('photon');
+  // Unsubscribe from a channel (decrement ref count, actually unsubscribe if last)
+  function unsubscribeFromChannel(channel: string): void {
+    const subscription = channelSubscriptions.get(channel);
+    if (!subscription) return;
+
+    subscription.refCount--;
+    logger.debug(`Channel ${channel} ref count: ${subscription.refCount}`);
+
+    if (subscription.refCount <= 0) {
+      // Last subscriber - actually unsubscribe
+      if (subscription.unsubscribe) {
+        subscription.unsubscribe();
+        logger.info(`Unsubscribed from ${channel}`);
       }
-    } catch {
-      // Daemon not running or error - that's fine, we'll use in-process events
-      logger.debug('Kanban daemon not running, using in-process events only');
+      channelSubscriptions.delete(channel);
     }
   }
 
-  // Subscribe after a short delay to allow daemon to start if needed
-  setTimeout(subscribeToPhotonChannels, 1000);
+  // Track what each session is viewing for cleanup on disconnect
+  const sessionViewState = new Map<string, { photon?: string; board?: string }>();
 
-  wss.on('connection', (ws: WebSocket) => {
-    clients.add(ws);
+  // Called when a client starts viewing a board (from MCP notification)
+  function onClientViewingBoard(sessionId: string, photon: string, board: string): void {
+    const prevState = sessionViewState.get(sessionId);
 
-    // Send photon list on connection
-    ws.send(
-      JSON.stringify({
-        type: 'photons',
-        data: photons,
-      })
-    );
+    // Unsubscribe from previous board if different
+    if (prevState?.board && (prevState.photon !== photon || prevState.board !== board)) {
+      const prevChannel = `${prevState.photon}:${prevState.board}`;
+      unsubscribeFromChannel(prevChannel);
+    }
 
-    ws.on('message', async (data: Buffer) => {
-      try {
-        const message: ClientMessage = JSON.parse(data.toString());
+    // Subscribe to new board
+    const channel = `${photon}:${board}`;
+    sessionViewState.set(sessionId, { photon, board });
+    subscribeToChannel(channel);
+  }
 
-        if (message.type === 'invoke') {
-          await handleInvoke(ws, message, photonMCPs, loader, broadcast);
-        } else if (message.type === 'configure') {
-          await handleConfigure(ws, message, photons, photonMCPs, loader, savedConfig);
-        } else if (message.type === 'elicitation_response') {
-          // Store response for pending elicitation
-          if ((ws as any).pendingElicitation) {
-            if (message.cancelled) {
-              // User cancelled the elicitation
-              (ws as any).pendingElicitation.reject(new Error('User cancelled'));
-            } else {
-              (ws as any).pendingElicitation.resolve(message.value);
-            }
-            (ws as any).pendingElicitation = null;
-          }
-        } else if (message.type === 'cancel') {
-          // Cancel any pending elicitation (the async operation continues in background)
-          if ((ws as any).pendingElicitation) {
-            (ws as any).pendingElicitation.reject(new Error('Execution cancelled'));
-            (ws as any).pendingElicitation = null;
-          }
-        } else if (message.type === 'reload') {
-          await handleReload(ws, message, photons, photonMCPs, loader, savedConfig);
-        } else if (message.type === 'remove') {
-          await handleRemove(ws, message, photons, photonMCPs, savedConfig);
-        } else if (message.type === 'oauth_complete') {
-          // OAuth flow completed - client will retry the tool call
-          logger.info(`OAuth completed: ${message.elicitationId} (success: ${message.success})`);
-        } else if (message.type === 'update-metadata') {
-          await handleUpdateMetadata(ws, message, photons, broadcast);
-        } else if (message.type === 'update-method-metadata') {
-          await handleUpdateMethodMetadata(ws, message, photons, broadcast);
-        } else if (message.type === 'get-prompt') {
-          await handleGetPrompt(ws, message, photons);
-        } else if (message.type === 'read-resource') {
-          await handleReadResource(ws, message, photons);
-        }
-      } catch (error) {
-        ws.send(
-          JSON.stringify({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Unknown error',
-          })
-        );
-      }
-    });
+  // Called when a client disconnects
+  function onClientDisconnect(sessionId: string): void {
+    const state = sessionViewState.get(sessionId);
+    if (state?.photon && state?.board) {
+      const channel = `${state.photon}:${state.board}`;
+      unsubscribeFromChannel(channel);
+    }
+    sessionViewState.delete(sessionId);
+  }
 
-    ws.on('close', () => {
-      clients.delete(ws);
-    });
-  });
+  // Export for use in streamable-http-transport
+  const subscriptionManager = {
+    onClientViewingBoard,
+    onClientDisconnect,
+  };
 
   // File watcher for hot reload
   const watchers: FSWatcher[] = [];
@@ -1891,8 +1817,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             logger.info(`✅ ${photonName} added`);
           } else {
             photons[photonIndex] = reloadedPhoton;
-            logger.info(`📡 Broadcasting hot-reload for ${photonName} to ${clients.size} clients`);
-            broadcast({ type: 'hot-reload', photon: reloadedPhoton });
+            logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
+            broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
+            broadcastPhotonChange();
             logger.info(`✅ ${photonName} hot reloaded`);
           }
         } catch (error) {
@@ -1935,7 +1862,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           }
 
           logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
-          broadcast({
+          broadcastToBeam('beam/error', {
             type: 'hot-reload-error',
             photon: photonName,
             message: errorMsg.slice(0, 200),
@@ -2077,630 +2004,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   });
 }
 
-async function handleInvoke(
-  ws: WebSocket,
-  request: InvokeRequest,
-  photonMCPs: Map<string, any>,
-  loader: PhotonLoader,
-  broadcast?: (message: object) => void
-): Promise<void> {
-  const { photon, method, args, invocationId } = request;
-
-  const mcp = photonMCPs.get(photon);
-  if (!mcp || !mcp.instance) {
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Photon not found: ${photon}`,
-      })
-    );
-    return;
-  }
-
-  const instance = mcp.instance;
-
-  // Check if method exists - look on instance first, then prototype (handles property/method name collisions)
-  const methodFn =
-    typeof instance[method] === 'function'
-      ? instance[method]
-      : Object.getPrototypeOf(instance)?.[method];
-
-  if (typeof methodFn !== 'function') {
-    // Get available methods from schema for helpful error
-    const schemas = (mcp as any).schemas || [];
-    const availableMethods = schemas
-      .map((s: any) => s.name)
-      .filter((n: string) => !['onInitialize', 'onShutdown', 'constructor'].includes(n));
-    const suggestion =
-      availableMethods.length > 0 ? ` Available methods: ${availableMethods.join(', ')}` : '';
-
-    // Check if there's a property with the same name (naming collision)
-    const hasPropertyCollision = method in instance && typeof instance[method] !== 'function';
-    const collisionHint = hasPropertyCollision
-      ? ` Note: "${method}" exists as a property, not a method. Check for naming collision.`
-      : '';
-
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Method not found: ${method}.${suggestion}${collisionHint}`,
-      })
-    );
-    return;
-  }
-
-  try {
-    // Create output handler for streaming progress/status events
-    const outputHandler: OutputHandler = (yieldValue: PhotonYield) => {
-      ws.send(
-        JSON.stringify({
-          type: 'yield',
-          data: yieldValue,
-        })
-      );
-
-      // Broadcast board-update events to all clients (for real-time UI updates)
-      const yv = yieldValue as any;
-      if (broadcast && yv.emit === 'board-update') {
-        broadcast({
-          type: 'board-update',
-          photon,
-          board: yv.board,
-        });
-      }
-    };
-
-    // Create input provider for web-based elicitation (ask yields)
-    const inputProvider: InputProvider = async (ask: AskYield): Promise<any> => {
-      // Send elicitation request to web client
-      ws.send(
-        JSON.stringify({
-          type: 'elicitation',
-          data: ask,
-        })
-      );
-
-      // Wait for response from client (can be cancelled via Escape)
-      return new Promise((resolve, reject) => {
-        (ws as any).pendingElicitation = { resolve, reject };
-      });
-    };
-
-    // Use loader.executeTool which properly sets up execution context for this.emit()
-    // and handles PhotonMCP vs plain class methods
-    const result = await loader.executeTool(mcp, method, args, { outputHandler, inputProvider });
-
-    // Find the method's format settings from schema
-    const schemas = mcp.schemas || [];
-    const methodSchema = schemas.find((s: any) => s.name === method);
-
-    ws.send(
-      JSON.stringify({
-        type: 'result',
-        data: result,
-        photon,
-        method,
-        outputFormat: methodSchema?.outputFormat,
-        layoutHints: methodSchema?.layoutHints,
-        invocationId, // Pass back for interactive UI routing
-      })
-    );
-  } catch (error) {
-    // Check if this is an OAuth elicitation error
-    if (
-      error instanceof Error &&
-      (error.name === 'OAuthElicitationRequired' ||
-        (error as any).code === 'OAUTH_ELICITATION_REQUIRED')
-    ) {
-      const oauthError = error as any;
-      ws.send(
-        JSON.stringify({
-          type: 'elicitation',
-          data: {
-            ask: 'oauth',
-            provider: oauthError.provider || 'OAuth',
-            scopes: oauthError.scopes || [],
-            url: oauthError.elicitationUrl || oauthError.url,
-            elicitationUrl: oauthError.elicitationUrl || oauthError.url,
-            elicitationId: oauthError.elicitationId || oauthError.id,
-            message: oauthError.message || 'Authorization required',
-            // Include context for retry
-            photon,
-            method,
-            params: args,
-          },
-        })
-      );
-      return;
-    }
-
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      })
-    );
-  }
-}
-
-async function handleUpdateMetadata(
-  ws: WebSocket,
-  message: { type: 'update-metadata'; photon: string; metadata: { description?: string; icon?: string } },
-  photons: AnyPhotonInfo[],
-  broadcast: (msg: any) => void
-): Promise<void> {
-  const { photon: photonName, metadata } = message;
-
-  // Find the photon
-  const photonIndex = photons.findIndex((p) => p.name === photonName);
-  if (photonIndex === -1) {
-    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
-    return;
-  }
-
-  const photon = photons[photonIndex];
-
-  try {
-    // Read the photon file
-    const content = await fs.readFile(photon.path, 'utf-8');
-
-    let updatedContent = content;
-
-    // Update or add class-level JSDoc
-    if (metadata.description || metadata.icon) {
-      // Check if there's an existing class-level JSDoc
-      const classDocRegex = /(\/\*\*[\s\S]*?\*\/\s*)?(\n?(?:export\s+)?(?:default\s+)?class\s+\w+)/;
-      const match = content.match(classDocRegex);
-
-      if (match) {
-        const existingDoc = match[1] || '';
-        const classDecl = match[2];
-
-        let newDoc = existingDoc.trim();
-
-        if (metadata.description) {
-          if (newDoc) {
-            // Update existing description or add @description
-            if (newDoc.includes('@description')) {
-              newDoc = newDoc.replace(/@description\s+[^\n*]+/, `@description ${metadata.description}`);
-            } else {
-              // Add description after opening comment
-              newDoc = newDoc.replace(/\/\*\*\s*\n?/, `/**\n * ${metadata.description}\n *\n`);
-            }
-          } else {
-            // Create new JSDoc
-            newDoc = `/**\n * ${metadata.description}\n */`;
-          }
-        }
-
-        if (metadata.icon) {
-          if (newDoc) {
-            if (newDoc.includes('@icon')) {
-              newDoc = newDoc.replace(/@icon\s+\S+/, `@icon ${metadata.icon}`);
-            } else {
-              // Add icon before closing */
-              newDoc = newDoc.replace(/\s*\*\//, `\n * @icon ${metadata.icon}\n */`);
-            }
-          } else {
-            newDoc = `/**\n * @icon ${metadata.icon}\n */`;
-          }
-        }
-
-        // Replace in content
-        updatedContent = content.replace(classDocRegex, `${newDoc}\n${classDecl}`);
-      }
-    }
-
-    // Write back to file
-    await fs.writeFile(photon.path, updatedContent, 'utf-8');
-
-    // Update in-memory photon info
-    if (metadata.description) {
-      (photon as any).description = metadata.description;
-    }
-    if (metadata.icon) {
-      (photon as any).icon = metadata.icon;
-    }
-
-    // Broadcast update to all clients
-    broadcast({ type: 'photons', data: photons });
-
-    logger.info(`Updated metadata for ${photonName}: ${JSON.stringify(metadata)}`);
-  } catch (error) {
-    logger.error(`Failed to update metadata for ${photonName}`, { error });
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to update metadata'
-    }));
-  }
-}
-
-async function handleUpdateMethodMetadata(
-  ws: WebSocket,
-  message: { type: 'update-method-metadata'; photon: string; method: string; metadata: { description?: string | null; icon?: string | null } },
-  photons: AnyPhotonInfo[],
-  broadcast: (msg: any) => void
-): Promise<void> {
-  const { photon: photonName, method: methodName, metadata } = message;
-
-  // Find the photon
-  const photonIndex = photons.findIndex((p) => p.name === photonName);
-  if (photonIndex === -1) {
-    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
-    return;
-  }
-
-  const photon = photons[photonIndex];
-
-  try {
-    // Read the photon file
-    const content = await fs.readFile(photon.path, 'utf-8');
-
-    let updatedContent = content;
-
-    // Find the method and its JSDoc
-    // Pattern: /**...*/ followed by methodName( or async methodName(
-    const methodDocRegex = new RegExp(
-      `(\\/\\*\\*[\\s\\S]*?\\*\\/\\s*)?((?:async\\s+)?${methodName}\\s*\\()`,
-      'm'
-    );
-    const match = content.match(methodDocRegex);
-
-    if (match) {
-      const existingDoc = match[1] || '';
-      const methodDecl = match[2];
-      let newDoc = existingDoc.trim();
-
-      // Update description
-      if (metadata.description !== undefined) {
-        if (metadata.description) {
-          if (newDoc) {
-            // Check if there's already a description line (first non-tag line)
-            const lines = newDoc.split('\n');
-            let hasDescLine = false;
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i].replace(/^\s*\*\s?/, '').trim();
-              if (line && !line.startsWith('@') && !line.startsWith('/')) {
-                // Found existing description, replace it
-                lines[i] = lines[i].replace(line, metadata.description);
-                hasDescLine = true;
-                break;
-              }
-            }
-            if (!hasDescLine) {
-              // Add description after opening
-              newDoc = newDoc.replace(/\/\*\*\s*\n?/, `/**\n * ${metadata.description}\n`);
-            } else {
-              newDoc = lines.join('\n');
-            }
-          } else {
-            newDoc = `/**\n * ${metadata.description}\n */`;
-          }
-        } else if (newDoc) {
-          // Remove description (keep only tags)
-          const lines = newDoc.split('\n').filter(line => {
-            const trimmed = line.replace(/^\s*\*\s?/, '').trim();
-            return !trimmed || trimmed.startsWith('@') || trimmed.startsWith('/') || trimmed === '*';
-          });
-          newDoc = lines.join('\n');
-        }
-      }
-
-      // Update icon
-      if (metadata.icon !== undefined) {
-        if (metadata.icon) {
-          if (newDoc) {
-            if (newDoc.includes('@icon')) {
-              newDoc = newDoc.replace(/@icon\s+\S+/, `@icon ${metadata.icon}`);
-            } else {
-              newDoc = newDoc.replace(/\s*\*\//, `\n * @icon ${metadata.icon}\n */`);
-            }
-          } else {
-            newDoc = `/**\n * @icon ${metadata.icon}\n */`;
-          }
-        } else if (newDoc) {
-          // Remove @icon tag
-          newDoc = newDoc.replace(/\s*\*\s*@icon\s+\S+\n?/g, '\n');
-        }
-      }
-
-      // Clean up empty JSDoc
-      if (newDoc && newDoc.replace(/\/\*\*|\*\/|\*|\s/g, '') === '') {
-        newDoc = '';
-      }
-
-      // Replace in content
-      if (newDoc) {
-        updatedContent = content.replace(methodDocRegex, `${newDoc}\n  ${methodDecl}`);
-      } else {
-        // Remove JSDoc entirely if empty
-        updatedContent = content.replace(methodDocRegex, `${methodDecl}`);
-      }
-
-      // Write back to file
-      await fs.writeFile(photon.path, updatedContent, 'utf-8');
-
-      // Update in-memory method info
-      const photonData = photon as any;
-      if (photonData.methods) {
-        const method = photonData.methods.find((m: any) => m.name === methodName);
-        if (method) {
-          if (metadata.description !== undefined) {
-            method.description = metadata.description || '';
-          }
-          if (metadata.icon !== undefined) {
-            method.icon = metadata.icon || undefined;
-          }
-        }
-      }
-
-      // Broadcast update to all clients
-      broadcast({ type: 'photons', data: photons });
-
-      logger.info(`Updated method metadata for ${photonName}.${methodName}: ${JSON.stringify(metadata)}`);
-    } else {
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: `Method not found in source: ${methodName}`
-      }));
-    }
-  } catch (error) {
-    logger.error(`Failed to update method metadata for ${photonName}.${methodName}`, { error });
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to update method metadata'
-    }));
-  }
-}
-
-async function handleGetPrompt(
-  ws: WebSocket,
-  message: { type: 'get-prompt'; photon: string; promptId: string; arguments?: Record<string, string> },
-  photons: AnyPhotonInfo[]
-): Promise<void> {
-  const { photon: photonName, promptId, arguments: promptArgs = {} } = message;
-
-  // Find the photon
-  const photon = photons.find((p) => p.name === photonName);
-  if (!photon) {
-    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
-    return;
-  }
-
-  // Find the prompt in assets
-  const photonData = photon as any;
-  const prompts = photonData.assets?.prompts || [];
-  const prompt = prompts.find((p: any) => p.id === promptId);
-
-  if (!prompt) {
-    ws.send(JSON.stringify({ type: 'error', message: `Prompt not found: ${promptId}` }));
-    return;
-  }
-
-  try {
-    // Read the prompt file
-    const content = await fs.readFile(prompt.resolvedPath, 'utf-8');
-
-    // Extract variables from the template ({{variableName}})
-    const variableRegex = /\{\{(\w+)\}\}/g;
-    const variables: string[] = [];
-    let match;
-    while ((match = variableRegex.exec(content)) !== null) {
-      if (!variables.includes(match[1])) {
-        variables.push(match[1]);
-      }
-    }
-
-    // Render the prompt with provided arguments
-    let renderedContent = content;
-    for (const [key, value] of Object.entries(promptArgs)) {
-      renderedContent = renderedContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
-    }
-
-    ws.send(JSON.stringify({
-      type: 'prompt-content',
-      promptId,
-      content,
-      renderedContent,
-      variables,
-      description: prompt.description || ''
-    }));
-
-    logger.info(`Loaded prompt ${promptId} for ${photonName}`);
-  } catch (error) {
-    logger.error(`Failed to load prompt ${promptId}`, { error });
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to load prompt'
-    }));
-  }
-}
-
-async function handleReadResource(
-  ws: WebSocket,
-  message: { type: 'read-resource'; photon: string; resourceId: string; uri?: string },
-  photons: AnyPhotonInfo[]
-): Promise<void> {
-  const { photon: photonName, resourceId, uri } = message;
-
-  // Find the photon
-  const photon = photons.find((p) => p.name === photonName);
-  if (!photon) {
-    ws.send(JSON.stringify({ type: 'error', message: `Photon not found: ${photonName}` }));
-    return;
-  }
-
-  // Find the resource in assets
-  const photonData = photon as any;
-  const resources = photonData.assets?.resources || [];
-  const resource = resources.find((r: any) => r.id === resourceId);
-
-  if (!resource) {
-    ws.send(JSON.stringify({ type: 'error', message: `Resource not found: ${resourceId}` }));
-    return;
-  }
-
-  try {
-    // Read the resource file
-    const mimeType = resource.mimeType || 'text/plain';
-    let content: string;
-
-    if (mimeType.startsWith('text/') || mimeType === 'application/json') {
-      content = await fs.readFile(resource.resolvedPath, 'utf-8');
-    } else {
-      // For binary files, return base64
-      const buffer = await fs.readFile(resource.resolvedPath);
-      content = buffer.toString('base64');
-    }
-
-    ws.send(JSON.stringify({
-      type: 'resource-content',
-      resourceId,
-      content,
-      mimeType,
-      uri: uri || resource.path,
-      description: resource.description || ''
-    }));
-
-    logger.info(`Loaded resource ${resourceId} for ${photonName}`);
-  } catch (error) {
-    logger.error(`Failed to load resource ${resourceId}`, { error });
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to load resource'
-    }));
-  }
-}
-
-async function handleConfigure(
-  ws: WebSocket,
-  request: ConfigureRequest,
-  photons: AnyPhotonInfo[],
-  photonMCPs: Map<string, any>,
-  loader: PhotonLoader,
-  savedConfig: PhotonConfig
-): Promise<void> {
-  const { photon: photonName, config } = request;
-
-  // Find the unconfigured photon
-  const photonIndex = photons.findIndex((p) => p.name === photonName && !p.configured);
-  if (photonIndex === -1) {
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Photon not found or already configured: ${photonName}`,
-      })
-    );
-    return;
-  }
-
-  const unconfiguredPhoton = photons[photonIndex] as UnconfiguredPhotonInfo;
-
-  // Apply config to environment
-  for (const [key, value] of Object.entries(config)) {
-    process.env[key] = value;
-  }
-
-  // Save config to file
-  savedConfig.photons[photonName] = config;
-  await saveConfig(savedConfig);
-
-  // Try to reload the photon
-  try {
-    const mcp = await loader.loadFile(unconfiguredPhoton.path);
-    const instance = mcp.instance;
-
-    if (!instance) {
-      throw new Error('Failed to create instance');
-    }
-
-    photonMCPs.set(photonName, mcp);
-
-    // Extract schema for UI - use extractAllFromSource to get both tools and templates
-    const extractor = new SchemaExtractor();
-    const configSource = await fs.readFile(unconfiguredPhoton.path, 'utf-8');
-    const { tools: schemas, templates } = extractor.extractAllFromSource(configSource);
-    (mcp as any).schemas = schemas; // Store schemas for result rendering
-
-    // Get UI assets for linking
-    const uiAssets = mcp.assets?.ui || [];
-
-    const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
-    const methods: MethodInfo[] = schemas
-      .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-      .map((schema: any) => {
-        // Find linked UI for this method
-        const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
-        return {
-          name: schema.name,
-          description: schema.description || '',
-          params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-          returns: { type: 'object' },
-          autorun: schema.autorun || false,
-          outputFormat: schema.outputFormat,
-          layoutHints: schema.layoutHints,
-          buttonLabel: schema.buttonLabel,
-          icon: schema.icon,
-          linkedUi: linkedAsset?.id,
-        };
-      });
-
-    // Add templates as methods
-    templates.forEach((template: any) => {
-      if (!lifecycleMethods.includes(template.name)) {
-        methods.push({
-          name: template.name,
-          description: template.description || '',
-          params: template.inputSchema || { type: 'object', properties: {}, required: [] },
-          returns: { type: 'object' },
-          isTemplate: true,
-          outputFormat: 'markdown',
-        });
-      }
-    });
-
-    // Check if this is an App (has main() method with @ui)
-    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
-    const isApp = !!mainMethod;
-
-    // Replace unconfigured photon with configured one
-    const configuredPhoton: PhotonInfo = {
-      name: photonName,
-      path: unconfiguredPhoton.path,
-      configured: true,
-      methods,
-      isApp,
-      appEntry: mainMethod,
-      assets: mcp.assets,
-    };
-
-    photons[photonIndex] = configuredPhoton;
-
-    logger.info(`✅ ${photonName} configured successfully`);
-
-    // Send updated photon info to client
-    ws.send(
-      JSON.stringify({
-        type: 'configured',
-        photon: configuredPhoton,
-      })
-    );
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.error(`Failed to configure ${photonName}: ${errorMsg}`);
-
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Configuration failed: ${errorMsg.slice(0, 200)}`,
-      })
-    );
-  }
-}
-
 /**
- * Configure a photon via MCP (beam/configure tool)
- * This is a callback for the Streamable HTTP transport
+ * Configure a photon via MCP
  */
 async function configurePhotonViaMCP(
   photonName: string,
@@ -2801,6 +2106,7 @@ async function configurePhotonViaMCP(
 
     // Notify connected MCP clients about tools list change
     broadcastNotification('notifications/tools/list_changed', {});
+    broadcastToBeam('beam/configured', { photon: configuredPhoton });
 
     return { success: true };
   } catch (error) {
@@ -2810,26 +2116,21 @@ async function configurePhotonViaMCP(
   }
 }
 
-async function handleReload(
-  ws: WebSocket,
-  request: ReloadRequest,
+/**
+ * Reload a photon via MCP
+ */
+async function reloadPhotonViaMCP(
+  photonName: string,
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
-  savedConfig: PhotonConfig
-): Promise<void> {
-  const { photon: photonName } = request;
-
+  savedConfig: PhotonConfig,
+  broadcastChange: () => void
+): Promise<{ success: boolean; photon?: PhotonInfo; error?: string }> {
   // Find the photon
   const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Photon not found: ${photonName}`,
-      })
-    );
-    return;
+    return { success: false, error: `Photon not found: ${photonName}` };
   }
 
   const photon = photons[photonIndex];
@@ -2854,11 +2155,11 @@ async function handleReload(
 
     photonMCPs.set(photonName, mcp);
 
-    // Extract schema for UI - use extractAllFromSource to get both tools and templates
+    // Extract schema for UI
     const extractor = new SchemaExtractor();
     const reloadSrc = await fs.readFile(photonPath, 'utf-8');
     const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSrc);
-    (mcp as any).schemas = schemas; // Store schemas for result rendering
+    (mcp as any).schemas = schemas;
 
     const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
     const uiAssets = mcp.assets?.ui || [];
@@ -2894,7 +2195,7 @@ async function handleReload(
       }
     });
 
-    // Check if this is an App (has main() method with @ui)
+    // Check if this is an App
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
     // Update photon info
@@ -2909,65 +2210,103 @@ async function handleReload(
 
     photons[photonIndex] = reloadedPhoton;
 
-    logger.info(`🔄 ${photonName} reloaded successfully`);
+    logger.info(`🔄 ${photonName} reloaded via MCP`);
 
-    ws.send(
-      JSON.stringify({
-        type: 'reloaded',
-        photon: reloadedPhoton,
-      })
-    );
+    // Notify clients about the change
+    broadcastChange();
+
+    return { success: true, photon: reloadedPhoton };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.error(`Failed to reload ${photonName}: ${errorMsg}`);
-
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Reload failed: ${errorMsg.slice(0, 200)}`,
-      })
-    );
+    logger.error(`Failed to reload ${photonName} via MCP: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   }
 }
 
-async function handleRemove(
-  ws: WebSocket,
-  request: RemoveRequest,
+/**
+ * Remove a photon via MCP
+ */
+async function removePhotonViaMCP(
+  photonName: string,
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
-  savedConfig: PhotonConfig
-): Promise<void> {
-  const { photon: photonName } = request;
-
+  savedConfig: PhotonConfig,
+  broadcastChange: () => void
+): Promise<{ success: boolean; error?: string }> {
   // Find and remove the photon
   const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
-    ws.send(
-      JSON.stringify({
-        type: 'error',
-        message: `Photon not found: ${photonName}`,
-      })
-    );
-    return;
+    return { success: false, error: `Photon not found: ${photonName}` };
   }
 
-  // Remove from arrays/maps
+  // Remove from arrays and maps
   photons.splice(photonIndex, 1);
   photonMCPs.delete(photonName);
 
-  // Remove from saved config
-  delete savedConfig.photons[photonName];
-  await saveConfig(savedConfig);
+  // Remove saved config
+  if (savedConfig.photons[photonName]) {
+    delete savedConfig.photons[photonName];
+    await saveConfig(savedConfig);
+  }
 
-  logger.info(`🗑️ ${photonName} removed`);
+  logger.info(`🗑️ ${photonName} removed via MCP`);
 
-  ws.send(
-    JSON.stringify({
-      type: 'removed',
-      photon: photonName,
-      photons: photons,
-    })
-  );
+  // Notify clients about the change
+  broadcastChange();
+
+  return { success: true };
+}
+
+/**
+ * Update photon or method metadata via MCP
+ */
+async function updateMetadataViaMCP(
+  photonName: string,
+  methodName: string | null,
+  metadata: Record<string, any>,
+  photons: AnyPhotonInfo[]
+): Promise<{ success: boolean; error?: string }> {
+  // Find the photon
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
+  if (photonIndex === -1) {
+    return { success: false, error: `Photon not found: ${photonName}` };
+  }
+
+  const photon = photons[photonIndex];
+
+  if (methodName) {
+    // Update method metadata
+    if (!photon.configured || !photon.methods) {
+      return { success: false, error: 'Photon is not configured or has no methods' };
+    }
+
+    const method = photon.methods.find((m: any) => m.name === methodName);
+    if (!method) {
+      return { success: false, error: `Method not found: ${methodName}` };
+    }
+
+    // Update method metadata
+    if (metadata.description !== undefined) {
+      method.description = metadata.description;
+    }
+    if (metadata.icon !== undefined) {
+      method.icon = metadata.icon;
+    }
+
+    logger.info(`📝 Updated metadata for ${photonName}/${methodName}`);
+  } else {
+    // Update photon metadata
+    if (metadata.description !== undefined) {
+      (photon as any).description = metadata.description;
+    }
+    if (metadata.icon !== undefined) {
+      (photon as any).icon = metadata.icon;
+    }
+
+    logger.info(`📝 Updated metadata for ${photonName}`);
+  }
+
+  return { success: true };
 }
 
 function generateBeamHTML(photons: AnyPhotonInfo[], port: number): string {
