@@ -455,6 +455,107 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const configuredCount = photons.filter((p) => p.configured).length;
   const unconfiguredCount = photons.filter((p) => !p.configured).length;
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DYNAMIC SUBSCRIPTION MANAGEMENT (Reference Counting)
+  // Channels are subscribed only when clients are viewing them
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  interface ChannelSubscription {
+    refCount: number;
+    unsubscribe: (() => void) | null;
+  }
+
+  const channelSubscriptions = new Map<string, ChannelSubscription>();
+
+  // Subscribe to a channel (increment ref count, actually subscribe if first)
+  async function subscribeToChannel(channel: string): Promise<void> {
+    const existing = channelSubscriptions.get(channel);
+
+    if (existing) {
+      existing.refCount++;
+      logger.debug(`Channel ${channel} ref count: ${existing.refCount}`);
+      return;
+    }
+
+    // First subscriber - actually subscribe to daemon
+    const subscription: ChannelSubscription = { refCount: 1, unsubscribe: null };
+    channelSubscriptions.set(channel, subscription);
+
+    try {
+      // Extract photon name from channel (e.g., "kanban:photon" -> "kanban")
+      const photonName = channel.split(':')[0];
+      const isRunning = await pingDaemon(photonName);
+
+      if (isRunning) {
+        const unsubscribe = await subscribeChannel(photonName, channel, (message: any) => {
+          // Forward channel messages as events with delta
+          broadcastToBeam('photon/channel-event', {
+            photon: photonName,
+            channel,
+            event: message?.event,
+            data: message?.data || message,
+          });
+        });
+        subscription.unsubscribe = unsubscribe;
+        logger.info(`📡 Subscribed to ${channel} (ref: 1)`);
+      }
+    } catch {
+      // Daemon not running - that's fine, in-process events still work
+    }
+  }
+
+  // Unsubscribe from a channel (decrement ref count, actually unsubscribe if last)
+  function unsubscribeFromChannel(channel: string): void {
+    const subscription = channelSubscriptions.get(channel);
+    if (!subscription) return;
+
+    subscription.refCount--;
+    logger.debug(`Channel ${channel} ref count: ${subscription.refCount}`);
+
+    if (subscription.refCount <= 0) {
+      // Last subscriber - actually unsubscribe
+      if (subscription.unsubscribe) {
+        subscription.unsubscribe();
+        logger.info(`📡 Unsubscribed from ${channel}`);
+      }
+      channelSubscriptions.delete(channel);
+    }
+  }
+
+  // Track what each session is viewing for cleanup on disconnect
+  const sessionViewState = new Map<string, { photon?: string; board?: string }>();
+
+  // Called when a client starts viewing a board (from MCP notification)
+  function onClientViewingBoard(sessionId: string, photon: string, board: string): void {
+    const prevState = sessionViewState.get(sessionId);
+
+    // Unsubscribe from previous board if different
+    if (prevState?.board && (prevState.photon !== photon || prevState.board !== board)) {
+      const prevChannel = `${prevState.photon}:${prevState.board}`;
+      unsubscribeFromChannel(prevChannel);
+    }
+
+    // Subscribe to new board
+    const channel = `${photon}:${board}`;
+    sessionViewState.set(sessionId, { photon, board });
+    subscribeToChannel(channel);
+  }
+
+  // Called when a client disconnects
+  function onClientDisconnect(sessionId: string): void {
+    const state = sessionViewState.get(sessionId);
+    if (state?.photon && state?.board) {
+      const channel = `${state.photon}:${state.board}`;
+      unsubscribeFromChannel(channel);
+    }
+    sessionViewState.delete(sessionId);
+  }
+
+  const subscriptionManager = {
+    onClientViewingBoard,
+    onClientDisconnect,
+  };
+
   // UI asset loader for MCP resources/read (shared between WebSocket and HTTP transports)
   const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
     const photon = photons.find((p) => p.name === photonName);
@@ -503,6 +604,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           return updateMetadataViaMCP(photonName, methodName, metadata, photons);
         },
         loader, // Pass loader for proper execution context (this.emit() support)
+        subscriptionManager, // For on-demand channel subscriptions
         broadcast: (message: object) => {
           const msg = message as { type?: string; photon?: string; board?: string; channel?: string; event?: string; data?: any };
 
@@ -1552,108 +1654,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     broadcastNotification('notifications/tools/list_changed');
     // Beam SSE clients get full photons list
     broadcastToBeam('beam/photons', { photons });
-  };
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // DYNAMIC SUBSCRIPTION MANAGEMENT (Reference Counting)
-  // Channels are subscribed only when clients are viewing them
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  interface ChannelSubscription {
-    refCount: number;
-    unsubscribe: (() => void) | null;
-  }
-
-  const channelSubscriptions = new Map<string, ChannelSubscription>();
-
-  // Subscribe to a channel (increment ref count, actually subscribe if first)
-  async function subscribeToChannel(channel: string): Promise<void> {
-    const existing = channelSubscriptions.get(channel);
-
-    if (existing) {
-      existing.refCount++;
-      logger.debug(`Channel ${channel} ref count: ${existing.refCount}`);
-      return;
-    }
-
-    // First subscriber - actually subscribe to daemon
-    const subscription: ChannelSubscription = { refCount: 1, unsubscribe: null };
-    channelSubscriptions.set(channel, subscription);
-
-    try {
-      // Extract photon name from channel (e.g., "kanban:photon" -> "kanban")
-      const photonName = channel.split(':')[0];
-      const isRunning = await pingDaemon(photonName);
-
-      if (isRunning) {
-        const unsubscribe = await subscribeChannel(photonName, channel, (message: any) => {
-          // Forward channel messages as events with delta
-          broadcastToBeam('photon/channel-event', {
-            photon: photonName,
-            channel,
-            event: message?.event,
-            data: message?.data || message,
-          });
-        });
-        subscription.unsubscribe = unsubscribe;
-        logger.info(`Subscribed to ${channel} (ref: 1)`);
-      }
-    } catch {
-      // Daemon not running - that's fine, in-process events still work
-    }
-  }
-
-  // Unsubscribe from a channel (decrement ref count, actually unsubscribe if last)
-  function unsubscribeFromChannel(channel: string): void {
-    const subscription = channelSubscriptions.get(channel);
-    if (!subscription) return;
-
-    subscription.refCount--;
-    logger.debug(`Channel ${channel} ref count: ${subscription.refCount}`);
-
-    if (subscription.refCount <= 0) {
-      // Last subscriber - actually unsubscribe
-      if (subscription.unsubscribe) {
-        subscription.unsubscribe();
-        logger.info(`Unsubscribed from ${channel}`);
-      }
-      channelSubscriptions.delete(channel);
-    }
-  }
-
-  // Track what each session is viewing for cleanup on disconnect
-  const sessionViewState = new Map<string, { photon?: string; board?: string }>();
-
-  // Called when a client starts viewing a board (from MCP notification)
-  function onClientViewingBoard(sessionId: string, photon: string, board: string): void {
-    const prevState = sessionViewState.get(sessionId);
-
-    // Unsubscribe from previous board if different
-    if (prevState?.board && (prevState.photon !== photon || prevState.board !== board)) {
-      const prevChannel = `${prevState.photon}:${prevState.board}`;
-      unsubscribeFromChannel(prevChannel);
-    }
-
-    // Subscribe to new board
-    const channel = `${photon}:${board}`;
-    sessionViewState.set(sessionId, { photon, board });
-    subscribeToChannel(channel);
-  }
-
-  // Called when a client disconnects
-  function onClientDisconnect(sessionId: string): void {
-    const state = sessionViewState.get(sessionId);
-    if (state?.photon && state?.board) {
-      const channel = `${state.photon}:${state.board}`;
-      unsubscribeFromChannel(channel);
-    }
-    sessionViewState.delete(sessionId);
-  }
-
-  // Export for use in streamable-http-transport
-  const subscriptionManager = {
-    onClientViewingBoard,
-    onClientDisconnect,
   };
 
   // File watcher for hot reload
