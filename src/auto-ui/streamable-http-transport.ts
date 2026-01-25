@@ -197,6 +197,10 @@ interface HandlerContext {
   updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
+  subscriptionManager?: {
+    onClientViewingBoard: (sessionId: string, photon: string, board: string) => void;
+    onClientDisconnect: (sessionId: string) => void;
+  };
 }
 
 const handlers: Record<string, RequestHandler> = {
@@ -237,6 +241,18 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'notifications/initialized': async (req, session) => {
+    // Notification - no response needed
+    return { jsonrpc: '2.0' } as JSONRPCResponse;
+  },
+
+  // Client notifies what board they're viewing (for on-demand subscriptions)
+  'beam/viewing': async (req, session, ctx) => {
+    const params = req.params as { photon?: string; board?: string } | undefined;
+    const photon = params?.photon;
+    const board = params?.board;
+    if (photon && board && ctx.subscriptionManager) {
+      ctx.subscriptionManager.onClientViewingBoard(session.id, photon, board);
+    }
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
   },
@@ -987,6 +1003,10 @@ export interface StreamableHTTPOptions {
   updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
+  subscriptionManager?: {
+    onClientViewingBoard: (sessionId: string, photon: string, board: string) => void;
+    onClientDisconnect: (sessionId: string) => void;
+  };
 }
 
 /**
@@ -1056,6 +1076,10 @@ export async function handleStreamableHTTP(
     req.on('close', () => {
       clearInterval(keepAlive);
       session.sseResponse = undefined;
+      // Clean up subscriptions when client disconnects
+      if (options.subscriptionManager) {
+        options.subscriptionManager.onClientDisconnect(session.id);
+      }
     });
 
     return true;
@@ -1087,6 +1111,12 @@ export async function handleStreamableHTTP(
       photonMCPs: options.photonMCPs,
       loadUIAsset: options.loadUIAsset,
       configurePhoton: options.configurePhoton,
+      reloadPhoton: options.reloadPhoton,
+      removePhoton: options.removePhoton,
+      updateMetadata: options.updateMetadata,
+      loader: options.loader,
+      broadcast: options.broadcast,
+      subscriptionManager: options.subscriptionManager,
     };
 
     // Process requests

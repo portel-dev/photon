@@ -155,6 +155,11 @@ export class CustomUiRenderer extends LitElement {
             }
 
             this._srcDoc = finalHtml;
+
+            // Notify server that this client is viewing this photon's UI
+            // For now, use uiId as the board identifier (e.g., "board" for kanban)
+            // This enables on-demand channel subscriptions
+            mcpClient.notifyViewing(this.photon, this.uiId || 'main');
         } catch (e: any) {
             this._error = e.message;
         } finally {

@@ -561,6 +561,14 @@ class MCPClientService {
   }
 
   /**
+   * Notify server that client is viewing a board (for on-demand subscriptions)
+   */
+  async notifyViewing(photon: string, board: string): Promise<void> {
+    if (!this.connected) return;
+    await this.sendNotification('beam/viewing', { photon, board });
+  }
+
+  /**
    * Send JSON-RPC notification via HTTP POST
    */
   private async sendNotification(method: string, params: Record<string, unknown>): Promise<void> {
