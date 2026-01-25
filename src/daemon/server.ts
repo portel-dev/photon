@@ -512,6 +512,17 @@ function startIdleTimer(): void {
   idleTimer = setTimeout(() => {
     if (!sessionManager) return;
 
+    // Don't shut down if there are active channel subscribers (e.g., Beam UI)
+    let activeSubscribers = 0;
+    for (const subs of channelSubscriptions.values()) {
+      activeSubscribers += subs.size;
+    }
+    if (activeSubscribers > 0) {
+      logger.debug('Active channel subscribers, staying alive', { activeSubscribers });
+      startIdleTimer();
+      return;
+    }
+
     const lastActivity = sessionManager.getLastActivity();
     const idleTime = Date.now() - lastActivity;
 
