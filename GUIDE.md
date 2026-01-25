@@ -1320,6 +1320,47 @@ Understanding Photon's internals helps debug issues and optimize performance.
 └─────────────────────────────────────────┘
 ```
 
+### Photon ID
+
+Every photon instance is assigned a unique 12-character hash ID based on its file path:
+
+```typescript
+// Generated from path using SHA-256
+// Path: /Users/you/.photon/kanban.photon.ts
+// ID:   f5c5ee47905e
+
+import { createHash } from 'crypto';
+
+function generatePhotonId(photonPath: string): string {
+  return createHash('sha256').update(photonPath).digest('hex').slice(0, 12);
+}
+```
+
+**Why hashed IDs?**
+- **Unique across systems**: Different installations get different IDs
+- **Stable**: Same path always produces same ID
+- **Multi-tenant safe**: No collisions between different users or projects
+- **Short**: 12 characters is enough for practical uniqueness
+
+**Where IDs are used:**
+- **Channel subscriptions**: `{photonId}:{itemId}` format for daemon pub/sub
+- **MCP responses**: `x-photon-id` header in tools/list
+- **PhotonInfo**: `id` field in photon metadata
+
+**Access in code:**
+
+```typescript
+// In your photon (via PhotonMCP base class)
+export default class MyPhoton extends PhotonMCP {
+  async myMethod() {
+    console.log('My ID:', this.photonId);  // e.g., "f5c5ee47905e"
+  }
+}
+
+// In Custom UI (via bridge)
+const photonId = window.photon.photonId;
+```
+
 ### Compilation Process
 
 **1. Source → JavaScript:**
