@@ -189,6 +189,8 @@ interface HandlerContext {
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
+  broadcast?: (message: object) => void;
 }
 
 const handlers: Record<string, RequestHandler> = {
@@ -357,14 +359,41 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     try {
-      const result = await method.call(mcp.instance, args || {});
+      // Create outputHandler to capture emits (especially board-update for real-time UI)
+      const outputHandler = (yieldValue: any) => {
+        if (yieldValue?.emit === 'board-update' && ctx.broadcast) {
+          // Forward board-update events for real-time UI updates
+          ctx.broadcast({
+            type: 'board-update',
+            photon: photonName,
+            board: yieldValue.board,
+          });
+        }
+        // Progress and other emits are ignored in MCP (no streaming response)
+      };
 
-      // Handle async generators
+      // Use loader.executeTool if available (sets up execution context for this.emit())
+      // Fall back to direct method call for backward compatibility
+      let result: any;
+      if (ctx.loader) {
+        result = await ctx.loader.executeTool(mcp, methodName, args || {}, { outputHandler });
+      } else {
+        result = await method.call(mcp.instance, args || {});
+      }
+
+      // Handle async generators (when not using loader)
       if (result && typeof result[Symbol.asyncIterator] === 'function') {
         const chunks: any[] = [];
         for await (const chunk of result) {
           if (chunk.emit === 'result') {
             chunks.push(chunk.data);
+          } else if (chunk.emit === 'board-update' && ctx.broadcast) {
+            // Forward board-update from generator
+            ctx.broadcast({
+              type: 'board-update',
+              photon: photonName,
+              board: chunk.board,
+            });
           } else if (chunk.emit !== 'progress') {
             chunks.push(chunk);
           }
@@ -646,6 +675,8 @@ export interface StreamableHTTPOptions {
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
+  broadcast?: (message: object) => void;
 }
 
 /**
