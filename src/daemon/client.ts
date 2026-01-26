@@ -629,6 +629,69 @@ export async function listJobs(photonName: string): Promise<
 }
 
 /**
+ * Reload the daemon's photon code without losing state
+ * Called by dev server after hot-reload to sync daemon
+ */
+export async function reloadDaemon(
+  photonName: string,
+  photonPath: string
+): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
+  const socketPath = getSocketPath(photonName);
+  const requestId = `reload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const timeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Reload request timeout'));
+    }, 30000); // 30 second timeout for reload
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'reload',
+        id: requestId,
+        photonPath,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+
+        if (response.id === requestId) {
+          clearTimeout(timeout);
+          client.destroy();
+          if (response.type === 'result') {
+            const data = response.data as {
+              message?: string;
+              error?: string;
+              sessionsUpdated?: number;
+            };
+            resolve({
+              success: response.success ?? true,
+              error: data?.error,
+              sessionsUpdated: data?.sessionsUpdated,
+            });
+          } else {
+            resolve({ success: false, error: response.error || 'Reload failed' });
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(timeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+    });
+  });
+}
+
+/**
  * Ping daemon to check if it's responsive
  */
 export async function pingDaemon(photonName: string): Promise<boolean> {

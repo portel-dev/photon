@@ -14,6 +14,7 @@ export interface DaemonRequest {
     | 'command'
     | 'ping'
     | 'shutdown'
+    | 'reload'
     | 'prompt_response'
     | 'subscribe'
     | 'unsubscribe'
@@ -25,6 +26,8 @@ export interface DaemonRequest {
     | 'list_jobs'
     | 'list_locks';
   id: string;
+  /** Path to photon file for reload command */
+  photonPath?: string;
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
   method?: string;
@@ -128,6 +131,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'command',
     'ping',
     'shutdown',
+    'reload',
     'prompt_response',
     'subscribe',
     'unsubscribe',
@@ -165,6 +169,11 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
   // Unschedule requires jobId
   if (req.type === 'unschedule') {
     if (typeof req.jobId !== 'string') return false;
+  }
+
+  // Reload requires photonPath
+  if (req.type === 'reload') {
+    if (typeof req.photonPath !== 'string') return false;
   }
 
   return true;

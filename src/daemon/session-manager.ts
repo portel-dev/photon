@@ -98,6 +98,19 @@ export class SessionManager {
   }
 
   /**
+   * Update a session's instance (used during hot-reload)
+   * Returns true if session was found and updated
+   */
+  updateSessionInstance(sessionId: string, newInstance: any): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return false;
+    }
+    session.instance = newInstance;
+    return true;
+  }
+
+  /**
    * Clean up idle sessions
    */
   private cleanup(): void {
