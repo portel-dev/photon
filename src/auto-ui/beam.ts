@@ -632,10 +632,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         loader, // Pass loader for proper execution context (this.emit() support)
         subscriptionManager, // For on-demand channel subscriptions
         broadcast: (message: object) => {
-          const msg = message as { type?: string; photon?: string; board?: string; channel?: string; event?: string; data?: any };
+          const msg = message as { type?: string; photon?: string; board?: string; channel?: string; event?: string; data?: any; jsonrpc?: string; method?: string; params?: any };
 
+          // Forward JSON-RPC notifications (progress, status, etc.)
+          if (msg.jsonrpc === '2.0' && msg.method) {
+            broadcastNotification(msg.method, msg.params || {});
+          }
           // Forward channel events (task-moved, task-updated, etc.) with delta
-          if (msg.type === 'channel-event') {
+          else if (msg.type === 'channel-event') {
             broadcastToBeam('photon/channel-event', {
               photon: msg.photon,
               channel: msg.channel,

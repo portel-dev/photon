@@ -861,6 +861,43 @@ export class BeamApp extends LitElement {
         margin: 0;
       }
 
+      /* ===== Progress Bar ===== */
+      .progress-container {
+        margin: var(--space-md) 0;
+        padding: var(--space-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+      }
+
+      .progress-bar-wrapper {
+        height: 8px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+        border-radius: 4px;
+        transition: width 0.3s ease;
+      }
+
+      .progress-text {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: var(--space-sm);
+        font-size: 0.85rem;
+        color: var(--t-muted);
+      }
+
+      .progress-percentage {
+        font-weight: 600;
+        color: var(--accent-secondary);
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .mobile-menu-btn {
@@ -1062,6 +1099,7 @@ export class BeamApp extends LitElement {
   @state() private _sharedFormParams: Record<string, any> | null = null;
   @state() private _activityLog: any[] = [];
   @state() private _isExecuting = false;
+  @state() private _progress: { value: number; message: string } | null = null;
   @state() private _theme: Theme = 'dark';
   @state() private _showHelp = false;
   @state() private _showPhotonHelp = false;
@@ -1184,6 +1222,23 @@ export class BeamApp extends LitElement {
 
       mcpClient.on('progress', (data: any) => {
         this._log('info', data.message || 'Processing...');
+        // Update progress bar state
+        if (typeof data.progress === 'number') {
+          // For status events (progress=0 with message), only update if we don't have progress yet
+          // or if it's an actual progress update (progress > 0)
+          if (data.progress > 0 || !this._progress) {
+            this._progress = {
+              value: data.total ? data.progress / data.total : data.progress,
+              message: data.message || 'Processing...'
+            };
+          } else if (this._progress && data.message) {
+            // Status event - just update message, keep current progress value
+            this._progress = {
+              ...this._progress,
+              message: data.message
+            };
+          }
+        }
       });
 
       // Handle photons list update from SSE
@@ -1798,6 +1853,18 @@ export class BeamApp extends LitElement {
           @cancel=${() => this._handleBackFromMethod()}
         ></invoke-form>
 
+        ${this._progress ? html`
+          <div class="progress-container">
+            <div class="progress-bar-wrapper">
+              <div class="progress-bar" style="width: ${Math.round(this._progress.value * 100)}%"></div>
+            </div>
+            <div class="progress-text">
+              <span>${this._progress.message}</span>
+              <span class="progress-percentage">${Math.round(this._progress.value * 100)}%</span>
+            </div>
+          </div>
+        ` : ''}
+
         ${this._lastResult !== null ? html`
           <result-viewer
             .result=${this._lastResult}
@@ -1982,6 +2049,7 @@ export class BeamApp extends LitElement {
     this._log('info', `Invoking ${this._selectedMethod.name}...`);
     this._lastResult = null;
     this._isExecuting = true;
+    this._progress = null;
 
     // Use MCP for all tool invocations
     if (this._mcpReady) {
@@ -2003,11 +2071,13 @@ export class BeamApp extends LitElement {
         showToast(message, 'error', 5000);
       } finally {
         this._isExecuting = false;
+        this._progress = null;
       }
     } else {
       this._log('error', 'Not connected to server');
       showToast('Not connected to server', 'error');
       this._isExecuting = false;
+      this._progress = null;
     }
   }
 
