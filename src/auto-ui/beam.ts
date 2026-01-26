@@ -2033,8 +2033,12 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         currentPort++;
         console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
         tryListen();
+      } else if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ No available port found (tried ${port}-${currentPort}). Exiting.\n`);
+        process.exit(1);
       } else {
-        throw err;
+        console.error(`\n❌ Server error: ${err.message}\n`);
+        process.exit(1);
       }
     });
 
