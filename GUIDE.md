@@ -14,13 +14,14 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 8. [Assets and UI](#assets-and-ui)
 9. [Advanced Workflows](#advanced-workflows)
 10. [Lifecycle Hooks](#lifecycle-hooks)
-11. [Common Patterns](#common-patterns)
-12. [CLI Command Reference](#cli-command-reference)
-13. [Testing and Development](#testing-and-development)
-14. [Deployment](#deployment)
-15. [How Photon Works](#how-photon-works)
-16. [Best Practices](#best-practices)
-17. [Troubleshooting](#troubleshooting)
+11. [Configuration Convention](#configuration-convention)
+12. [Common Patterns](#common-patterns)
+13. [CLI Command Reference](#cli-command-reference)
+14. [Testing and Development](#testing-and-development)
+15. [Deployment](#deployment)
+16. [How Photon Works](#how-photon-works)
+17. [Best Practices](#best-practices)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -768,6 +769,157 @@ export default class SqliteMCP {
   }
 }
 ```
+
+---
+
+## Configuration Convention
+
+The `configure()` method is a by-convention pattern for photon configuration. Similar to how `main()` makes a photon a UI application, `configure()` makes it a configurable photon.
+
+### Why Use configure()?
+
+When a photon needs persistent settings that:
+- Are shared across all instances (MCP, Beam UI, CLI)
+- Should be collected once during install/setup
+- Need to work alongside environment variables
+
+### Basic Pattern
+
+```typescript
+import { PhotonMCP, loadPhotonConfig, savePhotonConfig } from '@portel/photon-core';
+
+interface MyConfig {
+  apiEndpoint: string;
+  maxRetries?: number;
+  enableCache?: boolean;
+}
+
+export default class MyService extends PhotonMCP {
+  /**
+   * Configure this photon
+   *
+   * Set your API endpoint and options. This is stored persistently
+   * so all instances use the same configuration.
+   */
+  async configure(params: {
+    /** The API endpoint URL */
+    apiEndpoint: string;
+    /** Max retry attempts (default: 3) */
+    maxRetries?: number;
+    /** Enable response caching */
+    enableCache?: boolean;
+  }): Promise<{ success: boolean; config: MyConfig }> {
+    const config: MyConfig = {
+      apiEndpoint: params.apiEndpoint,
+      maxRetries: params.maxRetries ?? 3,
+      enableCache: params.enableCache ?? true,
+    };
+
+    savePhotonConfig('my-service', config);
+    return { success: true, config };
+  }
+
+  /**
+   * Get current configuration
+   */
+  async getConfig(): Promise<MyConfig & { configPath: string }> {
+    const config = loadPhotonConfig<MyConfig>('my-service', {
+      apiEndpoint: '',
+      maxRetries: 3,
+      enableCache: true,
+    });
+    return {
+      ...config,
+      configPath: getPhotonConfigPath('my-service'),
+    };
+  }
+
+  // Use config in your methods
+  async fetchData() {
+    const config = loadPhotonConfig<MyConfig>('my-service');
+    const response = await fetch(config.apiEndpoint);
+    // ...
+  }
+}
+```
+
+### How It Works
+
+| Aspect | Description |
+|--------|-------------|
+| Storage | `~/.photon/{photonName}/config.json` |
+| Scope | Shared across all instances |
+| Detection | Schema extractor finds `configure()` method |
+| Tools | Neither `configure()` nor `getConfig()` appear as MCP tools |
+
+### Configuration Utilities
+
+```typescript
+import {
+  loadPhotonConfig,    // Load config with defaults
+  savePhotonConfig,    // Save config
+  hasPhotonConfig,     // Check if configured
+  getPhotonConfigPath, // Get config file path
+  deletePhotonConfig,  // Remove config
+} from '@portel/photon-core';
+
+// Load with defaults
+const config = loadPhotonConfig('my-photon', { theme: 'dark' });
+
+// Save config
+savePhotonConfig('my-photon', { theme: 'light', fontSize: 14 });
+
+// Check if configured
+if (!hasPhotonConfig('my-photon')) {
+  console.log('Please run configure() first');
+}
+```
+
+### Combined Setup: Environment Variables + Configuration
+
+During install or reconfigure, both are collected together:
+
+```typescript
+/**
+ * My API Client
+ *
+ * @env API_KEY - Your secret API key
+ */
+export default class ApiClient extends PhotonMCP {
+  constructor(private apiKey: string) {
+    super();
+  }
+
+  /**
+   * Configure additional settings
+   */
+  async configure(params: {
+    /** API endpoint URL */
+    endpoint: string;
+    /** Request timeout in ms */
+    timeout?: number;
+  }) {
+    savePhotonConfig('api-client', params);
+    return { success: true };
+  }
+}
+```
+
+Setup flow:
+1. User installs photon
+2. Framework detects: `apiKey` (env var) + `endpoint`, `timeout` (config)
+3. Single setup UI collects all values
+4. Env vars saved to `.env`, config to `~/.photon/api-client/config.json`
+
+### Convention Methods Summary
+
+| Method | Purpose | Appears as Tool? |
+|--------|---------|------------------|
+| `main()` | UI entry point | ✓ Yes |
+| `configure()` | Persistent configuration | ✗ No |
+| `getConfig()` | Read configuration | ✗ No |
+| `onInitialize()` | Startup lifecycle | ✗ No |
+| `onShutdown()` | Shutdown lifecycle | ✗ No |
 
 ---
 
