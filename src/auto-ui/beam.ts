@@ -814,6 +814,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       try {
         const uiContent = await fs.readFile(uiPath, 'utf-8');
         res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.writeHead(200);
         res.end(uiContent);
       } catch {
@@ -858,6 +859,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       try {
         const templateContent = await fs.readFile(fullTemplatePath, 'utf-8');
         res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.writeHead(200);
         res.end(templateContent);
       } catch {
