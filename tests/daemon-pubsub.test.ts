@@ -118,6 +118,17 @@ async function testRequestValidation() {
       true
     );
   });
+
+  await test('accepts reload with photonPath', () => {
+    assert.equal(
+      isValidDaemonRequest({ type: 'reload', id: '1', photonPath: '/path/to/photon.ts' }),
+      true
+    );
+  });
+
+  await test('rejects reload without photonPath', () => {
+    assert.equal(isValidDaemonRequest({ type: 'reload', id: '1' }), false);
+  });
 }
 
 async function testResponseValidation() {
@@ -595,6 +606,7 @@ class MockDaemonServerWithLocks {
   private socketPath: string;
   private channelSubscriptions = new Map<string, Set<net.Socket>>();
   private locks = new Map<string, { holder: string; acquiredAt: number; expiresAt: number }>();
+  private reloadCount = 0;
   private jobs = new Map<
     string,
     {
@@ -753,6 +765,22 @@ class MockDaemonServerWithLocks {
       return { type: 'result', id: request.id, data: { jobs: jobList } };
     }
 
+    // Reload handler
+    if (request.type === 'reload') {
+      const photonPath = request.photonPath;
+      if (!photonPath) {
+        return { type: 'result', id: request.id, success: false, data: { error: 'Missing photonPath' } };
+      }
+      // Simulate reload - in real daemon this re-imports the module
+      this.reloadCount++;
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: { message: 'Reload complete', sessionsUpdated: 1, reloadCount: this.reloadCount },
+      };
+    }
+
     return { type: 'error', id: request.id, error: `Unknown request type: ${request.type}` };
   }
 
@@ -801,6 +829,10 @@ class MockDaemonServerWithLocks {
 
   getJobCount(): number {
     return this.jobs.size;
+  }
+
+  getReloadCount(): number {
+    return this.reloadCount;
   }
 }
 
@@ -1118,6 +1150,173 @@ async function testScheduleIntegration() {
 }
 
 // ============================================================================
+// Reload Integration Tests
+// ============================================================================
+
+async function testReloadIntegration() {
+  console.log('\nReload Integration:');
+
+  const socketPath = path.join(os.tmpdir(), `photon-reload-test-${Date.now()}.sock`);
+  const server = new MockDaemonServerWithLocks(socketPath);
+
+  try {
+    await server.start();
+
+    await test('reload photon', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      const request: DaemonRequest = {
+        type: 'reload',
+        id: 'reload_1',
+        photonPath: '/path/to/test.photon.ts',
+      };
+
+      client.write(JSON.stringify(request) + '\n');
+
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.type, 'result');
+      assert.equal(response.success, true);
+      assert.equal((response.data as any).message, 'Reload complete');
+      assert.equal((response.data as any).sessionsUpdated, 1);
+      assert.equal(server.getReloadCount(), 1);
+
+      client.destroy();
+    });
+
+    await test('reload increments count', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      // Send two reload requests
+      client.write(
+        JSON.stringify({ type: 'reload', id: 'r1', photonPath: '/path/test.ts' }) + '\n'
+      );
+      await new Promise<void>((resolve) => client.once('data', resolve));
+
+      client.write(
+        JSON.stringify({ type: 'reload', id: 'r2', photonPath: '/path/test.ts' }) + '\n'
+      );
+      const response = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      assert.equal(response.success, true);
+      assert.equal((response.data as any).reloadCount, 3); // 1 from previous test + 2 from this test
+
+      client.destroy();
+    });
+
+    await test('reload preserves subscriptions', async () => {
+      const subscriber = net.createConnection(socketPath);
+      const reloader = net.createConnection(socketPath);
+
+      await Promise.all([
+        new Promise<void>((resolve) => subscriber.on('connect', resolve)),
+        new Promise<void>((resolve) => reloader.on('connect', resolve)),
+      ]);
+
+      // Subscribe to a channel
+      subscriber.write(
+        JSON.stringify({ type: 'subscribe', id: 's1', channel: 'test-reload-channel' }) + '\n'
+      );
+      await new Promise<void>((resolve) => subscriber.once('data', resolve));
+
+      // Trigger reload
+      reloader.write(
+        JSON.stringify({ type: 'reload', id: 'r1', photonPath: '/path/test.ts' }) + '\n'
+      );
+      await new Promise<void>((resolve) => reloader.once('data', resolve));
+
+      // Set up message receiver
+      const messagePromise = new Promise<DaemonResponse>((resolve) => {
+        subscriber.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      // Publish after reload - subscription should still work
+      reloader.write(
+        JSON.stringify({
+          type: 'publish',
+          id: 'p1',
+          channel: 'test-reload-channel',
+          message: { event: 'post-reload' },
+        }) + '\n'
+      );
+
+      // Wait for publish confirmation
+      await new Promise<void>((resolve) => reloader.once('data', resolve));
+
+      // Check subscriber received the message
+      const message = await messagePromise;
+      assert.equal(message.type, 'channel_message');
+      assert.equal(message.channel, 'test-reload-channel');
+      assert.deepEqual(message.message, { event: 'post-reload' });
+
+      subscriber.destroy();
+      reloader.destroy();
+    });
+
+    await test('reload preserves locks', async () => {
+      const client = net.createConnection(socketPath);
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+
+      // Acquire a lock
+      client.write(
+        JSON.stringify({
+          type: 'lock',
+          id: 'l1',
+          sessionId: 'lock-holder',
+          lockName: 'reload-test-lock',
+        }) + '\n'
+      );
+      const lockResponse = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+      assert.equal((lockResponse.data as any).acquired, true);
+
+      // Trigger reload
+      client.write(
+        JSON.stringify({ type: 'reload', id: 'r1', photonPath: '/path/test.ts' }) + '\n'
+      );
+      await new Promise<void>((resolve) => client.once('data', resolve));
+
+      // Check lock still exists
+      client.write(JSON.stringify({ type: 'list_locks', id: 'list_1' }) + '\n');
+      const listResponse = await new Promise<DaemonResponse>((resolve) => {
+        client.once('data', (chunk) => {
+          resolve(JSON.parse(chunk.toString().trim()));
+        });
+      });
+
+      const locks = (listResponse.data as any).locks as any[];
+      const ourLock = locks.find((l: any) => l.name === 'reload-test-lock');
+      assert.ok(ourLock, 'Lock should still exist after reload');
+      assert.equal(ourLock.holder, 'lock-holder');
+
+      client.destroy();
+    });
+  } finally {
+    await server.stop();
+    try {
+      await fs.unlink(socketPath);
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+// ============================================================================
 // Run All Tests
 // ============================================================================
 
@@ -1131,6 +1330,7 @@ async function testScheduleIntegration() {
   await testPubSubIntegration();
   await testLockIntegration();
   await testScheduleIntegration();
+  await testReloadIntegration();
 
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
