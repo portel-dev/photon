@@ -227,7 +227,9 @@ ${allStubs.join('\n\n')}
     try {
       await fs.mkdir(marketplaceDir, { recursive: true });
       yield { step: 'created', created: '.marketplace/' };
-    } catch {}
+    } catch {
+      // Directory creation failed - continue anyway
+    }
 
     // Create initial manifest
     const manifestPath = path.join(marketplaceDir, 'photons.json');
@@ -245,14 +247,18 @@ ${allStubs.join('\n\n')}
       let gitignore = '';
       try {
         gitignore = await fs.readFile(gitignorePath, 'utf-8');
-      } catch {}
+      } catch {
+        // File doesn't exist - will create new
+      }
 
       if (!gitignore.includes('node_modules')) {
         gitignore += '\nnode_modules/\n';
         await fs.writeFile(gitignorePath, gitignore);
         yield { step: 'created', created: '.gitignore (updated)' };
       }
-    } catch {}
+    } catch {
+      // gitignore update failed - non-critical, continue
+    }
 
     yield { step: 'done', message: 'Marketplace initialized' };
   }

@@ -99,7 +99,7 @@ export class LocalMembershipStore {
 export interface LocalServConfig {
   /** Port to run on (default: 3000) */
   port?: number;
-  /** Base URL (default: http://localhost:3000) */
+  /** Base URL - dev-only default: http://localhost:3000 */
   baseUrl?: string;
   /** Enable debug logging */
   debug?: boolean;

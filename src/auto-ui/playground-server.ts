@@ -662,7 +662,8 @@ function generatePlaygroundHTML(photons: PhotonInfo[], port: number): string {
             photon: currentPhoton.name,
             method: currentMethod.name,
             params
-          })
+          }),
+          signal: AbortSignal.timeout(120000), // 2min for method calls
         });
 
         // Check if it's SSE (for generators)

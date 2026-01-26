@@ -133,7 +133,7 @@ export class CustomUiRenderer extends LitElement {
             } else if (this.templatePath) {
                 // Fall back to HTTP for templatePath (legacy)
                 const url = `/api/template?photon=${encodeURIComponent(this.photon)}&path=${encodeURIComponent(this.templatePath)}`;
-                const templateRes = await fetch(url);
+                const templateRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
                 if (!templateRes.ok) throw new Error(`Failed to load template: ${templateRes.statusText}`);
                 templateHtml = await templateRes.text();
             } else {
@@ -141,7 +141,9 @@ export class CustomUiRenderer extends LitElement {
             }
 
             // 2. Fetch Bridge Script (still via HTTP - it's dynamically generated)
-            const bridgeRes = await fetch(`/api/platform-bridge?photon=${encodeURIComponent(this.photon)}&method=${encodeURIComponent(this.method)}&theme=${encodeURIComponent(this.theme)}`);
+            const bridgeRes = await fetch(`/api/platform-bridge?photon=${encodeURIComponent(this.photon)}&method=${encodeURIComponent(this.method)}&theme=${encodeURIComponent(this.theme)}`, {
+                signal: AbortSignal.timeout(10000),
+            });
             if (!bridgeRes.ok) throw new Error('Failed to load platform bridge');
             const bridgeScript = await bridgeRes.text();
 
@@ -188,7 +190,7 @@ export class CustomUiRenderer extends LitElement {
 
         const [, photonName, uiId] = match;
         const url = `/api/ui?photon=${encodeURIComponent(photonName)}&id=${encodeURIComponent(uiId)}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!res.ok) throw new Error(`Failed to load UI: ${res.statusText}`);
         return res.text();
     }

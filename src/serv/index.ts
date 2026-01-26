@@ -316,6 +316,7 @@ export class Serv {
  * Create a SERV instance for development
  */
 export function createDevServ(options?: { baseUrl?: string; baseDomain?: string }): Serv {
+  // dev-only defaults for local development
   const baseUrl = options?.baseUrl ?? 'http://localhost:3000';
   const baseDomain = options?.baseDomain ?? 'localhost';
 

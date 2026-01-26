@@ -66,7 +66,7 @@ interface PhotonInfo {
  */
 export function generateOpenAPISpec(
   photons: PhotonInfo[],
-  serverUrl: string = 'http://localhost:3000'
+  serverUrl: string = 'http://localhost:3000' // dev-only default, caller provides actual URL
 ): OpenAPIDocument {
   const paths: Record<string, any> = {};
   const tags: Array<{ name: string; description?: string; [key: string]: any }> = [];

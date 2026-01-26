@@ -716,7 +716,9 @@ export class MarketplaceView extends LitElement {
 
     private async _fetchSources() {
         try {
-            const res = await fetch('/api/marketplace/sources');
+            const res = await fetch('/api/marketplace/sources', {
+                signal: AbortSignal.timeout(10000),
+            });
             const data = await res.json();
             this._sources = data.sources || [];
         } catch (e) {
@@ -731,7 +733,9 @@ export class MarketplaceView extends LitElement {
                 ? `/api/marketplace/search?q=${encodeURIComponent(query)}`
                 : '/api/marketplace/list';
 
-            const res = await fetch(endpoint);
+            const res = await fetch(endpoint, {
+                signal: AbortSignal.timeout(30000), // marketplace fetch can be slow
+            });
             const data = await res.json();
             this._allItems = data.photons || [];
             this._applyFilter();
@@ -764,7 +768,8 @@ export class MarketplaceView extends LitElement {
             const res = await fetch('/api/marketplace/sources/remove', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name }),
+                signal: AbortSignal.timeout(10000),
             });
 
             if (res.ok) {

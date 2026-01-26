@@ -26,7 +26,9 @@ function getPackageRoot(): string {
         if (pkg.name === '@portel/photon') {
           return dir;
         }
-      } catch {}
+      } catch {
+        // Not found or invalid - continue searching parent directories
+      }
     }
     dir = path.dirname(dir);
   }

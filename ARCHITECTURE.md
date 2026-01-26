@@ -5,6 +5,58 @@
 
 ---
 
+## What is Beam?
+
+Beam is a **pure MCP interface** that serves as the holistic manager and runner for photons.
+
+### Evolution
+
+| Phase | Purpose |
+|-------|---------|
+| Started | Testing interface for photons (MCP + UI) |
+| Then | + Config manager (env vars, settings) |
+| Now | **Holistic manager and runner of photons and MCPs** |
+
+### The Four Ways to Use Photons
+
+| Interface | For | How |
+|-----------|-----|-----|
+| **MCP** | AI clients | stdio to individual photon |
+| **CLI** | Humans in terminal | `photon cli <photon> <method>` |
+| **Beam** | Humans + AI | Pure MCP with web UI |
+| **PWA Export** | End users | Standalone desktop app |
+
+### Beam Capabilities
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                         BEAM                            │
+├─────────────────────────────────────────────────────────┤
+│  • Aggregate & run all photons via /mcp                 │
+│  • Configure (env vars, settings)                       │
+│  • Test & develop (hot reload)                          │
+│  • Pure MCP interface (Streamable HTTP)                 │
+│  • Web UI for humans                                    │
+│  • PWA export → standalone desktop app                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Principle
+
+**Beam IS a pure MCP interface** - the UI is just one client consuming that interface.
+
+```
+                    ┌─── Browser UI (human)
+                    │
+Photons ──► Beam ───┼─── Claude Desktop (AI via /mcp)
+                    │
+                    └─── Any MCP client / PWA app
+```
+
+This is why WebSocket was removed - it broke the "pure MCP" model. Everything flows through MCP Streamable HTTP (SSE) now.
+
+---
+
 ## Lessons Learned
 
 These constraints exist because we made these mistakes and paid the price.
