@@ -1351,12 +1351,17 @@ export class BeamApp extends LitElement {
             // Store shared params to pre-populate form
             if (Object.keys(sharedParams).length > 0) {
               this._sharedFormParams = sharedParams;
+            } else {
+              // Auto-invoke if no shared params provided
+              this._maybeAutoInvoke(method);
             }
           }
         } else if (photon.isApp && photon.appEntry) {
           // For Apps without method specified, auto-select main
           this._selectedMethod = photon.appEntry;
           this._view = 'form';
+          // Auto-invoke app entry if it has no required params
+          this._maybeAutoInvoke(photon.appEntry);
         } else {
           this._selectedMethod = null;
           this._view = 'list';
@@ -1745,6 +1750,31 @@ export class BeamApp extends LitElement {
     this._lastResult = null;
     this._view = 'form';
     this._updateHash();
+
+    // Auto-invoke if method has autorun or has no required parameters
+    this._maybeAutoInvoke(e.detail.method);
+  }
+
+  /**
+   * Check if a method should auto-invoke and invoke it if so.
+   * Auto-invokes when: method.autorun === true OR method has no required parameters
+   */
+  private _maybeAutoInvoke(method: any) {
+    if (!method || !this._mcpReady) return;
+
+    // Check if method should autorun
+    const shouldAutorun = method.autorun === true;
+
+    // Check if method has no required parameters
+    const params = method.params || {};
+    const required = params.required || [];
+    const properties = params.properties || {};
+    const hasNoRequiredParams = required.length === 0 && Object.keys(properties).length === 0;
+
+    if (shouldAutorun || hasNoRequiredParams) {
+      // Auto-invoke with empty args
+      this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+    }
   }
 
   private _handleBackFromMethod() {
