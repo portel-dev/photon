@@ -213,6 +213,55 @@ export class InvokeForm extends LitElement {
         font-size: 0.75rem;
         color: var(--t-muted);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .form-container {
+          padding: var(--space-md);
+        }
+
+        input, textarea, select {
+          min-height: 44px;
+          font-size: 16px; /* Prevent iOS zoom */
+        }
+
+        button {
+          min-height: 44px;
+          padding: var(--space-sm) var(--space-md);
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+
+        .actions button {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .form-container {
+          padding: var(--space-sm);
+        }
+
+        .number-input-row {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .number-input-row input[type="number"] {
+          width: 100%;
+        }
+
+        .multiselect-container {
+          flex-direction: column;
+        }
+
+        .multiselect-option {
+          width: 100%;
+          justify-content: center;
+        }
+      }
     `
   ];
 

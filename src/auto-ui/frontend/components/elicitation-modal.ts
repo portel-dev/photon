@@ -265,6 +265,73 @@ export class ElicitationModal extends LitElement {
                 flex-direction: column;
                 gap: var(--space-md);
             }
+
+            /* ===== Responsive Design ===== */
+            @media (max-width: 768px) {
+                .modal-content {
+                    padding: var(--space-lg);
+                    margin: var(--space-md);
+                }
+
+                input[type="text"],
+                input[type="password"],
+                input[type="number"],
+                textarea,
+                select {
+                    min-height: 44px;
+                    font-size: 16px; /* Prevent iOS zoom */
+                }
+
+                button {
+                    min-height: 44px;
+                }
+
+                .actions {
+                    flex-direction: column;
+                }
+
+                .actions button {
+                    width: 100%;
+                }
+
+                .confirm-actions {
+                    flex-direction: column;
+                }
+
+                .confirm-actions button {
+                    flex: none;
+                    width: 100%;
+                }
+
+                .select-options {
+                    max-height: 250px;
+                }
+
+                .select-option {
+                    padding: var(--space-md);
+                }
+            }
+
+            @media (max-width: 480px) {
+                .modal-content {
+                    padding: var(--space-md);
+                    border-radius: var(--radius-sm);
+                    max-height: 95vh;
+                }
+
+                h3 {
+                    font-size: 1.1rem;
+                }
+
+                .oauth-icon {
+                    font-size: 2.5rem;
+                }
+
+                .option-image {
+                    width: 40px;
+                    height: 40px;
+                }
+            }
         `
     ];
 

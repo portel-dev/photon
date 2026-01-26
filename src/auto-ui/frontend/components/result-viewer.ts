@@ -894,6 +894,100 @@ export class ResultViewer extends LitElement {
         color: white;
         border-color: var(--primary);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .container {
+          max-height: 400px;
+        }
+
+        .header {
+          flex-wrap: wrap;
+          gap: var(--space-sm);
+        }
+
+        .filter-container {
+          order: 3;
+          flex-basis: 100%;
+          max-width: 100%;
+        }
+
+        .actions {
+          flex-wrap: wrap;
+        }
+
+        .kv-table {
+          display: block;
+          max-width: 100%;
+        }
+
+        .kv-table tr {
+          display: flex;
+          flex-direction: column;
+          border-bottom: 1px solid var(--border-glass);
+          padding: var(--space-sm) 0;
+        }
+
+        .kv-table td:first-child,
+        .kv-table .kv-key {
+          width: 100%;
+          font-weight: 600;
+          margin-bottom: var(--space-xs);
+        }
+
+        .kv-table td:last-child {
+          width: 100%;
+        }
+
+        .card-fields {
+          grid-template-columns: 1fr;
+        }
+
+        button {
+          min-height: 44px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .container {
+          padding: var(--space-sm);
+        }
+
+        pre {
+          font-size: 12px;
+          padding: var(--space-sm);
+        }
+
+        .smart-table th,
+        .smart-table td {
+          padding: var(--space-xs) var(--space-sm);
+          font-size: 0.85rem;
+        }
+
+        .pagination {
+          flex-direction: column;
+          gap: var(--space-sm);
+          align-items: center;
+        }
+
+        .pagination-controls {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .fullscreen-toolbar {
+          flex-direction: column;
+          gap: var(--space-sm);
+          padding: var(--space-sm);
+        }
+
+        .fullscreen-toolbar-left,
+        .fullscreen-toolbar-center,
+        .fullscreen-toolbar-right {
+          width: 100%;
+          justify-content: center;
+        }
+      }
     `
   ];
 

@@ -219,6 +219,47 @@ export class MethodCard extends LitElement {
         color: #f87171;
         background: hsla(0, 80%, 60%, 0.1);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .card {
+          padding: var(--space-md);
+          min-height: 44px;
+        }
+
+        /* Make run button always visible on touch devices */
+        .run-btn {
+          opacity: 1;
+          transform: none;
+          width: 100%;
+        }
+
+        .emoji-picker {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          max-width: 90vw;
+          z-index: 1000;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .title {
+          font-size: 1rem;
+        }
+
+        .description {
+          font-size: 0.85rem;
+          -webkit-line-clamp: 2;
+        }
+
+        .method-icon {
+          width: 28px;
+          height: 28px;
+          font-size: 14px;
+        }
+      }
     `
     ];
 

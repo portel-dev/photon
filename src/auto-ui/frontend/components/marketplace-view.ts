@@ -494,6 +494,118 @@ export class MarketplaceView extends LitElement {
         padding: var(--space-md);
         border-top: 1px solid var(--border-glass);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .grid {
+          grid-template-columns: 1fr;
+          gap: var(--space-md);
+        }
+
+        .toolbar {
+          flex-direction: column;
+          gap: var(--space-sm);
+        }
+
+        .search-box input {
+          min-height: 44px;
+          font-size: 16px; /* Prevent iOS zoom */
+        }
+
+        .filter-pill {
+          min-height: 44px;
+        }
+
+        .card {
+          min-height: 44px;
+        }
+
+        .btn-install {
+          min-height: 44px;
+          width: 100%;
+        }
+
+        .actions-toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .toolbar-section {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .toolbar-divider {
+          width: 100%;
+          height: 1px;
+          margin: var(--space-sm) 0;
+        }
+
+        .toolbar-btn,
+        .maker-btn {
+          min-height: 44px;
+          flex: 1;
+        }
+
+        .modal {
+          margin: var(--space-md);
+          width: calc(100% - var(--space-lg));
+        }
+
+        .modal-footer {
+          flex-direction: column;
+        }
+
+        .modal-footer button {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 480px) {
+        :host {
+          padding: var(--space-sm);
+        }
+
+        .source-filters {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: var(--space-sm);
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .filter-pill {
+          flex-shrink: 0;
+        }
+
+        .card-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--space-sm);
+        }
+
+        .card-meta {
+          width: 100%;
+          justify-content: flex-start;
+        }
+
+        .card-title {
+          font-size: 1rem;
+        }
+
+        .card-desc {
+          font-size: 0.85rem;
+        }
+
+        .toolbar-section-title {
+          width: 100%;
+          text-align: center;
+          margin-bottom: var(--space-xs);
+        }
+
+        .formats-table {
+          font-size: 0.75rem;
+        }
+      }
     `
     ];
 
