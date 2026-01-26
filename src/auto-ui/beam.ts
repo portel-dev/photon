@@ -1730,6 +1730,21 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           ? path.join(workingDir, `${photonName}.photon.ts`)
           : photons[photonIndex].path;
 
+        // Handle file deletion - if file no longer exists and photon is in list, remove it
+        if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
+          logger.info(`🗑️ Photon file deleted: ${photonName}`);
+          photons.splice(photonIndex, 1);
+          photonMCPs.delete(photonName);
+          // Also remove from saved config
+          if (savedConfig.photons[photonName]) {
+            delete savedConfig.photons[photonName];
+            await saveConfig(savedConfig);
+          }
+          broadcastPhotonChange();
+          broadcastToBeam('beam/photon-removed', { name: photonName });
+          return;
+        }
+
         logger.info(
           isNewPhoton
             ? `✨ New photon detected: ${photonName}`
