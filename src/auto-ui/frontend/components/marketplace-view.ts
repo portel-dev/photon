@@ -803,7 +803,8 @@ export class MarketplaceView extends LitElement {
         try {
             const res = await fetch('/api/marketplace/add', {
                 method: 'POST',
-                body: JSON.stringify({ name: item.name })
+                body: JSON.stringify({ name: item.name }),
+                signal: AbortSignal.timeout(30000), // 30s for installation
             });
 
             if (res.ok) {
@@ -860,7 +861,8 @@ export class MarketplaceView extends LitElement {
             const res = await fetch('/api/marketplace/sources/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source })
+                body: JSON.stringify({ source }),
+                signal: AbortSignal.timeout(30000), // 30s for adding repo
             });
 
             const data = await res.json();
