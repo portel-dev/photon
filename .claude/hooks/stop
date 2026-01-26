@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types
 /**
  * Claude Code Stop Hook - Kanban Task Enforcement
  * Only blocks stopping if there are incomplete tasks IN PROGRESS.
