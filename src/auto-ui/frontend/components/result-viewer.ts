@@ -988,6 +988,29 @@ export class ResultViewer extends LitElement {
           justify-content: center;
         }
       }
+
+      /* ===== HTML UI Mode ===== */
+      .html-ui-container {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 400px;
+      }
+
+      .html-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--radius-md);
+        /* Theme-aware: transparent bg lets the HTML content define its own styling */
+        background: transparent;
+      }
+
+      /* Ensure iframe/custom-ui fills the container */
+      .html-content custom-ui-renderer {
+        flex: 1;
+        min-height: 400px;
+      }
     `
   ];
 
@@ -1188,6 +1211,16 @@ export class ResultViewer extends LitElement {
     const totalCount = this._getTotalCount();
     const filteredCount = this._getFilteredCount(filteredData);
     const isFiltered = this._filterQuery.trim() !== '';
+    const isHtmlUiMode = layout === 'html';
+
+    // HTML UI mode: minimal chrome, full-height interactive content
+    if (isHtmlUiMode) {
+      return html`
+        <div class="html-ui-container">
+          ${this._renderContent(layout, filteredData)}
+        </div>
+      `;
+    }
 
     return html`
       <div class="container glass-panel">
@@ -1826,12 +1859,7 @@ export class ResultViewer extends LitElement {
   private _renderHtml(): TemplateResult {
     const htmlContent = String(this.result);
     return html`
-      <div class="html-content" style="
-        background: white;
-        border-radius: var(--radius-sm);
-        padding: var(--space-md);
-        min-height: 200px;
-      ">
+      <div class="html-content">
         ${unsafeHTML(htmlContent)}
       </div>
     `;

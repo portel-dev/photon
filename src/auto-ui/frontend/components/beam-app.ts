@@ -849,6 +849,18 @@ export class BeamApp extends LitElement {
         opacity: 1;
       }
 
+      /* ===== HTML UI Panel ===== */
+      .html-ui-panel {
+        min-height: 500px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .html-ui-panel result-viewer {
+        flex: 1;
+        margin: 0;
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .mobile-menu-btn {
@@ -1610,30 +1622,7 @@ export class BeamApp extends LitElement {
               ` : ''}
             </div>
           </div>
-          <div class="glass-panel" style="padding: var(--space-lg);">
-            <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
-            <p style="color: var(--t-muted);">${this._selectedMethod.description}</p>
-            <invoke-form
-              .params=${this._selectedMethod.params}
-              .loading=${this._isExecuting}
-              .photonName=${this._selectedPhoton.name}
-              .methodName=${this._selectedMethod.name}
-              .rememberValues=${this._rememberFormValues}
-              .sharedValues=${this._sharedFormParams}
-              @submit=${this._handleExecute}
-              @cancel=${() => this._handleBackFromMethod()}
-            ></invoke-form>
-
-            ${this._lastResult !== null ? html`
-              <result-viewer
-                .result=${this._lastResult}
-                .outputFormat=${this._selectedMethod?.outputFormat}
-                .layoutHints=${this._selectedMethod?.layoutHints}
-                .theme=${this._theme}
-                @share=${this._handleShareResult}
-              ></result-viewer>
-            ` : ''}
-          </div>
+          ${this._renderMethodContent()}
         `;
     }
 
@@ -1753,6 +1742,73 @@ export class BeamApp extends LitElement {
 
     // Auto-invoke if method has autorun or has no required parameters
     this._maybeAutoInvoke(e.detail.method);
+  }
+
+  /**
+   * Check if method is an HTML UI that should show in minimal "UI mode"
+   * (no form controls, just the rendered HTML)
+   */
+  private _isHtmlUiMode(): boolean {
+    if (!this._selectedMethod) return false;
+
+    const isHtmlFormat = this._selectedMethod.outputFormat === 'html';
+    const hasResult = this._lastResult !== null;
+
+    // Check if method has no required parameters
+    const params = this._selectedMethod.params || {};
+    const required = params.required || [];
+    const properties = params.properties || {};
+    const hasNoRequiredParams = required.length === 0 && Object.keys(properties).length === 0;
+
+    return isHtmlFormat && hasResult && hasNoRequiredParams;
+  }
+
+  /**
+   * Render the method content - either as a minimal HTML UI or full form
+   */
+  private _renderMethodContent() {
+    // HTML UI mode: minimal chrome, just show the interactive content
+    if (this._isHtmlUiMode()) {
+      return html`
+        <div class="glass-panel html-ui-panel" style="padding: 0; overflow: hidden;">
+          <result-viewer
+            .result=${this._lastResult}
+            .outputFormat=${this._selectedMethod?.outputFormat}
+            .layoutHints=${this._selectedMethod?.layoutHints}
+            .theme=${this._theme}
+            @share=${this._handleShareResult}
+          ></result-viewer>
+        </div>
+      `;
+    }
+
+    // Standard form mode
+    return html`
+      <div class="glass-panel" style="padding: var(--space-lg);">
+        <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
+        <p style="color: var(--t-muted);">${this._selectedMethod.description}</p>
+        <invoke-form
+          .params=${this._selectedMethod.params}
+          .loading=${this._isExecuting}
+          .photonName=${this._selectedPhoton.name}
+          .methodName=${this._selectedMethod.name}
+          .rememberValues=${this._rememberFormValues}
+          .sharedValues=${this._sharedFormParams}
+          @submit=${this._handleExecute}
+          @cancel=${() => this._handleBackFromMethod()}
+        ></invoke-form>
+
+        ${this._lastResult !== null ? html`
+          <result-viewer
+            .result=${this._lastResult}
+            .outputFormat=${this._selectedMethod?.outputFormat}
+            .layoutHints=${this._selectedMethod?.layoutHints}
+            .theme=${this._theme}
+            @share=${this._handleShareResult}
+          ></result-viewer>
+        ` : ''}
+      </div>
+    `;
   }
 
   /**
