@@ -1035,7 +1035,9 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
 
       // If tool has linked UI, render it in iframe
       if (selectedTool.ui) {
-        const uiRes = await fetch('/api/ui/' + selectedTool.ui.id);
+        const uiRes = await fetch('/api/ui/' + selectedTool.ui.id, {
+          signal: AbortSignal.timeout(10000), // 10s for UI fetch
+        });
         let html = await uiRes.text();
         html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
         const blob = new Blob([html], { type: 'text/html' });
