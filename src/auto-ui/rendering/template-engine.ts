@@ -165,7 +165,9 @@ function updateTemplateBindings(container, data) {
 async function loadTemplate(templatePath, container, invokeMethod) {
   try {
     // Fetch template content
-    const response = await fetch('/api/template?path=' + encodeURIComponent(templatePath));
+    const response = await fetch('/api/template?path=' + encodeURIComponent(templatePath), {
+      signal: AbortSignal.timeout(10000), // 10s for template load
+    });
     if (!response.ok) {
       throw new Error('Failed to load template: ' + response.statusText);
     }

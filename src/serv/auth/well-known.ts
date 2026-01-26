@@ -10,6 +10,9 @@ import type {
   Tenant,
 } from '../types/index.js';
 
+// Timeout for fetching client metadata
+const FETCH_TIMEOUT_MS = 10 * 1000;
+
 // ============================================================================
 // Endpoint Configuration
 // ============================================================================
@@ -115,6 +118,7 @@ export async function fetchClientMetadata(
   try {
     const response = await fetch(clientId, {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) return null;

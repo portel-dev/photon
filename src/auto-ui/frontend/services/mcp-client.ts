@@ -542,6 +542,7 @@ class MCPClientService {
       method: 'POST',
       headers,
       body: JSON.stringify(request),
+      signal: AbortSignal.timeout(60000), // 60s for MCP method calls
     });
 
     // Capture session ID from response
@@ -595,6 +596,7 @@ class MCPClientService {
       method: 'POST',
       headers,
       body: JSON.stringify(notification),
+      signal: AbortSignal.timeout(10000), // 10s for notifications
     });
   }
 

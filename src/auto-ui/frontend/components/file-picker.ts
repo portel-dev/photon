@@ -253,7 +253,9 @@ export class FilePicker extends LitElement {
       const url = new URL('/api/browse', window.location.origin);
       if (path) url.searchParams.set('path', path);
 
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(10000),
+      });
       if (!res.ok) throw new Error('Failed to load');
 
       const data: BrowseResponse = await res.json();

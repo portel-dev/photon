@@ -10,6 +10,9 @@ import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 
+// Timeout for marketplace fetch requests
+const FETCH_TIMEOUT_MS = 10 * 1000;
+
 export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
 export interface Marketplace {
@@ -441,7 +444,7 @@ export class MarketplaceManager {
         // Direct URL - the source already points to photons.json
         const url = marketplace.source;
         const response = await fetch(url, {
-          signal: AbortSignal.timeout(10000), // 10 second timeout
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
         });
 
         if (response.ok) {
@@ -452,7 +455,7 @@ export class MarketplaceManager {
         const url = `${marketplace.url}/.marketplace/photons.json`;
         const response = await fetch(url, {
           // Add timeout to prevent hanging
-          signal: AbortSignal.timeout(10000), // 10 second timeout
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
         });
 
         if (response.ok) {
@@ -656,7 +659,9 @@ export class MarketplaceManager {
         } else {
           // Remote fetch (GitHub, URL)
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
 
           if (response.ok) {
             content = await response.text();
@@ -706,7 +711,9 @@ export class MarketplaceManager {
           const cleanPath = assetPath.replace(/^\//, '');
           const url = `${baseUrl}/${cleanPath}`;
 
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
           if (response.ok) {
             const content = await response.text();
             results.set(assetPath, content);
@@ -745,7 +752,9 @@ export class MarketplaceManager {
         } else {
           // Remote fetch (GitHub, URL)
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
 
           if (response.ok) {
             content = await response.text();
@@ -799,7 +808,10 @@ export class MarketplaceManager {
         // Fallback: check if exact filename exists (for marketplaces without manifest)
         try {
           const url = `${marketplace.url}/${query}.photon.ts`;
-          const response = await fetch(url, { method: 'HEAD' });
+          const response = await fetch(url, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
 
           if (response.ok) {
             const existing = results.get(query) || [];
@@ -910,7 +922,9 @@ export class MarketplaceManager {
         } else {
           // Remote fetch (GitHub, URL)
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
 
           if (response.ok) {
             content = await response.text();

@@ -12,7 +12,6 @@ import { existsSync, lstatSync, realpathSync, watch, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { Writable } from 'stream';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 
@@ -266,11 +265,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const photons: AnyPhotonInfo[] = [];
   const photonMCPs = new Map<string, any>(); // Store full MCP objects
 
-  // Use PhotonLoader with silent logger to suppress verbose errors during loading
-  // Beam handles errors gracefully by showing config forms, so we don't need loader error logs
-  const nullStream = new Writable({ write: (_chunk, _encoding, callback) => callback() });
-  const silentLogger = createLogger({ destination: nullStream });
-  const loader = new PhotonLoader(false, silentLogger);
+  // Use PhotonLoader with error-only logger to reduce verbosity
+  // Beam handles config errors gracefully via UI forms, but we still want to see actual errors
+  const errorOnlyLogger = createLogger({ level: 'error' });
+  const loader = new PhotonLoader(false, errorOnlyLogger);
 
   for (const name of photonList) {
     // Check bundled photons first, then user photons
@@ -1065,7 +1063,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             const res = await fetch('/api/invoke', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ photon: photonName, method: toolName, args: args || {} })
+              body: JSON.stringify({ photon: photonName, method: toolName, args: args || {} }),
+              signal: AbortSignal.timeout(60000), // 60s for method calls
             });
             const data = await res.json();
             iframe.contentWindow.postMessage({

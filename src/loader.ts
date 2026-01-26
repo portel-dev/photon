@@ -70,6 +70,9 @@ interface DependencySpec {
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 import { PHOTON_VERSION } from './version.js';
+
+// Timeout for external fetch requests (marketplace, GitHub)
+const FETCH_TIMEOUT_MS = 30 * 1000;
 import {
   generateConfigErrorMessage,
   summarizeConstructorParams,
@@ -1334,7 +1337,9 @@ export class PhotonLoader {
       }
 
       const baseUrl = marketplace.url.replace(/\/$/, '');
-      const response = await fetch(`${baseUrl}/${slug}.photon.ts`);
+      const response = await fetch(`${baseUrl}/${slug}.photon.ts`, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         const content = await response.text();
         return await this.writePhotonCacheFile(`${marketplace.name}-${slug}`, content);
@@ -1351,7 +1356,9 @@ export class PhotonLoader {
   private async fetchGithubPhoton(dep: PhotonDependency): Promise<string> {
     const info = this.parseGithubSource(dep);
     const url = `https://raw.githubusercontent.com/${info.owner}/${info.repo}/${info.ref}/${info.filePath}`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (!response.ok) {
       throw new Error(
         `Failed to download Photon from GitHub (${dep.source}): HTTP ${response.status}`

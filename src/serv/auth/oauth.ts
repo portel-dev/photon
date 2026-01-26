@@ -23,6 +23,9 @@ import {
 } from './jwt.js';
 import type { TokenVault } from '../vault/token-vault.js';
 
+// Timeout for OAuth token exchange requests
+const OAUTH_TIMEOUT_MS = 30 * 1000;
+
 // ============================================================================
 // Provider Registry
 // ============================================================================
@@ -489,6 +492,7 @@ export class OAuthFlowHandler {
         redirect_uri: redirectUri,
         code_verifier: codeVerifier,
       }).toString(),
+      signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -539,6 +543,7 @@ export class OAuthFlowHandler {
           client_secret: provider.clientSecret,
           refresh_token: refreshToken,
         }).toString(),
+        signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
       });
 
       if (!response.ok) return null;

@@ -607,7 +607,7 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
     }
 
     async function loadTools() {
-      const res = await fetch('/api/photons');
+      const res = await fetch('/api/photons', { signal: AbortSignal.timeout(10000) });
       const data = await res.json();
       photons = data.photons;
       // Flatten all tools from all photons
@@ -621,7 +621,7 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
 
     async function loadStatus() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/status', { signal: AbortSignal.timeout(5000) });
         const data = await res.json();
         renderStatus(data);
       } catch (error) {
@@ -928,6 +928,7 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
         const response = await fetch('/api/call-stream', {
           method: 'POST',
           body: JSON.stringify({ tool: selectedTool.name, args, progressToken, requestId }),
+          signal: AbortSignal.timeout(120000), // 2min for tool calls
         });
 
         if (!response.ok || !response.body) {
