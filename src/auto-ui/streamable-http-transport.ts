@@ -467,6 +467,38 @@ const handlers: Record<string, RequestHandler> = {
       const outputHandler = (yieldValue: any) => {
         if (!ctx.broadcast) return;
 
+        // Forward progress events as MCP notifications
+        if (yieldValue?.emit === 'progress') {
+          const rawValue = typeof yieldValue.value === 'number' ? yieldValue.value : 0;
+          const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'notifications/progress',
+            params: {
+              progressToken: `progress_${photonName}_${methodName}`,
+              progress,
+              total: 100,
+              message: yieldValue.message || null,
+            },
+          });
+          return;
+        }
+
+        // Forward status events as MCP notifications
+        if (yieldValue?.emit === 'status') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'notifications/progress',
+            params: {
+              progressToken: `progress_${photonName}_${methodName}`,
+              progress: 0,
+              total: 100,
+              message: yieldValue.message || '',
+            },
+          });
+          return;
+        }
+
         // Forward channel events (task-moved, task-updated, etc.) with full delta
         // These contain specific event type + data for efficient UI updates
         if (yieldValue?.channel && yieldValue?.event) {
