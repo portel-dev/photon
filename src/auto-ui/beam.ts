@@ -2023,18 +2023,35 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     }
   }
 
-  // Bind to 0.0.0.0 for tunnel access
-  server.listen(port, '0.0.0.0', () => {
-    // Set port for bundled photons (e.g., tunnel) to discover
-    process.env.BEAM_PORT = String(port);
+  // Bind to 0.0.0.0 for tunnel access, with port fallback
+  const maxPortAttempts = 10;
+  let currentPort = port;
 
-    const url = `http://localhost:${port}`;
-    const status =
-      unconfiguredCount > 0
-        ? `${configuredCount} ready, ${unconfiguredCount} need setup`
-        : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
-    console.log(`\n⚡ Photon Beam → ${url} (${status})\n`);
-  });
+  const tryListen = (): void => {
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE' && currentPort < port + maxPortAttempts) {
+        currentPort++;
+        console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
+        tryListen();
+      } else {
+        throw err;
+      }
+    });
+
+    server.listen(currentPort, '0.0.0.0', () => {
+      // Set port for bundled photons (e.g., tunnel) to discover
+      process.env.BEAM_PORT = String(currentPort);
+
+      const url = `http://localhost:${currentPort}`;
+      const status =
+        unconfiguredCount > 0
+          ? `${configuredCount} ready, ${unconfiguredCount} need setup`
+          : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
+      console.log(`\n⚡ Photon Beam → ${url} (${status})\n`);
+    });
+  };
+
+  tryListen();
 }
 
 /**
