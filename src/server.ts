@@ -35,7 +35,7 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
-import { subscribeChannel, pingDaemon } from './daemon/client.js';
+import { subscribeChannel, pingDaemon, reloadDaemon } from './daemon/client.js';
 import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 
@@ -1932,6 +1932,23 @@ export class PhotonServer {
 
       // Send list_changed notifications to inform client of updates
       await this.notifyListsChanged();
+
+      // If daemon is running for this photon, reload it too
+      if (this.daemonName && isDaemonRunning(this.daemonName)) {
+        try {
+          const result = await reloadDaemon(this.daemonName, this.options.filePath);
+          if (result.success) {
+            this.log('info', 'Daemon reloaded', { sessionsUpdated: result.sessionsUpdated });
+          } else {
+            this.log('warn', 'Daemon reload failed', { error: result.error });
+          }
+        } catch (err) {
+          this.log('warn', 'Daemon reload failed, may need manual restart', {
+            error: getErrorMessage(err),
+          });
+        }
+      }
+
       await this.broadcastReloadStatus('info', 'Hot reload complete');
 
       this.log('info', 'Reload complete');

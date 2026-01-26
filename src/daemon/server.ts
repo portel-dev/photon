@@ -597,6 +597,19 @@ async function handleRequest(
     };
   }
 
+  // Handle hot-reload request
+  if (request.type === 'reload') {
+    const result = await reloadPhoton(request.photonPath!);
+    return {
+      type: 'result',
+      id: request.id,
+      success: result.success,
+      data: result.success
+        ? { message: 'Reload complete', sessionsUpdated: result.sessionsUpdated }
+        : { error: result.error },
+    };
+  }
+
   // Handle prompt response from client
   if (request.type === 'prompt_response') {
     const pending = pendingPrompts.get(request.id);
@@ -917,6 +930,114 @@ function startServer(): void {
   // Graceful shutdown handlers
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+}
+
+/**
+ * Reload the photon module without losing state
+ * Updates session instances with new code while preserving locks, subscriptions, etc.
+ */
+async function reloadPhoton(
+  newPhotonPath: string
+): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
+  try {
+    logger.info('Hot-reloading photon', { path: newPhotonPath });
+
+    if (!sessionManager) {
+      return { success: false, error: 'Session manager not initialized' };
+    }
+
+    // 1. Reload the photon module through the loader
+    // The loader handles module cache invalidation
+    await sessionManager.loader.reloadFile(newPhotonPath);
+
+    // 2. Update existing session instances
+    // For each session, create a new instance from the reloaded module
+    // and copy over stateful properties
+    const sessions = sessionManager.getSessions();
+    let updatedCount = 0;
+
+    for (const session of sessions) {
+      try {
+        // Load fresh instance with new code
+        const newInstance = await sessionManager.loader.loadFile(newPhotonPath);
+
+        // Copy stateful properties from old instance to new
+        // This preserves any state the photon has accumulated
+        const oldInstance = session.instance;
+        if (oldInstance && typeof oldInstance === 'object') {
+          // Preserve instance state by copying enumerable properties
+          // that aren't methods (avoid overwriting new methods with old ones)
+          for (const key of Object.keys(oldInstance)) {
+            const value = (oldInstance as any)[key];
+            if (typeof value !== 'function' && key !== 'constructor') {
+              try {
+                (newInstance as any)[key] = value;
+              } catch {
+                // Some properties may be read-only, skip them
+              }
+            }
+          }
+        }
+
+        // Update session with new instance via session manager
+        if (sessionManager.updateSessionInstance(session.id, newInstance)) {
+          updatedCount++;
+        }
+      } catch (err) {
+        logger.error('Failed to update session instance', {
+          sessionId: session.id,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+
+    // 3. Re-schedule jobs with new code
+    // Jobs will now execute methods from the new module
+    await rescheduleAllJobs();
+
+    // 4. Publish reload event to notify subscribers
+    publishToChannel(`system:${photonName}`, {
+      event: 'photon-reloaded',
+      timestamp: Date.now(),
+      sessionsUpdated: updatedCount,
+    });
+
+    logger.info('Photon reloaded successfully', {
+      sessionsUpdated: updatedCount,
+      totalSessions: sessions.length,
+    });
+
+    return { success: true, sessionsUpdated: updatedCount };
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    logger.error('Photon reload failed', { error: errorMessage });
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Re-schedule all jobs after a reload
+ * Jobs continue running on their existing schedules but execute new code
+ */
+async function rescheduleAllJobs(): Promise<void> {
+  const jobs = Array.from(scheduledJobs.values());
+
+  for (const job of jobs) {
+    // Cancel existing timer
+    const timer = jobTimers.get(job.id);
+    if (timer) {
+      clearTimeout(timer);
+      jobTimers.delete(job.id);
+    }
+
+    // Re-schedule with the same config
+    // The job will now use the new photon code when it runs
+    scheduleJob(job);
+  }
+
+  if (jobs.length > 0) {
+    logger.info('Re-scheduled jobs after reload', { count: jobs.length });
+  }
 }
 
 /**
