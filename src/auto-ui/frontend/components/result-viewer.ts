@@ -4,7 +4,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 
-type LayoutType = 'table' | 'list' | 'card' | 'tree' | 'json' | 'markdown' | 'mermaid' | 'code' | 'text' | 'chips';
+type LayoutType = 'table' | 'list' | 'card' | 'tree' | 'json' | 'markdown' | 'mermaid' | 'code' | 'text' | 'chips' | 'html';
 
 interface LayoutHints {
   title?: string;
@@ -1398,7 +1398,7 @@ export class ResultViewer extends LitElement {
     // 1. Explicit format from docblock
     if (this.outputFormat) {
       const format = this.outputFormat.toLowerCase();
-      if (['table', 'list', 'card', 'tree', 'json', 'markdown', 'mermaid', 'code', 'text', 'chips', 'grid'].includes(format)) {
+      if (['table', 'list', 'card', 'tree', 'json', 'markdown', 'mermaid', 'code', 'text', 'chips', 'grid', 'html'].includes(format)) {
         return format as LayoutType;
       }
       // Content formats
@@ -1471,6 +1471,8 @@ export class ResultViewer extends LitElement {
         return this._renderTree(filteredData);
       case 'markdown':
         return this._renderMarkdown();
+      case 'html':
+        return this._renderHtml();
       case 'text':
         return this._renderText(filteredData);
       case 'json':
@@ -1819,6 +1821,20 @@ export class ResultViewer extends LitElement {
     }
 
     return html`<pre>${str}</pre>`;
+  }
+
+  private _renderHtml(): TemplateResult {
+    const htmlContent = String(this.result);
+    return html`
+      <div class="html-content" style="
+        background: white;
+        border-radius: var(--radius-sm);
+        padding: var(--space-md);
+        min-height: 200px;
+      ">
+        ${unsafeHTML(htmlContent)}
+      </div>
+    `;
   }
 
   private _openMarkdownFullscreen = () => {
