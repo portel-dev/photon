@@ -73,6 +73,41 @@ export class CustomUiRenderer extends LitElement {
       .retry-btn:hover {
         opacity: 0.9;
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        :host {
+          min-height: 400px;
+          border-radius: var(--radius-sm);
+        }
+
+        .retry-btn {
+          min-height: 44px;
+          width: 100%;
+        }
+
+        .error-container {
+          padding: var(--space-md);
+        }
+
+        .error-message {
+          max-width: 100%;
+        }
+      }
+
+      @media (max-width: 480px) {
+        :host {
+          min-height: 300px;
+        }
+
+        .error-icon {
+          font-size: 2.5rem;
+        }
+
+        .error-message {
+          font-size: 0.85rem;
+        }
+      }
     `
     ];
 

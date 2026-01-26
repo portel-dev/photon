@@ -88,6 +88,35 @@ export class ActivityLog extends LitElement {
       .type-success { border-left-color: #4ade80; }
       .type-error { border-left-color: #f87171; }
       .type-warning { border-left-color: #fbbf24; }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .log-item {
+          flex-direction: column;
+          gap: var(--space-xs);
+        }
+
+        .meta {
+          width: auto;
+          font-size: 0.75rem;
+        }
+
+        .clear-btn {
+          min-height: 44px;
+          padding: var(--space-sm) var(--space-md);
+        }
+      }
+
+      @media (max-width: 480px) {
+        :host {
+          margin-top: var(--space-lg);
+          padding-top: var(--space-md);
+        }
+
+        .content {
+          font-size: 0.8rem;
+        }
+      }
     `
   ];
 
