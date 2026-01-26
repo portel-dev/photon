@@ -1,76 +1,189 @@
 # Photon Architecture
 
-> **This document defines architectural constraints learned from past mistakes.**
-> Violations are caught by pre-commit hooks.
+> **This document defines the vision, architecture, and constraints of Photon.**
+
+---
+
+## Vision: Co-Exploration and Co-Creation
+
+The future is not humans OR AI using tools separately. It's humans AND AI **working together** - co-exploring problems, co-creating solutions, using the same tools through the same protocol.
+
+**Photon is the infrastructure that makes this possible.**
+
+```
+┌─────────────────┐                   ┌─────────────────┐
+│     Human       │                   │       AI        │
+│                 │                   │    (Claude)     │
+└────────┬────────┘                   └────────┬────────┘
+         │                                     │
+         │         Same Protocol (MCP)         │
+         │         Same Tools (Photons)        │
+         │         Same Real-Time State        │
+         │                                     │
+         └──────────────┬──────────────────────┘
+                        │
+                ┌───────▼───────┐
+                │    Photon     │
+                │   Ecosystem   │
+                └───────────────┘
+```
+
+---
+
+## What is Photon?
+
+### The Smallest Unit
+
+A **photon** (in physics) is the smallest unit of light.
+
+A `.photon.ts` file is the smallest unit of an MCP server - just a TypeScript class:
+
+```typescript
+// This IS a complete MCP server
+export default class Calculator {
+  add(params: { a: number; b: number }) {
+    return params.a + params.b;
+  }
+}
+```
+
+No boilerplate. No protocol handling. No server setup.
+
+### The Ecosystem
+
+Photon is an **ecosystem for MCPs and more**:
+
+| Component | Purpose |
+|-----------|---------|
+| `.photon.ts` | The tool definition (a TypeScript class) |
+| **Beam** | MCP client for humans (web UI) |
+| **CLI** | MCP client for terminal |
+| **Daemon** | Central orchestrator (pub/sub, locks, jobs, webhooks) |
+| **Marketplace** | Share and discover photons |
+| **PWA Export** | Package as standalone desktop apps |
 
 ---
 
 ## What is Beam?
 
-Beam is a **pure MCP interface** that serves as the holistic manager and runner for photons.
+**Beam is an MCP client for humans.**
 
-### Evolution
-
-| Phase | Purpose |
-|-------|---------|
-| Started | Testing interface for photons (MCP + UI) |
-| Then | + Config manager (env vars, settings) |
-| Now | **Holistic manager and runner of photons and MCPs** |
-
-### The Four Ways to Use Photons
-
-| Interface | For | How |
-|-----------|-----|-----|
-| **MCP** | AI clients | stdio to individual photon |
-| **CLI** | Humans in terminal | `photon cli <photon> <method>` |
-| **Beam** | Humans + AI | Pure MCP with web UI |
-| **PWA Export** | End users | Standalone desktop app |
-
-### Beam Capabilities
+Just as Claude Desktop is an MCP client for AI, Beam gives humans the same interface to MCPs. The aggregation of photons and the web UI exist to serve this purpose.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                         BEAM                            │
+│              (MCP Client for Humans)                    │
 ├─────────────────────────────────────────────────────────┤
-│  • Aggregate & run all photons via /mcp                 │
-│  • Configure (env vars, settings)                       │
-│  • Test & develop (hot reload)                          │
-│  • Pure MCP interface (Streamable HTTP)                 │
-│  • Web UI for humans                                    │
-│  • PWA export → standalone desktop app                  │
+│  • Interact with photons via web UI                     │
+│  • See real-time updates from AI actions                │
+│  • Configure photons (env vars, settings)               │
+│  • Test and develop (hot reload)                        │
+│  • Export as PWA desktop apps                           │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Key Principle
+### The Four Interfaces to Photons
 
-**Beam IS a pure MCP interface** - the UI is just one client consuming that interface.
-
-```
-                    ┌─── Browser UI (human)
-                    │
-Photons ──► Beam ───┼─── Claude Desktop (AI via /mcp)
-                    │
-                    └─── Any MCP client / PWA app
-```
-
-This is why WebSocket was removed - it broke the "pure MCP" model. Everything flows through MCP Streamable HTTP (SSE) now.
+| Interface | For | Protocol |
+|-----------|-----|----------|
+| **MCP (stdio)** | AI clients (Claude Desktop, Cursor) | MCP over stdio |
+| **CLI** | Humans in terminal | Direct method calls |
+| **Beam** | Humans in browser | MCP Streamable HTTP |
+| **PWA** | End users | Standalone app (MCP + UI bundled) |
 
 ---
 
-## Lessons Learned
+## The Daemon: Central Orchestrator
 
-These constraints exist because we made these mistakes and paid the price.
+Photon comes **batteries included** with a daemon that provides infrastructure for real-world applications:
 
-| Mistake | Consequence | Rule |
-|---------|-------------|------|
-| WebSocket for Beam real-time | Complex state, firewall issues | Use MCP Streamable HTTP (SSE) |
-| In-memory cache for shared data | Cross-process sync failures | Use disk + daemon pub/sub |
-| Swallowed errors (catch returning null) | Hidden bugs, silent failures | Log errors, never swallow |
-| fetch() without timeout | Hung requests, blocked UI | Always use AbortSignal.timeout |
-| Hardcoded localhost URLs | Broken in Docker/production | Use environment variables |
-| Magic timeout numbers | Inconsistent behavior | Define named constants |
-| Silent logger suppression | Hidden syntax errors | Use log levels, not null streams |
-| TODOs returning undefined | Runtime crashes | Implement or throw explicitly |
+### Capabilities
+
+| Feature | Purpose | Example |
+|---------|---------|---------|
+| **Pub/Sub Channels** | Real-time cross-process messaging | AI moves a task → Human sees it instantly |
+| **Distributed Locks** | Coordinate exclusive access | Only one process writes to a file at a time |
+| **Scheduled Jobs** | Cron-like background execution | Archive old tasks daily at midnight |
+| **Webhooks** | HTTP endpoints for external services | GitHub issue → Kanban task |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         DAEMON                                  │
+│                  ~/.photon/daemons/*.sock                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────┐│
+│  │   Pub/Sub   │  │    Locks    │  │  Scheduled  │  │Webhooks ││
+│  │  Channels   │  │ Distributed │  │    Jobs     │  │  HTTP   ││
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └────┬────┘│
+│         │                │                │               │     │
+│         └────────────────┴────────────────┴───────────────┘     │
+│                              │                                   │
+│                    Unix Socket Protocol                          │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        ▼                      ▼                      ▼
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│  Claude MCP  │      │    Beam      │      │   Another    │
+│   Session    │      │   Server     │      │   Process    │
+└──────────────┘      └──────────────┘      └──────────────┘
+```
+
+### Pub/Sub: Real-Time Sync
+
+```typescript
+// Photon emits an event
+this.emit({
+  channel: `${this.photonId}:board`,
+  event: 'task-moved',
+  data: { taskId, column }
+});
+
+// All subscribers receive it instantly
+// - Other browser tabs (via Beam SSE)
+// - AI sessions (via MCP notifications)
+// - Other processes (via daemon socket)
+```
+
+### Distributed Locks: Coordinate Access
+
+```typescript
+import { acquireLock, releaseLock } from './daemon-client.js';
+
+// Only one holder at a time
+if (await acquireLock('kanban', 'board-write')) {
+  try {
+    await updateBoard(changes);
+  } finally {
+    await releaseLock('kanban', 'board-write');
+  }
+}
+```
+
+### Scheduled Jobs: Background Tasks
+
+```typescript
+import { scheduleJob } from './daemon-client.js';
+
+// Run daily at midnight
+await scheduleJob('kanban', 'archive-old-tasks', {
+  method: 'scheduledArchiveOldTasks',
+  cron: '0 0 * * *'  // minute hour day month weekday
+});
+```
+
+### Webhooks: External Integration
+
+```bash
+# GitHub webhook → Photon method
+curl -X POST http://localhost:3458/webhook/handleGithubIssue \
+  -H "X-Webhook-Secret: $SECRET" \
+  -d '{"action": "opened", "issue": {...}}'
+```
 
 ---
 
@@ -85,7 +198,7 @@ These constraints exist because we made these mistakes and paid the price.
 | Photon ↔ External MCP | stdio / SSE / HTTP | `@mcp` directive |
 | CLI ↔ Photon | Direct method call | In-process |
 
-### Architecture Diagram
+### Real-Time Flow
 
 ```
 ┌─────────────────┐     POST /mcp         ┌─────────────────┐
@@ -111,128 +224,63 @@ These constraints exist because we made these mistakes and paid the price.
 
 ---
 
+## Lessons Learned
+
+These constraints exist because we made these mistakes and paid the price.
+
+| Mistake | Consequence | Rule |
+|---------|-------------|------|
+| WebSocket for Beam real-time | Complex state, firewall issues | Use MCP Streamable HTTP (SSE) |
+| In-memory cache for shared data | Cross-process sync failures | Use disk + daemon pub/sub |
+| Swallowed errors (catch returning null) | Hidden bugs, silent failures | Log errors, never swallow |
+| fetch() without timeout | Hung requests, blocked UI | Always use AbortSignal.timeout |
+| Hardcoded localhost URLs | Broken in Docker/production | Use environment variables |
+| Magic timeout numbers | Inconsistent behavior | Define named constants |
+| Silent logger suppression | Hidden syntax errors | Use log levels, not null streams |
+
+---
+
 ## Forbidden Patterns
 
 These patterns cause real bugs. Pre-commit hook blocks errors, warns on others.
 
-### 🚫 ERRORS (Commit Blocked)
+### ERRORS (Commit Blocked)
 
-#### 1. WebSocket in Beam
+#### WebSocket in Beam
 ```typescript
-// ❌ FORBIDDEN in src/auto-ui/
+// FORBIDDEN in src/auto-ui/
 import { WebSocketServer } from 'ws';
 new WebSocket('ws://...');
-wss.on('connection', ...);
 
-// ✅ USE INSTEAD
+// USE INSTEAD
 import { handleStreamableHTTP, broadcastNotification } from './streamable-http-transport.js';
 ```
 
-**Why:** WebSocket is stateful, blocked by firewalls, not HTTP/2 friendly. MCP Streamable HTTP is standard.
+**Why:** Beam is a pure MCP interface. WebSocket breaks that model.
 
-### ⚠️ WARNINGS (Review Required)
+### WARNINGS (Review Required)
 
-#### 2. In-Memory Cache for Shared Data
+#### In-Memory Cache for Shared Data
 ```typescript
-// ⚠️ WARNING - causes cross-process sync issues
+// WARNING - causes cross-process sync issues
 const boardCache = new Map<string, Board>();
 
-// ✅ USE INSTEAD
-// Read from disk each time, use daemon pub/sub for real-time
+// USE INSTEAD - disk + daemon pub/sub
 async function loadBoard(name: string): Promise<Board> {
   return JSON.parse(await fs.readFile(boardPath, 'utf-8'));
 }
 ```
 
-**Why:** Different processes (Claude Code MCP, Beam server) have separate memory. Cache in one doesn't update the other.
-
-#### 3. Swallowed Errors
+#### fetch() Without Timeout
 ```typescript
-// ⚠️ WARNING - hides real bugs
-try {
-  return await loadConfig();
-} catch {
-  return null;  // Caller can't distinguish "no config" from "syntax error"
-}
-
-// ✅ USE INSTEAD
-try {
-  return await loadConfig();
-} catch (error) {
-  logger.error('Config load failed', { error });
-  throw error;  // Or return with explicit error state
-}
-```
-
-**Why:** Silent failures hide bugs for weeks. When discovered, hard to trace.
-
-#### 4. fetch() Without Timeout
-```typescript
-// ⚠️ WARNING - can hang indefinitely
+// WARNING - can hang indefinitely
 const response = await fetch(url);
 
-// ✅ USE INSTEAD
+// USE INSTEAD
 const response = await fetch(url, {
-  signal: AbortSignal.timeout(10000)  // 10 second timeout
+  signal: AbortSignal.timeout(10000)
 });
 ```
-
-**Why:** If endpoint is slow or dead, caller blocks forever. UI freezes, CLI hangs.
-
-#### 5. Hardcoded localhost URLs
-```typescript
-// ⚠️ WARNING - breaks in production/Docker
-const baseUrl = 'http://localhost:3000';
-
-// ✅ USE INSTEAD
-const baseUrl = process.env.BASE_URL ?? 'http://localhost:3000';  // dev-only
-
-// Or mark for hook to skip:
-const devUrl = 'http://localhost:3000';  // dev-only
-```
-
-**Why:** OpenAPI specs, redirect URLs break when deployed. Use env vars.
-
-#### 6. Magic Timeout Numbers
-```typescript
-// ⚠️ WARNING - inconsistent behavior
-setTimeout(cleanup, 30000);
-setInterval(check, 60000);
-
-// ✅ USE INSTEAD
-const SESSION_TIMEOUT_MS = 30 * 1000;
-const CLEANUP_INTERVAL_MS = 60 * 1000;
-setTimeout(cleanup, SESSION_TIMEOUT_MS);
-```
-
-**Why:** Timeouts scattered across files. Changing one doesn't change others. Named constants are searchable.
-
-#### 7. Silent Logger Suppression
-```typescript
-// ⚠️ WARNING - hides syntax errors
-const nullStream = new Writable({ write: (_, __, cb) => cb() });
-const silentLogger = createLogger({ destination: nullStream });
-
-// ✅ USE INSTEAD
-const logger = createLogger({ level: 'warn' });  // Use log levels
-```
-
-**Why:** Beam silenced loader errors. Photons with syntax errors showed as "not configured" instead of "broken".
-
-#### 8. TODOs That Return undefined
-```typescript
-// ⚠️ WARNING - runtime crash waiting to happen
-async function getUserId(): string {
-  return undefined;  // TODO: Get from session
-}
-
-// ✅ USE INSTEAD
-async function getUserId(): string {
-  throw new Error('getUserId not implemented');
-}
-```
-
-**Why:** Caller expects string, gets undefined. Crashes later with confusing error.
 
 ---
 
@@ -240,19 +288,15 @@ async function getUserId(): string {
 
 ### Real-Time Updates
 
-**Server-side (photon methods):**
 ```typescript
-// Emit events for real-time sync
+// Server-side: emit events
 this.emit({
   channel: `${this.photonId}:${itemId}`,
   event: 'data-changed',
   data: { ... }
 });
-```
 
-**Client-side (Custom UI):**
-```javascript
-// Receive via postMessage from parent
+// Client-side: receive via postMessage
 window.addEventListener('message', (event) => {
   if (event.data.type === 'photon:channel-event') {
     handleUpdate(event.data);
@@ -260,72 +304,23 @@ window.addEventListener('message', (event) => {
 });
 ```
 
-### Cross-Process Communication
-
-Always use daemon pub/sub:
-```typescript
-import { subscribeChannel, publishChannel } from './daemon-client.js';
-
-// Subscribe
-subscribeChannel(photonName, channel, (message) => {
-  // Handle cross-process event
-});
-
-// Publish
-publishChannel(photonName, channel, event, data);
-```
-
 ### Error Handling
 
 ```typescript
-// Pattern: Log and rethrow or return explicit error state
 try {
   const result = await riskyOperation();
   return { success: true, data: result };
 } catch (error) {
   logger.error('Operation failed', { error, context: { ... } });
   return { success: false, error: error.message };
-  // OR: throw error; if caller should handle
 }
 ```
-
-### Timeouts
-
-```typescript
-// Define at module level
-const FETCH_TIMEOUT_MS = 10 * 1000;
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 60 * 1000;
-
-// Use named constants
-await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-```
-
----
-
-## State Management
-
-### What's OK
-
-| Pattern | Use Case | Example |
-|---------|----------|---------|
-| Map for sessions | Per-connection state | `sessions: Map<string, SSESession>` |
-| Map for subscriptions | Active listeners | `channelSubs: Map<string, Set<Socket>>` |
-| Instance state | Per-photon config | `this.boardName` |
-
-### What's Not OK
-
-| Pattern | Problem | Solution |
-|---------|---------|----------|
-| Map for entity data | Cross-process sync | Read from disk |
-| Global singleton state | Race conditions | Per-request state |
-| In-memory cache for DB data | Stale reads | Query each time or use pub/sub invalidation |
 
 ---
 
 ## Pre-Commit Hook
 
-The `.git/hooks/pre-commit` script enforces these constraints:
+The `.git/hooks/pre-commit` script enforces architectural constraints:
 
 **Errors (Blocks Commit):**
 - WebSocket in `src/auto-ui/`
@@ -340,37 +335,6 @@ The `.git/hooks/pre-commit` script enforces these constraints:
 - Critical TODOs
 
 Run manually: `bash .git/hooks/pre-commit`
-
----
-
-## Architectural Decisions
-
-### Why SSE over WebSocket?
-
-| Aspect | WebSocket | SSE (Chosen) |
-|--------|-----------|--------------|
-| Complexity | Bidirectional, stateful | Unidirectional, simple |
-| Firewalls | Often blocked | HTTP, passes through |
-| Reconnection | Manual | Built-in browser support |
-| MCP Alignment | Custom | Standard Streamable HTTP |
-| HTTP/2 | Not multiplexed | Native multiplexing |
-
-### Why Daemon for Cross-Process?
-
-| Aspect | Shared Files | Daemon (Chosen) |
-|--------|--------------|-----------------|
-| Real-time | Polling required | Push notifications |
-| Consistency | Race conditions | Serialized via broker |
-| Complexity | Simple but fragile | Robust pub/sub |
-
-### Why No Cache for Shared Data?
-
-| Aspect | In-Memory Cache | Disk + Pub/Sub (Chosen) |
-|--------|-----------------|-------------------------|
-| Cross-process | Fails silently | Works correctly |
-| Consistency | Stale data | Always fresh |
-| Complexity | Simple | Slightly more code |
-| Debugging | "Why isn't it updating?" | Predictable behavior |
 
 ---
 
