@@ -168,6 +168,44 @@ export class PhotonConfig extends LitElement {
         font-size: 0.85rem;
         margin-bottom: var(--space-md);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        .form-group input {
+          min-height: 44px;
+          font-size: 16px; /* Prevent iOS zoom */
+        }
+
+        .submit-btn {
+          min-height: 44px;
+          width: 100%;
+        }
+
+        .toggle-switch {
+          width: 100%;
+        }
+
+        .toggle-btn {
+          flex: 1;
+          min-height: 44px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .config-title {
+          font-size: 1.25rem;
+        }
+
+        .form-group label {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--space-xs);
+        }
+
+        .form-group label .hint {
+          font-size: 0.7rem;
+        }
+      }
     `
   ];
 

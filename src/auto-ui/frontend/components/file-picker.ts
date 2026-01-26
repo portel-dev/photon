@@ -153,6 +153,54 @@ export class FilePicker extends LitElement {
         background: hsla(220, 10%, 80%, 0.1);
         color: var(--t-primary);
       }
+
+      /* ===== Responsive Design ===== */
+      @media (max-width: 768px) {
+        input {
+          min-height: 44px;
+          font-size: 16px; /* Prevent iOS zoom */
+        }
+
+        .btn-secondary {
+          min-height: 44px;
+        }
+
+        .file-item {
+          padding: var(--space-sm) var(--space-md);
+          min-height: 44px;
+        }
+
+        .file-list {
+          max-height: 300px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .input-wrapper {
+          flex-direction: column;
+          gap: var(--space-xs);
+        }
+
+        .input-wrapper input {
+          border-radius: var(--radius-sm);
+          border-right: 1px solid var(--border-glass);
+        }
+
+        .input-wrapper button {
+          border-radius: var(--radius-sm);
+          border-left: 1px solid var(--border-glass);
+          width: 100%;
+        }
+
+        .current-path {
+          flex-wrap: wrap;
+        }
+
+        .path-text {
+          width: 100%;
+          margin-top: var(--space-xs);
+        }
+      }
     `
   ];
 
