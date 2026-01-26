@@ -49,8 +49,6 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
-// MCP WebSocket handler removed - now using Streamable HTTP only
-import { generateMCPClientJS } from './mcp-client.js';
 import { handleStreamableHTTP, broadcastNotification, broadcastToBeam } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -586,7 +584,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     onClientDisconnect,
   };
 
-  // UI asset loader for MCP resources/read (shared between WebSocket and HTTP transports)
+  // UI asset loader for MCP resources/read
   const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
     const photon = photons.find((p) => p.name === photonName);
     if (!photon || !photon.configured) return null;
