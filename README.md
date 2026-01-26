@@ -1276,7 +1276,7 @@ photon
 - ⚙️ **Settings** - Configure environment variables and preferences
 - 📊 **Real-time Updates** - See live changes via pub/sub channels
 
-Beam runs as a local web server and opens in your default browser. It communicates with photon daemons via WebSocket for real-time updates.
+Beam runs as a local web server and opens in your default browser. It uses MCP Streamable HTTP (SSE) for real-time updates from photon daemons.
 
 ---
 
@@ -1300,7 +1300,7 @@ The daemon provides four key capabilities:
 ```
 ┌─────────────────┐     ┌───────────────────────────────────┐     ┌────────────────┐
 │  Photon Tool    │────▶│   Daemon                          │────▶│  BEAM UI       │
-│  (MCP/Claude)   │     │   ~/.photon/daemons/kanban.sock   │     │  (WebSocket)   │
+│  (MCP/Claude)   │     │   ~/.photon/daemons/kanban.sock   │     │  (SSE/MCP)     │
 └─────────────────┘     └───────────────────────────────────┘     └────────────────┘
         │                             ▲                                    │
         │                             │                                    │

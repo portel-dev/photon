@@ -922,7 +922,11 @@ export default class APIClient {
 }
 ```
 
-### WebSocket Integration
+### External WebSocket Services
+
+Connect to external WebSocket APIs (stock tickers, chat services, etc.):
+
+> **Note:** This is for photons consuming external WebSocket services. Beam's internal architecture uses SSE via MCP Streamable HTTP—see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ```typescript
 /**
