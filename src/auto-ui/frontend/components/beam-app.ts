@@ -918,12 +918,32 @@ export class BeamApp extends LitElement {
           right: 0;
           left: auto;
         }
+
+        /* Emoji picker positioning for mobile */
+        .emoji-picker {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          max-width: 90vw;
+          z-index: 1000;
+        }
+
+        /* Help modal adjustments */
+        .help-modal {
+          padding: var(--space-lg);
+          max-height: 85vh;
+        }
       }
 
       @media (max-width: 480px) {
         .main-area {
           padding: var(--space-sm);
           padding-top: calc(var(--space-sm) + 60px);
+        }
+
+        .cards-grid {
+          gap: var(--space-sm);
         }
 
         .photon-icon-large {
@@ -940,6 +960,17 @@ export class BeamApp extends LitElement {
         .glass-panel {
           max-width: 100%;
           border-radius: var(--radius-sm);
+        }
+
+        .help-modal {
+          padding: var(--space-md);
+          max-height: 90vh;
+        }
+
+        /* Section headers more compact */
+        .section-header {
+          margin-top: var(--space-lg);
+          margin-bottom: var(--space-sm);
         }
       }
 
