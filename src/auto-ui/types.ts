@@ -3,8 +3,7 @@
  *
  * Centralized type definitions to ensure consistency across:
  * - beam.ts (main server)
- * - streamable-http-transport.ts (MCP HTTP transport)
- * - beam-mcp-handler.ts (MCP WebSocket handler)
+ * - streamable-http-transport.ts (MCP Streamable HTTP transport)
  * - openapi-generator.ts
  *
  * Following DRY principle - single source of truth for interfaces.
