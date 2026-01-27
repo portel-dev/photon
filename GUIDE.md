@@ -628,6 +628,72 @@ export default class MyApp {
 ### Linking UI to Tools
 Use the method-level `@ui` tag to specify which UI template should be rendered when a tool is invoked in a compatible interface (like the Photon Playground or a custom web UI).
 
+### MCP Apps Compatibility (SEP-1865)
+
+Photon implements the **MCP Apps Extension (SEP-1865)**, the official standard for interactive UIs in MCP. This means:
+
+1. **`ui://` Resource URIs**: Tools with linked UIs expose `_meta.ui.resourceUri` pointing to `ui://photon-name/ui-id`
+2. **JSON-RPC Protocol**: UI iframes communicate via standard `ui/initialize`, `ui/ready`, and `tools/call` messages
+3. **Cross-Platform Support**: UIs built for Claude, ChatGPT, or any MCP Apps-compatible host work in Photon
+
+#### Protocol Messages
+
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `ui/initialize` | Host → App | Initialize with theme, capabilities, dimensions |
+| `ui/ready` | App → Host | App is ready to receive data |
+| `tools/call` | App → Host | Request tool execution from the UI |
+| `ui/notifications/tool-result` | Host → App | Push tool result to UI |
+
+#### Client APIs
+
+Photon injects three APIs into UI iframes for maximum compatibility:
+
+```javascript
+// 1. Photon Bridge (recommended)
+window.photon.callTool('search', { query: 'test' });
+window.photon.onResult(data => console.log(data));
+window.photon.theme; // 'light' | 'dark'
+
+// 2. OpenAI Apps SDK compatible
+window.openai.callTool('search', { query: 'test' });
+window.openai.theme;
+window.openai.setWidgetState({ count: 1 });
+
+// 3. Generic MCP Bridge
+window.mcp.requestToolCall('search', { query: 'test' });
+```
+
+#### Building Compatible UIs
+
+UIs that work with the official MCP Apps SDK (`@modelcontextprotocol/ext-apps`) will work in Photon without modification:
+
+```typescript
+// Using official MCP Apps SDK
+import { App } from '@modelcontextprotocol/ext-apps';
+
+const app = new App({ name: 'My App', version: '1.0.0' });
+app.connect();
+app.ontoolresult = (result) => {
+  // Handle result
+};
+```
+
+Or use Photon's native API:
+
+```javascript
+// Using Photon Bridge (no external dependency)
+window.photon.onResult(result => {
+  document.getElementById('output').textContent = result;
+});
+```
+
+#### Resources
+
+- [MCP Apps Specification](https://modelcontextprotocol.io/docs/extensions/apps)
+- [SEP-1865 GitHub](https://github.com/modelcontextprotocol/ext-apps)
+- [Platform Compatibility Source](./src/auto-ui/platform-compat.ts)
+
 ---
 
 ## Advanced Workflows
