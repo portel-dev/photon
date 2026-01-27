@@ -250,7 +250,7 @@ photon info filesystem --mcp
       "filesystem"
     ],
     "env": {
-      "FILESYSTEM_WORKDIR": "/Users/arul/Documents",
+      "FILESYSTEM_WORKDIR": "~/Documents",
       "FILESYSTEM_MAX_FILE_SIZE": "10485760",
       "FILESYSTEM_ALLOW_HIDDEN": "false"
     }

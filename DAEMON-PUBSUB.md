@@ -46,7 +46,7 @@ function generatePhotonId(photonPath: string): string {
 }
 
 // Example:
-// Path: /Users/arul/.photon/kanban.photon.ts
+// Path: ~/.photon/kanban.photon.ts
 // ID:   f5c5ee47905e
 ```
 
