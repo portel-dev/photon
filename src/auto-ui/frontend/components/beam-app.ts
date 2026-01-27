@@ -1125,6 +1125,8 @@ export class BeamApp extends LitElement {
   @state() private _mcpReady = false;
   @state() private _showSettingsMenu = false;
   @state() private _rememberFormValues = false;
+  @state() private _showSourceModal = false;
+  @state() private _sourceData: { path: string; code: string } | null = null;
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
   @state() private _editedDescription = '';
@@ -1550,6 +1552,7 @@ export class BeamApp extends LitElement {
 
       ${this._showHelp ? this._renderHelpModal() : ''}
       ${this._showPhotonHelp ? this._renderPhotonHelpModal() : ''}
+      ${this._showSourceModal ? this._renderSourceModal() : ''}
       ${this._selectedPrompt?.content ? this._renderPromptModal() : ''}
       ${this._selectedResource?.content ? this._renderResourceModal() : ''}
 
@@ -1710,7 +1713,7 @@ export class BeamApp extends LitElement {
                   <div class="settings-dropdown-divider"></div>
                   <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
                     <span style="display:flex;align-items:center;gap:10px;">
-                      <span class="icon">💾</span>
+                      <span class="icon">📝</span>
                       <span>Remember Values</span>
                     </span>
                     <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
@@ -1751,7 +1754,7 @@ export class BeamApp extends LitElement {
                 <div class="settings-dropdown-divider"></div>
                 <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
                   <span style="display:flex;align-items:center;gap:10px;">
-                    <span class="icon">💾</span>
+                    <span class="icon">📝</span>
                     <span>Remember Values</span>
                   </span>
                   <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
@@ -2036,9 +2039,40 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleViewSource = () => {
+  private _handleViewSource = async () => {
     this._closeSettingsMenu();
-    this._invokeMakerMethod('source');
+
+    const maker = this._photons.find(p => p.name === 'maker');
+    if (!maker) {
+      showToast('Maker photon not available', 'error');
+      return;
+    }
+
+    const photonPath = this._selectedPhoton?.path;
+    if (!photonPath) {
+      showToast('Photon path not available', 'error');
+      return;
+    }
+
+    if (this._mcpReady) {
+      try {
+        const result = await mcpClient.callTool('maker/source', { photonPath });
+        if (result.isError) {
+          const errorText = result.content.find((c: any) => c.type === 'text')?.text || 'Failed to load source';
+          showToast(errorText, 'error');
+        } else {
+          const data = mcpClient.parseToolResult(result);
+          if (data && data.code) {
+            this._sourceData = data;
+            this._showSourceModal = true;
+          } else {
+            showToast('No source code returned', 'error');
+          }
+        }
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to load source', 'error');
+      }
+    }
   }
 
   private _handleDeletePhoton = () => {
@@ -2378,6 +2412,10 @@ export class BeamApp extends LitElement {
       }
       if (this._showPhotonHelp) {
         this._showPhotonHelp = false;
+        return;
+      }
+      if (this._showSourceModal) {
+        this._closeSourceModal();
         return;
       }
       if (this._view === 'form' && this._selectedMethod) {
@@ -3122,6 +3160,70 @@ export class BeamApp extends LitElement {
           <div class="markdown-body" style="color: var(--t-default);">
             ${(window as any).marked ? html`${unsafeHTML(htmlContent)}` : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
           </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private _closeSourceModal = () => {
+    this._showSourceModal = false;
+    this._sourceData = null;
+  }
+
+  private _copySourceCode = async () => {
+    if (this._sourceData?.code) {
+      try {
+        await navigator.clipboard.writeText(this._sourceData.code);
+        showToast('Source code copied', 'success');
+      } catch {
+        showToast('Failed to copy', 'error');
+      }
+    }
+  }
+
+  private _renderSourceModal() {
+    if (!this._sourceData) return '';
+
+    const filename = this._sourceData.path.split('/').pop() || 'source.ts';
+
+    return html`
+      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeSourceModal(); }}>
+        <div class="help-modal glass-panel" style="max-width: 900px; max-height: 85vh; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-shrink: 0;">
+            <div>
+              <h2 id="source-modal-title" class="text-gradient" style="margin: 0;">Source Code</h2>
+              <div style="font-size: 0.85rem; color: var(--t-muted); margin-top: 4px; font-family: var(--font-mono);">${filename}</div>
+            </div>
+            <div style="display: flex; gap: var(--space-sm);">
+              <button
+                class="btn-secondary"
+                style="padding: 6px 12px; font-size: 0.85rem;"
+                @click=${this._copySourceCode}
+                title="Copy source code"
+              >📋 Copy</button>
+              <button
+                class="btn-secondary"
+                style="padding: 6px 12px; font-size: 0.85rem;"
+                @click=${this._closeSourceModal}
+                aria-label="Close"
+              >✕</button>
+            </div>
+          </div>
+          <pre style="
+            flex: 1;
+            overflow: auto;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: var(--space-md);
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--t-primary);
+            white-space: pre;
+            tab-size: 2;
+          "><code>${this._sourceData.code}</code></pre>
         </div>
       </div>
     `;
