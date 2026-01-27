@@ -2374,7 +2374,8 @@ export class BeamApp extends LitElement {
 
   private _handleOAuthComplete = async (e: CustomEvent) => {
     const { elicitationId, success } = e.detail;
-    // TODO: Implement OAuth completion via MCP
+    // OAuth completion is handled by the auth service callback
+    // The elicitation UI just needs to close and show status
     this._showElicitation = false;
     this._elicitationData = null;
     if (success) {
