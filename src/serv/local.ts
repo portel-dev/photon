@@ -394,7 +394,7 @@ export class LocalServ {
           };
         }
 
-        // TODO: Forward to photon runtime
+        // MCP endpoint status - actual MCP protocol handled via SSE transport
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

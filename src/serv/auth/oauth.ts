@@ -384,11 +384,13 @@ export class OAuthFlowHandler {
         : undefined;
 
       // Check for existing grant
+      // Note: userId is undefined here as grants are scoped to tenant+photon+provider
+      // User-scoped grants would require session-based auth which isn't implemented yet
       const existingGrant = await this.config.grantStore.find(
         tenantId,
         elicitation.photonId,
         elicitation.provider,
-        undefined // TODO: Get userId from session
+        undefined
       );
 
       if (existingGrant) {

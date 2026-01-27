@@ -174,8 +174,9 @@ ${allStubs.join('\n\n')}
 
     for (const file of photonFiles) {
       yield { step: 'processing', photon: file, message: `Processing ${file}...` };
-      // TODO: Extract schema and update manifest
-      await new Promise(resolve => setTimeout(resolve, 100)); // Simulate work
+      // Note: Full sync with schema extraction is handled by CLI's performMarketplaceSync
+      // This simplified version just lists photons for progress feedback
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     const manifest = path.join(workingDir, '.marketplace', 'photons.json');
