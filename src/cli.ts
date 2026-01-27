@@ -698,13 +698,16 @@ function formatDefaultValue(value: any): string {
  */
 function getConfigPath(): string {
   const platform = process.platform;
+  const home = os.homedir();
   if (platform === 'darwin') {
-    return path.join(os.homedir(), 'Library/Application Support/Claude/claude_desktop_config.json');
+    return path.join(home, 'Library/Application Support/Claude/claude_desktop_config.json');
   } else if (platform === 'win32') {
-    return path.join(process.env.APPDATA || '', 'Claude/claude_desktop_config.json');
+    // On Windows, use APPDATA if available, otherwise fall back to home/AppData/Roaming
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return path.join(appData, 'Claude', 'claude_desktop_config.json');
   } else {
     // Linux/other
-    return path.join(os.homedir(), '.config/Claude/claude_desktop_config.json');
+    return path.join(home, '.config/Claude/claude_desktop_config.json');
   }
 }
 

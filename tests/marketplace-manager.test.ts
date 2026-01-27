@@ -96,11 +96,12 @@ async function runTests() {
 
   // Test 9: Local home directory path
   {
+    const os = await import('os');
     const result = parseSource('~/my-photons');
     assert.ok(result, 'Should parse home directory path');
     assert.equal(result.sourceType, 'local', 'Should be local type');
     assert.equal(result.name, 'my-photons', 'Name should be my-photons');
-    assert.ok(result.url.includes(process.env.HOME || ''), 'Should expand ~ to home directory');
+    assert.ok(result.url.includes(os.homedir()), 'Should expand ~ to home directory');
     console.log('✅ Local home directory path parsing');
   }
 
