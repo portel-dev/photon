@@ -17,3 +17,4 @@ ANNOUNCEMENT.md
 test-github.ts
 *-credentials.json
 .marketplace/_templates/
+.claude/user-prompts.csv
