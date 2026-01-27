@@ -24,9 +24,12 @@ export interface DaemonRequest {
     | 'schedule'
     | 'unschedule'
     | 'list_jobs'
-    | 'list_locks';
+    | 'list_locks'
+    | 'get_events_since';
   id: string;
-  /** Path to photon file for reload command */
+  /** Photon name for routing to correct SessionManager (required for multi-photon daemon) */
+  photonName?: string;
+  /** Path to photon file for reload command or initial photon setup */
   photonPath?: string;
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
@@ -46,13 +49,15 @@ export interface DaemonRequest {
   jobId?: string;
   /** Cron expression for scheduled jobs */
   cron?: string;
+  /** Last event ID received by client (for replay on reconnect) */
+  lastEventId?: string;
 }
 
 /**
  * Response from daemon server to CLI client
  */
 export interface DaemonResponse {
-  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message';
+  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message' | 'refresh_needed';
   id: string;
   success?: boolean;
   data?: unknown;
@@ -68,6 +73,8 @@ export interface DaemonResponse {
   channel?: string;
   /** Message payload for channel_message type */
   message?: unknown;
+  /** Event ID for tracking (for replay support) */
+  eventId?: string;
 }
 
 /**
@@ -142,6 +149,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'unschedule',
     'list_jobs',
     'list_locks',
+    'get_events_since',
   ];
   if (!validTypes.includes(req.type as string)) return false;
 
@@ -187,7 +195,11 @@ export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
   const res = obj as Partial<DaemonResponse>;
 
   if (typeof res.id !== 'string') return false;
-  if (!['result', 'error', 'pong', 'prompt', 'channel_message'].includes(res.type as string))
+  if (
+    !['result', 'error', 'pong', 'prompt', 'channel_message', 'refresh_needed'].includes(
+      res.type as string
+    )
+  )
     return false;
 
   return true;

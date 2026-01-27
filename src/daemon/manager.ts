@@ -1,14 +1,19 @@
 /**
  * Daemon Manager
  *
- * Manages daemon lifecycle: start, stop, status, health checks
- * Handles PID files, socket files, and process spawning
+ * Manages the single global Photon daemon lifecycle.
+ * The daemon handles all photons through channel-based isolation.
+ *
+ * Architecture:
+ * - Single daemon process: ~/.photon/daemon.sock
+ * - All photons communicate through the same daemon
+ * - Channels provide isolation: {photonId}:{itemId}
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
@@ -19,101 +24,114 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PHOTON_DIR = path.join(os.homedir(), '.photon');
-const DAEMON_DIR = path.join(PHOTON_DIR, 'daemons');
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
-/**
- * Ensure daemon directories exist
- */
-function ensureDaemonDir(): void {
-  if (!fs.existsSync(DAEMON_DIR)) {
-    fs.mkdirSync(DAEMON_DIR, { recursive: true });
-  }
-}
+// Global daemon paths (single daemon for all photons)
+const GLOBAL_PID_FILE = path.join(PHOTON_DIR, 'daemon.pid');
+const GLOBAL_LOG_FILE = path.join(PHOTON_DIR, 'daemon.log');
 
 /**
- * Get PID file path for a photon
+ * Get global socket path for the Photon daemon
  */
-function getPidFile(photonName: string): string {
-  return path.join(DAEMON_DIR, `${photonName}.pid`);
-}
-
-/**
- * Get socket file path for a photon
- */
-export function getSocketPath(photonName: string): string {
-  // Use different paths for Windows (named pipe) vs Unix (domain socket)
+export function getGlobalSocketPath(): string {
   if (process.platform === 'win32') {
-    return `\\\\.\\pipe\\photon-${photonName}`;
+    return '\\\\.\\pipe\\photon-daemon';
   }
-  return path.join(DAEMON_DIR, `${photonName}.sock`);
+  return path.join(PHOTON_DIR, 'daemon.sock');
 }
 
 /**
- * Check if daemon is running for a photon
+ * Get socket path - now returns global socket regardless of photonName
+ * @deprecated Use getGlobalSocketPath() directly. photonName parameter is ignored.
  */
-export function isDaemonRunning(photonName: string): boolean {
-  const pidFile = getPidFile(photonName);
+export function getSocketPath(_photonName?: string): string {
+  return getGlobalSocketPath();
+}
 
-  if (!fs.existsSync(pidFile)) {
+/**
+ * Ensure photon directory exists
+ */
+function ensurePhotonDir(): void {
+  if (!fs.existsSync(PHOTON_DIR)) {
+    fs.mkdirSync(PHOTON_DIR, { recursive: true });
+  }
+}
+
+/**
+ * Check if global daemon is running
+ */
+export function isGlobalDaemonRunning(): boolean {
+  if (!fs.existsSync(GLOBAL_PID_FILE)) {
     return false;
   }
 
   try {
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
-
+    const pid = parseInt(fs.readFileSync(GLOBAL_PID_FILE, 'utf-8').trim(), 10);
     // Check if process exists using kill signal 0 (doesn't actually kill)
     process.kill(pid, 0);
     return true;
-  } catch (error) {
+  } catch {
     // Process doesn't exist or we don't have permission
     // Clean up stale PID file
-    fs.unlinkSync(pidFile);
+    try {
+      fs.unlinkSync(GLOBAL_PID_FILE);
+    } catch {
+      // Ignore cleanup errors
+    }
     return false;
   }
 }
 
 /**
- * Get daemon status
+ * Check if daemon is running
+ * @deprecated Use isGlobalDaemonRunning(). photonName parameter is ignored.
  */
-export function getDaemonStatus(photonName: string): DaemonStatus {
-  const pidFile = getPidFile(photonName);
+export function isDaemonRunning(_photonName?: string): boolean {
+  return isGlobalDaemonRunning();
+}
 
-  if (!isDaemonRunning(photonName)) {
+/**
+ * Get global daemon status
+ */
+export function getGlobalDaemonStatus(): DaemonStatus {
+  if (!isGlobalDaemonRunning()) {
     return {
       running: false,
-      photonName,
+      photonName: 'global',
     };
   }
 
-  const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+  const pid = parseInt(fs.readFileSync(GLOBAL_PID_FILE, 'utf-8').trim(), 10);
 
   return {
     running: true,
     pid,
-    photonName,
+    photonName: 'global',
   };
 }
 
 /**
- * Start daemon for a photon
+ * Get daemon status
+ * @deprecated Use getGlobalDaemonStatus(). photonName parameter is ignored.
  */
-export async function startDaemon(
-  photonName: string,
-  photonPath: string,
-  quiet: boolean = false
-): Promise<void> {
-  ensureDaemonDir();
+export function getDaemonStatus(_photonName?: string): DaemonStatus {
+  return getGlobalDaemonStatus();
+}
 
-  if (isDaemonRunning(photonName)) {
+/**
+ * Start the global Photon daemon if not already running
+ */
+export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
+  ensurePhotonDir();
+
+  if (isGlobalDaemonRunning()) {
     if (!quiet) {
-      logger.warn('Daemon already running', { photon: photonName });
+      logger.debug('Global daemon already running');
     }
     return;
   }
 
-  const pidFile = getPidFile(photonName);
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
 
   // Clean up old socket file if it exists
   if (fs.existsSync(socketPath) && process.platform !== 'win32') {
@@ -121,27 +139,26 @@ export async function startDaemon(
   }
 
   // Spawn daemon process
-  // The daemon server will be a separate Node process running the photon
   const daemonScript = path.join(__dirname, 'server.js');
 
   // Log daemon output to file for debugging
-  const logFile = path.join(DAEMON_DIR, `${photonName}.log`);
-  const logStream = fs.openSync(logFile, 'a');
+  const logStream = fs.openSync(GLOBAL_LOG_FILE, 'a');
 
-  const child = spawn(process.execPath, [daemonScript, photonName, photonPath, socketPath], {
+  // Global daemon doesn't need photonName/photonPath arguments
+  const child = spawn(process.execPath, [daemonScript, socketPath], {
     detached: true,
     stdio: ['ignore', logStream, logStream],
-    env: { ...process.env, PHOTON_DAEMON: 'true', PHOTON_NAME: photonName },
+    env: { ...process.env, PHOTON_DAEMON: 'true' },
   });
 
   // Detach the child process so it can continue running independently
   child.unref();
 
   // Write PID file
-  fs.writeFileSync(pidFile, child.pid!.toString());
+  fs.writeFileSync(GLOBAL_PID_FILE, child.pid!.toString());
 
   if (!quiet) {
-    logger.info('Started daemon', { photon: photonName, pid: child.pid });
+    logger.info('Started global Photon daemon', { pid: child.pid });
   }
 
   // Wait a bit for daemon to initialize
@@ -149,47 +166,68 @@ export async function startDaemon(
 }
 
 /**
- * Stop daemon for a photon
+ * Start daemon - ensures global daemon is running
+ * @deprecated Use startGlobalDaemon(). photonName/photonPath parameters are ignored.
  */
-export function stopDaemon(photonName: string): void {
-  const pidFile = getPidFile(photonName);
-  const socketPath = getSocketPath(photonName);
+export async function startDaemon(
+  _photonName?: string,
+  _photonPath?: string,
+  quiet: boolean = false
+): Promise<void> {
+  return startGlobalDaemon(quiet);
+}
 
-  if (!fs.existsSync(pidFile)) {
-    logger.warn('No daemon running', { photon: photonName });
+/**
+ * Ensure daemon is running, start if needed
+ */
+export async function ensureDaemon(quiet: boolean = true): Promise<void> {
+  if (!isGlobalDaemonRunning()) {
+    await startGlobalDaemon(quiet);
+  }
+}
+
+/**
+ * Stop the global daemon
+ */
+export function stopGlobalDaemon(): void {
+  const socketPath = getGlobalSocketPath();
+
+  if (!fs.existsSync(GLOBAL_PID_FILE)) {
+    logger.warn('No global daemon running');
     return;
   }
 
   try {
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+    const pid = parseInt(fs.readFileSync(GLOBAL_PID_FILE, 'utf-8').trim(), 10);
 
     // Send SIGTERM to gracefully shut down
     process.kill(pid, 'SIGTERM');
 
     // Clean up PID file
-    fs.unlinkSync(pidFile);
+    fs.unlinkSync(GLOBAL_PID_FILE);
 
     // Clean up socket file (Unix only)
     if (fs.existsSync(socketPath) && process.platform !== 'win32') {
       fs.unlinkSync(socketPath);
     }
 
-    logger.info('Stopped daemon', { photon: photonName, pid });
+    logger.info('Stopped global daemon', { pid });
   } catch (error) {
-    logger.error('Error stopping daemon', { photon: photonName, error: getErrorMessage(error) });
+    logger.error('Error stopping global daemon', { error: getErrorMessage(error) });
   }
 }
 
 /**
- * Stop all running daemons
+ * Stop daemon
+ * @deprecated Use stopGlobalDaemon(). photonName parameter is ignored.
+ */
+export function stopDaemon(_photonName?: string): void {
+  return stopGlobalDaemon();
+}
+
+/**
+ * Stop all daemons (now just stops the single global daemon)
  */
 export function stopAllDaemons(): void {
-  ensureDaemonDir();
-
-  const pidFiles = fs.readdirSync(DAEMON_DIR).filter((f) => f.endsWith('.pid'));
-
-  for (const pidFile of pidFiles) {
-    const photonName = pidFile.replace('.pid', '');
-    stopDaemon(photonName);
-  }
+  stopGlobalDaemon();
 }
