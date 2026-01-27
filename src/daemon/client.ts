@@ -10,7 +10,7 @@ import * as net from 'net';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
-import { getSocketPath } from './manager.js';
+import { getGlobalSocketPath } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 
@@ -48,7 +48,7 @@ export async function sendCommand(
   method: string,
   args: Record<string, any>
 ): Promise<any> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
 
   return new Promise((resolve, reject) => {
@@ -68,6 +68,7 @@ export async function sendCommand(
       const request: DaemonRequest = {
         type: 'command',
         id: requestId,
+        photonName,
         sessionId: SESSION_ID,
         clientType: 'cli',
         method,
@@ -154,15 +155,26 @@ export async function sendCommand(
 }
 
 /**
+ * Subscription options
+ */
+export interface SubscribeOptions {
+  /** Last event ID for replay on reconnect */
+  lastEventId?: string;
+  /** Handler for refresh-needed signal (when lastEventId is too old) */
+  onRefreshNeeded?: () => void;
+}
+
+/**
  * Subscribe to a channel on a daemon
  * Returns an unsubscribe function
  */
 export async function subscribeChannel(
   photonName: string,
   channel: string,
-  handler: (message: unknown) => void
+  handler: (message: unknown, eventId?: string) => void,
+  options?: SubscribeOptions
 ): Promise<() => void> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -175,8 +187,10 @@ export async function subscribeChannel(
       const request: DaemonRequest = {
         type: 'subscribe',
         id: subscribeId,
+        photonName,
         channel,
         clientType: 'beam',
+        lastEventId: options?.lastEventId,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -203,6 +217,7 @@ export async function subscribeChannel(
                 const unsubRequest: DaemonRequest = {
                   type: 'unsubscribe',
                   id: `unsub_${Date.now()}`,
+                  photonName,
                   channel,
                 };
                 client.write(JSON.stringify(unsubRequest) + '\n');
@@ -211,13 +226,20 @@ export async function subscribeChannel(
             });
           }
 
+          // Handle refresh-needed signal (lastEventId too old)
+          if (response.type === 'refresh_needed') {
+            if (options?.onRefreshNeeded) {
+              options.onRefreshNeeded();
+            }
+          }
+
           // Handle channel messages (supports wildcard subscriptions)
           if (response.type === 'channel_message' && response.channel) {
             const isMatch = channel.endsWith(':*')
               ? response.channel.startsWith(channel.slice(0, -1)) // "kanban:*" matches "kanban:anything"
               : response.channel === channel; // exact match
             if (isMatch) {
-              handler(response.message);
+              handler(response.message, response.eventId);
             }
           }
 
@@ -225,7 +247,7 @@ export async function subscribeChannel(
           if (response.type === 'error' && response.id === subscribeId) {
             reject(new Error(response.error || 'Subscription failed'));
           }
-        } catch (error) {
+        } catch {
           // Ignore parse errors for partial messages
         }
       }
@@ -253,7 +275,7 @@ export async function publishToChannel(
   channel: string,
   message: unknown
 ): Promise<void> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `pub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -268,6 +290,7 @@ export async function publishToChannel(
       const request: DaemonRequest = {
         type: 'publish',
         id: requestId,
+        photonName,
         channel,
         message,
       };
@@ -309,7 +332,7 @@ export async function acquireLock(
   lockName: string,
   timeout?: number
 ): Promise<boolean> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `lock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -324,6 +347,7 @@ export async function acquireLock(
       const request: DaemonRequest = {
         type: 'lock',
         id: requestId,
+        photonName,
         sessionId: SESSION_ID,
         lockName,
         lockTimeout: timeout,
@@ -362,7 +386,7 @@ export async function acquireLock(
  * Returns true if lock released, false if not held by this session
  */
 export async function releaseLock(photonName: string, lockName: string): Promise<boolean> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `unlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -377,6 +401,7 @@ export async function releaseLock(photonName: string, lockName: string): Promise
       const request: DaemonRequest = {
         type: 'unlock',
         id: requestId,
+        photonName,
         sessionId: SESSION_ID,
         lockName,
       };
@@ -415,7 +440,7 @@ export async function releaseLock(photonName: string, lockName: string): Promise
 export async function listLocks(
   photonName: string
 ): Promise<Array<{ name: string; holder: string; acquiredAt: number; expiresAt: number }>> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `listlocks_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -430,6 +455,7 @@ export async function listLocks(
       const request: DaemonRequest = {
         type: 'list_locks',
         id: requestId,
+        photonName,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -470,7 +496,7 @@ export async function scheduleJob(
   cron: string,
   args?: Record<string, unknown>
 ): Promise<{ scheduled: boolean; nextRun?: number }> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `schedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -485,6 +511,7 @@ export async function scheduleJob(
       const request: DaemonRequest = {
         type: 'schedule',
         id: requestId,
+        photonName,
         sessionId: SESSION_ID,
         jobId,
         method,
@@ -524,7 +551,7 @@ export async function scheduleJob(
  * Unschedule a job
  */
 export async function unscheduleJob(photonName: string, jobId: string): Promise<boolean> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `unschedule_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -539,6 +566,7 @@ export async function unscheduleJob(photonName: string, jobId: string): Promise<
       const request: DaemonRequest = {
         type: 'unschedule',
         id: requestId,
+        photonName,
         jobId,
       };
       client.write(JSON.stringify(request) + '\n');
@@ -583,7 +611,7 @@ export async function listJobs(photonName: string): Promise<
     runCount: number;
   }>
 > {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `listjobs_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -598,6 +626,7 @@ export async function listJobs(photonName: string): Promise<
       const request: DaemonRequest = {
         type: 'list_jobs',
         id: requestId,
+        photonName,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -636,7 +665,7 @@ export async function reloadDaemon(
   photonName: string,
   photonPath: string
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `reload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   return new Promise((resolve, reject) => {
@@ -651,6 +680,7 @@ export async function reloadDaemon(
       const request: DaemonRequest = {
         type: 'reload',
         id: requestId,
+        photonName,
         photonPath,
       };
       client.write(JSON.stringify(request) + '\n');
@@ -695,7 +725,7 @@ export async function reloadDaemon(
  * Ping daemon to check if it's responsive
  */
 export async function pingDaemon(photonName: string): Promise<boolean> {
-  const socketPath = getSocketPath(photonName);
+  const socketPath = getGlobalSocketPath();
   const requestId = `ping_${Date.now()}`;
 
   return new Promise((resolve) => {
@@ -710,6 +740,7 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
       const request: DaemonRequest = {
         type: 'ping',
         id: requestId,
+        photonName,
       };
 
       client.write(JSON.stringify(request) + '\n');
@@ -739,6 +770,70 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
       clearTimeout(timeout);
       client.destroy();
       resolve(false);
+    });
+  });
+}
+
+/**
+ * Get events since a specific eventId for a channel
+ * Used for explicit replay when client has missed events
+ */
+export async function getEventsSince(
+  photonName: string,
+  channel: string,
+  lastEventId: string
+): Promise<{ events: Array<{ eventId: string; message: unknown }>; refreshNeeded: boolean }> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `getevents_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const timeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Get events request timeout'));
+    }, 5000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'get_events_since',
+        id: requestId,
+        photonName,
+        channel,
+        lastEventId,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+
+        if (response.id === requestId) {
+          clearTimeout(timeout);
+          client.destroy();
+          if (response.type === 'result') {
+            const data = response.data as {
+              events: Array<{ eventId: string; message: unknown }>;
+              refreshNeeded?: boolean;
+            };
+            resolve({
+              events: data.events || [],
+              refreshNeeded: data.refreshNeeded || false,
+            });
+          } else {
+            reject(new Error(response.error || 'Get events failed'));
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(timeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
     });
   });
 }
