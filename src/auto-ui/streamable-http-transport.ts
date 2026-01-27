@@ -322,6 +322,7 @@ const handlers: Record<string, RequestHandler> = {
           description: method.description || `Execute ${method.name}`,
           inputSchema: method.params || { type: 'object', properties: {} },
           'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
+          'x-photon-path': photon.path, // File path for View Source
           ...buildToolMetadataExtensions(method),
         });
       }

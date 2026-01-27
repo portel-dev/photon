@@ -482,6 +482,7 @@ class MCPClientService {
         photonMap.set(photonName, {
           id: tool['x-photon-id'] || photonName, // Use hash ID, fallback to name
           name: photonName,
+          path: tool['x-photon-path'], // File path for View Source
           configured: true,
           methods: [],
         });
