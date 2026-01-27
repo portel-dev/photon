@@ -526,7 +526,7 @@ export class BeamApp extends LitElement {
         font-size: 0.9rem;
       }
 
-      /* Settings Menu Dropdown */
+      /* Header Toolbar */
       .header-toolbar {
         display: flex;
         align-items: center;
@@ -540,8 +540,82 @@ export class BeamApp extends LitElement {
         gap: var(--space-md);
       }
 
+      /* Desktop Action Toolbar */
+      .action-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .toolbar-btn {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        padding: 6px 10px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+      }
+
+      .toolbar-btn:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass-strong);
+        border-color: var(--accent-primary);
+      }
+
+      .toolbar-btn.icon-only {
+        padding: 6px 8px;
+      }
+
+      .toolbar-btn.icon-only span.label {
+        display: none;
+      }
+
+      .toolbar-btn.danger:hover {
+        border-color: #f87171;
+        color: #f87171;
+      }
+
+      .toolbar-btn.active {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .toolbar-divider {
+        width: 1px;
+        height: 24px;
+        background: var(--border-glass);
+        margin: 0 var(--space-xs);
+      }
+
+      .toolbar-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .toolbar-toggle .toggle-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--bg-glass-strong);
+        transition: background 0.2s ease;
+      }
+
+      .toolbar-toggle .toggle-indicator.active {
+        background: var(--accent-primary);
+      }
+
+      /* Mobile dropdown toggle */
       .settings-container {
         position: relative;
+        display: none;
       }
 
       .settings-btn {
@@ -976,6 +1050,15 @@ export class BeamApp extends LitElement {
 
         .photon-header-meta {
           flex-wrap: wrap;
+        }
+
+        /* Responsive toolbar: hide desktop, show mobile dropdown */
+        .action-toolbar {
+          display: none;
+        }
+
+        .settings-container {
+          display: block;
         }
 
         /* Settings dropdown positioning */
@@ -1644,29 +1727,16 @@ export class BeamApp extends LitElement {
                   <span style="font-size: 1.5rem;">${this._selectedPhoton.appEntry?.icon || '📱'}</span>
                   <h3 style="margin: 0; font-size: 1.2rem; color: var(--t-primary);">${this._selectedPhoton.name}</h3>
                 </div>
-                <div class="settings-container">
-                  <button class="settings-btn" @click=${this._toggleSettingsMenu}>
-                    <span>⚙️</span>
-                    <span>Settings</span>
-                  </button>
-                  ${this._showSettingsMenu ? html`
-                    <div class="settings-dropdown">
-                      <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
-                        <span class="icon">🖥️</span>
-                        <span>Launch as App</span>
-                      </button>
-                      <button class="settings-dropdown-item" @click=${this._handleRefresh}>
-                        <span class="icon">🔄</span>
-                        <span>Reload</span>
-                      </button>
-                      <div class="settings-dropdown-divider"></div>
-                      <button class="settings-dropdown-item danger" @click=${this._handleRemove}>
-                        <span class="icon">🗑️</span>
-                        <span>Remove</span>
-                      </button>
-                    </div>
-                  ` : ''}
-                </div>
+                ${this._renderActionToolbar({
+                  showLaunchApp: true,
+                  showReconfigure: false,
+                  showRememberValues: false,
+                  showRename: false,
+                  showViewSource: false,
+                  showDelete: false,
+                  showRemove: true,
+                  showHelp: false,
+                })}
               </div>
               <h4 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
                 Methods
@@ -1693,39 +1763,11 @@ export class BeamApp extends LitElement {
                 @click=${() => this._handleBackFromMethod()}
               >${backLabel}</button>
             </div>
-            <div class="settings-container">
-              <button class="settings-btn" @click=${this._toggleSettingsMenu}>
-                <span>⚙️</span>
-                <span>Settings</span>
-              </button>
-              ${this._showSettingsMenu ? html`
-                <div class="settings-dropdown">
-                  <button class="settings-dropdown-item" @click=${this._handleRefresh}>
-                    <span class="icon">🔄</span>
-                    <span>Refresh</span>
-                  </button>
-                  ${this._selectedPhoton.configured !== false ? html`
-                    <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
-                      <span class="icon">🔧</span>
-                      <span>Reconfigure</span>
-                    </button>
-                  ` : ''}
-                  <div class="settings-dropdown-divider"></div>
-                  <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
-                    <span style="display:flex;align-items:center;gap:10px;">
-                      <span class="icon">📝</span>
-                      <span>Remember Values</span>
-                    </span>
-                    <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
-                  </button>
-                  <div class="settings-dropdown-divider"></div>
-                  <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
-                    <span class="icon">📖</span>
-                    <span>Photon Help</span>
-                  </button>
-                </div>
-              ` : ''}
-            </div>
+            ${this._renderActionToolbar({
+              showRename: false,
+              showViewSource: false,
+              showDelete: false,
+            })}
           </div>
           ${this._renderMethodContent()}
         `;
@@ -1734,54 +1776,7 @@ export class BeamApp extends LitElement {
     return html`
         <div class="header-toolbar">
           <div class="header-left"></div>
-          <div class="settings-container">
-            <button class="settings-btn" @click=${this._toggleSettingsMenu}>
-              <span>⚙️</span>
-              <span>Settings</span>
-            </button>
-            ${this._showSettingsMenu ? html`
-              <div class="settings-dropdown">
-                <button class="settings-dropdown-item" @click=${this._handleRefresh}>
-                  <span class="icon">🔄</span>
-                  <span>Refresh</span>
-                </button>
-                ${this._selectedPhoton.configured !== false ? html`
-                  <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
-                    <span class="icon">🔧</span>
-                    <span>Reconfigure</span>
-                  </button>
-                ` : ''}
-                <div class="settings-dropdown-divider"></div>
-                <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
-                  <span style="display:flex;align-items:center;gap:10px;">
-                    <span class="icon">📝</span>
-                    <span>Remember Values</span>
-                  </span>
-                  <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
-                </button>
-                ${this._selectedPhoton.name !== 'maker' ? html`
-                  <div class="settings-dropdown-divider"></div>
-                  <button class="settings-dropdown-item" @click=${this._handleRenamePhoton}>
-                    <span class="icon">✏️</span>
-                    <span>Rename</span>
-                  </button>
-                  <button class="settings-dropdown-item" @click=${this._handleViewSource}>
-                    <span class="icon">📄</span>
-                    <span>View Source</span>
-                  </button>
-                  <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleDeletePhoton}>
-                    <span class="icon">🗑️</span>
-                    <span>Delete</span>
-                  </button>
-                ` : ''}
-                <div class="settings-dropdown-divider"></div>
-                <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
-                  <span class="icon">📖</span>
-                  <span>Photon Help</span>
-                </button>
-              </div>
-            ` : ''}
-          </div>
+          ${this._renderActionToolbar()}
         </div>
 
         ${this._renderPhotonHeader()}
@@ -2632,6 +2627,168 @@ export class BeamApp extends LitElement {
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * Renders the action toolbar for both desktop (inline buttons) and mobile (dropdown)
+   * @param options Configuration for which buttons to show
+   */
+  private _renderActionToolbar(options: {
+    showRefresh?: boolean;
+    showReconfigure?: boolean;
+    showRememberValues?: boolean;
+    showRename?: boolean;
+    showViewSource?: boolean;
+    showDelete?: boolean;
+    showHelp?: boolean;
+    showLaunchApp?: boolean;
+    showRemove?: boolean;
+  } = {}) {
+    const {
+      showRefresh = true,
+      showReconfigure = this._selectedPhoton?.configured !== false,
+      showRememberValues = true,
+      showRename = this._selectedPhoton?.name !== 'maker',
+      showViewSource = this._selectedPhoton?.name !== 'maker',
+      showDelete = this._selectedPhoton?.name !== 'maker',
+      showHelp = true,
+      showLaunchApp = false,
+      showRemove = false,
+    } = options;
+
+    return html`
+      <!-- Desktop Action Toolbar -->
+      <div class="action-toolbar">
+        ${showRefresh ? html`
+          <button class="toolbar-btn" @click=${this._handleRefresh} title="Refresh photon">
+            <span>🔄</span>
+            <span class="label">Refresh</span>
+          </button>
+        ` : ''}
+        ${showReconfigure ? html`
+          <button class="toolbar-btn" @click=${this._handleReconfigure} title="Reconfigure photon">
+            <span>🔧</span>
+            <span class="label">Configure</span>
+          </button>
+        ` : ''}
+        ${showRememberValues ? html`
+          <button class="toolbar-btn toolbar-toggle" @click=${this._toggleRememberValues} title="Remember form values between invocations">
+            <span>📝</span>
+            <span class="label">Remember</span>
+            <span class="toggle-indicator ${this._rememberFormValues ? 'active' : ''}"></span>
+          </button>
+        ` : ''}
+        ${showLaunchApp ? html`
+          <button class="toolbar-btn" @click=${() => this._launchAsApp()} title="Launch in separate window">
+            <span>🖥️</span>
+            <span class="label">Launch</span>
+          </button>
+        ` : ''}
+        ${(showRename || showViewSource || showDelete) ? html`
+          <span class="toolbar-divider"></span>
+        ` : ''}
+        ${showRename ? html`
+          <button class="toolbar-btn icon-only" @click=${this._handleRenamePhoton} title="Rename photon">
+            <span>✏️</span>
+          </button>
+        ` : ''}
+        ${showViewSource ? html`
+          <button class="toolbar-btn icon-only" @click=${this._handleViewSource} title="View source code">
+            <span>📄</span>
+          </button>
+        ` : ''}
+        ${showDelete ? html`
+          <button class="toolbar-btn icon-only danger" @click=${this._handleDeletePhoton} title="Delete photon">
+            <span>🗑️</span>
+          </button>
+        ` : ''}
+        ${showRemove ? html`
+          <button class="toolbar-btn icon-only danger" @click=${this._handleRemove} title="Remove from list">
+            <span>🗑️</span>
+          </button>
+        ` : ''}
+        ${showHelp ? html`
+          <span class="toolbar-divider"></span>
+          <button class="toolbar-btn icon-only" @click=${this._showPhotonHelpModal} title="Photon documentation">
+            <span>❓</span>
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Mobile Dropdown Menu -->
+      <div class="settings-container">
+        <button class="settings-btn" @click=${this._toggleSettingsMenu}>
+          <span>⚙️</span>
+          <span>Menu</span>
+        </button>
+        ${this._showSettingsMenu ? html`
+          <div class="settings-dropdown">
+            ${showLaunchApp ? html`
+              <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
+                <span class="icon">🖥️</span>
+                <span>Launch as App</span>
+              </button>
+            ` : ''}
+            ${showRefresh ? html`
+              <button class="settings-dropdown-item" @click=${this._handleRefresh}>
+                <span class="icon">🔄</span>
+                <span>Refresh</span>
+              </button>
+            ` : ''}
+            ${showReconfigure ? html`
+              <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
+                <span class="icon">🔧</span>
+                <span>Reconfigure</span>
+              </button>
+            ` : ''}
+            ${showRememberValues ? html`
+              <div class="settings-dropdown-divider"></div>
+              <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
+                <span style="display:flex;align-items:center;gap:10px;">
+                  <span class="icon">📝</span>
+                  <span>Remember Values</span>
+                </span>
+                <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
+              </button>
+            ` : ''}
+            ${(showRename || showViewSource || showDelete) ? html`
+              <div class="settings-dropdown-divider"></div>
+            ` : ''}
+            ${showRename ? html`
+              <button class="settings-dropdown-item" @click=${this._handleRenamePhoton}>
+                <span class="icon">✏️</span>
+                <span>Rename</span>
+              </button>
+            ` : ''}
+            ${showViewSource ? html`
+              <button class="settings-dropdown-item" @click=${this._handleViewSource}>
+                <span class="icon">📄</span>
+                <span>View Source</span>
+              </button>
+            ` : ''}
+            ${showDelete ? html`
+              <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleDeletePhoton}>
+                <span class="icon">🗑️</span>
+                <span>Delete</span>
+              </button>
+            ` : ''}
+            ${showRemove ? html`
+              <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleRemove}>
+                <span class="icon">🗑️</span>
+                <span>Remove</span>
+              </button>
+            ` : ''}
+            ${showHelp ? html`
+              <div class="settings-dropdown-divider"></div>
+              <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
+                <span class="icon">📖</span>
+                <span>Photon Help</span>
+              </button>
+            ` : ''}
+          </div>
+        ` : ''}
+      </div>
+    `;
   }
 
   private _renderPhotonHeader() {
