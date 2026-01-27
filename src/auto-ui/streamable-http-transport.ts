@@ -217,7 +217,7 @@ interface HandlerContext {
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
-    onClientViewingBoard: (sessionId: string, photon: string, board: string) => void;
+    onClientViewingBoard: (sessionId: string, photon: string, board: string, lastEventId?: number) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
 }
@@ -303,12 +303,14 @@ const handlers: Record<string, RequestHandler> = {
   // Client notifies what resource they're viewing (for on-demand subscriptions)
   // photonId: hash of photon path (unique across servers)
   // itemId: whatever the photon uses to identify the item (e.g., board name)
+  // lastEventId: optional - for replay of missed events on reconnect
   'beam/viewing': async (req, session, ctx) => {
-    const params = req.params as { photonId?: string; itemId?: string } | undefined;
+    const params = req.params as { photonId?: string; itemId?: string; lastEventId?: number } | undefined;
     const photonId = params?.photonId;
     const itemId = params?.itemId;
+    const lastEventId = params?.lastEventId;
     if (photonId && itemId && ctx.subscriptionManager) {
-      ctx.subscriptionManager.onClientViewingBoard(session.id, photonId, itemId);
+      ctx.subscriptionManager.onClientViewingBoard(session.id, photonId, itemId, lastEventId);
     }
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
@@ -1210,7 +1212,7 @@ export interface StreamableHTTPOptions {
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
-    onClientViewingBoard: (sessionId: string, photon: string, board: string) => void;
+    onClientViewingBoard: (sessionId: string, photon: string, board: string, lastEventId?: number) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
 }
@@ -1433,4 +1435,26 @@ export function getActiveSessionCount(): { total: number; beam: number } {
     }
   }
   return { total, beam };
+}
+
+/**
+ * Send a notification to a specific session by ID
+ * Used for replaying missed events on reconnect
+ */
+export function sendToSession(
+  sessionId: string,
+  method: string,
+  params?: Record<string, unknown>
+): boolean {
+  const session = sessions.get(sessionId);
+  if (!session?.sseResponse || session.sseResponse.writableEnded) {
+    return false;
+  }
+  const notification: JSONRPCRequest = {
+    jsonrpc: '2.0',
+    method,
+    params,
+  };
+  session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
+  return true;
 }

@@ -52,6 +52,7 @@ import {
   handleStreamableHTTP,
   broadcastNotification,
   broadcastToBeam,
+  sendToSession,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -483,6 +484,97 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   const channelSubscriptions = new Map<string, ChannelSubscription>();
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // EVENT BUFFER FOR REPLAY (Reliable Real-time Sync)
+  // Stores recent events per channel for replay on reconnect
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  interface BufferedEvent {
+    id: number;
+    method: string;
+    params: Record<string, unknown>;
+    timestamp: number;
+  }
+
+  interface ChannelBuffer {
+    events: BufferedEvent[];
+    nextId: number;
+  }
+
+  const EVENT_BUFFER_SIZE = 30; // Keep last 30 events per channel
+  const channelEventBuffers = new Map<string, ChannelBuffer>();
+
+  // Store an event in the channel buffer
+  function bufferEvent(channel: string, method: string, params: Record<string, unknown>): number {
+    let buffer = channelEventBuffers.get(channel);
+    if (!buffer) {
+      buffer = { events: [], nextId: 1 };
+      channelEventBuffers.set(channel, buffer);
+    }
+
+    const eventId = buffer.nextId++;
+    const event: BufferedEvent = {
+      id: eventId,
+      method,
+      params,
+      timestamp: Date.now(),
+    };
+
+    buffer.events.push(event);
+
+    // Keep only last N events (circular buffer)
+    if (buffer.events.length > EVENT_BUFFER_SIZE) {
+      buffer.events.shift();
+    }
+
+    return eventId;
+  }
+
+  // Replay missed events to a specific session, or signal refresh needed
+  function replayEventsToSession(
+    sessionId: string,
+    channel: string,
+    lastEventId?: number
+  ): { replayed: number; refreshNeeded: boolean } {
+    const buffer = channelEventBuffers.get(channel);
+
+    // No buffer = no events ever sent on this channel
+    if (!buffer || buffer.events.length === 0) {
+      return { replayed: 0, refreshNeeded: false };
+    }
+
+    // No lastEventId = client is fresh, no replay needed
+    if (lastEventId === undefined) {
+      return { replayed: 0, refreshNeeded: false };
+    }
+
+    const oldestEvent = buffer.events[0];
+
+    // If lastEventId is older than our oldest buffered event, signal refresh needed
+    if (lastEventId < oldestEvent.id) {
+      sendToSession(sessionId, 'photon/refresh-needed', { channel });
+      logger.info(`📡 Replay: ${channel} - lastEventId ${lastEventId} too old (oldest: ${oldestEvent.id}), refresh needed`);
+      return { replayed: 0, refreshNeeded: true };
+    }
+
+    // Find events to replay (all events after lastEventId)
+    const eventsToReplay = buffer.events.filter((e) => e.id > lastEventId);
+
+    if (eventsToReplay.length === 0) {
+      return { replayed: 0, refreshNeeded: false };
+    }
+
+    // Replay each missed event to this session
+    for (const event of eventsToReplay) {
+      sendToSession(sessionId, event.method, { ...event.params, _eventId: event.id });
+    }
+
+    logger.info(`📡 Replay: ${channel} - replayed ${eventsToReplay.length} events (${lastEventId + 1} to ${buffer.nextId - 1})`);
+    return { replayed: eventsToReplay.length, refreshNeeded: false };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+
   // Subscribe to a channel (increment ref count, actually subscribe if first)
   // Channel format: {photonId}:{itemId} (e.g., "a3f2b1c4d5e6:photon")
   async function subscribeToChannel(channel: string): Promise<void> {
@@ -518,13 +610,16 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         const unsubscribe = await subscribeChannel(photonName, daemonChannel, (message: any) => {
           // Forward channel messages as events with delta
           // Include both photonId (for client) and photonName (for display)
-          broadcastToBeam('photon/channel-event', {
+          const params = {
             photonId,
             photon: photonName,
             channel: daemonChannel,
             event: message?.event,
             data: message?.data || message,
-          });
+          };
+          // Buffer event for replay on reconnect
+          const eventId = bufferEvent(channel, 'photon/channel-event', params);
+          broadcastToBeam('photon/channel-event', { ...params, _eventId: eventId });
         });
         subscription.unsubscribe = unsubscribe;
         logger.info(`📡 Subscribed to ${daemonChannel} (id: ${photonId}, ref: 1)`);
@@ -559,7 +654,13 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   // Called when a client starts viewing a board (from MCP notification)
   // photonId: hash of photon path (unique across servers)
   // itemId: whatever the photon uses to identify the item (e.g., board name)
-  function onClientViewingBoard(sessionId: string, photonId: string, itemId: string): void {
+  // lastEventId: optional - if provided, replay missed events or signal refresh needed
+  function onClientViewingBoard(
+    sessionId: string,
+    photonId: string,
+    itemId: string,
+    lastEventId?: number
+  ): void {
     const prevState = sessionViewState.get(sessionId);
 
     // Unsubscribe from previous item if different
@@ -572,6 +673,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     const channel = `${photonId}:${itemId}`;
     sessionViewState.set(sessionId, { photonId, itemId });
     subscribeToChannel(channel);
+
+    // Replay missed events if lastEventId is provided
+    if (lastEventId !== undefined) {
+      replayEventsToSession(sessionId, channel, lastEventId);
+    }
   }
 
   // Called when a client disconnects
@@ -681,12 +787,22 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           }
           // Forward channel events (task-moved, task-updated, etc.) with delta
           else if (msg.type === 'channel-event') {
-            broadcastToBeam('photon/channel-event', {
+            const params = {
               photon: msg.photon,
               channel: msg.channel,
               event: msg.event,
               data: msg.data,
-            });
+            };
+            // Buffer event for replay - find photonId from name for consistent channel key
+            const photon = photons.find((p) => p.name === msg.photon);
+            if (photon && msg.channel) {
+              const [, itemId] = msg.channel.split(':');
+              const bufferChannel = `${photon.id}:${itemId}`;
+              const eventId = bufferEvent(bufferChannel, 'photon/channel-event', { ...params, photonId: photon.id });
+              broadcastToBeam('photon/channel-event', { ...params, photonId: photon.id, _eventId: eventId });
+            } else {
+              broadcastToBeam('photon/channel-event', params);
+            }
           }
           // Forward board-update for backwards compatibility
           else if (msg.type === 'board-update') {

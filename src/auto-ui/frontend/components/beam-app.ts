@@ -1566,6 +1566,25 @@ export class BeamApp extends LitElement {
         });
       });
 
+      // Handle refresh-needed (lastEventId too old) - forward to custom UI iframes
+      mcpClient.on('refresh-needed', (data: any) => {
+        const iframes: HTMLIFrameElement[] = [];
+        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
+          const iframe = renderer.shadowRoot?.querySelector('iframe');
+          if (iframe) iframes.push(iframe);
+        });
+        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
+        iframes.forEach((iframe) => {
+          iframe.contentWindow?.postMessage(
+            {
+              type: 'photon:refresh-needed',
+              ...data,
+            },
+            '*'
+          );
+        });
+      });
+
       // Handle errors
       mcpClient.on('error', (data: any) => {
         if (data?.message) {
