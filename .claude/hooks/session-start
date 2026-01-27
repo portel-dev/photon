@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Claude Code Session Start Hook - Kanban Task Notification
+# Notifies Claude about tasks assigned to AI at the start of each session.
+#
+
+BOARD="photon"
+BOARD_PATH="$HOME/.photon/kanban/boards/${BOARD}.json"
+
+# Exit silently if board doesn't exist
+[ ! -f "$BOARD_PATH" ] && exit 0
+
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+  exit 0
+fi
+
+# Get tasks assigned to AI that are in "In Progress" column
+TASKS=$(jq -r '.tasks[] | select(.assignee == "ai" and (.column | test("^in\\s*progress$"; "i"))) | .title' "$BOARD_PATH" 2>/dev/null)
+
+if [ -n "$TASKS" ]; then
+  COUNT=$(echo "$TASKS" | wc -l | tr -d ' ')
+  TASK_LIST=$(echo "$TASKS" | sed 's/^/- "/' | sed 's/$/"/')
+
+  # Output JSON message for Claude Code
+  cat << EOF
+{"message":"📋 You have ${COUNT} task(s) IN PROGRESS on kanban board \"${BOARD}\":\n${TASK_LIST}\n\nPlease address these tasks."}
+EOF
+fi
+
+exit 0
