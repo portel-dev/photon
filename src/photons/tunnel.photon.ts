@@ -34,23 +34,24 @@ export default class Tunnel {
       {
         name: 'localtunnel',
         available: true, // Always available via npx
-        note: 'Ready (uses npx, no install needed)'
+        note: 'Ready (uses npx, no install needed)',
       },
       {
         name: 'ngrok',
         available: this._checkCommand('ngrok'),
-        install: 'brew install ngrok  OR  https://ngrok.com/download'
+        install: 'brew install ngrok  OR  https://ngrok.com/download',
       },
       {
         name: 'cloudflared',
         available: this._checkCommand('cloudflared'),
-        install: 'brew install cloudflared  OR  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation'
-      }
+        install:
+          'brew install cloudflared  OR  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation',
+      },
     ];
 
     return {
       providers,
-      activeTunnels: Array.from(activeTunnels.values()).map(t => t.info)
+      activeTunnels: Array.from(activeTunnels.values()).map((t) => t.info),
     };
   }
 
@@ -60,11 +61,21 @@ export default class Tunnel {
    * @param provider Tunnel provider to use
    */
   async *start({
-    provider = 'localtunnel'
+    provider = 'localtunnel',
   }: {
     /** Provider: localtunnel, ngrok, or cloudflared */
     provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
-  } = {}): AsyncGenerator<{ step: string; message: string }, { message: string; url: string; link: string; provider: string; port: number; password?: string }> {
+  } = {}): AsyncGenerator<
+    { step: string; message: string },
+    {
+      message: string;
+      url: string;
+      link: string;
+      provider: string;
+      port: number;
+      password?: string;
+    }
+  > {
     // Auto-detect Beam port from environment
     const port = parseInt(process.env.BEAM_PORT || '3117', 10);
 
@@ -78,7 +89,7 @@ export default class Tunnel {
         link: existing.info.url,
         password: existing.info.provider === 'localtunnel' ? publicIp : undefined,
         provider: existing.info.provider,
-        port
+        port,
       };
     }
 
@@ -117,7 +128,7 @@ export default class Tunnel {
         port,
         url,
         pid: process.pid!,
-        startedAt: new Date()
+        startedAt: new Date(),
       };
 
       activeTunnels.set(port, { process, info });
@@ -128,9 +139,8 @@ export default class Tunnel {
         link: url,
         password: provider === 'localtunnel' ? publicIp : undefined,
         provider,
-        port
+        port,
       };
-
     } catch (error: any) {
       throw new Error(error.message);
     }
@@ -141,9 +151,11 @@ export default class Tunnel {
    * @icon ⏹️
    * @param port Port of the tunnel to stop
    */
-  async stop({ port }: {
+  async stop({
+    port,
+  }: {
     /** Port of the tunnel to stop */
-    port: number
+    port: number;
   }): Promise<{ stopped: boolean; message: string }> {
     const tunnel = activeTunnels.get(port);
 
@@ -156,7 +168,7 @@ export default class Tunnel {
 
     return {
       stopped: true,
-      message: `Stopped ${tunnel.info.provider} tunnel on port ${port}`
+      message: `Stopped ${tunnel.info.provider} tunnel on port ${port}`,
     };
   }
 
@@ -174,7 +186,7 @@ export default class Tunnel {
 
     return {
       stopped: count,
-      message: count > 0 ? `Stopped ${count} tunnel(s)` : 'No active tunnels'
+      message: count > 0 ? `Stopped ${count} tunnel(s)` : 'No active tunnels',
     };
   }
 
@@ -184,7 +196,7 @@ export default class Tunnel {
    */
   async list(): Promise<{ tunnels: TunnelInfo[] }> {
     return {
-      tunnels: Array.from(activeTunnels.values()).map(t => t.info)
+      tunnels: Array.from(activeTunnels.values()).map((t) => t.info),
     };
   }
 
@@ -203,17 +215,13 @@ export default class Tunnel {
 
   private async _getPublicIp(): Promise<string> {
     // Try multiple services in order
-    const services = [
-      'https://api.ipify.org',
-      'https://ifconfig.me/ip',
-      'https://icanhazip.com'
-    ];
+    const services = ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'];
 
     for (const service of services) {
       try {
         const result = execSync(`curl -s --max-time 3 ${service}`, {
           encoding: 'utf-8',
-          timeout: 5000
+          timeout: 5000,
         });
         const ip = result.trim();
         if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
@@ -229,7 +237,7 @@ export default class Tunnel {
   private async _startLocaltunnel(port: number): Promise<{ url: string; process: ChildProcess }> {
     return new Promise((resolve, reject) => {
       const proc = spawn('npx', ['localtunnel', '--port', String(port)], {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let output = '';
@@ -272,7 +280,7 @@ export default class Tunnel {
   private async _startNgrok(port: number): Promise<{ url: string; process: ChildProcess }> {
     return new Promise((resolve, reject) => {
       const proc = spawn('ngrok', ['http', String(port), '--log', 'stdout'], {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let output = '';
@@ -304,7 +312,7 @@ export default class Tunnel {
   private async _startCloudflared(port: number): Promise<{ url: string; process: ChildProcess }> {
     return new Promise((resolve, reject) => {
       const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`], {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let output = '';

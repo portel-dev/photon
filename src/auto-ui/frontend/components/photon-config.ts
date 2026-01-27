@@ -206,7 +206,7 @@ export class PhotonConfig extends LitElement {
           font-size: 0.7rem;
         }
       }
-    `
+    `,
   ];
 
   @property({ type: Object })
@@ -231,22 +231,18 @@ export class PhotonConfig extends LitElement {
         </p>
       </div>
 
-      ${this.photon.errorMessage ? html`
-        <div class="error-banner">
-          ${this.photon.errorMessage}
-        </div>
-      ` : ''}
+      ${this.photon.errorMessage
+        ? html` <div class="error-banner">${this.photon.errorMessage}</div> `
+        : ''}
 
       <form class="config-form" @submit=${this._handleSubmit}>
-        ${params.map(param => this._renderField(param))}
+        ${params.map((param) => this._renderField(param))}
 
-        <button
-          type="submit"
-          class="submit-btn"
-          ?disabled=${this._loading}
-        >
+        <button type="submit" class="submit-btn" ?disabled=${this._loading}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+            <path
+              d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"
+            />
           </svg>
           ${this._loading ? 'Configuring...' : 'Configure & Enable'}
         </button>
@@ -268,9 +264,11 @@ export class PhotonConfig extends LitElement {
           <span class="hint">${param.envVar}</span>
         </label>
 
-        ${isBoolean ? this._renderToggle(param, defaultValue) :
-          isNumber ? this._renderNumberInput(param, defaultValue, isRequired) :
-          this._renderTextInput(param, defaultValue, isRequired, isSecret)}
+        ${isBoolean
+          ? this._renderToggle(param, defaultValue)
+          : isNumber
+            ? this._renderNumberInput(param, defaultValue, isRequired)
+            : this._renderTextInput(param, defaultValue, isRequired, isSecret)}
       </div>
     `;
   }
@@ -283,12 +281,16 @@ export class PhotonConfig extends LitElement {
           type="button"
           class="toggle-btn ${!isOn ? 'active' : ''}"
           @click=${() => this._setToggle(param.envVar, false)}
-        >Off</button>
+        >
+          Off
+        </button>
         <button
           type="button"
           class="toggle-btn ${isOn ? 'active' : ''}"
           @click=${() => this._setToggle(param.envVar, true)}
-        >On</button>
+        >
+          On
+        </button>
       </div>
     `;
   }
@@ -301,12 +303,18 @@ export class PhotonConfig extends LitElement {
         .value=${this._formData[param.envVar] ?? defaultValue}
         placeholder="Enter ${param.name}..."
         ?required=${isRequired}
-        @input=${(e: Event) => this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
+        @input=${(e: Event) =>
+          this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
       />
     `;
   }
 
-  private _renderTextInput(param: ConfigParam, defaultValue: string, isRequired: boolean, isSecret: boolean) {
+  private _renderTextInput(
+    param: ConfigParam,
+    defaultValue: string,
+    isRequired: boolean,
+    isSecret: boolean
+  ) {
     return html`
       <input
         type="${isSecret ? 'password' : 'text'}"
@@ -314,17 +322,20 @@ export class PhotonConfig extends LitElement {
         .value=${this._formData[param.envVar] ?? defaultValue}
         placeholder="Enter ${param.name}..."
         ?required=${isRequired}
-        @input=${(e: Event) => this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
+        @input=${(e: Event) =>
+          this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
       />
     `;
   }
 
   private _isSecretField(name: string): boolean {
     const lower = name.toLowerCase();
-    return lower.includes('password') ||
-           lower.includes('secret') ||
-           lower.includes('key') ||
-           lower.includes('token');
+    return (
+      lower.includes('password') ||
+      lower.includes('secret') ||
+      lower.includes('key') ||
+      lower.includes('token')
+    );
   }
 
   private _setToggle(envVar: string, value: boolean) {
@@ -356,14 +367,16 @@ export class PhotonConfig extends LitElement {
     this._loading = true;
     showToast(`Configuring ${this.photon.name}...`, 'info');
 
-    this.dispatchEvent(new CustomEvent('configure', {
-      detail: {
-        photon: this.photon.name,
-        config
-      },
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('configure', {
+        detail: {
+          photon: this.photon.name,
+          config,
+        },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   // Called from parent when configuration completes

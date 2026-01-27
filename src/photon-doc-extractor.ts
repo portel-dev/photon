@@ -464,10 +464,10 @@ export class PhotonDocExtractor {
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
     const description = descMatch
       ? descMatch[1]
-        .split('\n')
-        .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-        .join(' ')
-        .trim()
+          .split('\n')
+          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
+          .join(' ')
+          .trim()
       : '';
 
     // Extract parameters from JSDoc @param tags
@@ -588,9 +588,9 @@ export class PhotonDocExtractor {
       photons: photonsTag ? photonsTag.split(/[,\s]+/).filter(Boolean) : [],
       npm: depsTag
         ? depsTag
-          .split(/[,\s]+/)
-          .map((d) => d.split('@')[0])
-          .filter(Boolean)
+            .split(/[,\s]+/)
+            .map((d) => d.split('@')[0])
+            .filter(Boolean)
         : [],
     };
   }

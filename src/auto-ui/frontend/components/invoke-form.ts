@@ -39,7 +39,9 @@ export class InvokeForm extends LitElement {
         margin-left: var(--space-xs);
       }
 
-      input, textarea, select {
+      input,
+      textarea,
+      select {
         width: 100%;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
@@ -50,7 +52,8 @@ export class InvokeForm extends LitElement {
         box-sizing: border-box;
       }
 
-      input:focus, textarea:focus {
+      input:focus,
+      textarea:focus {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -79,7 +82,7 @@ export class InvokeForm extends LitElement {
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
         color: white;
       }
-      
+
       .btn-primary:hover {
         opacity: 0.9;
         transform: translateY(-1px);
@@ -112,14 +115,16 @@ export class InvokeForm extends LitElement {
       .spinner {
         width: 16px;
         height: 16px;
-        border: 2px solid rgba(255,255,255,0.3);
+        border: 2px solid rgba(255, 255, 255, 0.3);
         border-top-color: white;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
       }
 
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .error-text {
@@ -128,11 +133,14 @@ export class InvokeForm extends LitElement {
         margin-top: var(--space-xs);
       }
 
-      input.error, textarea.error, select.error {
+      input.error,
+      textarea.error,
+      select.error {
         border-color: #f87171;
       }
 
-      input.error:focus, textarea.error:focus {
+      input.error:focus,
+      textarea.error:focus {
         box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
       }
 
@@ -179,7 +187,7 @@ export class InvokeForm extends LitElement {
         gap: var(--space-xs);
       }
 
-      .number-with-range input[type="range"] {
+      .number-with-range input[type='range'] {
         width: 100%;
         height: 6px;
         background: var(--bg-glass);
@@ -188,7 +196,7 @@ export class InvokeForm extends LitElement {
         -webkit-appearance: none;
       }
 
-      .number-with-range input[type="range"]::-webkit-slider-thumb {
+      .number-with-range input[type='range']::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 16px;
         height: 16px;
@@ -203,7 +211,7 @@ export class InvokeForm extends LitElement {
         gap: var(--space-sm);
       }
 
-      .number-input-row input[type="number"] {
+      .number-input-row input[type='number'] {
         width: 100px;
       }
 
@@ -220,7 +228,9 @@ export class InvokeForm extends LitElement {
           padding: var(--space-md);
         }
 
-        input, textarea, select {
+        input,
+        textarea,
+        select {
           min-height: 44px;
           font-size: 16px; /* Prevent iOS zoom */
         }
@@ -249,7 +259,7 @@ export class InvokeForm extends LitElement {
           align-items: stretch;
         }
 
-        .number-input-row input[type="number"] {
+        .number-input-row input[type='number'] {
           width: 100%;
         }
 
@@ -262,7 +272,7 @@ export class InvokeForm extends LitElement {
           justify-content: center;
         }
       }
-    `
+    `,
   ];
 
   @property({ type: Object })
@@ -304,7 +314,11 @@ export class InvokeForm extends LitElement {
 
   updated(changedProps: Map<string, unknown>) {
     // Reload persisted values when photon/method or remember setting changes
-    if (changedProps.has('photonName') || changedProps.has('methodName') || changedProps.has('rememberValues')) {
+    if (
+      changedProps.has('photonName') ||
+      changedProps.has('methodName') ||
+      changedProps.has('rememberValues')
+    ) {
       this._loadPersistedValues();
     }
     // Apply shared values from URL (takes priority over persisted values)
@@ -339,9 +353,12 @@ export class InvokeForm extends LitElement {
 
     try {
       if (this.rememberValues) {
-        localStorage.setItem(this._storageKey, JSON.stringify({
-          values: this._values
-        }));
+        localStorage.setItem(
+          this._storageKey,
+          JSON.stringify({
+            values: this._values,
+          })
+        );
       }
     } catch (e) {
       console.warn('Failed to save form values:', e);
@@ -363,7 +380,9 @@ export class InvokeForm extends LitElement {
         ${this._renderFields()}
 
         <div class="actions">
-          <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>Cancel</button>
+          <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
+            Cancel
+          </button>
           <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
             ${this.loading
               ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
@@ -391,16 +410,15 @@ export class InvokeForm extends LitElement {
       const error = this._errors[key];
 
       return html`
-              <div class="form-group">
-                <label>
-                  ${key}
-                  ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
-                  ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
-                </label>
-                ${this._renderInput(key, schema, !!error)}
-                ${error ? html`<div class="error-text">${error}</div>` : ''}
-              </div>
-            `;
+        <div class="form-group">
+          <label>
+            ${key} ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
+            ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
+          </label>
+          ${this._renderInput(key, schema, !!error)}
+          ${error ? html`<div class="error-text">${error}</div>` : ''}
+        </div>
+      `;
     });
   }
 
@@ -412,14 +430,14 @@ export class InvokeForm extends LitElement {
     if (isBoolean) {
       return html`
         <label class="switch">
-            <input
-                type="checkbox"
-                .checked=${!!this._values[key]}
-                @change=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).checked)}
-            >
-            <span class="slider"></span>
+          <input
+            type="checkbox"
+            .checked=${!!this._values[key]}
+            @change=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).checked)}
+          />
+          <span class="slider"></span>
         </label>
-        `;
+      `;
     }
 
     // Handle Array of Enums -> Multiselect
@@ -429,20 +447,22 @@ export class InvokeForm extends LitElement {
 
       return html`
         <div class="multiselect-container">
-          ${enumValues.map(val => html`
-            <label
-              class="multiselect-option ${selectedValues.includes(val) ? 'selected' : ''}"
-              @click=${() => this._toggleMultiselect(key, val)}
-            >
-              <input
-                type="checkbox"
-                .checked=${selectedValues.includes(val)}
-                @click=${(e: Event) => e.stopPropagation()}
-                @change=${() => this._toggleMultiselect(key, val)}
+          ${enumValues.map(
+            (val) => html`
+              <label
+                class="multiselect-option ${selectedValues.includes(val) ? 'selected' : ''}"
+                @click=${() => this._toggleMultiselect(key, val)}
               >
-              ${val}
-            </label>
-          `)}
+                <input
+                  type="checkbox"
+                  .checked=${selectedValues.includes(val)}
+                  @click=${(e: Event) => e.stopPropagation()}
+                  @change=${() => this._toggleMultiselect(key, val)}
+                />
+                ${val}
+              </label>
+            `
+          )}
         </div>
       `;
     }
@@ -451,18 +471,25 @@ export class InvokeForm extends LitElement {
     if ((schema as any).enum) {
       const currentValue = this._values[key] || '';
       return html`
-        <select class="${errorClass}" .value=${currentValue} @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}>
-            <option value="">Select...</option>
-            ${(schema as any).enum.map((val: string) => html`
-            <option value=${val} ?selected=${val === currentValue}>${val}</option>
-            `)}
+        <select
+          class="${errorClass}"
+          .value=${currentValue}
+          @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}
+        >
+          <option value="">Select...</option>
+          ${(schema as any).enum.map(
+            (val: string) => html`
+              <option value=${val} ?selected=${val === currentValue}>${val}</option>
+            `
+          )}
         </select>
-        `;
+      `;
     }
 
     // Handle Number with min/max -> Number Input with Range Slider
     if (schema.type === 'number' || schema.type === 'integer') {
-      const hasRange = (schema as any).minimum !== undefined && (schema as any).maximum !== undefined;
+      const hasRange =
+        (schema as any).minimum !== undefined && (schema as any).maximum !== undefined;
       const min = (schema as any).minimum ?? 0;
       const max = (schema as any).maximum ?? 100;
       const step = schema.type === 'integer' ? 1 : 0.1;
@@ -479,16 +506,18 @@ export class InvokeForm extends LitElement {
                 max="${max}"
                 step="${step}"
                 .value=${String(currentValue)}
-                @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-              >
+                @input=${(e: Event) =>
+                  this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+              />
               <input
                 type="range"
                 min="${min}"
                 max="${max}"
                 step="${step}"
                 .value=${String(currentValue)}
-                @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-              >
+                @input=${(e: Event) =>
+                  this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+              />
             </div>
             <div class="range-labels">
               <span>${min}</span>
@@ -500,12 +529,13 @@ export class InvokeForm extends LitElement {
 
       return html`
         <input
-            type="number"
-            class="${errorClass}"
-            .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
-            @input=${(e: Event) => this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-        >
-        `;
+          type="number"
+          class="${errorClass}"
+          .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
+          @input=${(e: Event) =>
+            this._handleChange(key, Number((e.target as HTMLInputElement).value))}
+        />
+      `;
     }
 
     // Handle File Paths -> File Picker
@@ -520,13 +550,13 @@ export class InvokeForm extends LitElement {
       // Support @accept filter from schema (e.g., ".ts,.js" or "*.photon.ts")
       const acceptFilter = (schema as any).accept || '';
       return html`
-          <file-picker
-            .value=${this._values[key] || ''}
-            .hasError=${hasError}
-            .accept=${acceptFilter}
-            @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
-          ></file-picker>
-        `;
+        <file-picker
+          .value=${this._values[key] || ''}
+          .hasError=${hasError}
+          .accept=${acceptFilter}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></file-picker>
+      `;
     }
 
     // Default -> Text Input
@@ -536,7 +566,7 @@ export class InvokeForm extends LitElement {
         class="${errorClass}"
         .value=${this._values[key] || ''}
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
-      >
+      />
     `;
   }
 
@@ -545,7 +575,7 @@ export class InvokeForm extends LitElement {
     let newValues: string[];
 
     if (currentValues.includes(value)) {
-      newValues = currentValues.filter(v => v !== value);
+      newValues = currentValues.filter((v) => v !== value);
     } else {
       newValues = [...currentValues, value];
     }

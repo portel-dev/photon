@@ -87,19 +87,19 @@ export const theme = css`
     bottom: 0;
     background-color: var(--bg-glass);
     border: 1px solid var(--border-glass);
-    transition: .4s;
+    transition: 0.4s;
     border-radius: 24px;
   }
 
   .slider:before {
     position: absolute;
-    content: "";
+    content: '';
     height: 18px;
     width: 18px;
     left: 2px;
     bottom: 2px;
     background-color: var(--t-muted);
-    transition: .4s;
+    transition: 0.4s;
     border-radius: 50%;
   }
 

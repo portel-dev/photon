@@ -4,29 +4,29 @@ import { theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 
 interface MarketplaceItem {
-    name: string;
-    description: string;
-    author: string;
-    tags: string[];
-    marketplace: string;
-    version: string;
-    icon?: string;
-    internal?: boolean;
+  name: string;
+  description: string;
+  author: string;
+  tags: string[];
+  marketplace: string;
+  version: string;
+  icon?: string;
+  internal?: boolean;
 }
 
 interface MarketplaceSource {
-    name: string;
-    source: string;
-    sourceType: string;
-    enabled: boolean;
-    photonCount: number;
+  name: string;
+  source: string;
+  sourceType: string;
+  enabled: boolean;
+  photonCount: number;
 }
 
 @customElement('marketplace-view')
 export class MarketplaceView extends LitElement {
-    static styles = [
-        theme,
-        css`
+  static styles = [
+    theme,
+    css`
       :host {
         display: block;
         height: 100%;
@@ -77,12 +77,14 @@ export class MarketplaceView extends LitElement {
         padding: var(--space-md);
         display: flex;
         flex-direction: column;
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
       }
 
       .card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         border-color: var(--accent-secondary);
       }
 
@@ -122,7 +124,7 @@ export class MarketplaceView extends LitElement {
       .tag {
         font-size: 0.7rem;
         padding: 2px 8px;
-        background: rgba(255,255,255,0.05);
+        background: rgba(255, 255, 255, 0.05);
         border-radius: 10px;
         color: var(--t-muted);
       }
@@ -147,7 +149,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .source-local {
-        background: rgba(255,255,255,0.1);
+        background: rgba(255, 255, 255, 0.1);
         color: var(--t-muted);
         border: 1px solid var(--border-glass);
       }
@@ -200,7 +202,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .filter-pill .count {
-        background: rgba(255,255,255,0.2);
+        background: rgba(255, 255, 255, 0.2);
         padding: 2px 6px;
         border-radius: 10px;
         font-size: 0.75rem;
@@ -208,7 +210,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .filter-pill.active .count {
-        background: rgba(255,255,255,0.3);
+        background: rgba(255, 255, 255, 0.3);
       }
 
       .filter-pill .remove-btn {
@@ -257,7 +259,7 @@ export class MarketplaceView extends LitElement {
       .btn-install:hover {
         opacity: 0.9;
       }
-      
+
       .btn-install:disabled {
         opacity: 0.5;
         cursor: not-allowed;
@@ -606,41 +608,41 @@ export class MarketplaceView extends LitElement {
           font-size: 0.75rem;
         }
       }
-    `
-    ];
+    `,
+  ];
 
-    @state()
-    private _items: MarketplaceItem[] = [];
+  @state()
+  private _items: MarketplaceItem[] = [];
 
-    @state()
-    private _allItems: MarketplaceItem[] = [];
+  @state()
+  private _allItems: MarketplaceItem[] = [];
 
-    @state()
-    private _sources: MarketplaceSource[] = [];
+  @state()
+  private _sources: MarketplaceSource[] = [];
 
-    @state()
-    private _activeFilter: string | null = null;
+  @state()
+  private _activeFilter: string | null = null;
 
-    @state()
-    private _loading = false;
+  @state()
+  private _loading = false;
 
-    @state()
-    private _installing: string | null = null;
+  @state()
+  private _installing: string | null = null;
 
-    @state()
-    private _showAddRepoModal = false;
+  @state()
+  private _showAddRepoModal = false;
 
-    @state()
-    private _repoInput = '';
+  @state()
+  private _repoInput = '';
 
-    async connectedCallback() {
-        super.connectedCallback();
-        await this._fetchSources();
-        await this._fetchItems();
-    }
+  async connectedCallback() {
+    super.connectedCallback();
+    await this._fetchSources();
+    await this._fetchItems();
+  }
 
-    render() {
-        return html`
+  render() {
+    return html`
       <!-- Actions Toolbar -->
       <div class="actions-toolbar">
         <div class="toolbar-section">
@@ -655,7 +657,11 @@ export class MarketplaceView extends LitElement {
 
         <div class="toolbar-section">
           <span class="toolbar-section-title">Marketplaces</span>
-          <button class="toolbar-btn primary" @click=${() => this._showAddRepoModal = true} title="Add a new marketplace">
+          <button
+            class="toolbar-btn primary"
+            @click=${() => (this._showAddRepoModal = true)}
+            title="Add a new marketplace"
+          >
             <span class="icon">+</span>
             <span>Add Marketplace</span>
           </button>
@@ -678,11 +684,7 @@ export class MarketplaceView extends LitElement {
 
       <div class="toolbar">
         <div class="search-box">
-          <input
-            type="text"
-            placeholder="Search photons..."
-            @input=${this._handleSearch}
-          >
+          <input type="text" placeholder="Search photons..." @input=${this._handleSearch} />
         </div>
       </div>
 
@@ -695,303 +697,337 @@ export class MarketplaceView extends LitElement {
           All
           <span class="count">${this._allItems.length}</span>
         </button>
-        ${this._sources.filter(s => s.enabled).map(source => html`
-          <button
-            class="filter-pill ${this._activeFilter === source.name ? 'active' : ''}"
-            @click=${() => this._filterBySource(source.name)}
-            title=${source.source}
-          >
-            ${source.name}
-            <span class="count">${source.photonCount}</span>
-            <span class="remove-btn" @click=${(e: Event) => { e.stopPropagation(); this._removeSource(source.name); }} title="Remove marketplace">✕</span>
-          </button>
-        `)}
+        ${this._sources
+          .filter((s) => s.enabled)
+          .map(
+            (source) => html`
+              <button
+                class="filter-pill ${this._activeFilter === source.name ? 'active' : ''}"
+                @click=${() => this._filterBySource(source.name)}
+                title=${source.source}
+              >
+                ${source.name}
+                <span class="count">${source.photonCount}</span>
+                <span
+                  class="remove-btn"
+                  @click=${(e: Event) => {
+                    e.stopPropagation();
+                    this._removeSource(source.name);
+                  }}
+                  title="Remove marketplace"
+                  >✕</span
+                >
+              </button>
+            `
+          )}
       </div>
 
       ${this._loading
-                ? html`<div style="text-align: center; color: var(--t-muted); padding: 40px;">Loading marketplace...</div>`
-                : html`
-            <div class="grid">
-              ${this._items.map(item => this._renderItem(item))}
-            </div>
-          `
-            }
-
+        ? html`<div style="text-align: center; color: var(--t-muted); padding: 40px;">
+            Loading marketplace...
+          </div>`
+        : html` <div class="grid">${this._items.map((item) => this._renderItem(item))}</div> `}
       ${this._showAddRepoModal ? this._renderAddRepoModal() : ''}
     `;
-    }
+  }
 
-    private _renderAddRepoModal() {
-        return html`
-      <div class="modal-overlay" @click=${(e: Event) => {
-            if (e.target === e.currentTarget) this._showAddRepoModal = false;
-        }}>
+  private _renderAddRepoModal() {
+    return html`
+      <div
+        class="modal-overlay"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._showAddRepoModal = false;
+        }}
+      >
         <div class="modal">
           <div class="modal-header">
             <h3>Add Marketplace</h3>
-            <button class="modal-close" @click=${() => this._showAddRepoModal = false}>✕</button>
+            <button class="modal-close" @click=${() => (this._showAddRepoModal = false)}>✕</button>
           </div>
           <div class="modal-body">
             <input
               type="text"
               placeholder="Enter GitHub repo, local path, or URL"
               .value=${this._repoInput}
-              @input=${(e: Event) => this._repoInput = (e.target as HTMLInputElement).value}
+              @input=${(e: Event) => (this._repoInput = (e.target as HTMLInputElement).value)}
               @keydown=${(e: KeyboardEvent) => {
-            if (e.key === 'Enter') this._addRepository();
-        }}
+                if (e.key === 'Enter') this._addRepository();
+              }}
               autofocus
-            >
+            />
             <table class="formats-table">
               <tbody>
-                <tr><td class="type-label">GitHub</td><td><code>username/repo</code></td></tr>
-                <tr><td class="type-label">GitHub URL</td><td><code>https://github.com/user/repo</code></td></tr>
-                <tr><td class="type-label">SSH</td><td><code>git@github.com:user/repo.git</code></td></tr>
-                <tr><td class="type-label">Local</td><td><code>~/path/to/folder</code></td></tr>
-                <tr><td class="type-label">URL</td><td><code>https://example.com/photons.json</code></td></tr>
+                <tr>
+                  <td class="type-label">GitHub</td>
+                  <td><code>username/repo</code></td>
+                </tr>
+                <tr>
+                  <td class="type-label">GitHub URL</td>
+                  <td><code>https://github.com/user/repo</code></td>
+                </tr>
+                <tr>
+                  <td class="type-label">SSH</td>
+                  <td><code>git@github.com:user/repo.git</code></td>
+                </tr>
+                <tr>
+                  <td class="type-label">Local</td>
+                  <td><code>~/path/to/folder</code></td>
+                </tr>
+                <tr>
+                  <td class="type-label">URL</td>
+                  <td><code>https://example.com/photons.json</code></td>
+                </tr>
               </tbody>
             </table>
           </div>
           <div class="modal-footer">
-            <button class="toolbar-btn" @click=${() => this._showAddRepoModal = false}>Cancel</button>
+            <button class="toolbar-btn" @click=${() => (this._showAddRepoModal = false)}>
+              Cancel
+            </button>
             <button class="toolbar-btn primary" @click=${this._addRepository}>Add</button>
           </div>
         </div>
       </div>
     `;
-    }
+  }
 
-    private _renderItem(item: MarketplaceItem) {
-        const isInstalling = this._installing === item.name;
-        const sourceClass = this._getSourceClass(item.marketplace);
+  private _renderItem(item: MarketplaceItem) {
+    const isInstalling = this._installing === item.name;
+    const sourceClass = this._getSourceClass(item.marketplace);
 
-        return html`
+    return html`
       <div class="card glass ${item.internal ? 'internal' : ''}">
         <div class="card-header">
           <div>
             <div class="card-title">
-              ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''}
-              ${item.name}
+              ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''} ${item.name}
             </div>
             <div class="card-author">by ${item.author}</div>
           </div>
           <div class="card-meta">
             ${item.internal ? html`<span class="source-pill source-internal">System</span>` : ''}
             <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
-            <div class="tag" style="background: var(--accent-secondary); color: black;">${item.version}</div>
+            <div class="tag" style="background: var(--accent-secondary); color: black;">
+              ${item.version}
+            </div>
           </div>
         </div>
 
         <div class="card-desc">${item.description}</div>
 
-        <div class="tags">
-          ${item.tags.map(tag => html`<span class="tag">${tag}</span>`)}
-        </div>
+        <div class="tags">${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}</div>
 
         <div class="actions">
-          <button
-            class="btn-install"
-            ?disabled=${isInstalling}
-            @click=${() => this._install(item)}
-          >
+          <button class="btn-install" ?disabled=${isInstalling} @click=${() => this._install(item)}>
             ${isInstalling ? 'Installing...' : 'Install'}
           </button>
         </div>
       </div>
     `;
+  }
+
+  private _getSourceClass(marketplace: string): string {
+    const lower = marketplace?.toLowerCase() || '';
+    if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
+      return 'source-official';
+    }
+    if (lower.includes('community') || lower.includes('github')) {
+      return 'source-community';
+    }
+    return 'source-local';
+  }
+
+  private _getSourceLabel(marketplace: string): string {
+    const lower = marketplace?.toLowerCase() || '';
+    if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
+      return 'Official';
+    }
+    if (lower.includes('community')) {
+      return 'Community';
+    }
+    if (lower.includes('github')) {
+      return 'GitHub';
+    }
+    return marketplace || 'Local';
+  }
+
+  private async _fetchSources() {
+    try {
+      const res = await fetch('/api/marketplace/sources', {
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      this._sources = data.sources || [];
+    } catch (e) {
+      console.error('Failed to fetch marketplace sources', e);
+    }
+  }
+
+  private async _fetchItems(query = '') {
+    this._loading = true;
+    try {
+      const endpoint = query
+        ? `/api/marketplace/search?q=${encodeURIComponent(query)}`
+        : '/api/marketplace/list';
+
+      const res = await fetch(endpoint, {
+        signal: AbortSignal.timeout(30000), // marketplace fetch can be slow
+      });
+      const data = await res.json();
+      this._allItems = data.photons || [];
+      this._applyFilter();
+    } catch (e) {
+      console.error('Failed to fetch marketplace', e);
+    } finally {
+      this._loading = false;
+    }
+  }
+
+  private _filterBySource(sourceName: string | null) {
+    this._activeFilter = sourceName;
+    this._applyFilter();
+  }
+
+  private _applyFilter() {
+    if (this._activeFilter === null) {
+      this._items = this._allItems;
+    } else {
+      this._items = this._allItems.filter((item) => item.marketplace === this._activeFilter);
+    }
+  }
+
+  private async _removeSource(name: string) {
+    if (!confirm(`Remove marketplace "${name}"? This will not uninstall any photons.`)) {
+      return;
     }
 
-    private _getSourceClass(marketplace: string): string {
-        const lower = marketplace?.toLowerCase() || '';
-        if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
-            return 'source-official';
+    try {
+      const res = await fetch('/api/marketplace/sources/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (res.ok) {
+        showToast(`Removed marketplace: ${name}`, 'success');
+        if (this._activeFilter === name) {
+          this._activeFilter = null;
         }
-        if (lower.includes('community') || lower.includes('github')) {
-            return 'source-community';
-        }
-        return 'source-local';
+        await this._fetchSources();
+        await this._fetchItems();
+      } else {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to remove marketplace');
+      }
+    } catch (e: any) {
+      showToast(e.message, 'error');
     }
+  }
 
-    private _getSourceLabel(marketplace: string): string {
-        const lower = marketplace?.toLowerCase() || '';
-        if (lower.includes('official') || lower === 'photon' || lower === 'portel') {
-            return 'Official';
-        }
-        if (lower.includes('community')) {
-            return 'Community';
-        }
-        if (lower.includes('github')) {
-            return 'GitHub';
-        }
-        return marketplace || 'Local';
-    }
+  // Debounce search
+  private _searchTimeout: any;
+  private _handleSearch(e: Event) {
+    const query = (e.target as HTMLInputElement).value;
+    clearTimeout(this._searchTimeout);
+    this._searchTimeout = setTimeout(() => {
+      this._fetchItems(query);
+    }, 300);
+  }
 
-    private async _fetchSources() {
-        try {
-            const res = await fetch('/api/marketplace/sources', {
-                signal: AbortSignal.timeout(10000),
-            });
-            const data = await res.json();
-            this._sources = data.sources || [];
-        } catch (e) {
-            console.error('Failed to fetch marketplace sources', e);
-        }
-    }
+  private async _install(item: MarketplaceItem) {
+    this._installing = item.name;
+    try {
+      const res = await fetch('/api/marketplace/add', {
+        method: 'POST',
+        body: JSON.stringify({ name: item.name }),
+        signal: AbortSignal.timeout(30000), // 30s for installation
+      });
 
-    private async _fetchItems(query = '') {
-        this._loading = true;
-        try {
-            const endpoint = query
-                ? `/api/marketplace/search?q=${encodeURIComponent(query)}`
-                : '/api/marketplace/list';
-
-            const res = await fetch(endpoint, {
-                signal: AbortSignal.timeout(30000), // marketplace fetch can be slow
-            });
-            const data = await res.json();
-            this._allItems = data.photons || [];
-            this._applyFilter();
-        } catch (e) {
-            console.error('Failed to fetch marketplace', e);
-        } finally {
-            this._loading = false;
-        }
-    }
-
-    private _filterBySource(sourceName: string | null) {
-        this._activeFilter = sourceName;
-        this._applyFilter();
-    }
-
-    private _applyFilter() {
-        if (this._activeFilter === null) {
-            this._items = this._allItems;
-        } else {
-            this._items = this._allItems.filter(item => item.marketplace === this._activeFilter);
-        }
-    }
-
-    private async _removeSource(name: string) {
-        if (!confirm(`Remove marketplace "${name}"? This will not uninstall any photons.`)) {
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/marketplace/sources/remove', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name }),
-                signal: AbortSignal.timeout(10000),
-            });
-
-            if (res.ok) {
-                showToast(`Removed marketplace: ${name}`, 'success');
-                if (this._activeFilter === name) {
-                    this._activeFilter = null;
-                }
-                await this._fetchSources();
-                await this._fetchItems();
-            } else {
-                const data = await res.json();
-                throw new Error(data.error || 'Failed to remove marketplace');
-            }
-        } catch (e: any) {
-            showToast(e.message, 'error');
-        }
-    }
-
-    // Debounce search
-    private _searchTimeout: any;
-    private _handleSearch(e: Event) {
-        const query = (e.target as HTMLInputElement).value;
-        clearTimeout(this._searchTimeout);
-        this._searchTimeout = setTimeout(() => {
-            this._fetchItems(query);
-        }, 300);
-    }
-
-    private async _install(item: MarketplaceItem) {
-        this._installing = item.name;
-        try {
-            const res = await fetch('/api/marketplace/add', {
-                method: 'POST',
-                body: JSON.stringify({ name: item.name }),
-                signal: AbortSignal.timeout(30000), // 30s for installation
-            });
-
-            if (res.ok) {
-                this.dispatchEvent(new CustomEvent('install', {
-                    detail: { name: item.name },
-                    bubbles: true,
-                    composed: true
-                }));
-                showToast(`Successfully installed ${item.name}`, 'success');
-            } else {
-                const err = await res.json();
-                showToast(`Failed to install: ${err.error}`, 'error', 5000);
-            }
-        } catch (e) {
-            showToast('Installation failed', 'error', 5000);
-        } finally {
-            this._installing = null;
-        }
-    }
-
-    // Maker static method actions
-    private _createNew() {
-        this.dispatchEvent(new CustomEvent('maker-action', {
-            detail: { action: 'new' },
+      if (res.ok) {
+        this.dispatchEvent(
+          new CustomEvent('install', {
+            detail: { name: item.name },
             bubbles: true,
-            composed: true
-        }));
+            composed: true,
+          })
+        );
+        showToast(`Successfully installed ${item.name}`, 'success');
+      } else {
+        const err = await res.json();
+        showToast(`Failed to install: ${err.error}`, 'error', 5000);
+      }
+    } catch (e) {
+      showToast('Installation failed', 'error', 5000);
+    } finally {
+      this._installing = null;
+    }
+  }
+
+  // Maker static method actions
+  private _createNew() {
+    this.dispatchEvent(
+      new CustomEvent('maker-action', {
+        detail: { action: 'new' },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _syncPhotons() {
+    this.dispatchEvent(
+      new CustomEvent('maker-action', {
+        detail: { action: 'sync' },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _validatePhotons() {
+    this.dispatchEvent(
+      new CustomEvent('maker-action', {
+        detail: { action: 'validate' },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private async _addRepository() {
+    const source = this._repoInput.trim();
+    if (!source) {
+      showToast('Please enter a marketplace location', 'error');
+      return;
     }
 
-    private _syncPhotons() {
-        this.dispatchEvent(new CustomEvent('maker-action', {
-            detail: { action: 'sync' },
-            bubbles: true,
-            composed: true
-        }));
+    try {
+      const res = await fetch('/api/marketplace/sources/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+        signal: AbortSignal.timeout(30000), // 30s for adding repo
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add repository');
+      }
+
+      this._showAddRepoModal = false;
+      this._repoInput = '';
+      showToast(
+        data.added ? `Added marketplace: ${data.name}` : `Already exists: ${data.name}`,
+        'success'
+      );
+
+      // Refresh sources and photons
+      await this._fetchSources();
+      await this._fetchItems();
+    } catch (e: any) {
+      showToast(e.message || 'Failed to add repository', 'error', 5000);
     }
-
-    private _validatePhotons() {
-        this.dispatchEvent(new CustomEvent('maker-action', {
-            detail: { action: 'validate' },
-            bubbles: true,
-            composed: true
-        }));
-    }
-
-    private async _addRepository() {
-        const source = this._repoInput.trim();
-        if (!source) {
-            showToast('Please enter a marketplace location', 'error');
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/marketplace/sources/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source }),
-                signal: AbortSignal.timeout(30000), // 30s for adding repo
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to add repository');
-            }
-
-            this._showAddRepoModal = false;
-            this._repoInput = '';
-            showToast(data.added ? `Added marketplace: ${data.name}` : `Already exists: ${data.name}`, 'success');
-
-            // Refresh sources and photons
-            await this._fetchSources();
-            await this._fetchItems();
-        } catch (e: any) {
-            showToast(e.message || 'Failed to add repository', 'error', 5000);
-        }
-    }
+  }
 }

@@ -45,7 +45,7 @@ interface MCPSession {
   createdAt: Date;
   lastActivity: Date;
   sseResponse?: ServerResponse; // For server-to-client notifications
-  isBeam?: boolean;              // True if client is Beam UI
+  isBeam?: boolean; // True if client is Beam UI
   clientInfo?: { name: string; version: string };
 }
 
@@ -201,10 +201,19 @@ interface HandlerContext {
   photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
-  configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
-  reloadPhoton?: (photonName: string) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  configurePhoton?: (
+    photonName: string,
+    config: Record<string, any>
+  ) => Promise<{ success: boolean; error?: string }>;
+  reloadPhoton?: (
+    photonName: string
+  ) => Promise<{ success: boolean; photon?: any; error?: string }>;
   removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
-  updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  updateMetadata?: (
+    photonName: string,
+    methodName: string | null,
+    metadata: Record<string, any>
+  ) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
@@ -217,7 +226,7 @@ const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   // Lifecycle
   // ─────────────────────────────────────────────────────────────────────────────
-  'initialize': async (req, session, ctx) => {
+  initialize: async (req, session, ctx) => {
     session.initialized = true;
 
     // Capture client info and detect Beam clients
@@ -245,7 +254,8 @@ const handlers: Record<string, RequestHandler> = {
         },
         // SEP-1596 inspired: configuration schema for unconfigured photons
         // Uses JSON Schema for rich UI generation
-        configurationSchema: Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined,
+        configurationSchema:
+          Object.keys(configurationSchema).length > 0 ? configurationSchema : undefined,
       },
     };
   },
@@ -257,7 +267,9 @@ const handlers: Record<string, RequestHandler> = {
 
   // Handle elicitation response from frontend
   'beam/elicitation-response': async (req, session) => {
-    const params = req.params as { elicitationId?: string; value?: any; cancelled?: boolean } | undefined;
+    const params = req.params as
+      | { elicitationId?: string; value?: any; cancelled?: boolean }
+      | undefined;
     const elicitationId = params?.elicitationId;
 
     if (!elicitationId) {
@@ -302,7 +314,7 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0' } as JSONRPCResponse;
   },
 
-  'ping': async (req) => {
+  ping: async (req) => {
     return { jsonrpc: '2.0', id: req.id, result: {} };
   },
 
@@ -331,7 +343,8 @@ const handlers: Record<string, RequestHandler> = {
     // Add beam system tools
     tools.push({
       name: 'beam/configure',
-      description: 'Configure a photon with required parameters. Use initialize response configurationSchema to get required fields.',
+      description:
+        'Configure a photon with required parameters. Use initialize response configurationSchema to get required fields.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -428,7 +441,10 @@ const handlers: Record<string, RequestHandler> = {
   },
 
   'tools/call': async (req, session, ctx) => {
-    const { name, arguments: args } = req.params as { name: string; arguments?: Record<string, unknown> };
+    const { name, arguments: args } = req.params as {
+      name: string;
+      arguments?: Record<string, unknown>;
+    };
 
     // Handle beam system tools
     if (name === 'beam/configure') {
@@ -468,8 +484,10 @@ const handlers: Record<string, RequestHandler> = {
     const methodName = name.slice(slashIndex + 1);
 
     // Find photon info for UI metadata
-    const photonInfo = ctx.photons.find(p => p.name === photonName);
-    const methodInfo = photonInfo?.configured ? photonInfo.methods?.find(m => m.name === methodName) : undefined;
+    const photonInfo = ctx.photons.find((p) => p.name === photonName);
+    const methodInfo = photonInfo?.configured
+      ? photonInfo.methods?.find((m) => m.name === methodName)
+      : undefined;
 
     // Build UI metadata
     const uiMetadata: Record<string, any> = {};
@@ -637,7 +655,10 @@ const handlers: Record<string, RequestHandler> = {
       // Fall back to direct method call for backward compatibility
       let result: any;
       if (ctx.loader) {
-        result = await ctx.loader.executeTool(mcp, methodName, args || {}, { outputHandler, inputProvider });
+        result = await ctx.loader.executeTool(mcp, methodName, args || {}, {
+          outputHandler,
+          inputProvider,
+        });
       } else {
         result = await method.call(mcp.instance, args || {});
       }
@@ -808,7 +829,12 @@ async function handleBeamConfigure(
         jsonrpc: '2.0',
         id: req.id,
         result: {
-          content: [{ type: 'text', text: `Successfully configured ${photonName}. Tools list will be updated.` }],
+          content: [
+            {
+              type: 'text',
+              text: `Successfully configured ${photonName}. Tools list will be updated.`,
+            },
+          ],
           isError: false,
         },
       };
@@ -861,10 +887,10 @@ async function handleBeamBrowse(
     const entries = await readdir(targetPath, { withFileTypes: true });
 
     // Parse filter
-    const filters = filter ? filter.split(',').map(f => f.trim().toLowerCase()) : [];
+    const filters = filter ? filter.split(',').map((f) => f.trim().toLowerCase()) : [];
 
     const items = entries
-      .filter(entry => {
+      .filter((entry) => {
         // Always show directories
         if (entry.isDirectory()) return true;
 
@@ -872,7 +898,7 @@ async function handleBeamBrowse(
         if (filters.length === 0) return true;
 
         const fileName = entry.name.toLowerCase();
-        return filters.some(f => {
+        return filters.some((f) => {
           // Handle glob patterns like "*.photon.ts"
           if (f.startsWith('*.')) {
             const suffix = f.slice(1);
@@ -883,7 +909,7 @@ async function handleBeamBrowse(
           return fileName.endsWith(ext);
         });
       })
-      .map(entry => ({
+      .map((entry) => ({
         name: entry.name,
         path: join(targetPath, entry.name),
         isDirectory: entry.isDirectory(),
@@ -903,14 +929,20 @@ async function handleBeamBrowse(
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            path: targetPath,
-            parent: parent !== targetPath ? parent : null,
-            items,
-          }, null, 2),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                path: targetPath,
+                parent: parent !== targetPath ? parent : null,
+                items,
+              },
+              null,
+              2
+            ),
+          },
+        ],
         isError: false,
       },
     };
@@ -1071,7 +1103,11 @@ async function handleBeamUpdateMetadata(
   ctx: HandlerContext,
   args: Record<string, unknown>
 ): Promise<JSONRPCResponse> {
-  const { photon: photonName, method: methodName, metadata } = args as {
+  const {
+    photon: photonName,
+    method: methodName,
+    metadata,
+  } = args as {
     photon: string;
     method?: string;
     metadata: Record<string, any>;
@@ -1118,7 +1154,12 @@ async function handleBeamUpdateMetadata(
         jsonrpc: '2.0',
         id: req.id,
         result: {
-          content: [{ type: 'text', text: `Successfully updated metadata for ${methodName ? `${photonName}/${methodName}` : photonName}` }],
+          content: [
+            {
+              type: 'text',
+              text: `Successfully updated metadata for ${methodName ? `${photonName}/${methodName}` : photonName}`,
+            },
+          ],
           isError: false,
         },
       };
@@ -1153,10 +1194,19 @@ export interface StreamableHTTPOptions {
   photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
-  configurePhoton?: (photonName: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
-  reloadPhoton?: (photonName: string) => Promise<{ success: boolean; photon?: any; error?: string }>;
+  configurePhoton?: (
+    photonName: string,
+    config: Record<string, any>
+  ) => Promise<{ success: boolean; error?: string }>;
+  reloadPhoton?: (
+    photonName: string
+  ) => Promise<{ success: boolean; photon?: any; error?: string }>;
   removePhoton?: (photonName: string) => Promise<{ success: boolean; error?: string }>;
-  updateMetadata?: (photonName: string, methodName: string | null, metadata: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  updateMetadata?: (
+    photonName: string,
+    methodName: string | null,
+    metadata: Record<string, any>
+  ) => Promise<{ success: boolean; error?: string }>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
@@ -1213,7 +1263,7 @@ export async function handleStreamableHTTP(
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no', // Disable nginx buffering
       'Mcp-Session-Id': session.id,
     });
