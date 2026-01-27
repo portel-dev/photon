@@ -86,6 +86,7 @@ type MCPEventType =
   | 'elicitation' // User input needed
   | 'board-update' // Kanban board update (legacy, triggers refresh)
   | 'channel-event' // Specific event with delta (task-moved, task-updated, etc.)
+  | 'refresh-needed' // Server signals lastEventId too old, full refresh required
   | 'result' // Tool execution result
   | 'configured' // Photon configuration complete
   | 'notification'; // Generic notification
@@ -687,6 +688,10 @@ class MCPClientService {
 
       case 'photon/channel-event':
         this.emit('channel-event', notification.params);
+        break;
+
+      case 'photon/refresh-needed':
+        this.emit('refresh-needed', notification.params);
         break;
 
       default:
