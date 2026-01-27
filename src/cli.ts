@@ -499,6 +499,21 @@ async function performMarketplaceSync(
   // Create manifest
   console.error('\n📋 Updating manifest...');
   const baseName = path.basename(resolvedPath);
+  const marketplaceDir = path.join(resolvedPath, '.marketplace');
+  await fs.mkdir(marketplaceDir, { recursive: true });
+  const manifestPath = path.join(marketplaceDir, 'photons.json');
+
+  // Read existing manifest to preserve owner if not explicitly provided
+  let existingOwner: { name: string; email?: string; url?: string } | undefined;
+  if (existsSync(manifestPath) && !options.owner) {
+    try {
+      const existingManifest = JSON.parse(await fs.readFile(manifestPath, 'utf-8'));
+      existingOwner = existingManifest.owner;
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
   const manifest = {
     name: options.name || baseName,
     version: PHOTON_VERSION,
@@ -507,14 +522,9 @@ async function performMarketplaceSync(
       ? {
         name: options.owner,
       }
-      : undefined,
+      : existingOwner,
     photons,
   };
-
-  const marketplaceDir = path.join(resolvedPath, '.marketplace');
-  await fs.mkdir(marketplaceDir, { recursive: true });
-
-  const manifestPath = path.join(marketplaceDir, 'photons.json');
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
   console.error('   ✓ .marketplace/photons.json');
 
