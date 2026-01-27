@@ -715,6 +715,44 @@ export class BeamApp extends LitElement {
         transform: translateX(16px);
       }
 
+      /* Prism.js Syntax Highlighting (One Dark theme) */
+      code[class*="language-"],
+      pre[class*="language-"] {
+        color: #abb2bf;
+        text-shadow: none;
+      }
+      .token.comment,
+      .token.prolog,
+      .token.doctype,
+      .token.cdata { color: #5c6370; font-style: italic; }
+      .token.punctuation { color: #abb2bf; }
+      .token.property,
+      .token.tag,
+      .token.boolean,
+      .token.number,
+      .token.constant,
+      .token.symbol,
+      .token.deleted { color: #e06c75; }
+      .token.selector,
+      .token.attr-name,
+      .token.string,
+      .token.char,
+      .token.builtin,
+      .token.inserted { color: #98c379; }
+      .token.operator,
+      .token.entity,
+      .token.url,
+      .language-css .token.string,
+      .style .token.string { color: #56b6c2; }
+      .token.atrule,
+      .token.attr-value,
+      .token.keyword { color: #c678dd; }
+      .token.function,
+      .token.class-name { color: #61afef; }
+      .token.regex,
+      .token.important,
+      .token.variable { color: #d19a66; }
+
       /* Asset Viewer Modal */
       .asset-viewer-modal {
         background: var(--bg-panel);
@@ -3342,6 +3380,34 @@ export class BeamApp extends LitElement {
     if (!this._sourceData) return '';
 
     const filename = this._sourceData.path.split('/').pop() || 'source.ts';
+    const ext = filename.split('.').pop()?.toLowerCase() || 'ts';
+
+    // Map file extensions to Prism language
+    const langMap: Record<string, string> = {
+      ts: 'typescript',
+      tsx: 'typescript',
+      js: 'javascript',
+      jsx: 'javascript',
+      py: 'python',
+      json: 'json',
+      css: 'css',
+      sql: 'sql',
+      yaml: 'yaml',
+      yml: 'yaml',
+      md: 'markdown',
+      rs: 'rust',
+      go: 'go',
+      sh: 'bash',
+      bash: 'bash',
+    };
+    const language = langMap[ext] || 'typescript';
+
+    // Apply syntax highlighting if Prism is available
+    let highlightedCode = this._sourceData.code;
+    const Prism = (window as any).Prism;
+    if (Prism && Prism.languages[language]) {
+      highlightedCode = Prism.highlight(this._sourceData.code, Prism.languages[language], language);
+    }
 
     return html`
       <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeSourceModal(); }}>
@@ -3353,34 +3419,32 @@ export class BeamApp extends LitElement {
             </div>
             <div style="display: flex; gap: var(--space-sm);">
               <button
-                class="btn-secondary"
+                class="toolbar-btn"
                 style="padding: 6px 12px; font-size: 0.85rem;"
                 @click=${this._copySourceCode}
                 title="Copy source code"
               >📋 Copy</button>
               <button
-                class="btn-secondary"
+                class="toolbar-btn"
                 style="padding: 6px 12px; font-size: 0.85rem;"
                 @click=${this._closeSourceModal}
                 aria-label="Close"
               >✕</button>
             </div>
           </div>
-          <pre style="
+          <pre class="language-${language}" style="
             flex: 1;
             overflow: auto;
-            background: var(--bg-glass);
+            background: #1e1e2e;
             border: 1px solid var(--border-glass);
             border-radius: var(--radius-sm);
             padding: var(--space-md);
             margin: 0;
             font-family: var(--font-mono);
             font-size: 0.85rem;
-            line-height: 1.5;
-            color: var(--t-primary);
-            white-space: pre;
+            line-height: 1.6;
             tab-size: 2;
-          "><code>${this._sourceData.code}</code></pre>
+          "><code class="language-${language}">${Prism ? unsafeHTML(highlightedCode) : this._sourceData.code}</code></pre>
         </div>
       </div>
     `;
