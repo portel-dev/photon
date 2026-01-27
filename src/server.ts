@@ -35,7 +35,7 @@ import {
   hasExtension,
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
-import { subscribeChannel, pingDaemon, reloadDaemon } from './daemon/client.js';
+import { subscribeChannel, pingDaemon, reloadDaemon, publishToChannel } from './daemon/client.js';
 import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 
@@ -247,7 +247,8 @@ export class PhotonServer {
 
     switch (format) {
       case 'sep-1865':
-        return { 'ui/resourceUri': uri };
+        // Official MCP Apps spec: _meta.ui.resourceUri
+        return { ui: { resourceUri: uri } };
       case 'photon':
       default:
         return { outputTemplate: uri };
@@ -533,8 +534,18 @@ export class PhotonServer {
         // Create MCP-aware input provider for elicitation support
         const inputProvider = this.createMCPInputProvider();
 
+        // Handler for channel events - forward to daemon for cross-process pub/sub
+        const outputHandler = (emit: any) => {
+          if (this.daemonName && emit?.channel) {
+            publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+              // Ignore publish errors - daemon may not be running
+            });
+          }
+        };
+
         const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
           inputProvider,
+          outputHandler,
         });
 
         // Find the tool to get its outputFormat
@@ -1279,6 +1290,12 @@ export class PhotonServer {
               } else {
                 sendNotification('notifications/emit', { event: emit });
               }
+              // Forward channel events to daemon for cross-process pub/sub
+              if (this.daemonName && emit.channel) {
+                publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+                  // Ignore publish errors - daemon may not be running
+                });
+              }
             };
 
             sendNotification('notifications/status', {
@@ -1536,8 +1553,18 @@ export class PhotonServer {
         // Create MCP-aware input provider for elicitation support (use sessionServer for SSE)
         const inputProvider = this.createMCPInputProvider(sessionServer);
 
+        // Handler for channel events - forward to daemon for cross-process pub/sub
+        const outputHandler = (emit: any) => {
+          if (this.daemonName && emit?.channel) {
+            publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+              // Ignore publish errors - daemon may not be running
+            });
+          }
+        };
+
         const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
           inputProvider,
+          outputHandler,
         });
         const tool = this.mcp.tools.find((t) => t.name === toolName);
         const outputFormat = tool?.outputFormat;
