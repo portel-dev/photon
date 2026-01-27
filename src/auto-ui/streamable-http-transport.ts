@@ -70,6 +70,14 @@ interface MCPResource {
 
 const sessions = new Map<string, MCPSession>();
 
+// Pending elicitations - waiting for user input
+interface PendingElicitation {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+  sessionId: string;
+}
+const pendingElicitations = new Map<string, PendingElicitation>();
+
 // Clean up old sessions periodically (30 min timeout)
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -245,6 +253,39 @@ const handlers: Record<string, RequestHandler> = {
   'notifications/initialized': async (req, session) => {
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
+  },
+
+  // Handle elicitation response from frontend
+  'beam/elicitation-response': async (req, session) => {
+    const params = req.params as { elicitationId?: string; value?: any; cancelled?: boolean } | undefined;
+    const elicitationId = params?.elicitationId;
+
+    if (!elicitationId) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing elicitationId' },
+      } as JSONRPCResponse;
+    }
+
+    const pending = pendingElicitations.get(elicitationId);
+    if (!pending) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Unknown elicitationId' },
+      } as JSONRPCResponse;
+    }
+
+    pendingElicitations.delete(elicitationId);
+
+    if (params?.cancelled) {
+      pending.reject(new Error('Elicitation cancelled by user'));
+    } else {
+      pending.resolve(params?.value);
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { success: true } } as JSONRPCResponse;
   },
 
   // Client notifies what resource they're viewing (for on-demand subscriptions)
@@ -499,6 +540,46 @@ const handlers: Record<string, RequestHandler> = {
           return;
         }
 
+        // Forward toast events as beam notifications
+        if (yieldValue?.emit === 'toast') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/toast',
+            params: {
+              message: yieldValue.message || '',
+              type: yieldValue.type || 'info',
+              duration: yieldValue.duration,
+            },
+          });
+          return;
+        }
+
+        // Forward thinking events as beam notifications
+        if (yieldValue?.emit === 'thinking') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/thinking',
+            params: {
+              active: yieldValue.active ?? true,
+            },
+          });
+          return;
+        }
+
+        // Forward log events as beam notifications
+        if (yieldValue?.emit === 'log') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/log',
+            params: {
+              message: yieldValue.message || '',
+              level: yieldValue.level || 'info',
+              data: yieldValue.data,
+            },
+          });
+          return;
+        }
+
         // Forward channel events (task-moved, task-updated, etc.) with full delta
         // These contain specific event type + data for efficient UI updates
         if (yieldValue?.channel && yieldValue?.event) {
@@ -514,11 +595,48 @@ const handlers: Record<string, RequestHandler> = {
         // Channel events provide more specific info for real-time updates
       };
 
+      // Create inputProvider to handle ask yields (elicitation)
+      const inputProvider = async (ask: any): Promise<any> => {
+        if (!ctx.broadcast) {
+          throw new Error('No broadcast connection for elicitation');
+        }
+
+        // Generate unique elicitation ID
+        const elicitationId = randomUUID();
+
+        return new Promise((resolve, reject) => {
+          // Store pending elicitation
+          pendingElicitations.set(elicitationId, {
+            resolve,
+            reject,
+            sessionId: session?.id || '',
+          });
+
+          // Broadcast elicitation request to frontend
+          ctx.broadcast!({
+            jsonrpc: '2.0',
+            method: 'beam/elicitation',
+            params: {
+              elicitationId,
+              ...ask,
+            },
+          });
+
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            if (pendingElicitations.has(elicitationId)) {
+              pendingElicitations.delete(elicitationId);
+              reject(new Error('Elicitation timeout - no response received'));
+            }
+          }, 300000);
+        });
+      };
+
       // Use loader.executeTool if available (sets up execution context for this.emit())
       // Fall back to direct method call for backward compatibility
       let result: any;
       if (ctx.loader) {
-        result = await ctx.loader.executeTool(mcp, methodName, args || {}, { outputHandler });
+        result = await ctx.loader.executeTool(mcp, methodName, args || {}, { outputHandler, inputProvider });
       } else {
         result = await method.call(mcp.instance, args || {});
       }

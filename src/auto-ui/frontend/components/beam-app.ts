@@ -884,6 +884,22 @@ export class BeamApp extends LitElement {
         transition: width 0.3s ease;
       }
 
+      .progress-bar.indeterminate {
+        animation: indeterminate 1.5s infinite ease-in-out;
+      }
+
+      @keyframes indeterminate {
+        0% {
+          transform: translateX(-100%);
+        }
+        50% {
+          transform: translateX(200%);
+        }
+        100% {
+          transform: translateX(-100%);
+        }
+      }
+
       .progress-text {
         display: flex;
         justify-content: space-between;
@@ -1238,6 +1254,37 @@ export class BeamApp extends LitElement {
               message: data.message
             };
           }
+        }
+      });
+
+      // Handle toast notifications
+      mcpClient.on('toast', (data: any) => {
+        if (data?.message) {
+          const type = data.type || 'info';
+          const duration = data.duration || 3000;
+          showToast(data.message, type, duration);
+        }
+      });
+
+      // Handle thinking indicator
+      mcpClient.on('thinking', (data: any) => {
+        if (data?.active) {
+          // Show thinking state - use progress bar with indeterminate state
+          this._progress = {
+            value: -1, // -1 indicates indeterminate
+            message: 'Processing...'
+          };
+        } else if (this._progress?.value === -1) {
+          // Only clear if we're in thinking state
+          this._progress = null;
+        }
+      });
+
+      // Handle log messages
+      mcpClient.on('log', (data: any) => {
+        if (data?.message) {
+          const level = data.level || 'info';
+          this._log(level, data.message);
         }
       });
 
@@ -1856,11 +1903,14 @@ export class BeamApp extends LitElement {
         ${this._progress ? html`
           <div class="progress-container">
             <div class="progress-bar-wrapper">
-              <div class="progress-bar" style="width: ${Math.round(this._progress.value * 100)}%"></div>
+              <div class="progress-bar ${this._progress.value < 0 ? 'indeterminate' : ''}"
+                   style="width: ${this._progress.value < 0 ? '30%' : Math.round(this._progress.value * 100) + '%'}"></div>
             </div>
             <div class="progress-text">
               <span>${this._progress.message}</span>
-              <span class="progress-percentage">${Math.round(this._progress.value * 100)}%</span>
+              ${this._progress.value >= 0 ? html`
+                <span class="progress-percentage">${Math.round(this._progress.value * 100)}%</span>
+              ` : ''}
             </div>
           </div>
         ` : ''}
@@ -2222,20 +2272,35 @@ export class BeamApp extends LitElement {
 
   private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
-    // TODO: Implement elicitation response via MCP
-    // Elicitation in MCP requires a different flow - the server needs to
-    // track pending elicitations and match responses to them
+    const elicitationId = (this._elicitationData as any)?.elicitationId;
+
     this._showElicitation = false;
     this._elicitationData = null;
-    this._log('info', 'Input submitted');
-    showToast('Elicitation response submitted', 'info');
+
+    if (elicitationId && this._mcpReady) {
+      const result = await mcpClient.sendElicitationResponse(elicitationId, value);
+      if (result.success) {
+        this._log('info', 'Input submitted');
+      } else {
+        this._log('error', 'Failed to submit input');
+        showToast('Failed to submit input', 'error');
+      }
+    } else {
+      this._log('info', 'Input submitted');
+    }
   }
 
-  private _handleElicitationCancel = () => {
-    // TODO: Implement elicitation cancel via MCP
+  private _handleElicitationCancel = async () => {
+    const elicitationId = (this._elicitationData as any)?.elicitationId;
+
     this._showElicitation = false;
     this._elicitationData = null;
     this._isExecuting = false;
+
+    if (elicitationId && this._mcpReady) {
+      await mcpClient.sendElicitationResponse(elicitationId, null, true);
+    }
+
     this._log('info', 'Input cancelled');
     showToast('Input cancelled', 'info');
   }

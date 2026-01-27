@@ -384,6 +384,26 @@ class MCPClientService {
   }
 
   /**
+   * Send elicitation response back to server
+   */
+  async sendElicitationResponse(
+    elicitationId: string,
+    value: any,
+    cancelled = false
+  ): Promise<{ success: boolean }> {
+    try {
+      await this.sendRequest('beam/elicitation-response', {
+        elicitationId,
+        value,
+        cancelled,
+      });
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  /**
    * Update photon or method metadata via beam/update-metadata tool
    */
   async updateMetadata(
@@ -638,6 +658,18 @@ class MCPClientService {
 
       case 'beam/error':
         this.emit('error', notification.params);
+        break;
+
+      case 'beam/toast':
+        this.emit('toast', notification.params);
+        break;
+
+      case 'beam/thinking':
+        this.emit('thinking', notification.params);
+        break;
+
+      case 'beam/log':
+        this.emit('log', notification.params);
         break;
 
       case 'photon/board-update':
