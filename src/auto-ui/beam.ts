@@ -48,7 +48,11 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
-import { handleStreamableHTTP, broadcastNotification, broadcastToBeam } from './streamable-http-transport.js';
+import {
+  handleStreamableHTTP,
+  broadcastNotification,
+  broadcastToBeam,
+} from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
   PhotonInfo,
@@ -181,7 +185,9 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
 /**
  * Extract class-level metadata (description, icon) from JSDoc comments
  */
-async function extractClassMetadata(photonPath: string): Promise<{ description?: string; icon?: string; internal?: boolean }> {
+async function extractClassMetadata(
+  photonPath: string
+): Promise<{ description?: string; icon?: string; internal?: boolean }> {
   try {
     const content = await fs.readFile(photonPath, 'utf-8');
 
@@ -213,9 +219,10 @@ async function extractClassMetadata(photonPath: string): Promise<{ description?:
       metadata.description = descMatch[1].trim();
     } else {
       // Get first non-empty line that's not a tag
-      const lines = docContent.split('\n')
-        .map(l => l.replace(/^\s*\*\s?/, '').trim())
-        .filter(l => l && !l.startsWith('@'));
+      const lines = docContent
+        .split('\n')
+        .map((l) => l.replace(/^\s*\*\s?/, '').trim())
+        .filter((l) => l && !l.startsWith('@'));
       if (lines.length > 0) {
         metadata.description = lines[0];
       }
@@ -232,7 +239,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const marketplace = new MarketplaceManager();
   await marketplace.initialize();
   // Auto-update stale caches in background
-  marketplace.autoUpdateStaleCaches().catch(() => { });
+  marketplace.autoUpdateStaleCaches().catch(() => {});
 
   // Discover all photons (user photons + bundled photons)
   const userPhotonList = await listPhotonMCPs(workingDir);
@@ -272,7 +279,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
 
   for (const name of photonList) {
     // Check bundled photons first, then user photons
-    const photonPath = bundledPhotonPaths.get(name) || await resolvePhotonPath(name, workingDir);
+    const photonPath = bundledPhotonPaths.get(name) || (await resolvePhotonPath(name, workingDir));
     if (!photonPath) continue;
 
     // Apply saved config to environment before loading
@@ -496,7 +503,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const [photonId, itemId] = channel.split(':');
 
       // Look up photon name from ID
-      const photon = photons.find(p => p.id === photonId);
+      const photon = photons.find((p) => p.id === photonId);
       if (!photon) {
         logger.warn(`Cannot subscribe to ${channel}: unknown photon ID ${photonId}`);
         return;
@@ -618,21 +625,55 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         photonMCPs,
         loadUIAsset,
         configurePhoton: async (photonName: string, config: Record<string, any>) => {
-          return configurePhotonViaMCP(photonName, config, photons, photonMCPs, loader, savedConfig);
+          return configurePhotonViaMCP(
+            photonName,
+            config,
+            photons,
+            photonMCPs,
+            loader,
+            savedConfig
+          );
         },
         reloadPhoton: async (photonName: string) => {
-          return reloadPhotonViaMCP(photonName, photons, photonMCPs, loader, savedConfig, broadcastPhotonChange);
+          return reloadPhotonViaMCP(
+            photonName,
+            photons,
+            photonMCPs,
+            loader,
+            savedConfig,
+            broadcastPhotonChange
+          );
         },
         removePhoton: async (photonName: string) => {
-          return removePhotonViaMCP(photonName, photons, photonMCPs, savedConfig, broadcastPhotonChange);
+          return removePhotonViaMCP(
+            photonName,
+            photons,
+            photonMCPs,
+            savedConfig,
+            broadcastPhotonChange
+          );
         },
-        updateMetadata: async (photonName: string, methodName: string | null, metadata: Record<string, any>) => {
+        updateMetadata: async (
+          photonName: string,
+          methodName: string | null,
+          metadata: Record<string, any>
+        ) => {
           return updateMetadataViaMCP(photonName, methodName, metadata, photons);
         },
         loader, // Pass loader for proper execution context (this.emit() support)
         subscriptionManager, // For on-demand channel subscriptions
         broadcast: (message: object) => {
-          const msg = message as { type?: string; photon?: string; board?: string; channel?: string; event?: string; data?: any; jsonrpc?: string; method?: string; params?: any };
+          const msg = message as {
+            type?: string;
+            photon?: string;
+            board?: string;
+            channel?: string;
+            event?: string;
+            data?: any;
+            jsonrpc?: string;
+            method?: string;
+            params?: any;
+          };
 
           // Forward JSON-RPC notifications (progress, status, etc.)
           if (msg.jsonrpc === '2.0' && msg.method) {
@@ -1968,7 +2009,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             if (filename) {
               // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
               // Data files like boards/*.json, data.json should not trigger reload
-              if (filename.endsWith('.json') || filename.startsWith('boards/') || filename === 'data.json') {
+              if (
+                filename.endsWith('.json') ||
+                filename.startsWith('boards/') ||
+                filename === 'data.json'
+              ) {
                 logger.debug(`⏭️ Ignoring data file change: ${photon.name}/${filename}`);
                 return;
               }
@@ -2025,7 +2070,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
         if (filename) {
           // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
-          if (filename.endsWith('.json') || filename.startsWith('boards/') || filename === 'data.json') {
+          if (
+            filename.endsWith('.json') ||
+            filename.startsWith('boards/') ||
+            filename === 'data.json'
+          ) {
             logger.debug(`⏭️ Ignoring data file change: ${photonName}/${filename}`);
             return;
           }
@@ -2382,4 +2431,3 @@ async function updateMetadataViaMCP(
 
   return { success: true };
 }
-

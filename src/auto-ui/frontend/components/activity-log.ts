@@ -47,7 +47,7 @@ export class ActivityLog extends LitElement {
         padding: 4px 8px;
         border-radius: 4px;
       }
-      
+
       .clear-btn:hover {
         background: hsla(220, 10%, 80%, 0.1);
         color: var(--t-primary);
@@ -84,10 +84,18 @@ export class ActivityLog extends LitElement {
         word-break: break-all;
       }
 
-      .type-info { border-left-color: var(--accent-secondary); }
-      .type-success { border-left-color: #4ade80; }
-      .type-error { border-left-color: #f87171; }
-      .type-warning { border-left-color: #fbbf24; }
+      .type-info {
+        border-left-color: var(--accent-secondary);
+      }
+      .type-success {
+        border-left-color: #4ade80;
+      }
+      .type-error {
+        border-left-color: #f87171;
+      }
+      .type-warning {
+        border-left-color: #fbbf24;
+      }
 
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
@@ -117,7 +125,7 @@ export class ActivityLog extends LitElement {
           font-size: 0.8rem;
         }
       }
-    `
+    `,
   ];
 
   @property({ type: Array })
@@ -131,14 +139,16 @@ export class ActivityLog extends LitElement {
         <h3>Activity Log</h3>
         <button class="clear-btn" @click=${this._clear}>Clear</button>
       </div>
-      
+
       <div class="log-list">
-        ${this.items.map(item => html`
-          <div class="log-item type-${item.type}">
-            <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
-            <span class="content">${item.message}</span>
-          </div>
-        `)}
+        ${this.items.map(
+          (item) => html`
+            <div class="log-item type-${item.type}">
+              <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
+              <span class="content">${item.message}</span>
+            </div>
+          `
+        )}
       </div>
     `;
   }

@@ -44,9 +44,28 @@ import * as os from 'os';
 
 /** Wizard step types for interactive UI */
 type WizardStep =
-  | { type: 'input'; id: string; label: string; placeholder?: string; description?: string; validate?: string }
-  | { type: 'select'; id: string; label: string; options: Array<{ value: string; label: string; description?: string }> }
-  | { type: 'multi-input'; id: string; label: string; placeholder?: string; description?: string; optional?: boolean }
+  | {
+      type: 'input';
+      id: string;
+      label: string;
+      placeholder?: string;
+      description?: string;
+      validate?: string;
+    }
+  | {
+      type: 'select';
+      id: string;
+      label: string;
+      options: Array<{ value: string; label: string; description?: string }>;
+    }
+  | {
+      type: 'multi-input';
+      id: string;
+      label: string;
+      placeholder?: string;
+      description?: string;
+      optional?: boolean;
+    }
   | { type: 'progress'; message: string }
   | { type: 'done'; message: string; result: any };
 
@@ -77,7 +96,7 @@ export default class Maker {
     name,
     methods = [],
     prompts = [],
-    resources = []
+    resources = [],
   }: {
     /** Name for the new photon */
     name: string;
@@ -107,14 +126,17 @@ export default class Maker {
     // Generate class name from kebab-case
     const className = name
       .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
     // Helper to normalize input (handles string or array)
     const toArray = (input: string | string[] | undefined): string[] => {
       if (!input) return [];
       if (Array.isArray(input)) return input.filter(Boolean);
-      return input.split(',').map(s => s.trim()).filter(Boolean);
+      return input
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     };
 
     // Generate all stubs
@@ -125,17 +147,17 @@ export default class Maker {
 
     // Tools
     if (methodList.length > 0) {
-      allStubs.push(...methodList.map(m => Maker.generateMethodStub(m, 'tool')));
+      allStubs.push(...methodList.map((m) => Maker.generateMethodStub(m, 'tool')));
     }
 
     // Prompts (templates)
     if (promptList.length > 0) {
-      allStubs.push(...promptList.map(p => Maker.generateMethodStub(p, 'prompt')));
+      allStubs.push(...promptList.map((p) => Maker.generateMethodStub(p, 'prompt')));
     }
 
     // Resources
     if (resourceList.length > 0) {
-      allStubs.push(...resourceList.map(r => Maker.generateMethodStub(r, 'resource')));
+      allStubs.push(...resourceList.map((r) => Maker.generateMethodStub(r, 'resource')));
     }
 
     // Default if nothing specified
@@ -162,21 +184,31 @@ ${allStubs.join('\n\n')}
   /**
    * Synchronize marketplace manifest and documentation
    */
-  static async *sync(): AsyncGenerator<{ step: string; message?: string; photon?: string; photons?: number; manifest?: string }> {
+  static async *sync(): AsyncGenerator<{
+    step: string;
+    message?: string;
+    photon?: string;
+    photons?: number;
+    manifest?: string;
+  }> {
     const workingDir = process.env.PHOTON_DIR || process.cwd();
 
     yield { step: 'scanning', message: 'Scanning for photons...' };
 
     const files = await fs.readdir(workingDir);
-    const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+    const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
 
-    yield { step: 'found', message: `Found ${photonFiles.length} photons`, photons: photonFiles.length };
+    yield {
+      step: 'found',
+      message: `Found ${photonFiles.length} photons`,
+      photons: photonFiles.length,
+    };
 
     for (const file of photonFiles) {
       yield { step: 'processing', photon: file, message: `Processing ${file}...` };
       // Note: Full sync with schema extraction is handled by CLI's performMarketplaceSync
       // This simplified version just lists photons for progress feedback
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     const manifest = path.join(workingDir, '.marketplace', 'photons.json');
@@ -186,13 +218,19 @@ ${allStubs.join('\n\n')}
   /**
    * Validate all photons in the current directory
    */
-  static async *validate(): AsyncGenerator<{ step: string; photon?: string; status?: 'valid' | 'error'; error?: string; summary?: { valid: number; errors: number } }> {
+  static async *validate(): AsyncGenerator<{
+    step: string;
+    photon?: string;
+    status?: 'valid' | 'error';
+    error?: string;
+    summary?: { valid: number; errors: number };
+  }> {
     const workingDir = process.env.PHOTON_DIR || process.cwd();
 
     yield { step: 'scanning', photon: undefined };
 
     const files = await fs.readdir(workingDir);
-    const photonFiles = files.filter(f => f.endsWith('.photon.ts'));
+    const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
 
     let validCount = 0;
     let errorCount = 0;
@@ -205,7 +243,12 @@ ${allStubs.join('\n\n')}
           yield { step: 'validating', photon: file, status: 'valid' };
         } else {
           errorCount++;
-          yield { step: 'validating', photon: file, status: 'error', error: 'Missing default class export' };
+          yield {
+            step: 'validating',
+            photon: file,
+            status: 'error',
+            error: 'Missing default class export',
+          };
         }
       } catch (e: any) {
         errorCount++;
@@ -277,7 +320,7 @@ ${allStubs.join('\n\n')}
       label: 'Photon Name',
       placeholder: 'my-photon',
       description: 'Use kebab-case (e.g., my-tools, api-wrapper)',
-      validate: 'required|kebab'
+      validate: 'required|kebab',
     };
 
     // Step 2: Add tool methods
@@ -287,7 +330,7 @@ ${allStubs.join('\n\n')}
       label: 'Tool Methods',
       placeholder: 'Add method name...',
       description: 'Methods that perform actions (leave empty to skip)',
-      optional: true
+      optional: true,
     };
 
     // Step 3: Add prompt templates
@@ -297,7 +340,7 @@ ${allStubs.join('\n\n')}
       label: 'Prompt Templates',
       placeholder: 'Add template name...',
       description: 'Templates that return prompts (leave empty to skip)',
-      optional: true
+      optional: true,
     };
 
     // Step 4: Add resources
@@ -307,7 +350,7 @@ ${allStubs.join('\n\n')}
       label: 'Resources',
       placeholder: 'Add resource name...',
       description: 'Static resources to expose (leave empty to skip)',
-      optional: true
+      optional: true,
     };
 
     // Step 5: Progress
@@ -320,7 +363,7 @@ ${allStubs.join('\n\n')}
     // Generate class name
     const className = (name as string)
       .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
     // Generate all stubs
@@ -331,13 +374,13 @@ ${allStubs.join('\n\n')}
     const resourceList = Array.isArray(resources) ? resources : [];
 
     if (methodList.length > 0) {
-      allStubs.push(...methodList.map(m => Maker.generateMethodStub(m as string, 'tool')));
+      allStubs.push(...methodList.map((m) => Maker.generateMethodStub(m as string, 'tool')));
     }
     if (promptList.length > 0) {
-      allStubs.push(...promptList.map(p => Maker.generateMethodStub(p as string, 'prompt')));
+      allStubs.push(...promptList.map((p) => Maker.generateMethodStub(p as string, 'prompt')));
     }
     if (resourceList.length > 0) {
-      allStubs.push(...resourceList.map(r => Maker.generateMethodStub(r as string, 'resource')));
+      allStubs.push(...resourceList.map((r) => Maker.generateMethodStub(r as string, 'resource')));
     }
 
     // Default if nothing specified
@@ -360,7 +403,7 @@ ${allStubs.join('\n\n')}
     yield {
       type: 'done',
       message: `Created ${fileName}`,
-      result: { path: filePath, code }
+      result: { path: filePath, code },
     };
   }
 
@@ -373,7 +416,13 @@ ${allStubs.join('\n\n')}
    * @param name New name for the photon
    * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async rename({ name, photonPath }: { name: string; photonPath?: string }): Promise<{ oldPath: string; newPath: string }> {
+  async rename({
+    name,
+    photonPath,
+  }: {
+    name: string;
+    photonPath?: string;
+  }): Promise<{ oldPath: string; newPath: string }> {
     const targetPath = photonPath || this.photonPath;
     if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
@@ -385,19 +434,16 @@ ${allStubs.join('\n\n')}
 
     const newClassName = name
       .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
     const oldPhotonName = path.basename(targetPath, '.photon.ts');
     const oldClassName = oldPhotonName
       .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
-    content = content.replace(
-      new RegExp(`class ${oldClassName}`, 'g'),
-      `class ${newClassName}`
-    );
+    content = content.replace(new RegExp(`class ${oldClassName}`, 'g'), `class ${newClassName}`);
 
     // Write to new path
     await fs.writeFile(newPath, content, 'utf-8');
@@ -413,7 +459,13 @@ ${allStubs.join('\n\n')}
    * @param description New description
    * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async describe({ description, photonPath }: { description: string; photonPath?: string }): Promise<{ updated: boolean }> {
+  async describe({
+    description,
+    photonPath,
+  }: {
+    description: string;
+    photonPath?: string;
+  }): Promise<{ updated: boolean }> {
     const targetPath = photonPath || this.photonPath;
     if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 
@@ -421,10 +473,7 @@ ${allStubs.join('\n\n')}
 
     // Update @description in JSDoc
     if (content.includes('@description')) {
-      content = content.replace(
-        /@description\s+.*/,
-        `@description ${description}`
-      );
+      content = content.replace(/@description\s+.*/, `@description ${description}`);
     } else {
       // Add description to class JSDoc
       content = content.replace(
@@ -447,7 +496,7 @@ ${allStubs.join('\n\n')}
   async addmethod({
     name,
     type = 'tool',
-    photonPath
+    photonPath,
   }: {
     /** Method name */
     name: string;
@@ -465,7 +514,8 @@ ${allStubs.join('\n\n')}
 
     // Insert before the closing brace of the class
     const lastBraceIndex = content.lastIndexOf('}');
-    content = content.slice(0, lastBraceIndex) + '\n' + methodCode + '\n' + content.slice(lastBraceIndex);
+    content =
+      content.slice(0, lastBraceIndex) + '\n' + methodCode + '\n' + content.slice(lastBraceIndex);
 
     await fs.writeFile(targetPath, content, 'utf-8');
 
@@ -489,7 +539,10 @@ ${allStubs.join('\n\n')}
    * View source code of this photon
    * @param photonPath Path to the photon file (optional, uses instance context if not provided)
    */
-  async source({ photonPath }: { photonPath?: string } = {}): Promise<{ path: string; code: string }> {
+  async source({ photonPath }: { photonPath?: string } = {}): Promise<{
+    path: string;
+    code: string;
+  }> {
     const targetPath = photonPath || this.photonPath;
     if (!targetPath) throw new Error('No photon context - provide photonPath parameter');
 

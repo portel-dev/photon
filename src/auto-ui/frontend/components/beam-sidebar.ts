@@ -271,7 +271,7 @@ export class BeamSidebar extends LitElement {
       .marketplace-btn:hover {
         background: var(--bg-panel);
         border-color: var(--accent-secondary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         transform: translateY(-1px);
       }
 
@@ -381,7 +381,7 @@ export class BeamSidebar extends LitElement {
           padding: var(--space-sm) var(--space-md);
         }
       }
-    `
+    `,
   ];
 
   @property({ type: Array })
@@ -436,15 +436,16 @@ export class BeamSidebar extends LitElement {
 
     // Filter by favorites if enabled
     if (this._showFavoritesOnly) {
-      filtered = filtered.filter(p => this._favorites.has(p.name));
+      filtered = filtered.filter((p) => this._favorites.has(p.name));
     }
 
     // Filter by search query
     if (this._searchQuery.trim()) {
       const query = this._searchQuery.toLowerCase();
-      filtered = filtered.filter(p =>
-        p.name.toLowerCase().includes(query) ||
-        (p.description && p.description.toLowerCase().includes(query))
+      filtered = filtered.filter(
+        (p) =>
+          p.name.toLowerCase().includes(query) ||
+          (p.description && p.description.toLowerCase().includes(query))
       );
     }
 
@@ -452,15 +453,15 @@ export class BeamSidebar extends LitElement {
   }
 
   private get _apps() {
-    return this._filteredPhotons.filter(p => p.isApp);
+    return this._filteredPhotons.filter((p) => p.isApp);
   }
 
   private get _configured() {
-    return this._filteredPhotons.filter(p => !p.isApp && p.methods && p.methods.length > 0);
+    return this._filteredPhotons.filter((p) => !p.isApp && p.methods && p.methods.length > 0);
   }
 
   private get _needsSetup() {
-    return this._filteredPhotons.filter(p => !p.isApp && (!p.methods || p.methods.length === 0));
+    return this._filteredPhotons.filter((p) => !p.isApp && (!p.methods || p.methods.length === 0));
   }
 
   render() {
@@ -476,14 +477,18 @@ export class BeamSidebar extends LitElement {
                 title="Light theme"
                 aria-label="Switch to light theme"
                 aria-pressed="${this.theme === 'light'}"
-              >☀️</button>
+              >
+                ☀️
+              </button>
               <button
                 class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
                 @click=${() => this._setTheme('dark')}
                 title="Dark theme"
                 aria-label="Switch to dark theme"
                 aria-pressed="${this.theme === 'dark'}"
-              >🌙</button>
+              >
+                🌙
+              </button>
             </div>
           </div>
           <div class="search-box" role="search">
@@ -494,7 +499,7 @@ export class BeamSidebar extends LitElement {
               @input=${this._handleSearch}
               @keydown=${this._handleSearchKeydown}
               aria-label="Search photons"
-            >
+            />
           </div>
           <div class="filter-row" role="group" aria-label="Filter options">
             <button
@@ -516,30 +521,39 @@ export class BeamSidebar extends LitElement {
           </div>
         </div>
 
-        ${this._apps.length > 0 ? html`
-          <div class="section-header" id="apps-header">Apps</div>
-          <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
-            ${this._apps.map(photon => this._renderPhotonItem(photon, 'app'))}
-          </ul>
-        ` : ''}
-
-        ${this._configured.length > 0 ? html`
-          <div class="section-header" id="mcps-header">MCPs</div>
-          <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
-            ${this._configured.map(photon => this._renderPhotonItem(photon, 'configured'))}
-          </ul>
-        ` : ''}
-
-        ${this._needsSetup.length > 0 ? html`
-          <div class="section-header" id="setup-header">Setup</div>
-          <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
-            ${this._needsSetup.map(photon => this._renderPhotonItem(photon, 'unconfigured'))}
-          </ul>
-        ` : ''}
+        ${this._apps.length > 0
+          ? html`
+              <div class="section-header" id="apps-header">Apps</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
+                ${this._apps.map((photon) => this._renderPhotonItem(photon, 'app'))}
+              </ul>
+            `
+          : ''}
+        ${this._configured.length > 0
+          ? html`
+              <div class="section-header" id="mcps-header">MCPs</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
+                ${this._configured.map((photon) => this._renderPhotonItem(photon, 'configured'))}
+              </ul>
+            `
+          : ''}
+        ${this._needsSetup.length > 0
+          ? html`
+              <div class="section-header" id="setup-header">Setup</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
+                ${this._needsSetup.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
+              </ul>
+            `
+          : ''}
       </nav>
 
       <div class="sidebar-footer">
-        <button class="footer-link" @click=${this._showShortcuts} title="Keyboard shortcuts" aria-label="Show keyboard shortcuts">
+        <button
+          class="footer-link"
+          @click=${this._showShortcuts}
+          title="Keyboard shortcuts"
+          aria-label="Show keyboard shortcuts"
+        >
           ⌨️ Shortcuts <kbd>?</kbd>
         </button>
       </div>
@@ -562,7 +576,9 @@ export class BeamSidebar extends LitElement {
 
     return html`
       <li
-        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''} ${photon.internal ? 'internal' : ''}"
+        class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''} ${photon.internal
+          ? 'internal'
+          : ''}"
         role="option"
         aria-selected="${this.selectedPhoton === photon.name}"
         tabindex="0"
@@ -581,24 +597,32 @@ export class BeamSidebar extends LitElement {
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
           title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
-          aria-label="${isFavorited ? `Remove ${photon.name} from favorites` : `Add ${photon.name} to favorites`}"
+          aria-label="${isFavorited
+            ? `Remove ${photon.name} from favorites`
+            : `Add ${photon.name} to favorites`}"
           aria-pressed="${isFavorited}"
-        >${isFavorited ? '⭐' : '☆'}</button>
+        >
+          ${isFavorited ? '⭐' : '☆'}
+        </button>
         ${isUnconfigured
           ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
           : methodCount > 0
-            ? html`<span class="method-count" aria-label="${methodCount} methods">${methodCount}</span>`
+            ? html`<span class="method-count" aria-label="${methodCount} methods"
+                >${methodCount}</span
+              >`
             : ''}
       </li>
     `;
   }
 
   private _setTheme(theme: Theme) {
-    this.dispatchEvent(new CustomEvent('theme-change', {
-      detail: { theme },
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('theme-change', {
+        detail: { theme },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _handleSearch(e: Event) {

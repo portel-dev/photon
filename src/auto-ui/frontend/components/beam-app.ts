@@ -39,7 +39,7 @@ export class BeamApp extends LitElement {
       }
 
       /* ===== Light Theme - "Warm Editorial" ===== */
-      :host([data-theme="light"]) {
+      :host([data-theme='light']) {
         --bg-app: hsl(40, 20%, 94%);
         --bg-glass: hsla(45, 40%, 99%, 0.92);
         --bg-glass-strong: hsla(45, 50%, 100%, 0.97);
@@ -67,7 +67,7 @@ export class BeamApp extends LitElement {
         overflow-x: hidden;
         padding: var(--space-lg);
       }
-      
+
       .cards-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -160,7 +160,9 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-sm);
         padding: 2px 6px;
         margin: -2px -6px;
-        transition: background 0.15s ease, box-shadow 0.15s ease;
+        transition:
+          background 0.15s ease,
+          box-shadow 0.15s ease;
         position: relative;
       }
 
@@ -212,12 +214,16 @@ export class BeamApp extends LitElement {
       /* Editable Icon */
       .photon-icon-large.editable {
         cursor: pointer;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
       }
 
       .photon-icon-large.editable:hover {
         transform: scale(1.05);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 3px var(--accent-primary);
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.3),
+          0 0 0 3px var(--accent-primary);
       }
 
       /* Emoji Picker */
@@ -244,7 +250,9 @@ export class BeamApp extends LitElement {
         padding: 4px;
         cursor: pointer;
         border-radius: var(--radius-sm);
-        transition: background 0.15s ease, transform 0.1s ease;
+        transition:
+          background 0.15s ease,
+          transform 0.1s ease;
       }
 
       .emoji-picker button:hover {
@@ -278,7 +286,9 @@ export class BeamApp extends LitElement {
         flex-direction: column;
         gap: var(--space-sm);
         cursor: pointer;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
         height: 100%;
         box-sizing: border-box;
       }
@@ -427,8 +437,8 @@ export class BeamApp extends LitElement {
       }
 
       .connection-banner button {
-        background: rgba(255,255,255,0.2);
-        border: 1px solid rgba(255,255,255,0.3);
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         color: white;
         padding: 4px 12px;
         border-radius: var(--radius-sm);
@@ -437,7 +447,7 @@ export class BeamApp extends LitElement {
       }
 
       .connection-banner button:hover {
-        background: rgba(255,255,255,0.3);
+        background: rgba(255, 255, 255, 0.3);
       }
 
       .reconnecting {
@@ -716,42 +726,59 @@ export class BeamApp extends LitElement {
       }
 
       /* Prism.js Syntax Highlighting (One Dark theme) */
-      code[class*="language-"],
-      pre[class*="language-"] {
+      code[class*='language-'],
+      pre[class*='language-'] {
         color: #abb2bf;
         text-shadow: none;
       }
       .token.comment,
       .token.prolog,
       .token.doctype,
-      .token.cdata { color: #5c6370; font-style: italic; }
-      .token.punctuation { color: #abb2bf; }
+      .token.cdata {
+        color: #5c6370;
+        font-style: italic;
+      }
+      .token.punctuation {
+        color: #abb2bf;
+      }
       .token.property,
       .token.tag,
       .token.boolean,
       .token.number,
       .token.constant,
       .token.symbol,
-      .token.deleted { color: #e06c75; }
+      .token.deleted {
+        color: #e06c75;
+      }
       .token.selector,
       .token.attr-name,
       .token.string,
       .token.char,
       .token.builtin,
-      .token.inserted { color: #98c379; }
+      .token.inserted {
+        color: #98c379;
+      }
       .token.operator,
       .token.entity,
       .token.url,
       .language-css .token.string,
-      .style .token.string { color: #56b6c2; }
+      .style .token.string {
+        color: #56b6c2;
+      }
       .token.atrule,
       .token.attr-value,
-      .token.keyword { color: #c678dd; }
+      .token.keyword {
+        color: #c678dd;
+      }
       .token.function,
-      .token.class-name { color: #61afef; }
+      .token.class-name {
+        color: #61afef;
+      }
       .token.regex,
       .token.important,
-      .token.variable { color: #d19a66; }
+      .token.variable {
+        color: #d19a66;
+      }
 
       /* Asset Viewer Modal */
       .asset-viewer-modal {
@@ -900,7 +927,9 @@ export class BeamApp extends LitElement {
         font-weight: 500;
         cursor: pointer;
         margin-top: var(--space-md);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease;
       }
 
       .copy-btn:hover {
@@ -1190,7 +1219,7 @@ export class BeamApp extends LitElement {
           transition: none;
         }
       }
-    `
+    `,
   ];
 
   @state() private _connected = false;
@@ -1202,8 +1231,6 @@ export class BeamApp extends LitElement {
 
   // ... (existing code)
 
-
-
   private _handleInstall(e: CustomEvent) {
     // Just log for now, the socket update 'photon_added' will handle the actual refresh
     this._log('info', `Installed ${e.detail.name}`);
@@ -1212,7 +1239,7 @@ export class BeamApp extends LitElement {
   private _handleMakerAction(e: CustomEvent) {
     const action = e.detail.action;
     // Find maker photon and invoke the static method
-    const maker = this._photons.find(p => p.name === 'maker');
+    const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
       showToast('Maker photon not found', 'error');
       return;
@@ -1321,7 +1348,7 @@ export class BeamApp extends LitElement {
         this._editingIcon = false;
       }
     }
-  }
+  };
 
   private async _connectMCP() {
     try {
@@ -1368,13 +1395,13 @@ export class BeamApp extends LitElement {
           if (data.progress > 0 || !this._progress) {
             this._progress = {
               value: data.total ? data.progress / data.total : data.progress,
-              message: data.message || 'Processing...'
+              message: data.message || 'Processing...',
             };
           } else if (this._progress && data.message) {
             // Status event - just update message, keep current progress value
             this._progress = {
               ...this._progress,
-              message: data.message
+              message: data.message,
             };
           }
         }
@@ -1395,7 +1422,7 @@ export class BeamApp extends LitElement {
           // Show thinking state - use progress bar with indeterminate state
           this._progress = {
             value: -1, // -1 indicates indeterminate
-            message: 'Processing...'
+            message: 'Processing...',
           };
         } else if (this._progress?.value === -1) {
           // Only clear if we're in thinking state
@@ -1417,7 +1444,7 @@ export class BeamApp extends LitElement {
           this._photons = data.photons;
           // Update selected photon if it was in the list
           if (this._selectedPhoton) {
-            const updated = this._photons.find(p => p.name === this._selectedPhoton?.name);
+            const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
             if (updated) {
               this._selectedPhoton = updated;
             }
@@ -1429,12 +1456,12 @@ export class BeamApp extends LitElement {
       mcpClient.on('hot-reload', (data: any) => {
         if (data?.photon) {
           const reloadedPhoton = data.photon;
-          const index = this._photons.findIndex(p => p.name === reloadedPhoton.name);
+          const index = this._photons.findIndex((p) => p.name === reloadedPhoton.name);
           if (index !== -1) {
             this._photons = [
               ...this._photons.slice(0, index),
               reloadedPhoton,
-              ...this._photons.slice(index + 1)
+              ...this._photons.slice(index + 1),
             ];
           }
 
@@ -1466,12 +1493,12 @@ export class BeamApp extends LitElement {
           showToast(`${configuredPhoton.name} configured successfully!`, 'success');
 
           // Update photon in list
-          const index = this._photons.findIndex(p => p.name === configuredPhoton.name);
+          const index = this._photons.findIndex((p) => p.name === configuredPhoton.name);
           if (index !== -1) {
             this._photons = [
               ...this._photons.slice(0, index),
               configuredPhoton,
-              ...this._photons.slice(index + 1)
+              ...this._photons.slice(index + 1),
             ];
           }
 
@@ -1502,17 +1529,20 @@ export class BeamApp extends LitElement {
       mcpClient.on('channel-event', (data: any) => {
         // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
         const iframes: HTMLIFrameElement[] = [];
-        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach(renderer => {
+        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
           const iframe = renderer.shadowRoot?.querySelector('iframe');
           if (iframe) iframes.push(iframe);
         });
         // Also check direct iframes (legacy)
-        this.shadowRoot?.querySelectorAll('iframe').forEach(iframe => iframes.push(iframe));
-        iframes.forEach(iframe => {
-          iframe.contentWindow?.postMessage({
-            type: 'photon:channel-event',
-            ...data
-          }, '*');
+        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
+        iframes.forEach((iframe) => {
+          iframe.contentWindow?.postMessage(
+            {
+              type: 'photon:channel-event',
+              ...data,
+            },
+            '*'
+          );
         });
       });
 
@@ -1520,16 +1550,19 @@ export class BeamApp extends LitElement {
       mcpClient.on('board-update', (data: any) => {
         // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
         const iframes: HTMLIFrameElement[] = [];
-        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach(renderer => {
+        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
           const iframe = renderer.shadowRoot?.querySelector('iframe');
           if (iframe) iframes.push(iframe);
         });
-        this.shadowRoot?.querySelectorAll('iframe').forEach(iframe => iframes.push(iframe));
-        iframes.forEach(iframe => {
-          iframe.contentWindow?.postMessage({
-            type: 'photon:board-update',
-            ...data
-          }, '*');
+        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
+        iframes.forEach((iframe) => {
+          iframe.contentWindow?.postMessage(
+            {
+              type: 'photon:board-update',
+              ...data,
+            },
+            '*'
+          );
         });
       });
 
@@ -1576,7 +1609,7 @@ export class BeamApp extends LitElement {
     }
 
     if (photonName) {
-      const photon = this._photons.find(p => p.name === photonName);
+      const photon = this._photons.find((p) => p.name === photonName);
       if (photon) {
         this._selectedPhoton = photon;
 
@@ -1605,7 +1638,7 @@ export class BeamApp extends LitElement {
         }
       }
     }
-  }
+  };
 
   private _updateHash() {
     if (!this._selectedPhoton) return;
@@ -1618,22 +1651,31 @@ export class BeamApp extends LitElement {
   }
 
   private _log(type: string, message: string) {
-    this._activityLog = [{
-      id: Date.now().toString(),
-      type,
-      message,
-      timestamp: new Date().toISOString()
-    }, ...this._activityLog];
+    this._activityLog = [
+      {
+        id: Date.now().toString(),
+        type,
+        message,
+        timestamp: new Date().toISOString(),
+      },
+      ...this._activityLog,
+    ];
   }
 
   render() {
     return html`
-      ${!this._connected ? html`
-        <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
-          <span>${this._reconnecting ? 'Reconnecting to server...' : 'Disconnected from server'}</span>
-          <button @click=${() => this._connect()}>Retry Now</button>
-        </div>
-      ` : ''}
+      ${!this._connected
+        ? html`
+            <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
+              <span
+                >${this._reconnecting
+                  ? 'Reconnecting to server...'
+                  : 'Disconnected from server'}</span
+              >
+              <button @click=${() => this._connect()}>Retry Now</button>
+            </div>
+          `
+        : ''}
 
       <div class="background-glow"></div>
 
@@ -1652,7 +1694,10 @@ export class BeamApp extends LitElement {
         @click=${this._closeSidebar}
       ></div>
 
-      <div class="sidebar-area glass-panel ${this._sidebarVisible ? 'visible' : ''}" style="margin: var(--space-sm); border-radius: var(--radius-md);">
+      <div
+        class="sidebar-area glass-panel ${this._sidebarVisible ? 'visible' : ''}"
+        style="margin: var(--space-sm); border-radius: var(--radius-md);"
+      >
         <beam-sidebar
           .photons=${this._photons}
           .selectedPhoton=${this._selectedPhoton?.name}
@@ -1666,7 +1711,10 @@ export class BeamApp extends LitElement {
 
       <main class="main-area" role="main" aria-label="Main content">
         ${this._renderContent()}
-        <activity-log .items=${this._activityLog} @clear=${() => this._activityLog = []}></activity-log>
+        <activity-log
+          .items=${this._activityLog}
+          @clear=${() => (this._activityLog = [])}
+        ></activity-log>
       </main>
 
       <toast-manager></toast-manager>
@@ -1690,33 +1738,42 @@ export class BeamApp extends LitElement {
   private _renderContent() {
     if (this._view === 'marketplace') {
       return html`
-            <div style="margin-bottom: var(--space-md);">
-                <button 
-                  style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-                  @click=${() => this._view = 'list'}
-                >← Back to Dashboard</button>
-            </div>
-            <h1 class="text-gradient">Marketplace</h1>
-            <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
-              Discover and install new Photons.
-            </p>
-            <marketplace-view @install=${this._handleInstall} @maker-action=${this._handleMakerAction}></marketplace-view>
-        `;
+        <div style="margin-bottom: var(--space-md);">
+          <button
+            style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+            @click=${() => (this._view = 'list')}
+          >
+            ← Back to Dashboard
+          </button>
+        </div>
+        <h1 class="text-gradient">Marketplace</h1>
+        <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+          Discover and install new Photons.
+        </p>
+        <marketplace-view
+          @install=${this._handleInstall}
+          @maker-action=${this._handleMakerAction}
+        ></marketplace-view>
+      `;
     }
 
     if (!this._selectedPhoton) {
       return html`
-           <h1>Welcome to Beam</h1>
-           <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select a Photon to begin.</p>
+        <h1>Welcome to Beam</h1>
+        <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+          Select a Photon to begin.
+        </p>
 
-           <div class="glass-panel" style="padding: var(--space-xl); text-align: center;">
-             <h3>No Photon Selected</h3>
-             <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">Select one from the sidebar or explore the marketplace.</p>
-             <button class="btn-primary" @click=${() => this._view = 'marketplace'}>
-               Browse Marketplace
-             </button>
-           </div>
-         `;
+        <div class="glass-panel" style="padding: var(--space-xl); text-align: center;">
+          <h3>No Photon Selected</h3>
+          <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+            Select one from the sidebar or explore the marketplace.
+          </p>
+          <button class="btn-primary" @click=${() => (this._view = 'marketplace')}>
+            Browse Marketplace
+          </button>
+        </div>
+      `;
     }
 
     // Show configuration view for unconfigured photons
@@ -1740,95 +1797,135 @@ export class BeamApp extends LitElement {
           : [];
 
         return html`
-          ${!isAppMain ? html`
-            <div style="margin-bottom: var(--space-md);">
-              <button
-                style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-                @click=${() => this._handleBackFromMethod()}
-              >← Back to ${this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}</button>
-            </div>
-          ` : ''}
-          <div class="glass-panel" style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);">
-             <custom-ui-renderer
-                .photon=${this._selectedPhoton.name}
-                .method=${this._selectedMethod.name}
-                .uiId=${this._selectedMethod.linkedUi}
-                .theme=${this._theme}
-                style="height: calc(100vh - 80px);"
-             ></custom-ui-renderer>
+          ${!isAppMain
+            ? html`
+                <div style="margin-bottom: var(--space-md);">
+                  <button
+                    style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                    @click=${() => this._handleBackFromMethod()}
+                  >
+                    ← Back to ${this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}
+                  </button>
+                </div>
+              `
+            : ''}
+          <div
+            class="glass-panel"
+            style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);"
+          >
+            <custom-ui-renderer
+              .photon=${this._selectedPhoton.name}
+              .method=${this._selectedMethod.name}
+              .uiId=${this._selectedMethod.linkedUi}
+              .theme=${this._theme}
+              style="height: calc(100vh - 80px);"
+            ></custom-ui-renderer>
           </div>
 
-          ${isAppMain && otherMethods.length > 0 ? html`
-            <div style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg);">
-                <div style="display: flex; align-items: center; gap: var(--space-sm);">
-                  <span style="font-size: 1.5rem;">${this._selectedPhoton.appEntry?.icon || '📱'}</span>
-                  <h3 style="margin: 0; font-size: 1.2rem; color: var(--t-primary);">${this._selectedPhoton.name}</h3>
+          ${isAppMain && otherMethods.length > 0
+            ? html`
+                <div
+                  style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
+                >
+                  <div
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg);"
+                  >
+                    <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                      <span style="font-size: 1.5rem;"
+                        >${this._selectedPhoton.appEntry?.icon || '📱'}</span
+                      >
+                      <h3 style="margin: 0; font-size: 1.2rem; color: var(--t-primary);">
+                        ${this._selectedPhoton.name}
+                      </h3>
+                    </div>
+                    ${this._renderActionToolbar({
+                      showLaunchApp: true,
+                      showReconfigure: false,
+                      showRememberValues: false,
+                      showRename: false,
+                      showViewSource: false,
+                      showDelete: false,
+                      showRemove: true,
+                      showHelp: false,
+                    })}
+                  </div>
+                  <h4
+                    style="color: var(--t-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);"
+                  >
+                    Methods
+                  </h4>
+                  <div class="cards-grid">
+                    ${otherMethods.map(
+                      (method: any) => html`
+                        <method-card
+                          .method=${method}
+                          .photonName=${this._selectedPhoton.name}
+                          @select=${this._handleMethodSelect}
+                          @update-metadata=${this._handleMethodMetadataUpdate}
+                        ></method-card>
+                      `
+                    )}
+                  </div>
                 </div>
-                ${this._renderActionToolbar({
-                  showLaunchApp: true,
-                  showReconfigure: false,
-                  showRememberValues: false,
-                  showRename: false,
-                  showViewSource: false,
-                  showDelete: false,
-                  showRemove: true,
-                  showHelp: false,
-                })}
-              </div>
-              <h4 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
-                Methods
-              </h4>
-              <div class="cards-grid">
-                ${otherMethods.map((method: any) => html`
-                  <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
-                `)}
-              </div>
-            </div>
-          ` : ''}
+              `
+            : ''}
         `;
       }
 
       // Default Form Interface
       const isAppMethod = this._selectedPhoton.isApp && this._selectedPhoton.appEntry;
-      const backLabel = isAppMethod ? `← Back to ${this._selectedPhoton.name}` : '← Back to Methods';
+      const backLabel = isAppMethod
+        ? `← Back to ${this._selectedPhoton.name}`
+        : '← Back to Methods';
 
       return html`
-          <div class="header-toolbar">
-            <div class="header-left">
-              <button
-                style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-                @click=${() => this._handleBackFromMethod()}
-              >${backLabel}</button>
-            </div>
-            ${this._renderActionToolbar({
-              showRename: false,
-              showViewSource: false,
-              showDelete: false,
-            })}
+        <div class="header-toolbar">
+          <div class="header-left">
+            <button
+              style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+              @click=${() => this._handleBackFromMethod()}
+            >
+              ${backLabel}
+            </button>
           </div>
-          ${this._renderMethodContent()}
-        `;
+          ${this._renderActionToolbar({
+            showRename: false,
+            showViewSource: false,
+            showDelete: false,
+          })}
+        </div>
+        ${this._renderMethodContent()}
+      `;
     }
 
     return html`
-        <div class="header-toolbar">
-          <div class="header-left"></div>
-          ${this._renderActionToolbar()}
-        </div>
+      <div class="header-toolbar">
+        <div class="header-left"></div>
+        ${this._renderActionToolbar()}
+      </div>
 
-        ${this._renderPhotonHeader()}
+      ${this._renderPhotonHeader()}
 
-        <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">Methods</h3>
-        <div class="cards-grid">
-          ${(this._selectedPhoton.methods || []).map((method: any) => html`
-            <method-card .method=${method} .photonName=${this._selectedPhoton.name} @select=${this._handleMethodSelect} @update-metadata=${this._handleMethodMetadataUpdate}></method-card>
-          `)}
-        </div>
+      <h3
+        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
+      >
+        Methods
+      </h3>
+      <div class="cards-grid">
+        ${(this._selectedPhoton.methods || []).map(
+          (method: any) => html`
+            <method-card
+              .method=${method}
+              .photonName=${this._selectedPhoton.name}
+              @select=${this._handleMethodSelect}
+              @update-metadata=${this._handleMethodMetadataUpdate}
+            ></method-card>
+          `
+        )}
+      </div>
 
-        ${this._renderPromptsSection()}
-        ${this._renderResourcesSection()}
-      `;
+      ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+    `;
   }
 
   // ===== Mobile Sidebar Methods =====
@@ -1936,30 +2033,41 @@ export class BeamApp extends LitElement {
           @cancel=${() => this._handleBackFromMethod()}
         ></invoke-form>
 
-        ${this._progress ? html`
-          <div class="progress-container">
-            <div class="progress-bar-wrapper">
-              <div class="progress-bar ${this._progress.value < 0 ? 'indeterminate' : ''}"
-                   style="width: ${this._progress.value < 0 ? '30%' : Math.round(this._progress.value * 100) + '%'}"></div>
-            </div>
-            <div class="progress-text">
-              <span>${this._progress.message}</span>
-              ${this._progress.value >= 0 ? html`
-                <span class="progress-percentage">${Math.round(this._progress.value * 100)}%</span>
-              ` : ''}
-            </div>
-          </div>
-        ` : ''}
-
-        ${this._lastResult !== null ? html`
-          <result-viewer
-            .result=${this._lastResult}
-            .outputFormat=${this._selectedMethod?.outputFormat}
-            .layoutHints=${this._selectedMethod?.layoutHints}
-            .theme=${this._theme}
-            @share=${this._handleShareResult}
-          ></result-viewer>
-        ` : ''}
+        ${this._progress
+          ? html`
+              <div class="progress-container">
+                <div class="progress-bar-wrapper">
+                  <div
+                    class="progress-bar ${this._progress.value < 0 ? 'indeterminate' : ''}"
+                    style="width: ${this._progress.value < 0
+                      ? '30%'
+                      : Math.round(this._progress.value * 100) + '%'}"
+                  ></div>
+                </div>
+                <div class="progress-text">
+                  <span>${this._progress.message}</span>
+                  ${this._progress.value >= 0
+                    ? html`
+                        <span class="progress-percentage"
+                          >${Math.round(this._progress.value * 100)}%</span
+                        >
+                      `
+                    : ''}
+                </div>
+              </div>
+            `
+          : ''}
+        ${this._lastResult !== null
+          ? html`
+              <result-viewer
+                .result=${this._lastResult}
+                .outputFormat=${this._selectedMethod?.outputFormat}
+                .layoutHints=${this._selectedMethod?.layoutHints}
+                .theme=${this._theme}
+                @share=${this._handleShareResult}
+              ></result-viewer>
+            `
+          : ''}
       </div>
     `;
   }
@@ -2013,11 +2121,11 @@ export class BeamApp extends LitElement {
 
   private _toggleSettingsMenu = () => {
     this._showSettingsMenu = !this._showSettingsMenu;
-  }
+  };
 
   private _closeSettingsMenu = () => {
     this._showSettingsMenu = false;
-  }
+  };
 
   private _handleRefresh = async () => {
     this._closeSettingsMenu();
@@ -2029,14 +2137,14 @@ export class BeamApp extends LitElement {
         showToast(result.error || 'Reload failed', 'error');
       }
     }
-  }
+  };
 
   private _launchAsApp = () => {
     this._closeSettingsMenu();
     if (this._selectedPhoton) {
       window.open(`/api/pwa/app?photon=${encodeURIComponent(this._selectedPhoton.name)}`, '_blank');
     }
-  }
+  };
 
   private _handleRemove = async () => {
     this._closeSettingsMenu();
@@ -2048,19 +2156,24 @@ export class BeamApp extends LitElement {
         }
       }
     }
-  }
+  };
 
   private _handleReconfigure = () => {
     this._closeSettingsMenu();
     this._view = 'config';
     this._updateHash();
-  }
+  };
 
   private _toggleRememberValues = () => {
     this._rememberFormValues = !this._rememberFormValues;
     localStorage.setItem('beam-remember-values', String(this._rememberFormValues));
-    showToast(this._rememberFormValues ? 'Form values will be remembered' : 'Form values will not be remembered', 'info');
-  }
+    showToast(
+      this._rememberFormValues
+        ? 'Form values will be remembered'
+        : 'Form values will not be remembered',
+      'info'
+    );
+  };
 
   // Maker instance method handlers - operate on the current photon
   private _handleRenamePhoton = () => {
@@ -2070,12 +2183,12 @@ export class BeamApp extends LitElement {
     if (newName && newName !== currentName) {
       this._invokeMakerMethod('rename', { name: newName });
     }
-  }
+  };
 
   private _handleViewSource = async () => {
     this._closeSettingsMenu();
 
-    const maker = this._photons.find(p => p.name === 'maker');
+    const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
       showToast('Maker photon not available', 'error');
       return;
@@ -2091,7 +2204,8 @@ export class BeamApp extends LitElement {
       try {
         const result = await mcpClient.callTool('maker/source', { photonPath });
         if (result.isError) {
-          const errorText = result.content.find((c: any) => c.type === 'text')?.text || 'Failed to load source';
+          const errorText =
+            result.content.find((c: any) => c.type === 'text')?.text || 'Failed to load source';
           showToast(errorText, 'error');
         } else {
           const data = mcpClient.parseToolResult(result);
@@ -2106,18 +2220,22 @@ export class BeamApp extends LitElement {
         showToast(error instanceof Error ? error.message : 'Failed to load source', 'error');
       }
     }
-  }
+  };
 
   private _handleDeletePhoton = () => {
     this._closeSettingsMenu();
-    if (confirm(`Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`)) {
+    if (
+      confirm(
+        `Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`
+      )
+    ) {
       this._invokeMakerMethod('delete');
     }
-  }
+  };
 
   private async _invokeMakerMethod(methodName: string, additionalArgs: Record<string, any> = {}) {
     // Find maker photon
-    const maker = this._photons.find(p => p.name === 'maker');
+    const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
       showToast('Maker photon not available', 'error');
       return;
@@ -2139,7 +2257,7 @@ export class BeamApp extends LitElement {
         const result = await mcpClient.callTool(toolName, { photonPath, ...additionalArgs });
 
         if (result.isError) {
-          const errorText = result.content.find(c => c.type === 'text')?.text || 'Unknown error';
+          const errorText = result.content.find((c) => c.type === 'text')?.text || 'Unknown error';
           this._log('error', errorText);
           showToast(errorText, 'error', 5000);
         } else {
@@ -2175,7 +2293,7 @@ export class BeamApp extends LitElement {
         const result = await mcpClient.callTool(toolName, args);
 
         if (result.isError) {
-          const errorText = result.content.find(c => c.type === 'text')?.text || 'Unknown error';
+          const errorText = result.content.find((c) => c.type === 'text')?.text || 'Unknown error';
           this._log('error', errorText);
           showToast(errorText, 'error', 5000);
         } else {
@@ -2229,21 +2347,29 @@ export class BeamApp extends LitElement {
 
           // Send response back to iframe
           if (event.source) {
-            (event.source as Window).postMessage({
-              type: 'photon:call-tool-response',
-              callId,
-              result: result.isError ? undefined : mcpClient.parseToolResult(result),
-              error: result.isError ? result.content.find(c => c.type === 'text')?.text : undefined
-            }, '*');
+            (event.source as Window).postMessage(
+              {
+                type: 'photon:call-tool-response',
+                callId,
+                result: result.isError ? undefined : mcpClient.parseToolResult(result),
+                error: result.isError
+                  ? result.content.find((c) => c.type === 'text')?.text
+                  : undefined,
+              },
+              '*'
+            );
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           if (event.source) {
-            (event.source as Window).postMessage({
-              type: 'photon:call-tool-response',
-              callId,
-              error: errorMessage
-            }, '*');
+            (event.source as Window).postMessage(
+              {
+                type: 'photon:call-tool-response',
+                callId,
+                error: errorMessage,
+              },
+              '*'
+            );
           }
         }
       }
@@ -2268,10 +2394,13 @@ export class BeamApp extends LitElement {
         try {
           const savedState = localStorage.getItem(stateKey);
           const state = savedState ? JSON.parse(savedState) : null;
-          (event.source as Window).postMessage({
-            type: 'photon:init-state',
-            state
-          }, '*');
+          (event.source as Window).postMessage(
+            {
+              type: 'photon:init-state',
+              state,
+            },
+            '*'
+          );
         } catch (e) {
           console.warn('Failed to load app state:', e);
         }
@@ -2289,7 +2418,7 @@ export class BeamApp extends LitElement {
         mcpClient.notifyViewing(photonId, itemId);
       }
     }
-  }
+  };
 
   // ===== Share Result Link =====
   private _handleShareResult() {
@@ -2321,12 +2450,15 @@ export class BeamApp extends LitElement {
     }
 
     // Copy to clipboard
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      showToast('Share link copied to clipboard', 'success');
-    }).catch(() => {
-      // Fallback: show URL in prompt
-      prompt('Copy this link to share:', shareUrl);
-    });
+    navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => {
+        showToast('Share link copied to clipboard', 'success');
+      })
+      .catch(() => {
+        // Fallback: show URL in prompt
+        prompt('Copy this link to share:', shareUrl);
+      });
   }
 
   private _handleThemeChange = (e: CustomEvent) => {
@@ -2335,7 +2467,7 @@ export class BeamApp extends LitElement {
     localStorage.setItem(THEME_STORAGE_KEY, newTheme);
     this._applyTheme();
     this._broadcastThemeToIframes();
-  }
+  };
 
   private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
@@ -2355,7 +2487,7 @@ export class BeamApp extends LitElement {
     } else {
       this._log('info', 'Input submitted');
     }
-  }
+  };
 
   private _handleElicitationCancel = async () => {
     const elicitationId = (this._elicitationData as any)?.elicitationId;
@@ -2370,7 +2502,7 @@ export class BeamApp extends LitElement {
 
     this._log('info', 'Input cancelled');
     showToast('Input cancelled', 'info');
-  }
+  };
 
   private _handleOAuthComplete = async (e: CustomEvent) => {
     const { elicitationId, success } = e.detail;
@@ -2382,7 +2514,7 @@ export class BeamApp extends LitElement {
       this._log('success', 'Authorization completed');
       showToast('Authorization completed', 'success');
     }
-  }
+  };
 
   private _applyTheme() {
     this.setAttribute('data-theme', this._theme);
@@ -2397,22 +2529,28 @@ export class BeamApp extends LitElement {
       const shadowRoot = (renderer as any).shadowRoot;
       const iframe = shadowRoot?.querySelector('iframe');
       if (iframe?.contentWindow) {
-        iframe.contentWindow.postMessage({
-          type: 'photon:theme-change',
-          theme: this._theme,
-          themeTokens: themeTokens
-        }, '*');
+        iframe.contentWindow.postMessage(
+          {
+            type: 'photon:theme-change',
+            theme: this._theme,
+            themeTokens: themeTokens,
+          },
+          '*'
+        );
       }
     });
 
     // Also check for any direct iframes (fallback)
     const iframes = this.shadowRoot?.querySelectorAll('iframe');
     iframes?.forEach((iframe) => {
-      iframe.contentWindow?.postMessage({
-        type: 'photon:theme-change',
-        theme: this._theme,
-        themeTokens: themeTokens
-      }, '*');
+      iframe.contentWindow?.postMessage(
+        {
+          type: 'photon:theme-change',
+          theme: this._theme,
+          themeTokens: themeTokens,
+        },
+        '*'
+      );
     });
   }
 
@@ -2512,7 +2650,7 @@ export class BeamApp extends LitElement {
       if (photons.length === 0) return;
 
       const currentIndex = this._selectedPhoton
-        ? photons.findIndex(p => p.name === this._selectedPhoton.name)
+        ? photons.findIndex((p) => p.name === this._selectedPhoton.name)
         : -1;
 
       let newIndex: number;
@@ -2530,7 +2668,10 @@ export class BeamApp extends LitElement {
     }
 
     // j/k or arrows to navigate methods
-    if ((e.key === 'j' || e.key === 'ArrowDown' || e.key === 'k' || e.key === 'ArrowUp') && this._view === 'list') {
+    if (
+      (e.key === 'j' || e.key === 'ArrowDown' || e.key === 'k' || e.key === 'ArrowUp') &&
+      this._view === 'list'
+    ) {
       const methods = this._selectedPhoton?.methods || [];
       if (methods.length === 0) return;
 
@@ -2565,7 +2706,7 @@ export class BeamApp extends LitElement {
       }
       return;
     }
-  }
+  };
 
   private _closeHelp() {
     this._showHelp = false;
@@ -2574,12 +2715,12 @@ export class BeamApp extends LitElement {
   private _showHelpModal = () => {
     this._closeSettingsMenu();
     this._showHelp = true;
-  }
+  };
 
   private _showPhotonHelpModal = () => {
     this._closeSettingsMenu();
     this._showPhotonHelp = true;
-  }
+  };
 
   private _closePhotonHelp() {
     this._showPhotonHelp = false;
@@ -2660,7 +2801,9 @@ export class BeamApp extends LitElement {
       lines.push('## Resources');
       lines.push('');
       for (const resource of photon.resources) {
-        lines.push(`- **${resource.name}** (\`${resource.uri || '-'}\`): ${resource.description || 'No description'}`);
+        lines.push(
+          `- **${resource.name}** (\`${resource.uri || '-'}\`): ${resource.description || 'No description'}`
+        );
       }
       lines.push('');
     }
@@ -2672,17 +2815,19 @@ export class BeamApp extends LitElement {
    * Renders the action toolbar for both desktop (inline buttons) and mobile (dropdown)
    * @param options Configuration for which buttons to show
    */
-  private _renderActionToolbar(options: {
-    showRefresh?: boolean;
-    showReconfigure?: boolean;
-    showRememberValues?: boolean;
-    showRename?: boolean;
-    showViewSource?: boolean;
-    showDelete?: boolean;
-    showHelp?: boolean;
-    showLaunchApp?: boolean;
-    showRemove?: boolean;
-  } = {}) {
+  private _renderActionToolbar(
+    options: {
+      showRefresh?: boolean;
+      showReconfigure?: boolean;
+      showRememberValues?: boolean;
+      showRename?: boolean;
+      showViewSource?: boolean;
+      showDelete?: boolean;
+      showHelp?: boolean;
+      showLaunchApp?: boolean;
+      showRemove?: boolean;
+    } = {}
+  ) {
     const {
       showRefresh = true,
       showReconfigure = this._selectedPhoton?.configured !== false,
@@ -2698,60 +2843,110 @@ export class BeamApp extends LitElement {
     return html`
       <!-- Desktop Action Toolbar -->
       <div class="action-toolbar">
-        ${showRefresh ? html`
-          <button class="toolbar-btn" @click=${this._handleRefresh} title="Refresh photon">
-            <span>🔄</span>
-            <span class="label">Refresh</span>
-          </button>
-        ` : ''}
-        ${showReconfigure ? html`
-          <button class="toolbar-btn" @click=${this._handleReconfigure} title="Reconfigure photon">
-            <span>🔧</span>
-            <span class="label">Configure</span>
-          </button>
-        ` : ''}
-        ${showRememberValues ? html`
-          <button class="toolbar-btn toolbar-toggle" @click=${this._toggleRememberValues} title="Remember form values between invocations">
-            <span>📝</span>
-            <span class="label">Remember</span>
-            <span class="toggle-indicator ${this._rememberFormValues ? 'active' : ''}"></span>
-          </button>
-        ` : ''}
-        ${showLaunchApp ? html`
-          <button class="toolbar-btn" @click=${() => this._launchAsApp()} title="Launch in separate window">
-            <span>🖥️</span>
-            <span class="label">Launch</span>
-          </button>
-        ` : ''}
-        ${(showRename || showViewSource || showDelete) ? html`
-          <span class="toolbar-divider"></span>
-        ` : ''}
-        ${showRename ? html`
-          <button class="toolbar-btn icon-only" @click=${this._handleRenamePhoton} title="Rename photon">
-            <span>✏️</span>
-          </button>
-        ` : ''}
-        ${showViewSource ? html`
-          <button class="toolbar-btn icon-only" @click=${this._handleViewSource} title="View source code">
-            <span>📄</span>
-          </button>
-        ` : ''}
-        ${showDelete ? html`
-          <button class="toolbar-btn icon-only danger" @click=${this._handleDeletePhoton} title="Delete photon">
-            <span>🗑️</span>
-          </button>
-        ` : ''}
-        ${showRemove ? html`
-          <button class="toolbar-btn icon-only danger" @click=${this._handleRemove} title="Remove from list">
-            <span>🗑️</span>
-          </button>
-        ` : ''}
-        ${showHelp ? html`
-          <span class="toolbar-divider"></span>
-          <button class="toolbar-btn icon-only" @click=${this._showPhotonHelpModal} title="Photon documentation">
-            <span>❓</span>
-          </button>
-        ` : ''}
+        ${showRefresh
+          ? html`
+              <button class="toolbar-btn" @click=${this._handleRefresh} title="Refresh photon">
+                <span>🔄</span>
+                <span class="label">Refresh</span>
+              </button>
+            `
+          : ''}
+        ${showReconfigure
+          ? html`
+              <button
+                class="toolbar-btn"
+                @click=${this._handleReconfigure}
+                title="Reconfigure photon"
+              >
+                <span>🔧</span>
+                <span class="label">Configure</span>
+              </button>
+            `
+          : ''}
+        ${showRememberValues
+          ? html`
+              <button
+                class="toolbar-btn toolbar-toggle"
+                @click=${this._toggleRememberValues}
+                title="Remember form values between invocations"
+              >
+                <span>📝</span>
+                <span class="label">Remember</span>
+                <span class="toggle-indicator ${this._rememberFormValues ? 'active' : ''}"></span>
+              </button>
+            `
+          : ''}
+        ${showLaunchApp
+          ? html`
+              <button
+                class="toolbar-btn"
+                @click=${() => this._launchAsApp()}
+                title="Launch in separate window"
+              >
+                <span>🖥️</span>
+                <span class="label">Launch</span>
+              </button>
+            `
+          : ''}
+        ${showRename || showViewSource || showDelete
+          ? html` <span class="toolbar-divider"></span> `
+          : ''}
+        ${showRename
+          ? html`
+              <button
+                class="toolbar-btn icon-only"
+                @click=${this._handleRenamePhoton}
+                title="Rename photon"
+              >
+                <span>✏️</span>
+              </button>
+            `
+          : ''}
+        ${showViewSource
+          ? html`
+              <button
+                class="toolbar-btn icon-only"
+                @click=${this._handleViewSource}
+                title="View source code"
+              >
+                <span>📄</span>
+              </button>
+            `
+          : ''}
+        ${showDelete
+          ? html`
+              <button
+                class="toolbar-btn icon-only danger"
+                @click=${this._handleDeletePhoton}
+                title="Delete photon"
+              >
+                <span>🗑️</span>
+              </button>
+            `
+          : ''}
+        ${showRemove
+          ? html`
+              <button
+                class="toolbar-btn icon-only danger"
+                @click=${this._handleRemove}
+                title="Remove from list"
+              >
+                <span>🗑️</span>
+              </button>
+            `
+          : ''}
+        ${showHelp
+          ? html`
+              <span class="toolbar-divider"></span>
+              <button
+                class="toolbar-btn icon-only"
+                @click=${this._showPhotonHelpModal}
+                title="Photon documentation"
+              >
+                <span>❓</span>
+              </button>
+            `
+          : ''}
       </div>
 
       <!-- Mobile Dropdown Menu -->
@@ -2760,72 +2955,105 @@ export class BeamApp extends LitElement {
           <span>⚙️</span>
           <span>Menu</span>
         </button>
-        ${this._showSettingsMenu ? html`
-          <div class="settings-dropdown">
-            ${showLaunchApp ? html`
-              <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
-                <span class="icon">🖥️</span>
-                <span>Launch as App</span>
-              </button>
-            ` : ''}
-            ${showRefresh ? html`
-              <button class="settings-dropdown-item" @click=${this._handleRefresh}>
-                <span class="icon">🔄</span>
-                <span>Refresh</span>
-              </button>
-            ` : ''}
-            ${showReconfigure ? html`
-              <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
-                <span class="icon">🔧</span>
-                <span>Reconfigure</span>
-              </button>
-            ` : ''}
-            ${showRememberValues ? html`
-              <div class="settings-dropdown-divider"></div>
-              <button class="settings-dropdown-item toggle" @click=${this._toggleRememberValues}>
-                <span style="display:flex;align-items:center;gap:10px;">
-                  <span class="icon">📝</span>
-                  <span>Remember Values</span>
-                </span>
-                <span class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"></span>
-              </button>
-            ` : ''}
-            ${(showRename || showViewSource || showDelete) ? html`
-              <div class="settings-dropdown-divider"></div>
-            ` : ''}
-            ${showRename ? html`
-              <button class="settings-dropdown-item" @click=${this._handleRenamePhoton}>
-                <span class="icon">✏️</span>
-                <span>Rename</span>
-              </button>
-            ` : ''}
-            ${showViewSource ? html`
-              <button class="settings-dropdown-item" @click=${this._handleViewSource}>
-                <span class="icon">📄</span>
-                <span>View Source</span>
-              </button>
-            ` : ''}
-            ${showDelete ? html`
-              <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleDeletePhoton}>
-                <span class="icon">🗑️</span>
-                <span>Delete</span>
-              </button>
-            ` : ''}
-            ${showRemove ? html`
-              <button class="settings-dropdown-item" style="color: #f87171;" @click=${this._handleRemove}>
-                <span class="icon">🗑️</span>
-                <span>Remove</span>
-              </button>
-            ` : ''}
-            ${showHelp ? html`
-              <div class="settings-dropdown-divider"></div>
-              <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
-                <span class="icon">📖</span>
-                <span>Photon Help</span>
-              </button>
-            ` : ''}
-          </div>
-        ` : ''}
+        ${this._showSettingsMenu
+          ? html`
+              <div class="settings-dropdown">
+                ${showLaunchApp
+                  ? html`
+                      <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
+                        <span class="icon">🖥️</span>
+                        <span>Launch as App</span>
+                      </button>
+                    `
+                  : ''}
+                ${showRefresh
+                  ? html`
+                      <button class="settings-dropdown-item" @click=${this._handleRefresh}>
+                        <span class="icon">🔄</span>
+                        <span>Refresh</span>
+                      </button>
+                    `
+                  : ''}
+                ${showReconfigure
+                  ? html`
+                      <button class="settings-dropdown-item" @click=${this._handleReconfigure}>
+                        <span class="icon">🔧</span>
+                        <span>Reconfigure</span>
+                      </button>
+                    `
+                  : ''}
+                ${showRememberValues
+                  ? html`
+                      <div class="settings-dropdown-divider"></div>
+                      <button
+                        class="settings-dropdown-item toggle"
+                        @click=${this._toggleRememberValues}
+                      >
+                        <span style="display:flex;align-items:center;gap:10px;">
+                          <span class="icon">📝</span>
+                          <span>Remember Values</span>
+                        </span>
+                        <span
+                          class="toggle-switch ${this._rememberFormValues ? 'active' : ''}"
+                        ></span>
+                      </button>
+                    `
+                  : ''}
+                ${showRename || showViewSource || showDelete
+                  ? html` <div class="settings-dropdown-divider"></div> `
+                  : ''}
+                ${showRename
+                  ? html`
+                      <button class="settings-dropdown-item" @click=${this._handleRenamePhoton}>
+                        <span class="icon">✏️</span>
+                        <span>Rename</span>
+                      </button>
+                    `
+                  : ''}
+                ${showViewSource
+                  ? html`
+                      <button class="settings-dropdown-item" @click=${this._handleViewSource}>
+                        <span class="icon">📄</span>
+                        <span>View Source</span>
+                      </button>
+                    `
+                  : ''}
+                ${showDelete
+                  ? html`
+                      <button
+                        class="settings-dropdown-item"
+                        style="color: #f87171;"
+                        @click=${this._handleDeletePhoton}
+                      >
+                        <span class="icon">🗑️</span>
+                        <span>Delete</span>
+                      </button>
+                    `
+                  : ''}
+                ${showRemove
+                  ? html`
+                      <button
+                        class="settings-dropdown-item"
+                        style="color: #f87171;"
+                        @click=${this._handleRemove}
+                      >
+                        <span class="icon">🗑️</span>
+                        <span>Remove</span>
+                      </button>
+                    `
+                  : ''}
+                ${showHelp
+                  ? html`
+                      <div class="settings-dropdown-divider"></div>
+                      <button class="settings-dropdown-item" @click=${this._showPhotonHelpModal}>
+                        <span class="icon">📖</span>
+                        <span>Photon Help</span>
+                      </button>
+                    `
+                  : ''}
+              </div>
+            `
+          : ''}
       </div>
     `;
   }
@@ -2846,36 +3074,45 @@ export class BeamApp extends LitElement {
 
     return html`
       <div class="photon-header">
-        <div class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
-             @click=${this._startEditingIcon}
-             title="Click to change icon">
+        <div
+          class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
+          @click=${this._startEditingIcon}
+          title="Click to change icon"
+        >
           ${displayIcon}
         </div>
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
         <div class="photon-header-info">
           <h1 class="photon-header-name">${this._selectedPhoton.name}</h1>
-          ${this._editingDescription ? html`
-            <p class="photon-header-desc editable editing">
-              <input
-                class="editable-input"
-                type="text"
-                .value=${this._editedDescription}
-                placeholder="Add a description..."
-                @input=${(e: Event) => this._editedDescription = (e.target as HTMLInputElement).value}
-                @blur=${this._saveDescription}
-                @keydown=${this._handleDescriptionKeydown}
-                autofocus
-              />
-            </p>
-          ` : html`
-            <p class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
-               @click=${this._startEditingDescription}
-               title="Click to edit description">
-              ${isGenericDesc ? 'Click to add a description...' : description}
-            </p>
-          `}
+          ${this._editingDescription
+            ? html`
+                <p class="photon-header-desc editable editing">
+                  <input
+                    class="editable-input"
+                    type="text"
+                    .value=${this._editedDescription}
+                    placeholder="Add a description..."
+                    @input=${(e: Event) =>
+                      (this._editedDescription = (e.target as HTMLInputElement).value)}
+                    @blur=${this._saveDescription}
+                    @keydown=${this._handleDescriptionKeydown}
+                    autofocus
+                  />
+                </p>
+              `
+            : html`
+                <p
+                  class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
+                  @click=${this._startEditingDescription}
+                  title="Click to edit description"
+                >
+                  ${isGenericDesc ? 'Click to add a description...' : description}
+                </p>
+              `}
           <div class="photon-header-meta">
-            ${isApp ? html`<span class="photon-badge app">App</span>` : html`<span class="photon-badge">MCP</span>`}
+            ${isApp
+              ? html`<span class="photon-badge app">App</span>`
+              : html`<span class="photon-badge">MCP</span>`}
             <span class="photon-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
           </div>
         </div>
@@ -2888,7 +3125,7 @@ export class BeamApp extends LitElement {
     const isGeneric = desc.endsWith(' MCP') || desc === 'Photon tool';
     this._editedDescription = isGeneric ? '' : desc;
     this._editingDescription = true;
-  }
+  };
 
   private _handleDescriptionKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -2897,7 +3134,7 @@ export class BeamApp extends LitElement {
     } else if (e.key === 'Escape') {
       this._editingDescription = false;
     }
-  }
+  };
 
   private _saveDescription = async () => {
     this._editingDescription = false;
@@ -2908,18 +3145,20 @@ export class BeamApp extends LitElement {
       this._selectedPhoton = { ...this._selectedPhoton, description: newDesc };
 
       // Send to server to persist via MCP
-      const result = await mcpClient.updateMetadata(this._selectedPhoton.name, null, { description: newDesc });
+      const result = await mcpClient.updateMetadata(this._selectedPhoton.name, null, {
+        description: newDesc,
+      });
       if (result.success) {
         showToast('Description updated', 'success');
       } else {
         showToast(result.error || 'Failed to update description', 'error');
       }
     }
-  }
+  };
 
   private _startEditingIcon = () => {
     this._editingIcon = !this._editingIcon;
-  }
+  };
 
   private _selectIcon = async (icon: string) => {
     this._editingIcon = false;
@@ -2936,7 +3175,7 @@ export class BeamApp extends LitElement {
         showToast(result.error || 'Failed to update icon', 'error');
       }
     }
-  }
+  };
 
   private _handleMethodMetadataUpdate = async (e: CustomEvent) => {
     const { photonName, methodName, metadata } = e.detail;
@@ -2947,8 +3186,10 @@ export class BeamApp extends LitElement {
         if (m.name === methodName) {
           return {
             ...m,
-            ...(metadata.description !== undefined ? { description: metadata.description || '' } : {}),
-            ...(metadata.icon !== undefined ? { icon: metadata.icon || undefined } : {})
+            ...(metadata.description !== undefined
+              ? { description: metadata.description || '' }
+              : {}),
+            ...(metadata.icon !== undefined ? { icon: metadata.icon || undefined } : {}),
           };
         }
         return m;
@@ -2959,29 +3200,81 @@ export class BeamApp extends LitElement {
       // Send to server to persist via MCP
       const result = await mcpClient.updateMetadata(photonName, methodName, metadata);
       if (result.success) {
-        showToast(`Method ${metadata.description !== undefined ? 'description' : 'icon'} updated`, 'success');
+        showToast(
+          `Method ${metadata.description !== undefined ? 'description' : 'icon'} updated`,
+          'success'
+        );
       } else {
         showToast(result.error || 'Failed to update method metadata', 'error');
       }
     }
-  }
+  };
 
   private _renderEmojiPicker() {
     const emojis = [
-      '🔧', '⚙️', '🛠️', '🔨', '🔩', '⚡', '💡', '🎯',
-      '📊', '📈', '📉', '📋', '📝', '📁', '📂', '🗂️',
-      '🌐', '🔗', '🔒', '🔓', '🔑', '🛡️', '🔍', '🔎',
-      '💾', '💿', '📀', '🖥️', '💻', '📱', '⌨️', '🖱️',
-      '🤖', '🧠', '🎨', '🎭', '🎬', '🎮', '🎲', '🧩',
-      '📧', '💬', '💭', '🗨️', '📣', '📢', '🔔', '🔕',
-      '✅', '❌', '⭐', '🌟', '💫', '✨', '🔥', '💥',
+      '🔧',
+      '⚙️',
+      '🛠️',
+      '🔨',
+      '🔩',
+      '⚡',
+      '💡',
+      '🎯',
+      '📊',
+      '📈',
+      '📉',
+      '📋',
+      '📝',
+      '📁',
+      '📂',
+      '🗂️',
+      '🌐',
+      '🔗',
+      '🔒',
+      '🔓',
+      '🔑',
+      '🛡️',
+      '🔍',
+      '🔎',
+      '💾',
+      '💿',
+      '📀',
+      '🖥️',
+      '💻',
+      '📱',
+      '⌨️',
+      '🖱️',
+      '🤖',
+      '🧠',
+      '🎨',
+      '🎭',
+      '🎬',
+      '🎮',
+      '🎲',
+      '🧩',
+      '📧',
+      '💬',
+      '💭',
+      '🗨️',
+      '📣',
+      '📢',
+      '🔔',
+      '🔕',
+      '✅',
+      '❌',
+      '⭐',
+      '🌟',
+      '💫',
+      '✨',
+      '🔥',
+      '💥',
     ];
 
     return html`
       <div class="emoji-picker" @click=${(e: Event) => e.stopPropagation()}>
-        ${emojis.map(emoji => html`
-          <button @click=${() => this._selectIcon(emoji)}>${emoji}</button>
-        `)}
+        ${emojis.map(
+          (emoji) => html` <button @click=${() => this._selectIcon(emoji)}>${emoji}</button> `
+        )}
       </div>
     `;
   }
@@ -2996,16 +3289,20 @@ export class BeamApp extends LitElement {
         <span class="count">${prompts.length}</span>
       </h3>
       <div class="cards-grid">
-        ${prompts.map((prompt: any) => html`
-          <div class="asset-card glass-panel" @click=${() => this._handlePromptSelect(prompt)}>
-            <div class="asset-header">
-              <div class="asset-icon prompt">📝</div>
-              <span class="asset-name">${prompt.id}</span>
+        ${prompts.map(
+          (prompt: any) => html`
+            <div class="asset-card glass-panel" @click=${() => this._handlePromptSelect(prompt)}>
+              <div class="asset-header">
+                <div class="asset-icon prompt">📝</div>
+                <span class="asset-name">${prompt.id}</span>
+              </div>
+              <div class="asset-desc">
+                ${prompt.description || 'Click to view and customize this prompt'}
+              </div>
+              <div class="asset-meta">${prompt.path}</div>
             </div>
-            <div class="asset-desc">${prompt.description || 'Click to view and customize this prompt'}</div>
-            <div class="asset-meta">${prompt.path}</div>
-          </div>
-        `)}
+          `
+        )}
       </div>
     `;
   }
@@ -3020,16 +3317,21 @@ export class BeamApp extends LitElement {
         <span class="count">${resources.length}</span>
       </h3>
       <div class="cards-grid">
-        ${resources.map((resource: any) => html`
-          <div class="asset-card glass-panel" @click=${() => this._handleResourceSelect(resource)}>
-            <div class="asset-header">
-              <div class="asset-icon resource">📦</div>
-              <span class="asset-name">${resource.id}</span>
+        ${resources.map(
+          (resource: any) => html`
+            <div
+              class="asset-card glass-panel"
+              @click=${() => this._handleResourceSelect(resource)}
+            >
+              <div class="asset-header">
+                <div class="asset-icon resource">📦</div>
+                <span class="asset-name">${resource.id}</span>
+              </div>
+              <div class="asset-desc">${resource.description || 'Click to view this resource'}</div>
+              <div class="asset-meta">${resource.mimeType || resource.path}</div>
             </div>
-            <div class="asset-desc">${resource.description || 'Click to view this resource'}</div>
-            <div class="asset-meta">${resource.mimeType || resource.path}</div>
-          </div>
-        `)}
+          `
+        )}
       </div>
     `;
   }
@@ -3050,7 +3352,7 @@ export class BeamApp extends LitElement {
             content: content.text,
             renderedContent: content.text,
             variables: this._extractVariables(content.text),
-            description: prompt.description
+            description: prompt.description,
           };
           for (const v of this._selectedPrompt.variables) {
             this._promptArguments[v] = '';
@@ -3061,11 +3363,11 @@ export class BeamApp extends LitElement {
         console.error('Failed to load prompt:', error);
       }
     }
-  }
+  };
 
   private _extractVariables(content: string): string[] {
     const matches = content.match(/\{\{(\w+)\}\}/g) || [];
-    return [...new Set(matches.map(m => m.slice(2, -2)))];
+    return [...new Set(matches.map((m) => m.slice(2, -2)))];
   }
 
   private _handleResourceSelect = async (resource: any) => {
@@ -3082,7 +3384,7 @@ export class BeamApp extends LitElement {
             ...this._selectedResource,
             content: content.text,
             mimeType: content.mimeType,
-            description: resource.description
+            description: resource.description,
           };
           this._resourceContent = content.text || '';
         }
@@ -3090,7 +3392,7 @@ export class BeamApp extends LitElement {
         console.error('Failed to load resource:', error);
       }
     }
-  }
+  };
 
   private _renderPromptWithVariables(content: string): string {
     // Highlight {{variables}} in the prompt
@@ -3120,7 +3422,12 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePromptModal(); }}>
+      <div
+        class="modal-overlay"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._closePromptModal();
+        }}
+      >
         <div class="asset-viewer-modal glass-panel">
           <button class="close-btn" @click=${this._closePromptModal}>&times;</button>
 
@@ -3129,35 +3436,37 @@ export class BeamApp extends LitElement {
             ${this._selectedPrompt.id}
           </h2>
 
-          ${this._selectedPrompt.description ? html`
-            <p class="description">${this._selectedPrompt.description}</p>
-          ` : ''}
-
-          ${hasVariables ? html`
-            <div class="variables-form">
-              <h4>Variables</h4>
-              ${variables.map((v: string) => html`
-                <div class="variable-input">
-                  <label>{{${v}}}</label>
-                  <input
-                    type="text"
-                    placeholder="Enter value..."
-                    .value=${this._promptArguments[v] || ''}
-                    @input=${(e: Event) => this._updatePromptArgument(v, (e.target as HTMLInputElement).value)}
-                  />
+          ${this._selectedPrompt.description
+            ? html` <p class="description">${this._selectedPrompt.description}</p> `
+            : ''}
+          ${hasVariables
+            ? html`
+                <div class="variables-form">
+                  <h4>Variables</h4>
+                  ${variables.map(
+                    (v: string) => html`
+                      <div class="variable-input">
+                        <label>{{${v}}}</label>
+                        <input
+                          type="text"
+                          placeholder="Enter value..."
+                          .value=${this._promptArguments[v] || ''}
+                          @input=${(e: Event) =>
+                            this._updatePromptArgument(v, (e.target as HTMLInputElement).value)}
+                        />
+                      </div>
+                    `
+                  )}
                 </div>
-              `)}
-            </div>
-          ` : ''}
+              `
+            : ''}
 
           <div class="content-section">
             <h4>${hasVariables ? 'Rendered Prompt' : 'Content'}</h4>
             <div class="content-preview" .innerHTML=${renderedContent}></div>
           </div>
 
-          <button class="copy-btn" @click=${this._copyPromptContent}>
-            📋 Copy to Clipboard
-          </button>
+          <button class="copy-btn" @click=${this._copyPromptContent}>📋 Copy to Clipboard</button>
         </div>
       </div>
     `;
@@ -3180,7 +3489,12 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-      <div class="modal-overlay" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeResourceModal(); }}>
+      <div
+        class="modal-overlay"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._closeResourceModal();
+        }}
+      >
         <div class="asset-viewer-modal glass-panel">
           <button class="close-btn" @click=${this._closeResourceModal}>&times;</button>
 
@@ -3189,24 +3503,30 @@ export class BeamApp extends LitElement {
             ${this._selectedResource.id}
           </h2>
 
-          ${this._selectedResource.description ? html`
-            <p class="description">${this._selectedResource.description}</p>
-          ` : ''}
+          ${this._selectedResource.description
+            ? html` <p class="description">${this._selectedResource.description}</p> `
+            : ''}
 
           <div class="content-section">
             <h4>Content <span style="opacity:0.5">(${mimeType})</span></h4>
-            ${isImage ? html`
-              <img class="resource-image" src="data:${mimeType};base64,${this._selectedResource.content}" alt="${this._selectedResource.id}" />
-            ` : html`
-              <div class="content-preview">${displayContent}</div>
-            `}
+            ${isImage
+              ? html`
+                  <img
+                    class="resource-image"
+                    src="data:${mimeType};base64,${this._selectedResource.content}"
+                    alt="${this._selectedResource.id}"
+                  />
+                `
+              : html` <div class="content-preview">${displayContent}</div> `}
           </div>
 
-          ${!isImage ? html`
-            <button class="copy-btn" @click=${this._copyResourceContent}>
-              📋 Copy to Clipboard
-            </button>
-          ` : ''}
+          ${!isImage
+            ? html`
+                <button class="copy-btn" @click=${this._copyResourceContent}>
+                  📋 Copy to Clipboard
+                </button>
+              `
+            : ''}
         </div>
       </div>
     `;
@@ -3216,19 +3536,19 @@ export class BeamApp extends LitElement {
     this._selectedPrompt = null;
     this._promptArguments = {};
     this._renderedPrompt = '';
-  }
+  };
 
   private _closeResourceModal = () => {
     this._selectedResource = null;
     this._resourceContent = '';
-  }
+  };
 
   private _updatePromptArgument = (key: string, value: string) => {
     this._promptArguments = {
       ...this._promptArguments,
-      [key]: value
+      [key]: value,
     };
-  }
+  };
 
   private _copyPromptContent = async () => {
     // Build the rendered content
@@ -3245,7 +3565,7 @@ export class BeamApp extends LitElement {
     } catch {
       showToast('Failed to copy', 'error');
     }
-  }
+  };
 
   private _copyResourceContent = async () => {
     try {
@@ -3254,11 +3574,19 @@ export class BeamApp extends LitElement {
     } catch {
       showToast('Failed to copy', 'error');
     }
-  }
+  };
 
   private _renderHelpModal() {
     return html`
-      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeHelp(); }}>
+      <div
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-modal-title"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._closeHelp();
+        }}
+      >
         <div class="help-modal glass-panel">
           <h2 id="help-modal-title" class="text-gradient">Keyboard Shortcuts</h2>
 
@@ -3326,7 +3654,9 @@ export class BeamApp extends LitElement {
             class="btn-primary"
             style="width: 100%; margin-top: var(--space-md);"
             @click=${this._closeHelp}
-          >Close</button>
+          >
+            Close
+          </button>
         </div>
       </div>
     `;
@@ -3342,19 +3672,38 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="photon-help-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closePhotonHelp(); }}>
-        <div class="help-modal glass-panel" style="max-width: 700px; max-height: 80vh; overflow: auto;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-            <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">${this._selectedPhoton?.name || 'Photon'} Help</h2>
+      <div
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="photon-help-title"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._closePhotonHelp();
+        }}
+      >
+        <div
+          class="help-modal glass-panel"
+          style="max-width: 700px; max-height: 80vh; overflow: auto;"
+        >
+          <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);"
+          >
+            <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">
+              ${this._selectedPhoton?.name || 'Photon'} Help
+            </h2>
             <button
               class="btn-secondary"
               style="padding: 6px 12px; font-size: 0.85rem;"
               @click=${this._closePhotonHelp}
               aria-label="Close help"
-            >✕</button>
+            >
+              ✕
+            </button>
           </div>
           <div class="markdown-body" style="color: var(--t-default);">
-            ${(window as any).marked ? html`${unsafeHTML(htmlContent)}` : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
+            ${(window as any).marked
+              ? html`${unsafeHTML(htmlContent)}`
+              : html`<pre style="white-space: pre-wrap;">${markdown}</pre>`}
           </div>
         </div>
       </div>
@@ -3364,7 +3713,7 @@ export class BeamApp extends LitElement {
   private _closeSourceModal = () => {
     this._showSourceModal = false;
     this._sourceData = null;
-  }
+  };
 
   private _copySourceCode = async () => {
     if (this._sourceData?.code) {
@@ -3375,7 +3724,7 @@ export class BeamApp extends LitElement {
         showToast('Failed to copy', 'error');
       }
     }
-  }
+  };
 
   private _renderSourceModal() {
     if (!this._sourceData) return '';
@@ -3411,12 +3760,29 @@ export class BeamApp extends LitElement {
     }
 
     return html`
-      <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="source-modal-title" @click=${(e: Event) => { if (e.target === e.currentTarget) this._closeSourceModal(); }}>
-        <div class="help-modal glass-panel" style="max-width: 900px; max-height: 85vh; display: flex; flex-direction: column;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-shrink: 0;">
+      <div
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="source-modal-title"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._closeSourceModal();
+        }}
+      >
+        <div
+          class="help-modal glass-panel"
+          style="max-width: 900px; max-height: 85vh; display: flex; flex-direction: column;"
+        >
+          <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-shrink: 0;"
+          >
             <div>
               <h2 id="source-modal-title" class="text-gradient" style="margin: 0;">Source Code</h2>
-              <div style="font-size: 0.85rem; color: var(--t-muted); margin-top: 4px; font-family: var(--font-mono);">${filename}</div>
+              <div
+                style="font-size: 0.85rem; color: var(--t-muted); margin-top: 4px; font-family: var(--font-mono);"
+              >
+                ${filename}
+              </div>
             </div>
             <div style="display: flex; gap: var(--space-sm);">
               <button
@@ -3424,16 +3790,22 @@ export class BeamApp extends LitElement {
                 style="padding: 6px 12px; font-size: 0.85rem;"
                 @click=${this._copySourceCode}
                 title="Copy source code"
-              >📋 Copy</button>
+              >
+                📋 Copy
+              </button>
               <button
                 class="toolbar-btn"
                 style="padding: 6px 12px; font-size: 0.85rem;"
                 @click=${this._closeSourceModal}
                 aria-label="Close"
-              >✕</button>
+              >
+                ✕
+              </button>
             </div>
           </div>
-          <pre class="language-${language}" style="
+          <pre
+            class="language-${language}"
+            style="
             flex: 1;
             overflow: auto;
             background: #1e1e2e;
@@ -3445,7 +3817,10 @@ export class BeamApp extends LitElement {
             font-size: 0.85rem;
             line-height: 1.6;
             tab-size: 2;
-          "><code class="language-${language}">${Prism ? unsafeHTML(highlightedCode) : this._sourceData.code}</code></pre>
+          "
+          ><code class="language-${language}">${Prism
+            ? unsafeHTML(highlightedCode)
+            : this._sourceData.code}</code></pre>
         </div>
       </div>
     `;

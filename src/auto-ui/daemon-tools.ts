@@ -57,7 +57,8 @@ export const DAEMON_TOOLS: DaemonToolDefinition[] = [
   // Pub/Sub Tools
   {
     name: 'beam/daemon/subscribe',
-    description: 'Subscribe to daemon event channels. Receive notifications when messages are published to matching channels.',
+    description:
+      'Subscribe to daemon event channels. Receive notifications when messages are published to matching channels.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -118,7 +119,8 @@ export const DAEMON_TOOLS: DaemonToolDefinition[] = [
   // Lock Tools
   {
     name: 'beam/daemon/lock',
-    description: 'Acquire a distributed lock. Returns true if acquired, false if already held by another session.',
+    description:
+      'Acquire a distributed lock. Returns true if acquired, false if already held by another session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -140,7 +142,8 @@ export const DAEMON_TOOLS: DaemonToolDefinition[] = [
   },
   {
     name: 'beam/daemon/unlock',
-    description: 'Release a distributed lock. Returns true if released, false if not held by this session.',
+    description:
+      'Release a distributed lock. Returns true if released, false if not held by this session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -342,7 +345,7 @@ class SubscriptionManager {
           // Ignore unsubscribe errors
         }
         subs.unsubscribeFns.delete(pattern);
-        subs.patterns = subs.patterns.filter(p => p !== pattern);
+        subs.patterns = subs.patterns.filter((p) => p !== pattern);
         unsubscribed.push(pattern);
         logger.debug(`Unsubscribed from ${photonName}/${pattern} for session ${sessionId}`);
       } else {
@@ -430,14 +433,20 @@ export async function handleDaemonTool(
         );
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              subscribed: result.subscribed,
-              errors: result.errors.length > 0 ? result.errors : undefined,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  subscribed: result.subscribed,
+                  errors: result.errors.length > 0 ? result.errors : undefined,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -448,14 +457,20 @@ export async function handleDaemonTool(
         const result = subscriptionManager.unsubscribe(sessionId, photon, patterns);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              unsubscribed: result.unsubscribed,
-              notFound: result.notFound.length > 0 ? result.notFound : undefined,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  unsubscribed: result.unsubscribed,
+                  notFound: result.notFound.length > 0 ? result.notFound : undefined,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -467,14 +482,20 @@ export async function handleDaemonTool(
         await publishToChannel(photon, channel, message);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              channel,
-              published: true,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  channel,
+                  published: true,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -489,14 +510,20 @@ export async function handleDaemonTool(
         const acquired = await acquireLock(photon, name, timeout);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              lock: name,
-              acquired,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  lock: name,
+                  acquired,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -507,14 +534,20 @@ export async function handleDaemonTool(
         const released = await releaseLock(photon, name);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              lock: name,
-              released,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  lock: name,
+                  released,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -524,13 +557,19 @@ export async function handleDaemonTool(
         const locks = await listLocks(photon);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              locks,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  locks,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -547,15 +586,21 @@ export async function handleDaemonTool(
         const result = await scheduleJob(photon, jobId, method, cron, jobArgs);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              jobId,
-              scheduled: result.scheduled,
-              nextRun: result.nextRun ? new Date(result.nextRun).toISOString() : undefined,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  jobId,
+                  scheduled: result.scheduled,
+                  nextRun: result.nextRun ? new Date(result.nextRun).toISOString() : undefined,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -566,14 +611,20 @@ export async function handleDaemonTool(
         const unscheduled = await unscheduleJob(photon, jobId);
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              jobId,
-              unscheduled,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  jobId,
+                  unscheduled,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -583,20 +634,26 @@ export async function handleDaemonTool(
         const jobs = await listJobs(photon);
 
         // Format jobs with human-readable dates
-        const formattedJobs = jobs.map(job => ({
+        const formattedJobs = jobs.map((job) => ({
           ...job,
           nextRun: job.nextRun ? new Date(job.nextRun).toISOString() : undefined,
           lastRun: job.lastRun ? new Date(job.lastRun).toISOString() : undefined,
         }));
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              jobs: formattedJobs,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  jobs: formattedJobs,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -616,19 +673,25 @@ export async function handleDaemonTool(
         const photonSubs = subscriptions.get(photon) || [];
 
         return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              photon,
-              daemon: {
-                alive: isAlive,
-              },
-              subscriptions: photonSubs,
-              locks: locks.length,
-              jobs: jobs.length,
-            }, null, 2),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  photon,
+                  daemon: {
+                    alive: isAlive,
+                  },
+                  subscriptions: photonSubs,
+                  locks: locks.length,
+                  jobs: jobs.length,
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 

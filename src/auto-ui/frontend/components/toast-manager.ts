@@ -75,15 +75,31 @@ export class ToastManager extends LitElement {
         height: 18px;
       }
 
-      .toast.success .icon { color: #4ade80; }
-      .toast.error .icon { color: #f87171; }
-      .toast.info .icon { color: var(--accent-secondary); }
-      .toast.warning .icon { color: #fbbf24; }
+      .toast.success .icon {
+        color: #4ade80;
+      }
+      .toast.error .icon {
+        color: #f87171;
+      }
+      .toast.info .icon {
+        color: var(--accent-secondary);
+      }
+      .toast.warning .icon {
+        color: #fbbf24;
+      }
 
-      .toast.success { border-left: 3px solid #4ade80; }
-      .toast.error { border-left: 3px solid #f87171; }
-      .toast.info { border-left: 3px solid var(--accent-secondary); }
-      .toast.warning { border-left: 3px solid #fbbf24; }
+      .toast.success {
+        border-left: 3px solid #4ade80;
+      }
+      .toast.error {
+        border-left: 3px solid #f87171;
+      }
+      .toast.info {
+        border-left: 3px solid var(--accent-secondary);
+      }
+      .toast.warning {
+        border-left: 3px solid #fbbf24;
+      }
 
       .message {
         flex: 1;
@@ -104,7 +120,7 @@ export class ToastManager extends LitElement {
         color: var(--t-primary);
         background: hsla(220, 10%, 80%, 0.1);
       }
-    `
+    `,
   ];
 
   @state() private _toasts: Toast[] = [];
@@ -147,32 +163,42 @@ export class ToastManager extends LitElement {
 
     setTimeout(() => {
       this._exitingToasts.delete(id);
-      this._toasts = this._toasts.filter(t => t.id !== id);
+      this._toasts = this._toasts.filter((t) => t.id !== id);
     }, 300);
   }
 
   render() {
     return html`
       <div role="status" aria-live="polite" aria-atomic="false">
-        ${this._toasts.map(toast => html`
-          <div
-            class="toast ${toast.type} ${this._exitingToasts.has(toast.id) ? 'exiting' : ''}"
-            role="alert"
-            aria-live="${toast.type === 'error' ? 'assertive' : 'polite'}"
-          >
-            ${this._renderIcon(toast.type)}
-            <span class="message">${toast.message}</span>
-            <button
-              class="close"
-              @click=${() => this._dismissToast(toast.id)}
-              aria-label="Dismiss notification"
+        ${this._toasts.map(
+          (toast) => html`
+            <div
+              class="toast ${toast.type} ${this._exitingToasts.has(toast.id) ? 'exiting' : ''}"
+              role="alert"
+              aria-live="${toast.type === 'error' ? 'assertive' : 'polite'}"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-        `)}
+              ${this._renderIcon(toast.type)}
+              <span class="message">${toast.message}</span>
+              <button
+                class="close"
+                @click=${() => this._dismissToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          `
+        )}
       </div>
     `;
   }
@@ -182,11 +208,20 @@ export class ToastManager extends LitElement {
       success: '<path d="M20 6L9 17l-5-5"/>',
       error: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>',
       info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
-      warning: '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>'
+      warning:
+        '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>',
     };
 
     return html`
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg
+        class="icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         ${this._unsafeSvg(icons[type])}
       </svg>
     `;

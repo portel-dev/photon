@@ -4,7 +4,18 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 
-type LayoutType = 'table' | 'list' | 'card' | 'tree' | 'json' | 'markdown' | 'mermaid' | 'code' | 'text' | 'chips' | 'html';
+type LayoutType =
+  | 'table'
+  | 'list'
+  | 'card'
+  | 'tree'
+  | 'json'
+  | 'markdown'
+  | 'mermaid'
+  | 'code'
+  | 'text'
+  | 'chips'
+  | 'html';
 
 interface LayoutHints {
   title?: string;
@@ -94,11 +105,21 @@ export class ResultViewer extends LitElement {
       }
 
       /* JSON Syntax Highlighting - Theme Aware */
-      .json-key { color: var(--syntax-key, var(--accent-secondary)); }
-      .json-string { color: var(--syntax-string, #a5d6ff); }
-      .json-number { color: var(--syntax-number, #ff9e64); }
-      .json-boolean { color: var(--syntax-boolean, #ff007c); }
-      .json-null { color: var(--syntax-null, #79c0ff); }
+      .json-key {
+        color: var(--syntax-key, var(--accent-secondary));
+      }
+      .json-string {
+        color: var(--syntax-string, #a5d6ff);
+      }
+      .json-number {
+        color: var(--syntax-number, #ff9e64);
+      }
+      .json-boolean {
+        color: var(--syntax-boolean, #ff007c);
+      }
+      .json-null {
+        color: var(--syntax-null, #79c0ff);
+      }
 
       /* Syntax Highlighting Colors - Dark Theme (default) */
       :host {
@@ -116,7 +137,7 @@ export class ResultViewer extends LitElement {
       }
 
       /* Syntax Highlighting Colors - Light Theme */
-      :host([data-theme="light"]) {
+      :host([data-theme='light']) {
         --syntax-key: #0550ae;
         --syntax-string: #0a3069;
         --syntax-number: #953800;
@@ -131,15 +152,55 @@ export class ResultViewer extends LitElement {
       }
 
       /* Prism.js Code Highlighting Overrides */
-      .token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--syntax-comment); }
-      .token.punctuation { color: var(--syntax-punctuation); }
-      .token.property, .token.tag, .token.constant, .token.symbol, .token.deleted { color: var(--syntax-key); }
-      .token.boolean, .token.number { color: var(--syntax-number); }
-      .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: var(--syntax-string); }
-      .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: var(--syntax-operator); }
-      .token.atrule, .token.attr-value, .token.keyword { color: var(--syntax-keyword); }
-      .token.function, .token.class-name { color: var(--syntax-function); }
-      .token.regex, .token.important, .token.variable { color: var(--syntax-boolean); }
+      .token.comment,
+      .token.prolog,
+      .token.doctype,
+      .token.cdata {
+        color: var(--syntax-comment);
+      }
+      .token.punctuation {
+        color: var(--syntax-punctuation);
+      }
+      .token.property,
+      .token.tag,
+      .token.constant,
+      .token.symbol,
+      .token.deleted {
+        color: var(--syntax-key);
+      }
+      .token.boolean,
+      .token.number {
+        color: var(--syntax-number);
+      }
+      .token.selector,
+      .token.attr-name,
+      .token.string,
+      .token.char,
+      .token.builtin,
+      .token.inserted {
+        color: var(--syntax-string);
+      }
+      .token.operator,
+      .token.entity,
+      .token.url,
+      .language-css .token.string,
+      .style .token.string {
+        color: var(--syntax-operator);
+      }
+      .token.atrule,
+      .token.attr-value,
+      .token.keyword {
+        color: var(--syntax-keyword);
+      }
+      .token.function,
+      .token.class-name {
+        color: var(--syntax-function);
+      }
+      .token.regex,
+      .token.important,
+      .token.variable {
+        color: var(--syntax-boolean);
+      }
 
       /* Table Styles */
       .smart-table {
@@ -260,17 +321,25 @@ export class ResultViewer extends LitElement {
         font-weight: 500;
       }
 
-      .status-success, .status-active, .status-completed, .status-online {
+      .status-success,
+      .status-active,
+      .status-completed,
+      .status-online {
         background: hsla(120, 60%, 50%, 0.15);
         color: hsl(120, 60%, 50%);
       }
 
-      .status-error, .status-failed, .status-offline, .status-inactive {
+      .status-error,
+      .status-failed,
+      .status-offline,
+      .status-inactive {
         background: hsla(0, 60%, 50%, 0.15);
         color: hsl(0, 60%, 50%);
       }
 
-      .status-warning, .status-pending, .status-processing {
+      .status-warning,
+      .status-pending,
+      .status-processing {
         background: hsla(45, 80%, 50%, 0.15);
         color: hsl(45, 80%, 50%);
       }
@@ -288,7 +357,9 @@ export class ResultViewer extends LitElement {
         font-weight: 500;
         font-size: 0.9rem;
         word-break: break-all;
-        transition: opacity 0.2s, transform 0.2s;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
       }
 
       .result-link:hover {
@@ -384,7 +455,9 @@ export class ResultViewer extends LitElement {
         line-height: 1.6;
       }
 
-      .markdown-body p { margin-bottom: 0.5em; }
+      .markdown-body p {
+        margin-bottom: 0.5em;
+      }
       .markdown-body code {
         background: var(--code-bg);
         padding: 2px 6px;
@@ -405,13 +478,39 @@ export class ResultViewer extends LitElement {
         font-size: 0.85em;
         line-height: 1.5;
       }
-      .markdown-body ul, .markdown-body ol { margin-left: 1.5em; margin-bottom: 0.5em; }
-      .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1em; margin-bottom: 0.5em; color: var(--t-primary); }
-      .markdown-body a { color: var(--accent-primary); text-decoration: none; }
-      .markdown-body a:hover { text-decoration: underline; }
-      .markdown-body table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-      .markdown-body th, .markdown-body td { border: 1px solid var(--border-glass); padding: 8px; text-align: left; }
-      .markdown-body th { background: var(--code-bg); }
+      .markdown-body ul,
+      .markdown-body ol {
+        margin-left: 1.5em;
+        margin-bottom: 0.5em;
+      }
+      .markdown-body h1,
+      .markdown-body h2,
+      .markdown-body h3 {
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+        color: var(--t-primary);
+      }
+      .markdown-body a {
+        color: var(--accent-primary);
+        text-decoration: none;
+      }
+      .markdown-body a:hover {
+        text-decoration: underline;
+      }
+      .markdown-body table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1em 0;
+      }
+      .markdown-body th,
+      .markdown-body td {
+        border: 1px solid var(--border-glass);
+        padding: 8px;
+        text-align: left;
+      }
+      .markdown-body th {
+        background: var(--code-bg);
+      }
 
       /* Code block language label */
       .code-block-wrapper {
@@ -628,10 +727,18 @@ export class ResultViewer extends LitElement {
         color: var(--t-primary);
       }
 
-      .tree-value.string { color: #a5d6ff; }
-      .tree-value.number { color: #ff9e64; }
-      .tree-value.boolean { color: #ff007c; }
-      .tree-value.null { color: #79c0ff; }
+      .tree-value.string {
+        color: #a5d6ff;
+      }
+      .tree-value.number {
+        color: #ff9e64;
+      }
+      .tree-value.boolean {
+        color: #ff007c;
+      }
+      .tree-value.null {
+        color: #79c0ff;
+      }
 
       .tree-type {
         color: var(--t-muted);
@@ -668,7 +775,7 @@ export class ResultViewer extends LitElement {
         justify-content: space-between;
         align-items: center;
         padding: 12px 20px;
-        background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+        background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
         z-index: 10;
       }
 
@@ -682,7 +789,7 @@ export class ResultViewer extends LitElement {
         display: flex;
         align-items: center;
         gap: 4px;
-        background: rgba(255,255,255,0.1);
+        background: rgba(255, 255, 255, 0.1);
         border-radius: 8px;
         padding: 4px;
       }
@@ -694,8 +801,8 @@ export class ResultViewer extends LitElement {
       }
 
       .fullscreen-btn {
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         color: white;
         width: 36px;
         height: 36px;
@@ -709,7 +816,7 @@ export class ResultViewer extends LitElement {
       }
 
       .fullscreen-btn:hover {
-        background: rgba(255,255,255,0.2);
+        background: rgba(255, 255, 255, 0.2);
       }
 
       .fullscreen-btn:active {
@@ -726,7 +833,7 @@ export class ResultViewer extends LitElement {
       }
 
       .zoom-level {
-        color: rgba(255,255,255,0.7);
+        color: rgba(255, 255, 255, 0.7);
         font-size: 0.8rem;
         min-width: 50px;
         text-align: center;
@@ -734,7 +841,7 @@ export class ResultViewer extends LitElement {
       }
 
       .fullscreen-hint {
-        color: rgba(255,255,255,0.5);
+        color: rgba(255, 255, 255, 0.5);
         font-size: 0.75rem;
       }
 
@@ -771,7 +878,7 @@ export class ResultViewer extends LitElement {
         max-height: 85vh;
         object-fit: contain;
         border-radius: var(--radius-md);
-        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
         user-select: none;
         -webkit-user-drag: none;
       }
@@ -790,7 +897,7 @@ export class ResultViewer extends LitElement {
         justify-content: center;
       }
 
-      :host([data-theme="light"]) .fullscreen-content .mermaid-container {
+      :host([data-theme='light']) .fullscreen-content .mermaid-container {
         background: #f8fafc;
       }
 
@@ -812,7 +919,7 @@ export class ResultViewer extends LitElement {
         color: var(--t-default);
       }
 
-      :host([data-theme="light"]) .fullscreen-content .markdown-container {
+      :host([data-theme='light']) .fullscreen-content .markdown-container {
         background: #ffffff;
       }
 
@@ -820,8 +927,8 @@ export class ResultViewer extends LitElement {
         position: absolute;
         top: -40px;
         right: 0;
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         color: white;
         width: 36px;
         height: 36px;
@@ -835,20 +942,22 @@ export class ResultViewer extends LitElement {
       }
 
       .fullscreen-close:hover {
-        background: rgba(255,255,255,0.2);
+        background: rgba(255, 255, 255, 0.2);
       }
 
       /* Clickable image in results */
       .clickable-image {
         cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
         max-width: 100%;
         border-radius: var(--radius-sm);
       }
 
       .clickable-image:hover {
         transform: scale(1.02);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
 
       .expand-hint {
@@ -1011,7 +1120,7 @@ export class ResultViewer extends LitElement {
         flex: 1;
         min-height: 400px;
       }
-    `
+    `,
   ];
 
   @property({ type: Object })
@@ -1097,7 +1206,7 @@ export class ResultViewer extends LitElement {
         this._resetZoom();
       }
     }
-  }
+  };
 
   private _closeFullscreen() {
     this._fullscreenImage = null;
@@ -1134,7 +1243,7 @@ export class ResultViewer extends LitElement {
         this._panY = 0;
       }
     }
-  }
+  };
 
   private _handlePanStart = (e: MouseEvent) => {
     if (this._zoomLevel <= 1) return;
@@ -1144,7 +1253,7 @@ export class ResultViewer extends LitElement {
     this._panStartY = e.clientY;
     this._lastPanX = this._panX;
     this._lastPanY = this._panY;
-  }
+  };
 
   private _handlePanMove = (e: MouseEvent) => {
     if (!this._isPanning) return;
@@ -1153,11 +1262,11 @@ export class ResultViewer extends LitElement {
     const dy = e.clientY - this._panStartY;
     this._panX = this._lastPanX + dx;
     this._panY = this._lastPanY + dy;
-  }
+  };
 
   private _handlePanEnd = () => {
     this._isPanning = false;
-  }
+  };
 
   private _autoFitFullscreen() {
     // Wait for SVG to be in DOM
@@ -1216,9 +1325,7 @@ export class ResultViewer extends LitElement {
     // HTML UI mode: minimal chrome, full-height interactive content
     if (isHtmlUiMode) {
       return html`
-        <div class="html-ui-container">
-          ${this._renderContent(layout, filteredData)}
-        </div>
+        <div class="html-ui-container">${this._renderContent(layout, filteredData)}</div>
       `;
     }
 
@@ -1234,110 +1341,156 @@ export class ResultViewer extends LitElement {
               .value=${this._filterQuery}
               @input=${this._handleFilterInput}
               @keydown=${this._handleFilterKeydown}
-            >
-            ${isFiltered ? html`
-              <span class="filter-count filtered">${filteredCount} / ${totalCount}</span>
-            ` : ''}
+            />
+            ${isFiltered
+              ? html` <span class="filter-count filtered">${filteredCount} / ${totalCount}</span> `
+              : ''}
           </div>
           <div class="actions">
             ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
             <button @click=${this._copy}>Copy</button>
-            <button @click=${() => this._downloadSmart(layout)}>↓ ${this._getDownloadLabel(layout)}</button>
-            ${this._isTabularData() ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>` : ''}
+            <button @click=${() => this._downloadSmart(layout)}>
+              ↓ ${this._getDownloadLabel(layout)}
+            </button>
+            ${this._isTabularData()
+              ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
+              : ''}
             <button @click=${this._share} title="Share link to this result">🔗 Share</button>
           </div>
         </div>
         <div class="content">${this._renderContent(layout, filteredData)}</div>
       </div>
 
-      ${this._fullscreenImage ? html`
-        <div class="fullscreen-overlay">
-          <div class="fullscreen-toolbar">
-            <div class="fullscreen-toolbar-left">
-              <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
-            </div>
-            <div class="fullscreen-toolbar-center">
-              <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">−</button>
-              <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
-              <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">+</button>
-              <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">⟲</button>
-            </div>
-            <div class="fullscreen-toolbar-right">
-              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
-            </div>
-          </div>
-          <div
-            class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <= 1 ? 'zoom-1' : ''}"
-            @wheel=${this._handleWheel}
-            @mousedown=${this._handlePanStart}
-            @mousemove=${this._handlePanMove}
-            @mouseup=${this._handlePanEnd}
-            @mouseleave=${this._handlePanEnd}
-          >
-            <div
-              class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
-              style="transform: scale(${this._zoomLevel}) translate(${this._panX / this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
-            >
-              <img src="${this._fullscreenImage}" alt="Fullscreen image" draggable="false">
-            </div>
-          </div>
-        </div>
-      ` : ''}
-
-      ${this._fullscreenMermaid ? html`
-        <div class="fullscreen-overlay">
-          <div class="fullscreen-toolbar">
-            <div class="fullscreen-toolbar-left">
-              <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
-            </div>
-            <div class="fullscreen-toolbar-center">
-              <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">−</button>
-              <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
-              <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">+</button>
-              <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">⟲</button>
-            </div>
-            <div class="fullscreen-toolbar-right">
-              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
-            </div>
-          </div>
-          <div
-            class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <= 1 ? 'zoom-1' : ''}"
-            @wheel=${this._handleWheel}
-            @mousedown=${this._handlePanStart}
-            @mousemove=${this._handlePanMove}
-            @mouseup=${this._handlePanEnd}
-            @mouseleave=${this._handlePanEnd}
-          >
-            <div
-              class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
-              style="transform: scale(${this._zoomLevel}) translate(${this._panX / this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
-            >
-              <div class="mermaid-container" id="fullscreen-mermaid"></div>
-            </div>
-          </div>
-        </div>
-      ` : ''}
-
-      ${this._fullscreenMarkdown ? html`
-        <div class="fullscreen-overlay">
-          <div class="fullscreen-toolbar">
-            <div class="fullscreen-toolbar-left">
-              <span class="fullscreen-hint">Esc to close</span>
-            </div>
-            <div class="fullscreen-toolbar-center"></div>
-            <div class="fullscreen-toolbar-right">
-              <button class="fullscreen-btn close-btn" @click=${this._closeFullscreen} title="Close (Esc)">✕</button>
-            </div>
-          </div>
-          <div class="fullscreen-viewport zoom-1" style="padding-top: 60px;">
-            <div class="fullscreen-content">
-              <div class="markdown-container markdown-content">
-                ${unsafeHTML(this._fullscreenMarkdown)}
+      ${this._fullscreenImage
+        ? html`
+            <div class="fullscreen-overlay">
+              <div class="fullscreen-toolbar">
+                <div class="fullscreen-toolbar-left">
+                  <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
+                </div>
+                <div class="fullscreen-toolbar-center">
+                  <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">
+                    −
+                  </button>
+                  <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
+                  <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">
+                    +
+                  </button>
+                  <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">
+                    ⟲
+                  </button>
+                </div>
+                <div class="fullscreen-toolbar-right">
+                  <button
+                    class="fullscreen-btn close-btn"
+                    @click=${this._closeFullscreen}
+                    title="Close (Esc)"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div
+                class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <=
+                1
+                  ? 'zoom-1'
+                  : ''}"
+                @wheel=${this._handleWheel}
+                @mousedown=${this._handlePanStart}
+                @mousemove=${this._handlePanMove}
+                @mouseup=${this._handlePanEnd}
+                @mouseleave=${this._handlePanEnd}
+              >
+                <div
+                  class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
+                  style="transform: scale(${this._zoomLevel}) translate(${this._panX /
+                  this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
+                >
+                  <img src="${this._fullscreenImage}" alt="Fullscreen image" draggable="false" />
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      ` : ''}
+          `
+        : ''}
+      ${this._fullscreenMermaid
+        ? html`
+            <div class="fullscreen-overlay">
+              <div class="fullscreen-toolbar">
+                <div class="fullscreen-toolbar-left">
+                  <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
+                </div>
+                <div class="fullscreen-toolbar-center">
+                  <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">
+                    −
+                  </button>
+                  <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
+                  <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">
+                    +
+                  </button>
+                  <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">
+                    ⟲
+                  </button>
+                </div>
+                <div class="fullscreen-toolbar-right">
+                  <button
+                    class="fullscreen-btn close-btn"
+                    @click=${this._closeFullscreen}
+                    title="Close (Esc)"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div
+                class="fullscreen-viewport ${this._isPanning ? 'dragging' : ''} ${this._zoomLevel <=
+                1
+                  ? 'zoom-1'
+                  : ''}"
+                @wheel=${this._handleWheel}
+                @mousedown=${this._handlePanStart}
+                @mousemove=${this._handlePanMove}
+                @mouseup=${this._handlePanEnd}
+                @mouseleave=${this._handlePanEnd}
+              >
+                <div
+                  class="fullscreen-content ${this._isPanning ? 'no-transition' : ''}"
+                  style="transform: scale(${this._zoomLevel}) translate(${this._panX /
+                  this._zoomLevel}px, ${this._panY / this._zoomLevel}px)"
+                >
+                  <div class="mermaid-container" id="fullscreen-mermaid"></div>
+                </div>
+              </div>
+            </div>
+          `
+        : ''}
+      ${this._fullscreenMarkdown
+        ? html`
+            <div class="fullscreen-overlay">
+              <div class="fullscreen-toolbar">
+                <div class="fullscreen-toolbar-left">
+                  <span class="fullscreen-hint">Esc to close</span>
+                </div>
+                <div class="fullscreen-toolbar-center"></div>
+                <div class="fullscreen-toolbar-right">
+                  <button
+                    class="fullscreen-btn close-btn"
+                    @click=${this._closeFullscreen}
+                    title="Close (Esc)"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div class="fullscreen-viewport zoom-1" style="padding-top: 60px;">
+                <div class="fullscreen-content">
+                  <div class="markdown-container markdown-content">
+                    ${unsafeHTML(this._fullscreenMarkdown)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `
+        : ''}
     `;
   }
 
@@ -1354,7 +1507,8 @@ export class ResultViewer extends LitElement {
 
   private _getTotalCount(): number {
     if (Array.isArray(this.result)) return this.result.length;
-    if (typeof this.result === 'object' && this.result !== null) return Object.keys(this.result).length;
+    if (typeof this.result === 'object' && this.result !== null)
+      return Object.keys(this.result).length;
     return 1;
   }
 
@@ -1372,7 +1526,7 @@ export class ResultViewer extends LitElement {
 
     // Array filtering
     if (Array.isArray(data)) {
-      return data.filter(item => this._itemMatchesFilter(item, query));
+      return data.filter((item) => this._itemMatchesFilter(item, query));
     }
 
     // Object filtering (card view)
@@ -1397,7 +1551,7 @@ export class ResultViewer extends LitElement {
   private _itemMatchesFilter(item: any, query: string): boolean {
     if (typeof item === 'string') return item.toLowerCase().includes(query);
     if (typeof item === 'object' && item !== null) {
-      return Object.values(item).some(v => this._valueMatchesFilter(v, query));
+      return Object.values(item).some((v) => this._valueMatchesFilter(v, query));
     }
     return String(item).toLowerCase().includes(query);
   }
@@ -1431,7 +1585,22 @@ export class ResultViewer extends LitElement {
     // 1. Explicit format from docblock
     if (this.outputFormat) {
       const format = this.outputFormat.toLowerCase();
-      if (['table', 'list', 'card', 'tree', 'json', 'markdown', 'mermaid', 'code', 'text', 'chips', 'grid', 'html'].includes(format)) {
+      if (
+        [
+          'table',
+          'list',
+          'card',
+          'tree',
+          'json',
+          'markdown',
+          'mermaid',
+          'code',
+          'text',
+          'chips',
+          'grid',
+          'html',
+        ].includes(format)
+      ) {
         return format as LayoutType;
       }
       // Content formats
@@ -1460,14 +1629,20 @@ export class ResultViewer extends LitElement {
       if (data.length === 0) return 'json';
 
       // Array of strings → chips
-      if (data.every(item => typeof item === 'string')) {
+      if (data.every((item) => typeof item === 'string')) {
         return 'chips';
       }
 
       // Array of objects → table or list
-      if (data.every(item => typeof item === 'object' && item !== null)) {
+      if (data.every((item) => typeof item === 'object' && item !== null)) {
         // Check if we have semantic fields for list
-        const hasListFields = this._hasSemanticFields(data[0], ['name', 'title', 'status', 'state', 'description']);
+        const hasListFields = this._hasSemanticFields(data[0], [
+          'name',
+          'title',
+          'status',
+          'state',
+          'description',
+        ]);
         return hasListFields ? 'list' : 'table';
       }
     }
@@ -1482,8 +1657,8 @@ export class ResultViewer extends LitElement {
 
   private _hasSemanticFields(obj: any, fields: string[]): boolean {
     if (!obj || typeof obj !== 'object') return false;
-    const keys = Object.keys(obj).map(k => k.toLowerCase());
-    return fields.some(f => keys.includes(f.toLowerCase()));
+    const keys = Object.keys(obj).map((k) => k.toLowerCase());
+    return fields.some((f) => keys.includes(f.toLowerCase()));
   }
 
   private _renderContent(layout: LayoutType, filteredData: any): TemplateResult | string {
@@ -1558,27 +1733,31 @@ export class ResultViewer extends LitElement {
       <table class="smart-table">
         <thead>
           <tr>
-            ${columns.map(col => html`
-              <th
-                class="sortable ${this._sortColumn === col ? 'sorted' : ''}"
-                @click=${() => this._toggleSort(col)}
-              >
-                ${this._formatColumnName(col)}
-                <span class="sort-indicator">
-                  ${this._sortColumn === col
-                    ? (this._sortDirection === 'asc' ? '↑' : '↓')
-                    : '↕'}
-                </span>
-              </th>
-            `)}
+            ${columns.map(
+              (col) => html`
+                <th
+                  class="sortable ${this._sortColumn === col ? 'sorted' : ''}"
+                  @click=${() => this._toggleSort(col)}
+                >
+                  ${this._formatColumnName(col)}
+                  <span class="sort-indicator">
+                    ${this._sortColumn === col ? (this._sortDirection === 'asc' ? '↑' : '↓') : '↕'}
+                  </span>
+                </th>
+              `
+            )}
           </tr>
         </thead>
         <tbody>
-          ${pageData.map(row => html`
-            <tr>
-              ${columns.map(col => html`<td>${this._formatCellValue(row[col], col, true)}</td>`)}
-            </tr>
-          `)}
+          ${pageData.map(
+            (row) => html`
+              <tr>
+                ${columns.map(
+                  (col) => html`<td>${this._formatCellValue(row[col], col, true)}</td>`
+                )}
+              </tr>
+            `
+          )}
         </tbody>
       </table>
       ${totalItems > this._pageSize ? this._renderPagination(totalItems, totalPages) : ''}
@@ -1608,36 +1787,46 @@ export class ResultViewer extends LitElement {
 
     return html`
       <div class="pagination">
-        <span class="pagination-info">
-          Showing ${startItem}-${endItem} of ${totalItems}
-        </span>
+        <span class="pagination-info"> Showing ${startItem}-${endItem} of ${totalItems} </span>
         <div class="pagination-controls">
           <button
             class="pagination-btn"
             ?disabled=${this._currentPage === 0}
-            @click=${() => this._currentPage = 0}
-          >«</button>
+            @click=${() => (this._currentPage = 0)}
+          >
+            «
+          </button>
           <button
             class="pagination-btn"
             ?disabled=${this._currentPage === 0}
             @click=${() => this._currentPage--}
-          >‹</button>
-          ${Array.from({ length: endPage - startPage }, (_, i) => startPage + i).map(page => html`
-            <button
-              class="pagination-btn ${this._currentPage === page ? 'active' : ''}"
-              @click=${() => this._currentPage = page}
-            >${page + 1}</button>
-          `)}
+          >
+            ‹
+          </button>
+          ${Array.from({ length: endPage - startPage }, (_, i) => startPage + i).map(
+            (page) => html`
+              <button
+                class="pagination-btn ${this._currentPage === page ? 'active' : ''}"
+                @click=${() => (this._currentPage = page)}
+              >
+                ${page + 1}
+              </button>
+            `
+          )}
           <button
             class="pagination-btn"
             ?disabled=${this._currentPage >= totalPages - 1}
             @click=${() => this._currentPage++}
-          >›</button>
+          >
+            ›
+          </button>
           <button
             class="pagination-btn"
             ?disabled=${this._currentPage >= totalPages - 1}
-            @click=${() => this._currentPage = totalPages - 1}
-          >»</button>
+            @click=${() => (this._currentPage = totalPages - 1)}
+          >
+            »
+          </button>
         </div>
       </div>
     `;
@@ -1650,36 +1839,54 @@ export class ResultViewer extends LitElement {
 
     return html`
       <ul class="smart-list">
-        ${data.map(item => this._renderListItem(item))}
+        ${data.map((item) => this._renderListItem(item))}
       </ul>
     `;
   }
 
   private _renderListItem(item: any): TemplateResult {
     if (typeof item !== 'object' || item === null) {
-      return html`<li class="list-item"><span class="list-item-title">${this._highlightText(String(item))}</span></li>`;
+      return html`<li class="list-item">
+        <span class="list-item-title">${this._highlightText(String(item))}</span>
+      </li>`;
     }
 
     const mapping = this._analyzeFields(item);
 
     return html`
       <li class="list-item">
-        ${mapping.icon ? html`
-          <div class="list-item-leading">
-            ${this._isImageUrl(item[mapping.icon])
-              ? html`<img src="${item[mapping.icon]}" alt="">`
-              : item[mapping.icon]}
-          </div>
-        ` : ''}
+        ${mapping.icon
+          ? html`
+              <div class="list-item-leading">
+                ${this._isImageUrl(item[mapping.icon])
+                  ? html`<img src="${item[mapping.icon]}" alt="" />`
+                  : item[mapping.icon]}
+              </div>
+            `
+          : ''}
         <div class="list-item-content">
-          ${mapping.title ? html`<div class="list-item-title">${this._highlightText(String(item[mapping.title]))}</div>` : ''}
-          ${mapping.subtitle ? html`<div class="list-item-subtitle">${this._highlightText(String(item[mapping.subtitle]))}</div>` : ''}
+          ${mapping.title
+            ? html`<div class="list-item-title">
+                ${this._highlightText(String(item[mapping.title]))}
+              </div>`
+            : ''}
+          ${mapping.subtitle
+            ? html`<div class="list-item-subtitle">
+                ${this._highlightText(String(item[mapping.subtitle]))}
+              </div>`
+            : ''}
         </div>
         <div class="list-item-trailing">
-          ${mapping.detail ? html`<span>${this._highlightText(String(item[mapping.detail]))}</span>` : ''}
-          ${mapping.badge ? html`
-            <span class="status-badge ${this._getStatusClass(item[mapping.badge])}">${item[mapping.badge]}</span>
-          ` : ''}
+          ${mapping.detail
+            ? html`<span>${this._highlightText(String(item[mapping.detail]))}</span>`
+            : ''}
+          ${mapping.badge
+            ? html`
+                <span class="status-badge ${this._getStatusClass(item[mapping.badge])}"
+                  >${item[mapping.badge]}</span
+                >
+              `
+            : ''}
         </div>
       </li>
     `;
@@ -1692,7 +1899,7 @@ export class ResultViewer extends LitElement {
     }
 
     // Render single object as vertical key-value table
-    const keys = Object.keys(data).filter(k => data[k] !== undefined);
+    const keys = Object.keys(data).filter((k) => data[k] !== undefined);
 
     return html`
       <table class="smart-table kv-table">
@@ -1703,12 +1910,14 @@ export class ResultViewer extends LitElement {
           </tr>
         </thead>
         <tbody>
-          ${keys.map(key => html`
-            <tr>
-              <td class="kv-key">${this._formatColumnName(key)}</td>
-              <td>${this._formatCellValue(data[key], key, true)}</td>
-            </tr>
-          `)}
+          ${keys.map(
+            (key) => html`
+              <tr>
+                <td class="kv-key">${this._formatColumnName(key)}</td>
+                <td>${this._formatCellValue(data[key], key, true)}</td>
+              </tr>
+            `
+          )}
         </tbody>
       </table>
     `;
@@ -1721,7 +1930,7 @@ export class ResultViewer extends LitElement {
 
     return html`
       <div class="smart-chips">
-        ${data.map(item => html`<span class="chip">${this._highlightText(String(item))}</span>`)}
+        ${data.map((item) => html`<span class="chip">${this._highlightText(String(item))}</span>`)}
       </div>
     `;
   }
@@ -1736,9 +1945,7 @@ export class ResultViewer extends LitElement {
     }
 
     const isArray = Array.isArray(data);
-    const entries = isArray
-      ? data.map((v, i) => [i, v] as [number, any])
-      : Object.entries(data);
+    const entries = isArray ? data.map((v, i) => [i, v] as [number, any]) : Object.entries(data);
 
     const isExpanded = this._expandedNodes.has(path);
     const hasChildren = entries.length > 0;
@@ -1746,36 +1953,42 @@ export class ResultViewer extends LitElement {
     return html`
       <div class="tree-node ${isRoot ? 'tree-root' : ''}">
         <div class="tree-item">
-          ${hasChildren ? html`
-            <span class="tree-toggle" @click=${() => this._toggleNode(path)}>
-              ${isExpanded ? '▼' : '▶'}
-            </span>
-          ` : html`<span class="tree-toggle"></span>`}
+          ${hasChildren
+            ? html`
+                <span class="tree-toggle" @click=${() => this._toggleNode(path)}>
+                  ${isExpanded ? '▼' : '▶'}
+                </span>
+              `
+            : html`<span class="tree-toggle"></span>`}
           ${!isRoot ? html`<span class="tree-key">${path.split('.').pop()}</span>` : ''}
-          <span class="tree-type">${isArray ? `Array[${entries.length}]` : `Object{${entries.length}}`}</span>
+          <span class="tree-type"
+            >${isArray ? `Array[${entries.length}]` : `Object{${entries.length}}`}</span
+          >
         </div>
-        ${isExpanded || isRoot ? html`
-          <div class="tree-container">
-            ${entries.map(([key, value]) => {
-              const childPath = `${path}.${key}`;
-              const isChildObject = value !== null && typeof value === 'object';
+        ${isExpanded || isRoot
+          ? html`
+              <div class="tree-container">
+                ${entries.map(([key, value]) => {
+                  const childPath = `${path}.${key}`;
+                  const isChildObject = value !== null && typeof value === 'object';
 
-              if (isChildObject) {
-                return this._renderTree(value, childPath, false);
-              }
+                  if (isChildObject) {
+                    return this._renderTree(value, childPath, false);
+                  }
 
-              return html`
-                <div class="tree-node">
-                  <div class="tree-item">
-                    <span class="tree-toggle"></span>
-                    <span class="tree-key">${key}:</span>
-                    ${this._renderTreeValue(value)}
-                  </div>
-                </div>
-              `;
-            })}
-          </div>
-        ` : ''}
+                  return html`
+                    <div class="tree-node">
+                      <div class="tree-item">
+                        <span class="tree-toggle"></span>
+                        <span class="tree-key">${key}:</span>
+                        ${this._renderTreeValue(value)}
+                      </div>
+                    </div>
+                  `;
+                })}
+              </div>
+            `
+          : ''}
       </div>
     `;
   }
@@ -1847,7 +2060,9 @@ export class ResultViewer extends LitElement {
 
       return html`
         <div class="markdown-body-wrapper">
-          <button class="expand-btn" @click=${this._openMarkdownFullscreen} title="View fullscreen">⤢</button>
+          <button class="expand-btn" @click=${this._openMarkdownFullscreen} title="View fullscreen">
+            ⤢
+          </button>
           <div class="markdown-body">${unsafeHTML(htmlContent)}</div>
         </div>
       `;
@@ -1858,11 +2073,7 @@ export class ResultViewer extends LitElement {
 
   private _renderHtml(): TemplateResult {
     const htmlContent = String(this.result);
-    return html`
-      <div class="html-content">
-        ${unsafeHTML(htmlContent)}
-      </div>
-    `;
+    return html` <div class="html-content">${unsafeHTML(htmlContent)}</div> `;
   }
 
   private _openMarkdownFullscreen = () => {
@@ -1943,13 +2154,13 @@ export class ResultViewer extends LitElement {
 
       // Map common language aliases
       const langMap: Record<string, string> = {
-        'ts': 'typescript',
-        'js': 'javascript',
-        'py': 'python',
-        'sh': 'bash',
-        'shell': 'bash',
-        'yml': 'yaml',
-        'md': 'markdown',
+        ts: 'typescript',
+        js: 'javascript',
+        py: 'python',
+        sh: 'bash',
+        shell: 'bash',
+        yml: 'yaml',
+        md: 'markdown',
       };
       const prismLang = langMap[language] || language;
 
@@ -1976,7 +2187,7 @@ export class ResultViewer extends LitElement {
 
     // Update background color for existing wrappers
     const bgColor = this.theme === 'light' ? '#f8fafc' : '#1e293b';
-    wrappers.forEach(wrapper => {
+    wrappers.forEach((wrapper) => {
       (wrapper as HTMLElement).style.background = bgColor;
     });
 
@@ -1993,29 +2204,32 @@ export class ResultViewer extends LitElement {
     mermaid.initialize({
       startOnLoad: false,
       theme: mermaidTheme,
-      themeVariables: this.theme === 'light' ? {
-        primaryColor: '#e0e7ff',
-        primaryTextColor: '#1e293b',
-        primaryBorderColor: '#6366f1',
-        lineColor: '#64748b',
-        secondaryColor: '#f1f5f9',
-        tertiaryColor: '#f8fafc',
-        background: '#ffffff',
-        mainBkg: '#f8fafc',
-        textColor: '#1e293b',
-        nodeBorder: '#cbd5e1',
-      } : {
-        primaryColor: '#3730a3',
-        primaryTextColor: '#e2e8f0',
-        primaryBorderColor: '#6366f1',
-        lineColor: '#64748b',
-        secondaryColor: '#1e293b',
-        tertiaryColor: '#0f172a',
-        background: '#0f172a',
-        mainBkg: '#1e293b',
-        textColor: '#e2e8f0',
-        nodeBorder: '#334155',
-      }
+      themeVariables:
+        this.theme === 'light'
+          ? {
+              primaryColor: '#e0e7ff',
+              primaryTextColor: '#1e293b',
+              primaryBorderColor: '#6366f1',
+              lineColor: '#64748b',
+              secondaryColor: '#f1f5f9',
+              tertiaryColor: '#f8fafc',
+              background: '#ffffff',
+              mainBkg: '#f8fafc',
+              textColor: '#1e293b',
+              nodeBorder: '#cbd5e1',
+            }
+          : {
+              primaryColor: '#3730a3',
+              primaryTextColor: '#e2e8f0',
+              primaryBorderColor: '#6366f1',
+              lineColor: '#64748b',
+              secondaryColor: '#1e293b',
+              tertiaryColor: '#0f172a',
+              background: '#0f172a',
+              mainBkg: '#1e293b',
+              textColor: '#e2e8f0',
+              nodeBorder: '#334155',
+            },
     });
 
     for (const { id, code } of blocks) {
@@ -2065,7 +2279,8 @@ export class ResultViewer extends LitElement {
         placeholder.replaceWith(wrapper);
       } catch (e) {
         console.error('Mermaid render error:', e);
-        (placeholder as HTMLElement).innerHTML = `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px;">Mermaid Error: ${e}\n\n${code}</pre>`;
+        (placeholder as HTMLElement).innerHTML =
+          `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px;">Mermaid Error: ${e}\n\n${code}</pre>`;
       }
     }
   }
@@ -2102,17 +2317,28 @@ export class ResultViewer extends LitElement {
     return html`${doc.body.children[0]}`;
   }
 
-  private _analyzeFields(obj: any): { title?: string; subtitle?: string; icon?: string; badge?: string; detail?: string } {
+  private _analyzeFields(obj: any): {
+    title?: string;
+    subtitle?: string;
+    icon?: string;
+    badge?: string;
+    detail?: string;
+  } {
     const keys = Object.keys(obj);
     const result: any = {};
 
     // Use layout hints if provided
     if (this.layoutHints) {
-      if (this.layoutHints.title && keys.includes(this.layoutHints.title)) result.title = this.layoutHints.title;
-      if (this.layoutHints.subtitle && keys.includes(this.layoutHints.subtitle)) result.subtitle = this.layoutHints.subtitle;
-      if (this.layoutHints.icon && keys.includes(this.layoutHints.icon)) result.icon = this.layoutHints.icon;
-      if (this.layoutHints.badge && keys.includes(this.layoutHints.badge)) result.badge = this.layoutHints.badge;
-      if (this.layoutHints.detail && keys.includes(this.layoutHints.detail)) result.detail = this.layoutHints.detail;
+      if (this.layoutHints.title && keys.includes(this.layoutHints.title))
+        result.title = this.layoutHints.title;
+      if (this.layoutHints.subtitle && keys.includes(this.layoutHints.subtitle))
+        result.subtitle = this.layoutHints.subtitle;
+      if (this.layoutHints.icon && keys.includes(this.layoutHints.icon))
+        result.icon = this.layoutHints.icon;
+      if (this.layoutHints.badge && keys.includes(this.layoutHints.badge))
+        result.badge = this.layoutHints.badge;
+      if (this.layoutHints.detail && keys.includes(this.layoutHints.detail))
+        result.detail = this.layoutHints.detail;
     }
 
     // Auto-detect from field names
@@ -2122,11 +2348,12 @@ export class ResultViewer extends LitElement {
     const badgeFields = ['status', 'state', 'type', 'role', 'category', 'priority'];
     const detailFields = ['count', 'total', 'amount', 'price', 'value', 'size'];
 
-    if (!result.title) result.title = keys.find(k => titleFields.includes(k.toLowerCase()));
-    if (!result.subtitle) result.subtitle = keys.find(k => subtitleFields.includes(k.toLowerCase()));
-    if (!result.icon) result.icon = keys.find(k => iconFields.includes(k.toLowerCase()));
-    if (!result.badge) result.badge = keys.find(k => badgeFields.includes(k.toLowerCase()));
-    if (!result.detail) result.detail = keys.find(k => detailFields.includes(k.toLowerCase()));
+    if (!result.title) result.title = keys.find((k) => titleFields.includes(k.toLowerCase()));
+    if (!result.subtitle)
+      result.subtitle = keys.find((k) => subtitleFields.includes(k.toLowerCase()));
+    if (!result.icon) result.icon = keys.find((k) => iconFields.includes(k.toLowerCase()));
+    if (!result.badge) result.badge = keys.find((k) => badgeFields.includes(k.toLowerCase()));
+    if (!result.detail) result.detail = keys.find((k) => detailFields.includes(k.toLowerCase()));
 
     return result;
   }
@@ -2138,7 +2365,7 @@ export class ResultViewer extends LitElement {
       .replace(/_/g, ' ')
       .replace(/^\s/, '')
       .split(' ')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
       .join(' ');
   }
 
@@ -2156,7 +2383,7 @@ export class ResultViewer extends LitElement {
             class="clickable-image"
             style="max-height: 80px; max-width: 150px;"
             @click=${() => this._openImageFullscreen(value)}
-          >
+          />
           <div class="expand-hint">Click to expand</div>
         </div>
       `;
@@ -2196,8 +2423,14 @@ export class ResultViewer extends LitElement {
 
   private _isDateField(key: string): boolean {
     const lower = key.toLowerCase();
-    return lower.endsWith('at') || lower.endsWith('date') || lower.endsWith('time') ||
-           lower === 'created' || lower === 'updated' || lower === 'timestamp';
+    return (
+      lower.endsWith('at') ||
+      lower.endsWith('date') ||
+      lower.endsWith('time') ||
+      lower === 'created' ||
+      lower === 'updated' ||
+      lower === 'timestamp'
+    );
   }
 
   private _isUrlField(key: string): boolean {
@@ -2217,10 +2450,16 @@ export class ResultViewer extends LitElement {
 
   private _getStatusClass(status: any): string {
     const lower = String(status).toLowerCase();
-    if (['success', 'active', 'completed', 'online', 'done', 'enabled', 'yes', 'true'].includes(lower)) {
+    if (
+      ['success', 'active', 'completed', 'online', 'done', 'enabled', 'yes', 'true'].includes(lower)
+    ) {
       return 'status-success';
     }
-    if (['error', 'failed', 'offline', 'inactive', 'disabled', 'no', 'false', 'blocked'].includes(lower)) {
+    if (
+      ['error', 'failed', 'offline', 'inactive', 'disabled', 'no', 'false', 'blocked'].includes(
+        lower
+      )
+    ) {
       return 'status-error';
     }
     if (['warning', 'pending', 'processing', 'in_progress', 'todo', 'waiting'].includes(lower)) {
@@ -2230,35 +2469,43 @@ export class ResultViewer extends LitElement {
   }
 
   private _copy() {
-    const text = typeof this.result === 'object'
-      ? JSON.stringify(this.result, null, 2)
-      : String(this.result);
+    const text =
+      typeof this.result === 'object' ? JSON.stringify(this.result, null, 2) : String(this.result);
 
     navigator.clipboard.writeText(text);
     showToast('Copied to clipboard', 'success');
   }
 
   private _share() {
-    this.dispatchEvent(new CustomEvent('share', {
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('share', {
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _isTabularData(): boolean {
-    return Array.isArray(this.result) &&
-           this.result.length > 0 &&
-           typeof this.result[0] === 'object' &&
-           this.result[0] !== null;
+    return (
+      Array.isArray(this.result) &&
+      this.result.length > 0 &&
+      typeof this.result[0] === 'object' &&
+      this.result[0] !== null
+    );
   }
 
   private _getDownloadLabel(layout: LayoutType): string {
     switch (layout) {
-      case 'markdown': return 'MD';
-      case 'mermaid': return 'MMD';
-      case 'text': return 'TXT';
-      case 'code': return 'TXT';
-      default: return 'JSON';
+      case 'markdown':
+        return 'MD';
+      case 'mermaid':
+        return 'MMD';
+      case 'text':
+        return 'TXT';
+      case 'code':
+        return 'TXT';
+      default:
+        return 'JSON';
     }
   }
 
@@ -2344,17 +2591,19 @@ export class ResultViewer extends LitElement {
     if (!data || data.length === 0) return '';
 
     const headers = Object.keys(data[0]);
-    const rows = data.map(row =>
-      headers.map(header => {
-        const value = row[header];
-        if (value === null || value === undefined) return '';
-        const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
-        // Escape quotes and wrap in quotes if contains comma/newline/quote
-        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      }).join(',')
+    const rows = data.map((row) =>
+      headers
+        .map((header) => {
+          const value = row[header];
+          if (value === null || value === undefined) return '';
+          const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          // Escape quotes and wrap in quotes if contains comma/newline/quote
+          if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        })
+        .join(',')
     );
 
     return [headers.join(','), ...rows].join('\n');

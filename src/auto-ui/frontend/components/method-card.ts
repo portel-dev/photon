@@ -3,18 +3,18 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 interface MethodInfo {
-    name: string;
-    description: string;
-    params: Record<string, any>;
-    icon?: string;
-    isTemplate?: boolean;
+  name: string;
+  description: string;
+  params: Record<string, any>;
+  icon?: string;
+  isTemplate?: boolean;
 }
 
 @customElement('method-card')
 export class MethodCard extends LitElement {
-    static styles = [
-        theme,
-        css`
+  static styles = [
+    theme,
+    css`
       :host {
         display: block;
         height: 100%;
@@ -26,7 +26,9 @@ export class MethodCard extends LitElement {
         flex-direction: column;
         gap: var(--space-sm);
         cursor: pointer;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
         height: 100%;
         box-sizing: border-box;
         position: relative;
@@ -198,7 +200,9 @@ export class MethodCard extends LitElement {
         padding: 4px;
         cursor: pointer;
         border-radius: var(--radius-sm);
-        transition: background 0.15s ease, transform 0.1s ease;
+        transition:
+          background 0.15s ease,
+          transform 0.1s ease;
       }
 
       .emoji-picker button:hover {
@@ -260,46 +264,47 @@ export class MethodCard extends LitElement {
           font-size: 14px;
         }
       }
-    `
-    ];
+    `,
+  ];
 
-    @property({ type: Object })
-    method!: MethodInfo;
+  @property({ type: Object })
+  method!: MethodInfo;
 
-    @property({ type: String })
-    photonName = '';
+  @property({ type: String })
+  photonName = '';
 
-    @state() private _editingDescription = false;
-    @state() private _editingIcon = false;
-    @state() private _editedDescription = '';
+  @state() private _editingDescription = false;
+  @state() private _editingIcon = false;
+  @state() private _editedDescription = '';
 
-    connectedCallback() {
-        super.connectedCallback();
-        document.addEventListener('click', this._handleDocumentClick);
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener('click', this._handleDocumentClick);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    document.removeEventListener('click', this._handleDocumentClick);
+  }
+
+  private _handleDocumentClick = (e: MouseEvent) => {
+    if (this._editingIcon) {
+      const path = e.composedPath();
+      const picker = this.shadowRoot?.querySelector('.emoji-picker');
+      const icon = this.shadowRoot?.querySelector('.method-icon');
+      if (picker && !path.includes(picker) && !path.includes(icon!)) {
+        this._editingIcon = false;
+      }
     }
+  };
 
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        document.removeEventListener('click', this._handleDocumentClick);
-    }
+  render() {
+    const hasIcon = !!this.method.icon;
+    const hasDescription =
+      this.method.description && this.method.description !== 'No description provided.';
+    const initials = this.method.name.substring(0, 2).toUpperCase();
 
-    private _handleDocumentClick = (e: MouseEvent) => {
-        if (this._editingIcon) {
-            const path = e.composedPath();
-            const picker = this.shadowRoot?.querySelector('.emoji-picker');
-            const icon = this.shadowRoot?.querySelector('.method-icon');
-            if (picker && !path.includes(picker) && !path.includes(icon!)) {
-                this._editingIcon = false;
-            }
-        }
-    }
-
-    render() {
-        const hasIcon = !!this.method.icon;
-        const hasDescription = this.method.description && this.method.description !== 'No description provided.';
-        const initials = this.method.name.substring(0, 2).toUpperCase();
-
-        return html`
+    return html`
       <div class="card glass-panel" @click=${this._handleCardClick}>
         <div>
           <div class="header">
@@ -314,131 +319,173 @@ export class MethodCard extends LitElement {
               <h3 class="title">${this.method.name}</h3>
             </div>
             ${this.method.isTemplate
-                ? html`<span class="badge prompt">Prompt</span>`
-                : Object.keys(this.method.params || {}).length > 0
-                  ? html`<span class="badge">Params</span>`
-                  : html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`
-            }
+              ? html`<span class="badge prompt">Prompt</span>`
+              : Object.keys(this.method.params || {}).length > 0
+                ? html`<span class="badge">Params</span>`
+                : html`<span
+                    class="badge"
+                    style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;"
+                    >Ready</span
+                  >`}
           </div>
-          ${this._editingDescription ? html`
-            <div class="description editing" @click=${(e: Event) => e.stopPropagation()}>
-              <textarea
-                class="description-input"
-                .value=${this._editedDescription}
-                placeholder="Add a description..."
-                rows="3"
-                @input=${(e: Event) => this._editedDescription = (e.target as HTMLTextAreaElement).value}
-                @blur=${this._saveDescription}
-                @keydown=${this._handleDescriptionKeydown}
-                @click=${(e: Event) => e.stopPropagation()}
-              ></textarea>
-            </div>
-          ` : html`
-            <p
-              class="description ${hasDescription ? '' : 'placeholder'}"
-              @click=${this._handleDescriptionClick}
-              title="Click to edit description"
-            >
-              ${hasDescription ? this.method.description : 'Click to add description...'}
-            </p>
-          `}
+          ${this._editingDescription
+            ? html`
+                <div class="description editing" @click=${(e: Event) => e.stopPropagation()}>
+                  <textarea
+                    class="description-input"
+                    .value=${this._editedDescription}
+                    placeholder="Add a description..."
+                    rows="3"
+                    @input=${(e: Event) =>
+                      (this._editedDescription = (e.target as HTMLTextAreaElement).value)}
+                    @blur=${this._saveDescription}
+                    @keydown=${this._handleDescriptionKeydown}
+                    @click=${(e: Event) => e.stopPropagation()}
+                  ></textarea>
+                </div>
+              `
+            : html`
+                <p
+                  class="description ${hasDescription ? '' : 'placeholder'}"
+                  @click=${this._handleDescriptionClick}
+                  title="Click to edit description"
+                >
+                  ${hasDescription ? this.method.description : 'Click to add description...'}
+                </p>
+              `}
         </div>
         <button class="run-btn" @click=${this._handleRunClick}>Run Method</button>
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
       </div>
     `;
-    }
+  }
 
-    private _renderEmojiPicker() {
-        const emojis = [
-            '📥', '📤', '🔍', '🔎', '📊', '📈',
-            '💾', '📁', '📝', '✏️', '🗑️', '➕',
-            '🔄', '⚡', '🔧', '⚙️', '🛠️', '🔨',
-            '🔒', '🔓', '🔑', '🛡️', '👤', '👥',
-            '📧', '💬', '🔔', '📣', '🌐', '🔗',
-            '✅', '❌', '⭐', '🎯', '💡', '🚀',
-        ];
+  private _renderEmojiPicker() {
+    const emojis = [
+      '📥',
+      '📤',
+      '🔍',
+      '🔎',
+      '📊',
+      '📈',
+      '💾',
+      '📁',
+      '📝',
+      '✏️',
+      '🗑️',
+      '➕',
+      '🔄',
+      '⚡',
+      '🔧',
+      '⚙️',
+      '🛠️',
+      '🔨',
+      '🔒',
+      '🔓',
+      '🔑',
+      '🛡️',
+      '👤',
+      '👥',
+      '📧',
+      '💬',
+      '🔔',
+      '📣',
+      '🌐',
+      '🔗',
+      '✅',
+      '❌',
+      '⭐',
+      '🎯',
+      '💡',
+      '🚀',
+    ];
 
-        return html`
+    return html`
       <div class="emoji-picker" @click=${(e: Event) => e.stopPropagation()}>
-        ${emojis.map(emoji => html`
-          <button @click=${() => this._selectIcon(emoji)}>${emoji}</button>
-        `)}
-        ${this.method.icon ? html`
-          <button class="remove-btn" @click=${() => this._selectIcon('')}>Remove icon</button>
-        ` : ''}
+        ${emojis.map(
+          (emoji) => html` <button @click=${() => this._selectIcon(emoji)}>${emoji}</button> `
+        )}
+        ${this.method.icon
+          ? html`
+              <button class="remove-btn" @click=${() => this._selectIcon('')}>Remove icon</button>
+            `
+          : ''}
       </div>
     `;
+  }
+
+  private _handleCardClick(e: Event) {
+    // Don't trigger card click if editing
+    if (this._editingDescription || this._editingIcon) {
+      return;
     }
+    this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
+  }
 
-    private _handleCardClick(e: Event) {
-        // Don't trigger card click if editing
-        if (this._editingDescription || this._editingIcon) {
-            return;
-        }
-        this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
+  private _handleRunClick(e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
+  }
+
+  private _handleIconClick(e: Event) {
+    e.stopPropagation();
+    this._editingIcon = !this._editingIcon;
+  }
+
+  private _selectIcon(icon: string) {
+    this._editingIcon = false;
+
+    // Dispatch event to parent for persistence
+    this.dispatchEvent(
+      new CustomEvent('update-metadata', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          photonName: this.photonName,
+          methodName: this.method.name,
+          metadata: { icon: icon || null },
+        },
+      })
+    );
+  }
+
+  private _handleDescriptionClick(e: Event) {
+    e.stopPropagation();
+    this._editedDescription = this.method.description || '';
+    this._editingDescription = true;
+
+    // Focus the textarea after render
+    this.updateComplete.then(() => {
+      const textarea = this.shadowRoot?.querySelector('.description-input') as HTMLTextAreaElement;
+      textarea?.focus();
+      textarea?.select();
+    });
+  }
+
+  private _handleDescriptionKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      this._saveDescription();
+    } else if (e.key === 'Escape') {
+      this._editingDescription = false;
     }
+  }
 
-    private _handleRunClick(e: Event) {
-        e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
-    }
+  private _saveDescription() {
+    this._editingDescription = false;
+    const newDesc = this._editedDescription.trim();
 
-    private _handleIconClick(e: Event) {
-        e.stopPropagation();
-        this._editingIcon = !this._editingIcon;
-    }
-
-    private _selectIcon(icon: string) {
-        this._editingIcon = false;
-
-        // Dispatch event to parent for persistence
-        this.dispatchEvent(new CustomEvent('update-metadata', {
-            bubbles: true,
-            composed: true,
-            detail: {
-                photonName: this.photonName,
-                methodName: this.method.name,
-                metadata: { icon: icon || null }
-            }
-        }));
-    }
-
-    private _handleDescriptionClick(e: Event) {
-        e.stopPropagation();
-        this._editedDescription = this.method.description || '';
-        this._editingDescription = true;
-
-        // Focus the textarea after render
-        this.updateComplete.then(() => {
-            const textarea = this.shadowRoot?.querySelector('.description-input') as HTMLTextAreaElement;
-            textarea?.focus();
-            textarea?.select();
-        });
-    }
-
-    private _handleDescriptionKeydown(e: KeyboardEvent) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            this._saveDescription();
-        } else if (e.key === 'Escape') {
-            this._editingDescription = false;
-        }
-    }
-
-    private _saveDescription() {
-        this._editingDescription = false;
-        const newDesc = this._editedDescription.trim();
-
-        // Dispatch event to parent for persistence
-        this.dispatchEvent(new CustomEvent('update-metadata', {
-            bubbles: true,
-            composed: true,
-            detail: {
-                photonName: this.photonName,
-                methodName: this.method.name,
-                metadata: { description: newDesc || null }
-            }
-        }));
-    }
+    // Dispatch event to parent for persistence
+    this.dispatchEvent(
+      new CustomEvent('update-metadata', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          photonName: this.photonName,
+          methodName: this.method.name,
+          metadata: { description: newDesc || null },
+        },
+      })
+    );
+  }
 }

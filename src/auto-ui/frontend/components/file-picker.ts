@@ -35,7 +35,7 @@ export class FilePicker extends LitElement {
 
       .current-path {
         padding: var(--space-sm);
-        background: rgba(0,0,0,0.2);
+        background: rgba(0, 0, 0, 0.2);
         font-family: var(--font-mono);
         font-size: 0.8rem;
         color: var(--t-muted);
@@ -66,11 +66,11 @@ export class FilePicker extends LitElement {
         gap: 8px;
         font-size: 0.9rem;
         transition: background 0.1s;
-        border-bottom: 1px solid rgba(255,255,255,0.02);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.02);
       }
 
       .file-item:hover {
-        background: rgba(255,255,255,0.05);
+        background: rgba(255, 255, 255, 0.05);
       }
 
       .file-item.selected {
@@ -113,14 +113,14 @@ export class FilePicker extends LitElement {
         display: flex;
         gap: 0; /* Merged look */
       }
-      
+
       .input-wrapper input {
         flex: 1;
         border-top-right-radius: 0;
         border-bottom-right-radius: 0;
         border-right: none;
       }
-      
+
       .input-wrapper button {
         border-top-left-radius: 0;
         border-bottom-left-radius: 0;
@@ -201,7 +201,7 @@ export class FilePicker extends LitElement {
           margin-top: var(--space-xs);
         }
       }
-    `
+    `,
   ];
 
   @property({ type: String })
@@ -242,37 +242,59 @@ export class FilePicker extends LitElement {
           .value=${this.value}
           @input=${this._handleInput}
           placeholder="/path/to/file"
+        />
+        <button
+          class="btn-secondary"
+          style="height: auto; white-space: nowrap;"
+          @click=${this._toggleBrowser}
         >
-        <button class="btn-secondary" style="height: auto; white-space: nowrap;" @click=${this._toggleBrowser}>
           ${this._isOpen ? 'Close' : 'Browse'}
         </button>
       </div>
 
-      ${this._isOpen ? html`
-        <div class="picker-container" style="margin-top: var(--space-sm);">
-          <div class="current-path">
-            <button class="btn-secondary" style="padding: 2px 6px; font-size: 0.7rem;" @click=${this._goUp}>↑</button>
-            <span class="path-text" title=${this._currentPath}>${this._currentPath || 'Loading...'}</span>
-          </div>
-          
-          <div class="file-list">
-            ${this._loading
-          ? html`<div style="padding: var(--space-md); color: var(--t-muted);">Loading...</div>`
-          : this._items.filter(item => this._matchesFilter(item)).map(item => this._renderItem(item))}
+      ${this._isOpen
+        ? html`
+            <div class="picker-container" style="margin-top: var(--space-sm);">
+              <div class="current-path">
+                <button
+                  class="btn-secondary"
+                  style="padding: 2px 6px; font-size: 0.7rem;"
+                  @click=${this._goUp}
+                >
+                  ↑
+                </button>
+                <span class="path-text" title=${this._currentPath}
+                  >${this._currentPath || 'Loading...'}</span
+                >
+              </div>
 
-            ${!this._loading && this._items.filter(item => this._matchesFilter(item)).length === 0 ? html`
-              <div style="padding: var(--space-md); color: var(--t-muted);">Empty directory</div>
-            ` : ''}
-          </div>
-        </div>
-      ` : ''}
+              <div class="file-list">
+                ${this._loading
+                  ? html`<div style="padding: var(--space-md); color: var(--t-muted);">
+                      Loading...
+                    </div>`
+                  : this._items
+                      .filter((item) => this._matchesFilter(item))
+                      .map((item) => this._renderItem(item))}
+                ${!this._loading &&
+                this._items.filter((item) => this._matchesFilter(item)).length === 0
+                  ? html`
+                      <div style="padding: var(--space-md); color: var(--t-muted);">
+                        Empty directory
+                      </div>
+                    `
+                  : ''}
+              </div>
+            </div>
+          `
+        : ''}
     `;
   }
 
   private _renderItem(item: FileEntry) {
     const isSelected = this.value === item.path;
     return html`
-      <div 
+      <div
         class="file-item ${isSelected ? 'selected' : ''}"
         @click=${() => this._handleItemClick(item)}
       >
@@ -339,10 +361,10 @@ export class FilePicker extends LitElement {
     // No filter = show all
     if (!this.accept) return true;
 
-    const filters = this.accept.split(',').map(f => f.trim().toLowerCase());
+    const filters = this.accept.split(',').map((f) => f.trim().toLowerCase());
     const fileName = item.name.toLowerCase();
 
-    return filters.some(filter => {
+    return filters.some((filter) => {
       // Handle glob patterns like "*.photon.ts"
       if (filter.startsWith('*.')) {
         const suffix = filter.slice(1); // Remove leading *
@@ -355,10 +377,12 @@ export class FilePicker extends LitElement {
   }
 
   private _dispatchChange() {
-    this.dispatchEvent(new CustomEvent('change', {
-      detail: { value: this.value },
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('change', {
+        detail: { value: this.value },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 }

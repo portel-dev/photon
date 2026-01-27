@@ -58,7 +58,10 @@ import { registerPackageCommands } from './cli/commands/package.js';
 /**
  * Resolve photon path - checks bundled first, then user directory
  */
-async function resolvePhotonPathWithBundled(name: string, workingDir: string): Promise<string | null> {
+async function resolvePhotonPathWithBundled(
+  name: string,
+  workingDir: string
+): Promise<string | null> {
   // Check bundled photons first
   const bundledPath = getBundledPhotonPath(name, __dirname);
   if (bundledPath) {
@@ -520,8 +523,8 @@ async function performMarketplaceSync(
     description: options.description || undefined,
     owner: options.owner
       ? {
-        name: options.owner,
-      }
+          name: options.owner,
+        }
       : existingOwner,
     photons,
   };
@@ -1271,7 +1274,9 @@ Press Ctrl+C to stop
   });
 
 // Host command: manage hosting and deployment (preview, deploy)
-const host = program.command('host', { hidden: true }).description('Manage cloud hosting and deployment');
+const host = program
+  .command('host', { hidden: true })
+  .description('Manage cloud hosting and deployment');
 
 host
   .command('preview')
@@ -1394,7 +1399,7 @@ program
             version: entry.metadata?.version || PHOTON_VERSION,
             description: entry.metadata?.description
               ? entry.metadata.description.substring(0, 50) +
-              (entry.metadata.description.length > 50 ? '...' : '')
+                (entry.metadata.description.length > 50 ? '...' : '')
               : '-',
             marketplace: entry.marketplace.name,
           });

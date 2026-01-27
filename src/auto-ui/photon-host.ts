@@ -14,7 +14,7 @@
  */
 
 // Browser globals for host-side code (runs in playground/ChatGPT host)
- 
+
 declare const window: {
   addEventListener(type: string, listener: (event: { data: any; source: any }) => void): void;
   removeEventListener(type: string, listener: (event: { data: any; source: any }) => void): void;

@@ -455,7 +455,7 @@ export class MarketplaceManager {
         // Direct URL - the source already points to photons.json
         const url = marketplace.source;
         const response = await fetch(url, {
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
 
         if (response.ok) {
@@ -466,7 +466,7 @@ export class MarketplaceManager {
         const url = `${marketplace.url}/.marketplace/photons.json`;
         const response = await fetch(url, {
           // Add timeout to prevent hanging
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
 
         if (response.ok) {
@@ -697,10 +697,7 @@ export class MarketplaceManager {
   /**
    * Fetch assets for a photon from a specific marketplace
    */
-  async fetchAssets(
-    marketplace: Marketplace,
-    assets: string[]
-  ): Promise<Map<string, string>> {
+  async fetchAssets(marketplace: Marketplace, assets: string[]): Promise<Map<string, string>> {
     const results = new Map<string, string>();
 
     for (const assetPath of assets) {
