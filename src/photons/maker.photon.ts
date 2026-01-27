@@ -40,6 +40,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 
 /** Wizard step types for interactive UI */
 type WizardStep =
@@ -87,7 +88,7 @@ export default class Maker {
     /** Resource method names (optional) */
     resources?: string[];
   }): AsyncGenerator<{ step: string; message?: string; path?: string; code?: string }> {
-    const workingDir = process.env.PHOTON_DIR || path.join(process.env.HOME || '', '.photon');
+    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
@@ -311,7 +312,7 @@ ${allStubs.join('\n\n')}
     // Step 5: Progress
     yield { type: 'progress', message: 'Creating photon...' };
 
-    const workingDir = process.env.PHOTON_DIR || path.join(process.env.HOME || '', '.photon');
+    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 

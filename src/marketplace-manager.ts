@@ -92,14 +92,24 @@ const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');
 // Cache is considered stale after 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-const DEFAULT_MARKETPLACE: Marketplace = {
-  name: 'photons',
-  repo: 'portel-dev/photons',
-  url: 'https://raw.githubusercontent.com/portel-dev/photons/main',
-  sourceType: 'github',
-  source: 'portel-dev/photons',
-  enabled: true,
-};
+// Default marketplace - can be overridden via PHOTON_DEFAULT_MARKETPLACE env var
+// Format: "owner/repo" (e.g., "portel-dev/photons")
+function getDefaultMarketplace(): Marketplace {
+  const defaultRepo = process.env.PHOTON_DEFAULT_MARKETPLACE || 'portel-dev/photons';
+  const [owner, repo] = defaultRepo.includes('/')
+    ? defaultRepo.split('/')
+    : ['portel-dev', 'photons'];
+  const fullRepo = `${owner}/${repo}`;
+
+  return {
+    name: repo,
+    repo: fullRepo,
+    url: `https://raw.githubusercontent.com/${fullRepo}/main`,
+    sourceType: 'github',
+    source: fullRepo,
+    enabled: true,
+  };
+}
 
 /**
  * Calculate SHA-256 hash of file content
@@ -159,7 +169,7 @@ export class MarketplaceManager {
     } else {
       // Initialize with default marketplace
       this.config = {
-        marketplaces: [DEFAULT_MARKETPLACE],
+        marketplaces: [getDefaultMarketplace()],
       };
       await this.save();
     }
@@ -395,7 +405,8 @@ export class MarketplaceManager {
     }
 
     // Prevent removing the default marketplace
-    if (this.config.marketplaces[index].url === DEFAULT_MARKETPLACE.url) {
+    const defaultMarketplace = getDefaultMarketplace();
+    if (this.config.marketplaces[index].url === defaultMarketplace.url) {
       throw new Error('Cannot remove the default photons marketplace');
     }
 

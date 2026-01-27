@@ -102,11 +102,9 @@ async function generateMarketplaceJson(
     owner: options.owner
       ? {
           name: options.owner,
-          email: 'arul@luracast.com',
         }
       : manifest.owner || {
-          name: 'Portel',
-          email: 'arul@luracast.com',
+          name: 'Unknown',
         },
     metadata: {
       description:

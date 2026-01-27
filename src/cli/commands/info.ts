@@ -6,6 +6,7 @@
 
 import type { Command } from 'commander';
 import * as path from 'path';
+import * as os from 'os';
 import { getErrorMessage } from '../../shared/error-handler.js';
 import { renderSection } from '../../shared/cli-sections.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
@@ -51,14 +52,16 @@ async function getGlobalPhotonPath(): Promise<string | null> {
 // Helper to get OS-specific config path
 function getConfigPath(): string {
   const platform = process.platform;
-  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const home = os.homedir();
 
   if (platform === 'darwin') {
-    return `${home}/Library/Application Support/Claude/claude_desktop_config.json`;
+    return path.join(home, 'Library/Application Support/Claude/claude_desktop_config.json');
   } else if (platform === 'win32') {
-    return `${process.env.APPDATA}\\Claude\\claude_desktop_config.json`;
+    // On Windows, use APPDATA if available, otherwise fall back to home/.config
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return path.join(appData, 'Claude', 'claude_desktop_config.json');
   } else {
-    return `${home}/.config/claude/claude_desktop_config.json`;
+    return path.join(home, '.config', 'claude', 'claude_desktop_config.json');
   }
 }
 
