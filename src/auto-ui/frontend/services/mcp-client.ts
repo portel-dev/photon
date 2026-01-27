@@ -58,14 +58,17 @@ interface ConfigurationSchema {
     title?: string;
     description?: string;
     type: 'object';
-    properties: Record<string, {
-      type: string;
-      description?: string;
-      default?: any;
-      format?: string;      // 'password', 'path', 'email', 'uri', etc.
-      writeOnly?: boolean;  // OpenAPI standard for sensitive fields
-      'x-env-var'?: string; // Custom: maps to environment variable
-    }>;
+    properties: Record<
+      string,
+      {
+        type: string;
+        description?: string;
+        default?: any;
+        format?: string; // 'password', 'path', 'email', 'uri', etc.
+        writeOnly?: boolean; // OpenAPI standard for sensitive fields
+        'x-env-var'?: string; // Custom: maps to environment variable
+      }
+    >;
     required?: string[];
     'x-error-message'?: string;
   };
@@ -78,14 +81,14 @@ type MCPEventType =
   | 'tools-changed'
   | 'progress'
   | 'configuration-available'
-  | 'photons'           // Photon list changed
-  | 'hot-reload'        // File changed, photon reloaded
-  | 'elicitation'       // User input needed
-  | 'board-update'      // Kanban board update (legacy, triggers refresh)
-  | 'channel-event'     // Specific event with delta (task-moved, task-updated, etc.)
-  | 'result'            // Tool execution result
-  | 'configured'        // Photon configuration complete
-  | 'notification';     // Generic notification
+  | 'photons' // Photon list changed
+  | 'hot-reload' // File changed, photon reloaded
+  | 'elicitation' // User input needed
+  | 'board-update' // Kanban board update (legacy, triggers refresh)
+  | 'channel-event' // Specific event with delta (task-moved, task-updated, etc.)
+  | 'result' // Tool execution result
+  | 'configured' // Photon configuration complete
+  | 'notification'; // Generic notification
 
 class MCPClientService {
   private sessionId: string | null = null;
@@ -95,7 +98,7 @@ class MCPClientService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
-  private eventListeners = new Map<MCPEventType, Set<Function>>();
+  private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
   private baseUrl: string;
   private _configurationSchema: ConfigurationSchema | null = null;
 
@@ -141,17 +144,17 @@ class MCPClientService {
    * Initialize MCP session
    */
   private async initialize(): Promise<void> {
-    const result = await this.sendRequest('initialize', {
+    const result = (await this.sendRequest('initialize', {
       protocolVersion: '2025-03-26',
       capabilities: {
         roots: { listChanged: false },
         sampling: {},
       },
       clientInfo: {
-        name: 'beam',  // Identifies as Beam client for server-side notifications
+        name: 'beam', // Identifies as Beam client for server-side notifications
         version: '1.0.0',
       },
-    }) as {
+    })) as {
       protocolVersion: string;
       serverInfo: { name: string; version: string };
       capabilities: Record<string, unknown>;
@@ -308,7 +311,8 @@ class MCPClientService {
       });
 
       if (result.isError) {
-        const errorText = result.content.find(c => c.type === 'text')?.text || 'Configuration failed';
+        const errorText =
+          result.content.find((c) => c.type === 'text')?.text || 'Configuration failed';
         return { success: false, error: errorText };
       }
 
@@ -330,7 +334,11 @@ class MCPClientService {
   async browseFilesystem(
     path?: string,
     filter?: string
-  ): Promise<{ path: string; parent: string; items: Array<{ name: string; path: string; isDirectory: boolean }> } | null> {
+  ): Promise<{
+    path: string;
+    parent: string;
+    items: Array<{ name: string; path: string; isDirectory: boolean }>;
+  } | null> {
     try {
       const result = await this.callTool('beam/browse', { path, filter });
 
@@ -353,7 +361,7 @@ class MCPClientService {
       const result = await this.callTool('beam/reload', { photon: photonName });
 
       if (result.isError) {
-        const errorText = result.content.find(c => c.type === 'text')?.text || 'Reload failed';
+        const errorText = result.content.find((c) => c.type === 'text')?.text || 'Reload failed';
         return { success: false, error: errorText };
       }
 
@@ -372,7 +380,7 @@ class MCPClientService {
       const result = await this.callTool('beam/remove', { photon: photonName });
 
       if (result.isError) {
-        const errorText = result.content.find(c => c.type === 'text')?.text || 'Remove failed';
+        const errorText = result.content.find((c) => c.type === 'text')?.text || 'Remove failed';
         return { success: false, error: errorText };
       }
 
@@ -420,7 +428,7 @@ class MCPClientService {
       const result = await this.callTool('beam/update-metadata', args);
 
       if (result.isError) {
-        const errorText = result.content.find(c => c.type === 'text')?.text || 'Update failed';
+        const errorText = result.content.find((c) => c.type === 'text')?.text || 'Update failed';
         return { success: false, error: errorText };
       }
 
@@ -516,7 +524,7 @@ class MCPClientService {
   /**
    * Add event listener
    */
-  on(event: MCPEventType, callback: Function): void {
+  on(event: MCPEventType, callback: (data?: unknown) => void): void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, new Set());
     }
@@ -526,7 +534,7 @@ class MCPClientService {
   /**
    * Remove event listener
    */
-  off(event: MCPEventType, callback: Function): void {
+  off(event: MCPEventType, callback: (data?: unknown) => void): void {
     this.eventListeners.get(event)?.delete(callback);
   }
 
