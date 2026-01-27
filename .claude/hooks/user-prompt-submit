@@ -7,7 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-const LOG_FILE = path.join(process.cwd(), '.claude', 'user-prompts.log');
+const LOG_FILE = path.join(process.cwd(), '.claude', 'user-prompts.csv');
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -20,14 +20,22 @@ try {
   const prompt = data.prompt?.trim();
 
   if (prompt && prompt.length >= 10 && !prompt.startsWith('/')) {
-    const entry = JSON.stringify({
-      timestamp: new Date().toISOString(),
-      prompt: prompt
-    }) + '\n';
+    const timestamp = Math.floor(Date.now() / 1000);
+    // CSV escape: double up quotes and wrap in quotes
+    const escapedPrompt = `"${prompt.replace(/"/g, '""')}"`;
+    const entry = `${timestamp},${escapedPrompt}\n`;
 
     await fs.mkdir(path.dirname(LOG_FILE), { recursive: true });
+
+    try {
+      await fs.access(LOG_FILE);
+    } catch {
+      // File doesn't exist, write header
+      await fs.writeFile(LOG_FILE, 'timestamp,prompt\n');
+    }
+
     await fs.appendFile(LOG_FILE, entry);
   }
-} catch {}
+} catch { }
 
 process.exit(0);
