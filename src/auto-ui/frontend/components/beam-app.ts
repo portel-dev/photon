@@ -1289,6 +1289,13 @@ export class BeamApp extends LitElement {
 
   private _pendingBridgeCalls = new Map<string, Window>();
 
+  // File storage for ChatGPT Apps SDK uploadFile/getFileDownloadUrl
+  private _uploadedFiles = new Map<string, { data: string; fileName: string; fileType: string }>();
+  private _fileIdCounter = 0;
+
+  // Deep link URL for setOpenInAppUrl
+  private _openInAppUrl: string | null = null;
+
   connectedCallback() {
     super.connectedCallback();
 
@@ -2437,6 +2444,80 @@ export class BeamApp extends LitElement {
         mcpClient.notifyViewing(photonId, itemId);
       }
     }
+
+    // ChatGPT Apps SDK: uploadFile
+    if (msg.type === 'photon:upload-file' && event.source) {
+      const callId = msg.callId;
+      const fileId = `file_${++this._fileIdCounter}_${Date.now()}`;
+
+      // Store the file data
+      this._uploadedFiles.set(fileId, {
+        data: msg.data,
+        fileName: msg.fileName,
+        fileType: msg.fileType
+      });
+
+      // Send response
+      (event.source as Window).postMessage(
+        { type: 'photon:upload-file-response', callId, fileId },
+        '*'
+      );
+    }
+
+    // ChatGPT Apps SDK: getFileDownloadUrl
+    if (msg.type === 'photon:get-file-url' && event.source) {
+      const callId = msg.callId;
+      const file = this._uploadedFiles.get(msg.fileId);
+
+      if (file) {
+        // The file.data is already a data URL from FileReader.readAsDataURL
+        (event.source as Window).postMessage(
+          { type: 'photon:get-file-url-response', callId, url: file.data },
+          '*'
+        );
+      } else {
+        (event.source as Window).postMessage(
+          { type: 'photon:get-file-url-response', callId, error: 'File not found' },
+          '*'
+        );
+      }
+    }
+
+    // ChatGPT Apps SDK: requestModal
+    if (msg.type === 'photon:request-modal' && event.source) {
+      const callId = msg.callId;
+
+      // For now, show a simple elicitation modal with the template as message
+      // In the future, this could render custom modal templates
+      this._elicitationData = {
+        type: 'confirm',
+        message: msg.template || 'Modal Request',
+        elicitationId: callId,
+        ...msg.params
+      } as ElicitationData;
+      this._showElicitation = true;
+
+      // Store the source window to respond later
+      this._pendingBridgeCalls.set(callId, event.source as Window);
+    }
+
+    // ChatGPT Apps SDK: setOpenInAppUrl
+    if (msg.type === 'photon:set-open-in-app-url') {
+      this._openInAppUrl = msg.href;
+      this._log('info', `Open-in-app URL set: ${msg.href}`);
+    }
+
+    // Handle display mode request
+    if (msg.type === 'photon:request-display-mode') {
+      // For now, just log it - could implement fullscreen/pip in future
+      this._log('info', `Display mode requested: ${msg.mode}`);
+    }
+
+    // Handle height notification
+    if (msg.type === 'photon:notify-height') {
+      // Could be used to adjust iframe height dynamically
+      this._log('debug', `Custom UI height notification: ${msg.height}px`);
+    }
   };
 
   // ===== Share Result Link =====
@@ -2495,6 +2576,17 @@ export class BeamApp extends LitElement {
     this._showElicitation = false;
     this._elicitationData = null;
 
+    // Check if this is a ChatGPT SDK modal request
+    const pendingWindow = elicitationId ? this._pendingBridgeCalls.get(elicitationId) : null;
+    if (pendingWindow) {
+      this._pendingBridgeCalls.delete(elicitationId);
+      pendingWindow.postMessage(
+        { type: 'photon:request-modal-response', callId: elicitationId, result: value },
+        '*'
+      );
+      return;
+    }
+
     if (elicitationId && this._mcpReady) {
       const result = await mcpClient.sendElicitationResponse(elicitationId, value);
       if (result.success) {
@@ -2514,6 +2606,17 @@ export class BeamApp extends LitElement {
     this._showElicitation = false;
     this._elicitationData = null;
     this._isExecuting = false;
+
+    // Check if this is a ChatGPT SDK modal request
+    const pendingWindow = elicitationId ? this._pendingBridgeCalls.get(elicitationId) : null;
+    if (pendingWindow) {
+      this._pendingBridgeCalls.delete(elicitationId);
+      pendingWindow.postMessage(
+        { type: 'photon:request-modal-response', callId: elicitationId, error: 'User cancelled' },
+        '*'
+      );
+      return;
+    }
 
     if (elicitationId && this._mcpReady) {
       await mcpClient.sendElicitationResponse(elicitationId, null, true);

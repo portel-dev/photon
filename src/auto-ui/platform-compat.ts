@@ -260,6 +260,30 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           else pending.resolve(m.result);
         }
       }
+      else if (m.type === 'photon:upload-file-response') {
+        var pending = pendingCalls[m.callId];
+        if (pending) {
+          delete pendingCalls[m.callId];
+          if (m.error) pending.reject(new Error(m.error));
+          else pending.resolve({ fileId: m.fileId });
+        }
+      }
+      else if (m.type === 'photon:get-file-url-response') {
+        var pending = pendingCalls[m.callId];
+        if (pending) {
+          delete pendingCalls[m.callId];
+          if (m.error) pending.reject(new Error(m.error));
+          else pending.resolve(m.url);
+        }
+      }
+      else if (m.type === 'photon:request-modal-response') {
+        var pending = pendingCalls[m.callId];
+        if (pending) {
+          delete pendingCalls[m.callId];
+          if (m.error) pending.reject(new Error(m.error));
+          else pending.resolve(m.result);
+        }
+      }
       else if (m.type === 'photon:init-state') {
         // Restore persisted widget state from host
         if (m.state !== null && m.state !== undefined) {
@@ -424,13 +448,58 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     },
 
     uploadFile: function(file) {
-      console.warn('[BEAM] uploadFile not implemented');
-      return Promise.reject(new Error('Not implemented in BEAM'));
+      var callId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[callId] = { resolve: resolve, reject: reject };
+
+        // Read file as base64
+        var reader = new FileReader();
+        reader.onload = function() {
+          var base64 = reader.result;
+          postToHost({
+            type: 'photon:upload-file',
+            callId: callId,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            data: base64
+          });
+        };
+        reader.onerror = function() {
+          delete pendingCalls[callId];
+          reject(new Error('Failed to read file'));
+        };
+        reader.readAsDataURL(file);
+
+        // Timeout after 60s
+        setTimeout(function() {
+          if (pendingCalls[callId]) {
+            delete pendingCalls[callId];
+            reject(new Error('File upload timeout'));
+          }
+        }, 60000);
+      });
     },
 
     getFileDownloadUrl: function(opts) {
-      console.warn('[BEAM] getFileDownloadUrl not implemented');
-      return Promise.reject(new Error('Not implemented in BEAM'));
+      var callId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[callId] = { resolve: resolve, reject: reject };
+
+        postToHost({
+          type: 'photon:get-file-url',
+          callId: callId,
+          fileId: opts.fileId
+        });
+
+        // Timeout after 30s
+        setTimeout(function() {
+          if (pendingCalls[callId]) {
+            delete pendingCalls[callId];
+            reject(new Error('Get file URL timeout'));
+          }
+        }, 30000);
+      });
     },
 
     requestDisplayMode: function(mode) {
@@ -439,8 +508,25 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     },
 
     requestModal: function(opts) {
-      console.warn('[BEAM] requestModal not implemented');
-      return Promise.reject(new Error('Not implemented in BEAM'));
+      var callId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[callId] = { resolve: resolve, reject: reject };
+
+        postToHost({
+          type: 'photon:request-modal',
+          callId: callId,
+          template: opts.template,
+          params: opts.params
+        });
+
+        // Timeout after 5 minutes (modals may take user input)
+        setTimeout(function() {
+          if (pendingCalls[callId]) {
+            delete pendingCalls[callId];
+            reject(new Error('Modal request timeout'));
+          }
+        }, 300000);
+      });
     },
 
     notifyIntrinsicHeight: function(height) {
@@ -452,7 +538,7 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     },
 
     setOpenInAppUrl: function(opts) {
-      console.warn('[BEAM] setOpenInAppUrl not implemented');
+      postToHost({ type: 'photon:set-open-in-app-url', href: opts.href });
     }
   };
 

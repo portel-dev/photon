@@ -828,12 +828,14 @@ export class PhotonLoader {
     const methods: string[] = [];
 
     Object.getOwnPropertyNames(prototype).forEach((name) => {
-      // Skip constructor, private methods (starting with _), and lifecycle hooks
+      // Skip constructor, private methods (starting with _), lifecycle hooks, and convention methods
       if (
         name !== 'constructor' &&
         !name.startsWith('_') &&
         name !== 'onInitialize' &&
         name !== 'onShutdown' &&
+        name !== 'configure' &&
+        name !== 'getConfig' &&
         typeof prototype[name] === 'function'
       ) {
         methods.push(name);
