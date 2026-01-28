@@ -1273,6 +1273,7 @@ export class BeamApp extends LitElement {
   @state() private _mcpReady = false;
   @state() private _showSettingsMenu = false;
   @state() private _rememberFormValues = false;
+  @state() private _verboseLogging = false;
   @state() private _showSourceModal = false;
   @state() private _sourceData: { path: string; code: string } | null = null;
   @state() private _editingDescription = false;
@@ -1316,6 +1317,12 @@ export class BeamApp extends LitElement {
     const savedRemember = localStorage.getItem('beam-remember-values');
     if (savedRemember === 'true') {
       this._rememberFormValues = true;
+    }
+
+    // Load saved verbose logging preference
+    const savedVerbose = localStorage.getItem('beam-verbose-logging');
+    if (savedVerbose === 'true') {
+      this._verboseLogging = true;
     }
 
     // Click outside to close settings menu
@@ -1364,8 +1371,6 @@ export class BeamApp extends LitElement {
         this._connected = true;
         this._reconnecting = false;
         console.log('MCP client connected');
-        this._log('info', 'Connected to Beam server');
-        showToast('Connected to Beam server', 'success');
 
         // Load initial photon list
         const tools = await mcpClient.listTools();
@@ -1384,7 +1389,7 @@ export class BeamApp extends LitElement {
         this._mcpReady = false;
         this._connected = false;
         this._reconnecting = true;
-        this._log('error', 'Disconnected from server');
+        // Connection status shown via banner, not log
         showToast('Connection lost. Reconnecting...', 'warning');
       });
 
@@ -1607,7 +1612,7 @@ export class BeamApp extends LitElement {
       this._mcpReady = false;
       this._connected = false;
       this._reconnecting = true;
-      this._log('error', 'Failed to connect to server');
+      // Connection status shown via indicator, not log
       showToast('Connection failed. Retrying...', 'error');
       // Retry connection after a delay
       setTimeout(() => this._connectMCP(), 3000);
@@ -1676,13 +1681,30 @@ export class BeamApp extends LitElement {
     history.replaceState(null, '', `#${hash}`);
   }
 
-  private _log(type: string, message: string) {
+  private _log(type: string, message: string, verbose = false) {
+    // Skip verbose messages if verbose logging is disabled
+    if (verbose && !this._verboseLogging) {
+      return;
+    }
+
+    // Check if this is a duplicate of the most recent message
+    const lastItem = this._activityLog[0];
+    if (lastItem && lastItem.message === message && lastItem.type === type) {
+      // Increment count on existing item
+      this._activityLog = [
+        { ...lastItem, count: (lastItem.count || 1) + 1, timestamp: new Date().toISOString() },
+        ...this._activityLog.slice(1),
+      ];
+      return;
+    }
+
     this._activityLog = [
       {
         id: Date.now().toString(),
         type,
         message,
         timestamp: new Date().toISOString(),
+        count: 1,
       },
       ...this._activityLog,
     ];
@@ -1728,6 +1750,8 @@ export class BeamApp extends LitElement {
           .photons=${this._photons}
           .selectedPhoton=${this._selectedPhoton?.name}
           .theme=${this._theme}
+          .connected=${this._connected}
+          .reconnecting=${this._reconnecting}
           @select=${this._handlePhotonSelectMobile}
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
@@ -2201,6 +2225,12 @@ export class BeamApp extends LitElement {
     );
   };
 
+  private _toggleVerboseLogging = () => {
+    this._verboseLogging = !this._verboseLogging;
+    localStorage.setItem('beam-verbose-logging', String(this._verboseLogging));
+    showToast(this._verboseLogging ? 'Verbose logging enabled' : 'Verbose logging disabled', 'info');
+  };
+
   // Maker instance method handlers - operate on the current photon
   private _handleRenamePhoton = () => {
     this._closeSettingsMenu();
@@ -2274,7 +2304,7 @@ export class BeamApp extends LitElement {
       return;
     }
 
-    this._log('info', `Invoking maker.${methodName} on ${this._selectedPhoton?.name}...`);
+    this._log('info', `Invoking maker.${methodName} on ${this._selectedPhoton?.name}...`, true);
 
     // Use MCP to invoke the maker method
     if (this._mcpReady) {
@@ -2307,7 +2337,7 @@ export class BeamApp extends LitElement {
     const args = e.detail.args;
     this._lastFormParams = args; // Store for sharing
     this._sharedFormParams = null; // Clear shared params after use
-    this._log('info', `Invoking ${this._selectedMethod.name}...`);
+    this._log('info', `Invoking ${this._selectedMethod.name}...`, true);
     this._lastResult = null;
     this._isExecuting = true;
     this._progress = null;
@@ -2365,7 +2395,7 @@ export class BeamApp extends LitElement {
     if (msg.type === 'photon:call-tool') {
       const callId = msg.callId;
       if (this._selectedPhoton && this._mcpReady) {
-        this._log('info', `Bridge invoking ${msg.toolName}...`);
+        this._log('info', `Invoking ${msg.toolName}...`, true);
 
         try {
           const toolName = `${this._selectedPhoton.name}/${msg.toolName}`;
@@ -3121,6 +3151,18 @@ export class BeamApp extends LitElement {
                       </button>
                     `
                   : ''}
+                <button
+                  class="settings-dropdown-item toggle"
+                  @click=${this._toggleVerboseLogging}
+                >
+                  <span style="display:flex;align-items:center;gap:10px;">
+                    <span class="icon">📋</span>
+                    <span>Verbose Logging</span>
+                  </span>
+                  <span
+                    class="toggle-switch ${this._verboseLogging ? 'active' : ''}"
+                  ></span>
+                </button>
                 ${showRename || showViewSource || showDelete
                   ? html` <div class="settings-dropdown-divider"></div> `
                   : ''}

@@ -80,6 +80,37 @@ export class BeamSidebar extends LitElement {
         font-size: 1.2rem;
         font-weight: 600;
         margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .status-indicator.connected {
+        background: #4ade80;
+        box-shadow: 0 0 6px #4ade80;
+      }
+
+      .status-indicator.reconnecting {
+        background: #fbbf24;
+        box-shadow: 0 0 6px #fbbf24;
+        animation: pulse 1s ease-in-out infinite;
+      }
+
+      .status-indicator.disconnected {
+        background: #f87171;
+        box-shadow: 0 0 6px #f87171;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
       }
 
       .theme-toggle {
@@ -393,6 +424,12 @@ export class BeamSidebar extends LitElement {
   @property({ type: String })
   theme: Theme = 'dark';
 
+  @property({ type: Boolean })
+  connected = false;
+
+  @property({ type: Boolean })
+  reconnecting = false;
+
   @state()
   private _searchQuery = '';
 
@@ -469,7 +506,21 @@ export class BeamSidebar extends LitElement {
       <nav class="sidebar-content" role="navigation" aria-label="Photon navigation">
         <div class="header">
           <div class="header-row">
-            <h2 class="text-gradient logo">Photon Beam</h2>
+            <h2 class="text-gradient logo">
+              Photon Beam
+              <span
+                class="status-indicator ${this.connected
+                  ? 'connected'
+                  : this.reconnecting
+                    ? 'reconnecting'
+                    : 'disconnected'}"
+                title="${this.connected
+                  ? 'Connected'
+                  : this.reconnecting
+                    ? 'Reconnecting...'
+                    : 'Disconnected'}"
+              ></span>
+            </h2>
             <div class="theme-toggle" role="group" aria-label="Theme selection">
               <button
                 class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
