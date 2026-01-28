@@ -512,7 +512,20 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const method = mcp.instance[methodName];
+    // Check instance first, then prototype, then static methods on class
+    let method = mcp.instance[methodName];
+    let isStatic = false;
+
+    if (typeof method !== 'function') {
+      method = Object.getPrototypeOf(mcp.instance)?.[methodName];
+    }
+
+    // Check for static method on class constructor
+    if (typeof method !== 'function' && mcp.classConstructor) {
+      method = mcp.classConstructor[methodName];
+      isStatic = true;
+    }
+
     if (typeof method !== 'function') {
       return {
         jsonrpc: '2.0',
@@ -662,7 +675,10 @@ const handlers: Record<string, RequestHandler> = {
           inputProvider,
         });
       } else {
-        result = await method.call(mcp.instance, args || {});
+        // For static methods, don't bind to instance
+        result = isStatic
+          ? await method(args || {})
+          : await method.call(mcp.instance, args || {});
       }
 
       // Handle async generators (when not using loader)

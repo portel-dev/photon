@@ -139,6 +139,8 @@ export type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 export interface PhotonMCPInstance {
   /** Instantiated photon class (any to allow method indexing) */
   instance: any;
+  /** Class constructor for accessing static methods */
+  classConstructor?: any;
   /** Extracted method schemas */
   schemas?: any[];
   /** Photon assets */
