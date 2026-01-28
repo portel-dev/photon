@@ -89,7 +89,19 @@ type MCPEventType =
   | 'refresh-needed' // Server signals lastEventId too old, full refresh required
   | 'result' // Tool execution result
   | 'configured' // Photon configuration complete
-  | 'notification'; // Generic notification
+  | 'notification' // Generic notification
+  | 'operation-queued' // Operation queued for retry
+  | 'queue-processed'; // Queued operations processed
+
+// Pending operation for offline queue
+interface PendingOperation {
+  id: number;
+  method: string;
+  params: Record<string, unknown>;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timestamp: number;
+}
 
 class MCPClientService {
   private sessionId: string | null = null;
@@ -102,6 +114,13 @@ class MCPClientService {
   private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
   private baseUrl: string;
   private _configurationSchema: ConfigurationSchema | null = null;
+  private lastMessageTime = 0;
+  private heartbeatInterval: number | null = null;
+  private visibilityHandler: (() => void) | null = null;
+  private readonly HEARTBEAT_TIMEOUT_MS = 60000; // 60s - server sends keepalive every 30s
+  private pendingOperations: PendingOperation[] = [];
+  private isProcessingQueue = false;
+  private readonly MAX_QUEUE_AGE_MS = 30000; // Discard operations older than 30s
 
   constructor() {
     this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
@@ -132,6 +151,7 @@ class MCPClientService {
    */
   disconnect(): void {
     this.maxReconnectAttempts = 0;
+    this.stopHeartbeatCheck();
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -185,10 +205,16 @@ class MCPClientService {
     this.eventSource = new EventSource(sseUrl);
 
     this.eventSource.onopen = () => {
-      // SSE connected
+      // SSE connected - reset reconnect counter and start heartbeat monitoring
+      this.reconnectAttempts = 0;
+      this.lastMessageTime = Date.now();
+      this.startHeartbeatCheck();
+      // Process any queued operations
+      this.processQueue();
     };
 
     this.eventSource.onmessage = (event) => {
+      this.lastMessageTime = Date.now();
       this.handleSSEMessage(event.data);
     };
 
@@ -200,9 +226,66 @@ class MCPClientService {
   }
 
   /**
+   * Start heartbeat check to detect stale connections
+   * Only polls when tab is visible - stops when hidden to save resources
+   */
+  private startHeartbeatCheck(): void {
+    this.stopHeartbeatCheck();
+
+    // Check for stale connection
+    const checkStale = () => {
+      const elapsed = Date.now() - this.lastMessageTime;
+      if (elapsed > this.HEARTBEAT_TIMEOUT_MS && this.connected) {
+        console.warn('[MCP] Connection stale, reconnecting...');
+        this.handleSSEDisconnect();
+      }
+    };
+
+    // Start/stop polling based on visibility
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        // Tab became visible - check immediately and start polling
+        checkStale();
+        if (!this.heartbeatInterval) {
+          this.heartbeatInterval = window.setInterval(checkStale, 15000);
+        }
+      } else {
+        // Tab hidden - stop polling to save resources
+        if (this.heartbeatInterval) {
+          clearInterval(this.heartbeatInterval);
+          this.heartbeatInterval = null;
+        }
+      }
+    };
+
+    this.visibilityHandler = handleVisibility;
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Start polling if currently visible
+    if (document.visibilityState === 'visible') {
+      this.heartbeatInterval = window.setInterval(checkStale, 15000);
+    }
+  }
+
+  /**
+   * Stop heartbeat check
+   */
+  private stopHeartbeatCheck(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
+  }
+
+  /**
    * Handle SSE disconnect with reconnection
    */
   private handleSSEDisconnect(): void {
+    this.stopHeartbeatCheck();
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -246,7 +329,7 @@ class MCPClientService {
   }
 
   /**
-   * Call a tool
+   * Call a tool - queues operation if connection fails
    */
   async callTool(
     name: string,
@@ -259,11 +342,98 @@ class MCPClientService {
       params._meta = { progressToken };
     }
 
-    const result = (await this.sendRequest('tools/call', params)) as {
-      content: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
-    return result;
+    try {
+      const result = (await this.sendRequest('tools/call', params)) as {
+        content: Array<{ type: string; text?: string }>;
+        isError?: boolean;
+      };
+      return result;
+    } catch (error) {
+      // Queue the operation for retry if it's a connection error
+      if (this.isConnectionError(error)) {
+        return this.queueOperation('tools/call', params);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Check if error is a connection-related error
+   */
+  private isConnectionError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const msg = error.message.toLowerCase();
+      return (
+        msg.includes('network') ||
+        msg.includes('fetch') ||
+        msg.includes('connection') ||
+        msg.includes('timeout') ||
+        msg.includes('http error: 0') ||
+        msg.includes('failed to fetch')
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Queue an operation for retry when connection is restored
+   */
+  private queueOperation(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> {
+    return new Promise((resolve, reject) => {
+      const operation: PendingOperation = {
+        id: ++this.requestId,
+        method,
+        params,
+        resolve,
+        reject,
+        timestamp: Date.now(),
+      };
+      this.pendingOperations.push(operation);
+      console.log(`[MCP] Operation queued (${this.pendingOperations.length} pending)`);
+      this.emit('operation-queued', { count: this.pendingOperations.length, method, params });
+    });
+  }
+
+  /**
+   * Process queued operations after reconnection
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.pendingOperations.length === 0) return;
+
+    this.isProcessingQueue = true;
+    const now = Date.now();
+
+    // Filter out stale operations
+    this.pendingOperations = this.pendingOperations.filter((op) => {
+      if (now - op.timestamp > this.MAX_QUEUE_AGE_MS) {
+        op.reject(new Error('Operation expired'));
+        return false;
+      }
+      return true;
+    });
+
+    console.log(`[MCP] Processing ${this.pendingOperations.length} queued operations`);
+
+    while (this.pendingOperations.length > 0) {
+      const operation = this.pendingOperations.shift()!;
+      try {
+        const result = await this.sendRequest(operation.method, operation.params);
+        operation.resolve(result);
+      } catch (error) {
+        // If still failing, re-queue if not too old
+        if (this.isConnectionError(error) && now - operation.timestamp < this.MAX_QUEUE_AGE_MS) {
+          this.pendingOperations.unshift(operation);
+          break; // Stop processing, wait for next reconnect
+        }
+        operation.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    this.isProcessingQueue = false;
+    this.emit('queue-processed', { remaining: this.pendingOperations.length });
   }
 
   /**
