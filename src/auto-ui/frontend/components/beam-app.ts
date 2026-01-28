@@ -3930,6 +3930,7 @@ export class BeamApp extends LitElement {
             style="
             flex: 1;
             overflow: auto;
+            white-space: pre;
             background: #1e1e2e;
             border: 1px solid var(--border-glass);
             border-radius: var(--radius-sm);
@@ -3940,7 +3941,7 @@ export class BeamApp extends LitElement {
             line-height: 1.6;
             tab-size: 2;
           "
-          ><code class="language-${language}">${Prism
+          ><code class="language-${language}" style="display: block; overflow-x: visible;">${Prism
             ? unsafeHTML(highlightedCode)
             : this._sourceData.code}</code></pre>
         </div>
