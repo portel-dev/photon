@@ -1376,6 +1376,9 @@ export class BeamApp extends LitElement {
         const tools = await mcpClient.listTools();
         this._photons = mcpClient.toolsToPhotons(tools);
 
+        // Add unconfigured photons from configuration schema
+        this._addUnconfiguredPhotons();
+
         // Restore state from hash or select first photon
         if (window.location.hash) {
           this._handleHashChange();
@@ -1396,6 +1399,13 @@ export class BeamApp extends LitElement {
       mcpClient.on('tools-changed', async () => {
         const tools = await mcpClient.listTools();
         this._photons = mcpClient.toolsToPhotons(tools);
+        // Re-add unconfigured photons from configuration schema
+        this._addUnconfiguredPhotons();
+      });
+
+      // Handle configuration schema for unconfigured photons
+      mcpClient.on('configuration-available', () => {
+        this._addUnconfiguredPhotons();
       });
 
       mcpClient.on('progress', (data: any) => {
@@ -1679,6 +1689,39 @@ export class BeamApp extends LitElement {
     }
     // Update URL without scrolling
     history.replaceState(null, '', `#${hash}`);
+  }
+
+  /**
+   * Add unconfigured photons from configurationSchema to the photons list
+   */
+  private _addUnconfiguredPhotons() {
+    const schema = mcpClient.getConfigurationSchema();
+    if (!schema) return;
+
+    // Get names of photons already in list
+    const existingNames = new Set(this._photons.map((p) => p.name));
+
+    // Add unconfigured photons that aren't already in the list
+    const unconfigured = Object.entries(schema)
+      .filter(([name]) => !existingNames.has(name))
+      .map(([name, config]) => ({
+        id: name,
+        name,
+        configured: false,
+        methods: [], // Empty methods signals needs setup
+        requiredParams: Object.entries(config.properties || {}).map(([key, prop]: [string, any]) => ({
+          name: key,
+          type: prop.type || 'string',
+          format: prop.format,
+          default: prop.default,
+          required: config.required?.includes(key),
+        })),
+        errorMessage: config['x-error-message'],
+      }));
+
+    if (unconfigured.length > 0) {
+      this._photons = [...this._photons, ...unconfigured];
+    }
   }
 
   private _log(type: string, message: string, verbose = false) {
