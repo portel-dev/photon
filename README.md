@@ -77,22 +77,22 @@ photon                            # Open Beam UI
 
 Beam is how humans interact with MCPs — the same way AI does.
 
-![Beam Dashboard](assets/beam-dashboard.png)
+![Beam Dashboard](https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png)
 *Browse all your photons and their methods in one place*
 
-![Beam Tool Form](assets/beam-tool-form.png)
+![Beam Tool Form](https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-tool-form.png)
 *Forms are auto-generated from your TypeScript types — required fields marked with **\***
 
 ### Test What AI Will See
 
 Before AI touches your MCP, test it yourself:
 
-![Tool Execution](assets/beam-execute.png)
+![Tool Execution](https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-execute.png)
 *Execute methods, see results — verify before deploying to AI*
 
 ### Browse and Install from Marketplace
 
-![Beam Marketplace](assets/beam-marketplace.png)
+![Beam Marketplace](https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png)
 *Discover photons, one-click install, immediately available*
 
 ### How Configuration Works
