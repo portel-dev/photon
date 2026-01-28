@@ -95,6 +95,22 @@ Before AI touches your MCP, test it yourself:
 ![Beam Marketplace](assets/beam-marketplace.png)
 *Discover photons, one-click install, immediately available*
 
+### How Configuration Works
+
+Constructor parameters automatically become configuration — no setup code needed:
+
+```typescript
+export default class Analytics {
+  constructor(
+    private host: string,        // → ANALYTICS_HOST env var → Beam text field
+    private database: string,    // → ANALYTICS_DATABASE    → Beam text field
+    private password: string     // → ANALYTICS_PASSWORD    → Beam password field
+  ) {}
+}
+```
+
+Beam auto-generates forms from your constructor. Fill in the fields, click save — done.
+
 ---
 
 ## Why Personal MCPs Matter
@@ -294,6 +310,14 @@ photon cli my-tool         # Test via CLI
 Human writes skeleton  →  AI implements logic  →  Human reviews in Beam
       ↓                          ↓                        ↓
 AI extends features    ←  Human customizes     ←  Both iterate
+```
+
+### Exploring Together
+
+```
+Human tests in Beam    →  Shares context with AI  →  AI continues exploration
+      ↓                          ↓                          ↓
+AI discovers patterns  →  Human validates          →  Repeat
 ```
 
 ### The Handoff
