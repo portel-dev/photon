@@ -31,7 +31,7 @@ Think of it like **NPM and Node, but for MCP**.
 The same `.photon.ts` file automatically becomes:
 - 🤖 **MCP Server** - Tools for Claude Desktop, Cursor, and AI assistants
 - 💻 **CLI Tool** - Beautiful command-line interface for humans
-- 🔌 **Platform Integrations** - NCP, Lumina, and future runtimes
+- 🔌 **Platform Integrations** - NCP and more (see [Roadmap](#roadmap))
 
 ```bash
 # Same file, multiple interfaces:
@@ -306,7 +306,7 @@ photon add your-custom-tool
 | **Hot Reload** | Configure yourself | Built-in with --dev |
 | **AI Context** | Scattered | Single file |
 | **CLI Interface** | Write separate code | Automatic from same code |
-| **Deployment Targets** | MCP only | MCP, CLI, NCP, Lumina, APIs... |
+| **Deployment Targets** | MCP only | MCP, CLI, NCP, and more |
 
 [See detailed comparison →](COMPARISON.md)
 
