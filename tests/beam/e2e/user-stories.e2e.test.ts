@@ -542,3 +542,190 @@ test.describe('Regression Tests', () => {
     expect(logText).not.toMatch(/Bridge\s+invoking/i);
   });
 });
+
+// =============================================================================
+// USER STORY: Favorites
+// =============================================================================
+
+test.describe('User Story: Favorites', () => {
+  test('US-070: User can star a photon to add it to favorites', async ({ page }) => {
+    /**
+     * AS A user
+     * I WANT TO click a star icon on a photon
+     * SO THAT I can mark it as a favorite for quick access
+     */
+    await page.goto(BEAM_URL);
+    await waitForConnection(page);
+
+    // Clear any existing favorites from localStorage
+    await page.evaluate(() => localStorage.removeItem('beam-favorites'));
+    await page.reload();
+    await waitForConnection(page);
+
+    // Get the first photon item and hover to reveal the star button
+    const firstPhoton = page.locator('[role="option"]').first();
+    await firstPhoton.hover();
+    await page.waitForTimeout(200);
+
+    // Star button should be visible on hover with unfavorited state
+    const starBtn = firstPhoton.locator('.star-btn');
+    await expect(starBtn).toBeVisible();
+    expect(await starBtn.getAttribute('aria-pressed')).toBe('false');
+
+    // Click the star to favorite
+    await starBtn.click();
+    await page.waitForTimeout(300);
+
+    // Star button should now have the favorited class and aria-pressed="true"
+    await expect(starBtn).toHaveClass(/favorited/);
+    expect(await starBtn.getAttribute('aria-pressed')).toBe('true');
+
+    // The star icon should change to filled star
+    const starText = await starBtn.textContent();
+    expect(starText?.trim()).toBe('⭐');
+  });
+
+  test('US-071: Favorites persist in localStorage', async ({ page }) => {
+    /**
+     * AS A user
+     * I WANT my favorite photons to persist across page reloads
+     * SO THAT I don't have to re-star them every time
+     */
+    await page.goto(BEAM_URL);
+    await waitForConnection(page);
+
+    // Clear any existing favorites
+    await page.evaluate(() => localStorage.removeItem('beam-favorites'));
+    await page.reload();
+    await waitForConnection(page);
+
+    // Get the name of the first photon
+    const firstPhotonName = await page.locator('[role="option"] .photon-name').first().textContent();
+    expect(firstPhotonName).toBeTruthy();
+
+    // Hover and click the star on the first photon
+    const firstPhoton = page.locator('[role="option"]').first();
+    await firstPhoton.hover();
+    await page.waitForTimeout(200);
+    await firstPhoton.locator('.star-btn').click();
+    await page.waitForTimeout(300);
+
+    // Verify localStorage contains the favorited photon
+    const storedFavorites = await page.evaluate(() => {
+      const raw = localStorage.getItem('beam-favorites');
+      return raw ? JSON.parse(raw) : null;
+    });
+    expect(storedFavorites).toBeInstanceOf(Array);
+    expect(storedFavorites).toContain(firstPhotonName?.trim());
+
+    // Reload the page and verify the favorite persists
+    await page.reload();
+    await waitForConnection(page);
+
+    // The star should still be favorited after reload
+    const starBtnAfterReload = page.locator('[role="option"]').first().locator('.star-btn');
+    await expect(starBtnAfterReload).toHaveClass(/favorited/);
+    expect(await starBtnAfterReload.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('US-072: Favorites filter mode shows only starred photons', async ({ page }) => {
+    /**
+     * AS A user
+     * I WANT TO filter the sidebar to show only my favorite photons
+     * SO THAT I can quickly access frequently used photons without scrolling
+     */
+    await page.goto(BEAM_URL);
+    await waitForConnection(page);
+
+    // Clear favorites and reload for a clean state
+    await page.evaluate(() => localStorage.removeItem('beam-favorites'));
+    await page.reload();
+    await waitForConnection(page);
+
+    // Get total photon count before starring
+    const totalPhotons = await page.locator('[role="option"]').count();
+    expect(totalPhotons).toBeGreaterThan(1);
+
+    // Star only the first photon
+    const firstPhoton = page.locator('[role="option"]').first();
+    await firstPhoton.hover();
+    await page.waitForTimeout(200);
+    await firstPhoton.locator('.star-btn').click();
+    await page.waitForTimeout(300);
+
+    // Click the favorites filter button
+    const favFilterBtn = page.locator('button[aria-label="Filter by favorites"]');
+    await expect(favFilterBtn).toBeVisible();
+    await favFilterBtn.click();
+    await page.waitForTimeout(300);
+
+    // Filter button should be active
+    await expect(favFilterBtn).toHaveClass(/active/);
+    expect(await favFilterBtn.getAttribute('aria-pressed')).toBe('true');
+
+    // Only the favorited photon should be visible
+    const filteredCount = await page.locator('[role="option"]').count();
+    expect(filteredCount).toBe(1);
+
+    // The visible photon should be the one we starred
+    const visibleStarBtn = page.locator('[role="option"]').first().locator('.star-btn');
+    await expect(visibleStarBtn).toHaveClass(/favorited/);
+
+    // Toggle filter off - all photons should reappear
+    await favFilterBtn.click();
+    await page.waitForTimeout(300);
+    const unfilteredCount = await page.locator('[role="option"]').count();
+    expect(unfilteredCount).toBe(totalPhotons);
+  });
+
+  test('US-073: Favorited photons appear in their sections when favorites filter is active', async ({
+    page,
+  }) => {
+    /**
+     * AS A user
+     * I WANT favorited photons to remain in their correct sections (Apps, MCPs, Setup)
+     *   when the favorites filter is active
+     * SO THAT the organizational structure is preserved even in filtered view
+     */
+    await page.goto(BEAM_URL);
+    await waitForConnection(page);
+
+    // Clear favorites and reload for a clean state
+    await page.evaluate(() => localStorage.removeItem('beam-favorites'));
+    await page.reload();
+    await waitForConnection(page);
+
+    // Star a photon in the MCPs section
+    const mcpPhoton = page.locator('[aria-labelledby="mcps-header"] [role="option"]').first();
+    await mcpPhoton.hover();
+    await page.waitForTimeout(200);
+    await mcpPhoton.locator('.star-btn').click();
+    await page.waitForTimeout(300);
+
+    // Activate favorites filter
+    const favFilterBtn = page.locator('button[aria-label="Filter by favorites"]');
+    await favFilterBtn.click();
+    await page.waitForTimeout(300);
+
+    // MCPs section should still exist with the favorited photon
+    const mcpsHeader = page.locator('#mcps-header');
+    await expect(mcpsHeader).toBeVisible();
+
+    const mcpPhotonsInFilter = page.locator(
+      '[aria-labelledby="mcps-header"] [role="option"]'
+    );
+    expect(await mcpPhotonsInFilter.count()).toBeGreaterThan(0);
+
+    // The favorited photon's star should show as favorited
+    const starInSection = mcpPhotonsInFilter.first().locator('.star-btn');
+    await expect(starInSection).toHaveClass(/favorited/);
+
+    // SETUP section should NOT be visible (no favorited photons there)
+    const setupPhotons = page.locator('[aria-labelledby="setup-header"] [role="option"]');
+    expect(await setupPhotons.count()).toBe(0);
+
+    // Clean up: toggle filter off
+    await favFilterBtn.click();
+    await page.waitForTimeout(300);
+  });
+});
