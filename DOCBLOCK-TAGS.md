@@ -25,6 +25,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@prompt` | Defines a static prompt asset. | `@prompt greet ./prompts/greet.txt` |
 | `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
 | `@icon` | Sets the photon icon (emoji). | `@icon 🔧` |
+| `@tags` | Comma-separated tags for categorization and search. | `@tags database, sql, postgresql` |
 | `@internal` | Marks photon as internal (hidden from main UI). | `@internal` |
 
 ### Runtime Version Ranges

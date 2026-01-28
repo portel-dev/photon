@@ -1615,6 +1615,11 @@ Photon's framework-agnostic design enables future deployment targets. More on th
 - **[NAMING-CONVENTIONS.md](NAMING-CONVENTIONS.md)** - Naming guidelines
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 
+### Deep Dives
+- **[MCP Dependencies](docs/MCP-DEPENDENCIES.md)** - Consuming external MCPs at runtime with `this.mcp()`
+- **[Daemon Pub/Sub](docs/core/DAEMON-PUBSUB.md)** - Real-time cross-process messaging
+- **[Auto-UI Architecture](docs/core/AUTO-UI-ARCHITECTURE.md)** - How the Beam UI renders forms
+
 ### Development & Contributing
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Architecture overview and contributing guide
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
