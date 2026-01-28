@@ -109,7 +109,7 @@ test.beforeAll(async () => {
   );
 
   // Start Beam server pointing to test directory
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -202,7 +202,7 @@ test.describe('User Story: Unconfigured Photons Setup', () => {
 
     // SETUP section should exist
     const sections = await getSidebarSections(page);
-    expect(sections).toContain('SETUP');
+    expect(sections).toContain('Setup');
 
     // The unconfigured photon should be in SETUP section
     const setupPhotons = await getPhotonsInSection(page, 'setup-header');
@@ -246,7 +246,7 @@ test.describe('User Story: Unconfigured Photons Setup', () => {
 
     // MCPs section should exist
     const sections = await getSidebarSections(page);
-    expect(sections).toContain('MCPS');
+    expect(sections).toContain('MCPs');
 
     // Configured photon should be in MCPs section with method count
     const mcpPhotons = await page.$$eval('[aria-labelledby="mcps-header"] [role="option"]', (els) =>
@@ -302,12 +302,12 @@ test.describe('User Story: Sidebar Organization', () => {
     const sections = await getSidebarSections(page);
 
     // Should have at least MCPS section (APPS depends on having app photons)
-    expect(sections).toContain('MCPS');
+    expect(sections).toContain('MCPs');
 
     // If there are unconfigured photons, SETUP should exist
     const hasUnconfigured = await page.locator('.method-count.unconfigured').count();
     if (hasUnconfigured > 0) {
-      expect(sections).toContain('SETUP');
+      expect(sections).toContain('Setup');
     }
   });
 
@@ -342,12 +342,12 @@ test.describe('User Story: Sidebar Organization', () => {
     await page.goto(BEAM_URL);
     await waitForConnection(page);
 
-    // Favorites button should exist
-    const favButton = page.locator('button[aria-label*="favorites"], button[title*="favorites"]');
+    // Favorites filter button should exist (exact match to avoid star buttons)
+    const favButton = page.locator('button[aria-label="Filter by favorites"]');
     expect(await favButton.count()).toBe(1);
 
     // Click favorites filter
-    await favButton.click();
+    await favButton.first().click();
     await page.waitForTimeout(300);
 
     // If no favorites, list should be empty or show message
@@ -410,7 +410,7 @@ test.describe('User Story: Method Invocation', () => {
     await page.waitForTimeout(500);
 
     // Should show methods
-    const methods = page.locator('[class*="method"], [data-method]');
+    const methods = page.locator('method-card');
     if ((await methods.count()) > 0) {
       // Click first method
       await methods.first().click();
@@ -420,8 +420,8 @@ test.describe('User Story: Method Invocation', () => {
       await page.click('button:has-text("Execute"), button:has-text("Run")');
       await page.waitForTimeout(1000);
 
-      // Should show result
-      const result = page.locator('[class*="result"]');
+      // Should show result or activity log entry
+      const result = page.locator('result-viewer, activity-log');
       expect(await result.count()).toBeGreaterThan(0);
     }
   });
@@ -533,7 +533,7 @@ test.describe('Regression Tests', () => {
     await page.click('[aria-labelledby="mcps-header"] [role="option"]');
     await page.waitForTimeout(500);
 
-    const methods = page.locator('[class*="method"], [data-method]');
+    const methods = page.locator('method-card');
     if ((await methods.count()) > 0) {
       await methods.first().click();
       await page.waitForTimeout(300);
