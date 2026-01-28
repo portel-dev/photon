@@ -11,9 +11,13 @@
 import { test, expect, Page, Browser } from 'playwright/test';
 import { spawn, ChildProcess } from 'child_process';
 import { setTimeout } from 'timers/promises';
+import { fileURLToPath } from 'url';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+
+// ESM-compatible __dirname
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Test configuration
 const BEAM_PORT = 3847; // Use non-standard port to avoid conflicts
@@ -107,7 +111,7 @@ test.beforeAll(async () => {
 
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
-      if (output.includes('Beam server running') || output.includes('listening')) {
+      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
         global.clearTimeout(timeout);
         resolve();
       }
