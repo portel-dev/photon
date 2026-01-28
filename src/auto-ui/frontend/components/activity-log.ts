@@ -7,6 +7,7 @@ interface ActivityItem {
   type: 'info' | 'success' | 'error' | 'warning';
   message: string;
   timestamp: string;
+  count?: number; // For collapsed repeated messages
 }
 
 @customElement('activity-log')
@@ -75,7 +76,14 @@ export class ActivityLog extends LitElement {
       .meta {
         color: var(--t-muted);
         flex-shrink: 0;
-        width: 80px;
+        min-width: 95px;
+      }
+
+      .count {
+        color: var(--t-muted);
+        font-size: 0.75rem;
+        opacity: 0.8;
+        margin-left: var(--space-xs);
       }
 
       .content {
@@ -145,7 +153,11 @@ export class ActivityLog extends LitElement {
           (item) => html`
             <div class="log-item type-${item.type}">
               <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
-              <span class="content">${item.message}</span>
+              <span class="content"
+                >${item.message}${item.count && item.count > 1
+                  ? html`<span class="count">(×${item.count})</span>`
+                  : ''}</span
+              >
             </div>
           `
         )}
