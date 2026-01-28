@@ -17,6 +17,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@dependencies` | NPM packages to auto-install on first run. | `@dependencies axios@^1.0.0, lodash` |
 | `@mcp` | Declares an MCP dependency for constructor injection. | `@mcp github anthropics/mcp-server-github` |
 | `@photon` | Declares a Photon dependency for constructor injection. | `@photon helper ./helper.photon.ts` |
+| `@cli` | Declares a system CLI tool dependency. | `@cli git - https://git-scm.com/downloads` |
 | `@mcps` | Lists MCP dependencies (for diagram generation). | `@mcps filesystem, git` |
 | `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |
 | `@stateful` | Set to `true` if the photon maintains state between calls. | `@stateful true` |

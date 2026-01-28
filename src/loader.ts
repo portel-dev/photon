@@ -45,6 +45,7 @@ import {
   type MCPClientFactory,
   type MCPDependency,
   type PhotonDependency,
+  type CLIDependency,
   type ResolvedInjection,
   createMCPProxy,
   MCPClient,
@@ -610,6 +611,11 @@ export class PhotonLoader {
         this.log(`Injected MCP factory into ${name}`);
       }
 
+      // Check @cli dependencies (required system CLI tools)
+      if (tsContent) {
+        await this.checkCLIDependencies(tsContent, name);
+      }
+
       // Call lifecycle hook if present with error handling
       const onInitialize = instance.onInitialize;
       if (typeof onInitialize === 'function') {
@@ -826,17 +832,34 @@ export class PhotonLoader {
     // Fallback: implement convention for plain classes
     const prototype = classWithStatic.prototype;
     const methods: string[] = [];
+    const conventionMethods = new Set([
+      'constructor',
+      'onInitialize',
+      'onShutdown',
+      'configure',
+      'getConfig',
+    ]);
+    const builtInStatics = new Set(['length', 'name', 'prototype', 'getToolMethods']);
 
+    // Get instance methods from prototype
     Object.getOwnPropertyNames(prototype).forEach((name) => {
-      // Skip constructor, private methods (starting with _), lifecycle hooks, and convention methods
       if (
-        name !== 'constructor' &&
         !name.startsWith('_') &&
-        name !== 'onInitialize' &&
-        name !== 'onShutdown' &&
-        name !== 'configure' &&
-        name !== 'getConfig' &&
+        !conventionMethods.has(name) &&
         typeof prototype[name] === 'function'
+      ) {
+        methods.push(name);
+      }
+    });
+
+    // Get static methods from class constructor
+    const classAsRecord = mcpClass as unknown as Record<string, unknown>;
+    Object.getOwnPropertyNames(mcpClass).forEach((name) => {
+      if (
+        !name.startsWith('_') &&
+        !builtInStatics.has(name) &&
+        !conventionMethods.has(name) &&
+        typeof classAsRecord[name] === 'function'
       ) {
         methods.push(name);
       }
@@ -1977,6 +2000,73 @@ Run: photon mcp ${mcpName} --config
 
     // Store factory reference for cleanup
     instance._mcpClientFactory = factory;
+  }
+
+  /**
+   * Check CLI dependencies declared via @cli tags
+   *
+   * Validates that required command-line tools are available on the system.
+   * Throws a helpful error with install URLs if any are missing.
+   *
+   * Format: @cli <name> - <install_url>
+   *
+   * Example:
+   * ```typescript
+   * /**
+   *  * @cli git - https://git-scm.com/downloads
+   *  * @cli ffmpeg - https://ffmpeg.org/download.html
+   *  *\/
+   * ```
+   */
+  private async checkCLIDependencies(source: string, photonName: string): Promise<void> {
+    const extractor = new SchemaExtractor();
+    const cliDeps = extractor.extractCLIDependencies(source);
+
+    if (cliDeps.length === 0) {
+      return;
+    }
+
+    this.log(`🔧 Checking ${cliDeps.length} CLI dependencies`);
+
+    const missing: CLIDependency[] = [];
+
+    for (const dep of cliDeps) {
+      const exists = await this.checkCLIExists(dep.name);
+      if (exists) {
+        this.log(`  ✅ ${dep.name}`);
+      } else {
+        this.log(`  ❌ ${dep.name} not found`);
+        missing.push(dep);
+      }
+    }
+
+    if (missing.length > 0) {
+      const lines = missing.map((dep) => {
+        if (dep.installUrl) {
+          return `  - ${dep.name}: Install from ${dep.installUrl}`;
+        }
+        return `  - ${dep.name}`;
+      });
+
+      const error = new Error(
+        `${photonName} requires the following CLI tools to be installed:\n${lines.join('\n')}`
+      );
+      error.name = 'CLIDependencyError';
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a CLI command exists on the system
+   */
+  private async checkCLIExists(command: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const check = spawn(process.platform === 'win32' ? 'where' : 'which', [command], {
+        stdio: 'ignore',
+      });
+      check.on('close', (code) => resolve(code === 0));
+      check.on('error', () => resolve(false));
+    });
   }
 
   /**
