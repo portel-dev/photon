@@ -26,7 +26,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '1.1.0';
+  private static readonly TEMPLATE_VERSION = '2.0.0';
 
   constructor(private workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -257,9 +257,9 @@ We welcome contributions! Submit pull requests for:
 
 \`, '')}## 📦 Available Photons
 
-| Photon | Focus | Tools | Details |
-|--------|-------|-------|---------|
-\${each(photons, (p) => \`| **\${properName(p.description, p.name)}** | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | [View →](\${p.name}.md) |\n\`)}
+| Photon | Focus | Tools | Features |
+|--------|-------|-------|----------|
+\${each(photons, (p) => \`| [**\${properName(p.description, p.name)}**](\${p.name}.md) | \${cleanDesc(p.description)} | \${p.tools ? p.tools.length : 0} | \${(p.features || []).map(f => f === 'generator' || f === 'streaming' ? '⚡' : f === 'custom-ui' || f === 'dashboard' ? '🎨' : f === 'elicitation' ? '💬' : f === 'oauth' ? '🔐' : f === 'channels' ? '📡' : f === 'locks' ? '🔒' : f === 'mcp-bridge' ? '🔌' : f === 'photon-bridge' ? '📦' : '').filter(Boolean).join('') || '-'} |\n\`)}
 
 **Total:** \${photons.length} photons ready to use
 
@@ -492,27 +492,18 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
 
 \${cleanDesc(description)}
 
-## 📋 Overview
+> **\${tools ? tools.length : 0} tools** · \${photonType === 'workflow' ? 'Workflow' : photonType === 'streaming' ? 'Streaming' : 'API'} Photon · v\${version} · \${license || 'MIT'}
 
-**Version:** \${version}
-**Author:** \${author || 'Unknown'}
-**License:** \${license || 'MIT'}\${$if(repository, \`  \n**Repository:** \${repository}\`, '')}\${$if(homepage, \`  \n**Homepage:** \${homepage}\`, '')}
-
+\${$if(features && features.length > 0, \`**Platform Features:** \${features.map(f => \\\`\\\\\\\`\\\${f}\\\\\\\`\\\`).join(' ')}
+\`, '')}
 ## ⚙️ Configuration
 
-### Environment Variables
-
-\${each(configParams || [], (param) => \`
-- **\\\`\${param.envVar}\\\`** \${param.required ? '[REQUIRED]' : '[OPTIONAL]'}
-  - Type: \${param.type}
-  - Description: \${param.description}
-  \${param.default ? \`- Default: \\\`\${param.default}\\\`\` : ''}
+\${$if(configParams && configParams.length > 0, \`
+| Variable | Required | Type | Description |
+|----------|----------|------|-------------|
+\${each(configParams, (param) => \`| \\\\\\\`\\\${param.envVar}\\\\\\\` | \\\${param.required ? 'Yes' : 'No'} | \\\${param.type} | \\\${param.description}\\\${param.default ? \\\` (default: \\\\\\\`\\\${param.default}\\\\\\\`)\\\` : ''} |\\n\`)}
+\`, \`No configuration required.
 \`)}
-
-\${$if(!configParams || configParams.length === 0, \`
-No configuration required.
-\`)}
-
 \${$if(setupInstructions, \`
 ### Setup Instructions
 
@@ -521,19 +512,15 @@ No configuration required.
 
 ## 🔧 Tools
 
-This photon provides **\${tools ? tools.length : 0}** tools:
-
 \${each(tools || [], (tool) => \`
-### \\\`\${tool.name}\\\`
+### \\\`\${tool.name}\\\`\${tool.isGenerator ? ' ⚡' : ''}
 
 \${tool.description || 'No description available'}
 
 \${$if(tool.params && tool.params.length > 0, \`
-**Parameters:**
-
-\${each(tool.params, (p) => \`
-- **\\\`\${p.name}\\\`** (\${p.type}\${p.optional ? ', optional' : ''})\${p.constraintsFormatted ? \` [\${p.constraintsFormatted}]\` : ''} - \${p.description || 'No description'}\${p.example ? \` (e.g., \\\`\${p.example}\\\`)\` : ''}
-\`)}
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+\${each(tool.params, (p) => \`| \\\\\\\`\\\${p.name}\\\\\\\` | \\\${p.type} | \\\${p.optional ? 'No' : 'Yes'} | \\\${p.description || '-'}\\\${p.constraintsFormatted ? \\\` [\\\${p.constraintsFormatted}]\\\` : ''}\\\${p.example ? \\\` (e.g. \\\\\\\`\\\${p.example}\\\\\\\`)\\\` : ''} |\\n\`)}
 \`)}
 
 \${$if(tool.example, \`
@@ -551,58 +538,39 @@ This photon provides **\${tools ? tools.length : 0}** tools:
 \${$if(!tools || tools.length === 0, \`
 No tools defined.
 \`)}
+\${$if(diagram, \`
+## 🏗️ Architecture
+
+\\\`\\\`\\\`mermaid
+\${diagram}
+\\\`\\\`\\\`
+\`)}
 
 ## 📥 Usage
 
-### Install Photon CLI
-
 \\\`\\\`\\\`bash
-npm install -g @portel/photon
-\\\`\\\`\\\`
+# Install from marketplace
+photon add \${name}
 
-### Run This Photon
-
-**Option 1: Run directly from file**
-
-\\\`\\\`\\\`bash
-# Clone/download the photon file
-photon mcp ./\${name}.photon.ts
-\\\`\\\`\\\`
-
-**Option 2: Install to ~/.photon/ (recommended)**
-
-\\\`\\\`\\\`bash
-# Copy to photon directory
-cp \${name}.photon.ts ~/.photon/
-
-# Run by name
-photon mcp \${name}
-\\\`\\\`\\\`
-
-**Option 3: Use with Claude Desktop**
-
-\\\`\\\`\\\`bash
-# Generate MCP configuration
-photon mcp \${name} --config
-
-# Add the output to ~/Library/Application Support/Claude/claude_desktop_config.json
+# Get MCP config for your client
+photon get \${name} --mcp
 \\\`\\\`\\\`
 
 ## 📦 Dependencies
 
 \${$if(dependencies, \`
-This photon automatically installs the following dependencies:
-
 \\\`\\\`\\\`
 \${dependencies}
 \\\`\\\`\\\`
-\`, \`
-No external dependencies required.
-\`)}
+\`, \`No external dependencies.
+\`)}\${$if(externalDeps && (externalDeps.mcps.length > 0 || externalDeps.photons.length > 0), \`
 
-## 📄 License
+**Bridges:**
+\${externalDeps.mcps.length > 0 ? \\\`- MCP: \\\${externalDeps.mcps.join(', ')}\\n\\\` : ''}\${externalDeps.photons.length > 0 ? \\\`- Photon: \\\${externalDeps.photons.join(', ')}\\n\\\` : ''}
+\`, '')}
+---
 
-\${license || 'MIT'} • Version \${version}
+\${license || 'MIT'} · v\${version}\${$if(author, \` · \${author}\`, '')}
 `;
   }
 }

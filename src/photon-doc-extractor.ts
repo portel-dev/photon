@@ -62,6 +62,10 @@ export interface PhotonMetadata {
   stateful?: boolean;
   idleTimeout?: number;
   assets?: string[]; // Relative paths to asset files
+  photonType: PhotonType;
+  features: string[];
+  externalDeps: { mcps: string[]; photons: string[]; npm: string[] };
+  diagram?: string;
   hash: string;
 }
 
@@ -89,6 +93,11 @@ export class PhotonDocExtractor {
     const statefulTag = this.extractTag('stateful');
     const idleTimeoutTag = this.extractTag('idleTimeout');
     const internalTag = this.extractTag('internal');
+    const tools = await this.extractTools();
+    const photonType = this.detectPhotonType(tools);
+    const features = this.detectFeatures(tools, statefulTag !== undefined);
+    const externalDeps = this.extractDependencies();
+    const diagram = this.generateDiagramSync(tools, photonType, externalDeps);
 
     return {
       name: this.extractName(),
@@ -102,12 +111,16 @@ export class PhotonDocExtractor {
       internal: internalTag !== undefined,
       configParams: this.extractConfigParams(),
       setupInstructions: this.extractSetupInstructions(),
-      tools: await this.extractTools(),
+      tools,
       dependencies: this.extractTag('dependencies'),
       runtime: this.extractTag('runtime'),
       stateful: statefulTag !== undefined,
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
       assets: await this.extractAssets(),
+      photonType,
+      features,
+      externalDeps,
+      diagram,
     };
   }
 
@@ -529,6 +542,88 @@ export class PhotonDocExtractor {
   }
 
   // ============================================
+  // FEATURE DETECTION
+  // ============================================
+
+  /**
+   * Detect platform features used by this Photon
+   */
+  private detectFeatures(tools: Tool[], isStateful: boolean): string[] {
+    const features: string[] = [];
+
+    // generator — any async * method
+    if (tools.some((t) => t.isGenerator)) {
+      features.push('generator');
+    }
+
+    // custom-ui — @ui JSDoc tag
+    if (this.extractTag('ui') !== undefined || /@ui\s+\S+/.test(this.content)) {
+      features.push('custom-ui');
+    }
+
+    // elicitation — yield { ask: patterns
+    if (/yield\s*\{\s*ask\s*:/.test(this.content) || /yield\*\s/.test(this.content)) {
+      features.push('elicitation');
+    }
+
+    // streaming — yield { emit: or yield { step:
+    if (/yield\s*\{\s*(emit|step)\s*:/.test(this.content)) {
+      features.push('streaming');
+    }
+
+    // oauth — yield { ask: 'oauth'
+    if (/yield\s*\{\s*ask\s*:\s*['"]oauth['"]/.test(this.content)) {
+      features.push('oauth');
+    }
+
+    // stateful — @stateful tag
+    if (isStateful) {
+      features.push('stateful');
+    }
+
+    // webhooks — webhook endpoint patterns
+    if (/webhook/i.test(this.content) && /@webhook/.test(this.content)) {
+      features.push('webhooks');
+    }
+
+    // channels — channel in emit patterns
+    if (/channel/i.test(this.content) && /emit/.test(this.content)) {
+      features.push('channels');
+    }
+
+    // locks — acquireLock / releaseLock
+    if (/acquireLock|releaseLock/.test(this.content)) {
+      features.push('locks');
+    }
+
+    // mcp-bridge — this.mcp( calls
+    if (/this\.mcp\(/.test(this.content)) {
+      features.push('mcp-bridge');
+    }
+
+    // photon-bridge — this.photon( calls
+    if (/this\.photon\(/.test(this.content)) {
+      features.push('photon-bridge');
+    }
+
+    // wizard — @wizard tag
+    if (this.extractTag('wizard') !== undefined) {
+      features.push('wizard');
+    }
+
+    // dashboard — @ui + main method with linkedUi pattern
+    if (
+      features.includes('custom-ui') &&
+      /async\s+\*?\s*main\b/.test(this.content) &&
+      /linkedUi|dashboard/i.test(this.content)
+    ) {
+      features.push('dashboard');
+    }
+
+    return features;
+  }
+
+  // ============================================
   // DIAGRAM GENERATION
   // ============================================
 
@@ -545,6 +640,26 @@ export class PhotonDocExtractor {
     const photonType = this.detectPhotonType(tools);
     const name = this.extractName();
     const deps = this.extractDependencies();
+
+    switch (photonType) {
+      case 'workflow':
+        return this.generateWorkflowDiagram(name, tools, deps);
+      case 'streaming':
+        return this.generateStreamingDiagram(name, tools, deps);
+      default:
+        return this.generateApiSurfaceDiagram(name, tools, deps);
+    }
+  }
+
+  /**
+   * Generate diagram synchronously when content and tools are already loaded
+   */
+  private generateDiagramSync(
+    tools: Tool[],
+    photonType: PhotonType,
+    deps: { mcps: string[]; photons: string[]; npm: string[] }
+  ): string {
+    const name = this.extractName();
 
     switch (photonType) {
       case 'workflow':

@@ -491,6 +491,8 @@ async function performMarketplaceSync(
       hash,
       tools: metadata.tools?.map((t) => t.name),
       assets: metadata.assets,
+      photonType: metadata.photonType,
+      features: metadata.features,
     });
 
     // Generate individual photon documentation
@@ -547,6 +549,8 @@ async function performMarketplaceSync(
       version: p.version,
       license: p.license,
       tools: p.tools || [],
+      photonType: p.photonType || 'api',
+      features: p.features || [],
     })),
   });
 
