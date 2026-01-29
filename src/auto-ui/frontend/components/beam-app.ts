@@ -154,6 +154,51 @@ export class BeamApp extends LitElement {
         color: hsl(260, 100%, 75%);
       }
 
+      .photon-badge.update {
+        background: hsla(30, 100%, 55%, 0.15);
+        border-color: hsla(30, 100%, 55%, 0.3);
+        color: hsl(30, 100%, 65%);
+        cursor: pointer;
+      }
+
+      .photon-badge.source {
+        background: hsla(200, 60%, 50%, 0.1);
+        border-color: hsla(200, 60%, 50%, 0.2);
+        color: hsl(200, 60%, 65%);
+      }
+
+      .photon-header-actions {
+        display: flex;
+        gap: var(--space-sm);
+        margin-top: var(--space-sm);
+      }
+
+      .btn-sm {
+        font-size: 0.75rem;
+        padding: 4px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border-glass);
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-sm:hover {
+        background: var(--bg-glass-strong);
+        border-color: var(--accent-secondary);
+      }
+
+      .btn-sm.primary {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: white;
+      }
+
+      .btn-sm.primary:hover {
+        opacity: 0.9;
+      }
+
       /* Inline Editable Elements */
       .editable {
         cursor: pointer;
@@ -1227,7 +1272,8 @@ export class BeamApp extends LitElement {
   @state() private _sidebarVisible = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' = 'list';
+  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' = 'list';
+  @state() private _configMode: 'initial' | 'edit' = 'initial';
 
   // ... (existing code)
 
@@ -1875,30 +1921,67 @@ export class BeamApp extends LitElement {
     }
 
     if (!this._selectedPhoton) {
-      return html`
-        <h1>Welcome to Beam</h1>
-        <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
-          Select a Photon to begin.
-        </p>
+      const configuredPhotons = this._photons.filter((p) => p.configured);
+      const unconfiguredPhotons = this._photons.filter((p) => !p.configured);
 
-        <div class="glass-panel" style="padding: var(--space-xl); text-align: center;">
-          <h3>No Photon Selected</h3>
-          <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
-            Select one from the sidebar or explore the marketplace.
-          </p>
-          <button class="btn-primary" @click=${() => (this._view = 'marketplace')}>
-            Browse Marketplace
-          </button>
+      return html`
+        <h1 class="text-gradient" style="margin-bottom: var(--space-lg);">Welcome to Photon Beam</h1>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);">
+          <div class="glass-panel" style="padding: var(--space-lg);">
+            <h3 style="margin-bottom: var(--space-sm);">Your Photons</h3>
+            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+              ${configuredPhotons.length} configured photon${configuredPhotons.length !== 1 ? 's' : ''}
+            </p>
+            ${configuredPhotons.length > 0
+              ? html`<div style="font-size: 0.85rem; color: var(--t-secondary);">
+                  ${configuredPhotons.slice(0, 5).map((p) => html`<div style="padding: 2px 0;">${p.icon || '⚡'} ${p.name}</div>`)}
+                  ${configuredPhotons.length > 5 ? html`<div style="color: var(--t-muted);">+${configuredPhotons.length - 5} more</div>` : ''}
+                </div>`
+              : html`<p style="color: var(--t-muted); font-size: 0.85rem;">No photons configured yet.</p>`}
+          </div>
+
+          <div class="glass-panel" style="padding: var(--space-lg);">
+            <h3 style="margin-bottom: var(--space-sm);">Browse Marketplace</h3>
+            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-md);">
+              Discover and install new photons.
+            </p>
+            <button class="btn-primary" @click=${() => (this._view = 'marketplace')}>
+              🛍️ Explore
+            </button>
+          </div>
+
+          <div class="glass-panel" style="padding: var(--space-lg);">
+            <h3 style="margin-bottom: var(--space-sm);">Keyboard Shortcuts</h3>
+            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+              Press <kbd style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.85rem;">?</kbd> to see all shortcuts.
+            </p>
+          </div>
         </div>
+
+        ${unconfiguredPhotons.length > 0
+          ? html`
+            <div class="glass-panel" style="padding: var(--space-lg); border-left: 3px solid hsl(45, 80%, 50%);">
+              <h3 style="margin-bottom: var(--space-sm);">Setup Required</h3>
+              <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+                ${unconfiguredPhotons.length} photon${unconfiguredPhotons.length !== 1 ? 's need' : ' needs'} configuration.
+              </p>
+              <div style="font-size: 0.85rem; color: var(--t-secondary);">
+                ${unconfiguredPhotons.map((p) => html`<div style="padding: 2px 0; cursor: pointer;" @click=${() => { this._selectedPhoton = p; this._view = 'config'; }}>⚠️ ${p.name}</div>`)}
+              </div>
+            </div>
+          `
+          : ''}
       `;
     }
 
-    // Show configuration view for unconfigured photons
+    // Show configuration view for unconfigured photons or edit mode
     if (this._view === 'config' || this._selectedPhoton.configured === false) {
       return html`
         <div class="glass-panel" style="padding: var(--space-lg); max-width: 600px;">
           <photon-config
             .photon=${this._selectedPhoton}
+            .mode=${this._selectedPhoton.configured === false ? 'initial' : this._configMode}
             @configure=${this._handleConfigure}
           ></photon-config>
         </div>
@@ -2275,8 +2358,52 @@ export class BeamApp extends LitElement {
     }
   };
 
+  private _handleCopyMCPConfig = async () => {
+    if (!this._selectedPhoton) return;
+    try {
+      const res = await fetch(`/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`);
+      if (!res.ok) throw new Error('Failed to fetch config');
+      const config = await res.json();
+      await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+      showToast('MCP config copied — paste into Claude Desktop settings', 'success');
+    } catch {
+      showToast('Failed to copy MCP config', 'error');
+    }
+  };
+
+  private _handleUpgrade = async () => {
+    if (!this._selectedPhoton) return;
+    const name = this._selectedPhoton.name;
+    showToast(`Upgrading ${name}...`, 'info');
+
+    try {
+      const res = await fetch('/api/marketplace/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!res.ok) throw new Error('Upgrade failed');
+      const result = await res.json();
+
+      showToast(`${name} upgraded${result.version ? ` to ${result.version}` : ''}`, 'success');
+
+      // Clear hasUpdate flag
+      this._photons = this._photons.map((p) =>
+        p.name === name ? { ...p, hasUpdate: false } : p
+      );
+      this._updatesAvailable = this._updatesAvailable.filter((u) => u.name !== name);
+      if (this._selectedPhoton?.name === name) {
+        this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: false };
+      }
+    } catch {
+      showToast(`Failed to upgrade ${name}. Check marketplace connectivity and try again.`, 'error');
+    }
+  };
+
   private _handleReconfigure = () => {
     this._closeSettingsMenu();
+    this._configMode = this._selectedPhoton?.configured ? 'edit' : 'initial';
     this._view = 'config';
     this._updateHash();
   };
@@ -3345,6 +3472,26 @@ export class BeamApp extends LitElement {
               ? html`<span class="photon-badge app">App</span>`
               : html`<span class="photon-badge">MCP</span>`}
             <span class="photon-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
+            ${this._selectedPhoton.version
+              ? html`<span class="photon-badge">${this._selectedPhoton.version}</span>`
+              : ''}
+            ${this._selectedPhoton.hasUpdate
+              ? html`<span class="photon-badge update" @click=${this._handleUpgrade}>Update available</span>`
+              : ''}
+            ${this._selectedPhoton.author
+              ? html`<span class="photon-badge">${this._selectedPhoton.author}</span>`
+              : ''}
+            ${this._selectedPhoton.installSource
+              ? html`<span class="photon-badge source">from ${this._selectedPhoton.installSource.marketplace}</span>`
+              : ''}
+          </div>
+          <div class="photon-header-actions">
+            <button class="btn-sm" @click=${this._handleCopyMCPConfig} title="Copy MCP config for Claude Desktop">
+              📋 Copy MCP Config
+            </button>
+            ${this._selectedPhoton.hasUpdate
+              ? html`<button class="btn-sm primary" @click=${this._handleUpgrade}>⬆ Upgrade</button>`
+              : ''}
           </div>
         </div>
       </div>
