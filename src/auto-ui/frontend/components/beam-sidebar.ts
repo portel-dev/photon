@@ -651,6 +651,14 @@ export class BeamSidebar extends LitElement {
       <div class="sidebar-footer">
         <button
           class="footer-link"
+          @click=${() => this.dispatchEvent(new CustomEvent('diagnostics', { bubbles: true, composed: true }))}
+          title="Server diagnostics"
+          aria-label="Show diagnostics"
+        >
+          🔍 Status
+        </button>
+        <button
+          class="footer-link"
           @click=${this._showShortcuts}
           title="Keyboard shortcuts"
           aria-label="Show keyboard shortcuts"

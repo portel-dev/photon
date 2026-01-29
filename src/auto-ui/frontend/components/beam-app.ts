@@ -1285,25 +1285,38 @@ export class BeamApp extends LitElement {
 
   private _handleMakerAction(e: CustomEvent) {
     const action = e.detail.action;
-    // Find maker photon and invoke the static method
-    const maker = this._photons.find((p) => p.name === 'maker');
-    if (!maker) {
-      this._showError('Photon not found', 'Maker photon not found');
+    // Try maker first, then marketplace for sync/init
+    let target = this._photons.find((p) => p.name === 'maker');
+    let targetName = 'maker';
+
+    // sync and init moved to marketplace photon
+    if ((action === 'sync' || action === 'init') && !target?.methods?.find((m: any) => m.name === action)) {
+      target = this._photons.find((p) => p.name === 'marketplace');
+      targetName = 'marketplace';
+    }
+
+    if (!target) {
+      this._showError('Photon not found', `${targetName} photon not found`);
       return;
     }
 
-    // Navigate to maker photon and select the method
-    this._selectedPhoton = maker;
-    const method = maker.methods?.find((m: any) => m.name === action);
+    // Navigate to target photon and select the method
+    this._selectedPhoton = target;
+    const method = target.methods?.find((m: any) => m.name === action);
     if (method) {
       this._selectedMethod = method;
       this._view = 'form';
       this._updateHash();
+      this._log('info', `Starting ${targetName}/${action}...`);
+      showToast(`Starting ${action}...`, 'info');
     } else {
-      showToast(`Method '${action}' not found on maker`, 'error');
+      this._showError('Photon not found', `Method '${action}' not found on ${targetName}`);
     }
   }
 
+  @state() private _diagnosticsData: any = null;
+  @state() private _testResults: Array<{ method: string; passed: boolean; error?: string; duration?: number }> = [];
+  @state() private _runningTests = false;
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
   @state() private _lastFormParams: Record<string, any> = {};
@@ -1777,6 +1790,112 @@ export class BeamApp extends LitElement {
     }
   }
 
+  private _getTestMethods(): string[] {
+    if (!this._selectedPhoton?.methods) return [];
+    return this._selectedPhoton.methods
+      .filter((m: any) => m.name.startsWith('test_') || m.name.startsWith('test'))
+      .map((m: any) => m.name);
+  }
+
+  private _runTests = async () => {
+    if (!this._selectedPhoton || this._runningTests) return;
+    const testMethods = this._getTestMethods();
+    if (testMethods.length === 0) return;
+
+    this._runningTests = true;
+    this._testResults = [];
+    this._log('info', `Running ${testMethods.length} test(s) for ${this._selectedPhoton.name}...`);
+
+    for (const testName of testMethods) {
+      try {
+        const res = await fetch('/api/test/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photon: this._selectedPhoton.name, test: testName }),
+        });
+        const result = await res.json();
+        this._testResults = [...this._testResults, {
+          method: testName,
+          passed: result.passed,
+          error: result.error,
+          duration: result.duration,
+        }];
+      } catch {
+        this._testResults = [...this._testResults, {
+          method: testName,
+          passed: false,
+          error: 'Request failed',
+        }];
+      }
+    }
+
+    this._runningTests = false;
+    const passed = this._testResults.filter((r) => r.passed).length;
+    const total = this._testResults.length;
+    showToast(`Tests: ${passed}/${total} passed`, passed === total ? 'success' : 'warning');
+    this._log(passed === total ? 'success' : 'error', `Tests: ${passed}/${total} passed`);
+  };
+
+  private _renderDiagnostics() {
+    if (!this._diagnosticsData) {
+      this._fetchDiagnostics();
+      return html`<div style="color: var(--t-muted);">Loading diagnostics...</div>`;
+    }
+
+    const d = this._diagnosticsData;
+    return html`
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);">
+        <div class="glass-panel" style="padding: var(--space-md);">
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Node</div>
+          <div style="font-size: 1.1rem; font-weight: 600;">${d.nodeVersion}</div>
+        </div>
+        <div class="glass-panel" style="padding: var(--space-md);">
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Photon</div>
+          <div style="font-size: 1.1rem; font-weight: 600;">${d.photonVersion}</div>
+        </div>
+        <div class="glass-panel" style="padding: var(--space-md);">
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Uptime</div>
+          <div style="font-size: 1.1rem; font-weight: 600;">${Math.floor(d.uptime / 60)}m ${Math.floor(d.uptime % 60)}s</div>
+        </div>
+        <div class="glass-panel" style="padding: var(--space-md);">
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Sources</div>
+          <div style="font-size: 1.1rem; font-weight: 600;">${d.marketplaceSources}</div>
+        </div>
+      </div>
+
+      <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-sm);">
+        Photons (${d.configuredCount} loaded, ${d.unconfiguredCount} unconfigured)
+      </h3>
+      <div class="glass-panel" style="padding: var(--space-md);">
+        ${(d.photons || []).map((p: any) => html`
+          <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0;">
+            <span style="width: 10px; height: 10px; border-radius: 50; background: ${p.status === 'loaded' ? '#4ade80' : p.status === 'unconfigured' ? '#fbbf24' : '#f87171'}; flex-shrink: 0;"></span>
+            <span style="flex: 1;">${p.name}</span>
+            <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
+            ${p.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>` : ''}
+          </div>
+        `)}
+      </div>
+
+      <div style="margin-top: var(--space-md);">
+        <button class="btn-sm" @click=${() => { this._diagnosticsData = null; this._fetchDiagnostics(); }}>
+          🔄 Refresh
+        </button>
+      </div>
+    `;
+  }
+
+  private async _fetchDiagnostics() {
+    try {
+      const res = await fetch('/api/diagnostics');
+      if (res.ok) {
+        this._diagnosticsData = await res.json();
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+
   private _showError(error: string, context?: string) {
     let message = error;
     let action: { label: string; callback: () => void } | undefined;
@@ -1896,6 +2015,7 @@ export class BeamApp extends LitElement {
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
           @show-shortcuts=${this._showHelpModal}
+          @diagnostics=${() => { this._view = 'diagnostics'; this._updateHash(); }}
         ></beam-sidebar>
       </div>
 
@@ -1926,6 +2046,24 @@ export class BeamApp extends LitElement {
   }
 
   private _renderContent() {
+    if (this._view === 'diagnostics') {
+      return html`
+        <div style="margin-bottom: var(--space-md);">
+          <button
+            style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+            @click=${() => (this._view = 'list')}
+          >
+            ← Back to Dashboard
+          </button>
+        </div>
+        <h1 class="text-gradient">Diagnostics</h1>
+        <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+          Server health and photon status.
+        </p>
+        ${this._renderDiagnostics()}
+      `;
+    }
+
     if (this._view === 'marketplace') {
       return html`
         <div style="margin-bottom: var(--space-md);">
@@ -2133,11 +2271,18 @@ export class BeamApp extends LitElement {
 
       ${this._renderPhotonHeader()}
 
-      <h3
-        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
-      >
-        Methods
-      </h3>
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h3
+          style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
+        >
+          Methods
+        </h3>
+        ${this._getTestMethods().length > 0
+          ? html`<button class="btn-sm" @click=${this._runTests} ?disabled=${this._runningTests}>
+              ${this._runningTests ? '⏳ Running...' : '🧪 Run Tests'}
+            </button>`
+          : ''}
+      </div>
       <div class="cards-grid">
         ${(this._selectedPhoton.methods || []).map(
           (method: any) => html`
@@ -2150,6 +2295,25 @@ export class BeamApp extends LitElement {
           `
         )}
       </div>
+
+      ${this._testResults.length > 0
+        ? html`
+          <div class="glass-panel" style="padding: var(--space-md); margin-top: var(--space-md);">
+            <h4 style="margin-bottom: var(--space-sm);">Test Results</h4>
+            ${this._testResults.map((r) => html`
+              <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;">
+                <span>${r.passed ? '✅' : '❌'}</span>
+                <span style="flex: 1;">${r.method}</span>
+                ${r.duration != null ? html`<span style="color: var(--t-muted); font-size: 0.75rem;">${r.duration}ms</span>` : ''}
+                ${r.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>` : ''}
+              </div>
+            `)}
+            <div style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;">
+              ${this._testResults.filter((r) => r.passed).length}/${this._testResults.length} passed
+            </div>
+          </div>
+        `
+        : ''}
 
       ${this._renderPromptsSection()} ${this._renderResourcesSection()}
     `;
