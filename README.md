@@ -65,6 +65,10 @@ photon cli analytics revenue      # CLI for humans
 photon                            # Beam web UI
 ```
 
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-concept.jpg" alt="Photon — One file, three interfaces" width="700">
+</div>
+
 ---
 
 ## Beam
@@ -168,33 +172,6 @@ photon sync marketplace --claude-code
 git push origin main
 # Team members: photon marketplace add company/photons
 ```
-
----
-
-## How It Works
-
-```mermaid
-flowchart LR
-    A[".photon.ts"] --> B["Loader"]
-    B --> C["Schema\nExtractor"]
-    C --> D["Runtime"]
-    D --> E["MCP Server"]
-    D --> F["CLI"]
-    D --> G["Beam UI"]
-```
-
-Today MCP is the standard. Tomorrow there could be something new. Your photon doesn't change — the runtime gets a new adapter.
-
-<details>
-<summary>Ecosystem flywheel</summary>
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon Ecosystem" width="600">
-</div>
-
-AI generates photons. Runtime executes them. Community shares. AI gets smarter.
-
-</details>
 
 ---
 
