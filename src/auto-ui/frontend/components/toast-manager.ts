@@ -2,11 +2,17 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
+interface ToastAction {
+  label: string;
+  callback: () => void;
+}
+
 interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info' | 'warning';
   duration: number;
+  action?: ToastAction;
 }
 
 @customElement('toast-manager')
@@ -120,6 +126,25 @@ export class ToastManager extends LitElement {
         color: var(--t-primary);
         background: hsla(220, 10%, 80%, 0.1);
       }
+
+      .toast-action {
+        background: none;
+        border: 1px solid var(--border-glass);
+        color: var(--accent-secondary);
+        cursor: pointer;
+        padding: 3px 10px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .toast-action:hover {
+        background: var(--bg-glass);
+        border-color: var(--accent-secondary);
+      }
     `,
   ];
 
@@ -140,15 +165,15 @@ export class ToastManager extends LitElement {
     }
   }
 
-  static show(message: string, type: Toast['type'] = 'info', duration = 3000) {
+  static show(message: string, type: Toast['type'] = 'info', duration = 3000, action?: ToastAction) {
     if (ToastManager.instance) {
-      ToastManager.instance.addToast(message, type, duration);
+      ToastManager.instance.addToast(message, type, duration, action);
     }
   }
 
-  addToast(message: string, type: Toast['type'] = 'info', duration = 3000) {
+  addToast(message: string, type: Toast['type'] = 'info', duration = 3000, action?: ToastAction) {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const toast: Toast = { id, message, type, duration };
+    const toast: Toast = { id, message, type, duration, action };
 
     this._toasts = [...this._toasts, toast];
 
@@ -179,6 +204,15 @@ export class ToastManager extends LitElement {
             >
               ${this._renderIcon(toast.type)}
               <span class="message">${toast.message}</span>
+              ${toast.action
+                ? html`<button
+                    class="toast-action"
+                    @click=${() => {
+                      toast.action!.callback();
+                      this._dismissToast(toast.id);
+                    }}
+                  >${toast.action.label}</button>`
+                : ''}
               <button
                 class="close"
                 @click=${() => this._dismissToast(toast.id)}
@@ -234,6 +268,6 @@ export class ToastManager extends LitElement {
   }
 }
 
-export function showToast(message: string, type: Toast['type'] = 'info', duration = 3000) {
-  ToastManager.show(message, type, duration);
+export function showToast(message: string, type: Toast['type'] = 'info', duration = 3000, action?: { label: string; callback: () => void }) {
+  ToastManager.show(message, type, duration, action);
 }

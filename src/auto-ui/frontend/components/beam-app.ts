@@ -1269,6 +1269,7 @@ export class BeamApp extends LitElement {
 
   @state() private _connected = false;
   @state() private _reconnecting = false;
+  @state() private _reconnectAttempt = 0;
   @state() private _sidebarVisible = false;
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
@@ -1287,7 +1288,7 @@ export class BeamApp extends LitElement {
     // Find maker photon and invoke the static method
     const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
-      showToast('Maker photon not found', 'error');
+      this._showError('Photon not found', 'Maker photon not found');
       return;
     }
 
@@ -1417,6 +1418,7 @@ export class BeamApp extends LitElement {
         this._mcpReady = true;
         this._connected = true;
         this._reconnecting = false;
+        this._reconnectAttempt = 0;
         console.log('MCP client connected');
 
         // Load initial photon list
@@ -1442,6 +1444,7 @@ export class BeamApp extends LitElement {
         this._mcpReady = false;
         this._connected = false;
         this._reconnecting = true;
+        this._reconnectAttempt++;
         // Connection status shown via banner, not log
         showToast('Connection lost. Reconnecting...', 'warning');
       });
@@ -1673,7 +1676,7 @@ export class BeamApp extends LitElement {
       this._connected = false;
       this._reconnecting = true;
       // Connection status shown via indicator, not log
-      showToast('Connection failed. Retrying...', 'error');
+      this._showError('Connection lost');
       // Retry connection after a delay
       setTimeout(() => this._connectMCP(), 3000);
     }
@@ -1774,6 +1777,27 @@ export class BeamApp extends LitElement {
     }
   }
 
+  private _showError(error: string, context?: string) {
+    let message = error;
+    let action: { label: string; callback: () => void } | undefined;
+
+    if (error.includes('Not connected') || error.includes('Connection lost')) {
+      message = 'Connection lost. Beam will auto-reconnect, or restart with `photon beam`.';
+    } else if (error.includes('not found') || error.includes('Not found')) {
+      message = context || 'Photon may have been removed. Try refreshing.';
+      action = { label: 'Refresh', callback: () => window.location.reload() };
+    } else if (error.includes('Configuration') || error.includes('config')) {
+      message = context || error;
+      action = { label: 'Reconfigure', callback: () => this._handleReconfigure() };
+    } else if (error.includes('Install') || error.includes('install')) {
+      message = 'Check marketplace connectivity and try again.';
+    } else {
+      message = context ? `${error}: ${context}` : error;
+    }
+
+    showToast(message, 'error', 5000, action);
+  }
+
   private async _checkForUpdates() {
     try {
       const res = await fetch('/api/marketplace/updates');
@@ -1827,11 +1851,14 @@ export class BeamApp extends LitElement {
       ${!this._connected
         ? html`
             <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
-              <span
-                >${this._reconnecting
-                  ? 'Reconnecting to server...'
-                  : 'Disconnected from server'}</span
-              >
+              <div>
+                <span>${this._reconnecting
+                  ? `Reconnecting to server...${this._reconnectAttempt > 1 ? ` (attempt ${this._reconnectAttempt})` : ''}`
+                  : 'Disconnected from server'}</span>
+                ${this._reconnectAttempt >= 2
+                  ? html`<div style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">Server may have stopped. Restart: <code style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: 3px;">photon beam</code></div>`
+                  : ''}
+              </div>
               <button @click=${() => this._connect()}>Retry Now</button>
             </div>
           `
@@ -2440,7 +2467,7 @@ export class BeamApp extends LitElement {
 
     const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
-      showToast('Maker photon not available', 'error');
+      this._showError('Photon not found', 'Maker photon not available');
       return;
     }
 
@@ -2487,7 +2514,7 @@ export class BeamApp extends LitElement {
     // Find maker photon
     const maker = this._photons.find((p) => p.name === 'maker');
     if (!maker) {
-      showToast('Maker photon not available', 'error');
+      this._showError('Photon not found', 'Maker photon not available');
       return;
     }
 
@@ -2560,7 +2587,7 @@ export class BeamApp extends LitElement {
       }
     } else {
       this._log('error', 'Not connected to server');
-      showToast('Not connected to server', 'error');
+      this._showError('Not connected');
       this._isExecuting = false;
       this._progress = null;
     }
@@ -2574,12 +2601,12 @@ export class BeamApp extends LitElement {
       const result = await mcpClient.configurePhoton(photon, config);
       if (!result.success) {
         this._log('error', result.error || 'Configuration failed');
-        showToast(result.error || 'Configuration failed', 'error');
+        this._showError('Configuration failed', result.error);
       }
       // Success notification will come via SSE beam/configured
     } else {
       this._log('error', 'Not connected to server');
-      showToast('Not connected to server', 'error');
+      this._showError('Not connected');
     }
   }
   private _handleBridgeMessage = async (event: MessageEvent) => {
