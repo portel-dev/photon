@@ -1033,13 +1033,24 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
       document.getElementById('ui-form-container').innerHTML = '';
       document.getElementById('ui-results-header').style.display = 'block';
 
-      // If tool has linked UI, render it in iframe
+      // If tool has linked UI, render it in iframe with bridge script
       if (selectedTool.ui) {
-        const uiRes = await fetch('/api/ui/' + selectedTool.ui.id, {
-          signal: AbortSignal.timeout(10000), // 10s for UI fetch
-        });
+        const [uiRes, bridgeRes] = await Promise.all([
+          fetch('/api/ui/' + selectedTool.ui.id, {
+            signal: AbortSignal.timeout(10000),
+          }),
+          fetch('/api/platform-bridge?photon=' + encodeURIComponent(selectedTool.photon || '') + '&method=' + encodeURIComponent(selectedTool.name || ''), {
+            signal: AbortSignal.timeout(10000),
+          }),
+        ]);
         let html = await uiRes.text();
-        html = html.replace('window.__PHOTON_DATA__', JSON.stringify(result.data));
+        const bridgeScript = await bridgeRes.text();
+        // Inject bridge script so iframe can use window.photon.callTool()
+        if (html.includes('</head>')) {
+          html = html.replace('</head>', bridgeScript + '</head>');
+        } else {
+          html = '<html><head>' + bridgeScript + '</head><body>' + html + '</body></html>';
+        }
         const blob = new Blob([html], { type: 'text/html' });
         document.getElementById('ui-preview').innerHTML = \`<iframe src="\${URL.createObjectURL(blob)}" style="width: 100%; height: 600px; border: 1px solid var(--border); border-radius: 8px;"></iframe>\`;
       } else {
