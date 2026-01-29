@@ -662,6 +662,10 @@ class MCPClientService {
           id: tool['x-photon-id'] || photonName, // Use hash ID, fallback to name
           name: photonName,
           path: tool['x-photon-path'], // File path for View Source
+          description: tool['x-photon-description'],
+          icon: tool['x-photon-icon'],
+          promptCount: tool['x-photon-prompt-count'] || 0,
+          resourceCount: tool['x-photon-resource-count'] || 0,
           configured: true,
           methods: [],
         });

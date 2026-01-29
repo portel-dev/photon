@@ -337,6 +337,10 @@ const handlers: Record<string, RequestHandler> = {
           inputSchema: method.params || { type: 'object', properties: {} },
           'x-photon-id': photon.id, // Unique ID (hash of path) for subscriptions
           'x-photon-path': photon.path, // File path for View Source
+          'x-photon-description': photon.description,
+          'x-photon-icon': photon.icon,
+          'x-photon-prompt-count': photon.promptCount ?? 0,
+          'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
         });
       }
