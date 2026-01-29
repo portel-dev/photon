@@ -314,12 +314,12 @@ async function runTests() {
   {
     const source = `
       /**
-       * Configure settings
+       * Update settings
        * @param timeout Timeout in seconds {@default 30}
        * @param enabled Enable feature {@default true}
        * @param name Name {@default "default"}
        */
-      async configure(params?: { timeout?: number; enabled?: boolean; name?: string }) {
+      async updateSettings(params?: { timeout?: number; enabled?: boolean; name?: string }) {
         return params;
       }
     `;
