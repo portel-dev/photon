@@ -10,6 +10,10 @@ interface PhotonItem {
   methods?: any[];
   icon?: string;
   internal?: boolean;
+  version?: string;
+  resourceCount?: number;
+  promptCount?: number;
+  hasUpdate?: boolean;
 }
 
 @customElement('beam-sidebar')
@@ -282,6 +286,49 @@ export class BeamSidebar extends LitElement {
         color: hsl(45, 80%, 50%);
       }
 
+      .counts-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-glass);
+        border-radius: 10px;
+        font-weight: 500;
+        flex-shrink: 0;
+      }
+
+      .count-tools { color: hsl(210, 80%, 65%); }
+      .count-prompts { color: hsl(140, 60%, 55%); }
+      .count-resources { color: hsl(30, 80%, 60%); }
+
+      .version-badge {
+        font-size: 0.6rem;
+        color: var(--t-muted);
+        opacity: 0.7;
+      }
+
+      .update-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: hsl(0, 80%, 55%);
+        margin-left: 2px;
+        flex-shrink: 0;
+      }
+
+      .update-badge {
+        font-size: 0.6rem;
+        padding: 1px 5px;
+        background: hsl(0, 80%, 55%);
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
       .marketplace-btn {
         width: 100%;
         margin-top: var(--space-md);
@@ -430,6 +477,9 @@ export class BeamSidebar extends LitElement {
   @property({ type: Boolean })
   reconnecting = false;
 
+  @property({ type: Number })
+  updatesAvailable = 0;
+
   @state()
   private _searchQuery = '';
 
@@ -567,7 +617,7 @@ export class BeamSidebar extends LitElement {
               @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
               aria-label="Open marketplace"
             >
-              🛍️ Marketplace
+              🛍️ Marketplace ${this.updatesAvailable > 0 ? html`<span class="update-badge">${this.updatesAvailable}</span>` : ''}
             </button>
           </div>
         </div>
@@ -655,15 +705,26 @@ export class BeamSidebar extends LitElement {
         >
           ${isFavorited ? '⭐' : '☆'}
         </button>
+        ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
           ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
-          : methodCount > 0
-            ? html`<span class="method-count" aria-label="${methodCount} methods"
-                >${methodCount}</span
-              >`
-            : ''}
+          : this._renderCountsPill(photon, methodCount)}
       </li>
     `;
+  }
+
+  private _renderCountsPill(photon: PhotonItem, toolCount: number) {
+    const promptCount = photon.promptCount || 0;
+    const resourceCount = photon.resourceCount || 0;
+    const hasAnyCounts = toolCount > 0 || promptCount > 0 || resourceCount > 0;
+
+    if (!hasAnyCounts) return '';
+
+    return html`<span class="counts-pill" aria-label="${toolCount} tools, ${promptCount} prompts, ${resourceCount} resources">
+      ${toolCount > 0 ? html`<span class="count-tools" title="${toolCount} tools">${toolCount}</span>` : ''}
+      ${promptCount > 0 ? html`<span class="count-prompts" title="${promptCount} prompts">${promptCount}</span>` : ''}
+      ${resourceCount > 0 ? html`<span class="count-resources" title="${resourceCount} resources">${resourceCount}</span>` : ''}
+    </span>`;
   }
 
   private _setTheme(theme: Theme) {

@@ -1279,6 +1279,7 @@ export class BeamApp extends LitElement {
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
   @state() private _editedDescription = '';
+  @state() private _updatesAvailable: Array<{ name: string; currentVersion: string; latestVersion: string; marketplace: string }> = [];
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -1378,6 +1379,9 @@ export class BeamApp extends LitElement {
 
         // Add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
+
+        // Check for available updates in background
+        this._checkForUpdates();
 
         // Restore state from hash or select first photon
         if (window.location.hash) {
@@ -1724,6 +1728,25 @@ export class BeamApp extends LitElement {
     }
   }
 
+  private async _checkForUpdates() {
+    try {
+      const res = await fetch('/api/marketplace/updates');
+      if (!res.ok) return;
+      const data = await res.json();
+      this._updatesAvailable = data.updates || [];
+
+      // Mark photons with available updates
+      if (this._updatesAvailable.length > 0) {
+        this._photons = this._photons.map((p) => {
+          const update = this._updatesAvailable.find((u) => u.name === p.name);
+          return update ? { ...p, hasUpdate: true } : p;
+        });
+      }
+    } catch {
+      // Non-critical - silently ignore update check failures
+    }
+  }
+
   private _log(type: string, message: string, verbose = false) {
     // Skip verbose messages if verbose logging is disabled
     if (verbose && !this._verboseLogging) {
@@ -1795,6 +1818,7 @@ export class BeamApp extends LitElement {
           .theme=${this._theme}
           .connected=${this._connected}
           .reconnecting=${this._reconnecting}
+          .updatesAvailable=${this._updatesAvailable.length}
           @select=${this._handlePhotonSelectMobile}
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
