@@ -174,12 +174,11 @@ export type HostToUIMessage =
   | { type: 'photon:result'; data: any }
   | { type: 'photon:error'; error: { message: string; code?: string } }
   | { type: 'photon:context'; context: Partial<PhotonContext> }
-  | { type: 'photon:call-tool-response'; callId: string; result?: any; error?: string };
+;
 
 export type UIToHostMessage =
   | { type: 'photon:ready' }
   | { type: 'photon:ask-response'; id: string; value: any }
-  | { type: 'photon:call-tool'; toolName: string; args: Record<string, any>; callId: string }
   | { type: 'photon:set-state'; state: any }
   | { type: 'photon:follow-up'; message: string };
 
@@ -323,14 +322,13 @@ export function createPhotonBridge(): PhotonBridge {
 
     // Actions
     async callTool(toolName, args) {
-      const callId = Math.random().toString(36).slice(2);
+      const callId = 'call_' + Math.random().toString(36).slice(2);
       return new Promise((resolve, reject) => {
-        // Listen for response
         function handleResponse(event: any) {
           const msg = event.data;
-          if (msg?.type === 'photon:call-tool-response' && msg.callId === callId) {
+          if (msg?.jsonrpc === '2.0' && msg.id === callId && !msg.method) {
             window.removeEventListener('message', handleResponse);
-            if (msg.error) reject(new Error(msg.error));
+            if (msg.error) reject(new Error(msg.error.message || 'Tool call failed'));
             else resolve(msg.result);
           }
         }
@@ -338,11 +336,11 @@ export function createPhotonBridge(): PhotonBridge {
 
         window.parent.postMessage(
           {
-            type: 'photon:call-tool',
-            toolName,
-            args,
-            callId,
-          } as UIToHostMessage,
+            jsonrpc: '2.0',
+            id: callId,
+            method: 'tools/call',
+            params: { name: toolName, arguments: args || {} },
+          },
           '*'
         );
       });
@@ -437,17 +435,17 @@ export function generateBridgeLoaderScript(): string {
     onError: function(cb) { return sub(errL, cb); },
     onElicitation: function(h) { eH = h; return function() { eH = null; }; },
     callTool: function(name, args) {
-      var id = Math.random().toString(36).slice(2);
+      var id = 'call_' + Math.random().toString(36).slice(2);
       return new Promise(function(res, rej) {
         function h(e) {
           var m = e.data;
-          if (m && m.type === 'photon:call-tool-response' && m.callId === id) {
+          if (m && m.jsonrpc === '2.0' && m.id === id && !m.method) {
             window.removeEventListener('message', h);
-            if (m.error) rej(new Error(m.error)); else res(m.result);
+            if (m.error) rej(new Error(m.error.message || 'Tool call failed')); else res(m.result);
           }
         }
         window.addEventListener('message', h);
-        window.parent.postMessage({ type: 'photon:call-tool', toolName: name, args: args, callId: id }, '*');
+        window.parent.postMessage({ jsonrpc: '2.0', id: id, method: 'tools/call', params: { name: name, arguments: args || {} } }, '*');
       });
     },
     invoke: function(name, args) { return this.callTool(name, args); },

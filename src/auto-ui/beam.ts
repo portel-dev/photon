@@ -1262,28 +1262,28 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         const msg = e.data;
         if (!msg || typeof msg !== 'object') return;
 
-        // Handle photon:call-tool from iframe
-        if (msg.type === 'photon:call-tool') {
-          const { callId, toolName, args } = msg;
+        // Handle JSON-RPC tools/call from iframe
+        if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+          const { name: toolName, arguments: toolArgs } = msg.params || {};
           try {
             const res = await fetch('/api/invoke', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ photon: photonName, method: toolName, args: args || {} }),
+              body: JSON.stringify({ photon: photonName, method: toolName, args: toolArgs || {} }),
               signal: AbortSignal.timeout(60000), // 60s for method calls
             });
             const data = await res.json();
             iframe.contentWindow.postMessage({
-              type: 'photon:call-tool-response',
-              callId: callId,
+              jsonrpc: '2.0',
+              id: msg.id,
               result: data.error ? undefined : (data.result !== undefined ? data.result : data),
-              error: data.error
+              error: data.error ? { code: -32000, message: data.error } : undefined,
             }, '*');
           } catch (err) {
             iframe.contentWindow.postMessage({
-              type: 'photon:call-tool-response',
-              callId: callId,
-              error: err.message
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: err.message },
             }, '*');
           }
         }

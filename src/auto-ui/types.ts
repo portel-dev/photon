@@ -388,9 +388,6 @@ export function buildResponseUIMetadata(
 
   const metadata: Record<string, unknown> = {};
 
-  if (method.linkedUi) {
-    metadata['x-ui-uri'] = `ui://${photonName}/${method.linkedUi}`;
-  }
   if (method.outputFormat) {
     metadata['x-output-format'] = method.outputFormat;
   }

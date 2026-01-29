@@ -505,9 +505,6 @@ const handlers: Record<string, RequestHandler> = {
 
     // Build UI metadata
     const uiMetadata: Record<string, any> = {};
-    if (methodInfo?.linkedUi) {
-      uiMetadata['x-ui-uri'] = `ui://${photonName}/${methodInfo.linkedUi}`;
-    }
     if (methodInfo?.outputFormat) {
       uiMetadata['x-output-format'] = methodInfo.outputFormat;
     }

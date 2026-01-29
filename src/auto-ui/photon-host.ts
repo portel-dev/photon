@@ -324,27 +324,6 @@ export class PhotonHost {
         }
         break;
 
-      case 'photon:call-tool':
-        if (this.options.onCallTool) {
-          this.options
-            .onCallTool(msg.toolName, msg.args)
-            .then((result) => {
-              this.send({
-                type: 'photon:call-tool-response' as any,
-                callId: msg.callId,
-                result,
-              });
-            })
-            .catch((error) => {
-              this.send({
-                type: 'photon:call-tool-response' as any,
-                callId: msg.callId,
-                error: error.message,
-              });
-            });
-        }
-        break;
-
       case 'photon:set-state':
         if (this.options.onStateChange) {
           this.options.onStateChange(msg.state);
