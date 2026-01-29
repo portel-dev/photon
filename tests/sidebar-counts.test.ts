@@ -77,7 +77,7 @@ function toolsToPhotons(tools: MCPTool[]) {
       outputFormat: tool['x-output-format'],
       layoutHints: tool['x-layout-hints'],
       buttonLabel: tool['x-button-label'],
-      linkedUi: tool['x-linked-ui'],
+      linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
     });
   }
 
@@ -241,7 +241,7 @@ async function testMethodMetadata() {
       {
         name: 'myapp/main',
         description: 'Main entry',
-        'x-linked-ui': 'board.html',
+        _meta: { ui: { resourceUri: 'ui://myapp/board.html' } },
       },
       { name: 'myapp/helper', description: 'Helper' },
     ];

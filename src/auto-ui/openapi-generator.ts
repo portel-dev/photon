@@ -153,10 +153,6 @@ export function generateOpenAPISpec(
       if (method.buttonLabel) {
         (operation as any)['x-button-label'] = method.buttonLabel;
       }
-      if (method.linkedUi) {
-        operation['x-linked-ui'] = method.linkedUi;
-      }
-
       paths[path] = {
         post: operation,
       };

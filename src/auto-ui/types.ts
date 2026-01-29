@@ -370,10 +370,6 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   if (method.buttonLabel) {
     extensions['x-button-label'] = method.buttonLabel;
   }
-  if (method.linkedUi) {
-    extensions['x-linked-ui'] = method.linkedUi;
-  }
-
   return extensions;
 }
 

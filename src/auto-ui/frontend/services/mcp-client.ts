@@ -32,7 +32,7 @@ interface MCPTool {
   'x-output-format'?: string;
   'x-layout-hints'?: Record<string, string>;
   'x-button-label'?: string;
-  'x-linked-ui'?: string;
+  _meta?: { ui?: { resourceUri?: string } };
 }
 
 interface MCPResource {
@@ -682,7 +682,7 @@ class MCPClientService {
         outputFormat: tool['x-output-format'],
         layoutHints: tool['x-layout-hints'],
         buttonLabel: tool['x-button-label'],
-        linkedUi: tool['x-linked-ui'],
+        linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
       });
     }
 

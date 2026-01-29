@@ -262,14 +262,6 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         applyThemeClass();
         listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
       }
-      else if (m.type === 'photon:call-tool-response') {
-        var pending = pendingCalls[m.callId];
-        if (pending) {
-          delete pendingCalls[m.callId];
-          if (m.error) pending.reject(new Error(m.error));
-          else pending.resolve(m.result);
-        }
-      }
       else if (m.type === 'photon:upload-file-response') {
         var pending = pendingCalls[m.callId];
         if (pending) {

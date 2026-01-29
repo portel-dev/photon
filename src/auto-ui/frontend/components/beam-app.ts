@@ -2765,45 +2765,6 @@ export class BeamApp extends LitElement {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
-    if (msg.type === 'photon:call-tool') {
-      const callId = msg.callId;
-      if (this._selectedPhoton && this._mcpReady) {
-        this._log('info', `Invoking ${msg.toolName}...`, true);
-
-        try {
-          const toolName = `${this._selectedPhoton.name}/${msg.toolName}`;
-          const result = await mcpClient.callTool(toolName, msg.args || {});
-
-          // Send response back to iframe
-          if (event.source) {
-            (event.source as Window).postMessage(
-              {
-                type: 'photon:call-tool-response',
-                callId,
-                result: result.isError ? undefined : mcpClient.parseToolResult(result),
-                error: result.isError
-                  ? result.content.find((c) => c.type === 'text')?.text
-                  : undefined,
-              },
-              '*'
-            );
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          if (event.source) {
-            (event.source as Window).postMessage(
-              {
-                type: 'photon:call-tool-response',
-                callId,
-                error: errorMessage,
-              },
-              '*'
-            );
-          }
-        }
-      }
-    }
-
     // MCP Apps standard: JSON-RPC tools/call from iframes
     if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
       if (this._selectedPhoton && this._mcpReady) {
