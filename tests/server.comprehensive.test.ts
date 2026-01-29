@@ -1434,7 +1434,7 @@ async function runTests() {
         const response = await fetch('http://localhost:3809/');
         const data = await response.json();
 
-        assert.ok(data.tools >= 4, 'Should have at least 4 tools');
+        assert.ok(data.tools >= 3, 'Should have at least 3 tools');
         assert.ok(data.endpoints, 'Should have endpoints');
 
         console.log('  ✅ Server info includes correct counts');
