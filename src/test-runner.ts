@@ -912,7 +912,8 @@ export async function hasTests(photonPath: string): Promise<boolean> {
     const photon = await loader.loadFile(photonPath);
     const testMethods = getTestMethods(photon.instance);
     return testMethods.length > 0;
-  } catch {
+  } catch (error) {
+    logger.debug('Failed to check tests:', { error });
     return false;
   }
 }

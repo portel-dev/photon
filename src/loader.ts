@@ -243,7 +243,8 @@ export class PhotonLoader {
     try {
       const data = await fs.readFile(this.getDependencyMetadataPath(cacheKey), 'utf-8');
       return JSON.parse(data);
-    } catch {
+    } catch (error) {
+      this.logger.debug('Failed to read dependency metadata', { error });
       return null;
     }
   }
@@ -1548,7 +1549,8 @@ export class PhotonLoader {
     let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      this.logger.debug('Failed to read directory', { error });
       return null;
     }
 

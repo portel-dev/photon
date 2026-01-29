@@ -10,6 +10,9 @@ import { mcpClient } from '../services/mcp-client.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
+const FETCH_TIMEOUT_MS = 10_000;
+const MCP_RECONNECT_DELAY_MS = 3_000;
+const SCROLL_RENDER_DELAY_MS = 100;
 
 @customElement('beam-app')
 export class BeamApp extends LitElement {
@@ -1664,7 +1667,7 @@ export class BeamApp extends LitElement {
       // Connection status shown via indicator, not log
       this._showError('Connection lost');
       // Retry connection after a delay
-      setTimeout(() => this._connectMCP(), 3000);
+      setTimeout(() => this._connectMCP(), MCP_RECONNECT_DELAY_MS);
     }
   }
 
@@ -1785,6 +1788,7 @@ export class BeamApp extends LitElement {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ photon: this._selectedPhoton.name, test: testName }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         const result = await res.json();
         this._testResults = [...this._testResults, {
@@ -1793,7 +1797,8 @@ export class BeamApp extends LitElement {
           error: result.error,
           duration: result.duration,
         }];
-      } catch {
+      } catch (error) {
+        console.warn('Test fetch failed:', error);
         this._testResults = [...this._testResults, {
           method: testName,
           passed: false,
@@ -1860,12 +1865,14 @@ export class BeamApp extends LitElement {
 
   private async _fetchDiagnostics() {
     try {
-      const res = await fetch('/api/diagnostics');
+      const res = await fetch('/api/diagnostics', {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (res.ok) {
         this._diagnosticsData = await res.json();
       }
-    } catch {
-      // Non-critical
+    } catch (error) {
+      console.debug('Diagnostics fetch failed:', error);
     }
   }
 
@@ -1892,7 +1899,9 @@ export class BeamApp extends LitElement {
 
   private async _checkForUpdates() {
     try {
-      const res = await fetch('/api/marketplace/updates');
+      const res = await fetch('/api/marketplace/updates', {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) return;
       const data = await res.json();
       this._updatesAvailable = data.updates || [];
@@ -1904,8 +1913,8 @@ export class BeamApp extends LitElement {
           return update ? { ...p, hasUpdate: true } : p;
         });
       }
-    } catch {
-      // Non-critical - silently ignore update check failures
+    } catch (error) {
+      console.debug('Update check failed:', error);
     }
   }
 
@@ -2473,7 +2482,7 @@ export class BeamApp extends LitElement {
             // Scroll past the Custom UI to show methods
             mainArea.scrollTo({ top: mainArea.scrollHeight, behavior: 'smooth' });
           }
-        }, 100);
+        }, SCROLL_RENDER_DELAY_MS);
       });
     } else {
       // For regular photons, go back to methods list
@@ -2525,12 +2534,15 @@ export class BeamApp extends LitElement {
   private _handleCopyMCPConfig = async () => {
     if (!this._selectedPhoton) return;
     try {
-      const res = await fetch(`/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`);
+      const res = await fetch(`/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error('Failed to fetch config');
       const config = await res.json();
       await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
       showToast('MCP config copied — paste into Claude Desktop settings', 'success');
-    } catch {
+    } catch (error) {
+      console.warn('Copy MCP config failed:', error);
       showToast('Failed to copy MCP config', 'error');
     }
   };
@@ -2545,6 +2557,7 @@ export class BeamApp extends LitElement {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 
       if (!res.ok) throw new Error('Upgrade failed');
@@ -2560,7 +2573,8 @@ export class BeamApp extends LitElement {
       if (this._selectedPhoton?.name === name) {
         this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: false };
       }
-    } catch {
+    } catch (error) {
+      console.warn('Upgrade failed:', error);
       showToast(`Failed to upgrade ${name}. Check marketplace connectivity and try again.`, 'error');
     }
   };
