@@ -1615,61 +1615,34 @@ export class BeamApp extends LitElement {
 
       // Handle channel events (task-moved, task-updated, etc.) - forward with delta
       mcpClient.on('channel-event', (data: any) => {
-        // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
-        const iframes: HTMLIFrameElement[] = [];
-        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
-          const iframe = renderer.shadowRoot?.querySelector('iframe');
-          if (iframe) iframes.push(iframe);
-        });
-        // Also check direct iframes (legacy)
-        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
-        iframes.forEach((iframe) => {
-          iframe.contentWindow?.postMessage(
-            {
-              type: 'photon:channel-event',
-              ...data,
-            },
-            '*'
-          );
-        });
+        this._forwardToIframes({ type: 'photon:channel-event', ...data });
       });
 
       // Handle board updates (legacy) - forward to custom UI iframes
       mcpClient.on('board-update', (data: any) => {
-        // Find iframes in nested shadow DOMs (custom-ui-renderer has its own shadow root)
-        const iframes: HTMLIFrameElement[] = [];
-        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
-          const iframe = renderer.shadowRoot?.querySelector('iframe');
-          if (iframe) iframes.push(iframe);
-        });
-        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
-        iframes.forEach((iframe) => {
-          iframe.contentWindow?.postMessage(
-            {
-              type: 'photon:board-update',
-              ...data,
-            },
-            '*'
-          );
-        });
+        this._forwardToIframes({ type: 'photon:board-update', ...data });
       });
 
       // Handle refresh-needed (lastEventId too old) - forward to custom UI iframes
       mcpClient.on('refresh-needed', (data: any) => {
-        const iframes: HTMLIFrameElement[] = [];
-        this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
-          const iframe = renderer.shadowRoot?.querySelector('iframe');
-          if (iframe) iframes.push(iframe);
+        this._forwardToIframes({ type: 'photon:refresh-needed', ...data });
+      });
+
+      // MCP Apps standard: forward ui/notifications/tool-result to iframes as JSON-RPC
+      mcpClient.on('ui-tool-result', (params: any) => {
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params,
         });
-        this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
-        iframes.forEach((iframe) => {
-          iframe.contentWindow?.postMessage(
-            {
-              type: 'photon:refresh-needed',
-              ...data,
-            },
-            '*'
-          );
+      });
+
+      // MCP Apps standard: forward ui/notifications/tool-input to iframes as JSON-RPC
+      mcpClient.on('ui-tool-input', (params: any) => {
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-input',
+          params,
         });
       });
 
@@ -2773,6 +2746,21 @@ export class BeamApp extends LitElement {
       this._showError('Not connected');
     }
   }
+  /**
+   * Forward a message to all custom-ui-renderer iframes
+   */
+  private _forwardToIframes(message: any): void {
+    const iframes: HTMLIFrameElement[] = [];
+    this.shadowRoot?.querySelectorAll('custom-ui-renderer').forEach((renderer) => {
+      const iframe = renderer.shadowRoot?.querySelector('iframe');
+      if (iframe) iframes.push(iframe);
+    });
+    this.shadowRoot?.querySelectorAll('iframe').forEach((iframe) => iframes.push(iframe));
+    iframes.forEach((iframe) => {
+      iframe.contentWindow?.postMessage(message, '*');
+    });
+  }
+
   private _handleBridgeMessage = async (event: MessageEvent) => {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
@@ -2808,6 +2796,38 @@ export class BeamApp extends LitElement {
                 type: 'photon:call-tool-response',
                 callId,
                 error: errorMessage,
+              },
+              '*'
+            );
+          }
+        }
+      }
+    }
+
+    // MCP Apps standard: JSON-RPC tools/call from iframes
+    if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+      if (this._selectedPhoton && this._mcpReady) {
+        const toolName = `${this._selectedPhoton.name}/${msg.params?.name}`;
+        try {
+          const result = await mcpClient.callTool(toolName, msg.params?.arguments || {});
+          if (event.source) {
+            (event.source as Window).postMessage(
+              {
+                jsonrpc: '2.0',
+                id: msg.id,
+                result,
+              },
+              '*'
+            );
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (event.source) {
+            (event.source as Window).postMessage(
+              {
+                jsonrpc: '2.0',
+                id: msg.id,
+                error: { code: -32000, message: errorMessage },
               },
               '*'
             );

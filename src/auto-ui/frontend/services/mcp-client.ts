@@ -91,7 +91,9 @@ type MCPEventType =
   | 'configured' // Photon configuration complete
   | 'notification' // Generic notification
   | 'operation-queued' // Operation queued for retry
-  | 'queue-processed'; // Queued operations processed
+  | 'queue-processed' // Queued operations processed
+  | 'ui-tool-result' // MCP Apps: tool result notification
+  | 'ui-tool-input'; // MCP Apps: tool input notification
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -866,6 +868,15 @@ class MCPClientService {
 
       case 'photon/refresh-needed':
         this.emit('refresh-needed', notification.params);
+        break;
+
+      // MCP Apps standard notifications
+      case 'ui/notifications/tool-result':
+        this.emit('ui-tool-result', notification.params);
+        break;
+
+      case 'ui/notifications/tool-input':
+        this.emit('ui-tool-input', notification.params);
         break;
 
       default:

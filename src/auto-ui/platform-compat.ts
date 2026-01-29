@@ -181,6 +181,16 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     // MCP Apps Extension (JSON-RPC 2.0)
     // ─────────────────────────────────────────────────────────────────────────
     if (m.jsonrpc === '2.0') {
+      // JSON-RPC response (from tools/call) - has id but no method
+      if (m.id && !m.method) {
+        var pending = pendingCalls[m.id];
+        if (pending) {
+          delete pendingCalls[m.id];
+          if (m.error) pending.reject(new Error(m.error.message || 'Tool call failed'));
+          else pending.resolve(m.result);
+        }
+        return;
+      }
       if (m.method === 'ui/initialize') {
         ctx.theme = m.params.theme ? 'dark' : 'dark'; // Extract from tokens
         themeTokens = m.params.theme || themeTokens;
@@ -367,11 +377,12 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     return new Promise(function(resolve, reject) {
       pendingCalls[callId] = { resolve: resolve, reject: reject };
 
+      // MCP Apps standard: JSON-RPC tools/call
       postToHost({
-        type: 'photon:call-tool',
-        toolName: name,
-        args: args,
-        callId: callId
+        jsonrpc: '2.0',
+        id: callId,
+        method: 'tools/call',
+        params: { name: name, arguments: args || {} }
       });
 
       // Timeout after 30s

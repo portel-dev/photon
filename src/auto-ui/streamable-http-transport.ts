@@ -342,6 +342,14 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
+          // MCP Apps standard: _meta.ui for linked UI resources
+          ...(method.linkedUi ? {
+            _meta: {
+              ui: {
+                resourceUri: `ui://${photon.name}/${method.linkedUi}`,
+              },
+            },
+          } : {}),
         });
       }
     }
@@ -703,8 +711,8 @@ const handlers: Record<string, RequestHandler> = {
           }
         }
         const finalResult = chunks.length === 1 ? chunks[0] : chunks;
-        return {
-          jsonrpc: '2.0',
+        const genResponse = {
+          jsonrpc: '2.0' as const,
           id: req.id,
           result: {
             content: [{ type: 'text', text: JSON.stringify(finalResult, null, 2) }],
@@ -712,10 +720,25 @@ const handlers: Record<string, RequestHandler> = {
             ...uiMetadata,
           },
         };
+
+        // Broadcast tool result as MCP Apps notification for linked-UI methods
+        if (ctx.broadcast && methodInfo?.linkedUi) {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'ui/notifications/tool-result',
+            params: {
+              toolName: `${photonName}/${methodName}`,
+              result: genResponse.result,
+              isError: false,
+            },
+          });
+        }
+
+        return genResponse;
       }
 
-      return {
-        jsonrpc: '2.0',
+      const toolResponse = {
+        jsonrpc: '2.0' as const,
         id: req.id,
         result: {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -723,6 +746,21 @@ const handlers: Record<string, RequestHandler> = {
           ...uiMetadata,
         },
       };
+
+      // Broadcast tool result as MCP Apps notification for linked-UI methods
+      if (ctx.broadcast && methodInfo?.linkedUi) {
+        ctx.broadcast({
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params: {
+            toolName: `${photonName}/${methodName}`,
+            result: toolResponse.result,
+            isError: false,
+          },
+        });
+      }
+
+      return toolResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -750,7 +788,7 @@ const handlers: Record<string, RequestHandler> = {
         resources.push({
           uri,
           name: uiAsset.id,
-          mimeType: uiAsset.mimeType || 'text/html',
+          mimeType: uiAsset.mimeType || 'text/html;profile=mcp-app',
           description: uiAsset.linkedTool
             ? `UI template for ${photon.name}/${uiAsset.linkedTool}`
             : `UI template: ${uiAsset.id}`,
@@ -789,7 +827,7 @@ const handlers: Record<string, RequestHandler> = {
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        contents: [{ uri, mimeType: 'text/html', text: content }],
+        contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: content }],
       },
     };
   },
