@@ -12,6 +12,7 @@ interface MarketplaceItem {
   version: string;
   icon?: string;
   internal?: boolean;
+  installed?: boolean;
 }
 
 interface MarketplaceSource {
@@ -264,6 +265,22 @@ export class MarketplaceView extends LitElement {
         opacity: 0.5;
         cursor: not-allowed;
         background: var(--t-muted);
+      }
+
+      .btn-installed {
+        background: transparent;
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        font-weight: 500;
+        cursor: default;
+        font-size: 0.85rem;
+      }
+
+      .card.installed {
+        border-color: var(--accent-secondary);
+        opacity: 0.85;
       }
 
       /* Actions Toolbar */
@@ -794,9 +811,10 @@ export class MarketplaceView extends LitElement {
   private _renderItem(item: MarketplaceItem) {
     const isInstalling = this._installing === item.name;
     const sourceClass = this._getSourceClass(item.marketplace);
+    const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''}`;
 
     return html`
-      <div class="card glass ${item.internal ? 'internal' : ''}">
+      <div class="${cardClasses}">
         <div class="card-header">
           <div>
             <div class="card-title">
@@ -818,9 +836,11 @@ export class MarketplaceView extends LitElement {
         <div class="tags">${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}</div>
 
         <div class="actions">
-          <button class="btn-install" ?disabled=${isInstalling} @click=${() => this._install(item)}>
-            ${isInstalling ? 'Installing...' : 'Install'}
-          </button>
+          ${item.installed
+            ? html`<span class="btn-installed">✓ Installed</span>`
+            : html`<button class="btn-install" ?disabled=${isInstalling} @click=${() => this._install(item)}>
+                ${isInstalling ? 'Installing...' : 'Install'}
+              </button>`}
         </div>
       </div>
     `;
@@ -945,6 +965,9 @@ export class MarketplaceView extends LitElement {
       });
 
       if (res.ok) {
+        // Mark item as installed in the local list
+        item.installed = true;
+        this.requestUpdate();
         this.dispatchEvent(
           new CustomEvent('install', {
             detail: { name: item.name },

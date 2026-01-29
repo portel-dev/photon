@@ -1365,6 +1365,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             author: source.metadata?.author || '',
             tags: source.metadata?.tags || [],
             marketplace: source.marketplace.name,
+            installed: photonMCPs.has(name),
           });
         }
 
@@ -1395,6 +1396,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             marketplace: mp.name,
             icon: metadata.icon,
             internal: metadata.internal,
+            installed: photonMCPs.has(name),
           });
         }
 

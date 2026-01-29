@@ -370,4 +370,37 @@ test.describe('New User Experience (NUE)', () => {
       }
     }
   });
+
+  test('NUE-011: Marketplace shows installed state for bundled photons', async ({ page }) => {
+    await page.goto(BEAM_URL);
+    await waitForConnection(page);
+
+    // Fetch the marketplace API directly to verify installed flags
+    const response = await page.evaluate(async () => {
+      const res = await fetch('/api/marketplace/list');
+      return res.json();
+    });
+
+    const photons = response.photons || [];
+
+    // Bundled photons (maker, tunnel) should be marked as installed
+    const maker = photons.find((p: any) => p.name === 'maker');
+    const tunnel = photons.find((p: any) => p.name === 'tunnel');
+
+    if (maker) {
+      expect(maker.installed).toBe(true);
+    }
+    if (tunnel) {
+      expect(tunnel.installed).toBe(true);
+    }
+
+    // If there are non-bundled photons, at least one should not be installed
+    const nonBundled = photons.filter(
+      (p: any) => p.name !== 'maker' && p.name !== 'tunnel' && !p.internal,
+    );
+    if (nonBundled.length > 0) {
+      const hasUninstalled = nonBundled.some((p: any) => p.installed === false);
+      expect(hasUninstalled).toBe(true);
+    }
+  });
 });
