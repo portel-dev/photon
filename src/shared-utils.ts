@@ -20,7 +20,7 @@ export const DEFAULT_BUNDLED_PHOTONS = ['maker'];
 /**
  * Extended bundled photons for beam (includes tunnel)
  */
-export const BEAM_BUNDLED_PHOTONS = ['maker', 'tunnel'];
+export const BEAM_BUNDLED_PHOTONS = ['maker', 'marketplace', 'tunnel'];
 
 /**
  * Get path to a bundled photon (ships with runtime)

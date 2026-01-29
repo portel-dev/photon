@@ -182,40 +182,6 @@ ${allStubs.join('\n\n')}
   }
 
   /**
-   * Synchronize marketplace manifest and documentation
-   */
-  static async *sync(): AsyncGenerator<{
-    step: string;
-    message?: string;
-    photon?: string;
-    photons?: number;
-    manifest?: string;
-  }> {
-    const workingDir = process.env.PHOTON_DIR || process.cwd();
-
-    yield { step: 'scanning', message: 'Scanning for photons...' };
-
-    const files = await fs.readdir(workingDir);
-    const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
-
-    yield {
-      step: 'found',
-      message: `Found ${photonFiles.length} photons`,
-      photons: photonFiles.length,
-    };
-
-    for (const file of photonFiles) {
-      yield { step: 'processing', photon: file, message: `Processing ${file}...` };
-      // Note: Full sync with schema extraction is handled by CLI's performMarketplaceSync
-      // This simplified version just lists photons for progress feedback
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    const manifest = path.join(workingDir, '.marketplace', 'photons.json');
-    yield { step: 'done', message: 'Sync complete', photons: photonFiles.length, manifest };
-  }
-
-  /**
    * Validate all photons in the current directory
    */
   static async *validate(): AsyncGenerator<{
@@ -257,55 +223,6 @@ ${allStubs.join('\n\n')}
     }
 
     yield { step: 'done', summary: { valid: validCount, errors: errorCount } };
-  }
-
-  /**
-   * Initialize current directory as a photon marketplace
-   */
-  static async *init(): AsyncGenerator<{ step: string; message?: string; created?: string }> {
-    const workingDir = process.cwd();
-
-    yield { step: 'starting', message: 'Initializing photon marketplace...' };
-
-    // Create .marketplace directory
-    const marketplaceDir = path.join(workingDir, '.marketplace');
-    try {
-      await fs.mkdir(marketplaceDir, { recursive: true });
-      yield { step: 'created', created: '.marketplace/' };
-    } catch {
-      // Directory creation failed - continue anyway
-    }
-
-    // Create initial manifest
-    const manifestPath = path.join(marketplaceDir, 'photons.json');
-    try {
-      await fs.access(manifestPath);
-      yield { step: 'exists', message: '.marketplace/photons.json already exists' };
-    } catch {
-      await fs.writeFile(manifestPath, JSON.stringify({ photons: [] }, null, 2));
-      yield { step: 'created', created: '.marketplace/photons.json' };
-    }
-
-    // Create .gitignore entries
-    const gitignorePath = path.join(workingDir, '.gitignore');
-    try {
-      let gitignore = '';
-      try {
-        gitignore = await fs.readFile(gitignorePath, 'utf-8');
-      } catch {
-        // File doesn't exist - will create new
-      }
-
-      if (!gitignore.includes('node_modules')) {
-        gitignore += '\nnode_modules/\n';
-        await fs.writeFile(gitignorePath, gitignore);
-        yield { step: 'created', created: '.gitignore (updated)' };
-      }
-    } catch {
-      // gitignore update failed - non-critical, continue
-    }
-
-    yield { step: 'done', message: 'Marketplace initialized' };
   }
 
   /**

@@ -188,7 +188,7 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
  */
 async function extractClassMetadata(
   photonPath: string
-): Promise<{ description?: string; icon?: string; internal?: boolean }> {
+): Promise<{ description?: string; icon?: string; internal?: boolean; version?: string; author?: string }> {
   try {
     const content = await fs.readFile(photonPath, 'utf-8');
 
@@ -201,7 +201,7 @@ async function extractClassMetadata(
     }
 
     const docContent = match[1];
-    const metadata: { description?: string; icon?: string; internal?: boolean } = {};
+    const metadata: { description?: string; icon?: string; internal?: boolean; version?: string; author?: string } = {};
 
     // Extract @icon
     const iconMatch = docContent.match(/@icon\s+(\S+)/);
@@ -212,6 +212,18 @@ async function extractClassMetadata(
     // Extract @internal (presence indicates internal photon)
     if (/@internal\b/.test(docContent)) {
       metadata.internal = true;
+    }
+
+    // Extract @version
+    const versionMatch = docContent.match(/@version\s+(\S+)/);
+    if (versionMatch) {
+      metadata.version = versionMatch[1];
+    }
+
+    // Extract @author
+    const authorMatch = docContent.match(/@author\s+([^\n@]+)/);
+    if (authorMatch) {
+      metadata.author = authorMatch[1].trim();
     }
 
     // Extract @description or first line of doc (not starting with @)
@@ -433,8 +445,34 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Check if this is an App (has main() method with @ui)
       const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
-      // Extract class-level metadata (description, icon) from JSDoc
+      // Extract class-level metadata (description, icon, version, author) from JSDoc
       const classMetadata = await extractClassMetadata(photonPath);
+
+      // Count resources and prompts
+      const resourceCount = mcp.assets?.resources?.length || 0;
+      const promptCount = templates.length;
+
+      // Read install metadata for marketplace-installed photons
+      let installSource: { marketplace: string; installedAt?: string } | undefined;
+      let metaVersion = classMetadata.version;
+      let metaAuthor = classMetadata.author;
+      try {
+        const { readLocalMetadata } = await import('../marketplace-manager.js');
+        const localMeta = await readLocalMetadata();
+        const installMeta = localMeta.photons[`${name}.photon.ts`];
+        if (installMeta) {
+          installSource = {
+            marketplace: installMeta.marketplace,
+            installedAt: installMeta.installedAt,
+          };
+          // Use marketplace version/author if not set in JSDoc
+          if (!metaVersion && installMeta.version) {
+            metaVersion = installMeta.version;
+          }
+        }
+      } catch {
+        // No install metadata - that's fine
+      }
 
       photons.push({
         id: generatePhotonId(photonPath),
@@ -449,6 +487,11 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         description: classMetadata.description || mcp.description || `${name} MCP`,
         icon: classMetadata.icon,
         internal: classMetadata.internal,
+        version: metaVersion,
+        author: metaAuthor,
+        resourceCount,
+        promptCount,
+        installSource,
       });
     } catch (error) {
       // Loading failed - show as unconfigured if we have params, otherwise skip silently
@@ -1326,6 +1369,78 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       res.setHeader('Content-Type', 'text/html');
       res.writeHead(200);
       res.end(script);
+      return;
+    }
+
+    // Diagnostics endpoint: server health and photon status
+    if (url.pathname === '/api/diagnostics') {
+      res.setHeader('Content-Type', 'application/json');
+
+      try {
+        const { PHOTON_VERSION } = await import('../version.js');
+        const sources = marketplace.getAll();
+
+        const photonStatus = photons.map((p) => ({
+          name: p.name,
+          status: p.configured ? 'loaded' : 'unconfigured',
+          methods: p.configured ? (p as PhotonInfo).methods.length : 0,
+          error: !p.configured ? (p as UnconfiguredPhotonInfo).errorMessage : undefined,
+        }));
+
+        res.writeHead(200);
+        res.end(
+          JSON.stringify({
+            nodeVersion: process.version,
+            photonVersion: PHOTON_VERSION,
+            workingDir,
+            uptime: process.uptime(),
+            photonCount: photons.length,
+            configuredCount: photons.filter((p) => p.configured).length,
+            unconfiguredCount: photons.filter((p) => !p.configured).length,
+            marketplaceSources: sources.filter((s) => s.enabled).length,
+            photons: photonStatus,
+          })
+        );
+      } catch {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to generate diagnostics' }));
+      }
+      return;
+    }
+
+    // MCP Config Export endpoint: generate Claude Desktop config snippet
+    if (url.pathname === '/api/export/mcp-config') {
+      res.setHeader('Content-Type', 'application/json');
+
+      const photonName = url.searchParams.get('photon');
+      if (!photonName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon query parameter' }));
+        return;
+      }
+
+      const photon = photons.find((p) => p.name === photonName);
+      if (!photon) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: `Photon '${photonName}' not found` }));
+        return;
+      }
+
+      res.writeHead(200);
+      res.end(
+        JSON.stringify(
+          {
+            mcpServers: {
+              [`photon-${photonName}`]: {
+                command: 'npx',
+                args: ['-y', '@portel/photon', 'mcp', photonName],
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
       return;
     }
 

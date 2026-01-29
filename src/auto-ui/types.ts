@@ -102,6 +102,16 @@ export interface PhotonInfo {
   icon?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */
   internal?: boolean;
+  /** Version from @version tag or marketplace metadata */
+  version?: string;
+  /** Author from @author tag or marketplace metadata */
+  author?: string;
+  /** Number of MCP resources exposed */
+  resourceCount?: number;
+  /** Number of MCP prompt templates */
+  promptCount?: number;
+  /** Installation source info if installed from marketplace */
+  installSource?: { marketplace: string; installedAt?: string };
 }
 
 /**
