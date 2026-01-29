@@ -9,7 +9,7 @@ Write business logic. Get an MCP server, CLI, and web UI — automatically.
 
 [![npm version](https://img.shields.io/npm/v/@portel/photon?color=cb3837&label=npm)](https://www.npmjs.com/package/@portel/photon)
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon?color=cb3837)](https://www.npmjs.com/package/@portel/photon)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/portel-dev/photon/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6.svg)](https://www.typescriptlang.org)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
@@ -210,34 +210,34 @@ photon deploy                     # Deploy to production
 
 | Guide | |
 |-------|-|
-| [Getting Started](GUIDE.md) | Create your first photon, step by step |
-| [Advanced](ADVANCED.md) | Lifecycle hooks, performance, testing |
-| [Docblock Tags](DOCBLOCK-TAGS.md) | Complete JSDoc tag reference |
-| [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
+| [Getting Started](https://github.com/portel-dev/photon/blob/main/GUIDE.md) | Create your first photon, step by step |
+| [Advanced](https://github.com/portel-dev/photon/blob/main/ADVANCED.md) | Lifecycle hooks, performance, testing |
+| [Docblock Tags](https://github.com/portel-dev/photon/blob/main/DOCBLOCK-TAGS.md) | Complete JSDoc tag reference |
+| [Troubleshooting](https://github.com/portel-dev/photon/blob/main/TROUBLESHOOTING.md) | Common issues and solutions |
 
 **Deep dives:**
 
 | Topic | |
 |-------|-|
-| [Custom UI](CUSTOM-UI.md) | Build rich interactive interfaces |
-| [Auth](AUTH.md) | OAuth 2.1 with built-in providers |
-| [Daemon Pub/Sub](DAEMON-PUBSUB.md) | Real-time cross-process messaging |
-| [Webhooks](WEBHOOKS.md) | HTTP endpoints for external services |
-| [Deployment](DEPLOYMENT.md) | Docker, Lambda, Workers, Systemd |
-| [Security](SECURITY.md) | Best practices and audit checklist |
-| [Marketplace Publishing](MARKETPLACE-PUBLISHING.md) | Create and share marketplaces |
+| [Custom UI](https://github.com/portel-dev/photon/blob/main/CUSTOM-UI.md) | Build rich interactive interfaces |
+| [Auth](https://github.com/portel-dev/photon/blob/main/AUTH.md) | OAuth 2.1 with built-in providers |
+| [Daemon Pub/Sub](https://github.com/portel-dev/photon/blob/main/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
+| [Webhooks](https://github.com/portel-dev/photon/blob/main/WEBHOOKS.md) | HTTP endpoints for external services |
+| [Deployment](https://github.com/portel-dev/photon/blob/main/DEPLOYMENT.md) | Docker, Lambda, Workers, Systemd |
+| [Security](https://github.com/portel-dev/photon/blob/main/SECURITY.md) | Best practices and audit checklist |
+| [Marketplace Publishing](https://github.com/portel-dev/photon/blob/main/MARKETPLACE-PUBLISHING.md) | Create and share marketplaces |
 
-**Reference:** [Architecture](ARCHITECTURE.md) · [Best Practices](PHOTON_BEST_PRACTICES.md) · [Naming Conventions](NAMING-CONVENTIONS.md) · [Comparison](COMPARISON.md) · [Changelog](CHANGELOG.md)
+**Reference:** [Architecture](https://github.com/portel-dev/photon/blob/main/ARCHITECTURE.md) · [Best Practices](https://github.com/portel-dev/photon/blob/main/PHOTON_BEST_PRACTICES.md) · [Naming Conventions](https://github.com/portel-dev/photon/blob/main/NAMING-CONVENTIONS.md) · [Comparison](https://github.com/portel-dev/photon/blob/main/COMPARISON.md) · [Changelog](https://github.com/portel-dev/photon/blob/main/CHANGELOG.md)
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+See [CONTRIBUTING.md](https://github.com/portel-dev/photon/blob/main/CONTRIBUTING.md) and [ARCHITECTURE.md](https://github.com/portel-dev/photon/blob/main/ARCHITECTURE.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/portel-dev/photon/blob/main/LICENSE)
 
 ---
 
