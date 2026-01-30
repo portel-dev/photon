@@ -2890,16 +2890,24 @@ export class BeamApp extends LitElement {
       if (this._selectedPhoton && this._mcpReady) {
         const toolName = `${this._selectedPhoton.name}/${msg.params?.name}`;
         try {
-          const result = await mcpClient.callTool(toolName, msg.params?.arguments || {});
-          if (event.source) {
-            (event.source as Window).postMessage(
-              {
-                jsonrpc: '2.0',
-                id: msg.id,
-                result,
-              },
-              '*'
-            );
+          const mcpResult = await mcpClient.callTool(toolName, msg.params?.arguments || {});
+          if (mcpResult.isError) {
+            const errorText = mcpResult.content?.find((c) => c.type === 'text')?.text || 'Tool call failed';
+            if (event.source) {
+              (event.source as Window).postMessage(
+                { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: errorText } },
+                '*'
+              );
+            }
+          } else {
+            // Parse MCP content envelope into actual data for the iframe
+            const parsed = mcpClient.parseToolResult(mcpResult);
+            if (event.source) {
+              (event.source as Window).postMessage(
+                { jsonrpc: '2.0', id: msg.id, result: parsed },
+                '*'
+              );
+            }
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
