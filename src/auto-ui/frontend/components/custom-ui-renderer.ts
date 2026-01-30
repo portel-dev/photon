@@ -14,7 +14,7 @@ export class CustomUiRenderer extends LitElement {
         width: 100%;
         height: 100%;
         min-height: 500px;
-        background: white; /* Custom UIs usually expect a white bg */
+        background: var(--bg-panel, #0d0d0d);
         border-radius: var(--radius-md);
         overflow: hidden;
       }
@@ -24,6 +24,12 @@ export class CustomUiRenderer extends LitElement {
         height: 100%;
         border: none;
         display: block;
+        opacity: 0;
+        transition: opacity 0.15s ease-in;
+      }
+
+      iframe.ready {
+        opacity: 1;
       }
 
       .loading {
@@ -362,5 +368,9 @@ export class CustomUiRenderer extends LitElement {
       },
       '*'
     );
+    // Reveal iframe after theme is applied (next frame lets bridge script run)
+    requestAnimationFrame(() => {
+      this._iframeRef?.classList.add('ready');
+    });
   }
 }
