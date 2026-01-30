@@ -724,12 +724,14 @@ export class BeamSidebar extends LitElement {
   private _renderCountsPill(photon: PhotonItem, toolCount: number) {
     const promptCount = photon.promptCount || 0;
     const resourceCount = photon.resourceCount || 0;
-    const hasAnyCounts = toolCount > 0 || promptCount > 0 || resourceCount > 0;
+    // Prompt templates are added as methods, so subtract to avoid double counting
+    const actualToolCount = Math.max(0, toolCount - promptCount);
+    const hasAnyCounts = actualToolCount > 0 || promptCount > 0 || resourceCount > 0;
 
     if (!hasAnyCounts) return '';
 
-    return html`<span class="counts-pill" aria-label="${toolCount} tools, ${promptCount} prompts, ${resourceCount} resources">
-      ${toolCount > 0 ? html`<span class="count-tools" title="${toolCount} tools">${toolCount}</span>` : ''}
+    return html`<span class="counts-pill" aria-label="${actualToolCount} tools, ${promptCount} prompts, ${resourceCount} resources">
+      ${actualToolCount > 0 ? html`<span class="count-tools" title="${actualToolCount} tools">${actualToolCount}</span>` : ''}
       ${promptCount > 0 ? html`<span class="count-prompts" title="${promptCount} prompts">${promptCount}</span>` : ''}
       ${resourceCount > 0 ? html`<span class="count-resources" title="${resourceCount} resources">${resourceCount}</span>` : ''}
     </span>`;
