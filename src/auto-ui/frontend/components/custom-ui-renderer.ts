@@ -146,6 +146,19 @@ export class CustomUiRenderer extends LitElement {
     if (changedProperties.has('theme')) {
       if (this._iframeRef?.contentWindow) {
         const themeTokens = getThemeTokens(this.theme);
+        // Standard MCP Apps notification
+        this._iframeRef.contentWindow.postMessage(
+          {
+            jsonrpc: '2.0',
+            method: 'ui/notifications/host-context-changed',
+            params: {
+              theme: this.theme,
+              styles: { variables: themeTokens },
+            },
+          },
+          '*'
+        );
+        // Photon bridge notification (backward compat)
         this._iframeRef.contentWindow.postMessage(
           {
             type: 'photon:theme-change',
@@ -328,6 +341,19 @@ export class CustomUiRenderer extends LitElement {
     this._iframeRef = e.target as HTMLIFrameElement;
     // Send initial theme to iframe after load (with tokens for immediate styling)
     const themeTokens = getThemeTokens(this.theme);
+    // Standard MCP Apps notification
+    this._iframeRef?.contentWindow?.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/host-context-changed',
+        params: {
+          theme: this.theme,
+          styles: { variables: themeTokens },
+        },
+      },
+      '*'
+    );
+    // Photon bridge notification (backward compat)
     this._iframeRef?.contentWindow?.postMessage(
       {
         type: 'photon:theme-change',

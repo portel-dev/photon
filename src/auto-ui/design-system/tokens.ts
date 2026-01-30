@@ -665,6 +665,7 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
     '--color-background-danger': themeColors.errorContainer,
     '--color-background-success': themeColors.successContainer,
     '--color-background-warning': themeColors.warningContainer,
+    '--color-background-ghost': 'transparent',
     '--color-background-disabled': themeColors.surfaceContainerHigh,
 
     // --- Text Colors ---
@@ -677,6 +678,7 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
     '--color-text-danger': themeColors.error,
     '--color-text-success': themeColors.success,
     '--color-text-warning': themeColors.warning,
+    '--color-text-ghost': themeColors.onSurfaceVariant,
     '--color-text-disabled': themeColors.onSurfaceMuted,
     '--color-text-link': themeColors.primary,
     '--color-text-on-brand': themeColors.onPrimary,
@@ -696,9 +698,20 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
     '--color-border-disabled': themeColors.outlineVariant,
     '--color-border-focus': themeColors.primary,
 
+    // --- Border Colors (additional spec variants) ---
+    '--color-border-tertiary': themeColors.outlineVariant,
+    '--color-border-inverse': themeColors.onSurface,
+    '--color-border-ghost': themeColors.outlineVariant,
+
     // --- Ring (focus) ---
+    '--color-ring-primary': themeColors.primary,
+    '--color-ring-secondary': themeColors.outlineVariant,
+    '--color-ring-inverse': themeColors.onSurface,
     '--color-ring-brand': themeColors.primary,
+    '--color-ring-info': themeColors.primary,
     '--color-ring-danger': themeColors.error,
+    '--color-ring-success': themeColors.success,
+    '--color-ring-warning': themeColors.warning,
 
     // --- Icon Colors ---
     '--color-icon-primary': themeColors.onSurface,

@@ -26,6 +26,10 @@ export interface McpAppsInitialize {
     hostContext: {
       name: string;
       version: string;
+      theme: 'light' | 'dark';
+      styles: {
+        variables: Record<string, string>; // CSS custom properties
+      };
     };
     hostCapabilities: {
       toolCalling: boolean;
@@ -37,7 +41,8 @@ export interface McpAppsInitialize {
       width?: number;
       height?: number;
     };
-    theme: Record<string, string>; // CSS variables
+    // Legacy flat theme tokens (kept for backward compat with Photon apps)
+    theme: Record<string, string>;
   };
 }
 
@@ -196,8 +201,11 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         return;
       }
       if (m.method === 'ui/initialize') {
-        ctx.theme = m.params.theme ? 'dark' : 'dark'; // Extract from tokens
-        themeTokens = m.params.theme || themeTokens;
+        // Standard: hostContext.styles.variables; Legacy: params.theme
+        var initTokens = (m.params.hostContext && m.params.hostContext.styles && m.params.hostContext.styles.variables) || m.params.theme;
+        if (initTokens) themeTokens = initTokens;
+        // Extract theme name from hostContext or fall back
+        if (m.params.hostContext && m.params.hostContext.theme) ctx.theme = m.params.hostContext.theme;
         applyThemeTokens();
       }
       else if (m.method === 'ui/notifications/tool-input-partial') {
@@ -222,11 +230,20 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           sendTeardownResponse();
         }
       }
-      else if (m.method === 'ui/notifications/context') {
-        Object.assign(ctx, m.params);
-        if (m.params.theme) {
+      else if (m.method === 'ui/notifications/context' || m.method === 'ui/notifications/host-context-changed') {
+        // Standard spec: host-context-changed with styles.variables
+        var ctxParams = m.params || {};
+        if (ctxParams.styles && ctxParams.styles.variables) {
+          themeTokens = ctxParams.styles.variables;
+          applyThemeTokens();
+        }
+        if (ctxParams.theme) {
+          ctx.theme = ctxParams.theme;
+          applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
+        // Legacy: flat merge
+        Object.assign(ctx, ctxParams);
       }
       return;
     }
@@ -670,6 +687,7 @@ export function createMcpAppsInitialize(
   context: PlatformContext,
   dimensions: { width: number; height: number }
 ): McpAppsInitialize {
+  const themeTokens = getThemeTokens(context.theme);
   return {
     jsonrpc: '2.0',
     method: 'ui/initialize',
@@ -677,6 +695,10 @@ export function createMcpAppsInitialize(
       hostContext: {
         name: context.hostName,
         version: context.hostVersion,
+        theme: context.theme,
+        styles: {
+          variables: themeTokens,
+        },
       },
       hostCapabilities: {
         toolCalling: true,
@@ -688,7 +710,8 @@ export function createMcpAppsInitialize(
         width: dimensions.width,
         height: dimensions.height,
       },
-      theme: getThemeTokens(context.theme),
+      // Legacy flat theme tokens for backward compat
+      theme: themeTokens,
       ...(context.safeAreaInsets ? { safeAreaInsets: context.safeAreaInsets } : {}),
     },
   };
@@ -701,7 +724,16 @@ export function createThemeChangeMessages(theme: 'light' | 'dark'): unknown[] {
   const themeTokens = getThemeTokens(theme);
 
   return [
-    // MCP Apps Extension
+    // MCP Apps Extension (standard spec name)
+    {
+      jsonrpc: '2.0',
+      method: 'ui/notifications/host-context-changed',
+      params: {
+        theme,
+        styles: { variables: themeTokens },
+      },
+    },
+    // MCP Apps Extension (legacy name for backward compat)
     {
       jsonrpc: '2.0',
       method: 'ui/notifications/context',
