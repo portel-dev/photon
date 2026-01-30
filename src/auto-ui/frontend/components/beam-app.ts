@@ -1783,6 +1783,19 @@ export class BeamApp extends LitElement {
       .map((m: any) => m.name);
   }
 
+  private _getAllTestMethods(): Array<{ photon: string; method: string }> {
+    const results: Array<{ photon: string; method: string }> = [];
+    for (const p of this._photons) {
+      if (!p.methods) continue;
+      for (const m of p.methods) {
+        if (m.name.startsWith('test_') || m.name.startsWith('test')) {
+          results.push({ photon: p.name, method: m.name });
+        }
+      }
+    }
+    return results;
+  }
+
   private _runTests = async () => {
     if (!this._selectedPhoton || this._runningTests) return;
     const testMethods = this._getTestMethods();
@@ -1822,6 +1835,46 @@ export class BeamApp extends LitElement {
     const total = this._testResults.length;
     showToast(`Tests: ${passed}/${total} passed`, passed === total ? 'success' : 'warning');
     this._log(passed === total ? 'success' : 'error', `Tests: ${passed}/${total} passed`);
+  };
+
+  private _runAllTests = async () => {
+    const allTests = this._getAllTestMethods();
+    if (allTests.length === 0 || this._runningTests) return;
+
+    this._runningTests = true;
+    this._testResults = [];
+    this._log('info', `Running ${allTests.length} test(s) across all photons...`);
+
+    for (const { photon, method } of allTests) {
+      try {
+        const res = await fetch('/api/test/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photon, test: method }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        const result = await res.json();
+        this._testResults = [...this._testResults, {
+          method: `${photon}/${method}`,
+          passed: result.passed,
+          error: result.error,
+          duration: result.duration,
+        }];
+      } catch (error) {
+        console.warn('Test fetch failed:', error);
+        this._testResults = [...this._testResults, {
+          method: `${photon}/${method}`,
+          passed: false,
+          error: 'Request failed',
+        }];
+      }
+    }
+
+    this._runningTests = false;
+    const passed = this._testResults.filter((r) => r.passed).length;
+    const total = this._testResults.length;
+    showToast(`Tests: ${passed}/${total} passed`, passed === total ? 'success' : 'warning');
+    this._log(passed === total ? 'success' : 'error', `All photon tests: ${passed}/${total} passed`);
   };
 
   private _renderDiagnostics() {
@@ -1864,6 +1917,43 @@ export class BeamApp extends LitElement {
           </div>
         `)}
       </div>
+
+      <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-top: var(--space-lg); margin-bottom: var(--space-sm);">
+        Test Runner
+      </h3>
+      ${this._getAllTestMethods().length > 0
+        ? html`
+          <div class="glass-panel" style="padding: var(--space-md);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: ${this._testResults.length > 0 ? 'var(--space-md)' : '0'};">
+              <span style="color: var(--t-muted); font-size: 0.85rem;">
+                ${this._getAllTestMethods().length} test(s) across ${new Set(this._getAllTestMethods().map(t => t.photon)).size} photon(s)
+              </span>
+              <button class="btn-sm" @click=${this._runAllTests} ?disabled=${this._runningTests}>
+                ${this._runningTests ? '⏳ Running...' : '▶ Run All Tests'}
+              </button>
+            </div>
+            ${this._testResults.length > 0
+              ? html`
+                ${this._testResults.map((r) => html`
+                  <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;">
+                    <span>${r.passed ? '✅' : '❌'}</span>
+                    <span style="flex: 1; font-family: monospace;">${r.method}</span>
+                    ${r.duration != null ? html`<span style="color: var(--t-muted); font-size: 0.75rem;">${r.duration}ms</span>` : ''}
+                    ${r.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>` : ''}
+                  </div>
+                `)}
+                <div style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;">
+                  ${this._testResults.filter((r) => r.passed).length}/${this._testResults.length} passed
+                </div>
+              `
+              : ''}
+          </div>
+        `
+        : html`
+          <div class="glass-panel" style="padding: var(--space-md); color: var(--t-muted); font-size: 0.85rem;">
+            No test methods found. Add methods prefixed with <code style="background: var(--bg-panel); padding: 2px 6px; border-radius: 4px;">test</code> to any photon.
+          </div>
+        `}
 
       <div style="margin-top: var(--space-md);">
         <button class="btn-sm" @click=${() => { this._diagnosticsData = null; this._fetchDiagnostics(); }}>
@@ -2204,6 +2294,7 @@ export class BeamApp extends LitElement {
                       showDelete: false,
                       showRemove: true,
                       showHelp: false,
+                      showRunTests: false,
                     })}
                   </div>
                   <h4
@@ -2263,18 +2354,11 @@ export class BeamApp extends LitElement {
 
       ${this._renderPhotonHeader()}
 
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <h3
-          style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
-        >
-          Methods
-        </h3>
-        ${this._getTestMethods().length > 0
-          ? html`<button class="btn-sm" @click=${this._runTests} ?disabled=${this._runningTests}>
-              ${this._runningTests ? '⏳ Running...' : '🧪 Run Tests'}
-            </button>`
-          : ''}
-      </div>
+      <h3
+        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
+      >
+        Methods
+      </h3>
       <div class="cards-grid">
         ${(this._selectedPhoton.methods || []).map(
           (method: any) => html`
@@ -3397,6 +3481,7 @@ export class BeamApp extends LitElement {
       showHelp?: boolean;
       showLaunchApp?: boolean;
       showRemove?: boolean;
+      showRunTests?: boolean;
     } = {}
   ) {
     const {
@@ -3409,6 +3494,7 @@ export class BeamApp extends LitElement {
       showHelp = true,
       showLaunchApp = false,
       showRemove = false,
+      showRunTests = this._getTestMethods().length > 0,
     } = options;
 
     return html`
@@ -3456,6 +3542,19 @@ export class BeamApp extends LitElement {
               >
                 <span>🖥️</span>
                 <span class="label">Launch</span>
+              </button>
+            `
+          : ''}
+        ${showRunTests
+          ? html`
+              <button
+                class="toolbar-btn"
+                @click=${this._runTests}
+                ?disabled=${this._runningTests}
+                title="Run test methods for this photon"
+              >
+                <span>🧪</span>
+                <span class="label">${this._runningTests ? 'Running...' : 'Run Tests'}</span>
               </button>
             `
           : ''}
@@ -3534,6 +3633,18 @@ export class BeamApp extends LitElement {
                       <button class="settings-dropdown-item" @click=${() => this._launchAsApp()}>
                         <span class="icon">🖥️</span>
                         <span>Launch as App</span>
+                      </button>
+                    `
+                  : ''}
+                ${showRunTests
+                  ? html`
+                      <button
+                        class="settings-dropdown-item"
+                        @click=${this._runTests}
+                        ?disabled=${this._runningTests}
+                      >
+                        <span class="icon">🧪</span>
+                        <span>${this._runningTests ? 'Running Tests...' : 'Run Tests'}</span>
                       </button>
                     `
                   : ''}
