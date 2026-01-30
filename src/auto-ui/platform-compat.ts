@@ -14,56 +14,20 @@
  */
 
 import { getThemeTokens, type ThemeMode } from './design-system/tokens.js';
+import type { PlatformContext } from '@portel/photon-core';
 
-// ════════════════════════════════════════════════════════════════════════════════
-// TYPES - MCP Apps Extension (SEP-1865)
-// ════════════════════════════════════════════════════════════════════════════════
-
-export interface McpAppsInitialize {
-  jsonrpc: '2.0';
-  method: 'ui/initialize';
-  params: {
-    hostContext: {
-      name: string;
-      version: string;
-      theme: 'light' | 'dark';
-      styles: {
-        variables: Record<string, string>; // CSS custom properties
-      };
-    };
-    hostCapabilities: {
-      toolCalling: boolean;
-      resourceReading: boolean;
-      elicitation: boolean;
-    };
-    containerDimensions: {
-      mode: 'fixed' | 'responsive' | 'auto';
-      width?: number;
-      height?: number;
-    };
-    // Legacy flat theme tokens (kept for backward compat with Photon apps)
-    theme: Record<string, string>;
-  };
-}
-
-export interface McpAppsToolInput {
-  jsonrpc: '2.0';
-  method: 'ui/notifications/tool-input';
-  params: {
-    toolName: string;
-    input: Record<string, unknown>;
-  };
-}
-
-export interface McpAppsToolResult {
-  jsonrpc: '2.0';
-  method: 'ui/notifications/tool-result';
-  params: {
-    toolName: string;
-    result: unknown;
-    isError: boolean;
-  };
-}
+// Re-export MCP Apps standard types and helpers from core
+export {
+  type McpAppsInitialize,
+  type McpAppsToolInput,
+  type McpAppsToolResult,
+  type McpAppsHostContextChanged,
+  type McpAppsResourceTeardown,
+  type McpAppsModelContextUpdate,
+  type PlatformContext,
+  createMcpAppsInitialize,
+  createThemeChangeMessages,
+} from '@portel/photon-core';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // TYPES - OpenAI Apps SDK
@@ -103,21 +67,6 @@ export interface OpenAiApi {
   notifyIntrinsicHeight(height: number): void;
   openExternal(options: { href: string }): void;
   setOpenInAppUrl(options: { href: string }): void;
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// TYPES - Platform Bridge Context
-// ════════════════════════════════════════════════════════════════════════════════
-
-export interface PlatformContext {
-  theme: 'light' | 'dark';
-  locale: string;
-  displayMode: 'inline' | 'fullscreen' | 'modal';
-  photon: string;
-  method: string;
-  hostName: string;
-  hostVersion: string;
-  safeAreaInsets?: { top: number; bottom: number; left: number; right: number };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -679,81 +628,3 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
 // ════════════════════════════════════════════════════════════════════════════════
 // HOST-SIDE HELPERS
 // ════════════════════════════════════════════════════════════════════════════════
-
-/**
- * Create the MCP Apps ui/initialize message to send to an iframe
- */
-export function createMcpAppsInitialize(
-  context: PlatformContext,
-  dimensions: { width: number; height: number }
-): McpAppsInitialize {
-  const themeTokens = getThemeTokens(context.theme);
-  return {
-    jsonrpc: '2.0',
-    method: 'ui/initialize',
-    params: {
-      hostContext: {
-        name: context.hostName,
-        version: context.hostVersion,
-        theme: context.theme,
-        styles: {
-          variables: themeTokens,
-        },
-      },
-      hostCapabilities: {
-        toolCalling: true,
-        resourceReading: true,
-        elicitation: true,
-      },
-      containerDimensions: {
-        mode: 'responsive',
-        width: dimensions.width,
-        height: dimensions.height,
-      },
-      // Legacy flat theme tokens for backward compat
-      theme: themeTokens,
-      ...(context.safeAreaInsets ? { safeAreaInsets: context.safeAreaInsets } : {}),
-    },
-  };
-}
-
-/**
- * Create a theme change notification for all platforms
- */
-export function createThemeChangeMessages(theme: 'light' | 'dark'): unknown[] {
-  const themeTokens = getThemeTokens(theme);
-
-  return [
-    // MCP Apps Extension (standard spec name)
-    {
-      jsonrpc: '2.0',
-      method: 'ui/notifications/host-context-changed',
-      params: {
-        theme,
-        styles: { variables: themeTokens },
-      },
-    },
-    // MCP Apps Extension (legacy name for backward compat)
-    {
-      jsonrpc: '2.0',
-      method: 'ui/notifications/context',
-      params: { theme: themeTokens },
-    },
-    // Photon Bridge
-    {
-      type: 'photon:context',
-      context: { theme },
-      themeTokens,
-    },
-    // Claude Artifacts
-    {
-      type: 'theme',
-      theme,
-    },
-    // OpenAI Apps SDK
-    {
-      type: 'openai:set_globals',
-      theme,
-    },
-  ];
-}
