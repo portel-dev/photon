@@ -399,7 +399,11 @@ function startWebhookServer(port: number): void {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, data: result }));
       } catch (error) {
-        logger.error('Webhook execution failed', { photon: photonName, method, error: getErrorMessage(error) });
+        logger.error('Webhook execution failed', {
+          photon: photonName,
+          method,
+          error: getErrorMessage(error),
+        });
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: getErrorMessage(error) }));
       }
@@ -586,7 +590,11 @@ async function handleRequest(
     const photonPath = request.photonPath;
 
     if (!photonName || !photonPath) {
-      return { type: 'error', id: request.id, error: 'photonName and photonPath required for reload' };
+      return {
+        type: 'error',
+        id: request.id,
+        error: 'photonName and photonPath required for reload',
+      };
     }
 
     const result = await reloadPhoton(photonName, photonPath);
@@ -682,7 +690,12 @@ async function handleRequest(
     const channel = request.channel!;
     const message = request.message;
     const eventId = publishToChannel(channel, message, socket);
-    return { type: 'result', id: request.id, success: true, data: { published: true, channel, eventId } };
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { published: true, channel, eventId },
+    };
   }
 
   // Handle get_events_since (for event replay)
@@ -803,9 +816,16 @@ async function handleRequest(
     }
 
     try {
-      const session = await sessionManager.getOrCreateSession(request.sessionId, request.clientType);
+      const session = await sessionManager.getOrCreateSession(
+        request.sessionId,
+        request.clientType
+      );
 
-      logger.info('Executing request', { method: request.method, photon: photonName, sessionId: session.id });
+      logger.info('Executing request', {
+        method: request.method,
+        photon: photonName,
+        sessionId: session.id,
+      });
 
       setPromptHandler(createSocketPromptHandler(socket, request.id));
 
@@ -827,7 +847,10 @@ async function handleRequest(
 
       return { type: 'result', id: request.id, success: true, data: result };
     } catch (error) {
-      logger.error('Error executing request', { method: request.method, error: getErrorMessage(error) });
+      logger.error('Error executing request', {
+        method: request.method,
+        error: getErrorMessage(error),
+      });
       setPromptHandler(null);
       return { type: 'error', id: request.id, error: getErrorMessage(error) };
     }
@@ -973,7 +996,8 @@ function startServer(): void {
 
           if (!isValidDaemonRequest(parsed)) {
             socket.write(
-              JSON.stringify({ type: 'error', id: 'unknown', error: 'Invalid request format' }) + '\n'
+              JSON.stringify({ type: 'error', id: 'unknown', error: 'Invalid request format' }) +
+                '\n'
             );
             continue;
           }

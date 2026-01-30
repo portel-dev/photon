@@ -838,7 +838,11 @@ export class MarketplaceView extends LitElement {
         <div class="actions">
           ${item.installed
             ? html`<span class="btn-installed">✓ Installed</span>`
-            : html`<button class="btn-install" ?disabled=${isInstalling} @click=${() => this._install(item)}>
+            : html`<button
+                class="btn-install"
+                ?disabled=${isInstalling}
+                @click=${() => this._install(item)}
+              >
                 ${isInstalling ? 'Installing...' : 'Install'}
               </button>`}
         </div>

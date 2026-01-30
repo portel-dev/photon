@@ -111,7 +111,12 @@ export default class Marketplace {
       yield { step: 'saving-metadata', message: 'Saving installation metadata...' };
       const { calculateHash } = await import('../marketplace-manager.js');
       const hash = calculateHash(result.content);
-      await manager.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
+      await manager.savePhotonMetadata(
+        `${name}.photon.ts`,
+        result.marketplace,
+        result.metadata,
+        hash
+      );
     }
 
     yield {
@@ -258,7 +263,11 @@ export default class Marketplace {
    * Add a marketplace source
    * @param source Git URL or local path to marketplace
    */
-  static async addSource({ source }: { source: string }): Promise<{ name: string; added: boolean }> {
+  static async addSource({
+    source,
+  }: {
+    source: string;
+  }): Promise<{ name: string; added: boolean }> {
     const { MarketplaceManager } = await import('../marketplace-manager.js');
     const manager = new MarketplaceManager();
     await manager.initialize();

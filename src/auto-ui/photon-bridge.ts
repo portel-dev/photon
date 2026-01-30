@@ -173,8 +173,7 @@ export type HostToUIMessage =
   | { type: 'photon:ask'; id: string; event: AskEvent }
   | { type: 'photon:result'; data: any }
   | { type: 'photon:error'; error: { message: string; code?: string } }
-  | { type: 'photon:context'; context: Partial<PhotonContext> }
-;
+  | { type: 'photon:context'; context: Partial<PhotonContext> };
 
 export type UIToHostMessage =
   | { type: 'photon:ready' }

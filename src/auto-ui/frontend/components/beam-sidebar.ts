@@ -113,8 +113,13 @@ export class BeamSidebar extends LitElement {
       }
 
       @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.4; }
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
       }
 
       .theme-toggle {
@@ -299,9 +304,15 @@ export class BeamSidebar extends LitElement {
         flex-shrink: 0;
       }
 
-      .count-tools { color: hsl(210, 80%, 65%); }
-      .count-prompts { color: hsl(140, 60%, 55%); }
-      .count-resources { color: hsl(30, 80%, 60%); }
+      .count-tools {
+        color: hsl(210, 80%, 65%);
+      }
+      .count-prompts {
+        color: hsl(140, 60%, 55%);
+      }
+      .count-resources {
+        color: hsl(30, 80%, 60%);
+      }
 
       .version-badge {
         font-size: 0.6rem;
@@ -617,7 +628,10 @@ export class BeamSidebar extends LitElement {
               @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
               aria-label="Open marketplace"
             >
-              🛍️ Marketplace ${this.updatesAvailable > 0 ? html`<span class="update-badge">${this.updatesAvailable}</span>` : ''}
+              🛍️ Marketplace
+              ${this.updatesAvailable > 0
+                ? html`<span class="update-badge">${this.updatesAvailable}</span>`
+                : ''}
             </button>
           </div>
         </div>
@@ -651,7 +665,8 @@ export class BeamSidebar extends LitElement {
       <div class="sidebar-footer">
         <button
           class="footer-link"
-          @click=${() => this.dispatchEvent(new CustomEvent('diagnostics', { bubbles: true, composed: true }))}
+          @click=${() =>
+            this.dispatchEvent(new CustomEvent('diagnostics', { bubbles: true, composed: true }))}
           title="Server diagnostics"
           aria-label="Show diagnostics"
         >
@@ -730,10 +745,21 @@ export class BeamSidebar extends LitElement {
 
     if (!hasAnyCounts) return '';
 
-    return html`<span class="counts-pill" aria-label="${actualToolCount} tools, ${promptCount} prompts, ${resourceCount} resources">
-      ${actualToolCount > 0 ? html`<span class="count-tools" title="${actualToolCount} tools">${actualToolCount}</span>` : ''}
-      ${promptCount > 0 ? html`<span class="count-prompts" title="${promptCount} prompts">${promptCount}</span>` : ''}
-      ${resourceCount > 0 ? html`<span class="count-resources" title="${resourceCount} resources">${resourceCount}</span>` : ''}
+    return html`<span
+      class="counts-pill"
+      aria-label="${actualToolCount} tools, ${promptCount} prompts, ${resourceCount} resources"
+    >
+      ${actualToolCount > 0
+        ? html`<span class="count-tools" title="${actualToolCount} tools">${actualToolCount}</span>`
+        : ''}
+      ${promptCount > 0
+        ? html`<span class="count-prompts" title="${promptCount} prompts">${promptCount}</span>`
+        : ''}
+      ${resourceCount > 0
+        ? html`<span class="count-resources" title="${resourceCount} resources"
+            >${resourceCount}</span
+          >`
+        : ''}
     </span>`;
   }
 

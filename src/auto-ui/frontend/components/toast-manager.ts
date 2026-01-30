@@ -165,7 +165,12 @@ export class ToastManager extends LitElement {
     }
   }
 
-  static show(message: string, type: Toast['type'] = 'info', duration = 3000, action?: ToastAction) {
+  static show(
+    message: string,
+    type: Toast['type'] = 'info',
+    duration = 3000,
+    action?: ToastAction
+  ) {
     if (ToastManager.instance) {
       ToastManager.instance.addToast(message, type, duration, action);
     }
@@ -211,7 +216,9 @@ export class ToastManager extends LitElement {
                       toast.action!.callback();
                       this._dismissToast(toast.id);
                     }}
-                  >${toast.action.label}</button>`
+                  >
+                    ${toast.action.label}
+                  </button>`
                 : ''}
               <button
                 class="close"
@@ -268,6 +275,11 @@ export class ToastManager extends LitElement {
   }
 }
 
-export function showToast(message: string, type: Toast['type'] = 'info', duration = 3000, action?: { label: string; callback: () => void }) {
+export function showToast(
+  message: string,
+  type: Toast['type'] = 'info',
+  duration = 3000,
+  action?: { label: string; callback: () => void }
+) {
   ToastManager.show(message, type, duration, action);
 }

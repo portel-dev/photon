@@ -186,11 +186,14 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
 /**
  * Extract class-level metadata (description, icon) from JSDoc comments
  */
-function extractClassMetadataFromSource(
-  content: string
-): { description?: string; icon?: string; internal?: boolean; version?: string; author?: string } {
+function extractClassMetadataFromSource(content: string): {
+  description?: string;
+  icon?: string;
+  internal?: boolean;
+  version?: string;
+  author?: string;
+} {
   try {
-
     // Find class-level JSDoc (the JSDoc immediately before class declaration)
     const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
     const match = content.match(classDocRegex);
@@ -200,7 +203,13 @@ function extractClassMetadataFromSource(
     }
 
     const docContent = match[1];
-    const metadata: { description?: string; icon?: string; internal?: boolean; version?: string; author?: string } = {};
+    const metadata: {
+      description?: string;
+      icon?: string;
+      internal?: boolean;
+      version?: string;
+      author?: string;
+    } = {};
 
     // Extract @icon
     const iconMatch = docContent.match(/@icon\s+(\S+)/);
@@ -270,7 +279,15 @@ function applyMethodVisibility(source: string, methods: MethodInfo[]): void {
  * @csp connect domain1,domain2
  * @csp resource cdn.example.com
  */
-function extractCspFromSource(source: string): Record<string, { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[]; baseUriDomains?: string[] }> {
+function extractCspFromSource(source: string): Record<
+  string,
+  {
+    connectDomains?: string[];
+    resourceDomains?: string[];
+    frameDomains?: string[];
+    baseUriDomains?: string[];
+  }
+> {
   const result: Record<string, any> = {};
 
   // Match class-level JSDoc with @csp tags
@@ -286,7 +303,10 @@ function extractCspFromSource(source: string): Record<string, { connectDomains?:
     while ((cspMatch = cspRegex.exec(docContent)) !== null) {
       hasCsp = true;
       const directive = cspMatch[1].trim();
-      const domains = cspMatch[2].trim().split(/[,\s]+/).filter(Boolean);
+      const domains = cspMatch[2]
+        .trim()
+        .split(/[,\s]+/)
+        .filter(Boolean);
       const key = directive === 'base-uri' ? 'baseUriDomains' : `${directive}Domains`;
       csp[key] = (csp[key] || []).concat(domains);
     }
@@ -452,7 +472,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       photonMCPs.set(name, mcp);
 
       // Extract schema for UI — reuse source read from above
-      const schemaSource = source || await fs.readFile(photonPath, 'utf-8');
+      const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
       const { tools: schemas, templates } = extractor.extractAllFromSource(schemaSource);
       (mcp as any).schemas = schemas;
 
@@ -654,7 +674,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     // If lastEventId is older than our oldest buffered event, signal refresh needed
     if (lastEventId < oldestEvent.id) {
       sendToSession(sessionId, 'photon/refresh-needed', { channel });
-      logger.info(`📡 Replay: ${channel} - lastEventId ${lastEventId} too old (oldest: ${oldestEvent.id}), refresh needed`);
+      logger.info(
+        `📡 Replay: ${channel} - lastEventId ${lastEventId} too old (oldest: ${oldestEvent.id}), refresh needed`
+      );
       return { replayed: 0, refreshNeeded: true };
     }
 
@@ -670,7 +692,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       sendToSession(sessionId, event.method, { ...event.params, _eventId: event.id });
     }
 
-    logger.info(`📡 Replay: ${channel} - replayed ${eventsToReplay.length} events (${lastEventId + 1} to ${buffer.nextId - 1})`);
+    logger.info(
+      `📡 Replay: ${channel} - replayed ${eventsToReplay.length} events (${lastEventId + 1} to ${buffer.nextId - 1})`
+    );
     return { replayed: eventsToReplay.length, refreshNeeded: false };
   }
 
@@ -899,8 +923,15 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             if (photon && msg.channel) {
               const [, itemId] = msg.channel.split(':');
               const bufferChannel = `${photon.id}:${itemId}`;
-              const eventId = bufferEvent(bufferChannel, 'photon/channel-event', { ...params, photonId: photon.id });
-              broadcastToBeam('photon/channel-event', { ...params, photonId: photon.id, _eventId: eventId });
+              const eventId = bufferEvent(bufferChannel, 'photon/channel-event', {
+                ...params,
+                photonId: photon.id,
+              });
+              broadcastToBeam('photon/channel-event', {
+                ...params,
+                photonId: photon.id,
+                _eventId: eventId,
+              });
             } else {
               broadcastToBeam('photon/channel-event', params);
             }

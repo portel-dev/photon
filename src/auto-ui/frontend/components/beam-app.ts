@@ -1293,7 +1293,10 @@ export class BeamApp extends LitElement {
     let targetName = 'maker';
 
     // sync and init moved to marketplace photon
-    if ((action === 'sync' || action === 'init') && !target?.methods?.find((m: any) => m.name === action)) {
+    if (
+      (action === 'sync' || action === 'init') &&
+      !target?.methods?.find((m: any) => m.name === action)
+    ) {
       target = this._photons.find((p) => p.name === 'marketplace');
       targetName = 'marketplace';
     }
@@ -1318,7 +1321,12 @@ export class BeamApp extends LitElement {
   }
 
   @state() private _diagnosticsData: any = null;
-  @state() private _testResults: Array<{ method: string; passed: boolean; error?: string; duration?: number }> = [];
+  @state() private _testResults: Array<{
+    method: string;
+    passed: boolean;
+    error?: string;
+    duration?: number;
+  }> = [];
   @state() private _runningTests = false;
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
@@ -1342,7 +1350,12 @@ export class BeamApp extends LitElement {
   @state() private _editingDescription = false;
   @state() private _editingIcon = false;
   @state() private _editedDescription = '';
-  @state() private _updatesAvailable: Array<{ name: string; currentVersion: string; latestVersion: string; marketplace: string }> = [];
+  @state() private _updatesAvailable: Array<{
+    name: string;
+    currentVersion: string;
+    latestVersion: string;
+    marketplace: string;
+  }> = [];
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -1761,13 +1774,15 @@ export class BeamApp extends LitElement {
         name,
         configured: false,
         methods: [], // Empty methods signals needs setup
-        requiredParams: Object.entries(config.properties || {}).map(([key, prop]: [string, any]) => ({
-          name: key,
-          type: prop.type || 'string',
-          format: prop.format,
-          default: prop.default,
-          required: config.required?.includes(key),
-        })),
+        requiredParams: Object.entries(config.properties || {}).map(
+          ([key, prop]: [string, any]) => ({
+            name: key,
+            type: prop.type || 'string',
+            format: prop.format,
+            default: prop.default,
+            required: config.required?.includes(key),
+          })
+        ),
         errorMessage: config['x-error-message'],
       }));
 
@@ -1814,19 +1829,25 @@ export class BeamApp extends LitElement {
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         const result = await res.json();
-        this._testResults = [...this._testResults, {
-          method: testName,
-          passed: result.passed,
-          error: result.error,
-          duration: result.duration,
-        }];
+        this._testResults = [
+          ...this._testResults,
+          {
+            method: testName,
+            passed: result.passed,
+            error: result.error,
+            duration: result.duration,
+          },
+        ];
       } catch (error) {
         console.warn('Test fetch failed:', error);
-        this._testResults = [...this._testResults, {
-          method: testName,
-          passed: false,
-          error: 'Request failed',
-        }];
+        this._testResults = [
+          ...this._testResults,
+          {
+            method: testName,
+            passed: false,
+            error: 'Request failed',
+          },
+        ];
       }
     }
 
@@ -1854,19 +1875,25 @@ export class BeamApp extends LitElement {
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         const result = await res.json();
-        this._testResults = [...this._testResults, {
-          method: `${photon}/${method}`,
-          passed: result.passed,
-          error: result.error,
-          duration: result.duration,
-        }];
+        this._testResults = [
+          ...this._testResults,
+          {
+            method: `${photon}/${method}`,
+            passed: result.passed,
+            error: result.error,
+            duration: result.duration,
+          },
+        ];
       } catch (error) {
         console.warn('Test fetch failed:', error);
-        this._testResults = [...this._testResults, {
-          method: `${photon}/${method}`,
-          passed: false,
-          error: 'Request failed',
-        }];
+        this._testResults = [
+          ...this._testResults,
+          {
+            method: `${photon}/${method}`,
+            passed: false,
+            error: 'Request failed',
+          },
+        ];
       }
     }
 
@@ -1874,7 +1901,10 @@ export class BeamApp extends LitElement {
     const passed = this._testResults.filter((r) => r.passed).length;
     const total = this._testResults.length;
     showToast(`Tests: ${passed}/${total} passed`, passed === total ? 'success' : 'warning');
-    this._log(passed === total ? 'success' : 'error', `All photon tests: ${passed}/${total} passed`);
+    this._log(
+      passed === total ? 'success' : 'error',
+      `All photon tests: ${passed}/${total} passed`
+    );
   };
 
   private _renderDiagnostics() {
@@ -1885,78 +1915,140 @@ export class BeamApp extends LitElement {
 
     const d = this._diagnosticsData;
     return html`
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);">
+      <div
+        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);"
+      >
         <div class="glass-panel" style="padding: var(--space-md);">
-          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Node</div>
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">
+            Node
+          </div>
           <div style="font-size: 1.1rem; font-weight: 600;">${d.nodeVersion}</div>
         </div>
         <div class="glass-panel" style="padding: var(--space-md);">
-          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Photon</div>
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">
+            Photon
+          </div>
           <div style="font-size: 1.1rem; font-weight: 600;">${d.photonVersion}</div>
         </div>
         <div class="glass-panel" style="padding: var(--space-md);">
-          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Uptime</div>
-          <div style="font-size: 1.1rem; font-weight: 600;">${Math.floor(d.uptime / 60)}m ${Math.floor(d.uptime % 60)}s</div>
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">
+            Uptime
+          </div>
+          <div style="font-size: 1.1rem; font-weight: 600;">
+            ${Math.floor(d.uptime / 60)}m ${Math.floor(d.uptime % 60)}s
+          </div>
         </div>
         <div class="glass-panel" style="padding: var(--space-md);">
-          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">Sources</div>
+          <div style="font-size: 0.75rem; color: var(--t-muted); text-transform: uppercase;">
+            Sources
+          </div>
           <div style="font-size: 1.1rem; font-weight: 600;">${d.marketplaceSources}</div>
         </div>
       </div>
 
-      <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-sm);">
+      <h3
+        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-sm);"
+      >
         Photons (${d.configuredCount} loaded, ${d.unconfiguredCount} unconfigured)
       </h3>
       <div class="glass-panel" style="padding: var(--space-md);">
-        ${(d.photons || []).map((p: any) => html`
-          <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0;">
-            <span style="width: 10px; height: 10px; border-radius: 50; background: ${p.status === 'loaded' ? '#4ade80' : p.status === 'unconfigured' ? '#fbbf24' : '#f87171'}; flex-shrink: 0;"></span>
-            <span style="flex: 1;">${p.name}</span>
-            <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
-            ${p.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>` : ''}
-          </div>
-        `)}
+        ${(d.photons || []).map(
+          (p: any) => html`
+            <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0;">
+              <span
+                style="width: 10px; height: 10px; border-radius: 50; background: ${p.status ===
+                'loaded'
+                  ? '#4ade80'
+                  : p.status === 'unconfigured'
+                    ? '#fbbf24'
+                    : '#f87171'}; flex-shrink: 0;"
+              ></span>
+              <span style="flex: 1;">${p.name}</span>
+              <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
+              ${p.error
+                ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
+                : ''}
+            </div>
+          `
+        )}
       </div>
 
-      <h3 style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-top: var(--space-lg); margin-bottom: var(--space-sm);">
+      <h3
+        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-top: var(--space-lg); margin-bottom: var(--space-sm);"
+      >
         Test Runner
       </h3>
       ${this._getAllTestMethods().length > 0
         ? html`
-          <div class="glass-panel" style="padding: var(--space-md);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: ${this._testResults.length > 0 ? 'var(--space-md)' : '0'};">
-              <span style="color: var(--t-muted); font-size: 0.85rem;">
-                ${this._getAllTestMethods().length} test(s) across ${new Set(this._getAllTestMethods().map(t => t.photon)).size} photon(s)
-              </span>
-              <button class="btn-sm" @click=${this._runAllTests} ?disabled=${this._runningTests}>
-                ${this._runningTests ? '⏳ Running...' : '▶ Run All Tests'}
-              </button>
+            <div class="glass-panel" style="padding: var(--space-md);">
+              <div
+                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: ${this
+                  ._testResults.length > 0
+                  ? 'var(--space-md)'
+                  : '0'};"
+              >
+                <span style="color: var(--t-muted); font-size: 0.85rem;">
+                  ${this._getAllTestMethods().length} test(s) across
+                  ${new Set(this._getAllTestMethods().map((t) => t.photon)).size} photon(s)
+                </span>
+                <button class="btn-sm" @click=${this._runAllTests} ?disabled=${this._runningTests}>
+                  ${this._runningTests ? '⏳ Running...' : '▶ Run All Tests'}
+                </button>
+              </div>
+              ${this._testResults.length > 0
+                ? html`
+                    ${this._testResults.map(
+                      (r) => html`
+                        <div
+                          style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;"
+                        >
+                          <span>${r.passed ? '✅' : '❌'}</span>
+                          <span style="flex: 1; font-family: monospace;">${r.method}</span>
+                          ${r.duration != null
+                            ? html`<span style="color: var(--t-muted); font-size: 0.75rem;"
+                                >${r.duration}ms</span
+                              >`
+                            : ''}
+                          ${r.error
+                            ? html`<span style="color: #f87171; font-size: 0.75rem;"
+                                >${r.error}</span
+                              >`
+                            : ''}
+                        </div>
+                      `
+                    )}
+                    <div
+                      style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;"
+                    >
+                      ${this._testResults.filter((r) => r.passed).length}/${this._testResults
+                        .length}
+                      passed
+                    </div>
+                  `
+                : ''}
             </div>
-            ${this._testResults.length > 0
-              ? html`
-                ${this._testResults.map((r) => html`
-                  <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;">
-                    <span>${r.passed ? '✅' : '❌'}</span>
-                    <span style="flex: 1; font-family: monospace;">${r.method}</span>
-                    ${r.duration != null ? html`<span style="color: var(--t-muted); font-size: 0.75rem;">${r.duration}ms</span>` : ''}
-                    ${r.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>` : ''}
-                  </div>
-                `)}
-                <div style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;">
-                  ${this._testResults.filter((r) => r.passed).length}/${this._testResults.length} passed
-                </div>
-              `
-              : ''}
-          </div>
-        `
+          `
         : html`
-          <div class="glass-panel" style="padding: var(--space-md); color: var(--t-muted); font-size: 0.85rem;">
-            No test methods found. Add methods prefixed with <code style="background: var(--bg-panel); padding: 2px 6px; border-radius: 4px;">test</code> to any photon.
-          </div>
-        `}
+            <div
+              class="glass-panel"
+              style="padding: var(--space-md); color: var(--t-muted); font-size: 0.85rem;"
+            >
+              No test methods found. Add methods prefixed with
+              <code style="background: var(--bg-panel); padding: 2px 6px; border-radius: 4px;"
+                >test</code
+              >
+              to any photon.
+            </div>
+          `}
 
       <div style="margin-top: var(--space-md);">
-        <button class="btn-sm" @click=${() => { this._diagnosticsData = null; this._fetchDiagnostics(); }}>
+        <button
+          class="btn-sm"
+          @click=${() => {
+            this._diagnosticsData = null;
+            this._fetchDiagnostics();
+          }}
+        >
           🔄 Refresh
         </button>
       </div>
@@ -2053,11 +2145,19 @@ export class BeamApp extends LitElement {
         ? html`
             <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
               <div>
-                <span>${this._reconnecting
-                  ? `Reconnecting to server...${this._reconnectAttempt > 1 ? ` (attempt ${this._reconnectAttempt})` : ''}`
-                  : 'Disconnected from server'}</span>
+                <span
+                  >${this._reconnecting
+                    ? `Reconnecting to server...${this._reconnectAttempt > 1 ? ` (attempt ${this._reconnectAttempt})` : ''}`
+                    : 'Disconnected from server'}</span
+                >
                 ${this._reconnectAttempt >= 2
-                  ? html`<div style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">Server may have stopped. Restart: <code style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: 3px;">photon beam</code></div>`
+                  ? html`<div style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">
+                      Server may have stopped. Restart:
+                      <code
+                        style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: 3px;"
+                        >photon beam</code
+                      >
+                    </div>`
                   : ''}
               </div>
               <button @click=${() => this._connect()}>Retry Now</button>
@@ -2097,7 +2197,10 @@ export class BeamApp extends LitElement {
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
           @show-shortcuts=${this._showHelpModal}
-          @diagnostics=${() => { this._view = 'diagnostics'; this._updateHash(); }}
+          @diagnostics=${() => {
+            this._view = 'diagnostics';
+            this._updateHash();
+          }}
         ></beam-sidebar>
       </div>
 
@@ -2172,20 +2275,35 @@ export class BeamApp extends LitElement {
       const unconfiguredPhotons = this._photons.filter((p) => !p.configured);
 
       return html`
-        <h1 class="text-gradient" style="margin-bottom: var(--space-lg);">Welcome to Photon Beam</h1>
+        <h1 class="text-gradient" style="margin-bottom: var(--space-lg);">
+          Welcome to Photon Beam
+        </h1>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);">
+        <div
+          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);"
+        >
           <div class="glass-panel" style="padding: var(--space-lg);">
             <h3 style="margin-bottom: var(--space-sm);">Your Photons</h3>
             <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
-              ${configuredPhotons.length} configured photon${configuredPhotons.length !== 1 ? 's' : ''}
+              ${configuredPhotons.length} configured
+              photon${configuredPhotons.length !== 1 ? 's' : ''}
             </p>
             ${configuredPhotons.length > 0
               ? html`<div style="font-size: 0.85rem; color: var(--t-secondary);">
-                  ${configuredPhotons.slice(0, 5).map((p) => html`<div style="padding: 2px 0;">${p.icon || '⚡'} ${p.name}</div>`)}
-                  ${configuredPhotons.length > 5 ? html`<div style="color: var(--t-muted);">+${configuredPhotons.length - 5} more</div>` : ''}
+                  ${configuredPhotons
+                    .slice(0, 5)
+                    .map(
+                      (p) => html`<div style="padding: 2px 0;">${p.icon || '⚡'} ${p.name}</div>`
+                    )}
+                  ${configuredPhotons.length > 5
+                    ? html`<div style="color: var(--t-muted);">
+                        +${configuredPhotons.length - 5} more
+                      </div>`
+                    : ''}
                 </div>`
-              : html`<p style="color: var(--t-muted); font-size: 0.85rem;">No photons configured yet.</p>`}
+              : html`<p style="color: var(--t-muted); font-size: 0.85rem;">
+                  No photons configured yet.
+                </p>`}
           </div>
 
           <div class="glass-panel" style="padding: var(--space-lg);">
@@ -2201,23 +2319,45 @@ export class BeamApp extends LitElement {
           <div class="glass-panel" style="padding: var(--space-lg);">
             <h3 style="margin-bottom: var(--space-sm);">Keyboard Shortcuts</h3>
             <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
-              Press <kbd style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.85rem;">?</kbd> to see all shortcuts.
+              Press
+              <kbd
+                style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.85rem;"
+                >?</kbd
+              >
+              to see all shortcuts.
             </p>
           </div>
         </div>
 
         ${unconfiguredPhotons.length > 0
           ? html`
-            <div class="glass-panel" style="padding: var(--space-lg); border-left: 3px solid hsl(45, 80%, 50%);">
-              <h3 style="margin-bottom: var(--space-sm);">Setup Required</h3>
-              <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
-                ${unconfiguredPhotons.length} photon${unconfiguredPhotons.length !== 1 ? 's need' : ' needs'} configuration.
-              </p>
-              <div style="font-size: 0.85rem; color: var(--t-secondary);">
-                ${unconfiguredPhotons.map((p) => html`<div style="padding: 2px 0; cursor: pointer;" @click=${() => { this._selectedPhoton = p; this._view = 'config'; }}>⚠️ ${p.name}</div>`)}
+              <div
+                class="glass-panel"
+                style="padding: var(--space-lg); border-left: 3px solid hsl(45, 80%, 50%);"
+              >
+                <h3 style="margin-bottom: var(--space-sm);">Setup Required</h3>
+                <p
+                  style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);"
+                >
+                  ${unconfiguredPhotons.length}
+                  photon${unconfiguredPhotons.length !== 1 ? 's need' : ' needs'} configuration.
+                </p>
+                <div style="font-size: 0.85rem; color: var(--t-secondary);">
+                  ${unconfiguredPhotons.map(
+                    (p) =>
+                      html`<div
+                        style="padding: 2px 0; cursor: pointer;"
+                        @click=${() => {
+                          this._selectedPhoton = p;
+                          this._view = 'config';
+                        }}
+                      >
+                        ⚠️ ${p.name}
+                      </div>`
+                  )}
+                </div>
               </div>
-            </div>
-          `
+            `
           : ''}
       `;
     }
@@ -2374,23 +2514,33 @@ export class BeamApp extends LitElement {
 
       ${this._testResults.length > 0
         ? html`
-          <div class="glass-panel" style="padding: var(--space-md); margin-top: var(--space-md);">
-            <h4 style="margin-bottom: var(--space-sm);">Test Results</h4>
-            ${this._testResults.map((r) => html`
-              <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;">
-                <span>${r.passed ? '✅' : '❌'}</span>
-                <span style="flex: 1;">${r.method}</span>
-                ${r.duration != null ? html`<span style="color: var(--t-muted); font-size: 0.75rem;">${r.duration}ms</span>` : ''}
-                ${r.error ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>` : ''}
+            <div class="glass-panel" style="padding: var(--space-md); margin-top: var(--space-md);">
+              <h4 style="margin-bottom: var(--space-sm);">Test Results</h4>
+              ${this._testResults.map(
+                (r) => html`
+                  <div
+                    style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;"
+                  >
+                    <span>${r.passed ? '✅' : '❌'}</span>
+                    <span style="flex: 1;">${r.method}</span>
+                    ${r.duration != null
+                      ? html`<span style="color: var(--t-muted); font-size: 0.75rem;"
+                          >${r.duration}ms</span
+                        >`
+                      : ''}
+                    ${r.error
+                      ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>`
+                      : ''}
+                  </div>
+                `
+              )}
+              <div style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;">
+                ${this._testResults.filter((r) => r.passed).length}/${this._testResults.length}
+                passed
               </div>
-            `)}
-            <div style="margin-top: var(--space-sm); color: var(--t-muted); font-size: 0.8rem;">
-              ${this._testResults.filter((r) => r.passed).length}/${this._testResults.length} passed
             </div>
-          </div>
-        `
+          `
         : ''}
-
       ${this._renderPromptsSection()} ${this._renderResourcesSection()}
     `;
   }
@@ -2640,9 +2790,12 @@ export class BeamApp extends LitElement {
   private _handleCopyMCPConfig = async () => {
     if (!this._selectedPhoton) return;
     try {
-      const res = await fetch(`/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      const res = await fetch(
+        `/api/export/mcp-config?photon=${encodeURIComponent(this._selectedPhoton.name)}`,
+        {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        }
+      );
       if (!res.ok) throw new Error('Failed to fetch config');
       const config = await res.json();
       await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
@@ -2672,16 +2825,17 @@ export class BeamApp extends LitElement {
       showToast(`${name} upgraded${result.version ? ` to ${result.version}` : ''}`, 'success');
 
       // Clear hasUpdate flag
-      this._photons = this._photons.map((p) =>
-        p.name === name ? { ...p, hasUpdate: false } : p
-      );
+      this._photons = this._photons.map((p) => (p.name === name ? { ...p, hasUpdate: false } : p));
       this._updatesAvailable = this._updatesAvailable.filter((u) => u.name !== name);
       if (this._selectedPhoton?.name === name) {
         this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: false };
       }
     } catch (error) {
       console.warn('Upgrade failed:', error);
-      showToast(`Failed to upgrade ${name}. Check marketplace connectivity and try again.`, 'error');
+      showToast(
+        `Failed to upgrade ${name}. Check marketplace connectivity and try again.`,
+        'error'
+      );
     }
   };
 
@@ -2706,7 +2860,10 @@ export class BeamApp extends LitElement {
   private _toggleVerboseLogging = () => {
     this._verboseLogging = !this._verboseLogging;
     localStorage.setItem('beam-verbose-logging', String(this._verboseLogging));
-    showToast(this._verboseLogging ? 'Verbose logging enabled' : 'Verbose logging disabled', 'info');
+    showToast(
+      this._verboseLogging ? 'Verbose logging enabled' : 'Verbose logging disabled',
+      'info'
+    );
   };
 
   // Maker instance method handlers - operate on the current photon
@@ -2892,7 +3049,8 @@ export class BeamApp extends LitElement {
         try {
           const mcpResult = await mcpClient.callTool(toolName, msg.params?.arguments || {});
           if (mcpResult.isError) {
-            const errorText = mcpResult.content?.find((c) => c.type === 'text')?.text || 'Tool call failed';
+            const errorText =
+              mcpResult.content?.find((c) => c.type === 'text')?.text || 'Tool call failed';
             if (event.source) {
               (event.source as Window).postMessage(
                 { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: errorText } },
@@ -2930,10 +3088,7 @@ export class BeamApp extends LitElement {
       // Store model context for future conversation turns
       this._modelContext = msg.params || null;
       if (event.source) {
-        (event.source as Window).postMessage(
-          { jsonrpc: '2.0', id: msg.id, result: {} },
-          '*'
-        );
+        (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result: {} }, '*');
       }
     }
 
@@ -2995,7 +3150,7 @@ export class BeamApp extends LitElement {
       this._uploadedFiles.set(fileId, {
         data: msg.data,
         fileName: msg.fileName,
-        fileType: msg.fileType
+        fileType: msg.fileType,
       });
 
       // Send response
@@ -3034,7 +3189,7 @@ export class BeamApp extends LitElement {
         type: 'confirm',
         message: msg.template || 'Modal Request',
         elicitationId: callId,
-        ...msg.params
+        ...msg.params,
       } as ElicitationData;
       this._showElicitation = true;
 
@@ -3689,17 +3844,12 @@ export class BeamApp extends LitElement {
                       </button>
                     `
                   : ''}
-                <button
-                  class="settings-dropdown-item toggle"
-                  @click=${this._toggleVerboseLogging}
-                >
+                <button class="settings-dropdown-item toggle" @click=${this._toggleVerboseLogging}>
                   <span style="display:flex;align-items:center;gap:10px;">
                     <span class="icon">📋</span>
                     <span>Verbose Logging</span>
                   </span>
-                  <span
-                    class="toggle-switch ${this._verboseLogging ? 'active' : ''}"
-                  ></span>
+                  <span class="toggle-switch ${this._verboseLogging ? 'active' : ''}"></span>
                 </button>
                 ${showRename || showViewSource || showDelete
                   ? html` <div class="settings-dropdown-divider"></div> `
@@ -3820,21 +3970,31 @@ export class BeamApp extends LitElement {
               ? html`<span class="photon-badge">${this._selectedPhoton.version}</span>`
               : ''}
             ${this._selectedPhoton.hasUpdate
-              ? html`<span class="photon-badge update" @click=${this._handleUpgrade}>Update available</span>`
+              ? html`<span class="photon-badge update" @click=${this._handleUpgrade}
+                  >Update available</span
+                >`
               : ''}
             ${this._selectedPhoton.author
               ? html`<span class="photon-badge">${this._selectedPhoton.author}</span>`
               : ''}
             ${this._selectedPhoton.installSource
-              ? html`<span class="photon-badge source">from ${this._selectedPhoton.installSource.marketplace}</span>`
+              ? html`<span class="photon-badge source"
+                  >from ${this._selectedPhoton.installSource.marketplace}</span
+                >`
               : ''}
           </div>
           <div class="photon-header-actions">
-            <button class="btn-sm" @click=${this._handleCopyMCPConfig} title="Copy MCP config for Claude Desktop">
+            <button
+              class="btn-sm"
+              @click=${this._handleCopyMCPConfig}
+              title="Copy MCP config for Claude Desktop"
+            >
               📋 Copy MCP Config
             </button>
             ${this._selectedPhoton.hasUpdate
-              ? html`<button class="btn-sm primary" @click=${this._handleUpgrade}>⬆ Upgrade</button>`
+              ? html`<button class="btn-sm primary" @click=${this._handleUpgrade}>
+                  ⬆ Upgrade
+                </button>`
               : ''}
           </div>
         </div>

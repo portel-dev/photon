@@ -1,10 +1,9 @@
 /**
  * Photon Design System - Design Tokens
  *
- * Re-exports from @portel/photon-core for use by BEAM and frontend components.
- * The canonical token definitions (including MCP Apps standard CSS variables,
- * light/dark themes, and getThemeTokens) live in photon-core so sibling
- * projects (NCP, Lumina) get them automatically.
+ * Re-exports from @portel/photon-core's design-system subpath.
+ * Uses the subpath import to avoid pulling in Node.js dependencies
+ * (SchemaExtractor, fs, etc.) that would break browser bundling.
  */
 
 export {
@@ -47,4 +46,4 @@ export {
 
   // CSS generators
   generateTokensCSS,
-} from '@portel/photon-core';
+} from '@portel/photon-core/design-system/tokens';

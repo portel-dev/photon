@@ -217,7 +217,12 @@ interface HandlerContext {
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
-    onClientViewingBoard: (sessionId: string, photon: string, board: string, lastEventId?: number) => void;
+    onClientViewingBoard: (
+      sessionId: string,
+      photon: string,
+      board: string,
+      lastEventId?: number
+    ) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
 }
@@ -305,7 +310,9 @@ const handlers: Record<string, RequestHandler> = {
   // itemId: whatever the photon uses to identify the item (e.g., board name)
   // lastEventId: optional - for replay of missed events on reconnect
   'beam/viewing': async (req, session, ctx) => {
-    const params = req.params as { photonId?: string; itemId?: string; lastEventId?: number } | undefined;
+    const params = req.params as
+      | { photonId?: string; itemId?: string; lastEventId?: number }
+      | undefined;
     const photonId = params?.photonId;
     const itemId = params?.itemId;
     const lastEventId = params?.lastEventId;
@@ -343,14 +350,18 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
           // MCP Apps standard: _meta.ui for linked UI resources and visibility
-          ...((method.linkedUi || method.visibility) ? {
-            _meta: {
-              ui: {
-                ...(method.linkedUi ? { resourceUri: `ui://${photon.name}/${method.linkedUi}` } : {}),
-                ...(method.visibility ? { visibility: method.visibility } : {}),
-              },
-            },
-          } : {}),
+          ...(method.linkedUi || method.visibility
+            ? {
+                _meta: {
+                  ui: {
+                    ...(method.linkedUi
+                      ? { resourceUri: `ui://${photon.name}/${method.linkedUi}` }
+                      : {}),
+                    ...(method.visibility ? { visibility: method.visibility } : {}),
+                  },
+                },
+              }
+            : {}),
         });
       }
     }
@@ -697,9 +708,7 @@ const handlers: Record<string, RequestHandler> = {
         });
       } else {
         // For static methods, don't bind to instance
-        result = isStatic
-          ? await method(args || {})
-          : await method.call(mcp.instance, args || {});
+        result = isStatic ? await method(args || {}) : await method.call(mcp.instance, args || {});
       }
 
       // Handle async generators (when not using loader)
@@ -1279,7 +1288,12 @@ export interface StreamableHTTPOptions {
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
-    onClientViewingBoard: (sessionId: string, photon: string, board: string, lastEventId?: number) => void;
+    onClientViewingBoard: (
+      sessionId: string,
+      photon: string,
+      board: string,
+      lastEventId?: number
+    ) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
 }
