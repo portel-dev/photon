@@ -186,11 +186,10 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
 /**
  * Extract class-level metadata (description, icon) from JSDoc comments
  */
-async function extractClassMetadata(
-  photonPath: string
-): Promise<{ description?: string; icon?: string; internal?: boolean; version?: string; author?: string }> {
+function extractClassMetadataFromSource(
+  content: string
+): { description?: string; icon?: string; internal?: boolean; version?: string; author?: string } {
   try {
-    const content = await fs.readFile(photonPath, 'utf-8');
 
     // Find class-level JSDoc (the JSDoc immediately before class declaration)
     const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
@@ -290,10 +289,21 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
   const errorOnlyLogger = createLogger({ level: 'error' });
   const loader = new PhotonLoader(false, errorOnlyLogger);
 
-  for (const name of photonList) {
-    // Check bundled photons first, then user photons
+  // Counts updated after photon loading
+  let configuredCount = 0;
+  let unconfiguredCount = 0;
+
+  // Check for placeholder defaults or localhost URLs (which need local services running)
+  const isPlaceholderOrLocalDefault = (value: string): boolean => {
+    if (value.includes('<') || value.includes('your-')) return true;
+    if (value.includes('localhost') || value.includes('127.0.0.1')) return true;
+    return false;
+  };
+
+  // Helper: load a single photon, returning the info to push into photons[]
+  async function loadSinglePhoton(name: string): Promise<AnyPhotonInfo | null> {
     const photonPath = bundledPhotonPaths.get(name) || (await resolvePhotonPath(name, workingDir));
-    if (!photonPath) continue;
+    if (!photonPath) return null;
 
     // Apply saved config to environment before loading
     if (savedConfig.photons[name]) {
@@ -302,13 +312,14 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       }
     }
 
-    // PRE-CHECK: Extract constructor params and check if required ones are configured
+    // Read source once — used for constructor params, schema extraction, and class metadata
     const extractor = new SchemaExtractor();
     let constructorParams: ConfigParam[] = [];
     let templatePath: string | undefined;
+    let source: string | undefined;
 
     try {
-      const source = await fs.readFile(photonPath, 'utf-8');
+      source = await fs.readFile(photonPath, 'utf-8');
       const params = extractor.extractConstructorParams(source);
 
       constructorParams = params
@@ -339,15 +350,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
     );
 
-    // Check for placeholder defaults or localhost URLs (which need local services running)
-    const isPlaceholderOrLocalDefault = (value: string): boolean => {
-      // Common placeholder patterns
-      if (value.includes('<') || value.includes('your-')) return true;
-      // Localhost URLs that need local services
-      if (value.includes('localhost') || value.includes('127.0.0.1')) return true;
-      return false;
-    };
-
     const hasPlaceholderDefaults = constructorParams.some(
       (p) =>
         p.hasDefault &&
@@ -355,7 +357,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         isPlaceholderOrLocalDefault(p.defaultValue)
     );
 
-    // If required params missing OR has placeholder/localhost defaults without env override, mark as unconfigured
     const needsConfig =
       missingRequired.length > 0 ||
       (hasPlaceholderDefaults &&
@@ -368,7 +369,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         ));
 
     if (needsConfig && constructorParams.length > 0) {
-      photons.push({
+      return {
         id: generatePhotonId(photonPath),
         name,
         path: photonPath,
@@ -378,9 +379,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           missingRequired.length > 0
             ? `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`
             : 'Has placeholder values that need configuration',
-      });
-
-      continue;
+      };
     }
 
     // All params satisfied, try to load with timeout
@@ -394,15 +393,15 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const instance = mcp.instance;
 
       if (!instance) {
-        continue;
+        return null;
       }
 
       photonMCPs.set(name, mcp);
 
-      // Extract schema for UI - use extractAllFromSource to get both tools and templates
-      const source = await fs.readFile(photonPath, 'utf-8');
-      const { tools: schemas, templates } = extractor.extractAllFromSource(source);
-      (mcp as any).schemas = schemas; // Store schemas for result rendering
+      // Extract schema for UI — reuse source read from above
+      const schemaSource = source || await fs.readFile(photonPath, 'utf-8');
+      const { tools: schemas, templates } = extractor.extractAllFromSource(schemaSource);
+      (mcp as any).schemas = schemas;
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
@@ -412,7 +411,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       const methods: MethodInfo[] = schemas
         .filter((schema: any) => !lifecycleMethods.includes(schema.name))
         .map((schema: any) => {
-          // Find linked UI for this method
           const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
           return {
             name: schema.name,
@@ -437,7 +435,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             params: template.inputSchema || { type: 'object', properties: {}, required: [] },
             returns: { type: 'object' },
             isTemplate: true,
-            outputFormat: 'markdown', // Templates return markdown by default
+            outputFormat: 'markdown',
           });
         }
       });
@@ -445,8 +443,8 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Check if this is an App (has main() method with @ui)
       const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
-      // Extract class-level metadata (description, icon, version, author) from JSDoc
-      const classMetadata = await extractClassMetadata(photonPath);
+      // Extract class-level metadata — reuse source already read
+      const classMetadata = extractClassMetadataFromSource(schemaSource);
 
       // Count resources and prompts
       const resourceCount = mcp.assets?.resources?.length || 0;
@@ -465,7 +463,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             marketplace: installMeta.marketplace,
             installedAt: installMeta.installedAt,
           };
-          // Use marketplace version/author if not set in JSDoc
           if (!metaVersion && installMeta.version) {
             metaVersion = installMeta.version;
           }
@@ -474,7 +471,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         // No install metadata - that's fine
       }
 
-      photons.push({
+      return {
         id: generatePhotonId(photonPath),
         name,
         path: photonPath,
@@ -492,28 +489,25 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         resourceCount,
         promptCount,
         installSource,
-      });
+      };
     } catch (error) {
-      // Loading failed - show as unconfigured if we have params, otherwise skip silently
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       if (constructorParams.length > 0) {
-        photons.push({
+        return {
           id: generatePhotonId(photonPath),
           name,
           path: photonPath,
           configured: false,
           requiredParams: constructorParams,
           errorMessage: errorMsg.slice(0, 200),
-        });
+        };
       }
-      // Skip photons without constructor params that fail to load
+      return null;
     }
   }
 
-  // Count configured vs unconfigured
-  const configuredCount = photons.filter((p) => p.configured).length;
-  const unconfiguredCount = photons.filter((p) => !p.configured).length;
+  // Photon loading is deferred until after server.listen() — see end of startBeam()
 
   // ══════════════════════════════════════════════════════════════════════════════
   // DYNAMIC SUBSCRIPTION MANAGEMENT (Reference Counting)
@@ -2224,7 +2218,65 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     logger.warn(`File watching not available: ${error}`);
   }
 
-  // Watch symlinked photon asset folders (symlinks aren't followed by fs.watch)
+  // Symlinked and bundled photon watchers are set up after photon loading (see below)
+
+  // Bind to 0.0.0.0 for tunnel access, with port fallback
+  // Start server BEFORE loading photons so the UI is immediately reachable
+  const maxPortAttempts = 10;
+  let currentPort = port;
+
+  await new Promise<void>((resolve) => {
+    const tryListen = (): void => {
+      server.once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE' && currentPort < port + maxPortAttempts) {
+          currentPort++;
+          console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
+          tryListen();
+        } else if (err.code === 'EADDRINUSE') {
+          console.error(`\n❌ No available port found (tried ${port}-${currentPort}). Exiting.\n`);
+          process.exit(1);
+        } else {
+          console.error(`\n❌ Server error: ${err.message}\n`);
+          process.exit(1);
+        }
+      });
+
+      server.listen(currentPort, '0.0.0.0', () => {
+        process.env.BEAM_PORT = String(currentPort);
+        const url = `http://localhost:${currentPort}`;
+        console.log(`\n⚡ Photon Beam → ${url} (loading photons...)\n`);
+        resolve();
+      });
+    };
+
+    tryListen();
+  });
+
+  // Load photons in parallel batches (server is already listening)
+  const LOAD_CONCURRENCY = 4;
+  for (let i = 0; i < photonList.length; i += LOAD_CONCURRENCY) {
+    const batch = photonList.slice(i, i + LOAD_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map((name) => loadSinglePhoton(name)));
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        photons.push(result.value);
+      }
+    }
+  }
+
+  configuredCount = photons.filter((p) => p.configured).length;
+  unconfiguredCount = photons.filter((p) => !p.configured).length;
+
+  const status =
+    unconfiguredCount > 0
+      ? `${configuredCount} ready, ${unconfiguredCount} need setup`
+      : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
+  console.log(`⚡ Photon Beam ready (${status})`);
+
+  // Notify connected clients that photon list is now available
+  broadcastPhotonChange();
+
+  // Set up file watchers for symlinked and bundled photon assets (now that photons are loaded)
   for (const photon of photons) {
     if (!photon.path) {
       logger.debug(`⏭️ Skipping ${photon.name}: no path`);
@@ -2240,8 +2292,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         if (existsSync(assetFolder)) {
           const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
             if (filename) {
-              // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
-              // Data files like boards/*.json, data.json should not trigger reload
               if (
                 filename.endsWith('.json') ||
                 filename.startsWith('boards/') ||
@@ -2275,7 +2325,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     const photonDir = path.dirname(photonPath);
     const isInWorkingDir = photonDir.startsWith(workingDir);
 
-    // Log if bundled photon is in working directory (covered by main watcher)
     if (isInWorkingDir) {
       const assetFolder = path.join(photonDir, photonName);
       if (existsSync(assetFolder)) {
@@ -2284,7 +2333,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       continue;
     }
 
-    // Watch the photon file itself
     try {
       const photonWatcher = watch(photonPath, (eventType) => {
         if (eventType === 'change') {
@@ -2297,12 +2345,10 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Ignore errors
     }
 
-    // Watch the asset folder if it exists
     const assetFolder = path.join(photonDir, photonName);
     try {
       const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
         if (filename) {
-          // Ignore data files - only hot reload for UI assets (html, css, js, etc.)
           if (
             filename.endsWith('.json') ||
             filename.startsWith('boards/') ||
@@ -2322,40 +2368,6 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       // Asset folder doesn't exist or can't be watched - that's okay
     }
   }
-
-  // Bind to 0.0.0.0 for tunnel access, with port fallback
-  const maxPortAttempts = 10;
-  let currentPort = port;
-
-  const tryListen = (): void => {
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && currentPort < port + maxPortAttempts) {
-        currentPort++;
-        console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
-        tryListen();
-      } else if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ No available port found (tried ${port}-${currentPort}). Exiting.\n`);
-        process.exit(1);
-      } else {
-        console.error(`\n❌ Server error: ${err.message}\n`);
-        process.exit(1);
-      }
-    });
-
-    server.listen(currentPort, '0.0.0.0', () => {
-      // Set port for bundled photons (e.g., tunnel) to discover
-      process.env.BEAM_PORT = String(currentPort);
-
-      const url = `http://localhost:${currentPort}`;
-      const status =
-        unconfiguredCount > 0
-          ? `${configuredCount} ready, ${unconfiguredCount} need setup`
-          : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
-      console.log(`\n⚡ Photon Beam → ${url} (${status})\n`);
-    });
-  };
-
-  tryListen();
 }
 
 /**
