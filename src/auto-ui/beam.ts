@@ -246,6 +246,59 @@ function extractClassMetadataFromSource(
   }
 }
 
+/**
+ * Extract @visibility annotations from method-level JSDoc and apply to methods
+ * @visibility model,app → ['model', 'app']
+ */
+function applyMethodVisibility(source: string, methods: MethodInfo[]): void {
+  const regex = /\/\*\*[\s\S]*?@visibility\s+([\w,\s]+)[\s\S]*?\*\/\s*(?:async\s+)?\*?\s*(\w+)/g;
+  let match;
+  while ((match = regex.exec(source)) !== null) {
+    const [, visibilityStr, methodName] = match;
+    const method = methods.find((m) => m.name === methodName);
+    if (method) {
+      method.visibility = visibilityStr
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v): v is 'model' | 'app' => v === 'model' || v === 'app');
+    }
+  }
+}
+
+/**
+ * Extract @csp annotations from class-level JSDoc
+ * @csp connect domain1,domain2
+ * @csp resource cdn.example.com
+ */
+function extractCspFromSource(source: string): Record<string, { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[]; baseUriDomains?: string[] }> {
+  const result: Record<string, any> = {};
+
+  // Match class-level JSDoc with @csp tags
+  const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+(\w+)/g;
+  let classMatch;
+  while ((classMatch = classDocRegex.exec(source)) !== null) {
+    const docContent = classMatch[1];
+    const csp: any = {};
+    let hasCsp = false;
+
+    const cspRegex = /@csp\s+(connect|resource|frame|base-uri)\s+([^\n@]+)/g;
+    let cspMatch;
+    while ((cspMatch = cspRegex.exec(docContent)) !== null) {
+      hasCsp = true;
+      const directive = cspMatch[1].trim();
+      const domains = cspMatch[2].trim().split(/[,\s]+/).filter(Boolean);
+      const key = directive === 'base-uri' ? 'baseUriDomains' : `${directive}Domains`;
+      csp[key] = (csp[key] || []).concat(domains);
+    }
+
+    if (hasCsp) {
+      result['__class__'] = csp;
+    }
+  }
+
+  return result;
+}
+
 export async function startBeam(workingDir: string, port: number): Promise<void> {
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
@@ -440,11 +493,22 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         }
       });
 
+      // Apply @visibility annotations from source to methods
+      applyMethodVisibility(schemaSource, methods);
+
       // Check if this is an App (has main() method with @ui)
       const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
+
+      // Extract class-level @csp metadata and apply to all UI assets
+      const cspData = extractCspFromSource(schemaSource);
+      if (cspData['__class__'] && mcp.assets?.ui) {
+        for (const uiAsset of mcp.assets.ui) {
+          (uiAsset as any).csp = cspData['__class__'];
+        }
+      }
 
       // Count resources and prompts
       const resourceCount = mcp.assets?.resources?.length || 0;
@@ -2116,6 +2180,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             }
           });
 
+          // Apply @visibility annotations
+          applyMethodVisibility(reloadSource, methods);
+
           // Check if this is an App (has main() method with @ui)
           const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
@@ -2451,6 +2518,9 @@ async function configurePhotonViaMCP(
       }
     });
 
+    // Apply @visibility annotations
+    applyMethodVisibility(configSource, methods);
+
     // Check if this is an App
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
     const isApp = !!mainMethod;
@@ -2561,6 +2631,9 @@ async function reloadPhotonViaMCP(
         });
       }
     });
+
+    // Apply @visibility annotations
+    applyMethodVisibility(reloadSrc, methods);
 
     // Check if this is an App
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);

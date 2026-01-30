@@ -342,11 +342,12 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
-          // MCP Apps standard: _meta.ui for linked UI resources
-          ...(method.linkedUi ? {
+          // MCP Apps standard: _meta.ui for linked UI resources and visibility
+          ...((method.linkedUi || method.visibility) ? {
             _meta: {
               ui: {
-                resourceUri: `ui://${photon.name}/${method.linkedUi}`,
+                ...(method.linkedUi ? { resourceUri: `ui://${photon.name}/${method.linkedUi}` } : {}),
+                ...(method.visibility ? { visibility: method.visibility } : {}),
               },
             },
           } : {}),
@@ -451,7 +452,18 @@ const handlers: Record<string, RequestHandler> = {
       },
     });
 
-    return { jsonrpc: '2.0', id: req.id, result: { tools } };
+    // Filter out app-only tools for external (non-Beam) MCP clients
+    const visibleTools = session.isBeam
+      ? tools
+      : tools.filter((t) => {
+          const vis = (t as any)._meta?.ui?.visibility;
+          if (vis && Array.isArray(vis) && vis.includes('app') && !vis.includes('model')) {
+            return false;
+          }
+          return true;
+        });
+
+    return { jsonrpc: '2.0', id: req.id, result: { tools: visibleTools } };
   },
 
   'tools/call': async (req, session, ctx) => {

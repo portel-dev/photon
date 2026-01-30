@@ -1356,6 +1356,7 @@ export class BeamApp extends LitElement {
 
   // File storage for ChatGPT Apps SDK uploadFile/getFileDownloadUrl
   private _uploadedFiles = new Map<string, { data: string; fileName: string; fileType: string }>();
+  private _modelContext: any = null;
   private _fileIdCounter = 0;
 
   // Deep link URL for setOpenInAppUrl
@@ -1636,6 +1637,15 @@ export class BeamApp extends LitElement {
         this._forwardToIframes({
           jsonrpc: '2.0',
           method: 'ui/notifications/tool-result',
+          params,
+        });
+      });
+
+      // MCP Apps standard: forward ui/notifications/tool-input-partial to iframes as JSON-RPC
+      mcpClient.on('ui-tool-input-partial', (params: any) => {
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-input-partial',
           params,
         });
       });
@@ -2343,6 +2353,8 @@ export class BeamApp extends LitElement {
   }
 
   private _handleMethodSelect(e: CustomEvent) {
+    // Teardown any active custom-ui-renderer before switching methods
+    this._teardownActiveCustomUI();
     this._selectedMethod = e.detail.method;
     this._lastResult = null;
     this._view = 'form';
@@ -2356,6 +2368,16 @@ export class BeamApp extends LitElement {
    * Check if method is an HTML UI that should show in minimal "UI mode"
    * (no form controls, just the rendered HTML)
    */
+  /**
+   * Trigger teardown on any active custom-ui-renderer before switching methods
+   */
+  private _teardownActiveCustomUI(): void {
+    const renderer = this.shadowRoot?.querySelector('custom-ui-renderer') as any;
+    if (renderer?.teardown) {
+      renderer.teardown().catch(() => {});
+    }
+  }
+
   private _isHtmlUiMode(): boolean {
     if (!this._selectedMethod) return false;
 
@@ -2809,6 +2831,23 @@ export class BeamApp extends LitElement {
           }
         }
       }
+    }
+
+    // MCP Apps standard: JSON-RPC ui/update-model-context from iframes
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/update-model-context' && msg.id != null) {
+      // Store model context for future conversation turns
+      this._modelContext = msg.params || null;
+      if (event.source) {
+        (event.source as Window).postMessage(
+          { jsonrpc: '2.0', id: msg.id, result: {} },
+          '*'
+        );
+      }
+    }
+
+    // MCP Apps standard: JSON-RPC ui/ready from iframes (acknowledgement)
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/ready') {
+      // iframe bridge is ready — no action needed
     }
 
     // Handle app state persistence

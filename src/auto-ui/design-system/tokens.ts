@@ -648,5 +648,115 @@ export function getThemeTokens(theme: 'light' | 'dark'): Record<string, string> 
     '--input': themeColors.surfaceContainerHigh,
     '--input-border': themeColors.outline,
     '--ring': themeColors.primary,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MCP APPS STANDARD CSS VARIABLES (2026-01-26 spec)
+    // Maps standard names to closest Photon semantic tokens.
+    // Both Photon-native and standard MCP Apps names are emitted.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // --- Background Colors ---
+    '--color-background-primary': themeColors.surface,
+    '--color-background-secondary': themeColors.surfaceContainer,
+    '--color-background-tertiary': themeColors.surfaceContainerHigh,
+    '--color-background-inverse': themeColors.surfaceBright,
+    '--color-background-brand': themeColors.primary,
+    '--color-background-info': themeColors.primaryContainer,
+    '--color-background-danger': themeColors.errorContainer,
+    '--color-background-success': themeColors.successContainer,
+    '--color-background-warning': themeColors.warningContainer,
+    '--color-background-disabled': themeColors.surfaceContainerHigh,
+
+    // --- Text Colors ---
+    '--color-text-primary': themeColors.onSurface,
+    '--color-text-secondary': themeColors.onSurfaceVariant,
+    '--color-text-tertiary': themeColors.onSurfaceMuted,
+    '--color-text-inverse': themeColors.onPrimary,
+    '--color-text-brand': themeColors.primary,
+    '--color-text-info': themeColors.primary,
+    '--color-text-danger': themeColors.error,
+    '--color-text-success': themeColors.success,
+    '--color-text-warning': themeColors.warning,
+    '--color-text-disabled': themeColors.onSurfaceMuted,
+    '--color-text-link': themeColors.primary,
+    '--color-text-on-brand': themeColors.onPrimary,
+    '--color-text-on-info': themeColors.onPrimaryContainer,
+    '--color-text-on-danger': themeColors.onErrorContainer,
+    '--color-text-on-success': themeColors.onSuccessContainer,
+    '--color-text-on-warning': themeColors.onWarningContainer,
+
+    // --- Border Colors ---
+    '--color-border-primary': themeColors.outline,
+    '--color-border-secondary': themeColors.outlineVariant,
+    '--color-border-brand': themeColors.primary,
+    '--color-border-info': themeColors.primary,
+    '--color-border-danger': themeColors.error,
+    '--color-border-success': themeColors.success,
+    '--color-border-warning': themeColors.warning,
+    '--color-border-disabled': themeColors.outlineVariant,
+    '--color-border-focus': themeColors.primary,
+
+    // --- Ring (focus) ---
+    '--color-ring-brand': themeColors.primary,
+    '--color-ring-danger': themeColors.error,
+
+    // --- Icon Colors ---
+    '--color-icon-primary': themeColors.onSurface,
+    '--color-icon-secondary': themeColors.onSurfaceVariant,
+    '--color-icon-brand': themeColors.primary,
+    '--color-icon-info': themeColors.primary,
+    '--color-icon-danger': themeColors.error,
+    '--color-icon-success': themeColors.success,
+    '--color-icon-warning': themeColors.warning,
+
+    // --- Font Weights ---
+    '--font-weight-normal': fontWeight.regular,
+    '--font-weight-medium': fontWeight.medium,
+    '--font-weight-semibold': fontWeight.semibold,
+    '--font-weight-bold': fontWeight.bold,
+
+    // --- Font Text Sizes ---
+    '--font-text-xs-size': fontSize['label-sm'],
+    '--font-text-xs-line-height': lineHeight['label-sm'],
+    '--font-text-sm-size': fontSize['body-sm'],
+    '--font-text-sm-line-height': lineHeight['body-sm'],
+    '--font-text-md-size': fontSize['body-md'],
+    '--font-text-md-line-height': lineHeight['body-md'],
+    '--font-text-lg-size': fontSize['body-lg'],
+    '--font-text-lg-line-height': lineHeight['body-lg'],
+
+    // --- Font Heading Sizes ---
+    '--font-heading-xs-size': fontSize['title-sm'],
+    '--font-heading-xs-line-height': lineHeight['title-sm'],
+    '--font-heading-sm-size': fontSize['title-md'],
+    '--font-heading-sm-line-height': lineHeight['title-md'],
+    '--font-heading-md-size': fontSize['title-lg'],
+    '--font-heading-md-line-height': lineHeight['title-lg'],
+    '--font-heading-lg-size': fontSize['headline-sm'],
+    '--font-heading-lg-line-height': lineHeight['headline-sm'],
+    '--font-heading-xl-size': fontSize['headline-md'],
+    '--font-heading-xl-line-height': lineHeight['headline-md'],
+    '--font-heading-2xl-size': fontSize['headline-lg'],
+    '--font-heading-2xl-line-height': lineHeight['headline-lg'],
+    '--font-heading-3xl-size': fontSize['display-sm'],
+    '--font-heading-3xl-line-height': lineHeight['display-sm'],
+
+    // --- Border Radius ---
+    '--border-radius-xs': '4px',
+    '--border-radius-sm': radius.sm,
+    '--border-radius-md': radius.md,
+    '--border-radius-lg': radius.lg,
+    '--border-radius-xl': radius.xl,
+    '--border-radius-full': radius.full,
+
+    // --- Shadows ---
+    '--shadow-hairline': `0 0 0 1px ${themeColors.outlineVariant}`,
+    '--shadow-sm': elevation['1'],
+    '--shadow-md': elevation['2'],
+    '--shadow-lg': elevation['3'],
+
+    // --- Border Width ---
+    '--border-width-regular': '1px',
+    '--border-width-thick': '2px',
   };
 }

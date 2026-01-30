@@ -32,7 +32,7 @@ interface MCPTool {
   'x-output-format'?: string;
   'x-layout-hints'?: Record<string, string>;
   'x-button-label'?: string;
-  _meta?: { ui?: { resourceUri?: string } };
+  _meta?: { ui?: { resourceUri?: string; visibility?: string[] } };
 }
 
 interface MCPResource {
@@ -93,7 +93,8 @@ type MCPEventType =
   | 'operation-queued' // Operation queued for retry
   | 'queue-processed' // Queued operations processed
   | 'ui-tool-result' // MCP Apps: tool result notification
-  | 'ui-tool-input'; // MCP Apps: tool input notification
+  | 'ui-tool-input' // MCP Apps: tool input notification
+  | 'ui-tool-input-partial'; // MCP Apps: partial tool input (streaming)
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -683,6 +684,7 @@ class MCPClientService {
         layoutHints: tool['x-layout-hints'],
         buttonLabel: tool['x-button-label'],
         linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+        visibility: tool._meta?.ui?.visibility,
       });
     }
 
@@ -877,6 +879,10 @@ class MCPClientService {
 
       case 'ui/notifications/tool-input':
         this.emit('ui-tool-input', notification.params);
+        break;
+
+      case 'ui/notifications/tool-input-partial':
+        this.emit('ui-tool-input-partial', notification.params);
         break;
 
       default:

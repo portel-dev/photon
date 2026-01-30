@@ -114,6 +114,12 @@ export class CustomUiRenderer extends LitElement {
   @property({ type: String }) photon = '';
   @property({ type: String }) method = '';
   @property({ type: String }) theme: Theme = 'dark';
+  @property({ type: Object }) csp?: {
+    connectDomains?: string[];
+    resourceDomains?: string[];
+    frameDomains?: string[];
+    baseUriDomains?: string[];
+  };
 
   // One of these will be set (in order of preference)
   @property({ type: String }) uiUri = ''; // MCP Apps: ui://photon/id
@@ -192,13 +198,34 @@ export class CustomUiRenderer extends LitElement {
       if (!bridgeRes.ok) throw new Error('Failed to load platform bridge');
       const bridgeScript = await bridgeRes.text();
 
-      // 3. Inject Bridge
-      // We inject it right before </head>, or at the top if no head
+      // 3. Build CSP meta tag if CSP metadata is provided
+      let cspTag = '';
+      if (this.csp) {
+        const directives: string[] = ["default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'"];
+        if (this.csp.connectDomains?.length) {
+          directives.push(`connect-src 'self' ${this.csp.connectDomains.join(' ')}`);
+        }
+        if (this.csp.resourceDomains?.length) {
+          directives.push(`img-src 'self' ${this.csp.resourceDomains.join(' ')}`);
+          directives.push(`media-src 'self' ${this.csp.resourceDomains.join(' ')}`);
+          directives.push(`font-src 'self' ${this.csp.resourceDomains.join(' ')}`);
+        }
+        if (this.csp.frameDomains?.length) {
+          directives.push(`frame-src 'self' ${this.csp.frameDomains.join(' ')}`);
+        }
+        if (this.csp.baseUriDomains?.length) {
+          directives.push(`base-uri ${this.csp.baseUriDomains.join(' ')}`);
+        }
+        cspTag = `<meta http-equiv="Content-Security-Policy" content="${directives.join('; ')}">`;
+      }
+
+      // 4. Inject Bridge (and CSP if present)
+      const injected = cspTag + bridgeScript;
       let finalHtml = templateHtml;
       if (finalHtml.includes('</head>')) {
-        finalHtml = finalHtml.replace('</head>', `${bridgeScript}</head>`);
+        finalHtml = finalHtml.replace('</head>', `${injected}</head>`);
       } else {
-        finalHtml = `<html><head>${bridgeScript}</head><body>${finalHtml}</body></html>`;
+        finalHtml = `<html><head>${injected}</head><body>${finalHtml}</body></html>`;
       }
 
       this._srcDoc = finalHtml;
@@ -262,6 +289,39 @@ export class CustomUiRenderer extends LitElement {
         @load=${this._handleIframeLoad}
       ></iframe>
     `;
+  }
+
+  /**
+   * Send ui/resource-teardown to iframe and wait for response (max 3s).
+   * Returns a promise that resolves when teardown completes or times out.
+   */
+  async teardown(): Promise<void> {
+    if (!this._iframeRef?.contentWindow) return;
+
+    const callId = `teardown_${Date.now()}`;
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 3000);
+      const handler = (e: MessageEvent) => {
+        const msg = e.data;
+        if (msg?.jsonrpc === '2.0' && msg?.id === callId && !msg.method) {
+          clearTimeout(timeout);
+          window.removeEventListener('message', handler);
+          resolve();
+        }
+      };
+      window.addEventListener('message', handler);
+
+      this._iframeRef!.contentWindow!.postMessage(
+        { jsonrpc: '2.0', id: callId, method: 'ui/resource-teardown', params: {} },
+        '*'
+      );
+    });
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Fire-and-forget teardown on unmount
+    this.teardown().catch(() => {});
   }
 
   private _handleIframeLoad(e: Event) {

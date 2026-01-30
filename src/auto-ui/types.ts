@@ -66,6 +66,8 @@ export interface MethodInfo {
   linkedUi?: string;
   /** True if this is an MCP prompt template (@template tag) */
   isTemplate?: boolean;
+  /** Tool visibility: 'model' (visible to LLM), 'app' (callable by UI only) */
+  visibility?: ('model' | 'app')[];
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -173,6 +175,13 @@ export interface UIAssetInfo {
   mimeType?: string;
   /** Linked tool name if this UI is for a specific method */
   linkedTool?: string;
+  /** Content Security Policy metadata from @csp JSDoc tag */
+  csp?: {
+    connectDomains?: string[];
+    resourceDomains?: string[];
+    frameDomains?: string[];
+    baseUriDomains?: string[];
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

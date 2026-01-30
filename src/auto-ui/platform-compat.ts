@@ -112,6 +112,7 @@ export interface PlatformContext {
   method: string;
   hostName: string;
   hostVersion: string;
+  safeAreaInsets?: { top: number; bottom: number; left: number; right: number };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -150,11 +151,14 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     status: [],
     stream: [],
     emit: [],
+    toolInputPartial: [],
+    toolInput: [],
     result: [],
     error: [],
     themeChange: []
   };
   var elicitationHandler = null;
+  var teardownHandler = null;
 
   function subscribe(arr, cb) {
     arr.push(cb);
@@ -196,12 +200,27 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         themeTokens = m.params.theme || themeTokens;
         applyThemeTokens();
       }
+      else if (m.method === 'ui/notifications/tool-input-partial') {
+        listeners.toolInputPartial.forEach(function(cb) { cb(m.params); });
+      }
       else if (m.method === 'ui/notifications/tool-input') {
         toolInput = m.params.input || {};
+        listeners.toolInput.forEach(function(cb) { cb(m.params); });
       }
       else if (m.method === 'ui/notifications/tool-result') {
         toolOutput = m.params.result;
         listeners.result.forEach(function(cb) { cb(m.params.result); });
+      }
+      else if (m.method === 'ui/resource-teardown' && m.id != null) {
+        var teardownResult = teardownHandler ? teardownHandler() : undefined;
+        var sendTeardownResponse = function() {
+          postToHost({ jsonrpc: '2.0', id: m.id, result: {} });
+        };
+        if (teardownResult && typeof teardownResult.then === 'function') {
+          teardownResult.then(sendTeardownResponse).catch(sendTeardownResponse);
+        } else {
+          sendTeardownResponse();
+        }
       }
       else if (m.method === 'ui/notifications/context') {
         Object.assign(ctx, m.params);
@@ -328,6 +347,12 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     for (var key in themeTokens) {
       root.style.setProperty(key, themeTokens[key]);
     }
+    // Set safe area inset CSS variables
+    var insets = ctx.safeAreaInsets || { top: 0, bottom: 0, left: 0, right: 0 };
+    root.style.setProperty('--safe-area-inset-top', insets.top + 'px');
+    root.style.setProperty('--safe-area-inset-bottom', insets.bottom + 'px');
+    root.style.setProperty('--safe-area-inset-left', insets.left + 'px');
+    root.style.setProperty('--safe-area-inset-right', insets.right + 'px');
     applyThemeClass();
   }
 
@@ -407,7 +432,33 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     onResult: function(cb) { return subscribe(listeners.result, cb); },
     onError: function(cb) { return subscribe(listeners.error, cb); },
     onThemeChange: function(cb) { return subscribe(listeners.themeChange, cb); },
+    onToolInputPartial: function(cb) { return subscribe(listeners.toolInputPartial, cb); },
+    onToolInput: function(cb) { return subscribe(listeners.toolInput, cb); },
     onElicitation: function(h) { elicitationHandler = h; return function() { elicitationHandler = null; }; },
+    onTeardown: function(h) { teardownHandler = h; return function() { teardownHandler = null; }; },
+
+    updateModelContext: function(opts) {
+      var callId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[callId] = { resolve: resolve, reject: reject };
+        postToHost({
+          jsonrpc: '2.0',
+          id: callId,
+          method: 'ui/update-model-context',
+          params: { content: opts.content, structuredContent: opts.structuredContent }
+        });
+        setTimeout(function() {
+          if (pendingCalls[callId]) {
+            delete pendingCalls[callId];
+            reject(new Error('Model context update timeout'));
+          }
+        }, 10000);
+      });
+    },
+
+    get safeAreaInsets() {
+      return ctx.safeAreaInsets || { top: 0, bottom: 0, left: 0, right: 0 };
+    },
 
     callTool: callTool,
     invoke: callTool, // Alias for callTool - used by custom UI templates
@@ -638,6 +689,7 @@ export function createMcpAppsInitialize(
         height: dimensions.height,
       },
       theme: getThemeTokens(context.theme),
+      ...(context.safeAreaInsets ? { safeAreaInsets: context.safeAreaInsets } : {}),
     },
   };
 }
