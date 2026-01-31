@@ -586,6 +586,24 @@ class MCPClientService {
   }
 
   /**
+   * Get rich help documentation for a photon via beam/photon-help tool
+   */
+  async getPhotonHelp(photonName: string): Promise<string | null> {
+    try {
+      const result = await this.callTool('beam/photon-help', { photon: photonName });
+
+      if (result.isError) {
+        return null;
+      }
+
+      const textContent = result.content.find((c) => c.type === 'text');
+      return textContent?.text || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Update photon or method metadata via beam/update-metadata tool
    */
   async updateMetadata(

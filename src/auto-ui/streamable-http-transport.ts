@@ -214,6 +214,7 @@ interface HandlerContext {
     methodName: string | null,
     metadata: Record<string, any>
   ) => Promise<{ success: boolean; error?: string }>;
+  generatePhotonHelp?: (photonName: string) => Promise<string>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
@@ -437,6 +438,21 @@ const handlers: Record<string, RequestHandler> = {
     });
 
     tools.push({
+      name: 'beam/photon-help',
+      description: 'Get rich documentation for a photon',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photon: {
+            type: 'string',
+            description: 'Name of the photon to get help for',
+          },
+        },
+        required: ['photon'],
+      },
+    });
+
+    tools.push({
       name: 'beam/update-metadata',
       description: 'Update photon or method metadata (icon, description)',
       inputSchema: {
@@ -502,6 +518,10 @@ const handlers: Record<string, RequestHandler> = {
 
     if (name === 'beam/update-metadata') {
       return handleBeamUpdateMetadata(req, ctx, args || {});
+    }
+
+    if (name === 'beam/photon-help') {
+      return handleBeamPhotonHelp(req, ctx, args || {});
     }
 
     // Parse tool name: photon-name/method-name
@@ -1264,6 +1284,61 @@ async function handleBeamUpdateMetadata(
   }
 }
 
+/**
+ * Handle beam/photon-help tool - get rich documentation for a photon
+ */
+async function handleBeamPhotonHelp(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { photon: photonName } = args as { photon: string };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!ctx.generatePhotonHelp) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Help generation not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const markdown = await ctx.generatePhotonHelp(photonName);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: markdown }],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error generating help: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // HTTP HANDLER
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1285,6 +1360,7 @@ export interface StreamableHTTPOptions {
     methodName: string | null,
     metadata: Record<string, any>
   ) => Promise<{ success: boolean; error?: string }>;
+  generatePhotonHelp?: (photonName: string) => Promise<string>;
   loader?: { executeTool: (mcp: any, toolName: string, args: any, options?: any) => Promise<any> };
   broadcast?: (message: object) => void;
   subscriptionManager?: {
@@ -1403,6 +1479,7 @@ export async function handleStreamableHTTP(
       reloadPhoton: options.reloadPhoton,
       removePhoton: options.removePhoton,
       updateMetadata: options.updateMetadata,
+      generatePhotonHelp: options.generatePhotonHelp,
       loader: options.loader,
       broadcast: options.broadcast,
       subscriptionManager: options.subscriptionManager,

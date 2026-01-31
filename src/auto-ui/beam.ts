@@ -32,6 +32,8 @@ import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
+import { PhotonDocExtractor } from '../photon-doc-extractor.js';
+import { TemplateManager } from '../template-manager.js';
 import { subscribeChannel, pingDaemon } from '../daemon/client.js';
 import {
   SchemaExtractor,
@@ -891,6 +893,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           metadata: Record<string, any>
         ) => {
           return updateMetadataViaMCP(photonName, methodName, metadata, photons);
+        },
+        generatePhotonHelp: async (photonName: string) => {
+          return generatePhotonHelpMarkdown(photonName, photons);
         },
         loader, // Pass loader for proper execution context (this.emit() support)
         subscriptionManager, // For on-demand channel subscriptions
@@ -2780,4 +2785,56 @@ async function updateMetadataViaMCP(
   }
 
   return { success: true };
+}
+
+/**
+ * Generate rich help markdown for a photon using PhotonDocExtractor + TemplateManager.
+ * Checks for an existing .md file first; generates and saves one if missing.
+ */
+async function generatePhotonHelpMarkdown(
+  photonName: string,
+  photons: AnyPhotonInfo[]
+): Promise<string> {
+  const photon = photons.find((p) => p.name === photonName);
+  if (!photon) {
+    throw new Error(`Photon not found: ${photonName}`);
+  }
+
+  if (!photon.path) {
+    throw new Error(`Photon path not available: ${photonName}`);
+  }
+
+  const sourceDir = path.dirname(photon.path);
+  const mdPath = path.join(sourceDir, `${photonName}.md`);
+
+  // Check if .md file already exists
+  try {
+    const existing = await fs.readFile(mdPath, 'utf-8');
+    if (existing.trim()) {
+      return existing;
+    }
+  } catch {
+    // File doesn't exist - generate it
+  }
+
+  // Extract metadata and render template
+  const extractor = new PhotonDocExtractor(photon.path);
+  const metadata = await extractor.extractFullMetadata();
+
+  // Use TemplateManager to render the photon.md template
+  const templateMgr = new TemplateManager(sourceDir);
+  await templateMgr.ensureTemplates();
+
+  const markdown = await templateMgr.renderTemplate('photon.md', metadata);
+
+  // Try to save the generated .md file for future use
+  try {
+    await fs.writeFile(mdPath, markdown, 'utf-8');
+    logger.info(`📄 Generated help doc: ${mdPath}`);
+  } catch {
+    // Write may fail for bundled/read-only photons - that's fine
+    logger.debug(`Could not save help doc to ${mdPath} (read-only?)`);
+  }
+
+  return markdown;
 }

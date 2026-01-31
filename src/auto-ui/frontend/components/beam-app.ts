@@ -1366,6 +1366,8 @@ export class BeamApp extends LitElement {
   @state() private _theme: Theme = 'dark';
   @state() private _showHelp = false;
   @state() private _showPhotonHelp = false;
+  @state() private _photonHelpMarkdown = '';
+  @state() private _photonHelpLoading = false;
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
@@ -3596,9 +3598,22 @@ export class BeamApp extends LitElement {
     this._showHelp = true;
   };
 
-  private _showPhotonHelpModal = () => {
+  private _showPhotonHelpModal = async () => {
     this._closeSettingsMenu();
+    this._photonHelpMarkdown = '';
+    this._photonHelpLoading = true;
     this._showPhotonHelp = true;
+
+    if (this._selectedPhoton) {
+      const markdown = await mcpClient.getPhotonHelp(this._selectedPhoton.name);
+      if (markdown) {
+        this._photonHelpMarkdown = markdown;
+      } else {
+        // Fallback to client-side generation
+        this._photonHelpMarkdown = this._generatePhotonHelpMarkdown();
+      }
+      this._photonHelpLoading = false;
+    }
   };
 
   private _closePhotonHelp() {
@@ -4606,7 +4621,9 @@ export class BeamApp extends LitElement {
   }
 
   private _renderPhotonHelpModal() {
-    const markdown = this._generatePhotonHelpMarkdown();
+    const markdown = this._photonHelpLoading
+      ? this._generatePhotonHelpMarkdown()
+      : this._photonHelpMarkdown || this._generatePhotonHelpMarkdown();
     let htmlContent = markdown;
 
     // Parse markdown if marked is available
@@ -4633,6 +4650,9 @@ export class BeamApp extends LitElement {
           >
             <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">
               ${this._selectedPhoton?.name || 'Photon'} Help
+              ${this._photonHelpLoading
+                ? html`<span style="font-size: 0.7em; opacity: 0.6; margin-left: 8px;">Loading...</span>`
+                : ''}
             </h2>
             <button
               class="btn-secondary"
