@@ -65,7 +65,7 @@ import { registerPackageCommands } from './cli/commands/package.js';
  * Rule: colon splits only when left side contains `/` (a marketplace source)
  * and right side is a simple name (no `/`).
  */
-function parsePhotonSpec(spec: string): { name: string; marketplaceSource?: string } {
+export function parsePhotonSpec(spec: string): { name: string; marketplaceSource?: string } {
   const colonIndex = spec.indexOf(':');
   if (colonIndex > 0) {
     const left = spec.slice(0, colonIndex);
