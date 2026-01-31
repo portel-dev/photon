@@ -530,7 +530,8 @@ export class BeamSidebar extends LitElement {
   }
 
   private get _filteredPhotons() {
-    let filtered = this.photons;
+    // Exclude internal photons — their static methods appear in the marketplace/global area
+    let filtered = this.photons.filter((p) => !p.internal);
 
     // Filter by favorites if enabled
     if (this._showFavoritesOnly) {

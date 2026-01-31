@@ -68,6 +68,8 @@ export interface MethodInfo {
   isTemplate?: boolean;
   /** Tool visibility: 'model' (visible to LLM), 'app' (callable by UI only) */
   visibility?: ('model' | 'app')[];
+  /** True if this is a static method (class-level, no instance needed) */
+  isStatic?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

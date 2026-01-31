@@ -496,6 +496,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             buttonLabel: schema.buttonLabel,
             icon: schema.icon,
             linkedUi: linkedAsset?.id,
+            ...(schema.isStatic ? { isStatic: true } : {}),
           };
         });
 

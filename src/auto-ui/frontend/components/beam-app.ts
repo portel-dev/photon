@@ -1320,6 +1320,34 @@ export class BeamApp extends LitElement {
     }
   }
 
+  /**
+   * Collect static methods from all internal photons for global display
+   */
+  private get _globalStaticMethods(): Array<{ photon: any; method: any }> {
+    const results: Array<{ photon: any; method: any }> = [];
+    for (const photon of this._photons) {
+      if (!photon.internal || !photon.methods) continue;
+      for (const method of photon.methods) {
+        if (method.isStatic) {
+          results.push({ photon, method });
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Handle clicking a global static method card
+   */
+  private _handleGlobalMethodSelect(photon: any, method: any) {
+    this._teardownActiveCustomUI();
+    this._selectedPhoton = photon;
+    this._selectedMethod = method;
+    this._view = 'form';
+    this._updateHash();
+    this._maybeAutoInvoke(method);
+  }
+
   @state() private _diagnosticsData: any = null;
   @state() private _testResults: Array<{
     method: string;
@@ -2250,6 +2278,8 @@ export class BeamApp extends LitElement {
     }
 
     if (this._view === 'marketplace') {
+      const globalMethods = this._globalStaticMethods;
+
       return html`
         <div style="margin-bottom: var(--space-md);">
           <button
@@ -2263,6 +2293,28 @@ export class BeamApp extends LitElement {
         <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
           Discover and install new Photons.
         </p>
+
+        ${globalMethods.length > 0
+          ? html`
+              <h3
+                style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);"
+              >
+                Actions
+              </h3>
+              <div class="cards-grid" style="margin-bottom: var(--space-xl);">
+                ${globalMethods.map(
+                  ({ photon, method }) => html`
+                    <method-card
+                      .method=${method}
+                      .photonName=${photon.name}
+                      @select=${() => this._handleGlobalMethodSelect(photon, method)}
+                    ></method-card>
+                  `
+                )}
+              </div>
+            `
+          : ''}
+
         <marketplace-view
           @install=${this._handleInstall}
           @maker-action=${this._handleMakerAction}
@@ -2391,7 +2443,7 @@ export class BeamApp extends LitElement {
                     style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
                     @click=${() => this._handleBackFromMethod()}
                   >
-                    ← Back to ${this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}
+                    ← Back to ${this._selectedPhoton.internal ? 'Marketplace' : this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}
                   </button>
                 </div>
               `
@@ -2462,9 +2514,12 @@ export class BeamApp extends LitElement {
 
       // Default Form Interface
       const isAppMethod = this._selectedPhoton.isApp && this._selectedPhoton.appEntry;
-      const backLabel = isAppMethod
-        ? `← Back to ${this._selectedPhoton.name}`
-        : '← Back to Methods';
+      const isInternalPhoton = this._selectedPhoton.internal;
+      const backLabel = isInternalPhoton
+        ? '← Back to Marketplace'
+        : isAppMethod
+          ? `← Back to ${this._selectedPhoton.name}`
+          : '← Back to Methods';
 
       return html`
         <div class="header-toolbar">
@@ -2740,6 +2795,12 @@ export class BeamApp extends LitElement {
           }
         }, SCROLL_RENDER_DELAY_MS);
       });
+    } else if (this._selectedPhoton.internal) {
+      // For internal photons, go back to marketplace view
+      this._view = 'marketplace';
+      this._selectedMethod = null;
+      this._selectedPhoton = null;
+      this._updateHash();
     } else {
       // For regular photons, go back to methods list
       this._view = 'list';
