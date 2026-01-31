@@ -1038,6 +1038,55 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
       return;
     }
 
+    // Serve a local file (for relative image paths in markdown previews, etc.)
+    if (url.pathname === '/api/local-file') {
+      const filePath = url.searchParams.get('path');
+      if (!filePath) {
+        res.writeHead(400);
+        res.end('Missing path parameter');
+        return;
+      }
+
+      const resolved = path.resolve(filePath);
+
+      try {
+        const fileStat = await fs.stat(resolved);
+        if (!fileStat.isFile()) {
+          res.writeHead(400);
+          res.end('Not a file');
+          return;
+        }
+
+        // Determine MIME type from extension
+        const ext = path.extname(resolved).toLowerCase();
+        const mimeTypes: Record<string, string> = {
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+          '.bmp': 'image/bmp',
+          '.avif': 'image/avif',
+          '.pdf': 'application/pdf',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+        const data = await fs.readFile(resolved);
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Content-Length': data.length,
+          'Cache-Control': 'public, max-age=300',
+        });
+        res.end(data);
+      } catch {
+        res.writeHead(404);
+        res.end('File not found');
+      }
+      return;
+    }
+
     // Get photon's workdir (if applicable)
     if (url.pathname === '/api/photon-workdir') {
       res.setHeader('Content-Type', 'application/json');
