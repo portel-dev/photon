@@ -21,7 +21,8 @@ import * as fs from 'fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import { PhotonMCPClassExtended } from '@portel/photon-core';
+import { PhotonMCPClassExtended, ConstructorParam } from '@portel/photon-core';
+import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
@@ -56,12 +57,20 @@ export type TransportType = 'stdio' | 'sse';
  */
 export type UIFormat = 'sep-1865' | 'photon' | 'none';
 
+export interface UnresolvedPhoton {
+  name: string;
+  workingDir: string;
+  sources: Array<{ marketplace: Marketplace; metadata?: PhotonMetadata }>;
+  recommendation?: string;
+}
+
 export interface PhotonServerOptions {
   filePath: string;
   devMode?: boolean;
   transport?: TransportType;
   port?: number;
   logOptions?: LoggerOptions;
+  unresolvedPhoton?: UnresolvedPhoton;
 }
 
 // SSE session record for managing multiple clients
@@ -101,12 +110,14 @@ export class PhotonServer {
   private logger: Logger;
 
   constructor(options: PhotonServerOptions) {
-    // Validate options
-    assertString(options.filePath, 'filePath');
-    validateOrThrow(options.filePath, [
-      notEmpty('filePath'),
-      hasExtension('filePath', ['ts', 'js']),
-    ]);
+    // Validate options (filePath validation skipped for unresolved photons)
+    if (!options.unresolvedPhoton) {
+      assertString(options.filePath, 'filePath');
+      validateOrThrow(options.filePath, [
+        notEmpty('filePath'),
+        hasExtension('filePath', ['ts', 'js']),
+      ]);
+    }
 
     if (options.transport) {
       validateOrThrow(options.transport, [oneOf<TransportType>('transport', ['stdio', 'sse'])]);
@@ -499,6 +510,11 @@ export class PhotonServer {
   private setupHandlers() {
     // Handle tools/list
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      // If photon is unresolved (conflict), return placeholder tools from manifest metadata
+      if (!this.mcp && this.options.unresolvedPhoton) {
+        return { tools: this.buildPlaceholderTools() };
+      }
+
       if (!this.mcp) {
         return { tools: [] };
       }
@@ -524,11 +540,16 @@ export class PhotonServer {
 
     // Handle tools/call
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name: toolName, arguments: args } = request.params;
+
+      // Deferred conflict resolution: resolve photon on first tool call
+      if (!this.mcp && this.options.unresolvedPhoton) {
+        await this.resolveUnresolvedPhoton();
+      }
+
       if (!this.mcp) {
         throw new Error('MCP not loaded');
       }
-
-      const { name: toolName, arguments: args } = request.params;
 
       try {
         // Create MCP-aware input provider for elicitation support
@@ -586,10 +607,20 @@ export class PhotonServer {
 
         return { content: [content] };
       } catch (error) {
+        // Check for config error — attempt elicitation to resolve missing env vars
+        const errorMsg = getErrorMessage(error);
+        if (
+          this.mcp?.instance?._photonConfigError &&
+          this.clientSupportsElicitation()
+        ) {
+          const retryResult = await this.attemptConfigElicitation(toolName, args || {});
+          if (retryResult) return retryResult;
+        }
+
         // Log error with context for debugging
         this.log('error', 'Tool execution failed', {
           tool: toolName,
-          error: getErrorMessage(error),
+          error: errorMsg,
           args: this.options.devMode ? args : undefined,
         });
         // Format error for AI consumption
@@ -939,54 +970,295 @@ export class PhotonServer {
   }
 
   /**
+   * Build placeholder tools from unresolved photon manifest metadata
+   */
+  private buildPlaceholderTools(): any[] {
+    const unresolved = this.options.unresolvedPhoton;
+    if (!unresolved) return [];
+
+    // Collect tool names from all source metadata
+    const toolNames = new Set<string>();
+    for (const source of unresolved.sources) {
+      if (source.metadata?.tools) {
+        for (const tool of source.metadata.tools) {
+          toolNames.add(tool);
+        }
+      }
+    }
+
+    // If no tools in metadata, create a single setup tool
+    if (toolNames.size === 0) {
+      return [
+        {
+          name: 'setup',
+          description: `Set up ${unresolved.name} — call this tool to begin.`,
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ];
+    }
+
+    return Array.from(toolNames).map((name) => ({
+      name,
+      description: `Requires setup — call to begin.`,
+      inputSchema: { type: 'object', properties: {} },
+    }));
+  }
+
+  /**
+   * Resolve an unresolved photon (deferred conflict resolution)
+   *
+   * If the client supports elicitation, presents marketplace choices.
+   * Otherwise, auto-picks the recommendation.
+   */
+  private async resolveUnresolvedPhoton(): Promise<void> {
+    const unresolved = this.options.unresolvedPhoton;
+    if (!unresolved) return;
+
+    let selectedSource: { marketplace: Marketplace; metadata?: PhotonMetadata };
+
+    if (unresolved.sources.length === 1) {
+      selectedSource = unresolved.sources[0];
+    } else if (this.clientSupportsElicitation()) {
+      // Present choices via elicitation
+      const options: Record<string, any> = {};
+      const sourceLabels: Array<{ const: string; title: string }> = [];
+      for (const source of unresolved.sources) {
+        const version = source.metadata?.version || 'unknown';
+        const label = `${source.marketplace.name} (v${version})`;
+        sourceLabels.push({ const: source.marketplace.name, title: label });
+      }
+
+      const result = await this.server.elicitInput({
+        message: `Multiple sources found for "${unresolved.name}". Which marketplace should be used?`,
+        requestedSchema: {
+          type: 'object' as const,
+          properties: {
+            marketplace: {
+              type: 'string',
+              title: 'Marketplace',
+              oneOf: sourceLabels,
+              default: unresolved.recommendation || unresolved.sources[0].marketplace.name,
+            },
+          },
+          required: ['marketplace'],
+        },
+      });
+
+      const chosen =
+        result.action === 'accept' && result.content
+          ? (result.content as Record<string, string>).marketplace
+          : unresolved.recommendation;
+
+      selectedSource =
+        unresolved.sources.find((s) => s.marketplace.name === chosen) || unresolved.sources[0];
+    } else {
+      // No elicitation — auto-pick recommendation
+      const rec = unresolved.recommendation;
+      selectedSource = rec
+        ? unresolved.sources.find((s) => s.marketplace.name === rec) || unresolved.sources[0]
+        : unresolved.sources[0];
+      this.log('info', `Auto-selected marketplace: ${selectedSource.marketplace.name}`);
+    }
+
+    // Download and install photon
+    await this.downloadAndLoadPhoton(unresolved.name, unresolved.workingDir, selectedSource);
+  }
+
+  /**
+   * Download a photon from a marketplace source, save to workingDir, and load it
+   */
+  private async downloadAndLoadPhoton(
+    photonName: string,
+    workingDir: string,
+    source: { marketplace: Marketplace; metadata?: PhotonMetadata }
+  ): Promise<void> {
+    const { MarketplaceManager, calculateHash } = await import('./marketplace-manager.js');
+    const manager = new MarketplaceManager();
+    await manager.initialize();
+
+    const result = await manager.fetchMCP(photonName);
+    if (!result) {
+      throw new Error(`Failed to download photon: ${photonName}`);
+    }
+
+    // Save photon file
+    const { default: fsPromises } = await import('fs/promises');
+    const filePath = (await import('path')).join(workingDir, `${photonName}.photon.ts`);
+    const fileName = `${photonName}.photon.ts`;
+
+    // Ensure working directory exists
+    await fsPromises.mkdir(workingDir, { recursive: true });
+    await fsPromises.writeFile(filePath, result.content, 'utf-8');
+
+    // Save metadata
+    if (source.metadata) {
+      const contentHash = calculateHash(result.content);
+      await manager.savePhotonMetadata(fileName, source.marketplace, source.metadata, contentHash);
+
+      // Download assets if present
+      if (source.metadata.assets && source.metadata.assets.length > 0) {
+        const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
+        for (const [assetPath, content] of assets) {
+          const targetPath = (await import('path')).join(workingDir, assetPath);
+          const targetDir = (await import('path')).dirname(targetPath);
+          await fsPromises.mkdir(targetDir, { recursive: true });
+          await fsPromises.writeFile(targetPath, content, 'utf-8');
+        }
+      }
+    }
+
+    // Update options and load
+    this.options.filePath = filePath;
+    this.options.unresolvedPhoton = undefined;
+
+    this.log('info', `Downloaded and loading ${photonName}...`);
+    this.mcp = await this.loader.loadFile(filePath);
+
+    // Notify clients that tools have changed
+    await this.notifyListsChanged();
+  }
+
+  /**
+   * Attempt config elicitation to resolve missing env vars, then retry tool call
+   */
+  private async attemptConfigElicitation(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<any | null> {
+    try {
+      // Extract constructor params to build form
+      const params = await this.loader.extractConstructorParams(this.options.filePath);
+      if (params.length === 0) return null;
+
+      const photonName = this.mcp?.name || 'photon';
+      const { toEnvVarName } = await import('./shared/config-docs.js');
+
+      // Build form properties from constructor params
+      const properties: Record<string, any> = {};
+      const required: string[] = [];
+
+      for (const param of params) {
+        const envVarName = toEnvVarName(photonName, param.name);
+        const existing = process.env[envVarName];
+
+        // Skip params that already have values
+        if (existing) continue;
+        // Skip optional params with defaults
+        if (param.hasDefault || param.isOptional) continue;
+
+        properties[envVarName] = {
+          type: param.type === 'number' ? 'number' : param.type === 'boolean' ? 'boolean' : 'string',
+          title: param.name,
+          description: `Environment variable: ${envVarName}`,
+        };
+        required.push(envVarName);
+      }
+
+      if (Object.keys(properties).length === 0) return null;
+
+      const result = await this.server.elicitInput({
+        message: `${photonName} requires configuration. Please provide the following:`,
+        requestedSchema: {
+          type: 'object' as const,
+          properties,
+          required,
+        },
+      });
+
+      if (result.action !== 'accept' || !result.content) return null;
+
+      // Set env vars from elicitation response
+      const content = result.content as Record<string, string>;
+      for (const [key, value] of Object.entries(content)) {
+        if (value !== undefined && value !== '') {
+          process.env[key] = String(value);
+        }
+      }
+
+      // Reload photon with new env vars
+      this.log('info', 'Reloading photon with elicited configuration...');
+      this.mcp = await this.loader.loadFile(this.options.filePath);
+      await this.notifyListsChanged();
+
+      // Retry the original tool call
+      const inputProvider = this.createMCPInputProvider();
+      const outputHandler = (emit: any) => {
+        if (this.daemonName && emit?.channel) {
+          publishToChannel(this.daemonName, emit.channel, emit).catch(() => {});
+        }
+      };
+
+      const retryResult = await this.loader.executeTool(this.mcp!, toolName, args, {
+        inputProvider,
+        outputHandler,
+      });
+
+      const isStateful = retryResult && typeof retryResult === 'object' && retryResult._stateful === true;
+      const actualResult = isStateful ? retryResult.result : retryResult;
+
+      return {
+        content: [{ type: 'text', text: this.formatResult(actualResult) }],
+      };
+    } catch (error) {
+      this.log('warn', `Config elicitation failed: ${getErrorMessage(error)}`);
+      return null;
+    }
+  }
+
+  /**
    * Initialize and start the server
    */
   async start() {
     try {
-      // Initialize MCP client factory for enabling this.mcp() in Photons
-      // This allows Photons to call external MCPs via protocol
-      try {
-        this.mcpClientFactory = await createStandaloneMCPClientFactory(this.options.devMode);
-        const servers = await this.mcpClientFactory.listServers();
-        if (servers.length > 0) {
-          this.log('info', `MCP access enabled: ${servers.join(', ')}`);
-          this.loader.setMCPClientFactory(this.mcpClientFactory);
-        }
-      } catch (error) {
-        this.log('warn', `Failed to load MCP config: ${getErrorMessage(error)}`);
-      }
-
-      // Check if photon is stateful (requires daemon)
-      const extractor = new PhotonDocExtractor(this.options.filePath);
-      const metadata = await extractor.extractFullMetadata();
-      const isStateful = metadata.stateful;
-
-      // Start daemon for stateful photons (enables cross-client communication)
-      if (isStateful) {
-        const photonName = metadata.name;
-        this.daemonName = photonName; // Store for subscription
-        this.log('info', `Stateful photon detected: ${photonName}`);
-
-        if (!isDaemonRunning(photonName)) {
-          this.log('info', `Starting daemon for ${photonName}...`);
-          await startDaemon(photonName, this.options.filePath, true);
-
-          // Wait for daemon to be ready
-          for (let i = 0; i < 10; i++) {
-            await new Promise((r) => setTimeout(r, 500));
-            if (await pingDaemon(photonName)) {
-              this.log('info', `Daemon ready for ${photonName}`);
-              break;
-            }
+      // If unresolvedPhoton is set, skip loading — defer to first tool call
+      if (this.options.unresolvedPhoton) {
+        this.log('info', `Deferred loading for ${this.options.unresolvedPhoton.name} (${this.options.unresolvedPhoton.sources.length} marketplace sources)`);
+      } else {
+        // Initialize MCP client factory for enabling this.mcp() in Photons
+        // This allows Photons to call external MCPs via protocol
+        try {
+          this.mcpClientFactory = await createStandaloneMCPClientFactory(this.options.devMode);
+          const servers = await this.mcpClientFactory.listServers();
+          if (servers.length > 0) {
+            this.log('info', `MCP access enabled: ${servers.join(', ')}`);
+            this.loader.setMCPClientFactory(this.mcpClientFactory);
           }
-        } else {
-          this.log('info', `Daemon already running for ${photonName}`);
+        } catch (error) {
+          this.log('warn', `Failed to load MCP config: ${getErrorMessage(error)}`);
         }
-      }
 
-      // Load the Photon MCP file
-      this.log('info', `Loading ${this.options.filePath}...`);
-      this.mcp = await this.loader.loadFile(this.options.filePath);
+        // Check if photon is stateful (requires daemon)
+        const extractor = new PhotonDocExtractor(this.options.filePath);
+        const metadata = await extractor.extractFullMetadata();
+        const isStateful = metadata.stateful;
+
+        // Start daemon for stateful photons (enables cross-client communication)
+        if (isStateful) {
+          const photonName = metadata.name;
+          this.daemonName = photonName; // Store for subscription
+          this.log('info', `Stateful photon detected: ${photonName}`);
+
+          if (!isDaemonRunning(photonName)) {
+            this.log('info', `Starting daemon for ${photonName}...`);
+            await startDaemon(photonName, this.options.filePath, true);
+
+            // Wait for daemon to be ready
+            for (let i = 0; i < 10; i++) {
+              await new Promise((r) => setTimeout(r, 500));
+              if (await pingDaemon(photonName)) {
+                this.log('info', `Daemon ready for ${photonName}`);
+                break;
+              }
+            }
+          } else {
+            this.log('info', `Daemon already running for ${photonName}`);
+          }
+        }
+
+        // Load the Photon MCP file
+        this.log('info', `Loading ${this.options.filePath}...`);
+        this.mcp = await this.loader.loadFile(this.options.filePath);
+      }
 
       // Subscribe to daemon channels for cross-process notifications
       await this.subscribeToChannels();

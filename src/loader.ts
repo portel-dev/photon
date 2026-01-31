@@ -984,7 +984,7 @@ export class PhotonLoader {
   /**
    * Extract constructor parameters from source file
    */
-  private async extractConstructorParams(filePath: string): Promise<ConstructorParam[]> {
+  async extractConstructorParams(filePath: string): Promise<ConstructorParam[]> {
     try {
       const source = await fs.readFile(filePath, 'utf-8');
       const extractor = new SchemaExtractor();

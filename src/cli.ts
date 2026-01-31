@@ -56,6 +56,29 @@ import { registerPackageCommands } from './cli/commands/package.js';
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
 /**
+ * Parse extended photon name format
+ *
+ * Supports:
+ * - "rss-feed" → { name: "rss-feed" }
+ * - "alice/custom-photons:rss-feed" → { name: "rss-feed", marketplaceSource: "alice/custom-photons" }
+ *
+ * Rule: colon splits only when left side contains `/` (a marketplace source)
+ * and right side is a simple name (no `/`).
+ */
+function parsePhotonSpec(spec: string): { name: string; marketplaceSource?: string } {
+  const colonIndex = spec.indexOf(':');
+  if (colonIndex > 0) {
+    const left = spec.slice(0, colonIndex);
+    const right = spec.slice(colonIndex + 1);
+    // Left must contain `/` (marketplace source) and right must be a simple name
+    if (left.includes('/') && right && !right.includes('/')) {
+      return { name: right, marketplaceSource: left };
+    }
+  }
+  return { name: spec };
+}
+
+/**
  * Resolve photon path - checks bundled first, then user directory
  */
 async function resolvePhotonPathWithBundled(
@@ -978,33 +1001,120 @@ program
   .option('--config', 'Show configuration template and exit')
   .option('--transport <type>', 'Transport type: stdio (default) or sse', 'stdio')
   .option('--port <number>', 'Port for SSE transport (default: 3000)', '3000')
-  .action(async (name: string, options: any, command: Command) => {
+  .action(async (rawName: string, options: any, command: Command) => {
     try {
+      // Parse extended name format (e.g., "alice/repo:rss-feed")
+      const { name, marketplaceSource } = parsePhotonSpec(rawName);
+
       // Get working directory from global options
       const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
       const logOptions = getLogOptionsFromCommand(command);
 
       // Resolve file path - check bundled photons first, then user directory
-      const filePath = await resolvePhotonPathWithBundled(name, workingDir);
+      let filePath = await resolvePhotonPathWithBundled(name, workingDir);
+
+      // Auto-install from marketplace if not found locally
+      let unresolvedPhoton: import('./server.js').UnresolvedPhoton | undefined;
 
       if (!filePath) {
-        exitWithError(`MCP not found: ${name}`, {
-          exitCode: ExitCode.NOT_FOUND,
-          searchedIn: workingDir,
-          suggestion: DEFAULT_BUNDLED_PHOTONS.includes(name)
-            ? `'${name}' is a bundled photon but could not be found`
-            : "Use 'photon info' to see available MCPs",
-        });
+        const { MarketplaceManager, calculateHash } = await import('./marketplace-manager.js');
+        const manager = new MarketplaceManager();
+        await manager.initialize();
+
+        // If marketplace source given, add it (persistent, idempotent)
+        if (marketplaceSource) {
+          const { marketplace: addedMp, added } = await manager.add(marketplaceSource);
+          if (added) {
+            console.error(`Added marketplace: ${addedMp.name}`);
+            await manager.updateMarketplaceCache(addedMp.name);
+          }
+        }
+
+        // Check for conflicts (multiple sources)
+        const conflict = await manager.checkConflict(name);
+
+        if (conflict.sources.length === 0) {
+          // Not found anywhere
+          exitWithError(`MCP not found: ${name}`, {
+            exitCode: ExitCode.NOT_FOUND,
+            searchedIn: workingDir,
+            suggestion: DEFAULT_BUNDLED_PHOTONS.includes(name)
+              ? `'${name}' is a bundled photon but could not be found`
+              : marketplaceSource
+                ? `Photon '${name}' not found in ${marketplaceSource}`
+                : "Use 'photon search <name>' to find it or 'photon marketplace add <source>' to add a marketplace",
+          });
+        } else if (conflict.sources.length === 1 || !conflict.hasConflict) {
+          // Single source — auto-download
+          const source = conflict.sources[0];
+          console.error(`Installing ${name} from ${source.marketplace.name}...`);
+
+          const result = await manager.fetchMCP(name);
+          if (!result) {
+            exitWithError(`Failed to download: ${name}`, {
+              exitCode: ExitCode.ERROR,
+              suggestion: 'Check your internet connection and marketplace configuration',
+            });
+          }
+
+          // Ensure working directory exists and save
+          await ensureWorkingDir(workingDir);
+          const targetPath = path.join(workingDir, `${name}.photon.ts`);
+          await fs.writeFile(targetPath, result.content, 'utf-8');
+
+          // Save metadata
+          if (source.metadata) {
+            const contentHash = calculateHash(result.content);
+            await manager.savePhotonMetadata(
+              `${name}.photon.ts`,
+              source.marketplace,
+              source.metadata,
+              contentHash
+            );
+
+            // Download assets
+            if (source.metadata.assets && source.metadata.assets.length > 0) {
+              const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
+              for (const [assetPath, content] of assets) {
+                const assetTarget = path.join(workingDir, assetPath);
+                const assetDir = path.dirname(assetTarget);
+                await fs.mkdir(assetDir, { recursive: true });
+                await fs.writeFile(assetTarget, content, 'utf-8');
+              }
+            }
+          }
+
+          console.error(`Installed ${name}`);
+          filePath = targetPath;
+        } else {
+          // Multiple sources — defer to server for elicitation
+          unresolvedPhoton = {
+            name,
+            workingDir,
+            sources: conflict.sources,
+            recommendation: conflict.recommendation,
+          };
+        }
       }
 
-      // Handle --validate flag
+      // Handle --validate flag (requires resolved filePath)
       if (options.validate) {
+        if (!filePath) {
+          exitWithError(`Cannot validate: ${name} has multiple sources. Install it first with 'photon add ${name}'.`, {
+            exitCode: ExitCode.CONFIG_ERROR,
+          });
+        }
         await validateConfiguration(filePath, name);
         return;
       }
 
       // Handle --config flag
       if (options.config) {
+        if (!filePath) {
+          exitWithError(`Cannot show config: ${name} has multiple sources. Install it first with 'photon add ${name}'.`, {
+            exitCode: ExitCode.CONFIG_ERROR,
+          });
+        }
         await showConfigTemplate(filePath, name, workingDir);
         return;
       }
@@ -1024,11 +1134,12 @@ program
 
       // Start MCP server
       const server = new PhotonServer({
-        filePath,
+        filePath: filePath || '', // empty when unresolved — server handles it
         devMode: options.dev,
         transport,
         port: parseInt(options.port, 10),
         logOptions: { ...logOptions, scope: transport },
+        unresolvedPhoton,
       });
 
       // Handle shutdown signals
@@ -1044,8 +1155,8 @@ program
       // Start the server
       await server.start();
 
-      // Start file watcher in dev mode
-      if (options.dev) {
+      // Start file watcher in dev mode (only if resolved)
+      if (options.dev && filePath) {
         const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
         watcher.start();
 
