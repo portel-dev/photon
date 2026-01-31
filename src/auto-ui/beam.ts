@@ -2807,14 +2807,20 @@ async function generatePhotonHelpMarkdown(
   const sourceDir = path.dirname(photon.path);
   const mdPath = path.join(sourceDir, `${photonName}.md`);
 
-  // Check if .md file already exists
+  // Check if .md file already exists and is newer than the photon source
   try {
-    const existing = await fs.readFile(mdPath, 'utf-8');
-    if (existing.trim()) {
-      return existing;
+    const [mdStat, srcStat] = await Promise.all([
+      fs.stat(mdPath),
+      fs.stat(photon.path),
+    ]);
+    if (mdStat.mtimeMs >= srcStat.mtimeMs) {
+      const existing = await fs.readFile(mdPath, 'utf-8');
+      if (existing.trim()) {
+        return existing;
+      }
     }
   } catch {
-    // File doesn't exist - generate it
+    // .md doesn't exist or stat failed - regenerate
   }
 
   // Extract metadata and render template
