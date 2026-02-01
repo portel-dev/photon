@@ -41,6 +41,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 /** Wizard step types using standard ask/emit protocol */
 type WizardStep =
@@ -214,36 +218,47 @@ ${allStubs.join('\n\n')}
   static async *wizard({ name }: { name: string }): AsyncGenerator<WizardStep, void, any> {
     if (!name) return;
 
-    // Step 2: Add tool methods (comma-separated)
+    // Step 1: Description
+    const descriptionRaw = yield {
+      ask: 'text' as const,
+      id: 'description',
+      message: 'What does this photon do?',
+      label: 'Description',
+      placeholder: 'e.g. Fetches and parses web pages',
+      hint: 'A short description of what this photon does',
+      required: true,
+    };
+
+    // Step 2: Icon
+    const iconRaw = yield {
+      ask: 'text' as const,
+      id: 'icon',
+      message: 'Pick an emoji icon',
+      label: 'Icon',
+      placeholder: '⚡',
+      hint: 'An emoji icon for your photon (default: ⚡)',
+      required: false,
+    };
+
+    // Step 3: Methods
     const methodsRaw = yield {
       ask: 'text' as const,
       id: 'methods',
-      message: 'Tool Methods',
-      label: 'Tool Methods',
+      message: 'Name your tool methods',
+      label: 'Methods',
       placeholder: 'e.g. search, fetch, analyze',
-      hint: 'Comma-separated method names (leave empty to skip)',
+      hint: 'Comma-separated method names (default: example)',
       required: false,
     };
 
-    // Step 3: Add prompt templates (comma-separated)
-    const promptsRaw = yield {
+    // Step 4: Dependencies
+    const depsRaw = yield {
       ask: 'text' as const,
-      id: 'prompts',
-      message: 'Prompt Templates',
-      label: 'Prompt Templates',
-      placeholder: 'e.g. summarize, translate',
-      hint: 'Comma-separated template names (leave empty to skip)',
-      required: false,
-    };
-
-    // Step 4: Add resources (comma-separated)
-    const resourcesRaw = yield {
-      ask: 'text' as const,
-      id: 'resources',
-      message: 'Resources',
-      label: 'Resources',
-      placeholder: 'e.g. config, schema',
-      hint: 'Comma-separated resource names (leave empty to skip)',
+      id: 'dependencies',
+      message: 'npm packages to use',
+      label: 'Dependencies',
+      placeholder: 'e.g. axios, cheerio',
+      hint: 'Comma-separated npm package names (optional)',
       required: false,
     };
 
@@ -251,6 +266,10 @@ ${allStubs.join('\n\n')}
     yield { emit: 'status' as const, message: 'Creating photon...' };
 
     const nameStr = String(name);
+    const description = typeof descriptionRaw === 'string' && descriptionRaw.trim()
+      ? descriptionRaw.trim()
+      : '[Add description]';
+    const icon = typeof iconRaw === 'string' && iconRaw.trim() ? iconRaw.trim() : '⚡';
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const fileName = `${nameStr}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
@@ -268,35 +287,59 @@ ${allStubs.join('\n\n')}
         : Array.isArray(val) ? val : [];
 
     const methodList = parseCsv(methodsRaw);
-    const promptList = parseCsv(promptsRaw);
-    const resourceList = parseCsv(resourcesRaw);
+    if (methodList.length === 0) methodList.push('example');
 
-    // Generate all stubs
-    const allStubs: string[] = [];
+    // Validate npm dependencies
+    const depsList = parseCsv(depsRaw);
+    const validDeps: Array<{ name: string; version: string }> = [];
 
-    if (methodList.length > 0) {
-      allStubs.push(...methodList.map((m) => Maker.generateMethodStub(m as string, 'tool')));
-    }
-    if (promptList.length > 0) {
-      allStubs.push(...promptList.map((p) => Maker.generateMethodStub(p as string, 'prompt')));
-    }
-    if (resourceList.length > 0) {
-      allStubs.push(...resourceList.map((r) => Maker.generateMethodStub(r as string, 'resource')));
-    }
-
-    // Default if nothing specified
-    if (allStubs.length === 0) {
-      allStubs.push(Maker.generateMethodStub('example', 'tool'));
+    for (const pkg of depsList) {
+      yield { emit: 'status' as const, message: `Checking ${pkg}...` };
+      const result = await Maker.validateNpmPackage(pkg);
+      if (result.valid && result.version) {
+        validDeps.push({ name: pkg, version: result.version });
+        yield { emit: 'status' as const, message: `✓ ${pkg}@${result.version}` };
+      } else {
+        yield { emit: 'status' as const, message: `✗ ${pkg} — not found, skipped` };
+      }
     }
 
-    const code = `/**
- * ${className}
- * @description [Add description]
- */
-export default class ${className} {
-${allStubs.join('\n\n')}
-}
-`;
+    yield { emit: 'status' as const, message: 'Generating scaffold...' };
+
+    // Build imports from valid deps
+    const importLines = validDeps.map((d) => Maker.importForPackage(d.name));
+
+    // Build @dependencies tag value
+    const depsTag = validDeps.map((d) => `${d.name}@^${d.version}`).join(', ');
+
+    // Generate method stubs
+    const allStubs = methodList.map((m) => Maker.generateMethodStub(m, 'tool'));
+
+    // Assemble JSDoc
+    const jsdocLines = [
+      '/**',
+      ` * ${className} - ${description}`,
+      ` * @description ${description}`,
+      ` * @icon ${icon}`,
+    ];
+    if (depsTag) {
+      jsdocLines.push(` * @dependencies ${depsTag}`);
+    }
+    jsdocLines.push(' */');
+
+    // Final code assembly: imports first, then JSDoc + class
+    const codeParts: string[] = [];
+    if (importLines.length > 0) {
+      codeParts.push(importLines.join('\n'));
+      codeParts.push('');
+    }
+    codeParts.push(jsdocLines.join('\n'));
+    codeParts.push(`export default class ${className} {`);
+    codeParts.push(allStubs.join('\n\n'));
+    codeParts.push('}');
+    codeParts.push('');
+
+    const code = codeParts.join('\n');
 
     await fs.writeFile(filePath, code, 'utf-8');
 
@@ -455,6 +498,84 @@ ${allStubs.join('\n\n')}
   // Helper Methods
   // ============================================
 
+  private static async validateNpmPackage(name: string): Promise<{ valid: boolean; version?: string }> {
+    try {
+      const { stdout } = await execAsync(`npm view ${name} version --json`, { timeout: 10000 });
+      const version = JSON.parse(stdout.trim());
+      if (typeof version === 'string') return { valid: true, version };
+      return { valid: false };
+    } catch {
+      return { valid: false };
+    }
+  }
+
+  private static importForPackage(pkg: string): string {
+    const knownImports: Record<string, string> = {
+      axios: `import axios from 'axios';`,
+      cheerio: `import * as cheerio from 'cheerio';`,
+      lodash: `import _ from 'lodash';`,
+      'node-fetch': `import fetch from 'node-fetch';`,
+      chalk: `import chalk from 'chalk';`,
+      dayjs: `import dayjs from 'dayjs';`,
+      zod: `import { z } from 'zod';`,
+      uuid: `import { v4 as uuid } from 'uuid';`,
+    };
+    if (knownImports[pkg]) return knownImports[pkg];
+    // Sanitize package name to valid JS identifier
+    const alias = pkg.replace(/^@/, '').replace(/[^a-zA-Z0-9]/g, '_');
+    return `import * as ${alias} from '${pkg}';`;
+  }
+
+  private static paramNameForMethod(method: string): string {
+    const map: Record<string, string> = {
+      search: 'query',
+      fetch: 'url',
+      analyze: 'content',
+      parse: 'content',
+      get: 'url',
+      post: 'url',
+      create: 'name',
+      delete: 'id',
+      update: 'id',
+      send: 'message',
+      read: 'path',
+      write: 'path',
+      download: 'url',
+      upload: 'file',
+      translate: 'text',
+      summarize: 'text',
+      convert: 'input',
+      validate: 'input',
+      format: 'input',
+    };
+    return map[method] || 'input';
+  }
+
+  private static paramDescForMethod(method: string): string {
+    const map: Record<string, string> = {
+      search: 'Search query',
+      fetch: 'URL to fetch',
+      analyze: 'Content to analyze',
+      parse: 'Content to parse',
+      get: 'URL to request',
+      post: 'URL to post to',
+      create: 'Name to create',
+      delete: 'ID to delete',
+      update: 'ID to update',
+      send: 'Message to send',
+      read: 'File path to read',
+      write: 'File path to write',
+      download: 'URL to download',
+      upload: 'File to upload',
+      translate: 'Text to translate',
+      summarize: 'Text to summarize',
+      convert: 'Input to convert',
+      validate: 'Input to validate',
+      format: 'Input to format',
+    };
+    return map[method] || 'Input value';
+  }
+
   private static generateMethodStub(name: string, type: string): string {
     const indent = '  ';
 
@@ -487,15 +608,19 @@ ${indent}}`;
     }
 
     // Default: tool
+    const paramName = Maker.paramNameForMethod(name);
+    const paramDesc = Maker.paramDescForMethod(name);
+
     return `${indent}/**
 ${indent} * ${name}
+${indent} * @param ${paramName} ${paramDesc}
 ${indent} */
-${indent}async ${name}(params: {
-${indent}  /** Parameter description */
-${indent}  input: string;
+${indent}async ${name}({ ${paramName} }: {
+${indent}  /** ${paramDesc} */
+${indent}  ${paramName}: string;
 ${indent}}): Promise<{ result: string }> {
 ${indent}  // TODO: implement
-${indent}  return { result: params.input };
+${indent}  return { result: ${paramName} };
 ${indent}}`;
   }
 }
