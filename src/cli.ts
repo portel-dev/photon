@@ -2301,10 +2301,21 @@ function preprocessArgs(): string[] {
     return [...process.argv, 'beam', '--open'];
   }
 
-  // Find the first non-flag argument
-  const firstArgIndex = args.findIndex((arg) => !arg.startsWith('-'));
+  // Find the first non-flag argument (skip flag values like --dir <path>)
+  const globalFlagsWithValues = ['--dir', '--log-level'];
+  const firstArgIndex = args.findIndex((arg, i) => {
+    if (arg.startsWith('-')) return false;
+    // Skip values of global flags (e.g., "." in "--dir .")
+    if (i > 0 && globalFlagsWithValues.includes(args[i - 1])) return false;
+    return true;
+  });
   if (firstArgIndex === -1) {
-    // All flags, let commander handle it
+    // Only global flags (e.g., --dir=. --log-level debug) — default to beam
+    // Exception: --help and --version should show CLI help/version
+    const hasHelpOrVersion = args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V');
+    if (!hasHelpOrVersion) {
+      return [...process.argv, 'beam', '--open'];
+    }
     return process.argv;
   }
 

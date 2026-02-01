@@ -2613,7 +2613,7 @@ export class BeamApp extends LitElement {
       const isAppMethod = this._selectedPhoton.isApp && this._selectedPhoton.appEntry;
       const isInternalPhoton = this._selectedPhoton.internal;
       const backLabel = isInternalPhoton
-        ? '← Back to Marketplace'
+        ? '← Back'
         : isAppMethod
           ? `← Back to ${this._selectedPhoton.name}`
           : '← Back to Methods';

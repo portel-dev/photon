@@ -42,32 +42,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
-/** Wizard step types for interactive UI */
+/** Wizard step types using standard ask/emit protocol */
 type WizardStep =
-  | {
-      type: 'input';
-      id: string;
-      label: string;
-      placeholder?: string;
-      description?: string;
-      validate?: string;
-    }
-  | {
-      type: 'select';
-      id: string;
-      label: string;
-      options: Array<{ value: string; label: string; description?: string }>;
-    }
-  | {
-      type: 'multi-input';
-      id: string;
-      label: string;
-      placeholder?: string;
-      description?: string;
-      optional?: boolean;
-    }
-  | { type: 'progress'; message: string }
-  | { type: 'done'; message: string; result: any };
+  | { ask: 'text'; id: string; message: string; label?: string; placeholder?: string; hint?: string; required?: boolean }
+  | { ask: 'select'; id: string; message: string; options: Array<{ value: string; label: string }>; multi?: boolean }
+  | { emit: 'status'; message: string }
+  | { emit: 'result'; data: any };
 
 export default class Maker {
   private photonPath: string;
@@ -229,66 +209,78 @@ ${allStubs.join('\n\n')}
    * Guided wizard to create a new photon
    * @wizard
    */
-  static async *wizard(): AsyncGenerator<WizardStep, void, string | string[]> {
+  static async *wizard(): AsyncGenerator<WizardStep, void, any> {
     // Step 1: Get name
     const name = yield {
-      type: 'input',
+      ask: 'text' as const,
       id: 'name',
+      message: 'Photon Name',
       label: 'Photon Name',
       placeholder: 'my-photon',
-      description: 'Use kebab-case (e.g., my-tools, api-wrapper)',
-      validate: 'required|kebab',
+      hint: 'Use kebab-case (e.g., my-tools, api-wrapper)',
     };
 
-    // Step 2: Add tool methods
-    const methods = yield {
-      type: 'multi-input',
+    if (!name) return;
+
+    // Step 2: Add tool methods (comma-separated)
+    const methodsRaw = yield {
+      ask: 'text' as const,
       id: 'methods',
+      message: 'Tool Methods',
       label: 'Tool Methods',
-      placeholder: 'Add method name...',
-      description: 'Methods that perform actions (leave empty to skip)',
-      optional: true,
+      placeholder: 'e.g. search, fetch, analyze',
+      hint: 'Comma-separated method names (leave empty to skip)',
+      required: false,
     };
 
-    // Step 3: Add prompt templates
-    const prompts = yield {
-      type: 'multi-input',
+    // Step 3: Add prompt templates (comma-separated)
+    const promptsRaw = yield {
+      ask: 'text' as const,
       id: 'prompts',
+      message: 'Prompt Templates',
       label: 'Prompt Templates',
-      placeholder: 'Add template name...',
-      description: 'Templates that return prompts (leave empty to skip)',
-      optional: true,
+      placeholder: 'e.g. summarize, translate',
+      hint: 'Comma-separated template names (leave empty to skip)',
+      required: false,
     };
 
-    // Step 4: Add resources
-    const resources = yield {
-      type: 'multi-input',
+    // Step 4: Add resources (comma-separated)
+    const resourcesRaw = yield {
+      ask: 'text' as const,
       id: 'resources',
+      message: 'Resources',
       label: 'Resources',
-      placeholder: 'Add resource name...',
-      description: 'Static resources to expose (leave empty to skip)',
-      optional: true,
+      placeholder: 'e.g. config, schema',
+      hint: 'Comma-separated resource names (leave empty to skip)',
+      required: false,
     };
 
-    // Step 5: Progress
-    yield { type: 'progress', message: 'Creating photon...' };
+    // Progress
+    yield { emit: 'status' as const, message: 'Creating photon...' };
 
+    const nameStr = String(name);
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
-    const fileName = `${name}.photon.ts`;
+    const fileName = `${nameStr}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
     // Generate class name
-    const className = (name as string)
+    const className = nameStr
       .split(/[-_]/)
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
 
+    // Parse comma-separated lists
+    const parseCsv = (val: any): string[] =>
+      typeof val === 'string' && val.trim()
+        ? val.split(',').map((s) => s.trim()).filter(Boolean)
+        : Array.isArray(val) ? val : [];
+
+    const methodList = parseCsv(methodsRaw);
+    const promptList = parseCsv(promptsRaw);
+    const resourceList = parseCsv(resourcesRaw);
+
     // Generate all stubs
     const allStubs: string[] = [];
-
-    const methodList = Array.isArray(methods) ? methods : [];
-    const promptList = Array.isArray(prompts) ? prompts : [];
-    const resourceList = Array.isArray(resources) ? resources : [];
 
     if (methodList.length > 0) {
       allStubs.push(...methodList.map((m) => Maker.generateMethodStub(m as string, 'tool')));
@@ -318,9 +310,8 @@ ${allStubs.join('\n\n')}
 
     // Done
     yield {
-      type: 'done',
-      message: `Created ${fileName}`,
-      result: { path: filePath, code },
+      emit: 'result' as const,
+      data: { message: `Created ${fileName}`, path: filePath, code },
     };
   }
 
