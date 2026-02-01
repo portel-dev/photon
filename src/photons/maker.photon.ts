@@ -209,6 +209,7 @@ ${allStubs.join('\n\n')}
    * Guided wizard to create a new photon
    * @wizard
    * @param name Photon name in kebab-case (e.g., my-tools, api-wrapper)
+   * @returns {@label Create}
    */
   static async *wizard({ name }: { name: string }): AsyncGenerator<WizardStep, void, any> {
     if (!name) return;
