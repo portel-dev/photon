@@ -1495,7 +1495,8 @@ export class BeamApp extends LitElement {
         if (window.location.hash) {
           this._handleHashChange();
         } else if (!this._selectedPhoton && this._photons.length > 0) {
-          this._selectedPhoton = this._photons[0];
+          const firstUserPhoton = this._photons.find((p) => !p.internal);
+          if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
           this._updateHash();
         }
       });
@@ -1803,6 +1804,7 @@ export class BeamApp extends LitElement {
         id: name,
         name,
         configured: false,
+        internal: config['x-internal'],
         methods: [], // Empty methods signals needs setup
         requiredParams: Object.entries(config.properties || {}).map(
           ([key, prop]: [string, any]) => ({
@@ -2325,9 +2327,29 @@ export class BeamApp extends LitElement {
     }
 
     if (!this._selectedPhoton) {
-      const configuredPhotons = this._photons.filter((p) => p.configured);
-      const unconfiguredPhotons = this._photons.filter((p) => !p.configured);
+      const userPhotons = this._photons.filter((p) => !p.internal);
+      const configuredPhotons = userPhotons.filter((p) => p.configured);
+      const unconfiguredPhotons = userPhotons.filter((p) => !p.configured);
 
+      // No user photons at all — show welcome with embedded marketplace
+      if (userPhotons.length === 0) {
+        return html`
+          <div style="text-align: center; margin-bottom: var(--space-xl);">
+            <h1 class="text-gradient" style="margin-bottom: var(--space-sm);">
+              Welcome to Photon Beam
+            </h1>
+            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 480px; margin: 0 auto;">
+              Get started by installing a photon from the marketplace.
+            </p>
+          </div>
+          <marketplace-view
+            @install=${this._handleInstall}
+            @maker-action=${this._handleMakerAction}
+          ></marketplace-view>
+        `;
+      }
+
+      // Has user photons but none selected — show dashboard overview
       return html`
         <h1 class="text-gradient" style="margin-bottom: var(--space-lg);">
           Welcome to Photon Beam
@@ -2366,7 +2388,7 @@ export class BeamApp extends LitElement {
               Discover and install new photons.
             </p>
             <button class="btn-primary" @click=${() => (this._view = 'marketplace')}>
-              🛍️ Explore
+              Explore
             </button>
           </div>
 

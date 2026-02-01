@@ -134,6 +134,8 @@ export interface UnconfiguredPhotonInfo {
   requiredParams: ConfigParam[];
   /** Human-readable error message explaining what's missing */
   errorMessage: string;
+  /** True if marked with @internal (system photon, hidden from normal UI) */
+  internal?: boolean;
 }
 
 /**

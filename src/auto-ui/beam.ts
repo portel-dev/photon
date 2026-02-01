@@ -196,9 +196,9 @@ function extractClassMetadataFromSource(content: string): {
   author?: string;
 } {
   try {
-    // Find class-level JSDoc (the JSDoc immediately before class declaration)
+    // Find class-level JSDoc (immediately before class, or first JSDoc in file)
     const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
-    const match = content.match(classDocRegex);
+    const match = content.match(classDocRegex) || content.match(/^\/\*\*([\s\S]*?)\*\//);
 
     if (!match) {
       return {};
@@ -392,28 +392,42 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
     let constructorParams: ConfigParam[] = [];
     let templatePath: string | undefined;
     let source: string | undefined;
+    let isInternal: boolean | undefined;
 
     try {
       source = await fs.readFile(photonPath, 'utf-8');
-      const params = extractor.extractConstructorParams(source);
+    } catch {
+      // Can't read source
+    }
 
-      constructorParams = params
-        .filter((p) => p.isPrimitive)
-        .map((p) => ({
-          name: p.name,
-          envVar: toEnvVarName(name, p.name),
-          type: p.type,
-          isOptional: p.isOptional,
-          hasDefault: p.hasDefault,
-          defaultValue: p.defaultValue,
-        }));
+    // Extract @internal early — outside try/catch so it's always available
+    if (source && /@internal\b/.test(source)) {
+      isInternal = true;
+    }
 
-      // Extract @ui template path from class-level JSDoc
-      const classJsdocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/);
-      if (classJsdocMatch) {
-        const uiMatch = classJsdocMatch[0].match(/@ui\s+([^\s*]+)/);
-        if (uiMatch) {
-          templatePath = uiMatch[1];
+    try {
+      if (source) {
+        const params = extractor.extractConstructorParams(source);
+
+        constructorParams = params
+          .filter((p) => p.isPrimitive)
+          .map((p) => ({
+            name: p.name,
+            envVar: toEnvVarName(name, p.name),
+            type: p.type,
+            isOptional: p.isOptional,
+            hasDefault: p.hasDefault,
+            defaultValue: p.defaultValue,
+          }));
+
+        // Extract @ui template path from class-level JSDoc
+        const classJsdocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/)
+          || source.match(/^\/\*\*([\s\S]*?)\*\//);
+        if (classJsdocMatch) {
+          const uiMatch = classJsdocMatch[0].match(/@ui\s+([^\s*]+)/);
+          if (uiMatch) {
+            templatePath = uiMatch[1];
+          }
         }
       }
     } catch {
@@ -449,6 +463,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         name,
         path: photonPath,
         configured: false,
+        internal: isInternal,
         requiredParams: constructorParams,
         errorMessage:
           missingRequired.length > 0
@@ -570,7 +585,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
         assets: mcp.assets,
         description: classMetadata.description || mcp.description || `${name} MCP`,
         icon: classMetadata.icon,
-        internal: classMetadata.internal,
+        internal: isInternal || classMetadata.internal,
         version: metaVersion,
         author: metaAuthor,
         resourceCount,
@@ -586,6 +601,7 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           name,
           path: photonPath,
           configured: false,
+          internal: isInternal,
           requiredParams: constructorParams,
           errorMessage: errorMsg.slice(0, 200),
         };
@@ -2272,6 +2288,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
           // Check if this is an App (has main() method with @ui)
           const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
+          // Extract class metadata from source
+          const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
+
           const reloadedPhoton: PhotonInfo = {
             id: generatePhotonId(photonPath),
             name: photonName,
@@ -2280,6 +2299,9 @@ export async function startBeam(workingDir: string, port: number): Promise<void>
             methods,
             isApp: !!mainMethod,
             appEntry: mainMethod,
+            description: reloadClassMeta.description,
+            icon: reloadClassMeta.icon,
+            internal: reloadClassMeta.internal || (/@internal\b/.test(reloadSource) || undefined),
           };
 
           if (isNewPhoton) {
@@ -2724,6 +2746,9 @@ async function reloadPhotonViaMCP(
     // Check if this is an App
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
 
+    // Extract class metadata from source
+    const reloadClassMeta = extractClassMetadataFromSource(reloadSrc);
+
     // Update photon info
     const reloadedPhoton: PhotonInfo = {
       id: generatePhotonId(photonPath),
@@ -2733,6 +2758,9 @@ async function reloadPhotonViaMCP(
       methods,
       isApp: !!mainMethod,
       appEntry: mainMethod,
+      description: reloadClassMeta.description,
+      icon: reloadClassMeta.icon,
+      internal: reloadClassMeta.internal || (/@internal\b/.test(reloadSrc) || undefined),
     };
 
     photons[photonIndex] = reloadedPhoton;

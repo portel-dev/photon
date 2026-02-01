@@ -181,6 +181,7 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
       properties,
       required: required.length > 0 ? required : undefined,
       'x-error-message': unconfigured.errorMessage,
+      'x-internal': unconfigured.internal,
     };
   }
 
@@ -347,6 +348,7 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-path': photon.path, // File path for View Source
           'x-photon-description': photon.description,
           'x-photon-icon': photon.icon,
+          'x-photon-internal': photon.internal,
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
@@ -367,9 +369,10 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
-    // Add beam system tools
+    // Add beam system tools (internal — hidden from sidebar)
     tools.push({
       name: 'beam/configure',
+      'x-photon-internal': true,
       description:
         'Configure a photon with required parameters. Use initialize response configurationSchema to get required fields.',
       inputSchema: {

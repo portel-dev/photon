@@ -685,6 +685,7 @@ class MCPClientService {
           path: tool['x-photon-path'], // File path for View Source
           description: tool['x-photon-description'],
           icon: tool['x-photon-icon'],
+          internal: tool['x-photon-internal'],
           promptCount: tool['x-photon-prompt-count'] || 0,
           resourceCount: tool['x-photon-resource-count'] || 0,
           configured: true,
