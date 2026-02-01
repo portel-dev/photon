@@ -1277,6 +1277,7 @@ export class BeamApp extends LitElement {
   @state() private _photons: any[] = [];
   @state() private _selectedPhoton: any = null;
   @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' = 'list';
+  @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
 
   // ... (existing code)
@@ -1511,10 +1512,23 @@ export class BeamApp extends LitElement {
       });
 
       mcpClient.on('tools-changed', async () => {
+        const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
         const tools = await mcpClient.listTools();
         this._photons = mcpClient.toolsToPhotons(tools);
         // Re-add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
+        // Auto-select newly added user photon (welcome wizard flow)
+        if (!this._selectedPhoton) {
+          const newUserPhoton = this._photons.find(
+            (p) => !p.internal && p.configured && !prevNames.has(p.name)
+          );
+          if (newUserPhoton) {
+            this._selectedPhoton = newUserPhoton;
+            this._welcomePhase = 'welcome';
+            this._view = 'list';
+            this._updateHash();
+          }
+        }
       });
 
       // Handle configuration schema for unconfigured photons
@@ -1577,12 +1591,24 @@ export class BeamApp extends LitElement {
       // Handle photons list update from SSE
       mcpClient.on('photons', (data: any) => {
         if (data?.photons) {
+          const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
           this._photons = data.photons;
           // Update selected photon if it was in the list
           if (this._selectedPhoton) {
             const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
             if (updated) {
               this._selectedPhoton = updated;
+            }
+          } else {
+            // Auto-select newly added user photon (welcome wizard flow)
+            const newUserPhoton = this._photons.find(
+              (p) => !p.internal && p.configured && !prevNames.has(p.name)
+            );
+            if (newUserPhoton) {
+              this._selectedPhoton = newUserPhoton;
+              this._welcomePhase = 'welcome';
+              this._view = 'list';
+              this._updateHash();
             }
           }
         }
@@ -2331,21 +2357,68 @@ export class BeamApp extends LitElement {
       const configuredPhotons = userPhotons.filter((p) => p.configured);
       const unconfiguredPhotons = userPhotons.filter((p) => !p.configured);
 
-      // No user photons at all — show welcome with embedded marketplace
+      // No user photons at all — show welcome wizard
       if (userPhotons.length === 0) {
+        if (this._welcomePhase === 'marketplace') {
+          return html`
+            <div style="margin-bottom: var(--space-md);">
+              <button
+                style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                @click=${() => (this._welcomePhase = 'welcome')}
+              >
+                ← Back to Welcome
+              </button>
+            </div>
+            <h1 class="text-gradient">Marketplace</h1>
+            <p style="color: var(--t-muted); margin-bottom: var(--space-lg);">
+              Discover and install a photon to get started.
+            </p>
+            <marketplace-view
+              @install=${this._handleInstall}
+              @maker-action=${this._handleMakerAction}
+            ></marketplace-view>
+          `;
+        }
+
+        // Phase 1: Welcome screen with two paths
         return html`
-          <div style="text-align: center; margin-bottom: var(--space-xl);">
-            <h1 class="text-gradient" style="margin-bottom: var(--space-sm);">
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; text-align:center;">
+            <h1 class="text-gradient" style="font-size:2rem; margin-bottom: var(--space-sm);">
               Welcome to Photon Beam
             </h1>
-            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 480px; margin: 0 auto;">
-              Get started by installing a photon from the marketplace.
+            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 520px; margin: 0 auto var(--space-xl) auto; line-height: 1.6;">
+              Photon lets you build and run MCP tools — callable from
+              Claude, Cursor, or any AI assistant.
             </p>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); max-width: 520px; width:100%;">
+              <button
+                class="glass-panel"
+                style="padding: var(--space-lg); border:1px solid var(--border-glass); cursor:pointer; text-align:center; transition: border-color 0.2s, box-shadow 0.2s;"
+                @mouseenter=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)'}
+                @mouseleave=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)'}
+                @click=${() => (this._welcomePhase = 'marketplace')}
+              >
+                <div style="font-size: 2rem; margin-bottom: var(--space-sm);">📦</div>
+                <div style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);">Browse & Install</div>
+                <div style="color: var(--t-muted); font-size: 0.85rem; line-height:1.5;">
+                  Install a ready-made photon from the marketplace
+                </div>
+              </button>
+              <button
+                class="glass-panel"
+                style="padding: var(--space-lg); border:1px solid var(--border-glass); cursor:pointer; text-align:center; transition: border-color 0.2s, box-shadow 0.2s;"
+                @mouseenter=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)'}
+                @mouseleave=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)'}
+                @click=${() => this._handleMakerAction(new CustomEvent('maker-action', { detail: { action: 'wizard' } }))}
+              >
+                <div style="font-size: 2rem; margin-bottom: var(--space-sm);">🛠️</div>
+                <div style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);">Create Your Own</div>
+                <div style="color: var(--t-muted); font-size: 0.85rem; line-height:1.5;">
+                  Build a custom photon from scratch with the guided wizard
+                </div>
+              </button>
+            </div>
           </div>
-          <marketplace-view
-            @install=${this._handleInstall}
-            @maker-action=${this._handleMakerAction}
-          ></marketplace-view>
         `;
       }
 
@@ -2820,10 +2893,11 @@ export class BeamApp extends LitElement {
         }, SCROLL_RENDER_DELAY_MS);
       });
     } else if (this._selectedPhoton.internal) {
-      // For internal photons, go back to marketplace view
-      this._view = 'marketplace';
+      // For internal photons, go back to welcome screen
       this._selectedMethod = null;
       this._selectedPhoton = null;
+      this._welcomePhase = 'welcome';
+      this._view = 'list';
       this._updateHash();
     } else {
       // For regular photons, go back to methods list
