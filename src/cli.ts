@@ -2301,22 +2301,22 @@ function preprocessArgs(): string[] {
     return [...process.argv, 'beam', '--open'];
   }
 
-  // Find the first non-flag argument (skip flag values like --dir <path>)
-  const globalFlagsWithValues = ['--dir', '--log-level'];
+  // Find the first non-flag argument (skip values of flags that take a parameter)
+  const flagsWithValues = ['--dir', '--log-level'];
   const firstArgIndex = args.findIndex((arg, i) => {
     if (arg.startsWith('-')) return false;
-    // Skip values of global flags (e.g., "." in "--dir .")
-    if (i > 0 && globalFlagsWithValues.includes(args[i - 1])) return false;
+    // Skip values of preceding flags (e.g., "." in "--dir .")
+    if (i > 0 && flagsWithValues.includes(args[i - 1])) return false;
     return true;
   });
   if (firstArgIndex === -1) {
-    // Only global flags (e.g., --dir=. --log-level debug) — default to beam
-    // Exception: --help and --version should show CLI help/version
-    const hasHelpOrVersion = args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V');
-    if (!hasHelpOrVersion) {
-      return [...process.argv, 'beam', '--open'];
+    // No subcommand — only flags present (e.g., --dir=. --log-level debug)
+    // photon --help / -h / --version / -V → show program help/version
+    if (args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V')) {
+      return process.argv;
     }
-    return process.argv;
+    // Otherwise default to beam (e.g., photon --dir=. → photon --dir=. beam --open)
+    return [...process.argv, 'beam', '--open'];
   }
 
   const firstArg = args[firstArgIndex];
