@@ -779,6 +779,7 @@ export class PhotonLoader {
    * Check if a class has async methods
    */
   private hasAsyncMethods(ClassConstructor: new (...args: unknown[]) => unknown): boolean {
+    // Check instance methods on prototype
     const prototype = ClassConstructor.prototype;
 
     for (const key of Object.getOwnPropertyNames(prototype)) {
@@ -786,7 +787,20 @@ export class PhotonLoader {
 
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
       if (descriptor && typeof descriptor.value === 'function') {
-        // Check if it's an async function or async generator
+        const fn = descriptor.value;
+        const ctorName = fn.constructor.name;
+        if (ctorName === 'AsyncFunction' || ctorName === 'AsyncGeneratorFunction') {
+          return true;
+        }
+      }
+    }
+
+    // Check static methods on the class itself
+    for (const key of Object.getOwnPropertyNames(ClassConstructor)) {
+      if (['length', 'name', 'prototype'].includes(key)) continue;
+
+      const descriptor = Object.getOwnPropertyDescriptor(ClassConstructor, key);
+      if (descriptor && typeof descriptor.value === 'function') {
         const fn = descriptor.value;
         const ctorName = fn.constructor.name;
         if (ctorName === 'AsyncFunction' || ctorName === 'AsyncGeneratorFunction') {

@@ -321,7 +321,9 @@ function extractCspFromSource(source: string): Record<
   return result;
 }
 
-export async function startBeam(workingDir: string, port: number): Promise<void> {
+export async function startBeam(rawWorkingDir: string, port: number): Promise<void> {
+  const workingDir = path.resolve(rawWorkingDir);
+
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
   await marketplace.initialize();
