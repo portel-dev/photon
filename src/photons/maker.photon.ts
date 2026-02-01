@@ -208,18 +208,9 @@ ${allStubs.join('\n\n')}
   /**
    * Guided wizard to create a new photon
    * @wizard
+   * @param name Photon name in kebab-case (e.g., my-tools, api-wrapper)
    */
-  static async *wizard(): AsyncGenerator<WizardStep, void, any> {
-    // Step 1: Get name
-    const name = yield {
-      ask: 'text' as const,
-      id: 'name',
-      message: 'Photon Name',
-      label: 'Photon Name',
-      placeholder: 'my-photon',
-      hint: 'Use kebab-case (e.g., my-tools, api-wrapper)',
-    };
-
+  static async *wizard({ name }: { name: string }): AsyncGenerator<WizardStep, void, any> {
     if (!name) return;
 
     // Step 2: Add tool methods (comma-separated)
