@@ -47,6 +47,7 @@ import { createReadline, promptText, promptWait } from './shared/cli-utils.js';
 import { registerMarketplaceCommands } from './cli/commands/marketplace.js';
 import { registerInfoCommand } from './cli/commands/info.js';
 import { registerPackageCommands } from './cli/commands/package.js';
+import { registerPackageAppCommand } from './cli/commands/package-app.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // BUNDLED PHOTONS
@@ -1782,6 +1783,9 @@ registerInfoCommand(program, DEFAULT_WORKING_DIR);
 // Register package management commands
 registerPackageCommands(program, DEFAULT_WORKING_DIR);
 
+// Register package-app command (cross-platform PWA launchers)
+registerPackageAppCommand(program, DEFAULT_WORKING_DIR);
+
 // Doctor command: diagnose photon environment
 program
   .command('doctor')
@@ -2149,6 +2153,8 @@ const RESERVED_COMMANDS = [
   'aliases',
   // Marketplace
   'marketplace',
+  // Packaging
+  'package',
   // Hidden/advanced
   'mcp',
   'search',
