@@ -583,6 +583,54 @@ export class BeamApp extends LitElement {
         cursor: pointer;
       }
 
+      .markdown-body table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: var(--space-sm) 0;
+        font-size: 0.85rem;
+      }
+
+      .markdown-body th,
+      .markdown-body td {
+        border: 1px solid var(--border-glass);
+        padding: 6px 10px;
+        text-align: left;
+      }
+
+      .markdown-body th {
+        background: var(--bg-glass);
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--t-muted);
+      }
+
+      .markdown-body code {
+        background: var(--bg-glass);
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-size: 0.85em;
+      }
+
+      .markdown-body pre {
+        background: var(--bg-glass);
+        padding: var(--space-md);
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+
+      .markdown-body pre code {
+        background: none;
+        padding: 0;
+      }
+
+      .markdown-body hr {
+        border: none;
+        border-top: 1px solid var(--border-glass);
+        margin: var(--space-md) 0;
+      }
+
       .shortcut-section {
         margin-bottom: var(--space-lg);
       }
@@ -4873,7 +4921,37 @@ export class BeamApp extends LitElement {
 
     // Parse markdown if marked is available
     if ((window as any).marked) {
-      htmlContent = (window as any).marked.parse(markdown);
+      // Extract mermaid blocks before parsing
+      const mermaidBlocks: { id: string; code: string }[] = [];
+      let processed = markdown.replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match: string, code: string) => {
+        const id = `help-mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        mermaidBlocks.push({ id, code: code.trim() });
+        return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
+      });
+      htmlContent = (window as any).marked.parse(processed);
+
+      // Render mermaid blocks after DOM update
+      if (mermaidBlocks.length > 0 && (window as any).mermaid) {
+        const mermaid = (window as any).mermaid;
+        const isDark = this.getAttribute('data-theme') !== 'light';
+        mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default' });
+        requestAnimationFrame(() => {
+          for (const { id, code } of mermaidBlocks) {
+            const el = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`);
+            if (el) {
+              mermaid.render(id + '-svg', code).then(({ svg }: { svg: string }) => {
+                el.innerHTML = svg;
+                (el as HTMLElement).style.minHeight = '';
+                (el as HTMLElement).style.background = isDark ? 'hsla(220, 15%, 18%, 0.8)' : 'hsla(0, 0%, 97%, 0.8)';
+                (el as HTMLElement).style.borderRadius = '8px';
+                (el as HTMLElement).style.padding = '12px';
+              }).catch(() => {
+                el.textContent = 'Diagram rendering failed';
+              });
+            }
+          }
+        });
+      }
     }
 
     return html`
