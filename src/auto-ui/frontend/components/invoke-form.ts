@@ -68,6 +68,49 @@ export class InvokeForm extends LitElement {
         border-top: 1px solid var(--border-glass);
       }
 
+      .cli-preview {
+        margin-top: var(--space-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+
+      .cli-preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+      }
+
+      .cli-preview-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--t-muted);
+      }
+
+      .cli-preview-copy {
+        font-size: 0.65rem;
+        background: none;
+        border: none;
+        color: var(--accent-secondary);
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .cli-preview-copy:hover {
+        text-decoration: underline;
+      }
+
+      .cli-preview-cmd {
+        font-family: var(--font-mono, monospace);
+        font-size: 0.78rem;
+        color: var(--t-muted);
+        word-break: break-all;
+        line-height: 1.5;
+      }
+
       button {
         padding: var(--space-sm) var(--space-lg);
         border-radius: var(--radius-sm);
@@ -410,6 +453,7 @@ export class InvokeForm extends LitElement {
               : 'Execute'}
           </button>
         </div>
+        ${this._renderCliCommand()}
       </div>
     `;
   }
@@ -634,6 +678,37 @@ export class InvokeForm extends LitElement {
     if (this.rememberValues) {
       this._savePersistedValues();
     }
+  }
+
+  private _buildCliCommand(): string {
+    const parts = ['photon', 'cli', this.photonName, this.methodName];
+    for (const [key, value] of Object.entries(this._values)) {
+      if (value === undefined || value === null || value === '') continue;
+      const strVal = String(value);
+      // Quote values with spaces or special characters
+      if (strVal.includes(' ') || strVal.includes('"') || strVal.includes("'")) {
+        parts.push(`--${key}`, `"${strVal.replace(/"/g, '\\"')}"`);
+      } else {
+        parts.push(`--${key}`, strVal);
+      }
+    }
+    return parts.join(' ');
+  }
+
+  private _renderCliCommand() {
+    const cmd = this._buildCliCommand();
+    return html`
+      <div class="cli-preview">
+        <div class="cli-preview-header">
+          <span class="cli-preview-label">CLI</span>
+          <button class="cli-preview-copy" @click=${() => {
+            navigator.clipboard.writeText(cmd);
+            showToast('Command copied', 'success');
+          }}>Copy</button>
+        </div>
+        <code class="cli-preview-cmd">${cmd}</code>
+      </div>
+    `;
   }
 
   private _handleSubmit() {
