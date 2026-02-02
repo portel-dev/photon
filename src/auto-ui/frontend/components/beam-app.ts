@@ -1825,7 +1825,7 @@ export class BeamApp extends LitElement {
 
     // Add unconfigured photons that aren't already in the list
     const unconfigured = Object.entries(schema)
-      .filter(([name]) => !existingNames.has(name))
+      .filter(([name, config]) => !existingNames.has(name) && !config['x-configured'])
       .map(([name, config]) => ({
         id: name,
         name,
@@ -2007,7 +2007,7 @@ export class BeamApp extends LitElement {
       <h3
         style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-sm);"
       >
-        Photons (${d.configuredCount} loaded, ${d.unconfiguredCount} unconfigured)
+        Photons (${d.configuredCount} loaded${d.unconfiguredCount > 0 ? `, ${d.unconfiguredCount} unconfigured` : ''})
       </h3>
       <div class="glass-panel" style="padding: var(--space-md);">
         ${(d.photons || []).map(
@@ -2021,7 +2021,7 @@ export class BeamApp extends LitElement {
                     ? '#fbbf24'
                     : '#f87171'}; flex-shrink: 0;"
               ></span>
-              <span style="flex: 1;">${p.name}</span>
+              <span style="flex: 1;">${p.name}${p.internal ? html` <span style="color: var(--t-muted); font-size: 0.7rem; font-style: italic;">system</span>` : ''}</span>
               <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
               ${p.error
                 ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
@@ -2513,7 +2513,20 @@ export class BeamApp extends LitElement {
 
     // Show configuration view for unconfigured photons or edit mode
     if (this._view === 'config' || this._selectedPhoton.configured === false) {
+      const isEditMode = this._selectedPhoton.configured !== false;
       return html`
+        ${isEditMode
+          ? html`
+              <div style="margin-bottom: var(--space-md);">
+                <button
+                  style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
+                  @click=${() => (this._view = 'list')}
+                >
+                  ← Back to ${this._selectedPhoton.name}
+                </button>
+              </div>
+            `
+          : ''}
         <div class="glass-panel" style="padding: var(--space-lg); max-width: 600px;">
           <photon-config
             .photon=${this._selectedPhoton}
@@ -3001,6 +3014,27 @@ export class BeamApp extends LitElement {
   private _handleReconfigure = () => {
     this._closeSettingsMenu();
     this._configMode = this._selectedPhoton?.configured ? 'edit' : 'initial';
+
+    // Populate requiredParams from configurationSchema if not already present
+    if (this._selectedPhoton && !this._selectedPhoton.requiredParams?.length) {
+      const schema = mcpClient.getConfigurationSchema();
+      const photonSchema = schema?.[this._selectedPhoton.name];
+      if (photonSchema?.properties) {
+        this._selectedPhoton = {
+          ...this._selectedPhoton,
+          requiredParams: Object.entries(photonSchema.properties).map(
+            ([key, prop]: [string, any]) => ({
+              name: key,
+              type: prop.type || 'string',
+              format: prop.format,
+              default: prop.default,
+              required: photonSchema.required?.includes(key),
+            })
+          ),
+        };
+      }
+    }
+
     this._view = 'config';
     this._updateHash();
   };

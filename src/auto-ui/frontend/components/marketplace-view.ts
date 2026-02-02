@@ -820,7 +820,7 @@ export class MarketplaceView extends LitElement {
             <div class="card-title">
               ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''} ${item.name}
             </div>
-            <div class="card-author">by ${item.author}</div>
+            ${item.author && item.author !== 'Unknown' ? html`<div class="card-author">by ${item.author}</div>` : ''}
           </div>
           <div class="card-meta">
             ${item.internal ? html`<span class="source-pill source-internal">System</span>` : ''}

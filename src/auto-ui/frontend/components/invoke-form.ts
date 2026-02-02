@@ -375,6 +375,27 @@ export class InvokeForm extends LitElement {
   }
 
   render() {
+    const properties = (this.params as any)?.properties || this.params;
+    const hasParams = properties && typeof properties === 'object' && Object.keys(properties).length > 0;
+
+    // For no-param methods, show minimal UI with just a re-execute button
+    if (!hasParams) {
+      return html`
+        <div class="form-container">
+          <div class="actions">
+            <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
+              Cancel
+            </button>
+            <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
+              ${this.loading
+                ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
+                : 'Re-execute'}
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
     return html`
       <div class="form-container">
         ${this._renderFields()}

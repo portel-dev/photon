@@ -1284,6 +1284,7 @@ export async function listMethods(photonName: string): Promise<void> {
     if (!resolvedPath) {
       logger.error(`Photon '${photonName}' not found`);
       console.error(`\nMake sure the photon is installed in ~/.photon/`);
+      console.error(`If '${photonName}' is a command, run 'photon --help' for available commands.`);
       process.exit(1);
     }
 
@@ -1366,6 +1367,7 @@ export async function runMethod(
     if (!resolvedPath) {
       logger.error(`Photon '${photonName}' not found`);
       console.error(`\nMake sure the photon is installed in ~/.photon/`);
+      console.error(`If '${photonName}' is a command, run 'photon --help' for available commands.`);
       process.exit(1);
     }
 

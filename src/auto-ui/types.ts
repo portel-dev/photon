@@ -116,6 +116,8 @@ export interface PhotonInfo {
   promptCount?: number;
   /** Installation source info if installed from marketplace */
   installSource?: { marketplace: string; installedAt?: string };
+  /** Constructor parameters (available for reconfiguration) */
+  requiredParams?: ConfigParam[];
 }
 
 /**

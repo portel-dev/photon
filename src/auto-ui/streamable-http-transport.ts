@@ -152,22 +152,21 @@ function configParamToJsonSchema(param: ConfigParam): Record<string, any> {
 }
 
 /**
- * Generate configurationSchema for all unconfigured photons
+ * Generate configurationSchema for all photons with constructor params
  * Uses JSON Schema format for rich UI generation
+ * Includes both unconfigured and configured photons (for reconfiguration)
  */
 function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, any> {
   const schema: Record<string, any> = {};
 
   for (const photon of photons) {
-    // Only include unconfigured photons with params
-    if (photon.configured) continue;
-    const unconfigured = photon as UnconfiguredPhotonInfo;
-    if (!unconfigured.requiredParams || unconfigured.requiredParams.length === 0) continue;
+    const params = (photon as any).requiredParams;
+    if (!params || params.length === 0) continue;
 
     const properties: Record<string, any> = {};
     const required: string[] = [];
 
-    for (const param of unconfigured.requiredParams) {
+    for (const param of params) {
       properties[param.name] = configParamToJsonSchema(param);
 
       // Mark as required if not optional and no default
@@ -180,8 +179,11 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
       type: 'object',
       properties,
       required: required.length > 0 ? required : undefined,
-      'x-error-message': unconfigured.errorMessage,
-      'x-internal': unconfigured.internal,
+      'x-error-message': !photon.configured
+        ? (photon as UnconfiguredPhotonInfo).errorMessage
+        : undefined,
+      'x-internal': (photon as any).internal,
+      'x-configured': photon.configured || undefined,
     };
   }
 

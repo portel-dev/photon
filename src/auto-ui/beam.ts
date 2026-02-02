@@ -593,6 +593,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         resourceCount,
         promptCount,
         installSource,
+        ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1547,6 +1548,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           status: p.configured ? 'loaded' : 'unconfigured',
           methods: p.configured ? (p as PhotonInfo).methods.length : 0,
           error: !p.configured ? (p as UnconfiguredPhotonInfo).errorMessage : undefined,
+          internal: (p as any).internal || undefined,
         }));
 
         res.writeHead(200);
@@ -2293,6 +2295,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Extract class metadata from source
           const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
 
+          // Extract constructor params for reconfiguration support
+          let reloadConstructorParams: ConfigParam[] = [];
+          try {
+            const reloadParams = extractor.extractConstructorParams(reloadSource);
+            reloadConstructorParams = reloadParams
+              .filter((p: ConstructorParam) => p.isPrimitive)
+              .map((p: ConstructorParam) => ({
+                name: p.name,
+                envVar: toEnvVarName(photonName, p.name),
+                type: p.type,
+                isOptional: p.isOptional,
+                hasDefault: p.hasDefault,
+                defaultValue: p.defaultValue,
+              }));
+          } catch {
+            // Can't extract params
+          }
+
           const reloadedPhoton: PhotonInfo = {
             id: generatePhotonId(photonPath),
             name: photonName,
@@ -2304,6 +2324,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             description: reloadClassMeta.description,
             icon: reloadClassMeta.icon,
             internal: reloadClassMeta.internal || (/@internal\b/.test(reloadSource) || undefined),
+            ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
           };
 
           if (isNewPhoton) {

@@ -468,7 +468,8 @@ class MCPClientService {
    * Check if a photon needs configuration
    */
   needsConfiguration(photonName: string): boolean {
-    return !!this._configurationSchema?.[photonName];
+    const entry = this._configurationSchema?.[photonName];
+    return !!entry && !entry['x-configured'];
   }
 
   /**
@@ -490,9 +491,9 @@ class MCPClientService {
         return { success: false, error: errorText };
       }
 
-      // Clear configuration schema for this photon on success
-      if (this._configurationSchema) {
-        delete this._configurationSchema[photonName];
+      // Mark as configured (keep schema for reconfiguration)
+      if (this._configurationSchema?.[photonName]) {
+        this._configurationSchema[photonName]['x-configured'] = true;
       }
 
       return { success: true };
