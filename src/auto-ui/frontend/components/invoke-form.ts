@@ -605,20 +605,28 @@ export class InvokeForm extends LitElement {
 
     // Handle File Paths -> File Picker
     // Heuristic: Key contains "path", "file", "dir" or schema.format matches
-    const isFile =
-      key.toLowerCase().includes('path') ||
-      key.toLowerCase().includes('file') ||
+    const lk = key.toLowerCase();
+    const isFilePicker =
+      lk.includes('path') ||
+      lk.includes('file') ||
+      lk.includes('dir') ||
       (schema as any).format === 'path' ||
-      (schema as any).format === 'file';
+      (schema as any).format === 'file' ||
+      (schema as any).format === 'directory';
 
-    if (isFile) {
-      // Support @accept filter from schema (e.g., ".ts,.js" or "*.photon.ts")
+    if (isFilePicker) {
+      // Determine if this is a directory picker or file picker
+      const isDir =
+        lk.includes('dir') ||
+        lk.includes('folder') ||
+        (schema as any).format === 'directory';
       const acceptFilter = (schema as any).accept || '';
       return html`
         <file-picker
           .value=${this._values[key] || ''}
           .hasError=${hasError}
           .accept=${acceptFilter}
+          .mode=${isDir ? 'directory' : 'file'}
           .photonName=${this.photonName}
           @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
         ></file-picker>

@@ -214,6 +214,10 @@ export class FilePicker extends LitElement {
   @property({ type: String })
   accept = '';
 
+  /** Selection mode: 'file' only allows file selection, 'directory' allows directory selection */
+  @property({ type: String })
+  mode: 'file' | 'directory' = 'file';
+
   /** Root directory constraint — browser won't navigate above this */
   @property({ type: String })
   root = '';
@@ -355,11 +359,19 @@ export class FilePicker extends LitElement {
 
   private _handleItemClick(item: FileEntry) {
     if (item.isDirectory) {
-      this._loadPath(item.path);
+      if (this.mode === 'directory') {
+        // In directory mode, clicking a directory selects it
+        this.value = item.path;
+        this._dispatchChange();
+        this._isOpen = false;
+      } else {
+        // In file mode, clicking a directory navigates into it
+        this._loadPath(item.path);
+      }
     } else {
+      if (this.mode === 'directory') return; // Ignore file clicks in directory mode
       this.value = item.path;
       this._dispatchChange();
-      // Auto-close on file selection
       this._isOpen = false;
     }
   }
@@ -370,27 +382,49 @@ export class FilePicker extends LitElement {
     this._loadPath(this._currentPath + '/..');
   }
 
+  // Binary/non-text extensions that are useless to read as text
+  private static readonly BINARY_EXTENSIONS = new Set([
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods',
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp', '.tiff', '.tif',
+    '.mp3', '.mp4', '.avi', '.mov', '.mkv', '.flac', '.wav', '.ogg', '.webm',
+    '.zip', '.tar', '.gz', '.bz2', '.rar', '.7z', '.dmg', '.iso',
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+    '.woff', '.woff2', '.ttf', '.otf', '.eot',
+    '.sqlite', '.db', '.sqlite3',
+    '.pyc', '.class', '.o', '.obj', '.wasm',
+  ]);
+
   /** Check if a file matches the accept filter */
   private _matchesFilter(item: FileEntry): boolean {
     // Always show directories
     if (item.isDirectory) return true;
 
-    // No filter = show all
-    if (!this.accept) return true;
+    // In directory mode, show all items for navigation context
+    if (this.mode === 'directory') return true;
 
-    const filters = this.accept.split(',').map((f) => f.trim().toLowerCase());
     const fileName = item.name.toLowerCase();
 
-    return filters.some((filter) => {
-      // Handle glob patterns like "*.photon.ts"
-      if (filter.startsWith('*.')) {
-        const suffix = filter.slice(1); // Remove leading *
-        return fileName.endsWith(suffix);
-      }
-      // Handle extension patterns like ".ts" or "ts"
-      const ext = filter.startsWith('.') ? filter : `.${filter}`;
-      return fileName.endsWith(ext);
-    });
+    // If explicit accept filter is set, use it
+    if (this.accept) {
+      const filters = this.accept.split(',').map((f) => f.trim().toLowerCase());
+      return filters.some((filter) => {
+        if (filter.startsWith('*.')) {
+          const suffix = filter.slice(1);
+          return fileName.endsWith(suffix);
+        }
+        const ext = filter.startsWith('.') ? filter : `.${filter}`;
+        return fileName.endsWith(ext);
+      });
+    }
+
+    // Default: hide known binary files
+    const dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex > 0) {
+      const ext = fileName.slice(dotIndex);
+      if (FilePicker.BINARY_EXTENSIONS.has(ext)) return false;
+    }
+
+    return true;
   }
 
   private _dispatchChange() {
