@@ -65,12 +65,17 @@ export class ResultViewer extends LitElement {
       }
 
       .format-badge {
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         padding: 2px 8px;
-        background: var(--bg-glass-strong);
-        border: 1px solid var(--border-glass);
+        background: transparent;
+        border: none;
         border-radius: 10px;
-        color: var(--accent-secondary);
+        color: var(--t-muted);
+        opacity: 0.6;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 500;
+        pointer-events: none;
       }
 
       .actions {

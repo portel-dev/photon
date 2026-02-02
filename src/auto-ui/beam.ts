@@ -1030,9 +1030,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Resolve photon's workdir as root constraint
       const photonParam = url.searchParams.get('photon');
       if (photonParam && !root) {
-        const photon = photons.find((p) => p.name === photonParam && p.configured);
-        if (photon) {
-          // Look up the photon's workdir from env vars
+        const mcp = photonMCPs.get(photonParam);
+        if (mcp?.instance) {
+          // Read the effective workdir directly from the running instance
+          const inst = mcp.instance as Record<string, unknown>;
+          if (typeof inst.workdir === 'string') {
+            root = path.resolve(inst.workdir);
+          }
+        }
+        // Fallback: check env var (if workdir was explicitly configured)
+        if (!root) {
           const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
           const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
           if (workdirEnv) {
