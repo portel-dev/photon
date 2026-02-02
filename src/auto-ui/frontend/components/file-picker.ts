@@ -214,6 +214,14 @@ export class FilePicker extends LitElement {
   @property({ type: String })
   accept = '';
 
+  /** Root directory constraint — browser won't navigate above this */
+  @property({ type: String })
+  root = '';
+
+  /** Photon name — used to resolve the photon's workdir as root */
+  @property({ type: String })
+  photonName = '';
+
   @state()
   private _isOpen = false;
 
@@ -260,6 +268,7 @@ export class FilePicker extends LitElement {
                   class="btn-secondary"
                   style="padding: 2px 6px; font-size: 0.7rem;"
                   @click=${this._goUp}
+                  ?disabled=${!!(this.root && this._currentPath === this.root)}
                 >
                   ↑
                 </button>
@@ -322,15 +331,21 @@ export class FilePicker extends LitElement {
     try {
       const url = new URL('/api/browse', window.location.origin);
       if (path) url.searchParams.set('path', path);
+      if (this.root) url.searchParams.set('root', this.root);
+      if (this.photonName) url.searchParams.set('photon', this.photonName);
 
       const res = await fetch(url.toString(), {
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) throw new Error('Failed to load');
 
-      const data: BrowseResponse = await res.json();
+      const data: BrowseResponse & { root?: string } = await res.json();
       this._currentPath = data.path;
       this._items = data.items;
+      // Store resolved root from server for parent navigation constraint
+      if (data.root && !this.root) {
+        this.root = data.root;
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -350,6 +365,8 @@ export class FilePicker extends LitElement {
   }
 
   private _goUp() {
+    // Don't navigate above root
+    if (this.root && this._currentPath === this.root) return;
     this._loadPath(this._currentPath + '/..');
   }
 

@@ -1025,8 +1025,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     // File browser API
     if (url.pathname === '/api/browse') {
       res.setHeader('Content-Type', 'application/json');
-      const dirPath = url.searchParams.get('path') || workingDir;
-      const root = url.searchParams.get('root');
+      let root = url.searchParams.get('root');
+
+      // Resolve photon's workdir as root constraint
+      const photonParam = url.searchParams.get('photon');
+      if (photonParam && !root) {
+        const photon = photons.find((p) => p.name === photonParam && p.configured);
+        if (photon) {
+          // Look up the photon's workdir from env vars
+          const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
+          const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
+          if (workdirEnv) {
+            root = path.resolve(workdirEnv);
+          }
+        }
+      }
+
+      const dirPath = url.searchParams.get('path') || root || workingDir;
 
       try {
         const resolved = path.resolve(dirPath);

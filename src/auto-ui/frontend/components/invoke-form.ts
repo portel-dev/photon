@@ -619,6 +619,7 @@ export class InvokeForm extends LitElement {
           .value=${this._values[key] || ''}
           .hasError=${hasError}
           .accept=${acceptFilter}
+          .photonName=${this.photonName}
           @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
         ></file-picker>
       `;
