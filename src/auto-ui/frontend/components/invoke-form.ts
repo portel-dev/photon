@@ -559,6 +559,28 @@ export class InvokeForm extends LitElement {
       `;
     }
 
+    // Heuristic: Use textarea for keys suggesting multi-line content
+    const lowerKey = key.toLowerCase();
+    const lowerDesc = ((schema as any).description || '').toLowerCase();
+    const multiLineKeys = ['code', 'content', 'body', 'script', 'query', 'sql',
+      'html', 'json', 'yaml', 'xml', 'markdown', 'template', 'snippet', 'source'];
+    const isMultiLine =
+      multiLineKeys.some(k => lowerKey === k || lowerKey.endsWith('_' + k) || lowerKey.endsWith(k.charAt(0).toUpperCase() + k.slice(1))) ||
+      lowerDesc.includes('multi-line') ||
+      lowerDesc.includes('multiline') ||
+      (schema as any).format === 'textarea';
+
+    if (isMultiLine) {
+      return html`
+        <textarea
+          class="${errorClass}"
+          rows="6"
+          .value=${this._values[key] || ''}
+          @input=${(e: Event) => this._handleChange(key, (e.target as HTMLTextAreaElement).value)}
+        ></textarea>
+      `;
+    }
+
     // Default -> Text Input
     return html`
       <input

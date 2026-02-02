@@ -24,7 +24,7 @@ Write business logic. Get an MCP server, CLI, and web UI — automatically.
 
 ```bash
 npm install -g @portel/photon
-photon init my-tool
+photon maker new my-tool
 photon                        # Open Beam UI in your browser
 ```
 
@@ -185,7 +185,7 @@ photon mcp <name> --dev           # MCP server with hot reload
 photon cli <name> [method]        # CLI interface
 
 # Manage
-photon init <name>                # Create new photon
+photon maker new <name>           # Create new photon
 photon info                       # List all photons
 photon info <name> --mcp          # Get MCP client config
 photon validate <name>            # Check for errors
@@ -264,16 +264,14 @@ Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/intr
 
 ## 📦 Available Photons
 
-| Photon | Focus | Tools | Features |
-|--------|-------|-------|----------|
-| [**Code Diagram**](code-diagram.md) | Generate Mermaid diagrams from TypeScript/JavaScript code | 3 | 🔌📦 |
-| [**Truth Serum**](serum.md) | Forces unfiltered honesty, no hedging or diplomacy @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
-export default class Serum {
-  / | 10 | - |
-| [**Test Ui**](test-ui.md) | Test Custom UI | 1 | 🎨 |
+Browse all available photons:
 
+```bash
+photon search <query>             # Search by keyword
+photon info                       # List all available photons
+```
 
-**Total:** 3 photons ready to use
+**30+ photons** covering databases, cloud services, developer tools, messaging, and more.
 
 ---
 
@@ -300,7 +298,7 @@ photon add aws-s3
 photon mcp filesystem
 
 # Get config for your MCP client
-photon get filesystem --mcp
+photon info filesystem --mcp
 ```
 
 Output (paste directly into your MCP client config):
@@ -317,7 +315,7 @@ Output (paste directly into your MCP client config):
 
 Add the output to your MCP client's configuration. **Consult your client's documentation** for setup instructions.
 
-**That's it!** Your AI assistant now has 3 focused tools at its fingertips.
+**That's it!** Your AI assistant now has focused tools at its fingertips.
 
 ---
 
@@ -383,7 +381,7 @@ Each photon delivers **singular focus** to a **precise target**.
 
 **Key Features:**
 - 🎯 Each photon does one thing perfectly
-- 📦 3 production-ready photons available
+- 📦 30+ production-ready photons available
 - ⚡ Auto-installs dependencies
 - 🔧 Works out of the box
 - 📄 Single-file design (easy to fork and customize)
@@ -406,7 +404,7 @@ For each MCP server:
 photon add filesystem
 
 # Get MCP config
-photon get filesystem --mcp
+photon info filesystem --mcp
 ```
 
 Output (paste directly into your MCP client config):
@@ -435,21 +433,21 @@ Output (paste directly into your MCP client config):
 **For Claude Users:**
 ```bash
 photon add filesystem git github-issues
-photon get --mcp  # Get config for all three
+photon info --mcp  # Get config for all three
 ```
 Add to Claude Desktop → Now Claude can read files, manage repos, create issues
 
 **For Teams:**
 ```bash
 photon add postgres mongodb redis
-photon get --mcp
+photon info --mcp
 ```
 Give Claude access to your data infrastructure
 
 **For Developers:**
 ```bash
 photon add docker git slack
-photon get --mcp
+photon info --mcp
 ```
 Automate your workflow through AI
 
@@ -457,13 +455,13 @@ Automate your workflow through AI
 
 ```bash
 # List all photons
-photon get
+photon info
 
 # Search by keyword
 photon search calendar
 
 # View details
-photon get google-calendar
+photon info google-calendar
 
 # Upgrade all
 photon upgrade
