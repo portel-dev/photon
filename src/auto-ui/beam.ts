@@ -199,6 +199,22 @@ function prettifyName(name: string): string {
     .join(' ');
 }
 
+/**
+ * After loading a photon, backfill env vars for constructor params that used
+ * their TypeScript defaults (env var not set). This ensures the env var always
+ * reflects the effective value so other consumers (e.g. /api/browse) can read it.
+ */
+function backfillEnvDefaults(instance: any, params: ConfigParam[]) {
+  for (const param of params) {
+    if (!process.env[param.envVar] && param.hasDefault) {
+      const value = (instance as Record<string, unknown>)[param.name];
+      if (value !== undefined && value !== null) {
+        process.env[param.envVar] = String(value);
+      }
+    }
+  }
+}
+
 function extractClassMetadataFromSource(content: string): {
   description?: string;
   icon?: string;
@@ -508,6 +524,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       photonMCPs.set(name, mcp);
+      backfillEnvDefaults(instance, constructorParams);
 
       // Extract schema for UI — reuse source read from above
       const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
@@ -1030,21 +1047,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Resolve photon's workdir as root constraint
       const photonParam = url.searchParams.get('photon');
       if (photonParam && !root) {
-        const mcp = photonMCPs.get(photonParam);
-        if (mcp?.instance) {
-          // Read the effective workdir directly from the running instance
-          const inst = mcp.instance as Record<string, unknown>;
-          if (typeof inst.workdir === 'string') {
-            root = path.resolve(inst.workdir);
-          }
-        }
-        // Fallback: check env var (if workdir was explicitly configured)
-        if (!root) {
-          const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
-          const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
-          if (workdirEnv) {
-            root = path.resolve(workdirEnv);
-          }
+        const envPrefix = photonParam.toUpperCase().replace(/-/g, '_');
+        const workdirEnv = process.env[`${envPrefix}_WORKDIR`];
+        if (workdirEnv) {
+          root = path.resolve(workdirEnv);
         }
       }
 
@@ -2357,6 +2363,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             // Can't extract params
           }
 
+          backfillEnvDefaults(mcp.instance, reloadConstructorParams);
+
           const reloadedPhoton: PhotonInfo = {
             id: generatePhotonId(photonPath),
             name: photonName,
@@ -2650,6 +2658,7 @@ async function configurePhotonViaMCP(
     }
 
     photonMCPs.set(photonName, mcp);
+    backfillEnvDefaults(instance, unconfiguredPhoton.requiredParams || []);
 
     // Extract schema for UI
     const extractor = new SchemaExtractor();
@@ -2766,6 +2775,7 @@ async function reloadPhotonViaMCP(
     }
 
     photonMCPs.set(photonName, mcp);
+    backfillEnvDefaults(instance, photon.requiredParams || []);
 
     // Extract schema for UI
     const extractor = new SchemaExtractor();
