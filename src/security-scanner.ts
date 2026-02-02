@@ -189,8 +189,7 @@ export class SecurityScanner {
       // but we can check the npm registry API
       return false; // Default to false for now
     } catch (error) {
-      // Package doesn't exist or other error
-      return false;
+      return false; // package doesn't exist or registry unreachable
     }
   }
 

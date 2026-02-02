@@ -210,7 +210,7 @@ export default class Tunnel {
       execSync(`which ${cmd}`, { stdio: 'ignore' });
       return true;
     } catch {
-      return false;
+      return false; // command not found
     }
   }
 

@@ -102,7 +102,7 @@ export class JwtService {
 
       return payload as unknown as SessionToken;
     } catch {
-      return null;
+      return null; // invalid or expired token
     }
   }
 
@@ -117,7 +117,7 @@ export class JwtService {
       const payload = JSON.parse(base64UrlDecode(parts[1]));
       return payload as SessionToken;
     } catch {
-      return null;
+      return null; // malformed token
     }
   }
 
@@ -178,7 +178,7 @@ export class JwtService {
     try {
       return JSON.parse(base64UrlDecode(payloadB64));
     } catch {
-      return null;
+      return null; // malformed payload
     }
   }
 
@@ -277,7 +277,7 @@ export function decodeOAuthState(encoded: string, secret: string): OAuthState | 
 
     return state;
   } catch {
-    return null;
+    return null; // corrupt or missing state file
   }
 }
 

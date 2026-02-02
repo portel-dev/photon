@@ -33,7 +33,7 @@ export class VersionChecker {
       const versionMatch = content.match(/@version\s+(\d+\.\d+\.\d+)/);
       return versionMatch ? versionMatch[1] : null;
     } catch {
-      return null;
+      return null; // file unreadable
     }
   }
 
@@ -128,7 +128,7 @@ export class VersionChecker {
       await fs.writeFile(targetPath, result.content, 'utf-8');
       return true;
     } catch {
-      return false;
+      return false; // update failed
     }
   }
 

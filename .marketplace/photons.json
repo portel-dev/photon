@@ -15,7 +15,12 @@
         "fromFile",
         "types"
       ],
-      "assets": []
+      "assets": [],
+      "photonType": "api",
+      "features": [
+        "mcp-bridge",
+        "photon-bridge"
+      ]
     },
     {
       "name": "serum",
@@ -37,7 +42,9 @@
         "empathy",
         "custom"
       ],
-      "assets": []
+      "assets": [],
+      "photonType": "api",
+      "features": []
     },
     {
       "name": "test-ui",
@@ -52,6 +59,10 @@
       ],
       "assets": [
         "test-ui/test-ui.html"
+      ],
+      "photonType": "api",
+      "features": [
+        "custom-ui"
       ]
     }
   ]

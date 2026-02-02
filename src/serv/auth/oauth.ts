@@ -576,7 +576,7 @@ export class OAuthFlowHandler {
         tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
       };
     } catch {
-      return null;
+      return null; // token exchange failed
     }
   }
 }

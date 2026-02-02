@@ -902,7 +902,7 @@ export class MarketplaceManager {
       const currentHash = await calculateFileHash(filePath);
       return currentHash !== metadata.originalHash;
     } catch {
-      return false;
+      return false; // file unreadable → not modified
     }
   }
 

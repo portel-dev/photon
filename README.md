@@ -264,13 +264,13 @@ Built on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/intr
 
 ## 📦 Available Photons
 
-| Photon | Focus | Tools | Details |
-|--------|-------|-------|---------|
-| **Code Diagram** | Generate Mermaid diagrams from TypeScript/JavaScript code | 3 | [View →](code-diagram.md) |
-| **Truth Serum** | Forces unfiltered honesty, no hedging or diplomacy @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
+| Photon | Focus | Tools | Features |
+|--------|-------|-------|----------|
+| [**Code Diagram**](code-diagram.md) | Generate Mermaid diagrams from TypeScript/JavaScript code | 3 | 🔌📦 |
+| [**Truth Serum**](serum.md) | Forces unfiltered honesty, no hedging or diplomacy @description Powerful prompt serums that force specific cognitive behaviors @icon 💉 /
 export default class Serum {
-  / | 10 | [View →](serum.md) |
-| **Test Ui** | Test Custom UI | 1 | [View →](test-ui.md) |
+  / | 10 | - |
+| [**Test Ui**](test-ui.md) | Test Custom UI | 1 | 🎨 |
 
 
 **Total:** 3 photons ready to use

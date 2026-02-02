@@ -1201,7 +1201,7 @@ export class PhotonServer {
       };
     } catch (error) {
       this.log('warn', `Config elicitation failed: ${getErrorMessage(error)}`);
-      return null;
+      return null; // elicitation unsupported by client
     }
   }
 
@@ -1678,7 +1678,7 @@ export class PhotonServer {
           };
         } catch (error) {
           this.log('warn', `Failed to load photon: ${file}`, { error: getErrorMessage(error) });
-          return null;
+          return null; // skip unloadable photon
         }
       })
     );

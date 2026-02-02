@@ -523,7 +523,7 @@ class MCPClientService {
       const data = this.parseToolResult(result);
       return data as any;
     } catch {
-      return null;
+      return null; // tool call failed
     }
   }
 
@@ -599,7 +599,7 @@ class MCPClientService {
       const textContent = result.content.find((c) => c.type === 'text');
       return textContent?.text || null;
     } catch {
-      return null;
+      return null; // tool call failed
     }
   }
 

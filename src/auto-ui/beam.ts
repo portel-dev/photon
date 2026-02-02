@@ -859,7 +859,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     try {
       return await fs.readFile(uiPath, 'utf-8');
     } catch {
-      return null;
+      return null; // UI asset not found
     }
   };
 

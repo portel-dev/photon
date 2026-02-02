@@ -914,7 +914,7 @@ export async function hasTests(photonPath: string): Promise<boolean> {
     return testMethods.length > 0;
   } catch (error) {
     logger.debug('Failed to check tests:', { error });
-    return false;
+    return false; // file unloadable → no tests
   }
 }
 

@@ -602,7 +602,7 @@ ${indent} * @uri ${name}://default
 ${indent} * @mimetype text/plain
 ${indent} */
 ${indent}async ${name}(): Promise<string> {
-${indent}  // TODO: implement resource content
+${indent}  // Replace with your resource content
 ${indent}  return 'Resource content here';
 ${indent}}`;
     }
@@ -619,7 +619,7 @@ ${indent}async ${name}({ ${paramName} }: {
 ${indent}  /** ${paramDesc} */
 ${indent}  ${paramName}: string;
 ${indent}}): Promise<{ result: string }> {
-${indent}  // TODO: implement
+${indent}  // Replace with your logic
 ${indent}  return { result: ${paramName} };
 ${indent}}`;
   }

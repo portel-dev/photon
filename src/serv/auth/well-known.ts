@@ -136,7 +136,7 @@ export async function fetchClientMetadata(
 
     return metadata;
   } catch {
-    return null;
+    return null; // discovery endpoint unreachable
   }
 }
 

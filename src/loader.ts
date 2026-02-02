@@ -256,7 +256,7 @@ export class PhotonLoader {
       return JSON.parse(data);
     } catch (error) {
       this.logger.debug('Failed to read dependency metadata', { error });
-      return null;
+      return null; // cache miss
     }
   }
 
@@ -265,7 +265,7 @@ export class PhotonLoader {
       await fs.access(targetPath);
       return true;
     } catch {
-      return false;
+      return false; // path does not exist
     }
   }
 
@@ -1419,7 +1419,7 @@ export class PhotonLoader {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch (error) {
       this.logger.debug('Failed to read directory', { error });
-      return null;
+      return null; // directory inaccessible
     }
 
     for (const entry of entries) {
@@ -1999,7 +1999,7 @@ Run: photon mcp ${mcpName} --config
       await fs.access(filePath);
       return true;
     } catch {
-      return false;
+      return false; // file does not exist
     }
   }
 
