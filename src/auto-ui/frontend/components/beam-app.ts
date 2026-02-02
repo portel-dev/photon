@@ -3845,11 +3845,12 @@ export class BeamApp extends LitElement {
 
     const photon = this._selectedPhoton;
     const name = photon.name;
+    const displayName = photon.label || name.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const lines: string[] = [];
 
     // Header with icon
     const icon = photon.icon ? `${photon.icon} ` : '';
-    lines.push(`# ${icon}${name}`);
+    lines.push(`# ${icon}${displayName}`);
     lines.push('');
 
     // Badges

@@ -594,7 +594,7 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
    * Get default Photon documentation template
    */
   private getDefaultPhotonTemplate(): string {
-    return `# \${properName(description, name)}
+    return `# \${label || properName(description, name)}
 
 \${cleanDesc(description)}
 

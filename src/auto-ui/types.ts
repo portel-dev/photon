@@ -102,6 +102,8 @@ export interface PhotonInfo {
   assets?: PhotonAssets;
   /** User-editable description */
   description?: string;
+  /** Display name from @label tag, or auto-prettified from name */
+  label?: string;
   /** Emoji icon from @icon tag */
   icon?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */
@@ -136,6 +138,8 @@ export interface UnconfiguredPhotonInfo {
   requiredParams: ConfigParam[];
   /** Human-readable error message explaining what's missing */
   errorMessage: string;
+  /** Display name from @label tag, or auto-prettified from name */
+  label?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */
   internal?: boolean;
 }

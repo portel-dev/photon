@@ -46,6 +46,7 @@ interface ExternalCall {
 
 export interface PhotonMetadata {
   name: string;
+  label?: string;
   version: string;
   description: string;
   author?: string;
@@ -101,6 +102,7 @@ export class PhotonDocExtractor {
 
     return {
       name: this.extractName(),
+      label: this.extractTag('label'),
       version: this.extractTag('version') || PHOTON_VERSION,
       description: this.extractDescription(),
       author: this.extractTag('author'),

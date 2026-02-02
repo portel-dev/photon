@@ -188,12 +188,24 @@ async function saveConfig(config: PhotonConfig): Promise<void> {
 /**
  * Extract class-level metadata (description, icon) from JSDoc comments
  */
+/**
+ * Convert a kebab-case name to a display label
+ * e.g. "filesystem" → "Filesystem", "git-box" → "Git Box"
+ */
+function prettifyName(name: string): string {
+  return name
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 function extractClassMetadataFromSource(content: string): {
   description?: string;
   icon?: string;
   internal?: boolean;
   version?: string;
   author?: string;
+  label?: string;
 } {
   try {
     // Find class-level JSDoc (immediately before class, or first JSDoc in file)
@@ -211,6 +223,7 @@ function extractClassMetadataFromSource(content: string): {
       internal?: boolean;
       version?: string;
       author?: string;
+      label?: string;
     } = {};
 
     // Extract @icon
@@ -234,6 +247,12 @@ function extractClassMetadataFromSource(content: string): {
     const authorMatch = docContent.match(/@author\s+([^\n@]+)/);
     if (authorMatch) {
       metadata.author = authorMatch[1].trim();
+    }
+
+    // Extract @label (custom display name)
+    const labelMatch = docContent.match(/@label\s+([^\n@]+)/);
+    if (labelMatch) {
+      metadata.label = labelMatch[1].trim();
     }
 
     // Extract @description or first line of doc (not starting with @)
@@ -586,6 +605,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         appEntry: mainMethod,
         assets: mcp.assets,
         description: classMetadata.description || mcp.description || `${name} MCP`,
+        label: classMetadata.label || prettifyName(name),
         icon: classMetadata.icon,
         internal: isInternal || classMetadata.internal,
         version: metaVersion,
@@ -604,6 +624,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           name,
           path: photonPath,
           configured: false,
+          label: prettifyName(name),
           internal: isInternal,
           requiredParams: constructorParams,
           errorMessage: errorMsg.slice(0, 200),
