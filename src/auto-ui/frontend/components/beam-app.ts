@@ -4972,7 +4972,7 @@ export class BeamApp extends LitElement {
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);"
           >
             <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">
-              ${this._selectedPhoton?.name || 'Photon'} Help
+              Help
               ${this._photonHelpLoading
                 ? html`<span style="font-size: 0.7em; opacity: 0.6; margin-left: 8px;">Loading...</span>`
                 : ''}
