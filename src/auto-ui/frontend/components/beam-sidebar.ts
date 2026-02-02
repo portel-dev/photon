@@ -14,6 +14,7 @@ interface PhotonItem {
   resourceCount?: number;
   promptCount?: number;
   hasUpdate?: boolean;
+  path?: string;
 }
 
 @customElement('beam-sidebar')
@@ -709,7 +710,7 @@ export class BeamSidebar extends LitElement {
         tabindex="0"
         @click=${() => this._selectPhoton(photon)}
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
-        title="${photon.description || photon.name}"
+        title="${photon.description || photon.name}${photon.path ? `\n${photon.path}` : ''}"
       >
         <div class="photon-icon ${isApp || hasCustomIcon ? 'emoji-icon' : ''}" aria-hidden="true">
           ${displayIcon}

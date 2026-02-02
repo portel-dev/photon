@@ -659,7 +659,7 @@ No tools defined.
 photon add \${name}
 
 # Get MCP config for your client
-photon get \${name} --mcp
+photon info \${name} --mcp
 \\\`\\\`\\\`
 
 ## 📦 Dependencies

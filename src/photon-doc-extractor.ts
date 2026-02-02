@@ -322,17 +322,19 @@ export class PhotonDocExtractor {
     const tools: Tool[] = [];
 
     // Find all async methods (including generators with async *)
-    const methodRegex = /async\s+(\*?)\s*(\w+)\s*\([^)]*\)/g;
+    const methodRegex = /async\s+(\*?)\s*(\w+)\s*\(([^)]*)\)/g;
     let match;
 
     while ((match = methodRegex.exec(this.content)) !== null) {
       const isGenerator = match[1] === '*';
       const methodName = match[2];
+      const methodSignatureParams = match[3] || '';
       const methodIndex = match.index;
 
-      // Skip private methods (starting with _) and lifecycle methods
+      // Skip private methods (starting with _), lifecycle methods, and test methods
       if (
         methodName.startsWith('_') ||
+        methodName.startsWith('test') ||
         methodName === 'onInitialize' ||
         methodName === 'onShutdown'
       ) {
@@ -358,7 +360,7 @@ export class PhotonDocExtractor {
       }
 
       const jsdoc = jsdocMatch[1];
-      const tool = this.parseToolMethodFromJSDoc(jsdoc, methodName);
+      const tool = this.parseToolMethodFromJSDoc(jsdoc, methodName, methodSignatureParams);
       if (tool) {
         tool.isGenerator = isGenerator;
         tools.push(tool);
@@ -472,7 +474,7 @@ export class PhotonDocExtractor {
   /**
    * Parse a single tool method from its JSDoc content
    */
-  private parseToolMethodFromJSDoc(jsdoc: string, methodName: string): Tool | null {
+  private parseToolMethodFromJSDoc(jsdoc: string, methodName: string, signatureParams?: string): Tool | null {
     // Extract method description (first line(s) before @param)
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
     const description = descMatch
@@ -482,6 +484,21 @@ export class PhotonDocExtractor {
           .join(' ')
           .trim()
       : '';
+
+    // Extract type map from method signature (e.g. "path: string, recursive?: boolean")
+    const sigTypes: Record<string, { type: string; optional: boolean }> = {};
+    if (signatureParams) {
+      // Handle both flat params (name: string) and object params (params: { name: string; encoding?: string })
+      const objectMatch = signatureParams.match(/^\s*\w+\s*:\s*\{([^}]+)\}/);
+      const sigContent = objectMatch ? objectMatch[1] : signatureParams;
+      // Split on both commas and semicolons (TS object types use semicolons)
+      for (const part of sigContent.split(/[,;]/)) {
+        const m = part.trim().match(/^(\w+)(\?)?:\s*(.+)$/);
+        if (m) {
+          sigTypes[m[1]] = { type: m[3].trim(), optional: !!m[2] };
+        }
+      }
+    }
 
     // Extract parameters from JSDoc @param tags
     const params: ToolParam[] = [];
@@ -498,15 +515,18 @@ export class PhotonDocExtractor {
       // Try to extract type and optional info from description
       // Format: "Param description (optional)" or "Param description (default: value)"
       let cleanDesc = parsed.description;
-      const optional = /\(optional\)/i.test(cleanDesc) || /\(default:/i.test(cleanDesc);
+      const optional = /\(optional\)/i.test(cleanDesc) || /\(default:/i.test(cleanDesc) || (sigTypes[paramName]?.optional ?? false);
       cleanDesc = cleanDesc
         .replace(/\(optional\)/gi, '')
         .replace(/\(default:.*?\)/gi, '')
         .trim();
 
+      // Use type from method signature if available, fall back to 'any'
+      const paramType = sigTypes[paramName]?.type || 'any';
+
       params.push({
         name: paramName,
-        type: 'any', // Type extraction from JSDoc would need more parsing
+        type: paramType,
         optional,
         description: cleanDesc,
         constraintsFormatted: parsed.constraintsFormatted,

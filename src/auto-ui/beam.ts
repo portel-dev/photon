@@ -1549,6 +1549,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           methods: p.configured ? (p as PhotonInfo).methods.length : 0,
           error: !p.configured ? (p as UnconfiguredPhotonInfo).errorMessage : undefined,
           internal: (p as any).internal || undefined,
+          path: p.path || undefined,
         }));
 
         res.writeHead(200);

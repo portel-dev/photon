@@ -142,6 +142,49 @@ export class BeamApp extends LitElement {
         margin-top: var(--space-sm);
       }
 
+      .photon-header-path {
+        font-family: var(--font-mono, monospace);
+        font-size: 0.7rem;
+        color: var(--t-muted);
+        margin-top: 4px;
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 400px;
+      }
+
+      .photon-header-path:hover {
+        opacity: 1;
+      }
+
+      .cli-hints {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 8px;
+        padding: var(--space-sm) var(--space-md);
+        margin-top: var(--space-sm);
+      }
+
+      .cli-hints-toggle {
+        background: none;
+        border: none;
+        color: var(--t-muted);
+        font-family: monospace;
+        font-size: 0.72rem;
+        cursor: pointer;
+        padding: 4px 0;
+        margin-top: var(--space-xs);
+        opacity: 0.5;
+        transition: opacity 0.15s;
+      }
+
+      .cli-hints-toggle:hover {
+        opacity: 1;
+      }
+
       .photon-badge {
         font-size: 0.75rem;
         padding: 4px 10px;
@@ -1279,6 +1322,8 @@ export class BeamApp extends LitElement {
   @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
+  @state() private _cliHintsCollapsed: boolean = localStorage.getItem('beam-cli-hints-collapsed') === 'true';
+  @state() private _anatomyDismissed: boolean = localStorage.getItem('beam-anatomy-dismissed') === 'true';
 
   // ... (existing code)
 
@@ -2012,19 +2057,24 @@ export class BeamApp extends LitElement {
       <div class="glass-panel" style="padding: var(--space-md);">
         ${(d.photons || []).map(
           (p: any) => html`
-            <div style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0;">
-              <span
-                style="width: 10px; height: 10px; border-radius: 50; background: ${p.status ===
-                'loaded'
-                  ? '#4ade80'
-                  : p.status === 'unconfigured'
-                    ? '#fbbf24'
-                    : '#f87171'}; flex-shrink: 0;"
-              ></span>
-              <span style="flex: 1;">${p.name}${p.internal ? html` <span style="color: var(--t-muted); font-size: 0.7rem; font-style: italic;">system</span>` : ''}</span>
-              <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
-              ${p.error
-                ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
+            <div style="padding: 4px 0;">
+              <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                <span
+                  style="width: 10px; height: 10px; border-radius: 50; background: ${p.status ===
+                  'loaded'
+                    ? '#4ade80'
+                    : p.status === 'unconfigured'
+                      ? '#fbbf24'
+                      : '#f87171'}; flex-shrink: 0;"
+                ></span>
+                <span style="flex: 1;">${p.name}${p.internal ? html` <span style="color: var(--t-muted); font-size: 0.7rem; font-style: italic;">system</span>` : ''}</span>
+                <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
+                ${p.error
+                  ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
+                  : ''}
+              </div>
+              ${p.path
+                ? html`<div style="font-family: monospace; font-size: 0.65rem; color: var(--t-muted); opacity: 0.6; margin-left: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.path.replace(/^\/Users\/[^/]+\/|^\/home\/[^/]+\//, '~/')}</div>`
                 : ''}
             </div>
           `
@@ -2386,10 +2436,29 @@ export class BeamApp extends LitElement {
             <h1 class="text-gradient" style="font-size:2rem; margin-bottom: var(--space-sm);">
               Welcome to Photon Beam
             </h1>
-            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 520px; margin: 0 auto var(--space-xl) auto; line-height: 1.6;">
+            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 520px; margin: 0 auto var(--space-lg) auto; line-height: 1.6;">
               Photon lets you build and run MCP tools — callable from
               Claude, Cursor, or any AI assistant.
             </p>
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: var(--space-sm); max-width: 580px; width: 100%; margin-bottom: var(--space-xl); align-items: center;">
+              <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
+                <div style="font-size: 1.2rem; margin-bottom: 4px;">📄</div>
+                <div style="font-size: 0.75rem; font-weight: 600;">One .ts file</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted); font-family: monospace;">app.photon.ts</div>
+              </div>
+              <div style="color: var(--t-muted); font-size: 1.2rem;">→</div>
+              <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
+                <div style="font-size: 1.2rem; margin-bottom: 4px;">⚡</div>
+                <div style="font-size: 0.75rem; font-weight: 600;">Methods = Tools</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted);">Each method becomes an MCP tool</div>
+              </div>
+              <div style="color: var(--t-muted); font-size: 1.2rem;">→</div>
+              <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
+                <div style="font-size: 1.2rem; margin-bottom: 4px;">🤖</div>
+                <div style="font-size: 0.75rem; font-weight: 600;">Use anywhere</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted);">CLI, Beam, Claude, Cursor</div>
+              </div>
+            </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); max-width: 520px; width:100%;">
               <button
                 class="glass-panel"
@@ -2658,6 +2727,23 @@ export class BeamApp extends LitElement {
       </div>
 
       ${this._renderPhotonHeader()}
+
+      ${!this._anatomyDismissed
+        ? html`<div class="glass-panel anatomy-callout" style="padding: var(--space-md); margin-bottom: var(--space-md); font-size: 0.8rem; line-height: 1.6;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div style="color: var(--t-muted);">
+                <strong style="color: var(--t-primary);">How this works</strong><br>
+                <span style="font-family: monospace;">${this._selectedPhoton.name}.photon.ts</span> →
+                class constructor params become <strong>env vars</strong> & config form →
+                each method becomes an <strong>MCP tool</strong> (${this._selectedPhoton.name}/<em>method</em>)
+              </div>
+              <button
+                style="background: none; border: none; color: var(--t-muted); cursor: pointer; font-size: 0.75rem; white-space: nowrap; padding: 0 0 0 var(--space-md);"
+                @click=${() => { this._anatomyDismissed = true; localStorage.setItem('beam-anatomy-dismissed', 'true'); }}
+              >Got it</button>
+            </div>
+          </div>`
+        : ''}
 
       <h3
         style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
@@ -4189,6 +4275,18 @@ export class BeamApp extends LitElement {
                 >`
               : ''}
           </div>
+          ${this._selectedPhoton.path
+            ? html`<div
+                class="photon-header-path"
+                title="Click to copy: ${this._selectedPhoton.path}"
+                @click=${() => {
+                  navigator.clipboard.writeText(this._selectedPhoton!.path);
+                  showToast('Path copied to clipboard');
+                }}
+              >
+                ${this._selectedPhoton.path.replace(/^\/Users\/[^/]+\/|^\/home\/[^/]+\//, '~/')}
+              </div>`
+            : ''}
           <div class="photon-header-actions">
             <button
               class="btn-sm"
@@ -4205,6 +4303,23 @@ export class BeamApp extends LitElement {
           </div>
         </div>
       </div>
+      ${!this._cliHintsCollapsed
+        ? html`<div class="cli-hints">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted);">Terminal</span>
+              <button style="background: none; border: none; color: var(--t-muted); cursor: pointer; font-size: 0.7rem; padding: 0;"
+                @click=${() => { this._cliHintsCollapsed = true; localStorage.setItem('beam-cli-hints-collapsed', 'true'); }}
+              >Hide</button>
+            </div>
+            <div style="font-family: monospace; font-size: 0.72rem; line-height: 1.8; color: var(--t-muted);">
+              <div><span style="opacity:0.5;">$</span> photon cli ${this._selectedPhoton.name} <span style="opacity:0.5;">— use from terminal</span></div>
+              <div><span style="opacity:0.5;">$</span> photon mcp ${this._selectedPhoton.name} <span style="opacity:0.5;">— run as MCP server</span></div>
+              <div><span style="opacity:0.5;">$</span> photon info ${this._selectedPhoton.name} --mcp <span style="opacity:0.5;">— get config for Claude</span></div>
+            </div>
+          </div>`
+        : html`<button class="cli-hints-toggle" @click=${() => { this._cliHintsCollapsed = false; localStorage.removeItem('beam-cli-hints-collapsed'); }}>
+            <span style="opacity: 0.5;">$</span> Show CLI commands
+          </button>`}
     `;
   }
 
