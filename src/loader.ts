@@ -61,6 +61,17 @@ import {
   resolveEnvVars,
   type PhotonMCPConfig,
   type MCPServerConfig,
+  // Shared utilities (photon-core 2.4.0)
+  isClass as sharedIsClass,
+  hasAsyncMethods as sharedHasAsyncMethods,
+  findPhotonClass as sharedFindPhotonClass,
+  parseEnvValue as sharedParseEnvValue,
+  compilePhotonTS,
+  getMimeType as sharedGetMimeType,
+  parseRuntimeRequirement,
+  checkRuntimeCompatibility,
+  discoverAssets as sharedDiscoverAssets,
+  autoDiscoverAssets as sharedAutoDiscoverAssets,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -375,91 +386,7 @@ export class PhotonLoader {
     return Array.from(map.entries()).map(([name, version]) => ({ name, version }));
   }
 
-  /**
-   * Parse @runtime tag from source code
-   * @example @runtime ^1.5.0
-   * @example @runtime >=1.4.0
-   */
-  private static parseRuntimeRequirement(source: string): string | undefined {
-    const match = source.match(/@runtime\s+([^\r\n\s]+)/);
-    return match ? match[1].trim() : undefined;
-  }
-
-  /**
-   * Check if current runtime version satisfies the required version range
-   * Supports: ^1.5.0, >=1.5.0, 1.5.0, ~1.5.0
-   */
-  private static checkRuntimeCompatibility(
-    required: string,
-    current: string
-  ): { compatible: boolean; message?: string } {
-    // Parse version components
-    const parseVersion = (v: string): [number, number, number] => {
-      const clean = v.replace(/^[~^>=<]+/, '');
-      const parts = clean.split('.').map((p) => parseInt(p, 10) || 0);
-      return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
-    };
-
-    const [reqMajor, reqMinor, reqPatch] = parseVersion(required);
-    const [curMajor, curMinor, curPatch] = parseVersion(current);
-
-    // Determine range type
-    const isExact = !required.match(/^[~^>=<]/);
-    const isCaret = required.startsWith('^');
-    const isTilde = required.startsWith('~');
-    const isGte = required.startsWith('>=');
-    const isGt = required.startsWith('>') && !isGte;
-
-    let compatible = false;
-
-    if (isExact) {
-      // Exact match required
-      compatible = curMajor === reqMajor && curMinor === reqMinor && curPatch === reqPatch;
-    } else if (isCaret) {
-      // ^1.5.0 means >=1.5.0 and <2.0.0
-      if (curMajor === reqMajor) {
-        if (curMinor > reqMinor) {
-          compatible = true;
-        } else if (curMinor === reqMinor) {
-          compatible = curPatch >= reqPatch;
-        }
-      }
-    } else if (isTilde) {
-      // ~1.5.0 means >=1.5.0 and <1.6.0
-      compatible = curMajor === reqMajor && curMinor === reqMinor && curPatch >= reqPatch;
-    } else if (isGte) {
-      // >=1.5.0
-      if (curMajor > reqMajor) {
-        compatible = true;
-      } else if (curMajor === reqMajor) {
-        if (curMinor > reqMinor) {
-          compatible = true;
-        } else if (curMinor === reqMinor) {
-          compatible = curPatch >= reqPatch;
-        }
-      }
-    } else if (isGt) {
-      // >1.5.0
-      if (curMajor > reqMajor) {
-        compatible = true;
-      } else if (curMajor === reqMajor) {
-        if (curMinor > reqMinor) {
-          compatible = true;
-        } else if (curMinor === reqMinor) {
-          compatible = curPatch > reqPatch;
-        }
-      }
-    }
-
-    if (!compatible) {
-      return {
-        compatible: false,
-        message: `This photon requires runtime version ${required}, but you have ${current}. Please upgrade: npm install -g @portel/photon@latest`,
-      };
-    }
-
-    return { compatible: true };
-  }
+  // parseRuntimeRequirement and checkRuntimeCompatibility are now imported from photon-core
 
   /**
    * Load a single Photon MCP file
@@ -491,9 +418,9 @@ export class PhotonLoader {
         tsContent = await fs.readFile(absolutePath, 'utf-8');
 
         // Check runtime version compatibility
-        const requiredRuntime = PhotonLoader.parseRuntimeRequirement(tsContent);
+        const requiredRuntime = parseRuntimeRequirement(tsContent);
         if (requiredRuntime) {
-          const check = PhotonLoader.checkRuntimeCompatibility(requiredRuntime, PHOTON_VERSION);
+          const check = checkRuntimeCompatibility(requiredRuntime, PHOTON_VERSION);
           if (!check.compatible) {
             throw new Error(check.message);
           }
@@ -702,114 +629,41 @@ export class PhotonLoader {
 
   /**
    * Compile TypeScript file to JavaScript and cache it
+   * Delegates to shared compilePhotonTS from photon-core
    */
   private async compileTypeScript(
     tsFilePath: string,
     cacheKey: string,
     tsContent?: string
   ): Promise<string> {
-    const source = tsContent ?? (await fs.readFile(tsFilePath, 'utf-8'));
-    const hash = crypto.createHash('sha256').update(source).digest('hex').slice(0, 16);
-
-    // Store compiled files in dedicated build cache directory
     const cacheDir = this.getBuildCacheDir(cacheKey);
-    const fileName = path.basename(tsFilePath, '.ts');
-    const cachedJsPath = path.join(cacheDir, `${fileName}.${hash}.mjs`);
-
-    // Check if cached version exists
-    try {
-      await fs.access(cachedJsPath);
-      this.log(`Using cached compiled version`, { cachedJsPath });
-      return cachedJsPath;
-    } catch {
-      // Cache miss - compile it
-    }
-
-    // Compile TypeScript to JavaScript
-    this.log(`Compiling ${path.basename(tsFilePath)} with esbuild...`);
-
-    const esbuild = await import('esbuild');
-    const result = await esbuild.transform(source, {
-      loader: 'ts',
-      format: 'esm',
-      target: 'es2022',
-      sourcemap: 'inline',
-    });
-
-    // Ensure cache directory exists
-    await fs.mkdir(cacheDir, { recursive: true });
-
-    // Write compiled JavaScript to cache
-    await fs.writeFile(cachedJsPath, result.code, 'utf-8');
-    this.log(`Compiled and cached`, { cachedJsPath });
-
-    return cachedJsPath;
+    const result = await compilePhotonTS(tsFilePath, { cacheDir, content: tsContent });
+    this.log(`Compiled: ${path.basename(tsFilePath)}`, { cached: result });
+    return result;
   }
 
   /**
    * Find the MCP class in a module
-   * Looks for default export or any class with async methods
+   * Delegates to shared findPhotonClass from photon-core
    */
   private findMCPClass(module: Record<string, unknown>): unknown {
-    // Try default export first
-    if (module.default && this.isClass(module.default)) {
-      if (this.hasAsyncMethods(module.default)) {
-        return module.default;
-      }
-    }
-
-    // Try named exports
-    for (const exportedItem of Object.values(module)) {
-      if (this.isClass(exportedItem) && this.hasAsyncMethods(exportedItem)) {
-        return exportedItem;
-      }
-    }
-
-    return null;
+    return sharedFindPhotonClass(module);
   }
 
   /**
    * Check if a function is a class constructor
+   * Delegates to shared isClass from photon-core
    */
   private isClass(fn: unknown): fn is new (...args: unknown[]) => unknown {
-    return typeof fn === 'function' && /^\s*class\s+/.test(fn.toString());
+    return sharedIsClass(fn);
   }
 
   /**
    * Check if a class has async methods
+   * Delegates to shared hasAsyncMethods from photon-core
    */
   private hasAsyncMethods(ClassConstructor: new (...args: unknown[]) => unknown): boolean {
-    // Check instance methods on prototype
-    const prototype = ClassConstructor.prototype;
-
-    for (const key of Object.getOwnPropertyNames(prototype)) {
-      if (key === 'constructor') continue;
-
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
-      if (descriptor && typeof descriptor.value === 'function') {
-        const fn = descriptor.value;
-        const ctorName = fn.constructor.name;
-        if (ctorName === 'AsyncFunction' || ctorName === 'AsyncGeneratorFunction') {
-          return true;
-        }
-      }
-    }
-
-    // Check static methods on the class itself
-    for (const key of Object.getOwnPropertyNames(ClassConstructor)) {
-      if (['length', 'name', 'prototype'].includes(key)) continue;
-
-      const descriptor = Object.getOwnPropertyDescriptor(ClassConstructor, key);
-      if (descriptor && typeof descriptor.value === 'function') {
-        const fn = descriptor.value;
-        const ctorName = fn.constructor.name;
-        if (ctorName === 'AsyncFunction' || ctorName === 'AsyncGeneratorFunction') {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return sharedHasAsyncMethods(ClassConstructor);
   }
 
   /**
@@ -1629,17 +1483,10 @@ export class PhotonLoader {
 
   /**
    * Parse environment variable value based on TypeScript type
+   * Delegates to shared parseEnvValue from photon-core
    */
   private parseEnvValue(value: string, type: string): any {
-    switch (type) {
-      case 'number':
-        return parseFloat(value);
-      case 'boolean':
-        return value.toLowerCase() === 'true';
-      case 'string':
-      default:
-        return value;
-    }
+    return sharedParseEnvValue(value, type);
   }
 
   /**
@@ -2087,88 +1934,25 @@ Run: photon mcp ${mcpName} --config
 
   /**
    * Discover and extract assets from a Photon file
-   *
-   * Convention:
-   * - Asset folder: {photon-name}/ next to {photon-name}.photon.ts
-   * - Example: my-tool.photon.ts → my-tool/ (contains ui/, prompts/, resources/)
-   *
-   * Assets are declared via JSDoc annotations:
-   * - @ui <id> <path> - UI templates for MCP Apps
-   * - @prompt <id> <path> - Static prompts
-   * - @resource <id> <path> - Static resources
+   * Uses shared discoverAssets from photon-core for core logic,
+   * then applies photon-specific extensions (method UI links, URI generation).
    */
   private async discoverAssets(
     photonPath: string,
     source: string
   ): Promise<PhotonAssets | undefined> {
-    const extractor = new SchemaExtractor();
-    const dir = path.dirname(photonPath);
     const basename = path.basename(photonPath, '.photon.ts');
 
-    // Convention: asset folder has same name as photon (without .photon.ts)
-    const assetFolder = path.join(dir, basename);
-
-    // Check if asset folder exists
-    let folderExists = false;
-    try {
-      const stat = await fs.stat(assetFolder);
-      folderExists = stat.isDirectory();
-    } catch {
-      // Folder doesn't exist
-    }
-
-    // Extract explicit asset declarations from source annotations
-    const assets = extractor.extractAssets(source, folderExists ? assetFolder : undefined);
-
-    // If no folder exists and no explicit declarations, skip
-    if (
-      !folderExists &&
-      assets.ui.length === 0 &&
-      assets.prompts.length === 0 &&
-      assets.resources.length === 0
-    ) {
+    // Use shared discovery from photon-core
+    const assets = await sharedDiscoverAssets(photonPath, source);
+    if (!assets) {
       return undefined;
     }
 
-    if (folderExists) {
-      // Resolve paths for explicitly declared assets
-      for (const ui of assets.ui) {
-        ui.resolvedPath = path.resolve(assetFolder, ui.path.replace(/^\.\//, ''));
-        if (await this.fileExists(ui.resolvedPath)) {
-          this.log(`  📄 UI: ${ui.id} → ${ui.path}`);
-        } else {
-          this.logger.warn(`⚠️  UI asset not found: ${ui.path}`);
-        }
-      }
-
-      for (const prompt of assets.prompts) {
-        prompt.resolvedPath = path.resolve(assetFolder, prompt.path.replace(/^\.\//, ''));
-        if (await this.fileExists(prompt.resolvedPath)) {
-          this.log(`  📝 Prompt: ${prompt.id} → ${prompt.path}`);
-        } else {
-          this.logger.warn(`⚠️  Prompt asset not found: ${prompt.path}`);
-        }
-      }
-
-      for (const resource of assets.resources) {
-        resource.resolvedPath = path.resolve(assetFolder, resource.path.replace(/^\.\//, ''));
-        if (await this.fileExists(resource.resolvedPath)) {
-          this.log(`  📦 Resource: ${resource.id} → ${resource.path}`);
-        } else {
-          this.logger.warn(`⚠️  Resource asset not found: ${resource.path}`);
-        }
-      }
-
-      // Auto-discover assets from folder structure (convention-based)
-      await this.autoDiscoverAssets(assetFolder, assets);
-
-      // Apply method-level @ui links AFTER auto-discovery
-      // This allows linking auto-discovered UI to specific tools
-      this.applyMethodUILinks(source, assets);
-    }
+    // Apply method-level @ui links AFTER auto-discovery
+    this.applyMethodUILinks(source, assets);
 
     // Generate ui:// URIs for MCP Apps Extension support (SEP-1865)
-    // URI format: ui://<photon-name>/<asset-id>
     this.generateAssetURIs(basename, assets);
 
     return assets;
@@ -2205,86 +1989,7 @@ Run: photon mcp ${mcpName} --config
     }
   }
 
-  /**
-   * Auto-discover assets from folder structure
-   * Scans ui/, prompts/, resources/ subdirectories
-   */
-  private async autoDiscoverAssets(assetFolder: string, assets: PhotonAssets): Promise<void> {
-    const extractor = new SchemaExtractor();
-
-    // Auto-discover UI files
-    const uiDir = path.join(assetFolder, 'ui');
-    if (await this.fileExists(uiDir)) {
-      try {
-        const files = await fs.readdir(uiDir);
-        for (const file of files) {
-          const id = path.basename(file, path.extname(file));
-          // Skip if already declared
-          if (!assets.ui.find((u) => u.id === id)) {
-            const resolvedPath = path.join(uiDir, file);
-            assets.ui.push({
-              id,
-              path: `./ui/${file}`,
-              resolvedPath,
-              mimeType: this.getMimeType(file),
-            });
-            this.log(`  📄 UI (auto): ${id} → ./ui/${file}`);
-          }
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    // Auto-discover prompt files
-    const promptsDir = path.join(assetFolder, 'prompts');
-    if (await this.fileExists(promptsDir)) {
-      try {
-        const files = await fs.readdir(promptsDir);
-        for (const file of files) {
-          if (file.endsWith('.md') || file.endsWith('.txt')) {
-            const id = path.basename(file, path.extname(file));
-            // Skip if already declared
-            if (!assets.prompts.find((p) => p.id === id)) {
-              const resolvedPath = path.join(promptsDir, file);
-              assets.prompts.push({
-                id,
-                path: `./prompts/${file}`,
-                resolvedPath,
-              });
-              this.log(`  📝 Prompt (auto): ${id} → ./prompts/${file}`);
-            }
-          }
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    // Auto-discover resource files
-    const resourcesDir = path.join(assetFolder, 'resources');
-    if (await this.fileExists(resourcesDir)) {
-      try {
-        const files = await fs.readdir(resourcesDir);
-        for (const file of files) {
-          const id = path.basename(file, path.extname(file));
-          // Skip if already declared
-          if (!assets.resources.find((r) => r.id === id)) {
-            const resolvedPath = path.join(resourcesDir, file);
-            assets.resources.push({
-              id,
-              path: `./resources/${file}`,
-              resolvedPath,
-              mimeType: this.getMimeType(file),
-            });
-            this.log(`  📦 Resource (auto): ${id} → ./resources/${file}`);
-          }
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-  }
+  // autoDiscoverAssets is now handled by sharedDiscoverAssets from photon-core
 
   /**
    * Check if a file exists
@@ -2300,31 +2005,9 @@ Run: photon mcp ${mcpName} --config
 
   /**
    * Get MIME type from file extension
+   * Delegates to shared getMimeType from photon-core
    */
   private getMimeType(filename: string): string {
-    const ext = path.extname(filename).toLowerCase().slice(1);
-    const mimeTypes: Record<string, string> = {
-      html: 'text/html',
-      htm: 'text/html',
-      css: 'text/css',
-      js: 'application/javascript',
-      mjs: 'application/javascript',
-      jsx: 'text/jsx',
-      ts: 'text/typescript',
-      tsx: 'text/tsx',
-      json: 'application/json',
-      yaml: 'application/yaml',
-      yml: 'application/yaml',
-      xml: 'application/xml',
-      md: 'text/markdown',
-      txt: 'text/plain',
-      png: 'image/png',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      gif: 'image/gif',
-      svg: 'image/svg+xml',
-      webp: 'image/webp',
-    };
-    return mimeTypes[ext] || 'application/octet-stream';
+    return sharedGetMimeType(filename);
   }
 }

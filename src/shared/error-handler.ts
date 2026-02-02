@@ -4,6 +4,10 @@
  */
 
 import { Logger } from './logger.js';
+import { PhotonError, ValidationError } from '@portel/photon-core';
+
+// Re-export base error classes from photon-core
+export { PhotonError, ValidationError };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EXIT CODES (following Unix conventions)
@@ -67,28 +71,8 @@ export function getExitCode(error: unknown): ExitCodeType {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ERROR TYPES
+// ERROR TYPES (extended, specific to photon CLI)
 // ══════════════════════════════════════════════════════════════════════════════
-
-export class PhotonError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly details?: Record<string, unknown>,
-    public readonly suggestion?: string
-  ) {
-    super(message);
-    this.name = 'PhotonError';
-    Error.captureStackTrace?.(this, this.constructor);
-  }
-}
-
-export class ValidationError extends PhotonError {
-  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
-    super(message, 'VALIDATION_ERROR', details, suggestion);
-    this.name = 'ValidationError';
-  }
-}
 
 export class FileSystemError extends PhotonError {
   constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
