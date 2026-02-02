@@ -75,63 +75,169 @@ export class TemplateManager {
   }
 
   /**
-   * Simple template renderer using template literals
-   * Safely evaluates ${expression} in templates
+   * Template renderer using a char-by-char walker.
+   *
+   * The template uses \` for escaped backticks, \$ to prevent interpolation,
+   * and \\\\ for literal backslashes. Expressions inside ${...} are extracted,
+   * globally unescaped (one level of \ removal), and evaluated as plain JS.
    */
   private render(template: string, data: any): string {
-    // Helper functions available in templates
-    // Using $ prefix to avoid reserved keywords
     const helpers = {
-      // Loop over array
       each: <T>(items: T[], fn: (item: T, index: number) => string): string => {
         return items.map((item, index) => fn(item, index)).join('');
       },
-
-      // Conditional rendering
       $if: (condition: boolean, truthy: string, falsy = ''): string => {
         return condition ? truthy : falsy;
       },
-
-      // Default value
       $default: (value: any, defaultValue: any): any => {
         return value !== undefined && value !== null && value !== '' ? value : defaultValue;
       },
-
-      // Extract proper name from description (before " - ")
       properName: (desc: string, fallbackName: string): string => {
         if (desc.includes(' - ')) {
           return desc.split(' - ')[0];
         }
-        // Fallback: title case the name
         return fallbackName
           .split('-')
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
           .join(' ');
       },
-
-      // Extract description after " - " separator
       cleanDesc: (desc: string): string => {
         return desc.includes(' - ') ? desc.split(' - ').slice(1).join(' - ') : desc;
       },
     };
 
     try {
-      // Create function with data and helpers in scope
-      const fn = new Function(
-        'data',
-        'helpers',
-        `
-        with (data) {
-          const { each, $if, $default, properName, cleanDesc } = helpers;
-          return \`${template}\`;
-        }
-        `
-      );
-
-      return fn(data, helpers);
+      const context: Record<string, any> = { ...data, ...helpers };
+      return this.evaluateTemplate(template, context);
     } catch (error: any) {
-      throw new Error(`Template rendering error: ${error.message}`);
+      throw new Error(`Template rendering error: ${error.message}\n  Context keys: ${Object.keys(data).join(', ')}`);
     }
+  }
+
+  /**
+   * Walk template char by char, resolving escapes in text and evaluating
+   * ${...} expressions. Text escapes: \` → `, \$ → $, \\\\ → \\.
+   */
+  private evaluateTemplate(template: string, context: Record<string, any>): string {
+    const result: string[] = [];
+    let i = 0;
+
+    while (i < template.length) {
+      // Handle escape sequences in template text
+      if (template[i] === '\\' && i + 1 < template.length) {
+        const next = template[i + 1];
+        if (next === '`' || next === '$' || next === '\\') {
+          result.push(next);
+          i += 2;
+          continue;
+        }
+        if (next === 'n') {
+          result.push('\n');
+          i += 2;
+          continue;
+        }
+        result.push(template[i]);
+        i++;
+        continue;
+      }
+
+      // Check for ${...} expression
+      if (template[i] === '$' && i + 1 < template.length && template[i + 1] === '{') {
+        const exprStart = i + 2;
+        const exprEnd = this.findMatchingBrace(template, exprStart);
+        if (exprEnd === -1) {
+          result.push(template[i]);
+          i++;
+          continue;
+        }
+        const rawExpr = template.substring(exprStart, exprEnd);
+        const value = this.evalExpression(rawExpr, context);
+        result.push(value === undefined || value === null ? '' : String(value));
+        i = exprEnd + 1;
+        continue;
+      }
+
+      result.push(template[i]);
+      i++;
+    }
+
+    return result.join('');
+  }
+
+  /**
+   * Evaluate a JS expression extracted from the template.
+   * Expressions should be valid JS as-is (template literal delimiters are
+   * raw backticks, escaped backticks are \`, interpolations are ${...}).
+   */
+  private evalExpression(expr: string, context: Record<string, any>): any {
+    const keys = Object.keys(context);
+    const values = keys.map(k => context[k]);
+    try {
+      const fn = new Function(...keys, 'return (' + expr + ')');
+      return fn(...values);
+    } catch (error: any) {
+      throw new Error(`${error.message}\n  Expression: ${expr.length > 200 ? expr.substring(0, 200) + '...' : expr}`);
+    }
+  }
+
+  /**
+   * Find the matching closing brace for a ${...} expression,
+   * correctly handling nested braces, strings, and template literals.
+   */
+  private findMatchingBrace(str: string, start: number): number {
+    let depth = 1;
+    let i = start;
+
+    while (i < str.length && depth > 0) {
+      const ch = str[i];
+      if (ch === "'" || ch === '"') {
+        i = this.skipString(str, i);
+        continue;
+      }
+      if (ch === '`') {
+        i = this.skipTemplateLiteral(str, i);
+        continue;
+      }
+      if (ch === '\\' && i + 1 < str.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) return i;
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  private skipString(str: string, start: number): number {
+    const quote = str[start];
+    let i = start + 1;
+    while (i < str.length) {
+      if (str[i] === '\\') { i += 2; continue; }
+      if (str[i] === quote) return i + 1;
+      i++;
+    }
+    return i;
+  }
+
+  private skipTemplateLiteral(str: string, start: number): number {
+    let i = start + 1;
+    while (i < str.length) {
+      if (str[i] === '\\') { i += 2; continue; }
+      if (str[i] === '`') return i + 1;
+      if (str[i] === '$' && i + 1 < str.length && str[i + 1] === '{') {
+        i += 2;
+        const end = this.findMatchingBrace(str, i);
+        if (end !== -1) i = end + 1;
+        continue;
+      }
+      i++;
+    }
+    return i;
   }
 
   /**
@@ -494,14 +600,14 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
 
 > **\${tools ? tools.length : 0} tools** · \${photonType === 'workflow' ? 'Workflow' : photonType === 'streaming' ? 'Streaming' : 'API'} Photon · v\${version} · \${license || 'MIT'}
 
-\${$if(features && features.length > 0, \`**Platform Features:** \${features.map(f => \\\`\\\\\\\`\\\${f}\\\\\\\`\\\`).join(' ')}
+\${$if(features && features.length > 0, \`**Platform Features:** \${features.map(f => \`\\\`\${f}\\\`\`).join(' ')}
 \`, '')}
 ## ⚙️ Configuration
 
 \${$if(configParams && configParams.length > 0, \`
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-\${each(configParams, (param) => \`| \\\\\\\`\\\${param.envVar}\\\\\\\` | \\\${param.required ? 'Yes' : 'No'} | \\\${param.type} | \\\${param.description}\\\${param.default ? \\\` (default: \\\\\\\`\\\${param.default}\\\\\\\`)\\\` : ''} |\\n\`)}
+\${each(configParams, (param) => \`| \\\`\${param.envVar}\\\` | \${param.required ? 'Yes' : 'No'} | \${param.type} | \${param.description}\${param.default ? \` (default: \\\`\${param.default}\\\`)\` : ''} |\\n\`)}
 \`, \`No configuration required.
 \`)}
 \${$if(setupInstructions, \`
@@ -520,7 +626,7 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
 \${$if(tool.params && tool.params.length > 0, \`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-\${each(tool.params, (p) => \`| \\\\\\\`\\\${p.name}\\\\\\\` | \\\${p.type} | \\\${p.optional ? 'No' : 'Yes'} | \\\${p.description || '-'}\\\${p.constraintsFormatted ? \\\` [\\\${p.constraintsFormatted}]\\\` : ''}\\\${p.example ? \\\` (e.g. \\\\\\\`\\\${p.example}\\\\\\\`)\\\` : ''} |\\n\`)}
+\${each(tool.params, (p) => \`| \\\`\${p.name}\\\` | \${p.type} | \${p.optional ? 'No' : 'Yes'} | \${p.description || '-'}\${p.constraintsFormatted ? \` [\${p.constraintsFormatted}]\` : ''}\${p.example ? \` (e.g. \\\`\${p.example}\\\`)\` : ''} |\\n\`)}
 \`)}
 
 \${$if(tool.example, \`
@@ -566,7 +672,7 @@ photon get \${name} --mcp
 \`)}\${$if(externalDeps && (externalDeps.mcps.length > 0 || externalDeps.photons.length > 0), \`
 
 **Bridges:**
-\${externalDeps.mcps.length > 0 ? \\\`- MCP: \\\${externalDeps.mcps.join(', ')}\\n\\\` : ''}\${externalDeps.photons.length > 0 ? \\\`- Photon: \\\${externalDeps.photons.join(', ')}\\n\\\` : ''}
+\${externalDeps.mcps.length > 0 ? \`- MCP: \${externalDeps.mcps.join(', ')}\\n\` : ''}\${externalDeps.photons.length > 0 ? \`- Photon: \${externalDeps.photons.join(', ')}\\n\` : ''}
 \`, '')}
 ---
 
