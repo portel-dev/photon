@@ -2771,6 +2771,9 @@ export class BeamApp extends LitElement {
           ? `← Back to ${this._selectedPhoton.name}`
           : '← Back to Methods';
 
+      // For external MCPs, hide photon-specific toolbar actions
+      const isExternalMCP = this._selectedPhoton.isExternalMCP;
+
       return html`
         <div class="header-toolbar">
           <div class="header-left">
@@ -2782,19 +2785,32 @@ export class BeamApp extends LitElement {
             </button>
           </div>
           ${this._renderActionToolbar({
+            showRefresh: !isExternalMCP,
+            showReconfigure: !isExternalMCP,
             showRename: false,
             showViewSource: false,
             showDelete: false,
+            showHelp: !isExternalMCP,
           })}
         </div>
         ${this._renderMethodContent()}
       `;
     }
 
+    // For external MCPs, hide photon-specific toolbar actions in list view
+    const isExternalMCP = this._selectedPhoton?.isExternalMCP;
+
     return html`
       <div class="header-toolbar">
         <div class="header-left"></div>
-        ${this._renderActionToolbar()}
+        ${this._renderActionToolbar({
+          showRefresh: !isExternalMCP,
+          showReconfigure: !isExternalMCP,
+          showHelp: !isExternalMCP,
+          showRename: !isExternalMCP,
+          showViewSource: !isExternalMCP,
+          showDelete: !isExternalMCP,
+        })}
       </div>
 
       ${this._renderPhotonHeader()}
@@ -3736,14 +3752,29 @@ export class BeamApp extends LitElement {
 
   private _handleKeydown = (e: KeyboardEvent) => {
     // Skip if typing in an input field (unless it's a special key combo)
-    // Use composedPath() to check through shadow DOM boundaries
+    // Check both composedPath() and activeElement for nested shadow DOM support
     const path = e.composedPath();
-    const isInput = path.some((el) => {
+    let isInput = path.some((el) => {
       if (el instanceof HTMLElement) {
-        return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+        const tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
       }
       return false;
     });
+
+    // Also check activeElement through shadow DOM chain as a fallback
+    if (!isInput) {
+      let activeEl: Element | null = document.activeElement;
+      while (activeEl) {
+        const tag = activeEl.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+          isInput = true;
+          break;
+        }
+        // Traverse into shadow DOM if present
+        activeEl = (activeEl as any).shadowRoot?.activeElement || null;
+      }
+    }
 
     // Ctrl/Cmd+K or / to focus search
     if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !isInput)) {
