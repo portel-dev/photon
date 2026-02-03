@@ -223,6 +223,150 @@ export class InvokeForm extends LitElement {
         cursor: pointer;
       }
 
+      /* View Mode Tabs */
+      .view-tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: var(--space-md);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .view-tab {
+        padding: var(--space-sm) var(--space-md);
+        background: none;
+        border: none;
+        color: var(--t-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.2s;
+      }
+
+      .view-tab:hover {
+        color: var(--t-primary);
+      }
+
+      .view-tab.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+      }
+
+      /* Array Items */
+      .array-container {
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm);
+      }
+
+      .array-item {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        padding: var(--space-md);
+        margin-bottom: var(--space-sm);
+        position: relative;
+      }
+
+      .array-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-sm);
+        padding-bottom: var(--space-xs);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .array-item-title {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--t-muted);
+      }
+
+      .array-item-remove {
+        background: none;
+        border: none;
+        color: #f87171;
+        cursor: pointer;
+        font-size: 0.75rem;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      .array-item-remove:hover {
+        background: rgba(248, 113, 113, 0.1);
+      }
+
+      .array-add-btn {
+        width: 100%;
+        padding: var(--space-sm);
+        background: var(--bg-glass);
+        border: 1px dashed var(--border-glass);
+        border-radius: var(--radius-sm);
+        color: var(--t-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+      }
+
+      .array-add-btn:hover {
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+      }
+
+      .nested-field {
+        margin-bottom: var(--space-sm);
+      }
+
+      .nested-field:last-child {
+        margin-bottom: 0;
+      }
+
+      .nested-label {
+        font-size: 0.8rem;
+        color: var(--t-muted);
+        margin-bottom: var(--space-xs);
+        display: block;
+      }
+
+      .nested-hint {
+        font-size: 0.7rem;
+        color: var(--t-muted);
+        opacity: 0.7;
+        margin-left: var(--space-xs);
+      }
+
+      /* JSON Editor */
+      .json-editor {
+        width: 100%;
+        min-height: 200px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        padding: var(--space-sm);
+        border-radius: var(--radius-sm);
+        font-family: var(--font-mono, monospace);
+        font-size: 0.85rem;
+        line-height: 1.5;
+        resize: vertical;
+      }
+
+      .json-editor:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+      }
+
+      .json-editor.error {
+        border-color: #f87171;
+      }
+
+      .json-error {
+        color: #f87171;
+        font-size: 0.75rem;
+        margin-top: var(--space-xs);
+      }
+
       /* Number Input with Range Slider */
       .number-with-range {
         display: flex;
@@ -346,6 +490,12 @@ export class InvokeForm extends LitElement {
   @state()
   private _errors: Record<string, string> = {};
 
+  @state()
+  private _viewMode: 'form' | 'json' = 'form';
+
+  @state()
+  private _jsonText = '';
+
   private get _storageKey(): string {
     return `beam-form:${this.photonName}:${this.methodName}`;
   }
@@ -439,9 +589,25 @@ export class InvokeForm extends LitElement {
       `;
     }
 
+    // Check if we have complex types that benefit from JSON view
+    const hasComplexTypes = this._hasComplexTypes();
+
     return html`
       <div class="form-container">
-        ${this._renderFields()}
+        ${hasComplexTypes ? html`
+          <div class="view-tabs">
+            <button
+              class="view-tab ${this._viewMode === 'form' ? 'active' : ''}"
+              @click=${() => this._switchToFormView()}
+            >Form</button>
+            <button
+              class="view-tab ${this._viewMode === 'json' ? 'active' : ''}"
+              @click=${() => this._switchToJsonView()}
+            >JSON</button>
+          </div>
+        ` : ''}
+
+        ${this._viewMode === 'form' ? this._renderFields() : this._renderJsonEditor()}
 
         <div class="actions">
           <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
@@ -530,6 +696,11 @@ export class InvokeForm extends LitElement {
           )}
         </div>
       `;
+    }
+
+    // Handle Array of Objects -> Repeatable Mini-Forms (Swagger-style)
+    if (schema.type === 'array' && (schema as any).items?.type === 'object') {
+      return this._renderArrayOfObjects(key, schema, hasError);
     }
 
     // Handle Enums -> Select Dropdown
@@ -713,6 +884,225 @@ export class InvokeForm extends LitElement {
         <code class="cli-preview-cmd">${cmd}</code>
       </div>
     `;
+  }
+
+  /** Check if schema has complex types (array of objects) that benefit from JSON view */
+  private _hasComplexTypes(): boolean {
+    const properties = (this.params as any)?.properties || this.params;
+    if (!properties || typeof properties !== 'object') return false;
+
+    return Object.values(properties).some((schema: any) => {
+      return schema.type === 'array' && schema.items?.type === 'object';
+    });
+  }
+
+  /** Switch to form view, parsing JSON if valid */
+  private _switchToFormView() {
+    if (this._viewMode === 'json' && this._jsonText) {
+      try {
+        this._values = JSON.parse(this._jsonText);
+      } catch {
+        showToast('Invalid JSON - cannot switch to form view', 'error');
+        return;
+      }
+    }
+    this._viewMode = 'form';
+  }
+
+  /** Switch to JSON view, serializing current values */
+  private _switchToJsonView() {
+    this._jsonText = JSON.stringify(this._values, null, 2);
+    this._viewMode = 'json';
+  }
+
+  /** Render JSON editor view */
+  private _renderJsonEditor() {
+    return html`
+      <textarea
+        class="json-editor"
+        .value=${this._jsonText}
+        @input=${(e: Event) => {
+          this._jsonText = (e.target as HTMLTextAreaElement).value;
+          // Try to parse and sync to _values
+          try {
+            this._values = JSON.parse(this._jsonText);
+            if (this.rememberValues) {
+              this._savePersistedValues();
+            }
+          } catch {
+            // Invalid JSON - will show error on submit
+          }
+        }}
+        placeholder="Enter JSON..."
+      ></textarea>
+    `;
+  }
+
+  /** Render array of objects with repeatable mini-forms */
+  private _renderArrayOfObjects(key: string, schema: any, hasError: boolean) {
+    const items = (this._values[key] as any[]) || [];
+    const itemSchema = schema.items;
+    const itemProperties = itemSchema?.properties || {};
+    const itemRequired = itemSchema?.required || [];
+
+    return html`
+      <div class="array-container">
+        ${items.map((item, index) => html`
+          <div class="array-item">
+            <div class="array-item-header">
+              <span class="array-item-title">Item ${index + 1}</span>
+              <button
+                class="array-item-remove"
+                @click=${() => this._removeArrayItem(key, index)}
+              >✕ Remove</button>
+            </div>
+            ${Object.entries(itemProperties).map(([propKey, propSchema]: [string, any]) => {
+              const isRequired = itemRequired.includes(propKey);
+              return html`
+                <div class="nested-field">
+                  <label class="nested-label">
+                    ${propKey}
+                    ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
+                    ${propSchema.description ? html`<span class="nested-hint">${propSchema.description}</span>` : ''}
+                  </label>
+                  ${this._renderNestedInput(key, index, propKey, propSchema, item[propKey])}
+                </div>
+              `;
+            })}
+          </div>
+        `)}
+        <button
+          class="array-add-btn"
+          @click=${() => this._addArrayItem(key, itemProperties)}
+        >+ Add Item</button>
+      </div>
+    `;
+  }
+
+  /** Render input for nested field within array item */
+  private _renderNestedInput(arrayKey: string, index: number, propKey: string, schema: any, value: any) {
+    const handleNestedChange = (newValue: any) => {
+      const items = [...(this._values[arrayKey] || [])];
+      items[index] = { ...items[index], [propKey]: newValue };
+      this._values = { ...this._values, [arrayKey]: items };
+      if (this.rememberValues) {
+        this._savePersistedValues();
+      }
+    };
+
+    // Handle array of strings (like observations)
+    if (schema.type === 'array' && schema.items?.type === 'string') {
+      const arrValue = (value as string[]) || [];
+      return html`
+        <div class="array-container" style="padding: 4px;">
+          ${arrValue.map((item, i) => html`
+            <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+              <input
+                type="text"
+                style="flex: 1;"
+                .value=${item}
+                @input=${(e: Event) => {
+                  const newArr = [...arrValue];
+                  newArr[i] = (e.target as HTMLInputElement).value;
+                  handleNestedChange(newArr);
+                }}
+              />
+              <button
+                class="array-item-remove"
+                @click=${() => {
+                  const newArr = arrValue.filter((_, idx) => idx !== i);
+                  handleNestedChange(newArr);
+                }}
+              >✕</button>
+            </div>
+          `)}
+          <button
+            class="array-add-btn"
+            style="padding: 4px; font-size: 0.75rem;"
+            @click=${() => handleNestedChange([...arrValue, ''])}
+          >+ Add</button>
+        </div>
+      `;
+    }
+
+    // Handle enum
+    if (schema.enum) {
+      return html`
+        <select
+          .value=${value || ''}
+          @change=${(e: Event) => handleNestedChange((e.target as HTMLSelectElement).value)}
+        >
+          <option value="">Select...</option>
+          ${schema.enum.map((opt: string) => html`
+            <option value=${opt} ?selected=${opt === value}>${opt}</option>
+          `)}
+        </select>
+      `;
+    }
+
+    // Handle boolean
+    if (schema.type === 'boolean') {
+      return html`
+        <input
+          type="checkbox"
+          .checked=${!!value}
+          @change=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).checked)}
+        />
+      `;
+    }
+
+    // Handle number
+    if (schema.type === 'number' || schema.type === 'integer') {
+      return html`
+        <input
+          type="number"
+          .value=${value !== undefined ? String(value) : ''}
+          @input=${(e: Event) => handleNestedChange(Number((e.target as HTMLInputElement).value))}
+        />
+      `;
+    }
+
+    // Default: text input
+    return html`
+      <input
+        type="text"
+        .value=${value || ''}
+        @input=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).value)}
+      />
+    `;
+  }
+
+  /** Add empty item to array */
+  private _addArrayItem(key: string, itemProperties: Record<string, any>) {
+    const items = [...(this._values[key] || [])];
+    // Create empty item with default values based on schema
+    const newItem: Record<string, any> = {};
+    for (const [propKey, propSchema] of Object.entries(itemProperties) as [string, any][]) {
+      if (propSchema.type === 'array') {
+        newItem[propKey] = [];
+      } else if (propSchema.type === 'boolean') {
+        newItem[propKey] = false;
+      } else if (propSchema.type === 'number' || propSchema.type === 'integer') {
+        newItem[propKey] = propSchema.default ?? 0;
+      } else {
+        newItem[propKey] = propSchema.default ?? '';
+      }
+    }
+    items.push(newItem);
+    this._values = { ...this._values, [key]: items };
+    if (this.rememberValues) {
+      this._savePersistedValues();
+    }
+  }
+
+  /** Remove item from array */
+  private _removeArrayItem(key: string, index: number) {
+    const items = [...(this._values[key] || [])];
+    items.splice(index, 1);
+    this._values = { ...this._values, [key]: items };
+    if (this.rememberValues) {
+      this._savePersistedValues();
+    }
   }
 
   private _handleSubmit() {
