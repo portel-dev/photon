@@ -1646,6 +1646,9 @@ export async function handleStreamableHTTP(
     const context: HandlerContext = {
       photons: options.photons,
       photonMCPs: options.photonMCPs,
+      externalMCPs: options.externalMCPs,
+      externalMCPClients: options.externalMCPClients,
+      reconnectExternalMCP: options.reconnectExternalMCP,
       loadUIAsset: options.loadUIAsset,
       configurePhoton: options.configurePhoton,
       reloadPhoton: options.reloadPhoton,

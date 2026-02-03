@@ -204,10 +204,10 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
         setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
       );
 
-      const toolsResult = (await Promise.race([connectPromise, timeoutPromise])) as any;
+      const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
 
-      // Convert tools to MethodInfo[]
-      const methods: MethodInfo[] = (toolsResult.tools || []).map((tool: any) => ({
+      // Convert tools to MethodInfo[] - client.list() returns MCPToolInfo[] directly
+      const methods: MethodInfo[] = (tools || []).map((tool: any) => ({
         name: tool.name,
         description: tool.description || '',
         params: tool.inputSchema || { type: 'object', properties: {} },
@@ -266,10 +266,10 @@ async function reconnectExternalMCP(
       setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
     );
 
-    const toolsResult = (await Promise.race([connectPromise, timeoutPromise])) as any;
+    const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
 
-    // Convert tools to MethodInfo[]
-    const methods: MethodInfo[] = (toolsResult.tools || []).map((tool: any) => ({
+    // Convert tools to MethodInfo[] - client.list() returns MCPToolInfo[] directly
+    const methods: MethodInfo[] = (tools || []).map((tool: any) => ({
       name: tool.name,
       description: tool.description || '',
       params: tool.inputSchema || { type: 'object', properties: {} },
