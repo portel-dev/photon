@@ -99,6 +99,9 @@ export class McpAppRenderer extends LitElement {
   /** MCP App resource URI (ui:// scheme) */
   @property({ type: String }) appUri = '';
 
+  /** Linked tool name to auto-invoke on load (provides initial data to app) */
+  @property({ type: String }) linkedTool = '';
+
   /** Current theme */
   @property({ type: String }) theme: Theme = 'dark';
 
@@ -107,6 +110,7 @@ export class McpAppRenderer extends LitElement {
   @state() private _error = '';
   private _iframeRef: HTMLIFrameElement | null = null;
   private _messageHandler: ((e: MessageEvent) => void) | null = null;
+  private _hasAutoInvoked = false;
 
   connectedCallback() {
     super.connectedCallback();
@@ -249,6 +253,13 @@ export class McpAppRenderer extends LitElement {
         },
         '*'
       );
+
+      // Auto-invoke the linked tool to provide initial data to the app
+      // This is needed for MCP Apps that expect an initial tool result on load
+      if (this.linkedTool && !this._hasAutoInvoked) {
+        this._hasAutoInvoked = true;
+        this._autoInvokeLinkedTool();
+      }
       return;
     }
 
@@ -374,6 +385,34 @@ export class McpAppRenderer extends LitElement {
       },
       '*'
     );
+  }
+
+  /**
+   * Auto-invoke the linked tool to provide initial data to the MCP App
+   * This is needed for apps that expect an initial tool result on load
+   */
+  private async _autoInvokeLinkedTool() {
+    if (!this.linkedTool || !this._iframeRef?.contentWindow) return;
+
+    try {
+      const fullToolName = `${this.mcpName}/${this.linkedTool}`;
+      const result = await mcpClient.callTool(fullToolName, {});
+
+      // Send result to app via ontoolresult notification
+      this._iframeRef.contentWindow.postMessage(
+        {
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params: {
+            toolName: this.linkedTool,
+            result: result.structuredContent || result.content,
+          },
+        },
+        '*'
+      );
+    } catch (error) {
+      console.error('Failed to auto-invoke linked tool:', error);
+    }
   }
 
   render() {

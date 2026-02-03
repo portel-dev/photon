@@ -395,6 +395,17 @@ const handlers: Record<string, RequestHandler> = {
             'x-has-mcp-app': mcp.hasApp ?? false, // MCP Apps Extension detected
             'x-mcp-app-uri': mcp.appResourceUri, // MCP App resource URI
             ...buildToolMetadataExtensions(method),
+            // MCP Apps standard: _meta.ui for linked UI resources and visibility
+            ...(method.linkedUi || method.visibility
+              ? {
+                  _meta: {
+                    ui: {
+                      ...(method.linkedUi ? { resourceUri: method.linkedUi } : {}),
+                      ...(method.visibility ? { visibility: method.visibility } : {}),
+                    },
+                  },
+                }
+              : {}),
           });
         }
       }

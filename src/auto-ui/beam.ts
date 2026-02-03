@@ -195,7 +195,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
     };
 
     try {
-      // Create factory with this MCP's config
+      // Create factory with this MCP's config (used as fallback for tool calls)
       const mcpConfig: MCPConfig = {
         mcpServers: {
           [name]: serverConfig,
@@ -204,35 +204,15 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
       const factory = new SDKMCPClientFactory(mcpConfig, false);
       const client = factory.create(name);
 
-      // Connect with timeout
-      const connectPromise = client.list();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-      );
-
-      const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
-
-      // Convert tools to MethodInfo[] - client.list() returns MCPToolInfo[] directly
-      const methods: MethodInfo[] = (tools || []).map((tool: any) => ({
-        name: tool.name,
-        description: tool.description || '',
-        params: tool.inputSchema || { type: 'object', properties: {} },
-        returns: { type: 'object' },
-        icon: tool['x-icon'],
-        // Preserve MCP App linkage from tool metadata
-        linkedUi: tool.inputSchema?.['_meta']?.ui?.resourceUri,
-      }));
-
-      mcpInfo.connected = true;
-      mcpInfo.methods = methods;
-
-      // Cache the client for tool calls
+      // Cache the wrapper client for tool calls (fallback)
       externalMCPClients.set(name, client);
 
-      // Create a separate SDK client for resource access
-      // The wrapper doesn't expose listResources/readResource, so we need direct access
-      try {
-        if (serverConfig.command) {
+      // Create SDK client for full metadata access (tools, resources)
+      // The wrapper doesn't return full _meta from tools
+      let methods: MethodInfo[] = [];
+
+      if (serverConfig.command) {
+        try {
           const sdkTransport = new StdioClientTransport({
             command: serverConfig.command,
             args: serverConfig.args,
@@ -240,11 +220,33 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
             env: serverConfig.env,
           });
           const sdkClient = new Client(
-            { name: 'beam-resource-client', version: '1.0.0' },
+            { name: 'beam-mcp-client', version: '1.0.0' },
             { capabilities: {} }
           );
-          await sdkClient.connect(sdkTransport);
+
+          const connectPromise = sdkClient.connect(sdkTransport);
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+          );
+          await Promise.race([connectPromise, timeoutPromise]);
+
           externalMCPSDKClients.set(name, sdkClient);
+
+          // List tools with full metadata using SDK client
+          const toolsResult = await sdkClient.listTools();
+          const tools = toolsResult.tools || [];
+
+          // Convert tools to MethodInfo[] with full _meta support
+          methods = tools.map((tool: any) => ({
+            name: tool.name,
+            description: tool.description || '',
+            params: tool.inputSchema || { type: 'object', properties: {} },
+            returns: { type: 'object' },
+            icon: tool['x-icon'],
+            // Preserve MCP App linkage from tool metadata
+            linkedUi: tool._meta?.ui?.resourceUri,
+            visibility: tool._meta?.ui?.visibility,
+          }));
 
           // Fetch resources to detect MCP Apps
           try {
@@ -267,10 +269,40 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
             // Resources not supported - that's fine
             logger.debug(`Resources not supported by ${name}`);
           }
+
+          // Set connected state after successful SDK client setup
+          mcpInfo.connected = true;
+          mcpInfo.methods = methods;
+        } catch (sdkError) {
+          // SDK client failed - fall back to wrapper client
+          logger.debug(`SDK client failed for ${name}, using wrapper: ${sdkError}`);
+
+          // Try wrapper client as fallback
+          const tools = await client.list();
+          methods = (tools || []).map((tool: any) => ({
+            name: tool.name,
+            description: tool.description || '',
+            params: tool.inputSchema || { type: 'object', properties: {} },
+            returns: { type: 'object' },
+            icon: tool['x-icon'],
+          }));
+
+          mcpInfo.connected = true;
+          mcpInfo.methods = methods;
         }
-      } catch (sdkError) {
-        // SDK client failed - continue without resource support
-        logger.debug(`SDK client failed for ${name}: ${sdkError}`);
+      } else {
+        // No command - use wrapper client only
+        const tools = await client.list();
+        methods = (tools || []).map((tool: any) => ({
+          name: tool.name,
+          description: tool.description || '',
+          params: tool.inputSchema || { type: 'object', properties: {} },
+          returns: { type: 'object' },
+          icon: tool['x-icon'],
+        }));
+
+        mcpInfo.connected = true;
+        mcpInfo.methods = methods;
       }
 
       logger.info(`🔌 Connected to external MCP: ${name} (${methods.length} tools)`);

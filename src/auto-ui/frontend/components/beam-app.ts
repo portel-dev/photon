@@ -1843,9 +1843,21 @@ export class BeamApp extends LitElement {
     }
 
     if (photonName) {
-      const photon = this._photons.find((p) => p.name === photonName);
+      // Look in both photons and external MCPs
+      let photon = this._photons.find((p) => p.name === photonName);
+      if (!photon) {
+        photon = this._externalMCPs.find((p) => p.name === photonName);
+      }
+
       if (photon) {
         this._selectedPhoton = photon;
+
+        // Handle external MCPs with MCP Apps
+        if (photon.isExternalMCP && photon.hasMcpApp) {
+          this._selectedMethod = null;
+          this._view = 'mcp-app';
+          return;
+        }
 
         if (methodName && photon.methods) {
           const method = photon.methods.find((m: any) => m.name === methodName);
@@ -2636,6 +2648,12 @@ export class BeamApp extends LitElement {
 
     // MCP App view for external MCPs with MCP Apps Extension
     if (this._view === 'mcp-app' && this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
+      // Find the linked tool (the one with _meta.ui.resourceUri matching the app URI)
+      // This tool provides initial data to the app
+      const linkedMethod = this._selectedPhoton.methods?.find(
+        (m: any) => m.linkedUi === this._selectedPhoton.mcpAppUri
+      );
+
       return html`
         <div
           class="glass-panel"
@@ -2644,6 +2662,7 @@ export class BeamApp extends LitElement {
           <mcp-app-renderer
             .mcpName=${this._selectedPhoton.name}
             .appUri=${this._selectedPhoton.mcpAppUri}
+            .linkedTool=${linkedMethod?.name || ''}
             .theme=${this._theme}
             style="height: calc(100vh - 80px);"
           ></mcp-app-renderer>
