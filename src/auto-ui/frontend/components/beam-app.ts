@@ -1343,7 +1343,7 @@ export class BeamApp extends LitElement {
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' = 'list';
+  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' | 'mcp-app' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
 
@@ -2634,6 +2634,49 @@ export class BeamApp extends LitElement {
       `;
     }
 
+    // MCP App view for external MCPs with MCP Apps Extension
+    if (this._view === 'mcp-app' && this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
+      return html`
+        <div
+          class="glass-panel"
+          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);"
+        >
+          <mcp-app-renderer
+            .mcpName=${this._selectedPhoton.name}
+            .appUri=${this._selectedPhoton.mcpAppUri}
+            .theme=${this._theme}
+            style="height: calc(100vh - 80px);"
+          ></mcp-app-renderer>
+        </div>
+
+        ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
+          ? html`
+              <div
+                style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
+              >
+                <h4 style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);">
+                  Available Tools
+                </h4>
+                ${this._selectedPhoton.methods.map(
+                  (method: any) => html`
+                    <method-card
+                      .method=${method}
+                      .photonName=${this._selectedPhoton.name}
+                      .selected=${this._selectedMethod?.name === method.name}
+                      @click=${() => {
+                        this._selectedMethod = method;
+                        this._view = 'form';
+                        this._updateHash();
+                      }}
+                    ></method-card>
+                  `
+                )}
+              </div>
+            `
+          : ''}
+      `;
+    }
+
     if (this._view === 'form' && this._selectedMethod) {
       // Check for Linked UI (Custom Interface)
       if (this._selectedMethod.linkedUi) {
@@ -2856,6 +2899,13 @@ export class BeamApp extends LitElement {
       return;
     }
 
+    // For external MCPs with MCP Apps, show the MCP App
+    if (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
+      this._view = 'mcp-app';
+      this._updateHash();
+      return;
+    }
+
     // For Apps, automatically select the main method to show Custom UI
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
       this._selectedMethod = this._selectedPhoton.appEntry;
@@ -2886,9 +2936,13 @@ export class BeamApp extends LitElement {
    * Trigger teardown on any active custom-ui-renderer before switching methods
    */
   private _teardownActiveCustomUI(): void {
-    const renderer = this.shadowRoot?.querySelector('custom-ui-renderer') as any;
-    if (renderer?.teardown) {
-      renderer.teardown().catch(() => {});
+    const customRenderer = this.shadowRoot?.querySelector('custom-ui-renderer') as any;
+    if (customRenderer?.teardown) {
+      customRenderer.teardown().catch(() => {});
+    }
+    const mcpAppRenderer = this.shadowRoot?.querySelector('mcp-app-renderer') as any;
+    if (mcpAppRenderer?.teardown) {
+      mcpAppRenderer.teardown().catch(() => {});
     }
   }
 

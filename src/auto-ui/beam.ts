@@ -74,6 +74,9 @@ import type {
 } from './types.js';
 import { SDKMCPClientFactory, type MCPConfig } from '../mcp-client.js';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
+// SDK imports for direct resource access (transport wrapper doesn't expose these yet)
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -146,6 +149,9 @@ const externalMCPs: ExternalMCPInfo[] = [];
 /** Active MCP client instances for external MCPs */
 const externalMCPClients = new Map<string, any>();
 
+/** Direct SDK clients for resource access (listResources, readResource) */
+const externalMCPSDKClients = new Map<string, Client>();
+
 /**
  * Generate a unique ID for an external MCP based on its name
  */
@@ -213,6 +219,8 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
         params: tool.inputSchema || { type: 'object', properties: {} },
         returns: { type: 'object' },
         icon: tool['x-icon'],
+        // Preserve MCP App linkage from tool metadata
+        linkedUi: tool.inputSchema?.['_meta']?.ui?.resourceUri,
       }));
 
       mcpInfo.connected = true;
@@ -220,6 +228,50 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
 
       // Cache the client for tool calls
       externalMCPClients.set(name, client);
+
+      // Create a separate SDK client for resource access
+      // The wrapper doesn't expose listResources/readResource, so we need direct access
+      try {
+        if (serverConfig.command) {
+          const sdkTransport = new StdioClientTransport({
+            command: serverConfig.command,
+            args: serverConfig.args,
+            cwd: serverConfig.cwd,
+            env: serverConfig.env,
+          });
+          const sdkClient = new Client(
+            { name: 'beam-resource-client', version: '1.0.0' },
+            { capabilities: {} }
+          );
+          await sdkClient.connect(sdkTransport);
+          externalMCPSDKClients.set(name, sdkClient);
+
+          // Fetch resources to detect MCP Apps
+          try {
+            const resourcesResult = await sdkClient.listResources();
+            const resources = resourcesResult.resources || [];
+            mcpInfo.resourceCount = resources.length;
+
+            // Check for MCP App resources (ui:// scheme or application/vnd.mcp.ui+html mime)
+            const appResource = resources.find(
+              (r: any) =>
+                r.uri?.startsWith('ui://') ||
+                r.mimeType === 'application/vnd.mcp.ui+html'
+            );
+            if (appResource) {
+              mcpInfo.hasApp = true;
+              mcpInfo.appResourceUri = appResource.uri;
+              logger.info(`🎨 MCP App detected: ${name} (${appResource.uri})`);
+            }
+          } catch (resourceError) {
+            // Resources not supported - that's fine
+            logger.debug(`Resources not supported by ${name}`);
+          }
+        }
+      } catch (sdkError) {
+        // SDK client failed - continue without resource support
+        logger.debug(`SDK client failed for ${name}: ${sdkError}`);
+      }
 
       logger.info(`🔌 Connected to external MCP: ${name} (${methods.length} tools)`);
     } catch (error) {
@@ -1393,6 +1445,60 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       } catch {
         res.writeHead(404);
         res.end(JSON.stringify({ error: `UI template not found: ${uiId}` }));
+      }
+      return;
+    }
+
+    // Serve MCP App HTML from external MCPs with MCP Apps Extension
+    if (url.pathname === '/api/mcp-app') {
+      const mcpName = url.searchParams.get('mcp');
+      const resourceUri = url.searchParams.get('uri');
+
+      if (!mcpName || !resourceUri) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing mcp or uri parameter' }));
+        return;
+      }
+
+      const sdkClient = externalMCPSDKClients.get(mcpName);
+      if (!sdkClient) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: `MCP not found or no SDK client: ${mcpName}` }));
+        return;
+      }
+
+      try {
+        const resourceResult = await sdkClient.readResource({ uri: resourceUri });
+        const content = resourceResult.contents?.[0];
+        if (!content) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: `Resource not found: ${resourceUri}` }));
+          return;
+        }
+
+        // Content can have either text or blob
+        const contentText = 'text' in content ? content.text : null;
+        const contentBlob = 'blob' in content ? content.blob : null;
+
+        if (!contentText && !contentBlob) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: `Resource has no content: ${resourceUri}` }));
+          return;
+        }
+
+        res.setHeader('Content-Type', content.mimeType || 'text/html');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.writeHead(200);
+        if (contentText) {
+          res.end(contentText);
+        } else if (contentBlob) {
+          // blob is base64 encoded
+          res.end(Buffer.from(contentBlob, 'base64'));
+        }
+      } catch (error) {
+        logger.error(`Failed to read MCP App resource: ${error}`);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: `Failed to read resource: ${error}` }));
       }
       return;
     }

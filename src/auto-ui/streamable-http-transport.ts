@@ -391,6 +391,8 @@ const handlers: Record<string, RequestHandler> = {
             'x-photon-description': mcp.description,
             'x-photon-prompt-count': mcp.promptCount ?? 0,
             'x-photon-resource-count': mcp.resourceCount ?? 0,
+            'x-has-mcp-app': mcp.hasApp ?? false, // MCP Apps Extension detected
+            'x-mcp-app-uri': mcp.appResourceUri, // MCP App resource URI
             ...buildToolMetadataExtensions(method),
           });
         }

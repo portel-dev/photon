@@ -19,6 +19,9 @@ interface PhotonItem {
   isExternalMCP?: boolean;
   connected?: boolean;
   errorMessage?: string;
+  // MCP Apps Extension fields
+  hasMcpApp?: boolean;
+  mcpAppUri?: string;
 }
 
 @customElement('beam-sidebar')

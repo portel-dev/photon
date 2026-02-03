@@ -164,6 +164,7 @@ export interface MCPServerConfig {
   url?: string;
   transport?: 'stdio' | 'sse' | 'websocket';
   env?: Record<string, string>;
+  cwd?: string;
 }
 
 /**
@@ -194,6 +195,10 @@ export interface ExternalMCPInfo {
   promptCount?: number;
   /** Original config for reconnection */
   config: MCPServerConfig;
+  /** MCP App resource URI (ui:// scheme) if the MCP has a custom UI */
+  appResourceUri?: string;
+  /** True if this MCP has an MCP App extension */
+  hasApp?: boolean;
 }
 
 /**

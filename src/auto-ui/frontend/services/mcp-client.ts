@@ -720,6 +720,8 @@ class MCPClientService {
             resourceCount: tool['x-photon-resource-count'] || 0,
             connected: true,
             isExternalMCP: true,
+            hasMcpApp: tool['x-has-mcp-app'] || false,
+            mcpAppUri: tool['x-mcp-app-uri'],
             methods: [],
           });
         }
