@@ -3,6 +3,32 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 
+/** Convert plural field names to singular for button labels */
+function singularize(word: string): string {
+  // Common irregular plurals
+  const irregulars: Record<string, string> = {
+    entities: 'entity',
+    entries: 'entry',
+    indices: 'index',
+    matrices: 'matrix',
+    vertices: 'vertex',
+    analyses: 'analysis',
+    criteria: 'criterion',
+    phenomena: 'phenomenon',
+    children: 'child',
+    people: 'person',
+  };
+  const lower = word.toLowerCase();
+  if (irregulars[lower]) return irregulars[lower];
+  // Standard rules
+  if (lower.endsWith('ies')) return word.slice(0, -3) + 'y';
+  if (lower.endsWith('es') && (lower.endsWith('sses') || lower.endsWith('xes') || lower.endsWith('ches') || lower.endsWith('shes'))) {
+    return word.slice(0, -2);
+  }
+  if (lower.endsWith('s') && !lower.endsWith('ss')) return word.slice(0, -1);
+  return word;
+}
+
 interface MethodParam {
   type: string;
   description?: string;
@@ -859,10 +885,11 @@ export class InvokeForm extends LitElement {
     const parts = ['photon', 'cli', this.photonName, this.methodName];
     for (const [key, value] of Object.entries(this._values)) {
       if (value === undefined || value === null || value === '') continue;
-      const strVal = String(value);
+      // Serialize objects and arrays as JSON
+      const strVal = (typeof value === 'object') ? JSON.stringify(value) : String(value);
       // Quote values with spaces or special characters
       if (strVal.includes(' ') || strVal.includes('"') || strVal.includes("'")) {
-        parts.push(`--${key}`, `"${strVal.replace(/"/g, '\\"')}"`);
+        parts.push(`--${key}`, `'${strVal.replace(/'/g, "\\'")}'`);
       } else {
         parts.push(`--${key}`, strVal);
       }
@@ -974,7 +1001,7 @@ export class InvokeForm extends LitElement {
         <button
           class="array-add-btn"
           @click=${() => this._addArrayItem(key, itemProperties)}
-        >+ Add Item</button>
+        >+ Add ${singularize(key)}</button>
       </div>
     `;
   }
@@ -1020,7 +1047,7 @@ export class InvokeForm extends LitElement {
             class="array-add-btn"
             style="padding: 4px; font-size: 0.75rem;"
             @click=${() => handleNestedChange([...arrValue, ''])}
-          >+ Add</button>
+          >+ Add ${singularize(propKey)}</button>
         </div>
       `;
     }
