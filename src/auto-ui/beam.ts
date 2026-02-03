@@ -1122,6 +1122,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         photonMCPs,
         externalMCPs,
         externalMCPClients,
+        externalMCPSDKClients, // SDK clients for tool calls with structuredContent
         reconnectExternalMCP,
         loadUIAsset,
         configurePhoton: async (photonName: string, config: Record<string, any>) => {

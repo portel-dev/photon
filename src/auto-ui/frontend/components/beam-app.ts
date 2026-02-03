@@ -2663,8 +2663,8 @@ export class BeamApp extends LitElement {
                       .method=${method}
                       .photonName=${this._selectedPhoton.name}
                       .selected=${this._selectedMethod?.name === method.name}
-                      @click=${() => {
-                        this._selectedMethod = method;
+                      @select=${(e: CustomEvent) => {
+                        this._selectedMethod = e.detail.method;
                         this._view = 'form';
                         this._updateHash();
                       }}

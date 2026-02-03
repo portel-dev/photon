@@ -338,7 +338,11 @@ class MCPClientService {
     name: string,
     args: Record<string, unknown>,
     progressToken?: string | number
-  ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> {
+  ): Promise<{
+    content: Array<{ type: string; text?: string }>;
+    structuredContent?: unknown;
+    isError?: boolean;
+  }> {
     const params: Record<string, unknown> = { name, arguments: args };
 
     if (progressToken !== undefined) {
@@ -348,6 +352,7 @@ class MCPClientService {
     try {
       const result = (await this.sendRequest('tools/call', params)) as {
         content: Array<{ type: string; text?: string }>;
+        structuredContent?: unknown;
         isError?: boolean;
       };
       return result;
@@ -384,7 +389,11 @@ class MCPClientService {
   private queueOperation(
     method: string,
     params: Record<string, unknown>
-  ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean }> {
+  ): Promise<{
+    content: Array<{ type: string; text?: string }>;
+    structuredContent?: unknown;
+    isError?: boolean;
+  }> {
     return new Promise((resolve, reject) => {
       const operation: PendingOperation = {
         id: ++this.requestId,

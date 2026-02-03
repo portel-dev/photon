@@ -206,6 +206,7 @@ interface HandlerContext {
   photonMCPs: Map<string, PhotonMCPInstance>;
   externalMCPs?: ExternalMCPInfo[];
   externalMCPClients?: Map<string, any>;
+  externalMCPSDKClients?: Map<string, any>; // SDK clients with full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (
@@ -594,10 +595,41 @@ const handlers: Record<string, RequestHandler> = {
     const methodName = name.slice(slashIndex + 1);
 
     // Check if this is an external MCP tool call
+    // Prefer SDK client for full CallToolResult support (structuredContent)
+    if (ctx.externalMCPSDKClients?.has(serverName)) {
+      const sdkClient = ctx.externalMCPSDKClients.get(serverName);
+      try {
+        // SDK client.callTool returns full CallToolResult with structuredContent
+        const result = await sdkClient.callTool({ name: methodName, arguments: args || {} });
+
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: result.content,
+            structuredContent: result.structuredContent,
+            isError: result.isError ?? false,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            isError: true,
+          },
+        };
+      }
+    }
+
+    // Fallback to wrapper client (no structuredContent support)
     if (ctx.externalMCPClients?.has(serverName)) {
       const client = ctx.externalMCPClients.get(serverName);
       try {
         const result = await client.call(methodName, args || {});
+
         return {
           jsonrpc: '2.0',
           id: req.id,
@@ -1519,6 +1551,7 @@ export interface StreamableHTTPOptions {
   photonMCPs: Map<string, PhotonMCPInstance>;
   externalMCPs?: ExternalMCPInfo[];
   externalMCPClients?: Map<string, any>;
+  externalMCPSDKClients?: Map<string, any>; // SDK clients for full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (
@@ -1650,6 +1683,7 @@ export async function handleStreamableHTTP(
       photonMCPs: options.photonMCPs,
       externalMCPs: options.externalMCPs,
       externalMCPClients: options.externalMCPClients,
+      externalMCPSDKClients: options.externalMCPSDKClients,
       reconnectExternalMCP: options.reconnectExternalMCP,
       loadUIAsset: options.loadUIAsset,
       configurePhoton: options.configurePhoton,
