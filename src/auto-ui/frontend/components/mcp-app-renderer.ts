@@ -192,6 +192,7 @@ export class McpAppRenderer extends LitElement {
     const isDark = this.theme !== 'light';
 
     // Override matchMedia to return host theme for prefers-color-scheme queries
+    // Uses Object.defineProperty because MediaQueryList.matches is a read-only getter
     const themeScript = `<script id="__beam-theme-script">
 (function() {
   const hostTheme = '${colorScheme}';
@@ -201,14 +202,14 @@ export class McpAppRenderer extends LitElement {
     const mql = origMatchMedia(query);
     if (query.includes('prefers-color-scheme')) {
       const wantsDark = query.includes('dark');
-      return Object.assign(Object.create(mql), {
-        matches: wantsDark ? isDark : !isDark,
-        media: query,
-        addEventListener: mql.addEventListener.bind(mql),
-        removeEventListener: mql.removeEventListener.bind(mql),
-        addListener: mql.addListener?.bind(mql),
-        removeListener: mql.removeListener?.bind(mql),
-      });
+      const proxy = Object.create(mql);
+      Object.defineProperty(proxy, 'matches', { value: wantsDark ? isDark : !isDark, configurable: true });
+      Object.defineProperty(proxy, 'media', { value: query, configurable: true });
+      proxy.addEventListener = mql.addEventListener.bind(mql);
+      proxy.removeEventListener = mql.removeEventListener.bind(mql);
+      if (mql.addListener) proxy.addListener = mql.addListener.bind(mql);
+      if (mql.removeListener) proxy.removeListener = mql.removeListener.bind(mql);
+      return proxy;
     }
     return mql;
   };

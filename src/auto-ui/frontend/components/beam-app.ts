@@ -2762,6 +2762,10 @@ export class BeamApp extends LitElement {
           ? (this._selectedPhoton.methods || []).filter((m: any) => m.name !== 'main')
           : [];
 
+        // External MCPs use mcp-app-renderer (MCP Apps Extension protocol)
+        // Internal photons use custom-ui-renderer (photon bridge protocol)
+        const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
+
         return html`
           ${!isAppMain
             ? html`
@@ -2779,13 +2783,25 @@ export class BeamApp extends LitElement {
             class="glass-panel"
             style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);"
           >
-            <custom-ui-renderer
-              .photon=${this._selectedPhoton.name}
-              .method=${this._selectedMethod.name}
-              .uiId=${this._selectedMethod.linkedUi}
-              .theme=${this._theme}
-              style="height: calc(100vh - 80px);"
-            ></custom-ui-renderer>
+            ${isExternalMCP
+              ? html`
+                  <mcp-app-renderer
+                    .mcpName=${this._selectedPhoton.name}
+                    .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
+                    .linkedTool=${this._selectedMethod.name}
+                    .theme=${this._theme}
+                    style="height: calc(100vh - 80px);"
+                  ></mcp-app-renderer>
+                `
+              : html`
+                  <custom-ui-renderer
+                    .photon=${this._selectedPhoton.name}
+                    .method=${this._selectedMethod.name}
+                    .uiId=${this._selectedMethod.linkedUi}
+                    .theme=${this._theme}
+                    style="height: calc(100vh - 80px);"
+                  ></custom-ui-renderer>
+                `}
           </div>
 
           ${isAppMain && otherMethods.length > 0
