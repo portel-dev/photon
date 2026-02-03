@@ -604,28 +604,23 @@ export class InvokeForm extends LitElement {
     }
 
     // Handle File Paths -> File Picker
-    // Heuristic: Key contains "path", "file", "dir" or schema.format matches
+    // Primary: JSDoc {@format path|file|directory} and {@accept ...} annotations
+    // Fallback: heuristic based on param name (path, file, dir)
+    const fmt = (schema as any).format;
+    const schemaAccept = (schema as any).accept || '';
+    const isFileBySchema = fmt === 'path' || fmt === 'file' || fmt === 'directory';
     const lk = key.toLowerCase();
-    const isFilePicker =
-      lk.includes('path') ||
-      lk.includes('file') ||
-      lk.includes('dir') ||
-      (schema as any).format === 'path' ||
-      (schema as any).format === 'file' ||
-      (schema as any).format === 'directory';
+    const isFileByHeuristic = !fmt && (
+      lk.includes('path') || lk.includes('file') || lk.includes('dir')
+    );
 
-    if (isFilePicker) {
-      // Determine if this is a directory picker or file picker
-      const isDir =
-        lk.includes('dir') ||
-        lk.includes('folder') ||
-        (schema as any).format === 'directory';
-      const acceptFilter = (schema as any).accept || '';
+    if (isFileBySchema || isFileByHeuristic) {
+      const isDir = fmt === 'directory' || (!fmt && (lk.includes('dir') || lk.includes('folder')));
       return html`
         <file-picker
           .value=${this._values[key] || ''}
           .hasError=${hasError}
-          .accept=${acceptFilter}
+          .accept=${schemaAccept}
           .mode=${isDir ? 'directory' : 'file'}
           .photonName=${this.photonName}
           @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
