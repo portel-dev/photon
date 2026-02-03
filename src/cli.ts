@@ -1272,8 +1272,10 @@ program
       await startBeam(workingDir, port);
 
       // Auto-open browser if requested
+      // Use actual bound port from BEAM_PORT env var (set by startBeam after binding)
       if (options.open) {
-        const url = `http://localhost:${port}`;
+        const actualPort = process.env.BEAM_PORT || port;
+        const url = `http://localhost:${actualPort}`;
         const { exec } = await import('child_process');
         const openCmd =
           process.platform === 'darwin'
