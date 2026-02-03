@@ -32,6 +32,7 @@ import type {
   UnconfiguredPhotonInfo,
   AnyPhotonInfo,
   PhotonMCPInstance,
+  ExternalMCPInfo,
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
 
@@ -203,6 +204,9 @@ type RequestHandler = (
 interface HandlerContext {
   photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
+  externalMCPs?: ExternalMCPInfo[];
+  externalMCPClients?: Map<string, any>;
+  reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (
     photonName: string,
@@ -371,6 +375,28 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
+    // Add external MCP tools (from mcpServers in config.json)
+    if (ctx.externalMCPs) {
+      for (const mcp of ctx.externalMCPs) {
+        if (!mcp.connected || !mcp.methods) continue;
+
+        for (const method of mcp.methods) {
+          tools.push({
+            name: `${mcp.name}/${method.name}`,
+            description: method.description || `Execute ${method.name}`,
+            inputSchema: method.params || { type: 'object', properties: {} },
+            'x-external-mcp': true, // Marker for frontend to identify external MCPs
+            'x-external-mcp-id': mcp.id,
+            'x-photon-icon': mcp.icon || '🔌',
+            'x-photon-description': mcp.description,
+            'x-photon-prompt-count': mcp.promptCount ?? 0,
+            'x-photon-resource-count': mcp.resourceCount ?? 0,
+            ...buildToolMetadataExtensions(method),
+          });
+        }
+      }
+    }
+
     // Add beam system tools (internal — hidden from sidebar)
     tools.push({
       name: 'beam/configure',
@@ -484,6 +510,22 @@ const handlers: Record<string, RequestHandler> = {
       },
     });
 
+    tools.push({
+      name: 'beam/reconnect-mcp',
+      'x-photon-internal': true,
+      description: 'Reconnect a disconnected external MCP server',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the external MCP to reconnect',
+          },
+        },
+        required: ['name'],
+      },
+    });
+
     // Filter out app-only tools for external (non-Beam) MCP clients
     const visibleTools = session.isBeam
       ? tools
@@ -525,11 +567,15 @@ const handlers: Record<string, RequestHandler> = {
       return handleBeamUpdateMetadata(req, ctx, args || {});
     }
 
+    if (name === 'beam/reconnect-mcp') {
+      return handleBeamReconnectMCP(req, ctx, args || {});
+    }
+
     if (name === 'beam/photon-help') {
       return handleBeamPhotonHelp(req, ctx, args || {});
     }
 
-    // Parse tool name: photon-name/method-name
+    // Parse tool name: server-name/method-name
     const slashIndex = name.indexOf('/');
     if (slashIndex === -1) {
       return {
@@ -542,8 +588,37 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
-    const photonName = name.slice(0, slashIndex);
+    const serverName = name.slice(0, slashIndex);
     const methodName = name.slice(slashIndex + 1);
+
+    // Check if this is an external MCP tool call
+    if (ctx.externalMCPClients?.has(serverName)) {
+      const client = ctx.externalMCPClients.get(serverName);
+      try {
+        const result = await client.call(methodName, args || {});
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            isError: false,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            isError: true,
+          },
+        };
+      }
+    }
+
+    // Handle as photon tool call
+    const photonName = serverName;
 
     // Find photon info for UI metadata
     const photonInfo = ctx.photons.find((p) => p.name === photonName);
@@ -559,6 +634,23 @@ const handlers: Record<string, RequestHandler> = {
 
     const mcp = ctx.photonMCPs.get(photonName);
     if (!mcp?.instance) {
+      // Check if it's a disconnected external MCP
+      const externalMCP = ctx.externalMCPs?.find((m) => m.name === photonName);
+      if (externalMCP) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `External MCP "${photonName}" is not connected${externalMCP.errorMessage ? `: ${externalMCP.errorMessage}` : ''}`,
+              },
+            ],
+            isError: true,
+          },
+        };
+      }
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -1344,6 +1436,78 @@ async function handleBeamPhotonHelp(
   }
 }
 
+/**
+ * Handle beam/reconnect-mcp tool - reconnect a disconnected external MCP
+ */
+async function handleBeamReconnectMCP(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { name: mcpName } = args as { name: string };
+
+  if (!mcpName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: MCP name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  if (!ctx.reconnectExternalMCP) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: Reconnection not supported in this context' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const result = await ctx.reconnectExternalMCP(mcpName);
+
+    if (result.success) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully reconnected to external MCP "${mcpName}". Tools list will be updated.`,
+            },
+          ],
+          isError: false,
+        },
+      };
+    } else {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          content: [{ type: 'text', text: `Failed to reconnect to "${mcpName}": ${result.error}` }],
+          isError: true,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error reconnecting to "${mcpName}": ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // HTTP HANDLER
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1351,6 +1515,9 @@ async function handleBeamPhotonHelp(
 export interface StreamableHTTPOptions {
   photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonMCPInstance>;
+  externalMCPs?: ExternalMCPInfo[];
+  externalMCPClients?: Map<string, any>;
+  reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
   configurePhoton?: (
     photonName: string,

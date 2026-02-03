@@ -69,7 +69,10 @@ import type {
   CancelRequest,
   ReloadRequest,
   RemoveRequest,
+  ExternalMCPInfo,
+  MCPServerConfig,
 } from './types.js';
+import { SDKMCPClientFactory, type MCPConfig } from '../mcp-client.js';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
@@ -127,18 +130,169 @@ type ClientMessage =
 // Config file path
 const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
 
-// Unified config structure
-interface MCPServerConfig {
-  command?: string;
-  args?: string[];
-  url?: string;
-  transport?: 'stdio' | 'sse' | 'websocket';
-  env?: Record<string, string>;
-}
-
+// Unified config structure (MCPServerConfig imported from types.ts)
 interface PhotonConfig {
   photons: Record<string, Record<string, string>>;
   mcpServers: Record<string, MCPServerConfig>;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// EXTERNAL MCP STATE (module-level for MCP transport access)
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** External MCP servers loaded from config */
+const externalMCPs: ExternalMCPInfo[] = [];
+
+/** Active MCP client instances for external MCPs */
+const externalMCPClients = new Map<string, any>();
+
+/**
+ * Generate a unique ID for an external MCP based on its name
+ */
+function generateExternalMCPId(name: string): string {
+  return createHash('sha256').update(`external:${name}`).digest('hex').slice(0, 12);
+}
+
+/**
+ * Convert a tool name to a display label
+ */
+function prettifyToolName(name: string): string {
+  return name
+    .split(/[-_]/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/**
+ * Load external MCPs from config.json mcpServers section
+ *
+ * @param config - The PhotonConfig with mcpServers section
+ * @returns Array of ExternalMCPInfo objects (populated with connected status)
+ */
+async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]> {
+  const mcpServers = config.mcpServers || {};
+  const results: ExternalMCPInfo[] = [];
+
+  for (const [name, serverConfig] of Object.entries(mcpServers)) {
+    const mcpId = generateExternalMCPId(name);
+
+    // Create the MCP info with initial disconnected state
+    const mcpInfo: ExternalMCPInfo = {
+      type: 'external-mcp',
+      id: mcpId,
+      name,
+      connected: false,
+      methods: [],
+      label: prettifyToolName(name),
+      icon: '🔌',
+      config: serverConfig,
+    };
+
+    try {
+      // Create factory with this MCP's config
+      const mcpConfig: MCPConfig = {
+        mcpServers: {
+          [name]: serverConfig,
+        },
+      };
+      const factory = new SDKMCPClientFactory(mcpConfig, false);
+      const client = factory.create(name);
+
+      // Connect with timeout
+      const connectPromise = client.list();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+      );
+
+      const toolsResult = (await Promise.race([connectPromise, timeoutPromise])) as any;
+
+      // Convert tools to MethodInfo[]
+      const methods: MethodInfo[] = (toolsResult.tools || []).map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || '',
+        params: tool.inputSchema || { type: 'object', properties: {} },
+        returns: { type: 'object' },
+        icon: tool['x-icon'],
+      }));
+
+      mcpInfo.connected = true;
+      mcpInfo.methods = methods;
+
+      // Cache the client for tool calls
+      externalMCPClients.set(name, client);
+
+      logger.info(`🔌 Connected to external MCP: ${name} (${methods.length} tools)`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      mcpInfo.errorMessage = errorMsg.slice(0, 200);
+      logger.warn(`⚠️ Failed to connect to external MCP: ${name} - ${errorMsg}`);
+    }
+
+    results.push(mcpInfo);
+  }
+
+  return results;
+}
+
+/**
+ * Reconnect a failed external MCP
+ *
+ * @param name - The MCP name to reconnect
+ * @returns Success status and error message if failed
+ */
+async function reconnectExternalMCP(
+  name: string
+): Promise<{ success: boolean; error?: string }> {
+  const mcpIndex = externalMCPs.findIndex((m) => m.name === name);
+  if (mcpIndex === -1) {
+    return { success: false, error: `External MCP not found: ${name}` };
+  }
+
+  const mcp = externalMCPs[mcpIndex];
+
+  try {
+    // Create factory with this MCP's config
+    const mcpConfig: MCPConfig = {
+      mcpServers: {
+        [name]: mcp.config,
+      },
+    };
+    const factory = new SDKMCPClientFactory(mcpConfig, false);
+    const client = factory.create(name);
+
+    // Connect with timeout
+    const connectPromise = client.list();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+    );
+
+    const toolsResult = (await Promise.race([connectPromise, timeoutPromise])) as any;
+
+    // Convert tools to MethodInfo[]
+    const methods: MethodInfo[] = (toolsResult.tools || []).map((tool: any) => ({
+      name: tool.name,
+      description: tool.description || '',
+      params: tool.inputSchema || { type: 'object', properties: {} },
+      returns: { type: 'object' },
+      icon: tool['x-icon'],
+    }));
+
+    // Update MCP info
+    mcp.connected = true;
+    mcp.methods = methods;
+    mcp.errorMessage = undefined;
+
+    // Cache the client
+    externalMCPClients.set(name, client);
+
+    logger.info(`🔌 Reconnected to external MCP: ${name} (${methods.length} tools)`);
+    return { success: true };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    mcp.errorMessage = errorMsg.slice(0, 200);
+    logger.warn(`⚠️ Failed to reconnect to external MCP: ${name} - ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
 }
 
 /**
@@ -914,6 +1068,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const handled = await handleStreamableHTTP(req, res, {
         photons, // Pass all photons including unconfigured for configurationSchema
         photonMCPs,
+        externalMCPs,
+        externalMCPClients,
+        reconnectExternalMCP,
         loadUIAsset,
         configurePhoton: async (photonName: string, config: Record<string, any>) => {
           return configurePhotonViaMCP(
@@ -2517,11 +2674,21 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   configuredCount = photons.filter((p) => p.configured).length;
   unconfiguredCount = photons.filter((p) => !p.configured).length;
 
-  const status =
+  // Load external MCPs from config
+  const externalMCPList = await loadExternalMCPs(savedConfig);
+  externalMCPs.push(...externalMCPList);
+  const connectedMCPs = externalMCPList.filter((m) => m.connected).length;
+  const failedMCPs = externalMCPList.length - connectedMCPs;
+
+  const photonStatus =
     unconfiguredCount > 0
       ? `${configuredCount} ready, ${unconfiguredCount} need setup`
       : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
-  console.log(`⚡ Photon Beam ready (${status})`);
+  const mcpStatus =
+    externalMCPList.length > 0
+      ? `, ${connectedMCPs}/${externalMCPList.length} MCPs`
+      : '';
+  console.log(`⚡ Photon Beam ready (${photonStatus}${mcpStatus})`);
 
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();

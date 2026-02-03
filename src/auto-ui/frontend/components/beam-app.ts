@@ -1341,6 +1341,7 @@ export class BeamApp extends LitElement {
   @state() private _reconnectAttempt = 0;
   @state() private _sidebarVisible = false;
   @state() private _photons: any[] = [];
+  @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
   @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
@@ -1550,7 +1551,9 @@ export class BeamApp extends LitElement {
 
         // Load initial photon list
         const tools = await mcpClient.listTools();
-        this._photons = mcpClient.toolsToPhotons(tools);
+        const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+        this._photons = photons;
+        this._externalMCPs = externalMCPs;
 
         // Add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
@@ -1580,7 +1583,9 @@ export class BeamApp extends LitElement {
       mcpClient.on('tools-changed', async () => {
         const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
         const tools = await mcpClient.listTools();
-        this._photons = mcpClient.toolsToPhotons(tools);
+        const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+        this._photons = photons;
+        this._externalMCPs = externalMCPs;
         // Re-add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
         // Auto-select newly added user photon (welcome wizard flow)
@@ -2317,6 +2322,7 @@ export class BeamApp extends LitElement {
       >
         <beam-sidebar
           .photons=${this._photons}
+          .externalMCPs=${this._externalMCPs}
           .selectedPhoton=${this._selectedPhoton?.name}
           .theme=${this._theme}
           .connected=${this._connected}
@@ -2326,6 +2332,7 @@ export class BeamApp extends LitElement {
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
           @show-shortcuts=${this._showHelpModal}
+          @reconnect-mcp=${this._handleReconnectMCP}
           @diagnostics=${() => {
             this._view = 'diagnostics';
             this._updateHash();
@@ -2817,6 +2824,24 @@ export class BeamApp extends LitElement {
   private _handleMarketplaceMobile() {
     this._closeSidebar();
     this._view = 'marketplace';
+  }
+
+  private async _handleReconnectMCP(e: CustomEvent) {
+    const { name } = e.detail;
+    showToast(`Reconnecting to ${name}...`, 'info');
+
+    const result = await mcpClient.reconnectMCP(name);
+
+    if (result.success) {
+      showToast(`Connected to ${name}`, 'success');
+      // Refresh tools list to get updated external MCP info
+      const tools = await mcpClient.listTools();
+      const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+      this._photons = photons;
+      this._externalMCPs = externalMCPs;
+    } else {
+      showToast(`Failed to connect: ${result.error}`, 'error');
+    }
   }
 
   private _handlePhotonSelect(e: CustomEvent) {

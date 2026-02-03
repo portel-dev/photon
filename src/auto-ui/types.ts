@@ -152,6 +152,70 @@ export interface UnconfiguredPhotonInfo {
 export type AnyPhotonInfo = PhotonInfo | UnconfiguredPhotonInfo;
 
 // ════════════════════════════════════════════════════════════════════════════════
+// EXTERNAL MCP TYPES
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * MCP server configuration from ~/.photon/config.json
+ */
+export interface MCPServerConfig {
+  command?: string;
+  args?: string[];
+  url?: string;
+  transport?: 'stdio' | 'sse' | 'websocket';
+  env?: Record<string, string>;
+}
+
+/**
+ * External MCP server info (non-photon MCP from config)
+ */
+export interface ExternalMCPInfo {
+  /** Discriminator: always 'external-mcp' for external MCPs */
+  type: 'external-mcp';
+  /** Unique ID (hash of name) */
+  id: string;
+  /** MCP name from config key */
+  name: string;
+  /** Connection status */
+  connected: boolean;
+  /** Error message if connection failed */
+  errorMessage?: string;
+  /** Fetched tools as methods */
+  methods: MethodInfo[];
+  /** Optional description */
+  description?: string;
+  /** Display label */
+  label?: string;
+  /** Icon emoji */
+  icon?: string;
+  /** Number of MCP resources */
+  resourceCount?: number;
+  /** Number of MCP prompts */
+  promptCount?: number;
+  /** Original config for reconnection */
+  config: MCPServerConfig;
+}
+
+/**
+ * Union type for any item in Beam sidebar
+ */
+export type AnyBeamItem = AnyPhotonInfo | ExternalMCPInfo;
+
+/**
+ * Type guard to check if an item is an external MCP
+ */
+export function isExternalMCP(item: AnyBeamItem): item is ExternalMCPInfo {
+  return 'type' in item && item.type === 'external-mcp';
+}
+
+/**
+ * Type guard to check if an item is a photon (configured or unconfigured)
+ */
+export function isPhoton(item: AnyBeamItem): item is AnyPhotonInfo {
+  return !isExternalMCP(item);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // MCP TYPES
 // ════════════════════════════════════════════════════════════════════════════════
 

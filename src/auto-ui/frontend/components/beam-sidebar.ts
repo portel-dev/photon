@@ -15,6 +15,10 @@ interface PhotonItem {
   promptCount?: number;
   hasUpdate?: boolean;
   path?: string;
+  // External MCP fields
+  isExternalMCP?: boolean;
+  connected?: boolean;
+  errorMessage?: string;
 }
 
 @customElement('beam-sidebar')
@@ -372,6 +376,52 @@ export class BeamSidebar extends LitElement {
         font-style: italic;
       }
 
+      /* External MCPs */
+      .photon-icon.external-mcp-icon {
+        background: linear-gradient(135deg, hsl(200, 60%, 45%), hsl(220, 60%, 55%));
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+
+      .photon-item.disconnected {
+        opacity: 0.6;
+      }
+
+      .photon-item.disconnected .photon-icon {
+        background: var(--bg-glass);
+        color: var(--t-muted);
+      }
+
+      .disconnect-badge {
+        font-size: 0.55rem;
+        padding: 1px 4px;
+        background: hsla(0, 60%, 50%, 0.2);
+        color: hsl(0, 60%, 55%);
+        border: 1px solid hsla(0, 60%, 50%, 0.3);
+        border-radius: 3px;
+        text-transform: uppercase;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+      }
+
+      .reconnect-btn {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .reconnect-btn:hover {
+        background: var(--bg-glass-strong);
+        color: var(--t-primary);
+        border-color: var(--accent-primary);
+      }
+
       /* Favorites */
       .filter-row {
         display: flex;
@@ -477,6 +527,9 @@ export class BeamSidebar extends LitElement {
   @property({ type: Array })
   photons: PhotonItem[] = [];
 
+  @property({ type: Array })
+  externalMCPs: PhotonItem[] = [];
+
   @property({ type: String })
   selectedPhoton: string | null = null;
 
@@ -562,6 +615,22 @@ export class BeamSidebar extends LitElement {
 
   private get _needsSetup() {
     return this._filteredPhotons.filter((p) => !p.isApp && (!p.methods || p.methods.length === 0));
+  }
+
+  private get _filteredExternalMCPs() {
+    let filtered = this.externalMCPs;
+
+    // Filter by search query
+    if (this._searchQuery.trim()) {
+      const query = this._searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (m) =>
+          m.name.toLowerCase().includes(query) ||
+          (m.description && m.description.toLowerCase().includes(query))
+      );
+    }
+
+    return filtered;
   }
 
   render() {
@@ -662,6 +731,14 @@ export class BeamSidebar extends LitElement {
               </ul>
             `
           : ''}
+        ${this._filteredExternalMCPs.length > 0
+          ? html`
+              <div class="section-header" id="external-mcps-header">External MCPs</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="external-mcps-header">
+                ${this._filteredExternalMCPs.map((mcp) => this._renderExternalMCPItem(mcp))}
+              </ul>
+            `
+          : ''}
       </nav>
 
       <div class="sidebar-footer">
@@ -736,6 +813,55 @@ export class BeamSidebar extends LitElement {
           : this._renderCountsPill(photon, methodCount)}
       </li>
     `;
+  }
+
+  private _renderExternalMCPItem(mcp: PhotonItem) {
+    const methodCount = mcp.methods?.length || 0;
+    const isConnected = mcp.connected !== false;
+    const displayIcon = mcp.icon || '🔌';
+
+    return html`
+      <li
+        class="photon-item ${this.selectedPhoton === mcp.name ? 'active' : ''} ${!isConnected
+          ? 'disconnected'
+          : ''}"
+        role="option"
+        aria-selected="${this.selectedPhoton === mcp.name}"
+        tabindex="0"
+        @click=${() => this._selectPhoton(mcp)}
+        @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(mcp)}
+        title="${mcp.description || mcp.name}${mcp.errorMessage ? `\n⚠️ ${mcp.errorMessage}` : ''}"
+      >
+        <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
+        <div class="photon-info">
+          <div class="photon-name">${mcp.name}</div>
+        </div>
+        ${!isConnected
+          ? html`
+              <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}">Offline</span>
+              <button
+                class="reconnect-btn"
+                @click=${(e: Event) => this._reconnectMCP(e, mcp.name)}
+                title="Reconnect"
+                aria-label="Reconnect ${mcp.name}"
+              >
+                ↻
+              </button>
+            `
+          : this._renderCountsPill(mcp, methodCount)}
+      </li>
+    `;
+  }
+
+  private _reconnectMCP(e: Event, mcpName: string) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent('reconnect-mcp', {
+        detail: { name: mcpName },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _renderCountsPill(photon: PhotonItem, toolCount: number) {

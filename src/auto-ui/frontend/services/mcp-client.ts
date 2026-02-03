@@ -651,61 +651,115 @@ class MCPClientService {
 
   /**
    * Convert MCP tools to photons format
+   * Returns { photons, externalMCPs } with external MCPs separated
    */
-  toolsToPhotons(tools: MCPTool[]): Array<{
-    id: string;
-    name: string;
-    configured: boolean;
-    isApp?: boolean;
-    appEntry?: any;
-    methods: Array<{
+  toolsToPhotons(tools: MCPTool[]): {
+    photons: Array<{
+      id: string;
       name: string;
-      description: string;
-      params: Record<string, unknown>;
+      configured: boolean;
+      isApp?: boolean;
+      appEntry?: any;
+      path?: string;
+      description?: string;
       icon?: string;
-      autorun?: boolean;
-      outputFormat?: string;
-      layoutHints?: Record<string, string>;
-      buttonLabel?: string;
-      linkedUi?: string;
+      internal?: boolean;
+      promptCount?: number;
+      resourceCount?: number;
+      methods: Array<{
+        name: string;
+        description: string;
+        params: Record<string, unknown>;
+        icon?: string;
+        autorun?: boolean;
+        outputFormat?: string;
+        layoutHints?: Record<string, string>;
+        buttonLabel?: string;
+        linkedUi?: string;
+      }>;
     }>;
-  }> {
+    externalMCPs: Array<{
+      id: string;
+      name: string;
+      description?: string;
+      icon?: string;
+      promptCount?: number;
+      resourceCount?: number;
+      connected: boolean;
+      isExternalMCP: true;
+      methods: Array<{
+        name: string;
+        description: string;
+        params: Record<string, unknown>;
+        icon?: string;
+      }>;
+    }>;
+  } {
     const photonMap = new Map<string, any>();
+    const externalMCPMap = new Map<string, any>();
 
     for (const tool of tools) {
       const slashIndex = tool.name.indexOf('/');
       if (slashIndex === -1) continue;
 
-      const photonName = tool.name.slice(0, slashIndex);
+      const serverName = tool.name.slice(0, slashIndex);
       const methodName = tool.name.slice(slashIndex + 1);
 
-      if (!photonMap.has(photonName)) {
-        photonMap.set(photonName, {
-          id: tool['x-photon-id'] || photonName, // Use hash ID, fallback to name
-          name: photonName,
-          path: tool['x-photon-path'], // File path for View Source
-          description: tool['x-photon-description'],
-          icon: tool['x-photon-icon'],
-          internal: tool['x-photon-internal'],
-          promptCount: tool['x-photon-prompt-count'] || 0,
-          resourceCount: tool['x-photon-resource-count'] || 0,
-          configured: true,
-          methods: [],
+      // Check if this is an external MCP tool
+      const isExternalMCP = !!(tool as any)['x-external-mcp'];
+
+      if (isExternalMCP) {
+        // Handle external MCP
+        if (!externalMCPMap.has(serverName)) {
+          externalMCPMap.set(serverName, {
+            id: (tool as any)['x-external-mcp-id'] || serverName,
+            name: serverName,
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'] || '🔌',
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
+            connected: true,
+            isExternalMCP: true,
+            methods: [],
+          });
+        }
+
+        externalMCPMap.get(serverName).methods.push({
+          name: methodName,
+          description: tool.description || '',
+          params: tool.inputSchema || { type: 'object', properties: {} },
+          icon: tool['x-icon'],
+        });
+      } else {
+        // Handle regular photon
+        if (!photonMap.has(serverName)) {
+          photonMap.set(serverName, {
+            id: tool['x-photon-id'] || serverName, // Use hash ID, fallback to name
+            name: serverName,
+            path: tool['x-photon-path'], // File path for View Source
+            description: tool['x-photon-description'],
+            icon: tool['x-photon-icon'],
+            internal: tool['x-photon-internal'],
+            promptCount: tool['x-photon-prompt-count'] || 0,
+            resourceCount: tool['x-photon-resource-count'] || 0,
+            configured: true,
+            methods: [],
+          });
+        }
+
+        photonMap.get(serverName).methods.push({
+          name: methodName,
+          description: tool.description || '',
+          params: tool.inputSchema || { type: 'object', properties: {} },
+          icon: tool['x-icon'],
+          autorun: tool['x-autorun'],
+          outputFormat: tool['x-output-format'],
+          layoutHints: tool['x-layout-hints'],
+          buttonLabel: tool['x-button-label'],
+          linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+          visibility: tool._meta?.ui?.visibility,
         });
       }
-
-      photonMap.get(photonName).methods.push({
-        name: methodName,
-        description: tool.description || '',
-        params: tool.inputSchema || { type: 'object', properties: {} },
-        icon: tool['x-icon'],
-        autorun: tool['x-autorun'],
-        outputFormat: tool['x-output-format'],
-        layoutHints: tool['x-layout-hints'],
-        buttonLabel: tool['x-button-label'],
-        linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
-        visibility: tool._meta?.ui?.visibility,
-      });
     }
 
     // Post-process: set isApp and appEntry for photons with main() + linkedUi
@@ -717,7 +771,29 @@ class MCPClientService {
       }
     }
 
-    return Array.from(photonMap.values());
+    return {
+      photons: Array.from(photonMap.values()),
+      externalMCPs: Array.from(externalMCPMap.values()),
+    };
+  }
+
+  /**
+   * Reconnect a disconnected external MCP
+   */
+  async reconnectMCP(name: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.callTool('beam/reconnect-mcp', { name });
+      const text = result.content?.[0]?.text || '';
+      return {
+        success: !result.isError,
+        error: result.isError ? text : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
