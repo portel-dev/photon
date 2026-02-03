@@ -7,6 +7,7 @@
  */
 
 import * as http from 'http';
+import * as net from 'net';
 import * as fs from 'fs/promises';
 import { existsSync, lstatSync, realpathSync, watch, type FSWatcher } from 'fs';
 import * as path from 'path';
@@ -2770,6 +2771,41 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Start server BEFORE loading photons so the UI is immediately reachable
   const maxPortAttempts = 10;
   let currentPort = port;
+
+  // Check if a port is available by attempting to connect to it
+  // This catches cases where another server binds to 127.0.0.1 but not 0.0.0.0
+  const isPortAvailable = (p: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(500);
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(false); // Port is in use
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        resolve(true); // Timeout = port likely free
+      });
+      socket.once('error', () => {
+        socket.destroy();
+        resolve(true); // Connection refused = port is free
+      });
+      socket.connect(p, '127.0.0.1');
+    });
+  };
+
+  // Find an available port
+  while (currentPort < port + maxPortAttempts) {
+    const available = await isPortAvailable(currentPort);
+    if (available) break;
+    console.error(`⚠️  Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+    currentPort++;
+  }
+
+  if (currentPort >= port + maxPortAttempts) {
+    console.error(`\n❌ No available port found (tried ${port}-${currentPort - 1}). Exiting.\n`);
+    process.exit(1);
+  }
 
   await new Promise<void>((resolve) => {
     const tryListen = (): void => {
