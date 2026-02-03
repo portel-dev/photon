@@ -195,8 +195,10 @@ export interface ExternalMCPInfo {
   promptCount?: number;
   /** Original config for reconnection */
   config: MCPServerConfig;
-  /** MCP App resource URI (ui:// scheme) if the MCP has a custom UI */
+  /** MCP App resource URI (ui:// scheme) if the MCP has a custom UI - first/default UI */
   appResourceUri?: string;
+  /** All MCP App resource URIs (ui:// scheme) if multiple UIs are available */
+  appResourceUris?: string[];
   /** True if this MCP has an MCP App extension */
   hasApp?: boolean;
 }

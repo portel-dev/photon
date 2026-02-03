@@ -256,15 +256,17 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
             mcpInfo.resourceCount = resources.length;
 
             // Check for MCP App resources (ui:// scheme or application/vnd.mcp.ui+html mime)
-            const appResource = resources.find(
+            const appResources = resources.filter(
               (r: any) =>
                 r.uri?.startsWith('ui://') ||
                 r.mimeType === 'application/vnd.mcp.ui+html'
             );
-            if (appResource) {
+            if (appResources.length > 0) {
               mcpInfo.hasApp = true;
-              mcpInfo.appResourceUri = appResource.uri;
-              logger.info(`🎨 MCP App detected: ${name} (${appResource.uri})`);
+              mcpInfo.appResourceUri = appResources[0].uri; // Default to first
+              mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
+              const uriList = mcpInfo.appResourceUris.join(', ');
+              logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
             }
           } catch (resourceError) {
             // Resources not supported - that's fine

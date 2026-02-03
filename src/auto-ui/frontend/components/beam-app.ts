@@ -1439,6 +1439,7 @@ export class BeamApp extends LitElement {
   @state() private _elicitationData: ElicitationData | null = null;
   @state() private _showElicitation = false;
   @state() private _protocolMode: 'legacy' | 'mcp' = 'legacy';
+  @state() private _selectedMcpAppUri: string | null = null; // Selected tab for MCP Apps with multiple UIs
   @state() private _mcpReady = false;
   @state() private _showSettingsMenu = false;
   @state() private _rememberFormValues = false;
@@ -2648,23 +2649,80 @@ export class BeamApp extends LitElement {
 
     // MCP App view for external MCPs with MCP Apps Extension
     if (this._view === 'mcp-app' && this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
-      // Find the linked tool (the one with _meta.ui.resourceUri matching the app URI)
+      const uris = this._selectedPhoton.mcpAppUris?.length > 0
+        ? this._selectedPhoton.mcpAppUris
+        : [this._selectedPhoton.mcpAppUri];
+      const hasMultipleUIs = uris.length > 1;
+      // Use selected URI or default to first
+      const currentUri = this._selectedMcpAppUri && uris.includes(this._selectedMcpAppUri)
+        ? this._selectedMcpAppUri
+        : uris[0];
+
+      // Find the linked tool (the one with _meta.ui.resourceUri matching the current URI)
       // This tool provides initial data to the app
+      // linkedUi is extracted path (e.g., "mcp-app.html"), mcpAppUri is full URI (e.g., "ui://server/mcp-app.html")
       const linkedMethod = this._selectedPhoton.methods?.find(
-        (m: any) => m.linkedUi === this._selectedPhoton.mcpAppUri
+        (m: any) => m.linkedUi && currentUri?.endsWith('/' + m.linkedUi)
       );
 
+      // Extract tab name from URI (e.g., "ui://server/dashboard.html" -> "dashboard")
+      const getTabName = (uri: string) => {
+        const match = uri.match(/\/([^/]+)$/);
+        if (match) {
+          const filename = match[1];
+          // Remove extension and convert to title case
+          return filename.replace(/\.(html?|htm)$/i, '').replace(/-/g, ' ');
+        }
+        return uri;
+      };
+
       return html`
+        ${hasMultipleUIs
+          ? html`
+              <div class="mcp-app-tabs" style="
+                display: flex;
+                gap: var(--space-xs);
+                padding: var(--space-sm) var(--space-md);
+                background: var(--bg-glass);
+                border-bottom: 1px solid var(--border-glass);
+                border-radius: var(--radius-md) var(--radius-md) 0 0;
+                margin-bottom: 0;
+              ">
+                ${uris.map(
+                  (uri: string) => html`
+                    <button
+                      style="
+                        padding: var(--space-xs) var(--space-md);
+                        background: ${uri === currentUri ? 'var(--accent-primary)' : 'var(--bg-glass)'};
+                        color: ${uri === currentUri ? 'white' : 'var(--t-muted)'};
+                        border: 1px solid ${uri === currentUri ? 'var(--accent-primary)' : 'var(--border-glass)'};
+                        border-radius: var(--radius-sm);
+                        cursor: pointer;
+                        font-size: 0.85rem;
+                        font-weight: 500;
+                        text-transform: capitalize;
+                        transition: all 0.2s ease;
+                      "
+                      @click=${() => this._selectMcpAppTab(uri)}
+                      title=${uri}
+                    >
+                      ${getTabName(uri)}
+                    </button>
+                  `
+                )}
+              </div>
+            `
+          : ''}
         <div
           class="glass-panel"
-          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);"
+          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); ${hasMultipleUIs ? 'border-radius: 0 0 var(--radius-md) var(--radius-md);' : ''}"
         >
           <mcp-app-renderer
             .mcpName=${this._selectedPhoton.name}
-            .appUri=${this._selectedPhoton.mcpAppUri}
+            .appUri=${currentUri}
             .linkedTool=${linkedMethod?.name || ''}
             .theme=${this._theme}
-            style="height: calc(100vh - 80px);"
+            style="height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});"
           ></mcp-app-renderer>
         </div>
 
@@ -2922,10 +2980,18 @@ export class BeamApp extends LitElement {
     }
   }
 
+  /**
+   * Select a tab in the MCP App tab bar (for MCPs with multiple UIs)
+   */
+  private _selectMcpAppTab(uri: string) {
+    this._selectedMcpAppUri = uri;
+  }
+
   private _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
     this._lastResult = null;
+    this._selectedMcpAppUri = null; // Reset MCP App tab when switching MCPs
 
     // For unconfigured photons, show configuration view
     if (this._selectedPhoton.configured === false) {
@@ -3455,11 +3521,20 @@ export class BeamApp extends LitElement {
               );
             }
           } else {
-            // Parse MCP content envelope into actual data for the iframe
-            const parsed = mcpClient.parseToolResult(mcpResult);
+            // For external MCPs (MCP Apps Extension), return full CallToolResult format
+            // For internal photons with custom UI, parse to just the data for backwards compatibility
+            const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
+            const result = isExternalMCP
+              ? {
+                  content: mcpResult.content || [],
+                  structuredContent: mcpResult.structuredContent,
+                  isError: mcpResult.isError ?? false,
+                }
+              : mcpClient.parseToolResult(mcpResult);
+
             if (event.source) {
               (event.source as Window).postMessage(
-                { jsonrpc: '2.0', id: msg.id, result: parsed },
+                { jsonrpc: '2.0', id: msg.id, result },
                 '*'
               );
             }

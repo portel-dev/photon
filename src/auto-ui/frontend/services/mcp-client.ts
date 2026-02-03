@@ -731,6 +731,7 @@ class MCPClientService {
             isExternalMCP: true,
             hasMcpApp: tool['x-has-mcp-app'] || false,
             mcpAppUri: tool['x-mcp-app-uri'],
+            mcpAppUris: tool['x-mcp-app-uris'] || [],
             methods: [],
           });
         }
@@ -740,6 +741,8 @@ class MCPClientService {
           description: tool.description || '',
           params: tool.inputSchema || { type: 'object', properties: {} },
           icon: tool['x-icon'],
+          linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+          visibility: tool._meta?.ui?.visibility,
         });
       } else {
         // Handle regular photon

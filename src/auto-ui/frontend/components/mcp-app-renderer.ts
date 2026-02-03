@@ -9,8 +9,9 @@
  *
  * @see https://modelcontextprotocol.github.io/ext-apps/api/
  */
-import { LitElement, html, css, PropertyValueMap } from 'lit';
+import { LitElement, html, css, PropertyValueMap, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { keyed } from 'lit/directives/keyed.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
@@ -128,26 +129,32 @@ export class McpAppRenderer extends LitElement {
     this.teardown().catch(() => {});
   }
 
+  protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
+    // Update srcDoc with new color-scheme BEFORE render so keyed directive uses correct content
+    if (changedProperties.has('theme') && this._srcDoc) {
+      this._srcDoc = this._updateThemeInSrcDoc(this._srcDoc);
+      this._hasAutoInvoked = false; // Allow re-invocation after reload
+    }
+  }
+
   protected updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     if (changedProperties.has('mcpName') || changedProperties.has('appUri')) {
       this._loadContent();
     }
+  }
 
-    // Notify iframe of theme change
-    if (changedProperties.has('theme') && this._iframeRef?.contentWindow) {
-      const themeTokens = getThemeTokens(this.theme);
-      this._iframeRef.contentWindow.postMessage(
-        {
-          jsonrpc: '2.0',
-          method: 'ui/notifications/host-context-changed',
-          params: {
-            theme: this.theme,
-            styles: { variables: themeTokens },
-          },
-        },
-        '*'
-      );
-    }
+  /**
+   * Update theme injection in existing srcDoc HTML
+   * Strips old injection and re-injects with new theme
+   */
+  private _updateThemeInSrcDoc(html: string): string {
+    // Strip existing theme injection
+    let cleanHtml = html
+      .replace(/<script id="__beam-theme-script">[\s\S]*?<\/script>/, '')
+      .replace(/<style id="__beam-theme">[^<]*<\/style>/, '');
+
+    // Re-inject with current theme
+    return this._injectThemeStyles(cleanHtml);
   }
 
   private async _loadContent() {
@@ -167,12 +174,60 @@ export class McpAppRenderer extends LitElement {
         throw new Error(`Failed to load MCP App: ${res.statusText} - ${errorBody}`);
       }
 
-      this._srcDoc = await res.text();
+      this._srcDoc = this._injectThemeStyles(await res.text());
     } catch (e: any) {
       this._error = e.message;
     } finally {
       this._loading = false;
     }
+  }
+
+  /**
+   * Inject theme overrides into srcdoc:
+   * 1. CSS color-scheme property
+   * 2. matchMedia override so apps using window.matchMedia get the correct theme
+   */
+  private _injectThemeStyles(html: string): string {
+    const colorScheme = this.theme === 'light' ? 'light' : 'dark';
+    const isDark = this.theme !== 'light';
+
+    // Override matchMedia to return host theme for prefers-color-scheme queries
+    const themeScript = `<script id="__beam-theme-script">
+(function() {
+  const hostTheme = '${colorScheme}';
+  const isDark = ${isDark};
+  const origMatchMedia = window.matchMedia.bind(window);
+  window.matchMedia = function(query) {
+    const mql = origMatchMedia(query);
+    if (query.includes('prefers-color-scheme')) {
+      const wantsDark = query.includes('dark');
+      return Object.assign(Object.create(mql), {
+        matches: wantsDark ? isDark : !isDark,
+        media: query,
+        addEventListener: mql.addEventListener.bind(mql),
+        removeEventListener: mql.removeEventListener.bind(mql),
+        addListener: mql.addListener?.bind(mql),
+        removeListener: mql.removeListener?.bind(mql),
+      });
+    }
+    return mql;
+  };
+})();
+</script>`;
+    const styleTag = `<style id="__beam-theme">:root { color-scheme: ${colorScheme}; }</style>`;
+    const injection = themeScript + styleTag;
+
+    // Insert after <head> tag - regular scripts run synchronously before type="module" scripts
+    if (html.includes('<head>')) {
+      return html.replace('<head>', `<head>${injection}`);
+    } else if (html.includes('<head ')) {
+      return html.replace(/<head[^>]*>/, (match) => `${match}${injection}`);
+    }
+    // Fallback: insert after DOCTYPE or at start
+    if (html.includes('<!DOCTYPE') || html.includes('<!doctype')) {
+      return html.replace(/<!DOCTYPE[^>]*>/i, (match) => `${match}${injection}`);
+    }
+    return injection + html;
   }
 
   private _handleIframeLoad(e: Event) {
@@ -256,62 +311,16 @@ export class McpAppRenderer extends LitElement {
 
       // Auto-invoke the linked tool to provide initial data to the app
       // This is needed for MCP Apps that expect an initial tool result on load
+      // Delay slightly to ensure the app has fully initialized
       if (this.linkedTool && !this._hasAutoInvoked) {
         this._hasAutoInvoked = true;
-        this._autoInvokeLinkedTool();
+        setTimeout(() => this._autoInvokeLinkedTool(), 100);
       }
       return;
     }
 
-    // Handle tool call requests from the MCP App
-    if (msg.method === 'tools/call') {
-      const { name, arguments: args } = msg.params || {};
-      try {
-        // Call the tool through the MCP client
-        // The tool name should include the MCP server prefix
-        const fullToolName = name.includes('/') ? name : `${this.mcpName}/${name}`;
-        const result = await mcpClient.callTool(fullToolName, args || {});
-
-        // Send result back to iframe
-        this._iframeRef.contentWindow?.postMessage(
-          {
-            jsonrpc: '2.0',
-            id: msg.id,
-            result: {
-              content: result.content,
-              structuredContent: result.structuredContent,
-              isError: result.isError,
-            },
-          },
-          '*'
-        );
-
-        // Also send as notification for ontoolresult handler
-        this._iframeRef.contentWindow?.postMessage(
-          {
-            jsonrpc: '2.0',
-            method: 'ui/notifications/tool-result',
-            params: {
-              toolName: name,
-              result: result.structuredContent || result.content,
-            },
-          },
-          '*'
-        );
-      } catch (error: any) {
-        this._iframeRef.contentWindow?.postMessage(
-          {
-            jsonrpc: '2.0',
-            id: msg.id,
-            error: {
-              code: -32000,
-              message: error.message || 'Tool call failed',
-            },
-          },
-          '*'
-        );
-      }
-    }
+    // Note: tools/call is handled by BeamApp._handleBridgeMessage (beam-app.ts)
+    // which returns proper CallToolResult format for external MCPs
 
     // Handle resource read requests
     if (msg.method === 'resources/read') {
@@ -399,13 +408,15 @@ export class McpAppRenderer extends LitElement {
       const result = await mcpClient.callTool(fullToolName, {});
 
       // Send result to app via ontoolresult notification
+      // Per MCP Apps spec, params is CallToolResult directly (not wrapped)
       this._iframeRef.contentWindow.postMessage(
         {
           jsonrpc: '2.0',
           method: 'ui/notifications/tool-result',
           params: {
-            toolName: this.linkedTool,
-            result: result.structuredContent || result.content,
+            content: result.content,
+            structuredContent: result.structuredContent,
+            isError: result.isError,
           },
         },
         '*'
@@ -430,12 +441,17 @@ export class McpAppRenderer extends LitElement {
       return html`<div class="loading">Loading MCP App...</div>`;
     }
 
-    return html`
-      <iframe
-        srcdoc=${this._srcDoc}
-        sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
-        @load=${this._handleIframeLoad}
-      ></iframe>
-    `;
+    // Use keyed directive to force iframe recreation when theme changes
+    // This ensures apps using matchMedia get the correct color-scheme on reload
+    return keyed(
+      this.theme,
+      html`
+        <iframe
+          srcdoc=${this._srcDoc}
+          sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
+          @load=${this._handleIframeLoad}
+        ></iframe>
+      `
+    );
   }
 }
