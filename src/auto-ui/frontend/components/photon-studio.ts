@@ -347,6 +347,9 @@ export class PhotonStudio extends LitElement {
 
     const isDark = this.theme === 'dark';
 
+    // Create completion source once so CM6 gets a stable function reference
+    const docblockCompletions = createDocblockCompletions(mcpClient.getServerVersion());
+
     const state = EditorState.create({
       doc: this._source,
       extensions: [
@@ -355,7 +358,7 @@ export class PhotonStudio extends LitElement {
         isDark ? oneDark : lightTheme,
         // Add photon JSDoc completions via language data (merges with basicSetup's autocompletion)
         EditorState.languageData.of(() => [
-          { autocomplete: createDocblockCompletions(mcpClient.getServerVersion()) },
+          { autocomplete: docblockCompletions },
           { autocomplete: photonFormatCompletions },
         ]),
         // JSDoc comment continuation at high priority so it fires before basicSetup's Enter
