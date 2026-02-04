@@ -833,7 +833,7 @@ export class BeamSidebar extends LitElement {
         </button>
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
-          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">Setup</span>`
+          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
           : this._renderCountsPill(photon, methodCount)}
       </li>
     `;

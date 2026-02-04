@@ -2850,8 +2850,6 @@ export class BeamApp extends LitElement {
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
-              .showBack=${false}
-              @app-back=${() => this._handleBackFromMethod()}
             >
               <div slot="app" style="min-height: calc(100vh - 140px);">
                 ${appRenderer}

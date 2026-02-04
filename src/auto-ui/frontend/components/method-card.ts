@@ -80,11 +80,6 @@ export class MethodCard extends LitElement {
         transform: scale(1.1);
       }
 
-      .method-icon.placeholder {
-        color: var(--t-muted);
-        font-size: 12px;
-      }
-
       .title {
         font-weight: 600;
         font-size: 1.1rem;
@@ -397,7 +392,6 @@ export class MethodCard extends LitElement {
     const hasIcon = !!this.method.icon;
     const hasDescription =
       this.method.description && this.method.description !== 'No description provided.';
-    const initials = this.method.name.substring(0, 2).toUpperCase();
 
     const isAutorun = !!this.method.autorun;
     const isWebhook = !!this.method.webhook;
@@ -421,13 +415,15 @@ export class MethodCard extends LitElement {
         <div>
           <div class="header">
             <div class="title-row">
-              <div
-                class="method-icon ${hasIcon ? '' : 'placeholder'}"
-                @click=${this._handleIconClick}
-                title="Click to set icon"
-              >
-                ${hasIcon ? this.method.icon : initials}
-              </div>
+              ${hasIcon ? html`
+                <div
+                  class="method-icon"
+                  @click=${this._handleIconClick}
+                  title="Click to set icon"
+                >
+                  ${this.method.icon}
+                </div>
+              ` : ''}
               <span class="editable">
                 <h3 class="title">${this.method.name}</h3>
                 <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method">✎</span>

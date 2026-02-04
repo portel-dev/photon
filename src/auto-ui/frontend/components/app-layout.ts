@@ -3,11 +3,11 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 /**
- * YouTube-style app-first layout for App photons.
+ * App-first layout for App photons.
  *
- * The app UI fills the viewport below a fixed top bar.
+ * The app UI fills the viewport with a small floating fullscreen button.
  * Scrolling down reveals the standard photon interface (methods, prompts, resources).
- * Pop-out button opens a full-screen overlay.
+ * Fullscreen button opens a full-screen overlay.
  */
 @customElement('app-layout')
 export class AppLayout extends LitElement {
@@ -18,71 +18,37 @@ export class AppLayout extends LitElement {
         display: block;
       }
 
-      .top-bar {
-        display: flex;
-        align-items: center;
-        gap: var(--space-sm);
-        padding: var(--space-sm) var(--space-md);
-        border: 1px solid var(--border-glass);
+      .app-viewport {
+        position: relative;
+        min-height: calc(100vh - 140px);
         border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+
+      .fullscreen-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 10;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
         background: var(--bg-glass);
         backdrop-filter: blur(16px);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-
-      .back-btn {
-        background: none;
-        border: none;
-        color: var(--accent-secondary);
-        cursor: pointer;
-        font-size: 0.85rem;
-        padding: 4px 8px;
-        border-radius: var(--radius-sm);
-        transition: background 0.15s;
-      }
-
-      .back-btn:hover {
-        background: var(--bg-glass);
-      }
-
-      .app-name {
-        font-weight: 600;
-        font-size: 0.95rem;
-        color: var(--t-primary);
-        flex: 1;
-        min-width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .popout-btn {
-        background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
-        padding: 4px 10px;
-        border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.85rem;
-        transition: all 0.2s ease;
+        font-size: 1rem;
         display: flex;
         align-items: center;
-        gap: 4px;
+        justify-content: center;
+        transition: all 0.2s ease;
       }
 
-      .popout-btn:hover {
+      .fullscreen-btn:hover {
         color: var(--t-primary);
         background: var(--bg-glass-strong);
         border-color: var(--accent-primary);
-      }
-
-      .app-viewport {
-        min-height: calc(100vh - 140px);
-        margin-top: var(--space-md);
-        border-radius: var(--radius-md);
-        overflow: hidden;
       }
 
       .scroll-hint {
@@ -121,7 +87,14 @@ export class AppLayout extends LitElement {
       }
 
       .popout-header .app-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: var(--t-primary);
         flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .popout-close {
@@ -176,9 +149,6 @@ export class AppLayout extends LitElement {
   @property({ type: String })
   photonIcon = '';
 
-  @property({ type: Boolean })
-  showBack = true;
-
   @state()
   private _poppedOut = false;
 
@@ -202,17 +172,10 @@ export class AppLayout extends LitElement {
     return html`
       ${this._poppedOut ? this._renderPopout() : ''}
 
-      <div class="top-bar">
-        ${this.showBack
-          ? html`<button class="back-btn" @click=${this._emitBack}>← Back</button>`
-          : ''}
-        <span class="app-name">${this.photonIcon ? html`${this.photonIcon} ` : ''}${this.photonName}</span>
-        <button class="popout-btn" @click=${() => (this._poppedOut = true)} title="Open in full screen">
-          ⛶ Pop-out
-        </button>
-      </div>
-
       <div class="app-viewport">
+        <button class="fullscreen-btn" @click=${() => (this._poppedOut = true)} title="Full screen">
+          ⛶
+        </button>
         <slot name="app"></slot>
       </div>
 
@@ -243,12 +206,6 @@ export class AppLayout extends LitElement {
         </div>
       </div>
     `;
-  }
-
-  private _emitBack() {
-    this.dispatchEvent(
-      new CustomEvent('app-back', { bubbles: true, composed: true })
-    );
   }
 
   private _scrollTo(id: string) {
