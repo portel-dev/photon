@@ -9,6 +9,8 @@ import './components/marketplace-view.js';
 import './components/custom-ui-renderer.js';
 import './components/mcp-app-renderer.js';
 import './components/toast-manager.js';
+import './components/photon-studio.js';
+import './components/studio-preview.js';
 import './components/photon-config.js';
 import './components/elicitation-modal.js';
 

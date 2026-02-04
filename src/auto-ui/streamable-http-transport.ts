@@ -19,7 +19,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
-import { readdir, stat } from 'fs/promises';
+import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
@@ -541,6 +541,58 @@ const handlers: Record<string, RequestHandler> = {
       },
     });
 
+    tools.push({
+      name: 'beam/studio-read',
+      'x-photon-internal': true,
+      description: 'Read a photon source file for editing in Studio',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the photon to read',
+          },
+        },
+        required: ['name'],
+      },
+    });
+
+    tools.push({
+      name: 'beam/studio-write',
+      'x-photon-internal': true,
+      description: 'Write photon source and trigger hot-reload',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the photon to write',
+          },
+          source: {
+            type: 'string',
+            description: 'The new source code',
+          },
+        },
+        required: ['name', 'source'],
+      },
+    });
+
+    tools.push({
+      name: 'beam/studio-parse',
+      'x-photon-internal': true,
+      description: 'Parse photon source and return extracted schema',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: 'Source code to parse',
+          },
+        },
+        required: ['source'],
+      },
+    });
+
     // Filter out app-only tools for external (non-Beam) MCP clients
     const visibleTools = session.isBeam
       ? tools
@@ -588,6 +640,18 @@ const handlers: Record<string, RequestHandler> = {
 
     if (name === 'beam/photon-help') {
       return handleBeamPhotonHelp(req, ctx, args || {});
+    }
+
+    if (name === 'beam/studio-read') {
+      return handleBeamStudioRead(req, ctx, args || {});
+    }
+
+    if (name === 'beam/studio-write') {
+      return handleBeamStudioWrite(req, ctx, args || {});
+    }
+
+    if (name === 'beam/studio-parse') {
+      return handleBeamStudioParse(req, args || {});
     }
 
     // Parse tool name: server-name/method-name
@@ -1549,6 +1613,278 @@ async function handleBeamReconnectMCP(
       result: {
         content: [{ type: 'text', text: `Error reconnecting to "${mcpName}": ${message}` }],
         isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/studio-read — read a photon source file for editing
+ */
+async function handleBeamStudioRead(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { name: photonName } = args as { name: string };
+
+  if (!photonName) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  // Find the photon by name to get its file path
+  const photon = ctx.photons.find((p) => p.name === photonName);
+  if (!photon || !photon.path) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error: photon "${photonName}" not found or has no path` }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const source = await readFile(photon.path, 'utf-8');
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: JSON.stringify({ source, path: photon.path }) }],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error reading source: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/studio-write — write photon source and trigger hot-reload
+ */
+async function handleBeamStudioWrite(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { name: photonName, source } = args as { name: string; source: string };
+
+  if (!photonName || typeof source !== 'string') {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name and source are required' }],
+        isError: true,
+      },
+    };
+  }
+
+  const photon = ctx.photons.find((p) => p.name === photonName);
+  if (!photon || !photon.path) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error: photon "${photonName}" not found or has no path` }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    // Write source to disk
+    await writeFile(photon.path, source, 'utf-8');
+
+    // Parse the new source for preview
+    let parseResult = null;
+    try {
+      const { SchemaExtractor } = await import('@portel/photon-core');
+      const extractor = new SchemaExtractor();
+      const { tools: schemas } = extractor.extractAllFromSource(source);
+      const classMatch = source.match(/export\s+default\s+class\s+(\w+)/);
+      const descMatch = source.match(/\/\*\*\s*\n\s*\*\s*(.+)/);
+      const versionMatch = source.match(/@version\s+(\S+)/);
+      const runtimeMatch = source.match(/@runtime\s+(\S+)/);
+      const iconMatch = source.match(/@icon\s+(\S+)/);
+      const statefulMatch = source.match(/@stateful\s+true/);
+      const depsMatch = source.match(/@dependencies\s+(.+)/);
+      const tagsMatch = source.match(/@tags\s+(.+)/);
+
+      parseResult = {
+        className: classMatch?.[1] || 'Unknown',
+        description: descMatch?.[1]?.replace(/\s*\*\/$/, '').trim(),
+        icon: iconMatch?.[1],
+        version: versionMatch?.[1],
+        runtime: runtimeMatch?.[1],
+        stateful: !!statefulMatch,
+        dependencies: depsMatch?.[1]?.split(',').map((d: string) => d.trim()).filter(Boolean),
+        tags: tagsMatch?.[1]?.split(',').map((t: string) => t.trim()).filter(Boolean),
+        methods: schemas
+          .filter((s: any) => !['onInitialize', 'onShutdown', 'constructor'].includes(s.name))
+          .map((s: any) => ({
+            name: s.name,
+            description: s.description,
+            icon: s.icon,
+            params: s.inputSchema,
+            autorun: s.autorun,
+            outputFormat: s.outputFormat,
+            buttonLabel: s.buttonLabel,
+            webhook: s.webhook,
+            scheduled: s.scheduled || s.cron,
+            locked: s.locked,
+          })),
+      };
+    } catch {
+      // Parse is best-effort — don't fail the write
+    }
+
+    // Trigger hot-reload if available
+    if (ctx.reloadPhoton) {
+      try {
+        const reloadResult = await ctx.reloadPhoton(photonName);
+        if (reloadResult.success) {
+          broadcastToBeam('beam/hot-reload', { photon: reloadResult.photon });
+        }
+      } catch {
+        // Reload failure doesn't fail the write
+      }
+    }
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ success: true, parseResult }),
+          },
+        ],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: JSON.stringify({ success: false, error: message }) }],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Handle beam/studio-parse — parse photon source and return schema
+ */
+async function handleBeamStudioParse(
+  req: JSONRPCRequest,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { source } = args as { source: string };
+
+  if (typeof source !== 'string') {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: source is required' }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const { SchemaExtractor } = await import('@portel/photon-core');
+    const extractor = new SchemaExtractor();
+    const { tools: schemas } = extractor.extractAllFromSource(source);
+
+    const classMatch = source.match(/export\s+default\s+class\s+(\w+)/);
+    const descMatch = source.match(/\/\*\*\s*\n\s*\*\s*(.+)/);
+    const versionMatch = source.match(/@version\s+(\S+)/);
+    const runtimeMatch = source.match(/@runtime\s+(\S+)/);
+    const iconMatch = source.match(/@icon\s+(\S+)/);
+    const statefulMatch = source.match(/@stateful\s+true/);
+    const depsMatch = source.match(/@dependencies\s+(.+)/);
+    const tagsMatch = source.match(/@tags\s+(.+)/);
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!classMatch) errors.push('No default export class found');
+    if (!descMatch) warnings.push('Missing class description (first line in JSDoc)');
+
+    const result = {
+      className: classMatch?.[1] || 'Unknown',
+      description: descMatch?.[1]?.replace(/\s*\*\/$/, '').trim(),
+      icon: iconMatch?.[1],
+      version: versionMatch?.[1],
+      runtime: runtimeMatch?.[1],
+      stateful: !!statefulMatch,
+      dependencies: depsMatch?.[1]?.split(',').map((d: string) => d.trim()).filter(Boolean),
+      tags: tagsMatch?.[1]?.split(',').map((t: string) => t.trim()).filter(Boolean),
+      methods: schemas
+        .filter((s: any) => !['onInitialize', 'onShutdown', 'constructor'].includes(s.name))
+        .map((s: any) => ({
+          name: s.name,
+          description: s.description,
+          icon: s.icon,
+          params: s.inputSchema,
+          autorun: s.autorun,
+          outputFormat: s.outputFormat,
+          buttonLabel: s.buttonLabel,
+          webhook: s.webhook,
+          scheduled: s.scheduled || s.cron,
+          locked: s.locked,
+        })),
+      errors: errors.length > 0 ? errors : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              className: 'Unknown',
+              methods: [],
+              errors: [`Parse error: ${message}`],
+            }),
+          },
+        ],
+        isError: false,
       },
     };
   }

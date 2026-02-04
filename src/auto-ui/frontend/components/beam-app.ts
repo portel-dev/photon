@@ -1343,7 +1343,7 @@ export class BeamApp extends LitElement {
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' | 'mcp-app' = 'list';
+  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' | 'mcp-app' | 'studio' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
 
@@ -2350,6 +2350,13 @@ export class BeamApp extends LitElement {
             this._view = 'diagnostics';
             this._updateHash();
           }}
+          @open-studio=${(e: CustomEvent) => {
+            const photon = this._photons.find((p: any) => p.name === e.detail.photonName);
+            if (photon) {
+              this._selectedPhoton = photon;
+              this._view = 'studio';
+            }
+          }}
         ></beam-sidebar>
       </div>
 
@@ -2380,6 +2387,20 @@ export class BeamApp extends LitElement {
   }
 
   private _renderContent() {
+    if (this._view === 'studio') {
+      return html`<photon-studio
+        .photonName=${this._selectedPhoton?.name || ''}
+        .theme=${this._theme}
+        @studio-close=${() => (this._view = 'list')}
+        @studio-saved=${async () => {
+          const tools = await mcpClient.listTools();
+          const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+          this._photons = photons;
+          this._externalMCPs = externalMCPs;
+        }}
+      ></photon-studio>`;
+    }
+
     if (this._view === 'diagnostics') {
       return html`
         <div style="margin-bottom: var(--space-md);">

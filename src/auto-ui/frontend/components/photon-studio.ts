@@ -1,0 +1,569 @@
+/**
+ * Photon Studio — Inline code editor for Beam.
+ * Uses CodeMirror 6 with syntax highlighting, JSDoc tag autocomplete,
+ * live preview, and template gallery.
+ */
+import { LitElement, html, css } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import { EditorState } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
+import { javascript } from '@codemirror/lang-javascript';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { autocompletion } from '@codemirror/autocomplete';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { basicSetup } from 'codemirror';
+import { mcpClient } from '../services/mcp-client.js';
+import { showToast } from './toast-manager.js';
+import { photonDocblockCompletions, photonFormatCompletions } from './docblock-completions.js';
+import { templates, type PhotonTemplate } from './studio-templates.js';
+import type { ParseResult } from './studio-preview.js';
+import './studio-preview.js';
+
+// Light theme (minimal — use CodeMirror defaults)
+const lightTheme = EditorView.theme({
+  '&': { backgroundColor: '#ffffff' },
+  '.cm-gutters': { backgroundColor: '#f8f9fa', color: '#888', borderRight: '1px solid #e0e0e0' },
+  '.cm-activeLineGutter': { backgroundColor: '#e8e8e8' },
+  '.cm-activeLine': { backgroundColor: '#f0f4ff' },
+});
+
+@customElement('photon-studio')
+export class PhotonStudio extends LitElement {
+  @property() photonName = '';
+  @property() theme = 'dark';
+
+  @state() private _source = '';
+  @state() private _originalSource = '';
+  @state() private _dirty = false;
+  @state() private _parseResult: ParseResult | null = null;
+  @state() private _parsing = false;
+  @state() private _saving = false;
+  @state() private _showPreview = false;
+  @state() private _showTemplates = false;
+  @state() private _loading = true;
+  @state() private _filePath = '';
+  @state() private _error = '';
+
+  private _editorView: EditorView | null = null;
+
+  static styles = css`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      font-family: var(--font-sans, system-ui, sans-serif);
+    }
+
+    /* ─── Toolbar ─── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg-elevated, rgba(255,255,255,0.04));
+      border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+      flex-shrink: 0;
+    }
+
+    .toolbar-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--t-primary, #e0e0e0);
+      margin-right: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dirty-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fbbf24;
+      display: inline-block;
+    }
+
+    .toolbar-btn {
+      padding: 5px 12px;
+      border-radius: 5px;
+      border: 1px solid var(--border, rgba(255,255,255,0.1));
+      background: var(--bg-elevated, rgba(255,255,255,0.06));
+      color: var(--t-primary, #e0e0e0);
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .toolbar-btn:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .toolbar-btn.primary {
+      background: var(--accent-primary, #818cf8);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .toolbar-btn.primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .toolbar-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--t-muted, #888);
+      cursor: pointer;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      line-height: 1;
+    }
+
+    .close-btn:hover {
+      color: var(--t-primary, #e0e0e0);
+    }
+
+    /* ─── Main layout ─── */
+    .studio-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .editor-pane {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .editor-container {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .editor-container .cm-editor {
+      height: 100%;
+    }
+
+    .editor-container .cm-scroller {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* ─── Preview pane ─── */
+    .preview-pane {
+      width: 280px;
+      border-left: 1px solid var(--border, rgba(255,255,255,0.06));
+      overflow-y: auto;
+      padding: 12px;
+      flex-shrink: 0;
+    }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .preview-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--t-muted, #888);
+      font-weight: 600;
+    }
+
+    /* ─── Template gallery overlay ─── */
+    .templates-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .templates-modal {
+      background: var(--bg-primary, #1a1a2e);
+      border: 1px solid var(--border, rgba(255,255,255,0.08));
+      border-radius: 10px;
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .templates-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--t-primary, #e0e0e0);
+      margin-bottom: 16px;
+    }
+
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+
+    .template-card {
+      background: var(--bg-elevated, rgba(255,255,255,0.04));
+      border: 1px solid var(--border, rgba(255,255,255,0.06));
+      border-radius: 8px;
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.1s;
+    }
+
+    .template-card:hover {
+      border-color: var(--accent-primary, #818cf8);
+      transform: translateY(-1px);
+    }
+
+    .template-icon {
+      font-size: 1.4rem;
+      margin-bottom: 6px;
+    }
+
+    .template-name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      margin-bottom: 4px;
+      color: var(--t-primary, #e0e0e0);
+    }
+
+    .template-desc {
+      font-size: 0.76rem;
+      color: var(--t-muted, #888);
+    }
+
+    /* ─── Status bar ─── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 12px;
+      background: var(--bg-elevated, rgba(255,255,255,0.02));
+      border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+      font-size: 0.72rem;
+      color: var(--t-muted, #888);
+      flex-shrink: 0;
+    }
+
+    .status-path {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kbd {
+      display: inline-block;
+      padding: 0 4px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.06);
+      font-family: var(--font-mono, monospace);
+      font-size: 0.68rem;
+    }
+
+    /* ─── Loading / Error ─── */
+    .loading-state, .error-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--t-muted, #888);
+      font-size: 0.9rem;
+    }
+
+    .error-state {
+      color: #f87171;
+      flex-direction: column;
+      gap: 8px;
+    }
+  `;
+
+  connectedCallback() {
+    super.connectedCallback();
+    if (this.photonName) {
+      this._loadSource();
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._editorView?.destroy();
+    this._editorView = null;
+  }
+
+  updated(changed: Map<string, any>) {
+    if (changed.has('photonName') && this.photonName && !changed.has('_loading')) {
+      this._loadSource();
+    }
+    if (changed.has('theme') && this._editorView) {
+      // Rebuild editor with new theme
+      this._initEditor();
+    }
+  }
+
+  private async _loadSource() {
+    this._loading = true;
+    this._error = '';
+    try {
+      const result = await mcpClient.callTool('beam/studio-read', { name: this.photonName });
+      const text = result?.content?.[0]?.text;
+      if (!text) throw new Error('Empty response');
+      const parsed = JSON.parse(text);
+      this._source = parsed.source;
+      this._originalSource = parsed.source;
+      this._filePath = parsed.path || '';
+      this._dirty = false;
+      this._loading = false;
+      await this.updateComplete;
+      this._initEditor();
+    } catch (err: any) {
+      this._error = err.message || 'Failed to load source';
+      this._loading = false;
+    }
+  }
+
+  private _initEditor() {
+    const container = this.renderRoot.querySelector('.editor-container');
+    if (!container) return;
+
+    // Destroy existing editor
+    if (this._editorView) {
+      this._editorView.destroy();
+      this._editorView = null;
+    }
+
+    const isDark = this.theme === 'dark';
+
+    const state = EditorState.create({
+      doc: this._source,
+      extensions: [
+        basicSetup,
+        javascript({ typescript: true }),
+        isDark ? oneDark : lightTheme,
+        autocompletion({
+          override: [photonDocblockCompletions, photonFormatCompletions],
+        }),
+        history(),
+        keymap.of([
+          ...defaultKeymap,
+          ...historyKeymap,
+          { key: 'Mod-s', run: () => { this._save(); return true; } },
+          { key: 'Mod-p', run: () => { this._parse(); return true; }, preventDefault: true },
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            this._source = update.state.doc.toString();
+            this._dirty = this._source !== this._originalSource;
+          }
+        }),
+      ],
+    });
+
+    this._editorView = new EditorView({
+      state,
+      parent: container as HTMLElement,
+    });
+  }
+
+  private async _save() {
+    if (this._saving || !this._dirty) return;
+    this._saving = true;
+    try {
+      const result = await mcpClient.callTool('beam/studio-write', {
+        name: this.photonName,
+        source: this._source,
+      });
+      const text = result?.content?.[0]?.text;
+      if (text) {
+        const parsed = JSON.parse(text);
+        if (parsed.success) {
+          this._originalSource = this._source;
+          this._dirty = false;
+          if (parsed.parseResult) {
+            this._parseResult = parsed.parseResult;
+            this._showPreview = true;
+          }
+          showToast('Saved and reloaded', 'success');
+          this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
+        } else {
+          showToast(`Save failed: ${parsed.error}`, 'error');
+        }
+      }
+    } catch (err: any) {
+      showToast(`Save error: ${err.message}`, 'error');
+    } finally {
+      this._saving = false;
+    }
+  }
+
+  private async _parse() {
+    if (this._parsing) return;
+    this._parsing = true;
+    this._showPreview = true;
+    try {
+      const result = await mcpClient.callTool('beam/studio-parse', { source: this._source });
+      const text = result?.content?.[0]?.text;
+      if (text) {
+        this._parseResult = JSON.parse(text);
+      }
+    } catch (err: any) {
+      showToast(`Parse error: ${err.message}`, 'error');
+    } finally {
+      this._parsing = false;
+    }
+  }
+
+  private _applyTemplate(template: PhotonTemplate) {
+    if (this._dirty) {
+      if (!confirm('You have unsaved changes. Apply template anyway?')) return;
+    }
+    this._source = template.source;
+    this._dirty = this._source !== this._originalSource;
+    this._showTemplates = false;
+    this._parseResult = null;
+
+    // Update editor content
+    if (this._editorView) {
+      this._editorView.dispatch({
+        changes: {
+          from: 0,
+          to: this._editorView.state.doc.length,
+          insert: template.source,
+        },
+      });
+    }
+  }
+
+  private _close() {
+    if (this._dirty) {
+      if (!confirm('You have unsaved changes. Close anyway?')) return;
+    }
+    this.dispatchEvent(new CustomEvent('studio-close', { bubbles: true, composed: true }));
+  }
+
+  render() {
+    if (this._loading) {
+      return html`
+        <div class="toolbar">
+          <span class="toolbar-title">Studio</span>
+          <button class="close-btn" @click=${this._close}>&times;</button>
+        </div>
+        <div class="loading-state">Loading source...</div>
+      `;
+    }
+
+    if (this._error) {
+      return html`
+        <div class="toolbar">
+          <span class="toolbar-title">Studio</span>
+          <button class="close-btn" @click=${this._close}>&times;</button>
+        </div>
+        <div class="error-state">
+          <span>${this._error}</span>
+          <button class="toolbar-btn" @click=${this._loadSource}>Retry</button>
+        </div>
+      `;
+    }
+
+    return html`
+      <div class="toolbar">
+        <span class="toolbar-title">
+          ${this.photonName}
+          ${this._dirty ? html`<span class="dirty-dot" title="Unsaved changes"></span>` : ''}
+        </span>
+
+        <button
+          class="toolbar-btn"
+          @click=${() => (this._showTemplates = true)}
+          title="Template Gallery"
+        >Templates</button>
+
+        <button
+          class="toolbar-btn"
+          @click=${this._parse}
+          ?disabled=${this._parsing}
+          title="Parse source (Cmd+P)"
+        >${this._parsing ? 'Parsing...' : 'Parse'}</button>
+
+        <button
+          class="toolbar-btn"
+          @click=${() => (this._showPreview = !this._showPreview)}
+        >${this._showPreview ? 'Hide Preview' : 'Preview'}</button>
+
+        <button
+          class="toolbar-btn primary"
+          @click=${this._save}
+          ?disabled=${!this._dirty || this._saving}
+          title="Save (Cmd+S)"
+        >${this._saving ? 'Saving...' : 'Save'}</button>
+
+        <button class="close-btn" @click=${this._close} title="Close Studio">&times;</button>
+      </div>
+
+      <div class="studio-body">
+        <div class="editor-pane">
+          <div class="editor-container"></div>
+        </div>
+
+        ${this._showPreview ? html`
+          <div class="preview-pane">
+            <div class="preview-header">
+              <span class="preview-title">Schema Preview</span>
+            </div>
+            <studio-preview
+              .parseResult=${this._parseResult}
+              .loading=${this._parsing}
+            ></studio-preview>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="status-bar">
+        <span class="status-path" title="${this._filePath}">${this._filePath}</span>
+        <span><span class="kbd">Cmd+S</span> Save</span>
+        <span><span class="kbd">Cmd+P</span> Parse</span>
+      </div>
+
+      ${this._showTemplates ? html`
+        <div class="templates-overlay" @click=${(e: Event) => {
+          if ((e.target as HTMLElement).classList.contains('templates-overlay')) {
+            this._showTemplates = false;
+          }
+        }}>
+          <div class="templates-modal">
+            <div class="templates-title">Choose a Template</div>
+            <div class="template-grid">
+              ${templates.map(t => html`
+                <div class="template-card" @click=${() => this._applyTemplate(t)}>
+                  <div class="template-icon">${t.icon}</div>
+                  <div class="template-name">${t.name}</div>
+                  <div class="template-desc">${t.description}</div>
+                </div>
+              `)}
+            </div>
+          </div>
+        </div>
+      ` : ''}
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'photon-studio': PhotonStudio;
+  }
+}

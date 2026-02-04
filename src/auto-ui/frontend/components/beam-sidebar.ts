@@ -771,6 +771,16 @@ export class BeamSidebar extends LitElement {
     this.dispatchEvent(new CustomEvent('show-shortcuts', { bubbles: true, composed: true }));
   }
 
+  private _openStudio(photonName: string) {
+    this.dispatchEvent(
+      new CustomEvent('open-studio', {
+        detail: { photonName },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   private _renderPhotonItem(photon: PhotonItem, type: 'app' | 'configured' | 'unconfigured') {
     const methodCount = photon.methods?.length || 0;
     const isApp = type === 'app';
@@ -800,6 +810,14 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
         </div>
+        ${photon.path && !photon.internal ? html`
+          <button
+            class="star-btn"
+            @click=${(e: Event) => { e.stopPropagation(); this._openStudio(photon.name); }}
+            title="Edit in Studio"
+            aria-label="Edit ${photon.name} in Studio"
+          >✎</button>
+        ` : ''}
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
