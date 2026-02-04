@@ -199,6 +199,7 @@ export class BeamSidebar extends LitElement {
         letter-spacing: 0.1em;
         color: var(--t-muted);
         margin-top: var(--space-sm);
+        border-left: 2px solid var(--accent-primary);
       }
 
       .photon-list {
@@ -480,12 +481,15 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-item .star-btn {
-        visibility: hidden;
+        opacity: 0.2;
       }
 
-      .photon-item:hover .star-btn,
+      .photon-item:hover .star-btn {
+        opacity: 0.5;
+      }
+
       .photon-item .star-btn.favorited {
-        visibility: visible;
+        opacity: 1;
       }
 
       /* ===== Responsive Design ===== */
@@ -501,7 +505,6 @@ export class BeamSidebar extends LitElement {
         }
 
         .photon-item .star-btn {
-          visibility: visible;
           padding: var(--space-sm);
         }
 
@@ -657,26 +660,6 @@ export class BeamSidebar extends LitElement {
                     : 'Disconnected'}"
               ></span>
             </h2>
-            <div class="theme-toggle" role="group" aria-label="Theme selection">
-              <button
-                class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
-                @click=${() => this._setTheme('light')}
-                title="Light theme"
-                aria-label="Switch to light theme"
-                aria-pressed="${this.theme === 'light'}"
-              >
-                ☀️
-              </button>
-              <button
-                class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
-                @click=${() => this._setTheme('dark')}
-                title="Dark theme"
-                aria-label="Switch to dark theme"
-                aria-pressed="${this.theme === 'dark'}"
-              >
-                🌙
-              </button>
-            </div>
           </div>
           <div class="search-box" role="search">
             <input
@@ -761,8 +744,28 @@ export class BeamSidebar extends LitElement {
           title="Keyboard shortcuts"
           aria-label="Show keyboard shortcuts"
         >
-          ⌨️ Shortcuts <kbd>?</kbd>
+          ⌨️ <kbd>?</kbd>
         </button>
+        <div class="theme-toggle" role="group" aria-label="Theme selection">
+          <button
+            class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
+            @click=${() => this._setTheme('light')}
+            title="Light theme"
+            aria-label="Switch to light theme"
+            aria-pressed="${this.theme === 'light'}"
+          >
+            ☀️
+          </button>
+          <button
+            class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
+            @click=${() => this._setTheme('dark')}
+            title="Dark theme"
+            aria-label="Switch to dark theme"
+            aria-pressed="${this.theme === 'dark'}"
+          >
+            🌙
+          </button>
+        </div>
       </div>
     `;
   }
@@ -810,14 +813,6 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
         </div>
-        ${photon.path && !photon.internal ? html`
-          <button
-            class="star-btn"
-            @click=${(e: Event) => { e.stopPropagation(); this._openStudio(photon.name); }}
-            title="Edit in Studio"
-            aria-label="Edit ${photon.name} in Studio"
-          >✎</button>
-        ` : ''}
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
@@ -831,7 +826,7 @@ export class BeamSidebar extends LitElement {
         </button>
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
-          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
+          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">Setup</span>`
           : this._renderCountsPill(photon, methodCount)}
       </li>
     `;
