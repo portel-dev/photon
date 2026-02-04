@@ -5,7 +5,7 @@ import { theme } from '../styles/theme.js';
 interface MethodInfo {
   name: string;
   description: string;
-  params: Record<string, any>;
+  params: { type?: string; properties?: Record<string, any>; required?: string[] };
   icon?: string;
   isTemplate?: boolean;
   autorun?: boolean;
@@ -117,6 +117,17 @@ export class MethodCard extends LitElement {
         background: var(--bg-glass);
       }
 
+      .description .edit-hint {
+        opacity: 0;
+        font-size: 0.75rem;
+        transition: opacity 0.15s;
+        margin-left: 4px;
+      }
+
+      .description:hover .edit-hint {
+        opacity: 0.5;
+      }
+
       .description.placeholder {
         font-style: italic;
         opacity: 0.7;
@@ -159,6 +170,37 @@ export class MethodCard extends LitElement {
       .badge.prompt {
         background: hsla(45, 80%, 50%, 0.15);
         color: hsl(45, 80%, 60%);
+      }
+
+      .param-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        align-items: center;
+      }
+
+      .param-tag {
+        font-size: 0.65rem;
+        padding: 1px 6px;
+        border-radius: 3px;
+        background: hsla(220, 10%, 80%, 0.08);
+        color: var(--t-muted);
+        font-family: var(--font-mono);
+        white-space: nowrap;
+      }
+
+      .param-count {
+        font-size: 0.65rem;
+        min-width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: hsla(220, 10%, 80%, 0.1);
+        color: var(--t-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        flex-shrink: 0;
       }
 
       .type-badges {
@@ -380,13 +422,18 @@ export class MethodCard extends LitElement {
             </div>
             ${this.method.isTemplate
               ? html`<span class="badge prompt">Prompt</span>`
-              : Object.keys(this.method.params || {}).length > 0
-                ? html`<span class="badge">Params</span>`
-                : html`<span
-                    class="badge"
-                    style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;"
-                    >Ready</span
-                  >`}
+              : (() => {
+                  const props = this.method.params?.properties || {};
+                  const paramNames = Object.keys(props);
+                  const count = paramNames.length;
+                  if (count === 0) {
+                    return html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`;
+                  } else if (count <= 3) {
+                    return html`<span class="param-tags">${paramNames.map(n => html`<span class="param-tag">${n}</span>`)}</span>`;
+                  } else {
+                    return html`<span class="param-tags">${paramNames.slice(0, 2).map(n => html`<span class="param-tag">${n}</span>`)}<span class="param-count">+${count - 2}</span></span>`;
+                  }
+                })()}
           </div>
           ${isTyped ? html`
             <div class="type-badges">
@@ -418,7 +465,7 @@ export class MethodCard extends LitElement {
                   @click=${this._handleDescriptionClick}
                   title="Click to edit description"
                 >
-                  ${hasDescription ? this.method.description : 'Click to add description...'}
+                  ${hasDescription ? this.method.description : 'Add description...'}<span class="edit-hint">✎</span>
                 </p>
               `}
         </div>
@@ -542,6 +589,9 @@ export class MethodCard extends LitElement {
   private _saveDescription() {
     this._editingDescription = false;
     const newDesc = this._editedDescription.trim();
+    const originalDesc = (this.method.description || '').trim();
+    // No-op if nothing changed
+    if (newDesc === originalDesc || (!newDesc && !this.method.description)) return;
 
     // Dispatch event to parent for persistence
     this.dispatchEvent(

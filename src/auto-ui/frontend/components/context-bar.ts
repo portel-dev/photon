@@ -102,14 +102,26 @@ export class ContextBar extends LitElement {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        cursor: pointer;
+      }
+
+      .desc .edit-hint {
+        opacity: 0;
+        font-size: 0.7rem;
+        transition: opacity 0.15s;
+        margin-left: 4px;
+      }
+
+      .desc:hover .edit-hint {
+        opacity: 0.6;
       }
 
       .desc.placeholder {
         font-style: italic;
-        cursor: pointer;
       }
 
-      .desc.placeholder:hover {
+      .desc.placeholder:hover,
+      .desc:hover {
         color: var(--accent-secondary);
       }
 
@@ -307,9 +319,9 @@ export class ContextBar extends LitElement {
                       : html`<span
                           class="desc ${isGenericDesc ? 'placeholder' : ''}"
                           @click=${this._startEditingDescription}
-                          title="${isGenericDesc ? 'Click to add description' : description}"
+                          title="Click to edit description"
                         >
-                          ${isGenericDesc ? 'Add description...' : description}
+                          ${isGenericDesc ? 'Add description...' : description}<span class="edit-hint">✎</span>
                         </span>`}
                   </div>
                   <div class="meta">
@@ -392,6 +404,11 @@ export class ContextBar extends LitElement {
   private _saveDescription() {
     this._editingDescription = false;
     const newDesc = this._editedDescription.trim();
+    const currentDesc = this.photon?.description || '';
+    const isGeneric = currentDesc.endsWith(' MCP') || currentDesc === 'Photon tool';
+    const originalDesc = isGeneric ? '' : currentDesc;
+    // No-op if nothing changed
+    if (newDesc === originalDesc.trim()) return;
     this._emit('update-description', { description: newDesc || null });
   }
 }

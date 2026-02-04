@@ -53,8 +53,9 @@ export class OverflowMenu extends LitElement {
         border-radius: var(--radius-md);
         min-width: 200px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        z-index: 100;
-        overflow: hidden;
+        z-index: 9999;
+        overflow: visible;
+        white-space: nowrap;
       }
 
       .menu-item {
