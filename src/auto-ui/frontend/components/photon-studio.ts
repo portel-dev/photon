@@ -5,7 +5,7 @@
  */
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -13,7 +13,7 @@ import { defaultKeymap } from '@codemirror/commands';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
-import { photonDocblockCompletions, photonFormatCompletions } from './docblock-completions.js';
+import { createDocblockCompletions, photonFormatCompletions } from './docblock-completions.js';
 import { templates, type PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
 import './studio-preview.js';
@@ -355,9 +355,33 @@ export class PhotonStudio extends LitElement {
         isDark ? oneDark : lightTheme,
         // Add photon JSDoc completions via language data (merges with basicSetup's autocompletion)
         EditorState.languageData.of(() => [
-          { autocomplete: photonDocblockCompletions },
+          { autocomplete: createDocblockCompletions(mcpClient.getServerVersion()) },
           { autocomplete: photonFormatCompletions },
         ]),
+        // JSDoc comment continuation at high priority so it fires before basicSetup's Enter
+        Prec.high(keymap.of([{
+          key: 'Enter',
+          run: (view: EditorView) => {
+            const { state: st } = view;
+            const pos = st.selection.main.head;
+            const textBefore = st.doc.sliceString(Math.max(0, pos - 500), pos);
+            const lastOpen = textBefore.lastIndexOf('/**');
+            const lastClose = textBefore.lastIndexOf('*/');
+            if (lastOpen <= lastClose) return false; // not inside JSDoc
+
+            // Detect indentation of current line's " * " prefix
+            const line = st.doc.lineAt(pos);
+            const match = line.text.match(/^(\s*)\*\s?/);
+            if (!match) return false; // no leading * pattern
+
+            const indent = match[1];
+            view.dispatch(st.update({
+              changes: { from: pos, insert: `\n${indent}* ` },
+              selection: { anchor: pos + indent.length + 3 }, // after "* "
+            }));
+            return true;
+          },
+        }])),
         keymap.of([
           ...defaultKeymap,
           { key: 'Mod-s', run: () => { this._save(); return true; } },

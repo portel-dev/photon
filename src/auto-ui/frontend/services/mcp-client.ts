@@ -117,6 +117,7 @@ class MCPClientService {
   private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
   private baseUrl: string;
   private _configurationSchema: ConfigurationSchema | null = null;
+  private _serverVersion = '';
   private lastMessageTime = 0;
   private heartbeatInterval: number | null = null;
   private visibilityHandler: (() => void) | null = null;
@@ -184,6 +185,11 @@ class MCPClientService {
       capabilities: Record<string, unknown>;
       configurationSchema?: ConfigurationSchema;
     };
+
+    // Capture server version for runtime tag completions
+    if (result.serverInfo?.version) {
+      this._serverVersion = result.serverInfo.version;
+    }
 
     // Capture configuration schema for unconfigured photons
     if (result.configurationSchema) {
@@ -464,6 +470,13 @@ class MCPClientService {
       contents: MCPResourceContent[];
     };
     return result.contents?.[0] || null;
+  }
+
+  /**
+   * Get the photon runtime version reported by the server
+   */
+  getServerVersion(): string {
+    return this._serverVersion;
   }
 
   /**
