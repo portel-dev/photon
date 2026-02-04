@@ -79,6 +79,7 @@ import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -172,6 +173,46 @@ function prettifyToolName(name: string): string {
 }
 
 /**
+ * Create an HTTP transport for a URL-based MCP.
+ * Tries Streamable HTTP first; falls back to legacy SSE.
+ */
+async function connectHTTPClient(url: string): Promise<Client> {
+  const sdkClient = new Client(
+    { name: 'beam-mcp-client', version: '1.0.0' },
+    { capabilities: {} }
+  );
+
+  try {
+    const transport = new StreamableHTTPClientTransport(new URL(url));
+    const connectPromise = sdkClient.connect(transport);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+    );
+    await Promise.race([connectPromise, timeoutPromise]);
+    logger.debug(`Connected to ${url} via Streamable HTTP`);
+    return sdkClient;
+  } catch (streamableError) {
+    logger.debug(
+      `Streamable HTTP failed for ${url}, trying legacy SSE: ${streamableError}`
+    );
+  }
+
+  // Fallback: legacy SSE transport
+  const sseClient = new Client(
+    { name: 'beam-mcp-client', version: '1.0.0' },
+    { capabilities: {} }
+  );
+  const sseTransport = new SSEClientTransport(new URL(url));
+  const connectPromise = sseClient.connect(sseTransport);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+  );
+  await Promise.race([connectPromise, timeoutPromise]);
+  logger.debug(`Connected to ${url} via legacy SSE`);
+  return sseClient;
+}
+
+/**
  * Load external MCPs from config.json mcpServers section
  *
  * @param config - The PhotonConfig with mcpServers section
@@ -200,67 +241,50 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
       let methods: MethodInfo[] = [];
 
       if (serverConfig.url) {
-        // HTTP Streamable transport — SDK client only (no wrapper needed)
+        // HTTP transport — SDK client only (no wrapper needed)
+        // Tries Streamable HTTP first, falls back to legacy SSE
+        const sdkClient = await connectHTTPClient(serverConfig.url);
+        externalMCPSDKClients.set(name, sdkClient);
+
+        // List tools with full metadata using SDK client
+        const toolsResult = await sdkClient.listTools();
+        const tools = toolsResult.tools || [];
+
+        // Convert tools to MethodInfo[] with full _meta support
+        methods = tools.map((tool: any) => ({
+          name: tool.name,
+          description: tool.description || '',
+          params: tool.inputSchema || { type: 'object', properties: {} },
+          returns: { type: 'object' },
+          icon: tool['x-icon'],
+          linkedUi: tool._meta?.ui?.resourceUri,
+          visibility: tool._meta?.ui?.visibility,
+        }));
+
+        // Fetch resources to detect MCP Apps
         try {
-          const sdkTransport = new StreamableHTTPClientTransport(
-            new URL(serverConfig.url)
+          const resourcesResult = await sdkClient.listResources();
+          const resources = resourcesResult.resources || [];
+          mcpInfo.resourceCount = resources.length;
+
+          const appResources = resources.filter(
+            (r: any) =>
+              r.uri?.startsWith('ui://') ||
+              r.mimeType === 'application/vnd.mcp.ui+html'
           );
-          const sdkClient = new Client(
-            { name: 'beam-mcp-client', version: '1.0.0' },
-            { capabilities: {} }
-          );
-
-          const connectPromise = sdkClient.connect(sdkTransport);
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-          );
-          await Promise.race([connectPromise, timeoutPromise]);
-
-          externalMCPSDKClients.set(name, sdkClient);
-
-          // List tools with full metadata using SDK client
-          const toolsResult = await sdkClient.listTools();
-          const tools = toolsResult.tools || [];
-
-          // Convert tools to MethodInfo[] with full _meta support
-          methods = tools.map((tool: any) => ({
-            name: tool.name,
-            description: tool.description || '',
-            params: tool.inputSchema || { type: 'object', properties: {} },
-            returns: { type: 'object' },
-            icon: tool['x-icon'],
-            linkedUi: tool._meta?.ui?.resourceUri,
-            visibility: tool._meta?.ui?.visibility,
-          }));
-
-          // Fetch resources to detect MCP Apps
-          try {
-            const resourcesResult = await sdkClient.listResources();
-            const resources = resourcesResult.resources || [];
-            mcpInfo.resourceCount = resources.length;
-
-            const appResources = resources.filter(
-              (r: any) =>
-                r.uri?.startsWith('ui://') ||
-                r.mimeType === 'application/vnd.mcp.ui+html'
-            );
-            if (appResources.length > 0) {
-              mcpInfo.hasApp = true;
-              mcpInfo.appResourceUri = appResources[0].uri;
-              mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
-              const uriList = mcpInfo.appResourceUris.join(', ');
-              logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
-            }
-          } catch (resourceError) {
-            logger.debug(`Resources not supported by ${name}`);
+          if (appResources.length > 0) {
+            mcpInfo.hasApp = true;
+            mcpInfo.appResourceUri = appResources[0].uri;
+            mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
+            const uriList = mcpInfo.appResourceUris.join(', ');
+            logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
           }
-
-          mcpInfo.connected = true;
-          mcpInfo.methods = methods;
-        } catch (httpError) {
-          const msg = httpError instanceof Error ? httpError.message : String(httpError);
-          throw new Error(`HTTP transport failed: ${msg}`);
+        } catch (resourceError) {
+          logger.debug(`Resources not supported by ${name}`);
         }
+
+        mcpInfo.connected = true;
+        mcpInfo.methods = methods;
       } else if (serverConfig.command) {
         // Stdio transport — create wrapper client as fallback, SDK client as primary
         const mcpConfig: MCPConfig = {
@@ -409,21 +433,8 @@ async function reconnectExternalMCP(
     let methods: MethodInfo[] = [];
 
     if (mcp.config.url) {
-      // HTTP Streamable transport — SDK client only
-      const sdkTransport = new StreamableHTTPClientTransport(
-        new URL(mcp.config.url)
-      );
-      const sdkClient = new Client(
-        { name: 'beam-mcp-client', version: '1.0.0' },
-        { capabilities: {} }
-      );
-
-      const connectPromise = sdkClient.connect(sdkTransport);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-      );
-      await Promise.race([connectPromise, timeoutPromise]);
-
+      // HTTP transport — tries Streamable HTTP, falls back to legacy SSE
+      const sdkClient = await connectHTTPClient(mcp.config.url);
       externalMCPSDKClients.set(name, sdkClient);
 
       const toolsResult = await sdkClient.listTools();
