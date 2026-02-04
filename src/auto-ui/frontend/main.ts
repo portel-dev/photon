@@ -13,5 +13,7 @@ import './components/photon-studio.js';
 import './components/studio-preview.js';
 import './components/photon-config.js';
 import './components/elicitation-modal.js';
+import './components/overflow-menu.js';
+import './components/context-bar.js';
 
 console.log('✨ Beam UI Initialized');
