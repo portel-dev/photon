@@ -78,6 +78,7 @@ import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
 // SDK imports for direct resource access (transport wrapper doesn't expose these yet)
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -196,23 +197,81 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
     };
 
     try {
-      // Create factory with this MCP's config (used as fallback for tool calls)
-      const mcpConfig: MCPConfig = {
-        mcpServers: {
-          [name]: serverConfig,
-        },
-      };
-      const factory = new SDKMCPClientFactory(mcpConfig, false);
-      const client = factory.create(name);
-
-      // Cache the wrapper client for tool calls (fallback)
-      externalMCPClients.set(name, client);
-
-      // Create SDK client for full metadata access (tools, resources)
-      // The wrapper doesn't return full _meta from tools
       let methods: MethodInfo[] = [];
 
-      if (serverConfig.command) {
+      if (serverConfig.url) {
+        // HTTP Streamable transport — SDK client only (no wrapper needed)
+        try {
+          const sdkTransport = new StreamableHTTPClientTransport(
+            new URL(serverConfig.url)
+          );
+          const sdkClient = new Client(
+            { name: 'beam-mcp-client', version: '1.0.0' },
+            { capabilities: {} }
+          );
+
+          const connectPromise = sdkClient.connect(sdkTransport);
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+          );
+          await Promise.race([connectPromise, timeoutPromise]);
+
+          externalMCPSDKClients.set(name, sdkClient);
+
+          // List tools with full metadata using SDK client
+          const toolsResult = await sdkClient.listTools();
+          const tools = toolsResult.tools || [];
+
+          // Convert tools to MethodInfo[] with full _meta support
+          methods = tools.map((tool: any) => ({
+            name: tool.name,
+            description: tool.description || '',
+            params: tool.inputSchema || { type: 'object', properties: {} },
+            returns: { type: 'object' },
+            icon: tool['x-icon'],
+            linkedUi: tool._meta?.ui?.resourceUri,
+            visibility: tool._meta?.ui?.visibility,
+          }));
+
+          // Fetch resources to detect MCP Apps
+          try {
+            const resourcesResult = await sdkClient.listResources();
+            const resources = resourcesResult.resources || [];
+            mcpInfo.resourceCount = resources.length;
+
+            const appResources = resources.filter(
+              (r: any) =>
+                r.uri?.startsWith('ui://') ||
+                r.mimeType === 'application/vnd.mcp.ui+html'
+            );
+            if (appResources.length > 0) {
+              mcpInfo.hasApp = true;
+              mcpInfo.appResourceUri = appResources[0].uri;
+              mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
+              const uriList = mcpInfo.appResourceUris.join(', ');
+              logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
+            }
+          } catch (resourceError) {
+            logger.debug(`Resources not supported by ${name}`);
+          }
+
+          mcpInfo.connected = true;
+          mcpInfo.methods = methods;
+        } catch (httpError) {
+          const msg = httpError instanceof Error ? httpError.message : String(httpError);
+          throw new Error(`HTTP transport failed: ${msg}`);
+        }
+      } else if (serverConfig.command) {
+        // Stdio transport — create wrapper client as fallback, SDK client as primary
+        const mcpConfig: MCPConfig = {
+          mcpServers: {
+            [name]: serverConfig,
+          },
+        };
+        const factory = new SDKMCPClientFactory(mcpConfig, false);
+        const client = factory.create(name);
+        externalMCPClients.set(name, client);
+
         try {
           const sdkTransport = new StdioClientTransport({
             command: serverConfig.command,
@@ -294,7 +353,16 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           mcpInfo.methods = methods;
         }
       } else {
-        // No command - use wrapper client only
+        // No command or URL — create wrapper client (legacy fallback)
+        const mcpConfig: MCPConfig = {
+          mcpServers: {
+            [name]: serverConfig,
+          },
+        };
+        const factory = new SDKMCPClientFactory(mcpConfig, false);
+        const client = factory.create(name);
+        externalMCPClients.set(name, client);
+
         const tools = await client.list();
         methods = (tools || []).map((tool: any) => ({
           name: tool.name,
@@ -338,39 +406,90 @@ async function reconnectExternalMCP(
   const mcp = externalMCPs[mcpIndex];
 
   try {
-    // Create factory with this MCP's config
-    const mcpConfig: MCPConfig = {
-      mcpServers: {
-        [name]: mcp.config,
-      },
-    };
-    const factory = new SDKMCPClientFactory(mcpConfig, false);
-    const client = factory.create(name);
+    let methods: MethodInfo[] = [];
 
-    // Connect with timeout
-    const connectPromise = client.list();
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-    );
+    if (mcp.config.url) {
+      // HTTP Streamable transport — SDK client only
+      const sdkTransport = new StreamableHTTPClientTransport(
+        new URL(mcp.config.url)
+      );
+      const sdkClient = new Client(
+        { name: 'beam-mcp-client', version: '1.0.0' },
+        { capabilities: {} }
+      );
 
-    const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
+      const connectPromise = sdkClient.connect(sdkTransport);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+      );
+      await Promise.race([connectPromise, timeoutPromise]);
 
-    // Convert tools to MethodInfo[] - client.list() returns MCPToolInfo[] directly
-    const methods: MethodInfo[] = (tools || []).map((tool: any) => ({
-      name: tool.name,
-      description: tool.description || '',
-      params: tool.inputSchema || { type: 'object', properties: {} },
-      returns: { type: 'object' },
-      icon: tool['x-icon'],
-    }));
+      externalMCPSDKClients.set(name, sdkClient);
+
+      const toolsResult = await sdkClient.listTools();
+      const tools = toolsResult.tools || [];
+
+      methods = tools.map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || '',
+        params: tool.inputSchema || { type: 'object', properties: {} },
+        returns: { type: 'object' },
+        icon: tool['x-icon'],
+        linkedUi: tool._meta?.ui?.resourceUri,
+        visibility: tool._meta?.ui?.visibility,
+      }));
+
+      // Fetch resources to detect MCP Apps
+      try {
+        const resourcesResult = await sdkClient.listResources();
+        const resources = resourcesResult.resources || [];
+        mcp.resourceCount = resources.length;
+
+        const appResources = resources.filter(
+          (r: any) =>
+            r.uri?.startsWith('ui://') ||
+            r.mimeType === 'application/vnd.mcp.ui+html'
+        );
+        if (appResources.length > 0) {
+          mcp.hasApp = true;
+          mcp.appResourceUri = appResources[0].uri;
+          mcp.appResourceUris = appResources.map((r: any) => r.uri);
+        }
+      } catch {
+        // Resources not supported
+      }
+    } else {
+      // Stdio / wrapper transport
+      const mcpConfig: MCPConfig = {
+        mcpServers: {
+          [name]: mcp.config,
+        },
+      };
+      const factory = new SDKMCPClientFactory(mcpConfig, false);
+      const client = factory.create(name);
+
+      const connectPromise = client.list();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
+      );
+
+      const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
+
+      methods = (tools || []).map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || '',
+        params: tool.inputSchema || { type: 'object', properties: {} },
+        returns: { type: 'object' },
+        icon: tool['x-icon'],
+      }));
+
+      externalMCPClients.set(name, client);
+    }
 
     // Update MCP info
     mcp.connected = true;
     mcp.methods = methods;
     mcp.errorMessage = undefined;
-
-    // Cache the client
-    externalMCPClients.set(name, client);
 
     logger.info(`🔌 Reconnected to external MCP: ${name} (${methods.length} tools)`);
     return { success: true };
