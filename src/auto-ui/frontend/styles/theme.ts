@@ -23,6 +23,17 @@ export const theme = css`
     /* Typography - same for all themes */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+
+    /* Bento layout */
+    --bento-border: 1px solid var(--border-glass);
+    --bento-shadow: 2px 2px 0px var(--border-glass);
+    --bento-radius: var(--radius-md);
+
+    /* Method type accent colors */
+    --accent-autorun: hsl(160, 60%, 45%);
+    --accent-webhook: hsl(45, 80%, 50%);
+    --accent-cron: hsl(215, 80%, 60%);
+    --accent-locked: hsl(0, 65%, 55%);
   }
 
   /* Shared Utility Classes */

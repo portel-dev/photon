@@ -73,10 +73,37 @@ export class BeamApp extends LitElement {
 
       .cards-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: var(--space-md);
-        margin-bottom: var(--space-xl);
-        align-items: stretch; /* Make cards same height per row */
+        align-items: stretch;
+      }
+
+      /* Bento Layout */
+      .bento-methods {
+        margin-top: var(--space-lg);
+        margin-bottom: var(--space-lg);
+      }
+
+      .bento-section-title {
+        color: var(--t-muted);
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.1em;
+        font-weight: 600;
+        margin: 0 0 var(--space-md) 0;
+      }
+
+      .bento-bottom-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-lg);
+        margin-top: var(--space-md);
+      }
+
+      @media (max-width: 768px) {
+        .bento-bottom-grid {
+          grid-template-columns: 1fr;
+        }
       }
 
       /* Photon Header */
@@ -2886,75 +2913,68 @@ export class BeamApp extends LitElement {
         `;
       }
 
-      // Default Form Interface
-      const isAppMethod = this._selectedPhoton.isApp && this._selectedPhoton.appEntry;
-      const isInternalPhoton = this._selectedPhoton.internal;
-      const backLabel = isInternalPhoton
-        ? '← Back'
-        : isAppMethod
-          ? `← Back to ${this._selectedPhoton.name}`
-          : '← Back to Methods';
-
-      // For external MCPs, hide photon-specific toolbar actions
+      // Default Form Interface — use context bar with breadcrumb
       const isExternalMCP = this._selectedPhoton.isExternalMCP;
 
       return html`
-        <div class="header-toolbar">
-          <div class="header-left">
-            <button
-              style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-              @click=${() => this._handleBackFromMethod()}
-            >
-              ${backLabel}
-            </button>
-          </div>
-          ${this._renderActionToolbar({
+        <context-bar
+          .photon=${this._selectedPhoton}
+          .breadcrumbs=${[
+            { label: this._selectedPhoton.name, action: 'back' },
+            { label: this._selectedMethod.name },
+          ]}
+          .showEdit=${false}
+          .showConfigure=${false}
+          .showCopyConfig=${false}
+          .overflowItems=${this._buildOverflowItems({
             showRefresh: !isExternalMCP,
-            showReconfigure: !isExternalMCP,
             showRename: false,
             showViewSource: false,
             showDelete: false,
             showHelp: !isExternalMCP,
           })}
-        </div>
+          @context-action=${this._handleContextAction}
+        ></context-bar>
         ${this._renderMethodContent()}
       `;
     }
 
     // For external MCPs, hide photon-specific toolbar actions in list view
     const isExternalMCP = this._selectedPhoton?.isExternalMCP;
+    const hasPath = !!this._selectedPhoton?.path;
 
     return html`
-      <div class="header-toolbar">
-        <div class="header-left"></div>
-        ${this._renderActionToolbar({
+      <context-bar
+        .photon=${this._selectedPhoton}
+        .showEdit=${hasPath && !isExternalMCP && !this._selectedPhoton?.internal}
+        .showConfigure=${!isExternalMCP}
+        .showCopyConfig=${true}
+        .overflowItems=${this._buildOverflowItems({
           showRefresh: !isExternalMCP,
-          showReconfigure: !isExternalMCP,
-          showHelp: !isExternalMCP,
           showRename: !isExternalMCP,
           showViewSource: !isExternalMCP,
           showDelete: !isExternalMCP,
+          showHelp: !isExternalMCP,
         })}
-      </div>
+        @context-action=${this._handleContextAction}
+      ></context-bar>
 
-      ${this._renderPhotonHeader()}
+      ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
-      <h3
-        style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;"
-      >
-        Methods
-      </h3>
-      <div class="cards-grid">
-        ${(this._selectedPhoton.methods || []).map(
-          (method: any) => html`
-            <method-card
-              .method=${method}
-              .photonName=${this._selectedPhoton.name}
-              @select=${this._handleMethodSelect}
-              @update-metadata=${this._handleMethodMetadataUpdate}
-            ></method-card>
-          `
-        )}
+      <div class="bento-methods">
+        <h3 class="bento-section-title">Methods</h3>
+        <div class="cards-grid">
+          ${(this._selectedPhoton.methods || []).map(
+            (method: any) => html`
+              <method-card
+                .method=${method}
+                .photonName=${this._selectedPhoton.name}
+                @select=${this._handleMethodSelect}
+                @update-metadata=${this._handleMethodMetadataUpdate}
+              ></method-card>
+            `
+          )}
+        </div>
       </div>
 
       ${this._testResults.length > 0
@@ -2986,7 +3006,10 @@ export class BeamApp extends LitElement {
             </div>
           `
         : ''}
-      ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+
+      <div class="bento-bottom-grid">
+        ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+      </div>
     `;
   }
 
@@ -4217,8 +4240,140 @@ export class BeamApp extends LitElement {
   }
 
   /**
+   * Build overflow menu items for the context bar ⋯ menu
+   */
+  private _buildOverflowItems(opts: {
+    showRefresh?: boolean;
+    showRename?: boolean;
+    showViewSource?: boolean;
+    showDelete?: boolean;
+    showHelp?: boolean;
+    showRunTests?: boolean;
+    showRemove?: boolean;
+  } = {}): import('./overflow-menu.js').OverflowMenuItem[] {
+    const {
+      showRefresh = true,
+      showRename = this._selectedPhoton?.name !== 'maker',
+      showViewSource = this._selectedPhoton?.name !== 'maker',
+      showDelete = this._selectedPhoton?.name !== 'maker',
+      showHelp = true,
+      showRunTests = this._getTestMethods().length > 0,
+      showRemove = false,
+    } = opts;
+
+    const items: import('./overflow-menu.js').OverflowMenuItem[] = [];
+
+    if (showRefresh) {
+      items.push({ id: 'refresh', label: 'Refresh', icon: '🔄' });
+    }
+    if (showRunTests) {
+      items.push({
+        id: 'run-tests',
+        label: this._runningTests ? 'Running...' : 'Run Tests',
+        icon: '🧪',
+        disabled: this._runningTests,
+      });
+    }
+    items.push({
+      id: 'remember-values',
+      label: 'Remember Values',
+      icon: '📝',
+      toggle: true,
+      toggleActive: this._rememberFormValues,
+    });
+    items.push({
+      id: 'verbose-logging',
+      label: 'Verbose Logging',
+      icon: '📋',
+      toggle: true,
+      toggleActive: this._verboseLogging,
+    });
+    if (showRename || showViewSource || showDelete || showRemove) {
+      const first = [showRename, showViewSource, showDelete, showRemove].findIndex(Boolean);
+      if (showRename)
+        items.push({ id: 'rename', label: 'Rename', icon: '✏️', dividerBefore: first === 0 });
+      if (showViewSource)
+        items.push({
+          id: 'view-source',
+          label: 'View Source',
+          icon: '📄',
+          dividerBefore: !showRename && first === 1,
+        });
+      if (showDelete)
+        items.push({
+          id: 'delete',
+          label: 'Delete',
+          icon: '🗑️',
+          danger: true,
+          dividerBefore: !showRename && !showViewSource && first === 2,
+        });
+      if (showRemove)
+        items.push({
+          id: 'remove',
+          label: 'Remove',
+          icon: '🗑️',
+          danger: true,
+          dividerBefore: !showRename && !showViewSource && !showDelete && first === 3,
+        });
+    }
+    if (showHelp) {
+      items.push({ id: 'help', label: 'Help', icon: '📖', dividerBefore: true });
+    }
+    return items;
+  }
+
+  /**
+   * Handle events from the context-bar component
+   */
+  private _handleContextAction = (e: CustomEvent) => {
+    const { action } = e.detail;
+    switch (action) {
+      case 'back':
+        this._handleBackFromMethod();
+        break;
+      case 'edit-studio':
+        if (this._selectedPhoton) {
+          this._view = 'studio';
+        }
+        break;
+      case 'configure':
+        this._handleReconfigure();
+        break;
+      case 'copy-config':
+        this._handleCopyMCPConfig();
+        break;
+      case 'upgrade':
+        this._handleUpgrade();
+        break;
+      case 'edit-icon':
+        this._startEditingIcon();
+        break;
+      case 'update-description':
+        this._editedDescription = e.detail.description || '';
+        this._saveDescription();
+        break;
+      case 'overflow': {
+        const { id } = e.detail;
+        switch (id) {
+          case 'refresh': this._handleRefresh(); break;
+          case 'run-tests': this._runTests(); break;
+          case 'remember-values': this._toggleRememberValues(); break;
+          case 'verbose-logging': this._toggleVerboseLogging(); break;
+          case 'rename': this._handleRenamePhoton(); break;
+          case 'view-source': this._handleViewSource(); break;
+          case 'delete': this._handleDeletePhoton(); break;
+          case 'remove': this._handleRemove(); break;
+          case 'help': this._showPhotonHelpModal(); break;
+        }
+        break;
+      }
+    }
+  };
+
+  /**
    * Renders the action toolbar for both desktop (inline buttons) and mobile (dropdown)
    * @param options Configuration for which buttons to show
+   * @deprecated Will be removed in favor of context-bar + overflow-menu
    */
   private _renderActionToolbar(
     options: {
