@@ -5485,6 +5485,21 @@ export class BeamApp extends LitElement {
               </div>
             </div>
             <div style="display: flex; gap: var(--space-sm);">
+              ${this._selectedPhoton?.path && !this._selectedPhoton?.isExternalMCP
+                ? html`
+                    <button
+                      class="toolbar-btn"
+                      style="padding: 6px 12px; font-size: 0.85rem; background: var(--accent-primary); border-color: var(--accent-primary); color: white;"
+                      @click=${() => {
+                        this._closeSourceModal();
+                        this._view = 'studio';
+                      }}
+                      title="Edit this photon in Studio"
+                    >
+                      ✎ Open in Studio
+                    </button>
+                  `
+                : ''}
               <button
                 class="toolbar-btn"
                 style="padding: 6px 12px; font-size: 0.85rem;"
