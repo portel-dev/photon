@@ -8,6 +8,10 @@ interface MethodInfo {
   params: Record<string, any>;
   icon?: string;
   isTemplate?: boolean;
+  autorun?: boolean;
+  webhook?: string | boolean;
+  scheduled?: string;
+  locked?: string | boolean;
 }
 
 @customElement('method-card')
@@ -157,6 +161,47 @@ export class MethodCard extends LitElement {
         color: hsl(45, 80%, 60%);
       }
 
+      .type-badges {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin-top: 2px;
+      }
+
+      .type-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 1px 6px;
+        border-radius: 3px;
+      }
+
+      .type-badge.autorun {
+        background: hsla(160, 60%, 45%, 0.15);
+        color: hsl(160, 60%, 55%);
+      }
+
+      .type-badge.webhook {
+        background: hsla(45, 80%, 50%, 0.15);
+        color: hsl(45, 80%, 60%);
+      }
+
+      .type-badge.cron {
+        background: hsla(215, 80%, 60%, 0.15);
+        color: hsl(215, 80%, 70%);
+      }
+
+      .type-badge.locked {
+        background: hsla(0, 65%, 55%, 0.15);
+        color: hsl(0, 65%, 65%);
+      }
+
+      /* Left border accent for typed methods */
+      .card.typed {
+        border-left: 3px solid var(--type-accent, var(--border-glass));
+      }
+
       .run-btn {
         align-self: flex-start;
         background: transparent;
@@ -302,8 +347,25 @@ export class MethodCard extends LitElement {
       this.method.description && this.method.description !== 'No description provided.';
     const initials = this.method.name.substring(0, 2).toUpperCase();
 
+    const isAutorun = !!this.method.autorun;
+    const isWebhook = !!this.method.webhook;
+    const isCron = !!this.method.scheduled;
+    const isLocked = !!this.method.locked;
+    const isTyped = isAutorun || isWebhook || isCron || isLocked;
+
+    // Determine accent color for typed methods
+    const typeAccent = isWebhook ? 'hsl(45, 80%, 50%)'
+      : isCron ? 'hsl(215, 80%, 60%)'
+      : isLocked ? 'hsl(0, 65%, 55%)'
+      : isAutorun ? 'hsl(160, 60%, 45%)'
+      : '';
+
     return html`
-      <div class="card glass-panel" @click=${this._handleCardClick}>
+      <div
+        class="card glass-panel ${isTyped ? 'typed' : ''}"
+        style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
+        @click=${this._handleCardClick}
+      >
         <div>
           <div class="header">
             <div class="title-row">
@@ -326,6 +388,14 @@ export class MethodCard extends LitElement {
                     >Ready</span
                   >`}
           </div>
+          ${isTyped ? html`
+            <div class="type-badges">
+              ${isAutorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
+              ${isWebhook ? html`<span class="type-badge webhook">webhook</span>` : ''}
+              ${isCron ? html`<span class="type-badge cron">cron</span>` : ''}
+              ${isLocked ? html`<span class="type-badge locked">locked</span>` : ''}
+            </div>
+          ` : ''}
           ${this._editingDescription
             ? html`
                 <div class="description editing" @click=${(e: Event) => e.stopPropagation()}>

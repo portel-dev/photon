@@ -797,6 +797,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             icon: schema.icon,
             linkedUi: linkedAsset?.id,
             ...(schema.isStatic ? { isStatic: true } : {}),
+            ...(schema.webhook ? { webhook: schema.webhook } : {}),
+            ...(schema.scheduled || schema.cron ? { scheduled: schema.scheduled || schema.cron } : {}),
+            ...(schema.locked ? { locked: schema.locked } : {}),
           };
         });
 

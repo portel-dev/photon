@@ -70,6 +70,12 @@ export interface MethodInfo {
   visibility?: ('model' | 'app')[];
   /** True if this is a static method (class-level, no instance needed) */
   isStatic?: boolean;
+  /** Webhook endpoint path from @webhook tag */
+  webhook?: string | boolean;
+  /** Cron schedule expression from @scheduled/@cron tag */
+  scheduled?: string;
+  /** Distributed lock name from @locked tag */
+  locked?: string | boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -459,6 +465,15 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   }
   if (method.buttonLabel) {
     extensions['x-button-label'] = method.buttonLabel;
+  }
+  if (method.webhook) {
+    extensions['x-webhook'] = method.webhook;
+  }
+  if (method.scheduled) {
+    extensions['x-scheduled'] = method.scheduled;
+  }
+  if (method.locked) {
+    extensions['x-locked'] = method.locked;
   }
   return extensions;
 }

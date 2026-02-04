@@ -32,6 +32,9 @@ interface MCPTool {
   'x-output-format'?: string;
   'x-layout-hints'?: Record<string, string>;
   'x-button-label'?: string;
+  'x-webhook'?: string | boolean;
+  'x-scheduled'?: string;
+  'x-locked'?: string | boolean;
   _meta?: { ui?: { resourceUri?: string; visibility?: string[] } };
 }
 
@@ -698,6 +701,9 @@ class MCPClientService {
         layoutHints?: Record<string, string>;
         buttonLabel?: string;
         linkedUi?: string;
+        webhook?: string | boolean;
+        scheduled?: string;
+        locked?: string | boolean;
       }>;
     }>;
     externalMCPs: Array<{
@@ -785,6 +791,9 @@ class MCPClientService {
           buttonLabel: tool['x-button-label'],
           linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
           visibility: tool._meta?.ui?.visibility,
+          webhook: tool['x-webhook'],
+          scheduled: tool['x-scheduled'],
+          locked: tool['x-locked'],
         });
       }
     }
