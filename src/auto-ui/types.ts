@@ -144,6 +144,8 @@ export interface UnconfiguredPhotonInfo {
   requiredParams: ConfigParam[];
   /** Human-readable error message explaining what's missing */
   errorMessage: string;
+  /** Why this photon needs attention */
+  errorReason?: 'missing-config' | 'load-error';
   /** Display name from @label tag, or auto-prettified from name */
   label?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */

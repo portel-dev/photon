@@ -15,6 +15,8 @@ interface PhotonItem {
   promptCount?: number;
   hasUpdate?: boolean;
   path?: string;
+  /** Why this photon needs attention */
+  errorReason?: 'missing-config' | 'load-error';
   // External MCP fields
   isExternalMCP?: boolean;
   connected?: boolean;
@@ -299,6 +301,12 @@ export class BeamSidebar extends LitElement {
         background: hsla(45, 80%, 50%, 0.15);
         border-color: hsla(45, 80%, 50%, 0.3);
         color: hsl(45, 80%, 50%);
+      }
+
+      .method-count.error {
+        background: hsla(0, 80%, 50%, 0.15);
+        border-color: hsla(0, 80%, 50%, 0.3);
+        color: hsl(0, 80%, 50%);
       }
 
       .counts-pill {
@@ -719,7 +727,7 @@ export class BeamSidebar extends LitElement {
           : ''}
         ${this._needsSetup.length > 0
           ? html`
-              <div class="section-header" id="setup-header">SETUP PENDING</div>
+              <div class="section-header" id="setup-header">NEEDS ATTENTION</div>
               <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
                 ${this._needsSetup.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
               </ul>
@@ -833,7 +841,9 @@ export class BeamSidebar extends LitElement {
         </button>
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
-          ? html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
+          ? photon.errorReason === 'load-error'
+            ? html`<span class="method-count error" aria-label="Error loading">\u00d7</span>`
+            : html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
           : this._renderCountsPill(photon, methodCount)}
       </li>
     `;

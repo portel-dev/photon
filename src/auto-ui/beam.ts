@@ -877,6 +877,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         configured: false,
         internal: isInternal,
         requiredParams: constructorParams,
+        errorReason: 'missing-config' as const,
         errorMessage:
           missingRequired.length > 0
             ? `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`
@@ -1013,19 +1014,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
 
-      if (constructorParams.length > 0) {
-        return {
-          id: generatePhotonId(photonPath),
-          name,
-          path: photonPath,
-          configured: false,
-          label: prettifyName(name),
-          internal: isInternal,
-          requiredParams: constructorParams,
-          errorMessage: errorMsg.slice(0, 200),
-        };
-      }
-      return null;
+      // Always surface errored photons in the sidebar instead of silently dropping them
+      return {
+        id: generatePhotonId(photonPath),
+        name,
+        path: photonPath,
+        configured: false,
+        label: prettifyName(name),
+        internal: isInternal,
+        requiredParams: constructorParams,
+        errorReason: constructorParams.length > 0 ? 'missing-config' as const : 'load-error' as const,
+        errorMessage: errorMsg.slice(0, 200),
+      };
     }
   }
 
@@ -2714,6 +2714,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               path: photonPath,
               configured: false,
               requiredParams: constructorParams,
+              errorReason: 'missing-config',
               errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
             };
             photons.push(unconfiguredPhoton);
@@ -2850,20 +2851,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Ignore extraction errors
             }
 
-            if (constructorParams.length > 0) {
-              const unconfiguredPhoton: UnconfiguredPhotonInfo = {
-                id: generatePhotonId(photonPath),
-                name: photonName,
-                path: photonPath,
-                configured: false,
-                requiredParams: constructorParams,
-                errorMessage: errorMsg.slice(0, 200),
-              };
-              photons.push(unconfiguredPhoton);
-              broadcastPhotonChange();
-              logger.info(`⚙️ ${photonName} added (needs configuration)`);
-              return;
-            }
+            const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+              id: generatePhotonId(photonPath),
+              name: photonName,
+              path: photonPath,
+              configured: false,
+              requiredParams: constructorParams,
+              errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
+              errorMessage: errorMsg.slice(0, 200),
+            };
+            photons.push(unconfiguredPhoton);
+            broadcastPhotonChange();
+            logger.info(`⚙️ ${photonName} added (needs attention: ${unconfiguredPhoton.errorReason})`);
+            return;
           }
 
           logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
@@ -3098,6 +3098,128 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     } catch {
       // Asset folder doesn't exist or can't be watched - that's okay
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CONFIG.JSON WATCHER — Detect external MCP changes without restart
+  // Watch the parent directory (atomic writes via rename can miss single-file watches)
+  // ══════════════════════════════════════════════════════════════════════════════
+  try {
+    const configDir = path.dirname(CONFIG_FILE);
+    let configDebounce: NodeJS.Timeout | null = null;
+
+    const configWatcher = watch(configDir, (eventType, filename) => {
+      if (filename !== 'config.json') return;
+
+      if (configDebounce) clearTimeout(configDebounce);
+      configDebounce = setTimeout(async () => {
+        configDebounce = null;
+
+        let newConfig: PhotonConfig;
+        try {
+          const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+          newConfig = migrateConfig(JSON.parse(data));
+        } catch (err) {
+          logger.warn(`⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : err}`);
+          return;
+        }
+
+        const oldServers = savedConfig.mcpServers || {};
+        const newServers = newConfig.mcpServers || {};
+        const oldKeys = new Set(Object.keys(oldServers));
+        const newKeys = new Set(Object.keys(newServers));
+
+        const added = [...newKeys].filter((k) => !oldKeys.has(k));
+        const removed = [...oldKeys].filter((k) => !newKeys.has(k));
+        const kept = [...newKeys].filter((k) => oldKeys.has(k));
+        const modified = kept.filter(
+          (k) => JSON.stringify(oldServers[k]) !== JSON.stringify(newServers[k])
+        );
+
+        if (added.length === 0 && removed.length === 0 && modified.length === 0) {
+          // Also sync photon config changes (env vars etc.)
+          savedConfig.photons = newConfig.photons || {};
+          return;
+        }
+
+        logger.info(
+          `🔧 config.json changed — added: [${added}], removed: [${removed}], modified: [${modified}]`
+        );
+
+        // Remove MCPs
+        for (const name of removed) {
+          const idx = externalMCPs.findIndex((m) => m.name === name);
+          if (idx !== -1) externalMCPs.splice(idx, 1);
+
+          // Clean up clients
+          try {
+            const sdkClient = externalMCPSDKClients.get(name);
+            if (sdkClient) {
+              await sdkClient.close();
+              externalMCPSDKClients.delete(name);
+            }
+          } catch { /* ignore */ }
+          externalMCPClients.delete(name);
+
+          logger.info(`🔌 Removed external MCP: ${name}`);
+        }
+
+        // Add new MCPs
+        if (added.length > 0) {
+          const addConfig: PhotonConfig = {
+            photons: {},
+            mcpServers: Object.fromEntries(added.map((k) => [k, newServers[k]])),
+          };
+          const newMCPs = await loadExternalMCPs(addConfig);
+          externalMCPs.push(...newMCPs);
+          for (const m of newMCPs) {
+            logger.info(
+              `🔌 Added external MCP: ${m.name} (${m.connected ? m.methods.length + ' tools' : 'failed'})`
+            );
+          }
+        }
+
+        // Reconnect modified MCPs
+        for (const name of modified) {
+          const idx = externalMCPs.findIndex((m) => m.name === name);
+          if (idx !== -1) {
+            // Clean up old clients
+            try {
+              const sdkClient = externalMCPSDKClients.get(name);
+              if (sdkClient) {
+                await sdkClient.close();
+                externalMCPSDKClients.delete(name);
+              }
+            } catch { /* ignore */ }
+            externalMCPClients.delete(name);
+            externalMCPs.splice(idx, 1);
+          }
+
+          // Reconnect with new config
+          const modConfig: PhotonConfig = {
+            photons: {},
+            mcpServers: { [name]: newServers[name] },
+          };
+          const reconnected = await loadExternalMCPs(modConfig);
+          externalMCPs.push(...reconnected);
+          logger.info(`🔌 Reconnected external MCP: ${name}`);
+        }
+
+        // Update savedConfig
+        savedConfig.mcpServers = newConfig.mcpServers || {};
+        savedConfig.photons = newConfig.photons || {};
+
+        broadcastPhotonChange();
+      }, 500);
+    });
+
+    configWatcher.on('error', (err: Error) => {
+      logger.warn(`Config watcher error: ${err.message}`);
+    });
+    watchers.push(configWatcher);
+    logger.info(`👀 Watching config.json for external MCP changes`);
+  } catch (error) {
+    logger.warn(`Config watching not available: ${error}`);
   }
 }
 
