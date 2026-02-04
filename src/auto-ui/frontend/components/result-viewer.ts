@@ -1903,29 +1903,45 @@ export class ResultViewer extends LitElement {
       return html`${text}`;
     }
 
-    // Render single object as vertical key-value table
+    // Separate scalar fields from nested arrays/objects
     const keys = Object.keys(data).filter((k) => data[k] !== undefined);
+    const scalarKeys = keys.filter((k) => !this._isNestedValue(data[k]));
+    const nestedKeys = keys.filter((k) => this._isNestedValue(data[k]));
 
     return html`
-      <table class="smart-table kv-table">
-        <thead>
-          <tr>
-            <th>Property</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${keys.map(
-            (key) => html`
-              <tr>
-                <td class="kv-key">${this._formatColumnName(key)}</td>
-                <td>${this._formatCellValue(data[key], key, true)}</td>
-              </tr>
-            `
-          )}
-        </tbody>
-      </table>
+      ${scalarKeys.length > 0 ? html`
+        <table class="smart-table kv-table">
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${scalarKeys.map(
+              (key) => html`
+                <tr>
+                  <td class="kv-key">${this._formatColumnName(key)}</td>
+                  <td>${this._formatCellValue(data[key], key, true)}</td>
+                </tr>
+              `
+            )}
+          </tbody>
+        </table>
+      ` : ''}
+      ${nestedKeys.map((key) => html`
+        <div style="margin-top:var(--space-sm);">
+          ${this._formatCellValue(data[key], key, true)}
+        </div>
+      `)}
     `;
+  }
+
+  /** Returns true for arrays of objects or large nested objects that deserve their own section */
+  private _isNestedValue(value: any): boolean {
+    if (Array.isArray(value) && value.length > 0 && value.some((v) => typeof v === 'object' && v !== null)) return true;
+    if (typeof value === 'object' && value !== null && Object.keys(value).length > 4) return true;
+    return false;
   }
 
   private _renderChips(data: any): TemplateResult {
