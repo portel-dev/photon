@@ -3517,7 +3517,7 @@ export class BeamApp extends LitElement {
           // Handle result if needed
           if (methodName === 'source' && data) {
             // Show source in a new window or modal
-            console.log('Source:', data);
+            // Source data handled by caller
           }
         }
       } catch (error) {
