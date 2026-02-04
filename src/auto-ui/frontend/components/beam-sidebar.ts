@@ -612,8 +612,10 @@ export class BeamSidebar extends LitElement {
     return filtered;
   }
 
-  private get _apps() {
-    return this._filteredPhotons.filter((p) => p.isApp);
+  private get _apps(): PhotonItem[] {
+    const photonApps = this._filteredPhotons.filter((p) => p.isApp);
+    const externalApps = this._filteredExternalMCPs.filter((m) => m.hasMcpApp);
+    return [...photonApps, ...externalApps];
   }
 
   private get _configured() {
@@ -638,6 +640,11 @@ export class BeamSidebar extends LitElement {
     }
 
     return filtered;
+  }
+
+  /** External MCPs that are NOT apps (apps go to _apps) */
+  private get _nonAppExternalMCPs() {
+    return this._filteredExternalMCPs.filter((m) => !m.hasMcpApp);
   }
 
   render() {
@@ -696,33 +703,33 @@ export class BeamSidebar extends LitElement {
 
         ${this._apps.length > 0
           ? html`
-              <div class="section-header" id="apps-header">Apps</div>
+              <div class="section-header" id="apps-header">APPS</div>
               <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
-                ${this._apps.map((photon) => this._renderPhotonItem(photon, 'app'))}
+                ${this._apps.map((photon) => photon.isExternalMCP ? this._renderExternalMCPItem(photon) : this._renderPhotonItem(photon, 'app'))}
               </ul>
             `
           : ''}
         ${this._configured.length > 0
           ? html`
-              <div class="section-header" id="mcps-header">MCPs</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
+              <div class="section-header" id="photons-header">PHOTONS</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="photons-header">
                 ${this._configured.map((photon) => this._renderPhotonItem(photon, 'configured'))}
               </ul>
             `
           : ''}
         ${this._needsSetup.length > 0
           ? html`
-              <div class="section-header" id="setup-header">Setup</div>
+              <div class="section-header" id="setup-header">SETUP PENDING</div>
               <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
                 ${this._needsSetup.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
               </ul>
             `
           : ''}
-        ${this._filteredExternalMCPs.length > 0
+        ${this._nonAppExternalMCPs.length > 0
           ? html`
-              <div class="section-header" id="external-mcps-header">External MCPs</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="external-mcps-header">
-                ${this._filteredExternalMCPs.map((mcp) => this._renderExternalMCPItem(mcp))}
+              <div class="section-header" id="mcps-header">MCPS</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
+                ${this._nonAppExternalMCPs.map((mcp) => this._renderExternalMCPItem(mcp))}
               </ul>
             `
           : ''}
