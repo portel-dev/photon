@@ -4,3 +4,4 @@ const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
 
 export const PHOTON_VERSION: string = pkg.version;
+export const PHOTON_CORE_VERSION: string = pkg.dependencies?.['@portel/photon-core'] || `^${pkg.version}`;

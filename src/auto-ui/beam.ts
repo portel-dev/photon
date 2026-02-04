@@ -678,9 +678,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Can't read source
     }
 
-    // Extract @internal early — outside try/catch so it's always available
-    if (source && /@internal\b/.test(source)) {
-      isInternal = true;
+    // Extract @internal from class-level JSDoc only (not the entire source,
+    // which would false-positive on method-level @internal tags)
+    if (source) {
+      const earlyMeta = extractClassMetadataFromSource(source);
+      if (earlyMeta.internal) {
+        isInternal = true;
+      }
     }
 
     try {
@@ -2674,7 +2678,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             appEntry: mainMethod,
             description: reloadClassMeta.description,
             icon: reloadClassMeta.icon,
-            internal: reloadClassMeta.internal || (/@internal\b/.test(reloadSource) || undefined),
+            internal: reloadClassMeta.internal,
             ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
           };
 
@@ -3181,7 +3185,7 @@ async function reloadPhotonViaMCP(
       appEntry: mainMethod,
       description: reloadClassMeta.description,
       icon: reloadClassMeta.icon,
-      internal: reloadClassMeta.internal || (/@internal\b/.test(reloadSrc) || undefined),
+      internal: reloadClassMeta.internal,
     };
 
     photons[photonIndex] = reloadedPhoton;

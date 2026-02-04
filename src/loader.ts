@@ -81,7 +81,7 @@ interface DependencySpec {
 }
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
-import { PHOTON_VERSION } from './version.js';
+import { PHOTON_VERSION, PHOTON_CORE_VERSION } from './version.js';
 
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
@@ -437,7 +437,7 @@ export class PhotonLoader {
         ) {
           dependencies.push({
             name: '@portel/photon-core',
-            version: `^${PHOTON_VERSION.split('.').slice(0, 2).join('.')}.0`,
+            version: PHOTON_CORE_VERSION,
           });
         }
 
