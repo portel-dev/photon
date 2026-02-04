@@ -226,6 +226,10 @@ export class FilePicker extends LitElement {
   @property({ type: String })
   photonName = '';
 
+  /** Placeholder text shown when input is empty */
+  @property({ type: String })
+  placeholder = '';
+
   @state()
   private _isOpen = false;
 
@@ -253,7 +257,7 @@ export class FilePicker extends LitElement {
           class="${this.hasError ? 'error' : ''}"
           .value=${this.value}
           @input=${this._handleInput}
-          placeholder="/path/to/file"
+          placeholder="${this.placeholder || '/path/to/file'}"
         />
         <button
           class="btn-secondary"

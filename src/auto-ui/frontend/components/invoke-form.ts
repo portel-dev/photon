@@ -824,6 +824,8 @@ export class InvokeForm extends LitElement {
 
     if (isFileBySchema || isFileByHeuristic) {
       const isDir = fmt === 'directory' || (!fmt && (lk.includes('dir') || lk.includes('folder')));
+      const defaultVal = (schema as any).default;
+      const placeholder = defaultVal ? String(defaultVal) : '';
       return html`
         <file-picker
           .value=${this._values[key] || ''}
@@ -831,6 +833,7 @@ export class InvokeForm extends LitElement {
           .accept=${schemaAccept}
           .mode=${isDir ? 'directory' : 'file'}
           .photonName=${this.photonName}
+          .placeholder=${placeholder}
           @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
         ></file-picker>
       `;
@@ -859,10 +862,13 @@ export class InvokeForm extends LitElement {
     }
 
     // Default -> Text Input
+    const defaultVal = (schema as any).default;
+    const placeholder = defaultVal != null ? String(defaultVal) : '';
     return html`
       <input
         type="text"
         class="${errorClass}"
+        placeholder="${placeholder}"
         .value=${this._values[key] || ''}
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       />
