@@ -2510,7 +2510,9 @@ export class ResultViewer extends LitElement {
 
   private _isImageUrl(value: any): boolean {
     if (typeof value !== 'string') return false;
-    return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(value) || value.startsWith('data:image/');
+    // Only match actual URLs, not bare file paths
+    if (!value.startsWith('http://') && !value.startsWith('https://') && !value.startsWith('data:image/')) return false;
+    return /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(value) || value.startsWith('data:image/');
   }
 
   private _getStatusClass(status: any): string {
