@@ -96,45 +96,56 @@ export class InvokeForm extends LitElement {
 
       .cli-preview {
         margin-top: var(--space-md);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
+        background: #000;
+        border: 1px solid #333;
         border-radius: 6px;
-        padding: 8px 12px;
+        padding: 12px 16px;
+        font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
       }
 
       .cli-preview-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
       }
 
       .cli-preview-label {
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--t-muted);
+        letter-spacing: 0.08em;
+        color: #666;
+        font-family: inherit;
       }
 
       .cli-preview-copy {
         font-size: 0.65rem;
+        font-family: inherit;
         background: none;
         border: none;
-        color: var(--accent-secondary);
+        color: #666;
         cursor: pointer;
-        padding: 0;
+        padding: 2px 6px;
+        border-radius: 3px;
+        transition: all 0.15s;
       }
 
       .cli-preview-copy:hover {
-        text-decoration: underline;
+        color: #aaa;
+        background: #1a1a1a;
       }
 
       .cli-preview-cmd {
-        font-family: var(--font-mono, monospace);
-        font-size: 0.78rem;
-        color: var(--t-muted);
+        font-family: inherit;
+        font-size: 0.85rem;
+        color: #22c55e;
         word-break: break-all;
-        line-height: 1.5;
+        line-height: 1.6;
+      }
+
+      .cli-preview-cmd::before {
+        content: '$ ';
+        color: #555;
       }
 
       button {
