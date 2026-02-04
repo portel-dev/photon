@@ -9,8 +9,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { autocompletion } from '@codemirror/autocomplete';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap } from '@codemirror/commands';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
@@ -354,13 +353,13 @@ export class PhotonStudio extends LitElement {
         basicSetup,
         javascript({ typescript: true }),
         isDark ? oneDark : lightTheme,
-        autocompletion({
-          override: [photonDocblockCompletions, photonFormatCompletions],
-        }),
-        history(),
+        // Add photon JSDoc completions via language data (merges with basicSetup's autocompletion)
+        EditorState.languageData.of(() => [
+          { autocomplete: photonDocblockCompletions },
+          { autocomplete: photonFormatCompletions },
+        ]),
         keymap.of([
           ...defaultKeymap,
-          ...historyKeymap,
           { key: 'Mod-s', run: () => { this._save(); return true; } },
           { key: 'Mod-p', run: () => { this._parse(); return true; }, preventDefault: true },
         ]),

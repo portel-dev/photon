@@ -1346,6 +1346,7 @@ export class BeamApp extends LitElement {
   @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' | 'mcp-app' | 'studio' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
+  private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
 
   // ... (existing code)
 
@@ -1376,6 +1377,10 @@ export class BeamApp extends LitElement {
 
     // Navigate to target photon and select the method
     this._selectedPhoton = target;
+    // Track if this is a creation action — open Studio after photon appears
+    if (action === 'new' || action === 'wizard') {
+      this._pendingStudioOpen = true;
+    }
     const method = target.methods?.find((m: any) => m.name === action);
     if (method) {
       this._selectedMethod = method;
@@ -1679,7 +1684,12 @@ export class BeamApp extends LitElement {
             if (newUserPhoton) {
               this._selectedPhoton = newUserPhoton;
               this._welcomePhase = 'welcome';
-              this._view = 'list';
+              if (this._pendingStudioOpen) {
+                this._pendingStudioOpen = false;
+                this._view = 'studio';
+              } else {
+                this._view = 'list';
+              }
               this._updateHash();
             }
           }
