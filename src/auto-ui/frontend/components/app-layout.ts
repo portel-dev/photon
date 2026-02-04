@@ -18,27 +18,21 @@ export class AppLayout extends LitElement {
         display: block;
       }
 
-      .app-viewport {
-        position: relative;
-        min-height: calc(100vh - 140px);
-        border-radius: var(--radius-md);
-        overflow: hidden;
+      .app-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        padding: var(--space-xs) var(--space-sm);
       }
 
       .fullscreen-btn {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        z-index: 10;
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         border-radius: 50%;
         background: var(--bg-glass);
-        backdrop-filter: blur(16px);
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 1rem;
+        font-size: 0.9rem;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -49,6 +43,12 @@ export class AppLayout extends LitElement {
         color: var(--t-primary);
         background: var(--bg-glass-strong);
         border-color: var(--accent-primary);
+      }
+
+      .app-viewport {
+        min-height: calc(100vh - 140px);
+        border-radius: var(--radius-md);
+        overflow: hidden;
       }
 
       .scroll-hint {
@@ -172,10 +172,13 @@ export class AppLayout extends LitElement {
     return html`
       ${this._poppedOut ? this._renderPopout() : ''}
 
-      <div class="app-viewport">
+      <div class="app-toolbar">
         <button class="fullscreen-btn" @click=${() => (this._poppedOut = true)} title="Full screen">
           ⛶
         </button>
+      </div>
+
+      <div class="app-viewport">
         <slot name="app"></slot>
       </div>
 
