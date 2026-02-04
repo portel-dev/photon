@@ -255,6 +255,10 @@ From bare class to rich application, each step adds a layer:
 | **4. Tags** | `@format`, `@dependencies`, inline tags | Validation, auto-install, rich rendering |
 | **5. Custom UI** | HTML template with `window.photon` | Full interactive application |
 
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon Ecosystem" width="600">
+</div>
+
 ---
 
 ## Beam
