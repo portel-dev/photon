@@ -91,6 +91,33 @@ export class ContextBar extends LitElement {
         text-overflow: ellipsis;
       }
 
+      .editable {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .edit-pencil {
+        opacity: 0;
+        cursor: pointer;
+        font-size: 0.7rem;
+        color: var(--t-muted);
+        transition: opacity 0.15s, color 0.15s;
+        padding: 2px 4px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      .editable:hover .edit-pencil {
+        opacity: 0.5;
+      }
+
+      .edit-pencil:hover {
+        opacity: 1 !important;
+        color: var(--accent-secondary);
+        background: var(--bg-glass);
+      }
+
       .separator {
         color: var(--t-muted);
         opacity: 0.4;
@@ -102,27 +129,10 @@ export class ContextBar extends LitElement {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        cursor: pointer;
-      }
-
-      .desc .edit-hint {
-        opacity: 0;
-        font-size: 0.7rem;
-        transition: opacity 0.15s;
-        margin-left: 4px;
-      }
-
-      .desc:hover .edit-hint {
-        opacity: 0.6;
       }
 
       .desc.placeholder {
         font-style: italic;
-      }
-
-      .desc.placeholder:hover,
-      .desc:hover {
-        color: var(--accent-secondary);
       }
 
       .meta {
@@ -265,6 +275,12 @@ export class ContextBar extends LitElement {
   overflowItems: OverflowMenuItem[] = [];
 
   @state()
+  private _editingName = false;
+
+  @state()
+  private _editedName = '';
+
+  @state()
   private _editingDescription = false;
 
   @state()
@@ -304,24 +320,37 @@ export class ContextBar extends LitElement {
                 </div>
                 <div class="info">
                   <div class="top-line">
-                    <span class="name">${p.name}</span>
+                    ${this._editingName
+                      ? html`<input
+                          style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-weight:600;font-size:0.95rem;outline:none;min-width:0;width:auto;"
+                          type="text"
+                          .value=${this._editedName}
+                          @input=${(e: Event) => { this._editedName = (e.target as HTMLInputElement).value; }}
+                          @blur=${this._saveName}
+                          @keydown=${this._handleNameKeydown}
+                          autofocus
+                        />`
+                      : html`<span class="editable">
+                          <span class="name">${p.name}</span>
+                          ${!p.isExternalMCP ? html`<span class="edit-pencil" @click=${this._startEditingName} title="Rename">✎</span>` : ''}
+                        </span>`}
                     <span class="separator">·</span>
                     ${this._editingDescription
                       ? html`<input
                           style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-size:0.8rem;outline:none;flex:1;min-width:0;"
                           type="text"
                           .value=${this._editedDescription}
+                          @input=${(e: Event) => { this._editedDescription = (e.target as HTMLInputElement).value; }}
                           placeholder="Add a description..."
                           @blur=${this._saveDescription}
                           @keydown=${this._handleDescriptionKeydown}
                           autofocus
                         />`
-                      : html`<span
-                          class="desc ${isGenericDesc ? 'placeholder' : ''}"
-                          @click=${this._startEditingDescription}
-                          title="Click to edit description"
-                        >
-                          ${isGenericDesc ? 'Add description...' : description}<span class="edit-hint">✎</span>
+                      : html`<span class="editable" style="flex:1;min-width:0;">
+                          <span class="desc ${isGenericDesc ? 'placeholder' : ''}" style="flex:1;min-width:0;">
+                            ${isGenericDesc ? 'Add description...' : description}
+                          </span>
+                          <span class="edit-pencil" @click=${this._startEditingDescription} title="Edit description">✎</span>
                         </span>`}
                   </div>
                   <div class="meta">
@@ -380,6 +409,32 @@ export class ContextBar extends LitElement {
 
   private _emitAction(action: string) {
     this._emit(action);
+  }
+
+  private _startEditingName() {
+    this._editedName = this.photon?.name || '';
+    this._editingName = true;
+    this.updateComplete.then(() => {
+      const input = this.shadowRoot?.querySelector('input') as HTMLInputElement;
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  private _handleNameKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      this._saveName();
+    } else if (e.key === 'Escape') {
+      this._editingName = false;
+    }
+  }
+
+  private _saveName() {
+    this._editingName = false;
+    const newName = this._editedName.trim();
+    const originalName = (this.photon?.name || '').trim();
+    if (!newName || newName === originalName) return;
+    this._emit('update-name', { name: newName });
   }
 
   private _startEditingDescription() {

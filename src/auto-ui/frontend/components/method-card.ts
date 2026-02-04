@@ -95,6 +95,33 @@ export class MethodCard extends LitElement {
         text-overflow: ellipsis;
       }
 
+      .editable {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .edit-pencil {
+        opacity: 0;
+        cursor: pointer;
+        font-size: 0.7rem;
+        color: var(--t-muted);
+        transition: opacity 0.15s, color 0.15s;
+        padding: 2px 4px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      .editable:hover .edit-pencil {
+        opacity: 0.5;
+      }
+
+      .edit-pencil:hover {
+        opacity: 1 !important;
+        color: var(--accent-secondary);
+        background: var(--bg-glass);
+      }
+
       .description {
         font-size: 0.9rem;
         color: var(--t-muted);
@@ -105,27 +132,10 @@ export class MethodCard extends LitElement {
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        cursor: text;
         padding: 4px 6px;
         margin: -4px -6px;
         margin-bottom: calc(var(--space-md) - 4px);
         border-radius: var(--radius-sm);
-        transition: background 0.15s ease;
-      }
-
-      .description:hover {
-        background: var(--bg-glass);
-      }
-
-      .description .edit-hint {
-        opacity: 0;
-        font-size: 0.75rem;
-        transition: opacity 0.15s;
-        margin-left: 4px;
-      }
-
-      .description:hover .edit-hint {
-        opacity: 0.5;
       }
 
       .description.placeholder {
@@ -418,7 +428,10 @@ export class MethodCard extends LitElement {
               >
                 ${hasIcon ? this.method.icon : initials}
               </div>
-              <h3 class="title">${this.method.name}</h3>
+              <span class="editable">
+                <h3 class="title">${this.method.name}</h3>
+                <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method">✎</span>
+              </span>
             </div>
             ${this.method.isTemplate
               ? html`<span class="badge prompt">Prompt</span>`
@@ -460,13 +473,12 @@ export class MethodCard extends LitElement {
                 </div>
               `
             : html`
-                <p
-                  class="description ${hasDescription ? '' : 'placeholder'}"
-                  @click=${this._handleDescriptionClick}
-                  title="Click to edit description"
-                >
-                  ${hasDescription ? this.method.description : 'Add description...'}<span class="edit-hint">✎</span>
-                </p>
+                <div class="editable" style="flex:1;">
+                  <p class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
+                    ${hasDescription ? this.method.description : 'Add description...'}
+                  </p>
+                  <span class="edit-pencil" @click=${this._handleDescriptionEditClick} title="Edit description">✎</span>
+                </div>
               `}
         </div>
         <button class="run-btn" @click=${this._handleRunClick}>Run ▸</button>
@@ -564,7 +576,21 @@ export class MethodCard extends LitElement {
     );
   }
 
-  private _handleDescriptionClick(e: Event) {
+  private _handleNameEditClick(e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent('edit-method-name', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          photonName: this.photonName,
+          methodName: this.method.name,
+        },
+      })
+    );
+  }
+
+  private _handleDescriptionEditClick(e: Event) {
     e.stopPropagation();
     this._editedDescription = this.method.description || '';
     this._editingDescription = true;
