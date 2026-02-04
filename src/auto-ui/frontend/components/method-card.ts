@@ -159,21 +159,22 @@ export class MethodCard extends LitElement {
 
       .run-btn {
         align-self: flex-start;
-        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-        border: none;
+        background: transparent;
+        border: 1px solid var(--accent-primary);
         padding: var(--space-sm) var(--space-lg);
         border-radius: var(--radius-sm);
-        color: white;
+        color: var(--accent-primary);
         font-weight: 500;
+        font-size: 0.85rem;
         cursor: pointer;
-        opacity: 0;
-        transform: translateY(10px);
         transition: all 0.2s ease;
       }
 
-      .card:hover .run-btn {
-        opacity: 1;
-        transform: translateY(0);
+      .card:hover .run-btn,
+      .run-btn:hover {
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        border-color: transparent;
+        color: white;
       }
 
       /* Emoji Picker */
@@ -231,10 +232,7 @@ export class MethodCard extends LitElement {
           min-height: 44px;
         }
 
-        /* Make run button always visible on touch devices */
         .run-btn {
-          opacity: 1;
-          transform: none;
           width: 100%;
         }
 
@@ -354,7 +352,7 @@ export class MethodCard extends LitElement {
                 </p>
               `}
         </div>
-        <button class="run-btn" @click=${this._handleRunClick}>Run Method</button>
+        <button class="run-btn" @click=${this._handleRunClick}>Run ▸</button>
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
       </div>
     `;
