@@ -2494,7 +2494,10 @@ export class ResultViewer extends LitElement {
       lower.endsWith('time') ||
       lower === 'created' ||
       lower === 'updated' ||
-      lower === 'timestamp'
+      lower === 'modified' ||
+      lower === 'timestamp' ||
+      lower === 'expires' ||
+      lower === 'since'
     );
   }
 
