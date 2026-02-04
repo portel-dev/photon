@@ -2824,92 +2824,121 @@ export class BeamApp extends LitElement {
         // Internal photons use custom-ui-renderer (photon bridge protocol)
         const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
 
-        return html`
-          ${!isAppMain
-            ? html`
-                <div style="margin-bottom: var(--space-md);">
-                  <button
-                    style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-                    @click=${() => this._handleBackFromMethod()}
-                  >
-                    ← Back to ${this._selectedPhoton.internal ? 'Marketplace' : this._selectedPhoton.isApp ? this._selectedPhoton.name : 'Methods'}
-                  </button>
+        const appRenderer = isExternalMCP
+          ? html`
+              <mcp-app-renderer
+                .mcpName=${this._selectedPhoton.name}
+                .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
+                .linkedTool=${this._selectedMethod.name}
+                .theme=${this._theme}
+                style="height: calc(100vh - 140px);"
+              ></mcp-app-renderer>
+            `
+          : html`
+              <custom-ui-renderer
+                .photon=${this._selectedPhoton.name}
+                .method=${this._selectedMethod.name}
+                .uiId=${this._selectedMethod.linkedUi}
+                .theme=${this._theme}
+                style="height: calc(100vh - 140px);"
+              ></custom-ui-renderer>
+            `;
+
+        // App-first layout for app main methods
+        if (isAppMain) {
+          return html`
+            <app-layout
+              .photonName=${this._selectedPhoton.name}
+              .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
+              .showBack=${false}
+              @app-back=${() => this._handleBackFromMethod()}
+            >
+              <div slot="app" style="min-height: calc(100vh - 140px);">
+                ${appRenderer}
+              </div>
+              <div slot="popout" style="height: 100%;">
+                ${isExternalMCP
+                  ? html`
+                      <mcp-app-renderer
+                        .mcpName=${this._selectedPhoton.name}
+                        .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
+                        .linkedTool=${this._selectedMethod.name}
+                        .theme=${this._theme}
+                        style="height: 100%;"
+                      ></mcp-app-renderer>
+                    `
+                  : html`
+                      <custom-ui-renderer
+                        .photon=${this._selectedPhoton.name}
+                        .method=${this._selectedMethod.name}
+                        .uiId=${this._selectedMethod.linkedUi}
+                        .theme=${this._theme}
+                        style="height: 100%;"
+                      ></custom-ui-renderer>
+                    `}
+              </div>
+              <div slot="below-fold">
+                ${otherMethods.length > 0
+                  ? html`
+                      <context-bar
+                        .photon=${this._selectedPhoton}
+                        .showEdit=${!!this._selectedPhoton.path && !isExternalMCP}
+                        .showConfigure=${false}
+                        .showCopyConfig=${false}
+                        .overflowItems=${this._buildOverflowItems({
+                          showRename: false,
+                          showViewSource: false,
+                          showDelete: false,
+                          showHelp: false,
+                          showRunTests: false,
+                        })}
+                        @context-action=${this._handleContextAction}
+                      ></context-bar>
+                      <div class="bento-methods">
+                        <h3 class="bento-section-title">Methods</h3>
+                        <div class="cards-grid">
+                          ${otherMethods.map(
+                            (method: any) => html`
+                              <method-card
+                                .method=${method}
+                                .photonName=${this._selectedPhoton.name}
+                                @select=${this._handleMethodSelect}
+                                @update-metadata=${this._handleMethodMetadataUpdate}
+                              ></method-card>
+                            `
+                          )}
+                        </div>
+                      </div>
+                    `
+                  : ''}
+                <div class="bento-bottom-grid">
+                  ${this._renderPromptsSection()} ${this._renderResourcesSection()}
                 </div>
-              `
-            : ''}
+              </div>
+            </app-layout>
+          `;
+        }
+
+        // Non-app linked UI — use breadcrumb context bar
+        return html`
+          <context-bar
+            .photon=${this._selectedPhoton}
+            .breadcrumbs=${[
+              { label: this._selectedPhoton.name, action: 'back' },
+              { label: this._selectedMethod.name },
+            ]}
+            .showEdit=${false}
+            .showConfigure=${false}
+            .showCopyConfig=${false}
+            .overflowItems=${[]}
+            @context-action=${this._handleContextAction}
+          ></context-bar>
           <div
             class="glass-panel"
-            style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px);"
+            style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); margin-top: var(--space-md);"
           >
-            ${isExternalMCP
-              ? html`
-                  <mcp-app-renderer
-                    .mcpName=${this._selectedPhoton.name}
-                    .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
-                    .linkedTool=${this._selectedMethod.name}
-                    .theme=${this._theme}
-                    style="height: calc(100vh - 80px);"
-                  ></mcp-app-renderer>
-                `
-              : html`
-                  <custom-ui-renderer
-                    .photon=${this._selectedPhoton.name}
-                    .method=${this._selectedMethod.name}
-                    .uiId=${this._selectedMethod.linkedUi}
-                    .theme=${this._theme}
-                    style="height: calc(100vh - 80px);"
-                  ></custom-ui-renderer>
-                `}
+            ${appRenderer}
           </div>
-
-          ${isAppMain && otherMethods.length > 0
-            ? html`
-                <div
-                  style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
-                >
-                  <div
-                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-lg);"
-                  >
-                    <div style="display: flex; align-items: center; gap: var(--space-sm);">
-                      <span style="font-size: 1.5rem;"
-                        >${this._selectedPhoton.appEntry?.icon || '📱'}</span
-                      >
-                      <h3 style="margin: 0; font-size: 1.2rem; color: var(--t-primary);">
-                        ${this._selectedPhoton.name}
-                      </h3>
-                    </div>
-                    ${this._renderActionToolbar({
-                      showLaunchApp: true,
-                      showReconfigure: false,
-                      showRememberValues: false,
-                      showRename: false,
-                      showViewSource: false,
-                      showDelete: false,
-                      showRemove: true,
-                      showHelp: false,
-                      showRunTests: false,
-                    })}
-                  </div>
-                  <h4
-                    style="color: var(--t-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; margin-bottom: var(--space-md);"
-                  >
-                    Methods
-                  </h4>
-                  <div class="cards-grid">
-                    ${otherMethods.map(
-                      (method: any) => html`
-                        <method-card
-                          .method=${method}
-                          .photonName=${this._selectedPhoton.name}
-                          @select=${this._handleMethodSelect}
-                          @update-metadata=${this._handleMethodMetadataUpdate}
-                        ></method-card>
-                      `
-                    )}
-                  </div>
-                </div>
-              `
-            : ''}
         `;
       }
 
