@@ -3521,6 +3521,9 @@ export class BeamApp extends LitElement {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
+    // Skip JSON-RPC messages for external MCPs — handled by AppBridge in mcp-app-renderer
+    if (msg?.jsonrpc === '2.0' && (this._selectedPhoton as any)?.isExternalMCP) return;
+
     // MCP Apps standard: JSON-RPC tools/call from iframes
     if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
       if (this._selectedPhoton && this._mcpReady) {

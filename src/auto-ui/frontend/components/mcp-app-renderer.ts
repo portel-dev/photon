@@ -4,17 +4,17 @@
  * This component renders MCP Apps from external MCPs (those configured in
  * ~/.photon/config.json mcpServers section that have ui:// resources).
  *
- * MCP Apps are self-contained HTML applications that communicate with the
- * host using the MCP Apps Extension postMessage protocol.
+ * Uses the official AppBridge + PostMessageTransport from @modelcontextprotocol/ext-apps
+ * for spec-compliant communication with MCP App iframes.
  *
  * @see https://modelcontextprotocol.github.io/ext-apps/api/
  */
 import { LitElement, html, css, PropertyValueMap, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { keyed } from 'lit/directives/keyed.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
+import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 
 @customElement('mcp-app-renderer')
 export class McpAppRenderer extends LitElement {
@@ -109,31 +109,23 @@ export class McpAppRenderer extends LitElement {
   @state() private _srcDoc = '';
   @state() private _loading = true;
   @state() private _error = '';
-  private _iframeRef: HTMLIFrameElement | null = null;
-  private _messageHandler: ((e: MessageEvent) => void) | null = null;
-  private _hasAutoInvoked = false;
-
-  connectedCallback() {
-    super.connectedCallback();
-    // Listen for messages from the MCP App iframe
-    this._messageHandler = this._handleIframeMessage.bind(this);
-    window.addEventListener('message', this._messageHandler);
-  }
+  private _bridge: AppBridge | null = null;
+  private _transport: PostMessageTransport | null = null;
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._messageHandler) {
-      window.removeEventListener('message', this._messageHandler);
-    }
     // Fire-and-forget teardown
     this.teardown().catch(() => {});
   }
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
-    // Update srcDoc with new color-scheme BEFORE render so keyed directive uses correct content
-    if (changedProperties.has('theme') && this._srcDoc) {
-      this._srcDoc = this._updateThemeInSrcDoc(this._srcDoc);
-      this._hasAutoInvoked = false; // Allow re-invocation after reload
+    // Send theme change to the app via AppBridge — no iframe recreation needed
+    if (changedProperties.has('theme') && this._bridge) {
+      const themeTokens = getThemeTokens(this.theme);
+      this._bridge.setHostContext({
+        theme: this.theme,
+        styles: { variables: themeTokens },
+      });
     }
   }
 
@@ -143,26 +135,19 @@ export class McpAppRenderer extends LitElement {
     }
   }
 
-  /**
-   * Update theme injection in existing srcDoc HTML
-   * Strips old injection and re-injects with new theme
-   */
-  private _updateThemeInSrcDoc(html: string): string {
-    // Strip existing theme injection
-    let cleanHtml = html
-      .replace(/<script id="__beam-theme-script">[\s\S]*?<\/script>/, '')
-      .replace(/<style id="__beam-theme">[^<]*<\/style>/, '');
-
-    // Re-inject with current theme
-    return this._injectThemeStyles(cleanHtml);
-  }
-
   private async _loadContent() {
     if (!this.mcpName || !this.appUri) return;
 
     this._loading = true;
     this._error = '';
     this._srcDoc = '';
+
+    // Tear down previous bridge
+    if (this._bridge) {
+      await this.teardown().catch(() => {});
+      this._bridge = null;
+      this._transport = null;
+    }
 
     try {
       // Fetch MCP App HTML from the backend endpoint
@@ -174,7 +159,7 @@ export class McpAppRenderer extends LitElement {
         throw new Error(`Failed to load MCP App: ${res.statusText} - ${errorBody}`);
       }
 
-      this._srcDoc = this._injectThemeStyles(await res.text());
+      this._srcDoc = await res.text();
     } catch (e: any) {
       this._error = e.message;
     } finally {
@@ -183,218 +168,88 @@ export class McpAppRenderer extends LitElement {
   }
 
   /**
-   * Inject theme overrides into srcdoc:
-   * 1. CSS color-scheme property
-   * 2. matchMedia override so apps using window.matchMedia get the correct theme
+   * Set up AppBridge when iframe loads
    */
-  private _injectThemeStyles(html: string): string {
-    const colorScheme = this.theme === 'light' ? 'light' : 'dark';
-    const isDark = this.theme !== 'light';
-
-    // Override matchMedia to return host theme for prefers-color-scheme queries
-    // Uses Object.defineProperty because MediaQueryList.matches is a read-only getter
-    const themeScript = `<script id="__beam-theme-script">
-(function() {
-  const hostTheme = '${colorScheme}';
-  const isDark = ${isDark};
-  const origMatchMedia = window.matchMedia.bind(window);
-  window.matchMedia = function(query) {
-    const mql = origMatchMedia(query);
-    if (query.includes('prefers-color-scheme')) {
-      const wantsDark = query.includes('dark');
-      const proxy = Object.create(mql);
-      Object.defineProperty(proxy, 'matches', { value: wantsDark ? isDark : !isDark, configurable: true });
-      Object.defineProperty(proxy, 'media', { value: query, configurable: true });
-      proxy.addEventListener = mql.addEventListener.bind(mql);
-      proxy.removeEventListener = mql.removeEventListener.bind(mql);
-      if (mql.addListener) proxy.addListener = mql.addListener.bind(mql);
-      if (mql.removeListener) proxy.removeListener = mql.removeListener.bind(mql);
-      return proxy;
-    }
-    return mql;
-  };
-})();
-</script>`;
-    const styleTag = `<style id="__beam-theme">:root { color-scheme: ${colorScheme}; }</style>`;
-    const injection = themeScript + styleTag;
-
-    // Insert after <head> tag - regular scripts run synchronously before type="module" scripts
-    if (html.includes('<head>')) {
-      return html.replace('<head>', `<head>${injection}`);
-    } else if (html.includes('<head ')) {
-      return html.replace(/<head[^>]*>/, (match) => `${match}${injection}`);
-    }
-    // Fallback: insert after DOCTYPE or at start
-    if (html.includes('<!DOCTYPE') || html.includes('<!doctype')) {
-      return html.replace(/<!DOCTYPE[^>]*>/i, (match) => `${match}${injection}`);
-    }
-    return injection + html;
-  }
-
   private _handleIframeLoad(e: Event) {
     const iframe = e.target as HTMLIFrameElement;
-    this._iframeRef = iframe;
     iframe.classList.add('ready');
 
-    // Send ui/initialize message to the MCP App
+    if (!iframe.contentWindow) return;
+
+    // Create AppBridge with null client — MCP client lives on backend, not browser
     const themeTokens = getThemeTokens(this.theme);
-    iframe.contentWindow?.postMessage(
+    this._bridge = new AppBridge(
+      null,
+      { name: 'Photon Beam', version: '1.0.0' },
+      { serverTools: {}, logging: {} },
       {
-        jsonrpc: '2.0',
-        method: 'ui/initialize',
-        params: {
-          hostContext: {
-            name: 'Photon Beam',
-            version: '1.0.0',
-            theme: this.theme,
-            styles: { variables: themeTokens },
-          },
-          hostCapabilities: {
-            toolCalling: true,
-            resourceReading: true,
-            elicitation: false,
-          },
-          containerDimensions: {
-            mode: 'responsive',
-            width: iframe.clientWidth,
-            height: iframe.clientHeight,
-          },
-          theme: themeTokens,
+        hostContext: {
+          theme: this.theme,
+          styles: { variables: themeTokens },
         },
-      },
-      '*'
+      }
     );
+
+    // Handle tool calls from the app — forward to our SSE-based mcpClient
+    this._bridge.oncalltool = async (params) => {
+      const toolName = `${this.mcpName}/${params.name}`;
+      const mcpResult = await mcpClient.callTool(toolName, params.arguments || {});
+      return {
+        content: mcpResult.content || [],
+        structuredContent: mcpResult.structuredContent,
+        isError: mcpResult.isError ?? false,
+      };
+    };
+
+    // Handle resource reads from the app
+    this._bridge.onreadresource = async (params) => {
+      const resource = await mcpClient.readResource(params.uri);
+      return {
+        contents: resource ? [resource] : [],
+      };
+    };
+
+    // Auto-invoke linked tool when the app signals it's initialized
+    this._bridge.oninitialized = () => {
+      if (this.linkedTool) {
+        this._autoInvokeLinkedTool();
+      }
+    };
+
+    // Create PostMessageTransport pointing at iframe's contentWindow
+    this._transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
+
+    // Connect bridge to transport
+    this._bridge.connect(this._transport).catch((err) => {
+      console.error('AppBridge connect failed:', err);
+    });
   }
 
   /**
-   * Handle messages from the MCP App iframe
-   * Implements MCP Apps Extension protocol
-   */
-  private async _handleIframeMessage(e: MessageEvent) {
-    // Check if the message comes from our iframe
-    const iframe = this.shadowRoot?.querySelector('iframe');
-    if (!iframe || e.source !== iframe.contentWindow) {
-      return;
-    }
-
-    // Update iframe ref if it changed (can happen with srcdoc)
-    if (this._iframeRef !== iframe) {
-      this._iframeRef = iframe;
-    }
-
-    const msg = e.data;
-    if (!msg?.jsonrpc || msg.jsonrpc !== '2.0') return;
-
-    // Handle app's ui/initialize request (app announcing itself)
-    if (msg.method === 'ui/initialize' && msg.id !== undefined) {
-      this._iframeRef.contentWindow?.postMessage(
-        {
-          jsonrpc: '2.0',
-          id: msg.id,
-          result: {
-            protocolVersion: '2026-01-26',
-            hostInfo: {
-              name: 'Photon Beam',
-              version: '1.0.0',
-            },
-            hostCapabilities: {
-              toolCalling: true,
-              resourceReading: true,
-              elicitation: false,
-            },
-            hostContext: {
-              theme: this.theme,
-            },
-          },
-        },
-        '*'
-      );
-
-      // Auto-invoke the linked tool to provide initial data to the app
-      // This is needed for MCP Apps that expect an initial tool result on load
-      // Delay slightly to ensure the app has fully initialized
-      if (this.linkedTool && !this._hasAutoInvoked) {
-        this._hasAutoInvoked = true;
-        setTimeout(() => this._autoInvokeLinkedTool(), 100);
-      }
-      return;
-    }
-
-    // Note: tools/call is handled by BeamApp._handleBridgeMessage (beam-app.ts)
-    // which returns proper CallToolResult format for external MCPs
-
-    // Handle resource read requests
-    if (msg.method === 'resources/read') {
-      const { uri } = msg.params || {};
-      try {
-        const resource = await mcpClient.readResource(uri);
-        this._iframeRef.contentWindow?.postMessage(
-          {
-            jsonrpc: '2.0',
-            id: msg.id,
-            result: resource,
-          },
-          '*'
-        );
-      } catch (error: any) {
-        this._iframeRef.contentWindow?.postMessage(
-          {
-            jsonrpc: '2.0',
-            id: msg.id,
-            error: {
-              code: -32000,
-              message: error.message || 'Resource read failed',
-            },
-          },
-          '*'
-        );
-      }
-    }
-  }
-
-  /**
-   * Send ui/resource-teardown to iframe and wait for response
+   * Send ui/resource-teardown to the app and close bridge
    */
   async teardown(): Promise<void> {
-    if (!this._iframeRef?.contentWindow) return;
-
-    const callId = `teardown_${Date.now()}`;
-    return new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 3000);
-      const handler = (e: MessageEvent) => {
-        const msg = e.data;
-        if (msg?.jsonrpc === '2.0' && msg?.id === callId && !msg.method) {
-          clearTimeout(timeout);
-          window.removeEventListener('message', handler);
-          resolve();
-        }
-      };
-      window.addEventListener('message', handler);
-
-      this._iframeRef!.contentWindow!.postMessage(
-        { jsonrpc: '2.0', id: callId, method: 'ui/resource-teardown', params: {} },
-        '*'
-      );
-    });
+    if (!this._bridge) return;
+    try {
+      await this._bridge.teardownResource({}, { timeout: 3000 });
+    } catch {
+      // Teardown is best-effort
+    }
+    await this._transport?.close().catch(() => {});
+    this._bridge = null;
+    this._transport = null;
   }
 
   /**
    * Send a tool result to the MCP App (e.g., after invoking a tool)
    */
   sendToolResult(toolName: string, result: any) {
-    if (!this._iframeRef?.contentWindow) return;
-
-    this._iframeRef.contentWindow.postMessage(
-      {
-        jsonrpc: '2.0',
-        method: 'ui/notifications/tool-result',
-        params: {
-          toolName,
-          result,
-        },
-      },
-      '*'
-    );
+    if (!this._bridge) return;
+    this._bridge.sendToolResult({
+      content: result.content || [],
+      structuredContent: result.structuredContent,
+      isError: result.isError ?? false,
+    });
   }
 
   /**
@@ -402,26 +257,18 @@ export class McpAppRenderer extends LitElement {
    * This is needed for apps that expect an initial tool result on load
    */
   private async _autoInvokeLinkedTool() {
-    if (!this.linkedTool || !this._iframeRef?.contentWindow) return;
+    if (!this.linkedTool || !this._bridge) return;
 
     try {
       const fullToolName = `${this.mcpName}/${this.linkedTool}`;
       const result = await mcpClient.callTool(fullToolName, {});
 
-      // Send result to app via ontoolresult notification
-      // Per MCP Apps spec, params is CallToolResult directly (not wrapped)
-      this._iframeRef.contentWindow.postMessage(
-        {
-          jsonrpc: '2.0',
-          method: 'ui/notifications/tool-result',
-          params: {
-            content: result.content,
-            structuredContent: result.structuredContent,
-            isError: result.isError,
-          },
-        },
-        '*'
-      );
+      // Send result to app via AppBridge
+      this._bridge.sendToolResult({
+        content: result.content,
+        structuredContent: result.structuredContent,
+        isError: result.isError,
+      });
     } catch (error) {
       console.error('Failed to auto-invoke linked tool:', error);
     }
@@ -442,17 +289,12 @@ export class McpAppRenderer extends LitElement {
       return html`<div class="loading">Loading MCP App...</div>`;
     }
 
-    // Use keyed directive to force iframe recreation when theme changes
-    // This ensures apps using matchMedia get the correct color-scheme on reload
-    return keyed(
-      this.theme,
-      html`
-        <iframe
-          srcdoc=${this._srcDoc}
-          sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
-          @load=${this._handleIframeLoad}
-        ></iframe>
-      `
-    );
+    return html`
+      <iframe
+        srcdoc=${this._srcDoc}
+        sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
+        @load=${this._handleIframeLoad}
+      ></iframe>
+    `;
   }
 }
