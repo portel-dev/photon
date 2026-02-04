@@ -2417,9 +2417,69 @@ export class ResultViewer extends LitElement {
       return html`<span class="status-badge ${this._getStatusClass(value)}">${value}</span>`;
     }
 
-    if (typeof value === 'object') {
-      const str = JSON.stringify(value);
-      return highlight ? this._highlightText(str) : str;
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '—';
+      // Array of primitives → inline chips
+      if (value.every((v) => typeof v !== 'object' || v === null)) {
+        return html`<span style="display:flex;flex-wrap:wrap;gap:3px;">${value.map(
+          (v) => html`<span style="font-size:0.75rem;padding:1px 6px;border-radius:3px;background:hsla(220,10%,80%,0.08);color:var(--t-muted);font-family:var(--font-mono);">${String(v)}</span>`
+        )}</span>`;
+      }
+      // Array of objects → collapsible nested table
+      const nodeKey = `cell-${key}`;
+      const isExpanded = this._expandedNodes.has(nodeKey);
+      const columns = Object.keys(value[0]).filter((k) => value[0][k] !== undefined);
+      return html`
+        <div>
+          <button
+            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
+            @click=${(e: Event) => { e.stopPropagation(); this._toggleNode(nodeKey); }}
+          >${isExpanded ? '▾' : '▸'} ${value.length} items</button>
+          ${isExpanded ? html`
+            <table class="smart-table" style="margin-top:6px;font-size:0.8rem;">
+              <thead><tr>${columns.map((c) => html`<th style="white-space:nowrap;">${this._formatColumnName(c)}</th>`)}</tr></thead>
+              <tbody>
+                ${value.slice(0, 100).map((row) => html`
+                  <tr>${columns.map((c) => html`<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this._formatCellValue(row[c], c, highlight)}</td>`)}</tr>
+                `)}
+                ${value.length > 100 ? html`<tr><td colspan="${columns.length}" style="text-align:center;color:var(--t-muted);font-style:italic;">…and ${value.length - 100} more</td></tr>` : ''}
+              </tbody>
+            </table>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      // Single nested object → inline key-value pairs
+      const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+      if (entries.length <= 4) {
+        return html`<span style="display:flex;flex-wrap:wrap;gap:4px 10px;">${entries.map(
+          ([k, v]) => html`<span><span style="color:var(--t-muted);font-size:0.75rem;text-transform:uppercase;">${k}</span> <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span></span>`
+        )}</span>`;
+      }
+      const nodeKey = `cell-${key}`;
+      const isExpanded = this._expandedNodes.has(nodeKey);
+      return html`
+        <div>
+          <button
+            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
+            @click=${(e: Event) => { e.stopPropagation(); this._toggleNode(nodeKey); }}
+          >${isExpanded ? '▾' : '▸'} ${entries.length} fields</button>
+          ${isExpanded ? html`
+            <table class="smart-table kv-table" style="margin-top:6px;font-size:0.8rem;max-width:100%;">
+              <tbody>
+                ${entries.map(([k, v]) => html`
+                  <tr>
+                    <td class="kv-key">${this._formatColumnName(k)}</td>
+                    <td>${this._formatCellValue(v, k, highlight)}</td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          ` : ''}
+        </div>
+      `;
     }
 
     const str = String(value);
