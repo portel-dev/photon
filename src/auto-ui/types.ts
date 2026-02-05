@@ -32,8 +32,6 @@ export interface ConfigParam {
   hasDefault: boolean;
   /** The default value if present */
   defaultValue?: unknown;
-  /** True if param has @persist tag — shown in settings UI */
-  isPersisted?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -128,8 +126,6 @@ export interface PhotonInfo {
   installSource?: { marketplace: string; installedAt?: string };
   /** Constructor parameters (available for reconfiguration) */
   requiredParams?: ConfigParam[];
-  /** True if photon has settings (params with @persist tag) */
-  hasSettings?: boolean;
 }
 
 /**

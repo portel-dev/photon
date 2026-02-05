@@ -17,8 +17,6 @@ interface PhotonItem {
   path?: string;
   /** Why this photon needs attention */
   errorReason?: 'missing-config' | 'load-error';
-  /** True if photon has settings (params with @persist tag) */
-  hasSettings?: boolean;
   // External MCP fields
   isExternalMCP?: boolean;
   connected?: boolean;
@@ -502,30 +500,6 @@ export class BeamSidebar extends LitElement {
         opacity: 1;
       }
 
-      .settings-btn {
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 2px;
-        font-size: 0.85rem;
-        opacity: 0.3;
-        transition: all 0.2s;
-        flex-shrink: 0;
-      }
-
-      .settings-btn:hover {
-        opacity: 0.9;
-        transform: scale(1.1);
-      }
-
-      .photon-item .settings-btn {
-        opacity: 0.2;
-      }
-
-      .photon-item:hover .settings-btn {
-        opacity: 0.6;
-      }
-
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .header {
@@ -825,17 +799,6 @@ export class BeamSidebar extends LitElement {
     );
   }
 
-  private _openSettings(e: Event, photonName: string) {
-    e.stopPropagation(); // Don't select the photon
-    this.dispatchEvent(
-      new CustomEvent('open-settings', {
-        detail: { photonName },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
   private _renderPhotonItem(photon: PhotonItem, type: 'app' | 'configured' | 'unconfigured') {
     const methodCount = photon.methods?.length || 0;
     const isApp = type === 'app';
@@ -876,18 +839,6 @@ export class BeamSidebar extends LitElement {
         >
           ${isFavorited ? '⭐' : '☆'}
         </button>
-        ${photon.hasSettings && !isUnconfigured
-          ? html`
-              <button
-                class="settings-btn"
-                @click=${(e: Event) => this._openSettings(e, photon.name)}
-                title="Settings"
-                aria-label="Open ${photon.name} settings"
-              >
-                ⚙️
-              </button>
-            `
-          : ''}
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
           ? photon.errorReason === 'load-error'
