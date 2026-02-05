@@ -1289,8 +1289,17 @@ program
       }
 
       // Handle shutdown signals
-      const shutdown = () => {
+      const shutdown = async () => {
         console.error('\nShutting down Photon Beam...');
+
+        // Gracefully close external MCP clients to prevent ugly tracebacks
+        try {
+          const { stopBeam } = await import('./auto-ui/beam.js');
+          await stopBeam();
+        } catch {
+          // Ignore cleanup errors
+        }
+
         process.exit(0);
       };
 

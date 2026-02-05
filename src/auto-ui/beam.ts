@@ -3662,3 +3662,31 @@ async function generatePhotonHelpMarkdown(
 
   return markdown;
 }
+
+/**
+ * Gracefully stop Beam server and clean up resources.
+ * Closes all external MCP SDK clients to prevent ugly tracebacks on shutdown.
+ */
+export async function stopBeam(): Promise<void> {
+  // Close all SDK clients gracefully
+  const closePromises: Promise<void>[] = [];
+
+  for (const [, client] of externalMCPSDKClients) {
+    closePromises.push(
+      client.close().catch(() => {
+        // Ignore close errors - process is exiting anyway
+      })
+    );
+  }
+
+  // Wait for all clients to close (with timeout)
+  if (closePromises.length > 0) {
+    await Promise.race([
+      Promise.all(closePromises),
+      new Promise<void>((resolve) => setTimeout(resolve, 1000)), // 1 second timeout
+    ]);
+  }
+
+  externalMCPSDKClients.clear();
+  externalMCPClients.clear();
+}
