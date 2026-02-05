@@ -2180,9 +2180,13 @@ export class PhotonServer {
 
     // Reasonable minimums, maximums, and padding
     width = Math.max(width, 600) + 32;
-    height = Math.max(height, 400);
-    // Cap height to fit in chat window - UI has internal scrolling
-    height = Math.min(height, 800);
+    // Force minimum height for kanban-style boards
+    // header(120) + column headers(50) + 3-4 cards(450) = 620
+    if (columns.length > 0) {
+      height = Math.max(height, 620);
+    } else {
+      height = Math.max(height, 400);
+    }
 
     postToHost({
       jsonrpc: '2.0',
