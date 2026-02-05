@@ -632,17 +632,47 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
   // Apply initial theme
   applyThemeTokens();
 
-  // Notify host that bridge is ready
+  // Notify host that bridge is ready (Photon/BEAM protocol)
   postToHost({ type: 'photon:ready' });
 
   // Request persisted state from host
   postToHost({ type: 'photon:get-state' });
 
-  // Also send MCP Apps ready (JSON-RPC style)
+  // MCP Apps Extension: Send ui/initialize REQUEST and handle response
+  // This is the official handshake required by Claude Desktop and other MCP Apps hosts
+  var initCallId = generateCallId();
+  pendingCalls[initCallId] = {
+    resolve: function(result) {
+      // Store host context from response
+      if (result.hostContext) {
+        Object.assign(ctx, result.hostContext);
+        if (result.hostContext.theme) ctx.theme = result.hostContext.theme;
+        if (result.hostContext.styles && result.hostContext.styles.variables) {
+          themeTokens = result.hostContext.styles.variables;
+        }
+        applyThemeTokens();
+      }
+      // Send ui/notifications/initialized to complete handshake
+      postToHost({
+        jsonrpc: '2.0',
+        method: 'ui/notifications/initialized',
+        params: {}
+      });
+    },
+    reject: function(err) {
+      console.error('MCP Apps init failed:', err);
+    }
+  };
+
   postToHost({
     jsonrpc: '2.0',
-    method: 'ui/ready',
-    params: {}
+    id: initCallId,
+    method: 'ui/initialize',
+    params: {
+      appInfo: { name: ctx.photon || 'photon-app', version: '1.0.0' },
+      appCapabilities: {},
+      protocolVersion: '2026-01-26'
+    }
   });
 
 })();
