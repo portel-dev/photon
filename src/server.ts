@@ -2088,6 +2088,10 @@ export class PhotonServer {
         } else {
           toolResult = result;
         }
+        // Set __PHOTON_DATA__ for UIs that read it at init
+        window.__PHOTON_DATA__ = toolResult;
+        // Dispatch event for UIs to re-initialize with new data
+        window.dispatchEvent(new CustomEvent('photon:data-ready', { detail: toolResult }));
         resultListeners.forEach(function(cb) { cb(toolResult); });
       }
 
@@ -2136,9 +2140,26 @@ export class PhotonServer {
 
   // Size notification helper
   function sendSizeChanged() {
+    var body = document.body;
     var root = document.documentElement;
-    var width = Math.max(root.scrollWidth, 800);
-    var height = Math.max(root.scrollHeight, 600);
+    // Calculate actual content dimensions
+    var width = Math.max(
+      body.scrollWidth,
+      body.offsetWidth,
+      root.clientWidth,
+      root.scrollWidth,
+      root.offsetWidth
+    );
+    var height = Math.max(
+      body.scrollHeight,
+      body.offsetHeight,
+      root.clientHeight,
+      root.scrollHeight,
+      root.offsetHeight
+    );
+    // Add some padding for comfortable display
+    width = Math.max(width, 400);
+    height = Math.max(height, 300);
     postToHost({
       jsonrpc: '2.0',
       method: 'ui/notifications/size-changed',
