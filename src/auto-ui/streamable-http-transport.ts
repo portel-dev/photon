@@ -941,21 +941,37 @@ const handlers: Record<string, RequestHandler> = {
       // Handle async generators (when not using loader)
       if (result && typeof result[Symbol.asyncIterator] === 'function') {
         const chunks: any[] = [];
-        for await (const chunk of result) {
-          if (chunk.emit === 'result') {
-            chunks.push(chunk.data);
-          } else if (chunk.emit === 'board-update' && ctx.broadcast) {
+        let returnValue: any = undefined;
+
+        // Manually iterate to capture both yielded values AND the return value
+        // Note: for-await-of doesn't capture return values, only yielded values
+        const iterator = result[Symbol.asyncIterator]();
+        while (true) {
+          const { value, done } = await iterator.next();
+          if (done) {
+            // Generator returned - capture the return value
+            returnValue = value;
+            break;
+          }
+          // Process yielded values
+          if (value?.emit === 'result') {
+            chunks.push(value.data);
+          } else if (value?.emit === 'board-update' && ctx.broadcast) {
             // Forward board-update from generator
             ctx.broadcast({
               type: 'board-update',
               photon: photonName,
-              board: chunk.board,
+              board: value.board,
             });
-          } else if (chunk.emit !== 'progress') {
-            chunks.push(chunk);
+          } else if (value?.emit !== 'progress') {
+            chunks.push(value);
           }
         }
-        const finalResult = chunks.length === 1 ? chunks[0] : chunks;
+
+        // Use return value if no chunks were yielded, otherwise use chunks
+        const finalResult = chunks.length > 0
+          ? (chunks.length === 1 ? chunks[0] : chunks)
+          : returnValue;
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
