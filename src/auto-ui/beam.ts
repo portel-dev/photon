@@ -902,6 +902,17 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       photonMCPs.set(name, mcp);
       backfillEnvDefaults(instance, constructorParams);
 
+      // Re-apply saved configure() params on startup
+      const photonSavedConfig = savedConfig.photons[name];
+      if (photonSavedConfig && typeof instance.configure === 'function') {
+        try {
+          await instance.configure(photonSavedConfig);
+          logger.info(`🔧 ${name}: replayed saved configure()`);
+        } catch (configErr) {
+          logger.warn(`⚠️ ${name}: configure() replay failed: ${configErr instanceof Error ? configErr.message : configErr}`);
+        }
+      }
+
       // Extract schema for UI — reuse source read from above
       const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
       const { tools: schemas, templates } = extractor.extractAllFromSource(schemaSource);
@@ -2733,6 +2744,17 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
           photonMCPs.set(photonName, mcp);
 
+          // Re-apply saved configure() params after reload
+          const reloadSavedConfig = savedConfig.photons[photonName];
+          if (reloadSavedConfig && typeof mcp.instance.configure === 'function') {
+            try {
+              await mcp.instance.configure(reloadSavedConfig);
+              logger.info(`🔧 ${photonName}: replayed saved configure() after reload`);
+            } catch (configErr) {
+              logger.warn(`⚠️ ${photonName}: configure() replay failed: ${configErr instanceof Error ? configErr.message : configErr}`);
+            }
+          }
+
           // Re-extract schema - use extractAllFromSource to get both tools and templates
           const extractor = new SchemaExtractor();
           const reloadSource = await fs.readFile(photonPath, 'utf-8');
@@ -3262,6 +3284,16 @@ async function configurePhotonViaMCP(
 
     photonMCPs.set(photonName, mcp);
     backfillEnvDefaults(instance, unconfiguredPhoton.requiredParams || []);
+
+    // Apply configure() with saved params on the new instance
+    if (typeof instance.configure === 'function') {
+      try {
+        await instance.configure(config);
+        logger.info(`🔧 ${photonName}: called configure() with saved params`);
+      } catch (configErr) {
+        logger.warn(`⚠️ ${photonName}: configure() failed: ${configErr instanceof Error ? configErr.message : configErr}`);
+      }
+    }
 
     // Extract schema for UI
     const extractor = new SchemaExtractor();
