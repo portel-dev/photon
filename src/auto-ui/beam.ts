@@ -343,6 +343,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
             args: serverConfig.args,
             cwd: serverConfig.cwd,
             env: serverConfig.env,
+            stderr: 'ignore', // Suppress stderr to avoid ugly tracebacks on shutdown
           });
           const sdkClient = new Client(
             { name: 'beam-mcp-client', version: '1.0.0' },
