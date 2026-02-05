@@ -343,6 +343,47 @@ export default class UserManager {
 }
 ```
 
+## Constructor Parameter Tags
+
+These tags are placed in the constructor's JSDoc comment to control parameter behavior.
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@persist` | Marks a parameter for settings UI visibility. | `@persist projectsRoot` |
+
+### The `@persist` Tag
+
+The `@persist` tag marks constructor parameters as user-configurable settings that should be shown in Beam's settings UI. When a photon has parameters with `@persist`, a ⚙️ settings icon appears in the sidebar.
+
+```typescript
+export default class Kanban {
+  /**
+   * @persist projectsRoot
+   * @persist wipLimit
+   */
+  constructor(
+    private projectsRoot: string = os.homedir(),
+    private wipLimit: number = 5
+  ) {}
+}
+```
+
+**How it works:**
+
+1. Photon loads normally using defaults on first run
+2. Sidebar shows ⚙️ icon on photons with persisted params
+3. User clicks ⚙️ → settings form appears pre-filled with current values
+4. On submit → Beam saves values to `~/.photon/config.json`, sets env vars, reloads photon
+5. On restart → Beam reads config.json, sets env vars, values are injected into constructor
+
+**Format detection:**
+
+Persisted parameters inherit the same format detection as regular constructor parameters:
+- Parameter named `*Root`, `*Path`, `*Dir` → file picker in UI
+- Parameter named `*Key`, `*Secret`, `*Token` → masked password input
+- Boolean type → checkbox
+- Numeric type → number input
+
 ## MCP Configuration Schema
 
 When connecting via MCP (Streamable HTTP transport), Photon exposes configuration requirements in the `initialize` response. This allows MCP clients like Claude Desktop to prompt users for missing configuration values.

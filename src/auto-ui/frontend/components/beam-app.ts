@@ -2418,6 +2418,15 @@ export class BeamApp extends LitElement {
               this._view = 'studio';
             }
           }}
+          @open-settings=${(e: CustomEvent) => {
+            const photon = this._photons.find((p: any) => p.name === e.detail.photonName);
+            if (photon) {
+              this._selectedPhoton = photon;
+              this._configMode = 'edit';
+              this._view = 'config';
+              this._updateHash();
+            }
+          }}
         ></beam-sidebar>
       </div>
 

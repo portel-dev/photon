@@ -891,6 +891,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             isOptional: p.isOptional,
             hasDefault: p.hasDefault,
             defaultValue: p.defaultValue,
+            isPersisted: p.isPersisted,
           }));
 
         // Extract @ui template path from class-level JSDoc
@@ -1071,6 +1072,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         promptCount,
         installSource,
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
+        ...(constructorParams.some((p) => p.isPersisted) && { hasSettings: true }),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2757,6 +2759,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 isOptional: p.isOptional,
                 hasDefault: p.hasDefault,
                 defaultValue: p.defaultValue,
+                isPersisted: p.isPersisted,
               }));
           } catch {
             // Can't extract params, try to load anyway
@@ -2856,6 +2859,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 isOptional: p.isOptional,
                 hasDefault: p.hasDefault,
                 defaultValue: p.defaultValue,
+                isPersisted: p.isPersisted,
               }));
           } catch {
             // Can't extract params
@@ -2875,6 +2879,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             icon: reloadClassMeta.icon,
             internal: reloadClassMeta.internal,
             ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
+            ...(reloadConstructorParams.some((p) => p.isPersisted) && { hasSettings: true }),
           };
 
           if (isNewPhoton) {
@@ -2907,6 +2912,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                   isOptional: p.isOptional,
                   hasDefault: p.hasDefault,
                   defaultValue: p.defaultValue,
+                  isPersisted: p.isPersisted,
                 }));
             } catch {
               // Ignore extraction errors
