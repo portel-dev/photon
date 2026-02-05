@@ -2816,20 +2816,22 @@ export class BeamApp extends LitElement {
                 <h4 style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);">
                   Available Tools
                 </h4>
-                ${this._selectedPhoton.methods.map(
-                  (method: any) => html`
-                    <method-card
-                      .method=${method}
-                      .photonName=${this._selectedPhoton.name}
-                      .selected=${this._selectedMethod?.name === method.name}
-                      @select=${(e: CustomEvent) => {
-                        this._selectedMethod = e.detail.method;
-                        this._view = 'form';
-                        this._updateHash();
-                      }}
-                    ></method-card>
-                  `
-                )}
+                <div class="cards-grid">
+                  ${this._selectedPhoton.methods.map(
+                    (method: any) => html`
+                      <method-card
+                        .method=${method}
+                        .photonName=${this._selectedPhoton.name}
+                        .selected=${this._selectedMethod?.name === method.name}
+                        @select=${(e: CustomEvent) => {
+                          this._selectedMethod = e.detail.method;
+                          this._view = 'form';
+                          this._updateHash();
+                        }}
+                      ></method-card>
+                    `
+                  )}
+                </div>
               </div>
             `
           : ''}
