@@ -433,17 +433,24 @@ export class MethodCard extends LitElement {
               ? html`<span class="badge prompt">Prompt</span>`
               : (() => {
                   const props = this.method.params?.properties || {};
-                  const paramNames = Object.keys(props);
-                  const count = paramNames.length;
+                  const count = Object.keys(props).length;
                   if (count === 0) {
                     return html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`;
-                  } else if (count <= 3) {
-                    return html`<span class="param-tags">${paramNames.map(n => html`<span class="param-tag">${n}</span>`)}</span>`;
-                  } else {
-                    return html`<span class="param-tags">${paramNames.slice(0, 2).map(n => html`<span class="param-tag">${n}</span>`)}<span class="param-count">+${count - 2}</span></span>`;
                   }
+                  return '';
                 })()}
           </div>
+          ${!this.method.isTemplate ? (() => {
+            const props = this.method.params?.properties || {};
+            const paramNames = Object.keys(props);
+            const count = paramNames.length;
+            if (count === 0) return '';
+            if (count <= 4) {
+              return html`<div class="param-tags">${paramNames.map(n => html`<span class="param-tag">${n}</span>`)}</div>`;
+            } else {
+              return html`<div class="param-tags">${paramNames.slice(0, 3).map(n => html`<span class="param-tag">${n}</span>`)}<span class="param-count">+${count - 3}</span></div>`;
+            }
+          })() : ''}
           ${isTyped ? html`
             <div class="type-badges">
               ${isAutorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
