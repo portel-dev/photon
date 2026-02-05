@@ -2134,6 +2134,18 @@ export class PhotonServer {
     invoke: function(name, args) { return window.photon.callTool(name, args); }
   };
 
+  // Size notification helper
+  function sendSizeChanged() {
+    var root = document.documentElement;
+    var width = Math.max(root.scrollWidth, 800);
+    var height = Math.max(root.scrollHeight, 600);
+    postToHost({
+      jsonrpc: '2.0',
+      method: 'ui/notifications/size-changed',
+      params: { width: width, height: height }
+    });
+  }
+
   // MCP Apps handshake: send ui/initialize and wait for response
   var initId = generateCallId();
   pendingCalls[initId] = {
@@ -2145,6 +2157,14 @@ export class PhotonServer {
       }
       // Complete handshake
       postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+
+      // Set up size notifications after handshake
+      setTimeout(sendSizeChanged, 100);
+      var resizeObserver = new ResizeObserver(function() {
+        sendSizeChanged();
+      });
+      resizeObserver.observe(document.documentElement);
+      resizeObserver.observe(document.body);
     },
     reject: function(err) { console.error('MCP Apps init failed:', err); }
   };
