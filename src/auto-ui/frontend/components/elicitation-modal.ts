@@ -562,12 +562,38 @@ export class ElicitationModal extends LitElement {
   }
 
   private _renderForm() {
-    const fields = this.data?.fields || [];
+    // Support both direct fields array and JSON Schema format
+    let fields = this.data?.fields || [];
+
+    // Convert JSON Schema to fields array if schema is provided
+    if (fields.length === 0 && this.data?.schema?.properties) {
+      const schema = this.data.schema;
+      const required = new Set(schema.required || []);
+      fields = Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
+        name,
+        label: prop.title || name,
+        type: prop.type === 'number' ? 'number' : 'text',
+        required: required.has(name),
+        default: prop.default,
+        placeholder: prop.description,
+      }));
+
+      // Initialize form values with defaults
+      if (Object.keys(this._formValues).length === 0) {
+        const defaults: Record<string, any> = {};
+        for (const field of fields) {
+          if (field.default !== undefined) {
+            defaults[field.name] = field.default;
+          }
+        }
+        this._formValues = defaults;
+      }
+    }
 
     return html`
       <div class="form-fields">
         ${fields.map(
-          (field) => html`
+          (field: any) => html`
             <div class="form-group">
               <label>${field.label || field.name}${field.required ? ' *' : ''}</label>
               ${this._renderFormField(field)}

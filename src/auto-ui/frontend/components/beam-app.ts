@@ -1442,6 +1442,11 @@ export class BeamApp extends LitElement {
   private _handleGlobalMethodSelect(photon: any, method: any) {
     this._teardownActiveCustomUI();
     this._selectedPhoton = photon;
+    // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+    // before the tool call starts (which would bypass elicitation)
+    if (this._willAutoInvoke(method)) {
+      this._isExecuting = true;
+    }
     this._selectedMethod = method;
     this._view = 'form';
     this._updateHash();
@@ -1900,18 +1905,30 @@ export class BeamApp extends LitElement {
         if (methodName && photon.methods) {
           const method = photon.methods.find((m: any) => m.name === methodName);
           if (method) {
-            this._selectedMethod = method;
-            this._view = 'form';
             // Store shared params to pre-populate form
             if (Object.keys(sharedParams).length > 0) {
               this._sharedFormParams = sharedParams;
             } else {
-              // Auto-invoke if no shared params provided
+              // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+              // before the tool call starts (which would bypass elicitation)
+              if (this._willAutoInvoke(method)) {
+                this._isExecuting = true;
+              }
+            }
+            this._selectedMethod = method;
+            this._view = 'form';
+            // Auto-invoke if no shared params provided
+            if (Object.keys(sharedParams).length === 0) {
               this._maybeAutoInvoke(method);
             }
           }
         } else if (photon.isApp && photon.appEntry) {
           // For Apps without method specified, auto-select main
+          // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+          // before the tool call starts (which would bypass elicitation)
+          if (this._willAutoInvoke(photon.appEntry)) {
+            this._isExecuting = true;
+          }
           this._selectedMethod = photon.appEntry;
           this._view = 'form';
           // Auto-invoke app entry if it has no required params
@@ -2824,25 +2841,33 @@ export class BeamApp extends LitElement {
         // Internal photons use custom-ui-renderer (photon bridge protocol)
         const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
 
-        const appRenderer = isExternalMCP
+        // Don't render the iframe until main() completes — this prevents the
+        // iframe from loading data independently while an elicitation is pending
+        const appRenderer = this._isExecuting
           ? html`
-              <mcp-app-renderer
-                .mcpName=${this._selectedPhoton.name}
-                .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
-                .linkedTool=${this._selectedMethod.name}
-                .theme=${this._theme}
-                style="height: calc(100vh - 140px);"
-              ></mcp-app-renderer>
+              <div style="display: flex; align-items: center; justify-content: center; height: calc(100vh - 140px); opacity: 0.5;">
+                <span class="spinner"></span>
+              </div>
             `
-          : html`
-              <custom-ui-renderer
-                .photon=${this._selectedPhoton.name}
-                .method=${this._selectedMethod.name}
-                .uiId=${this._selectedMethod.linkedUi}
-                .theme=${this._theme}
-                style="height: calc(100vh - 140px);"
-              ></custom-ui-renderer>
-            `;
+          : isExternalMCP
+            ? html`
+                <mcp-app-renderer
+                  .mcpName=${this._selectedPhoton.name}
+                  .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
+                  .linkedTool=${this._selectedMethod.name}
+                  .theme=${this._theme}
+                  style="height: calc(100vh - 140px);"
+                ></mcp-app-renderer>
+              `
+            : html`
+                <custom-ui-renderer
+                  .photon=${this._selectedPhoton.name}
+                  .method=${this._selectedMethod.name}
+                  .uiId=${this._selectedMethod.linkedUi}
+                  .theme=${this._theme}
+                  style="height: calc(100vh - 140px);"
+                ></custom-ui-renderer>
+              `;
 
         // App-first layout for app main methods
         if (isAppMain) {
@@ -3117,6 +3142,11 @@ export class BeamApp extends LitElement {
   private _handleMethodSelect(e: CustomEvent) {
     // Teardown any active custom-ui-renderer before switching methods
     this._teardownActiveCustomUI();
+    // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+    // before the tool call starts (which would bypass elicitation)
+    if (this._willAutoInvoke(e.detail.method)) {
+      this._isExecuting = true;
+    }
     this._selectedMethod = e.detail.method;
     this._lastResult = null;
     this._view = 'form';
@@ -3234,25 +3264,26 @@ export class BeamApp extends LitElement {
   }
 
   /**
+   * Check if a method will auto-invoke (without actually invoking).
+   * Used to set _isExecuting early to prevent iframe from rendering before tool call starts.
+   */
+  private _willAutoInvoke(method: any): boolean {
+    if (!method || !this._mcpReady) return false;
+    const shouldAutorun = method.autorun === true;
+    const params = method.params || {};
+    const required = params.required || [];
+    const hasNoRequiredParams = required.length === 0;
+    return shouldAutorun || hasNoRequiredParams;
+  }
+
+  /**
    * Check if a method should auto-invoke and invoke it if so.
    * Auto-invokes when: method.autorun === true OR method has no required parameters
    */
   private _maybeAutoInvoke(method: any) {
-    if (!method || !this._mcpReady) return;
-
-    // Check if method should autorun
-    const shouldAutorun = method.autorun === true;
-
-    // Check if method has no required parameters
-    const params = method.params || {};
-    const required = params.required || [];
-    const properties = params.properties || {};
-    const hasNoRequiredParams = required.length === 0 && Object.keys(properties).length === 0;
-
-    if (shouldAutorun || hasNoRequiredParams) {
-      // Auto-invoke with empty args
-      this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
-    }
+    if (!this._willAutoInvoke(method)) return;
+    // Auto-invoke with empty args
+    this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
   }
 
   private _handleBackFromMethod() {
