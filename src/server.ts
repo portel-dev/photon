@@ -2025,10 +2025,142 @@ export class PhotonServer {
       throw new Error(`UI asset not found: ${uri}`);
     }
 
-    const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+    let content = await fs.readFile(ui.resolvedPath, 'utf-8');
+
+    // Inject MCP Apps bridge script for Claude Desktop compatibility
+    const bridgeScript = this.generateMcpAppsBridge();
+    content = content.replace('<head>', `<head>\n${bridgeScript}`);
+
     return {
       contents: [{ uri, mimeType: ui.mimeType || 'text/html;profile=mcp-app', text: content }],
     };
+  }
+
+  /**
+   * Generate minimal MCP Apps bridge script for Claude Desktop compatibility
+   * This handles the ui/initialize handshake and tool result delivery
+   */
+  private generateMcpAppsBridge(): string {
+    const photonName = this.mcp?.name || 'photon-app';
+    return `<script>
+(function() {
+  'use strict';
+  var pendingCalls = {};
+  var callIdCounter = 0;
+  var toolResult = null;
+  var resultListeners = [];
+
+  function generateCallId() {
+    return 'call_' + (++callIdCounter) + '_' + Math.random().toString(36).slice(2);
+  }
+
+  function postToHost(msg) {
+    window.parent.postMessage(msg, '*');
+  }
+
+  // Listen for messages from host
+  window.addEventListener('message', function(e) {
+    var m = e.data;
+    if (!m || typeof m !== 'object') return;
+
+    // Handle JSON-RPC messages
+    if (m.jsonrpc === '2.0') {
+      // Response to our request (has id, no method)
+      if (m.id && !m.method && pendingCalls[m.id]) {
+        var pending = pendingCalls[m.id];
+        delete pendingCalls[m.id];
+        if (m.error) pending.reject(new Error(m.error.message));
+        else pending.resolve(m.result);
+        return;
+      }
+
+      // Tool result notification
+      if (m.method === 'ui/notifications/tool-result') {
+        var result = m.params;
+        // Extract data from MCP result format
+        if (result.structuredContent) {
+          toolResult = result.structuredContent;
+        } else if (result.content && Array.isArray(result.content)) {
+          var textItem = result.content.find(function(i) { return i.type === 'text'; });
+          if (textItem && textItem.text) {
+            try { toolResult = JSON.parse(textItem.text); } catch(e) { toolResult = textItem.text; }
+          }
+        } else {
+          toolResult = result;
+        }
+        resultListeners.forEach(function(cb) { cb(toolResult); });
+      }
+
+      // Host context changed
+      if (m.method === 'ui/notifications/host-context-changed') {
+        if (m.params && m.params.theme) {
+          document.documentElement.classList.remove('light', 'dark');
+          document.documentElement.classList.add(m.params.theme);
+          document.documentElement.setAttribute('data-theme', m.params.theme);
+        }
+      }
+    }
+  });
+
+  // Expose photon bridge API
+  window.photon = {
+    get toolOutput() { return toolResult; },
+    onResult: function(cb) {
+      resultListeners.push(cb);
+      if (toolResult) cb(toolResult);
+      return function() {
+        var i = resultListeners.indexOf(cb);
+        if (i >= 0) resultListeners.splice(i, 1);
+      };
+    },
+    callTool: function(name, args) {
+      var callId = generateCallId();
+      return new Promise(function(resolve, reject) {
+        pendingCalls[callId] = { resolve: resolve, reject: reject };
+        postToHost({
+          jsonrpc: '2.0',
+          id: callId,
+          method: 'tools/call',
+          params: { name: name, arguments: args || {} }
+        });
+        setTimeout(function() {
+          if (pendingCalls[callId]) {
+            delete pendingCalls[callId];
+            reject(new Error('Tool call timeout'));
+          }
+        }, 30000);
+      });
+    },
+    invoke: function(name, args) { return window.photon.callTool(name, args); }
+  };
+
+  // MCP Apps handshake: send ui/initialize and wait for response
+  var initId = generateCallId();
+  pendingCalls[initId] = {
+    resolve: function(result) {
+      // Apply theme from host context
+      if (result.hostContext && result.hostContext.theme) {
+        document.documentElement.classList.add(result.hostContext.theme);
+        document.documentElement.setAttribute('data-theme', result.hostContext.theme);
+      }
+      // Complete handshake
+      postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+    },
+    reject: function(err) { console.error('MCP Apps init failed:', err); }
+  };
+
+  postToHost({
+    jsonrpc: '2.0',
+    id: initId,
+    method: 'ui/initialize',
+    params: {
+      appInfo: { name: '${photonName}', version: '1.0.0' },
+      appCapabilities: {},
+      protocolVersion: '2026-01-26'
+    }
+  });
+})();
+</script>`;
   }
 
   /**
@@ -2061,7 +2193,14 @@ export class PhotonServer {
     }
 
     if (resolvedPath) {
-      const content = await fs.readFile(resolvedPath, 'utf-8');
+      let content = await fs.readFile(resolvedPath, 'utf-8');
+
+      // Inject MCP Apps bridge for UI assets
+      if (assetType === 'ui') {
+        const bridgeScript = this.generateMcpAppsBridge();
+        content = content.replace('<head>', `<head>\n${bridgeScript}`);
+      }
+
       return {
         contents: [{ uri, mimeType, text: content }],
       };
