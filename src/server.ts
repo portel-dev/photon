@@ -206,6 +206,13 @@ export class PhotonServer {
       return 'photon';
     }
 
+    // Check for MCP Apps extension (io.modelcontextprotocol/ui)
+    // Claude Desktop and other MCP Apps clients use this format
+    const extensions = (capabilities as any).extensions as Record<string, unknown> | undefined;
+    if (extensions?.['io.modelcontextprotocol/ui']) {
+      return 'sep-1865';
+    }
+
     // Check for SEP-1865 UI capability
     // SEP-1865 clients advertise: { experimental: { ui: {} } } or { ui: {} }
     const experimental = capabilities.experimental as Record<string, unknown> | undefined;
@@ -267,13 +274,24 @@ export class PhotonServer {
   }
 
   /**
-   * Get UI mimeType based on detected format
+   * Get UI mimeType based on detected format and client capabilities
    *
    * @param server - Optional server instance (for SSE sessions)
    */
   private getUIMimeType(server?: Server): string {
+    const targetServer = server || this.server;
+    const capabilities = targetServer.getClientCapabilities();
+
+    // Check for MCP Apps extension with declared mimeTypes
+    // Claude Desktop uses: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } }
+    const extensions = (capabilities as any)?.extensions as Record<string, any> | undefined;
+    const mcpUI = extensions?.['io.modelcontextprotocol/ui'];
+    if (mcpUI?.mimeTypes?.[0]) {
+      return mcpUI.mimeTypes[0];
+    }
+
     const format = this.getUIFormat(server);
-    return format === 'sep-1865' ? 'text/html+mcp' : 'text/html';
+    return format === 'sep-1865' ? 'text/html;profile=mcp-app' : 'text/html';
   }
 
   /**
@@ -2009,7 +2027,7 @@ export class PhotonServer {
 
     const content = await fs.readFile(ui.resolvedPath, 'utf-8');
     return {
-      contents: [{ uri, mimeType: ui.mimeType || 'text/html+mcp', text: content }],
+      contents: [{ uri, mimeType: ui.mimeType || 'text/html;profile=mcp-app', text: content }],
     };
   }
 
@@ -2026,7 +2044,7 @@ export class PhotonServer {
       const ui = this.mcp!.assets!.ui.find((u) => u.id === assetId);
       if (ui) {
         resolvedPath = ui.resolvedPath;
-        mimeType = ui.mimeType || 'text/html';
+        mimeType = ui.mimeType || 'text/html;profile=mcp-app';
       }
     } else if (assetType === 'prompts') {
       const prompt = this.mcp!.assets!.prompts.find((p) => p.id === assetId);
