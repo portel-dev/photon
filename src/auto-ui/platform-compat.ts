@@ -160,8 +160,16 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         var pending = pendingCalls[m.id];
         if (pending) {
           delete pendingCalls[m.id];
-          if (m.error) pending.reject(new Error(m.error.message || 'Tool call failed'));
-          else pending.resolve(extractMcpResultData(m.result));
+          if (m.error) {
+            pending.reject(new Error(m.error.message || 'Tool call failed'));
+          } else if (m.result && m.result.isError) {
+            // Tool returned an error (isError flag in MCP result)
+            var errorData = extractMcpResultData(m.result);
+            var errorMsg = typeof errorData === 'string' ? errorData : JSON.stringify(errorData);
+            pending.reject(new Error(errorMsg || 'Tool returned an error'));
+          } else {
+            pending.resolve(extractMcpResultData(m.result));
+          }
         }
         return;
       }
