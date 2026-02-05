@@ -306,13 +306,16 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
         try {
           const resourcesResult = await sdkClient.listResources();
           const resources = resourcesResult.resources || [];
-          mcpInfo.resourceCount = resources.length;
 
           const appResources = resources.filter(
             (r: any) =>
               r.uri?.startsWith('ui://') ||
               r.mimeType === 'application/vnd.mcp.ui+html'
           );
+
+          // Count only non-UI resources (UI resources are internal implementation detail)
+          mcpInfo.resourceCount = resources.length - appResources.length;
+
           if (appResources.length > 0) {
             mcpInfo.hasApp = true;
             mcpInfo.appResourceUri = appResources[0].uri;
@@ -398,7 +401,6 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           try {
             const resourcesResult = await sdkClient.listResources();
             const resources = resourcesResult.resources || [];
-            mcpInfo.resourceCount = resources.length;
 
             // Check for MCP App resources (ui:// scheme or application/vnd.mcp.ui+html mime)
             const appResources = resources.filter(
@@ -406,6 +408,10 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
                 r.uri?.startsWith('ui://') ||
                 r.mimeType === 'application/vnd.mcp.ui+html'
             );
+
+            // Count only non-UI resources (UI resources are internal implementation detail)
+            mcpInfo.resourceCount = resources.length - appResources.length;
+
             if (appResources.length > 0) {
               mcpInfo.hasApp = true;
               mcpInfo.appResourceUri = appResources[0].uri; // Default to first
@@ -516,13 +522,16 @@ async function reconnectExternalMCP(
       try {
         const resourcesResult = await sdkClient.listResources();
         const resources = resourcesResult.resources || [];
-        mcp.resourceCount = resources.length;
 
         const appResources = resources.filter(
           (r: any) =>
             r.uri?.startsWith('ui://') ||
             r.mimeType === 'application/vnd.mcp.ui+html'
         );
+
+        // Count only non-UI resources (UI resources are internal implementation detail)
+        mcp.resourceCount = resources.length - appResources.length;
+
         if (appResources.length > 0) {
           mcp.hasApp = true;
           mcp.appResourceUri = appResources[0].uri;
