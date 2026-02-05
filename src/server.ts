@@ -2145,6 +2145,7 @@ export class PhotonServer {
   function sendSizeChanged() {
     var body = document.body;
     var root = document.documentElement;
+
     // Calculate actual content dimensions
     var width = Math.max(
       body.scrollWidth,
@@ -2160,9 +2161,27 @@ export class PhotonServer {
       root.scrollHeight,
       root.offsetHeight
     );
-    // Add some padding for comfortable display
-    width = Math.max(width, 400);
-    height = Math.max(height, 300);
+
+    // Check for scrollable containers with overflow:hidden that hide true content size
+    var containers = document.querySelectorAll('.board, [style*="overflow"]');
+    containers.forEach(function(el) {
+      if (el.scrollWidth > width) width = el.scrollWidth;
+      if (el.scrollHeight > height) height = el.scrollHeight;
+    });
+
+    // For kanban-style boards, calculate from column count
+    var columns = document.querySelectorAll('.column');
+    if (columns.length > 0) {
+      var columnWidth = 220; // min-width + gap
+      var boardPadding = 48;
+      var neededWidth = (columns.length * columnWidth) + boardPadding;
+      if (neededWidth > width) width = neededWidth;
+    }
+
+    // Reasonable minimums and add padding
+    width = Math.max(width, 600) + 32;
+    height = Math.max(height, 400) + 32;
+
     postToHost({
       jsonrpc: '2.0',
       method: 'ui/notifications/size-changed',
