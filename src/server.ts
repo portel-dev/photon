@@ -2106,6 +2106,9 @@ export class PhotonServer {
     }
   });
 
+  // Mark that we're in MCP Apps context (not Beam)
+  window.__MCP_APPS_CONTEXT__ = true;
+
   // Expose photon bridge API
   window.photon = {
     get toolOutput() { return toolResult; },
