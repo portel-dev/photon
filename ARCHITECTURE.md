@@ -94,6 +94,74 @@ Just as Claude Desktop is an MCP client for AI, Beam gives humans the same inter
 
 ---
 
+## Design Philosophy: Simplest Path to Best Practice
+
+**Photon's goal: Find the simplest way to get something working. That becomes the best practice.**
+
+The runtime layer (Beam) between MCPs and UIs is Photon's key advantage. It can transform, simplify, and standardize what other platforms pass through raw.
+
+### The Runtime Layer Advantage
+
+```
+Standard MCP Apps:
+┌──────────┐     Raw MCP Format      ┌──────────┐
+│   MCP    │ ───────────────────────▸│    UI    │
+│  Server  │  {content: [{text}]}    │   (App)  │
+└──────────┘                         └──────────┘
+                                     Must parse & handle
+
+Photon Apps:
+┌──────────┐     MCP Format     ┌──────────┐    Clean Data    ┌──────────┐
+│   MCP    │ ──────────────────▸│   Beam   │ ────────────────▸│    UI    │
+│  Server  │                    │ (Runtime)│   {repos: [...]} │   (App)  │
+└──────────┘                    └──────────┘                  └──────────┘
+                                Transforms &                  Just use it
+                                simplifies
+```
+
+### Data Handling: Clean Data, Standard Patterns
+
+| Aspect | Standard MCP Apps | Photon Apps |
+|--------|-------------------|-------------|
+| **Success** | Check `structuredContent` or parse `content[].text` | Get clean data directly |
+| **Errors** | Check `isError` flag, extract message from content | Standard try/catch |
+| **Boilerplate** | Parse, validate, transform in every app | Zero - runtime handles it |
+
+**Photon App:**
+```typescript
+try {
+  const repos = await callTool('repos', {});
+  updateUI(repos);  // Already parsed!
+} catch (error) {
+  showError(error.message);  // Standard JS error
+}
+```
+
+**Standard MCP App:**
+```typescript
+const result = await app.callServerTool({ name: 'repos', arguments: {} });
+if (result.isError) {
+  const errorText = result.content.find(c => c.type === 'text')?.text;
+  showError(errorText);
+  return;
+}
+const repos = result.structuredContent ?? JSON.parse(result.content[0].text);
+updateUI(repos);
+```
+
+### Principle: Absorb Complexity in the Runtime
+
+When designing Photon features:
+
+1. **Find the simplest developer experience** - What would a developer ideally write?
+2. **Make the runtime do the work** - Transform, validate, simplify in Beam
+3. **That simplest path becomes the standard** - Document it, enforce it
+4. **Keep apps portable** - Photon apps should still work in standard MCP clients
+
+The runtime layer is not overhead - it's where Photon adds value by making best practices the only path.
+
+---
+
 ## The Daemon: Central Orchestrator
 
 Photon comes **batteries included** with a daemon that provides infrastructure for real-world applications:
