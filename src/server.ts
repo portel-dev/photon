@@ -2178,9 +2178,11 @@ export class PhotonServer {
       if (neededWidth > width) width = neededWidth;
     }
 
-    // Reasonable minimums and add padding
+    // Reasonable minimums, maximums, and padding
     width = Math.max(width, 600) + 32;
-    height = Math.max(height, 400) + 32;
+    height = Math.max(height, 400);
+    // Cap height to fit in chat window - UI has internal scrolling
+    height = Math.min(height, 800);
 
     postToHost({
       jsonrpc: '2.0',
