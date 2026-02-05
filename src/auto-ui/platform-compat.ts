@@ -138,6 +138,22 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
     // ─────────────────────────────────────────────────────────────────────────
     // MCP Apps Extension (JSON-RPC 2.0)
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Helper to extract data from MCP result format
+    function extractMcpResultData(result) {
+      if (!result) return result;
+      // Prefer structuredContent if available
+      if (result.structuredContent) return result.structuredContent;
+      // Extract from content array
+      if (Array.isArray(result.content)) {
+        var textItem = result.content.find(function(item) { return item.type === 'text'; });
+        if (textItem && textItem.text) {
+          try { return JSON.parse(textItem.text); } catch (e) { return textItem.text; }
+        }
+      }
+      return result;
+    }
+
     if (m.jsonrpc === '2.0') {
       // JSON-RPC response (from tools/call) - has id but no method
       if (m.id && !m.method) {
@@ -145,7 +161,7 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
         if (pending) {
           delete pendingCalls[m.id];
           if (m.error) pending.reject(new Error(m.error.message || 'Tool call failed'));
-          else pending.resolve(m.result);
+          else pending.resolve(extractMcpResultData(m.result));
         }
         return;
       }
