@@ -1795,9 +1795,16 @@ export class BeamApp extends LitElement {
       // Handle elicitation requests
       mcpClient.on('elicitation', (data: any) => {
         if (data) {
-          this._elicitationData = data;
+          // Transform external MCP elicitation format (mode: 'form'|'url') to
+          // elicitation-modal format (ask: 'form'|'text'|etc.)
+          const elicitationData = {
+            ...data,
+            // Map MCP protocol 'mode' to elicitation-modal 'ask'
+            ask: data.ask || data.mode || 'form',
+          };
+          this._elicitationData = elicitationData;
           this._showElicitation = true;
-          this._log('info', `Input required: ${data.message || data.ask}`);
+          this._log('info', `Input required: ${data.message || elicitationData.ask}`);
         }
       });
 

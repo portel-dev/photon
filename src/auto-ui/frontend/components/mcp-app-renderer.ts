@@ -208,7 +208,32 @@ export class McpAppRenderer extends LitElement {
         throw new Error(`Failed to load MCP App: ${res.statusText} - ${errorBody}`);
       }
 
-      this._srcDoc = await res.text();
+      let htmlContent = await res.text();
+
+      // For photon-based external MCPs with a linked tool, inject the platform bridge script
+      // This enables window.callTool, window.onResult, etc. that photon UIs expect
+      if (this.linkedTool) {
+        // Extract the photon name from the MCP name (e.g., "git-box-mcp" -> "git-box")
+        const photonName = this.mcpName.replace(/-mcp$/, '');
+
+        // Fetch the platform bridge script
+        const bridgeRes = await fetch(
+          `/api/platform-bridge?photon=${encodeURIComponent(photonName)}&method=${encodeURIComponent(this.linkedTool)}&theme=${encodeURIComponent(this.theme)}&externalMcp=${encodeURIComponent(this.mcpName)}`,
+          { signal: AbortSignal.timeout(10000) }
+        );
+
+        if (bridgeRes.ok) {
+          const bridgeScript = await bridgeRes.text();
+          // Inject bridge into HTML
+          if (htmlContent.includes('</head>')) {
+            htmlContent = htmlContent.replace('</head>', `${bridgeScript}</head>`);
+          } else {
+            htmlContent = `<html><head>${bridgeScript}</head><body>${htmlContent}</body></html>`;
+          }
+        }
+      }
+
+      this._srcDoc = htmlContent;
     } catch (e: any) {
       this._error = e.message;
     } finally {
@@ -216,16 +241,75 @@ export class McpAppRenderer extends LitElement {
     }
   }
 
+  private _iframeRef: HTMLIFrameElement | null = null;
+  private _messageHandler: ((e: MessageEvent) => void) | null = null;
+
   /**
-   * Set up AppBridge when iframe loads
+   * Set up message handlers when iframe loads
    */
   private _handleIframeLoad(e: Event) {
     const iframe = e.target as HTMLIFrameElement;
     iframe.classList.add('ready');
+    this._iframeRef = iframe;
 
     if (!iframe.contentWindow) return;
 
-    // Create AppBridge with null client — MCP client lives on backend, not browser
+    // Remove previous message handler if any
+    if (this._messageHandler) {
+      window.removeEventListener('message', this._messageHandler);
+    }
+
+    // Set up message handler for platform bridge communication (JSON-RPC tools/call)
+    this._messageHandler = async (event: MessageEvent) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+
+      // Handle JSON-RPC tools/call from platform bridge
+      if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+        const { name, arguments: args } = msg.params || {};
+        const toolName = `${this.mcpName}/${name}`;
+
+        try {
+          const result = await mcpClient.callTool(toolName, args || {});
+
+          // Send result back to iframe
+          iframe.contentWindow?.postMessage(
+            {
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: {
+                content: result.content,
+                structuredContent: result.structuredContent,
+                isError: result.isError,
+              },
+            },
+            '*'
+          );
+
+          // Also send as photon:result for UIs that use onResult callback
+          iframe.contentWindow?.postMessage(
+            {
+              type: 'photon:result',
+              data: this._extractResultData(result),
+            },
+            '*'
+          );
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          iframe.contentWindow?.postMessage(
+            {
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: errorMessage },
+            },
+            '*'
+          );
+        }
+      }
+    };
+    window.addEventListener('message', this._messageHandler);
+
+    // Create AppBridge for MCP Apps protocol (some external MCPs may use it)
     const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
     this._bridge = new AppBridge(
       null,
@@ -239,7 +323,7 @@ export class McpAppRenderer extends LitElement {
       }
     );
 
-    // Handle tool calls from the app — forward to our SSE-based mcpClient
+    // Handle tool calls from MCP Apps protocol
     this._bridge.oncalltool = async (params) => {
       const toolName = `${this.mcpName}/${params.name}`;
       const mcpResult = await mcpClient.callTool(toolName, params.arguments || {});
@@ -258,7 +342,7 @@ export class McpAppRenderer extends LitElement {
       };
     };
 
-    // Auto-invoke linked tool when the app signals it's initialized
+    // Auto-invoke linked tool when the app signals it's initialized (MCP Apps protocol)
     this._bridge.oninitialized = () => {
       if (this.linkedTool) {
         this._autoInvokeLinkedTool();
@@ -268,10 +352,18 @@ export class McpAppRenderer extends LitElement {
     // Create PostMessageTransport pointing at iframe's contentWindow
     this._transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
 
-    // Connect bridge to transport
-    this._bridge.connect(this._transport).catch((err) => {
-      console.error('AppBridge connect failed:', err);
+    // Connect bridge to transport (fire-and-forget, photon UIs don't respond to handshake)
+    this._bridge.connect(this._transport).catch(() => {
+      // Ignore connect errors - photon UIs don't implement full MCP Apps protocol
     });
+
+    // For photon-based external MCPs with platform bridge injected,
+    // auto-invoke the linked tool after a short delay to let the iframe initialize
+    if (this.linkedTool) {
+      setTimeout(() => {
+        this._autoInvokeLinkedTool();
+      }, 200);
+    }
   }
 
   /**
@@ -302,22 +394,63 @@ export class McpAppRenderer extends LitElement {
   }
 
   /**
+   * Extract data from MCP tool result for photon UI consumption.
+   * Prefers structuredContent, falls back to parsing text content.
+   */
+  private _extractResultData(result: any): any {
+    // Prefer structuredContent if available
+    if (result.structuredContent) {
+      return result.structuredContent;
+    }
+
+    // Otherwise extract from content array
+    if (Array.isArray(result.content)) {
+      // Find text content and try to parse as JSON
+      const textItem = result.content.find((item: any) => item.type === 'text');
+      if (textItem?.text) {
+        try {
+          return JSON.parse(textItem.text);
+        } catch {
+          // If not JSON, return the raw text
+          return textItem.text;
+        }
+      }
+    }
+
+    return result.content;
+  }
+
+  /**
    * Auto-invoke the linked tool to provide initial data to the MCP App
    * This is needed for apps that expect an initial tool result on load
    */
   private async _autoInvokeLinkedTool() {
-    if (!this.linkedTool || !this._bridge) return;
+    if (!this.linkedTool || !this._iframeRef?.contentWindow) return;
 
     try {
       const fullToolName = `${this.mcpName}/${this.linkedTool}`;
       const result = await mcpClient.callTool(fullToolName, {});
 
-      // Send result to app via AppBridge
-      this._bridge.sendToolResult({
-        content: result.content,
-        structuredContent: result.structuredContent,
-        isError: result.isError,
-      });
+      // Extract data for photon UI consumption
+      const data = this._extractResultData(result);
+
+      // Send result to iframe via postMessage (photon UIs use onResult callback)
+      this._iframeRef.contentWindow.postMessage(
+        {
+          type: 'photon:result',
+          data,
+        },
+        '*'
+      );
+
+      // Also send via AppBridge for MCP Apps Extension compliant apps
+      if (this._bridge) {
+        this._bridge.sendToolResult({
+          content: result.content,
+          structuredContent: result.structuredContent,
+          isError: result.isError,
+        });
+      }
     } catch (error) {
       console.error('Failed to auto-invoke linked tool:', error);
     }

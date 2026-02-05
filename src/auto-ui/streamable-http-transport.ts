@@ -2175,3 +2175,58 @@ export function sendToSession(
   session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
   return true;
 }
+
+/**
+ * Request elicitation from the frontend for an external MCP.
+ * This is used when external MCP servers send elicitation/create requests.
+ *
+ * @param mcpName - Name of the external MCP requesting elicitation
+ * @param request - The elicitation request params from the MCP server
+ * @returns Promise resolving to the user's response
+ */
+export function requestExternalElicitation(
+  mcpName: string,
+  request: {
+    mode: 'form' | 'url';
+    message: string;
+    requestedSchema?: any;
+    url?: string;
+  }
+): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
+  const elicitationId = randomUUID();
+
+  return new Promise((resolve, reject) => {
+    // Store pending elicitation
+    pendingElicitations.set(elicitationId, {
+      resolve: (value: any) => {
+        resolve({ action: 'accept', content: value });
+      },
+      reject: (error: Error) => {
+        if (error.message.includes('cancelled')) {
+          resolve({ action: 'cancel' });
+        } else {
+          resolve({ action: 'decline' });
+        }
+      },
+      sessionId: '', // External MCP elicitations aren't tied to a specific session
+    });
+
+    // Broadcast elicitation request to all Beam clients
+    broadcastToBeam('beam/elicitation', {
+      elicitationId,
+      mcpName,
+      message: request.message,
+      mode: request.mode,
+      schema: request.requestedSchema,
+      url: request.url,
+    });
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      if (pendingElicitations.has(elicitationId)) {
+        pendingElicitations.delete(elicitationId);
+        resolve({ action: 'cancel' });
+      }
+    }, 300000);
+  });
+}

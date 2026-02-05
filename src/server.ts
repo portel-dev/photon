@@ -302,7 +302,13 @@ export class PhotonServer {
    */
   private createMCPInputProvider(server?: Server): (ask: any) => Promise<any> {
     const targetServer = server || this.server;
+    const capabilities = targetServer.getClientCapabilities();
     const supportsElicitation = this.clientSupportsElicitation(server);
+
+    this.log('debug', 'Creating MCP input provider', {
+      supportsElicitation,
+      capabilities: JSON.stringify(capabilities),
+    });
 
     return async (ask: any): Promise<any> => {
       // If client doesn't support elicitation, fall back to logging the ask

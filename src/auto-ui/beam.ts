@@ -56,6 +56,7 @@ import {
   broadcastNotification,
   broadcastToBeam,
   sendToSession,
+  requestExternalElicitation,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -80,6 +81,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -176,11 +178,30 @@ function prettifyToolName(name: string): string {
  * Create an HTTP transport for a URL-based MCP.
  * Tries Streamable HTTP first; falls back to legacy SSE.
  */
-async function connectHTTPClient(url: string): Promise<Client> {
+async function connectHTTPClient(url: string, mcpName: string): Promise<Client> {
   const sdkClient = new Client(
     { name: 'beam-mcp-client', version: '1.0.0' },
-    { capabilities: {} }
+    {
+      capabilities: {
+        elicitation: {}, // Declare elicitation support
+        experimental: {
+          ui: {}, // Request SEP-1865 format for MCP Apps
+        },
+      },
+    }
   );
+
+  // Set up elicitation handler
+  sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
+    const params = request.params as any;
+    const result = await requestExternalElicitation(mcpName, {
+      mode: params.mode as 'form' | 'url',
+      message: params.message,
+      requestedSchema: params.requestedSchema,
+      url: params.url,
+    });
+    return result;
+  });
 
   try {
     const transport = new StreamableHTTPClientTransport(new URL(url));
@@ -200,8 +221,28 @@ async function connectHTTPClient(url: string): Promise<Client> {
   // Fallback: legacy SSE transport
   const sseClient = new Client(
     { name: 'beam-mcp-client', version: '1.0.0' },
-    { capabilities: {} }
+    {
+      capabilities: {
+        elicitation: {}, // Declare elicitation support
+        experimental: {
+          ui: {}, // Request SEP-1865 format for MCP Apps
+        },
+      },
+    }
   );
+
+  // Set up elicitation handler for SSE client too
+  sseClient.setRequestHandler(ElicitRequestSchema, async (request) => {
+    const params = request.params as any;
+    const result = await requestExternalElicitation(mcpName, {
+      mode: params.mode as 'form' | 'url',
+      message: params.message,
+      requestedSchema: params.requestedSchema,
+      url: params.url,
+    });
+    return result;
+  });
+
   const sseTransport = new SSEClientTransport(new URL(url));
   const connectPromise = sseClient.connect(sseTransport);
   const timeoutPromise = new Promise((_, reject) =>
@@ -243,7 +284,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
       if (serverConfig.url) {
         // HTTP transport — SDK client only (no wrapper needed)
         // Tries Streamable HTTP first, falls back to legacy SSE
-        const sdkClient = await connectHTTPClient(serverConfig.url);
+        const sdkClient = await connectHTTPClient(serverConfig.url, name);
         externalMCPSDKClients.set(name, sdkClient);
 
         // List tools with full metadata using SDK client
@@ -305,8 +346,28 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           });
           const sdkClient = new Client(
             { name: 'beam-mcp-client', version: '1.0.0' },
-            { capabilities: {} }
+            {
+              capabilities: {
+                elicitation: {}, // Declare elicitation support
+                experimental: {
+                  ui: {}, // Request SEP-1865 format for MCP Apps
+                },
+              },
+            }
           );
+
+          // Set up elicitation handler BEFORE connecting
+          // This handles elicitation/create requests from the server
+          sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
+            const params = request.params as any;
+            const result = await requestExternalElicitation(name, {
+              mode: params.mode as 'form' | 'url',
+              message: params.message,
+              requestedSchema: params.requestedSchema,
+              url: params.url,
+            });
+            return result;
+          });
 
           const connectPromise = sdkClient.connect(sdkTransport);
           const timeoutPromise = new Promise((_, reject) =>
@@ -434,7 +495,7 @@ async function reconnectExternalMCP(
 
     if (mcp.config.url) {
       // HTTP transport — tries Streamable HTTP, falls back to legacy SSE
-      const sdkClient = await connectHTTPClient(mcp.config.url);
+      const sdkClient = await connectHTTPClient(mcp.config.url, name);
       externalMCPSDKClients.set(name, sdkClient);
 
       const toolsResult = await sdkClient.listTools();
