@@ -1,11 +1,17 @@
 /**
- * MCP App Renderer - Displays MCP Apps Extension UIs in iframes
+ * MCP App Renderer - Unified UI Bridge Architecture
  *
  * This component renders MCP Apps from external MCPs (those configured in
  * ~/.photon/config.json mcpServers section that have ui:// resources).
  *
  * Uses the official AppBridge + PostMessageTransport from @modelcontextprotocol/ext-apps
- * for spec-compliant communication with MCP App iframes.
+ * for spec-compliant communication with MCP App iframes. Beam is just another MCP Apps host.
+ *
+ * Custom Photon notifications (JSON-RPC):
+ * - photon/notifications/progress: Progress updates from photon methods
+ * - photon/notifications/status: Status updates
+ * - photon/notifications/stream: Streaming data chunks
+ * - photon/notifications/emit: Custom events
  *
  * @see https://modelcontextprotocol.github.io/ext-apps/api/
  */
@@ -366,6 +372,40 @@ export class McpAppRenderer extends LitElement {
     this._messageHandler = async (event: MessageEvent) => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
+
+      // Handle ui/initialize REQUEST from MCP Apps protocol
+      // This is sent by the bridge script when the iframe loads
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
+        const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
+        iframe.contentWindow?.postMessage(
+          {
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              hostContext: {
+                theme: this.theme,
+                styles: { variables: themeTokens },
+                containerDimensions: { maxHeight: 800 },
+              },
+            },
+          },
+          '*'
+        );
+        return;
+      }
+
+      // Handle ui/notifications/size-changed from MCP Apps protocol
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/size-changed') {
+        const { width, height } = msg.params || {};
+        if (height && iframe) {
+          // Apply size constraints (min 300px, max 800px for chat window fit)
+          const constrainedHeight = Math.min(Math.max(height, 300), 800);
+          iframe.style.height = `${constrainedHeight}px`;
+          this.style.height = `${constrainedHeight}px`;
+          this.style.minHeight = `${constrainedHeight}px`;
+        }
+        return;
+      }
 
       // Handle JSON-RPC tools/call from platform bridge
       if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {

@@ -2069,16 +2069,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
 
     // Platform Bridge API: Generate platform compatibility script
+    // Uses the unified bridge architecture based on @modelcontextprotocol/ext-apps SDK
     if (url.pathname === '/api/platform-bridge') {
       const theme = (url.searchParams.get('theme') || 'dark') as 'light' | 'dark';
       const photonName = url.searchParams.get('photon') || '';
       const methodName = url.searchParams.get('method') || '';
 
-      const { generatePlatformBridgeScript } = await import('./platform-compat.js');
-      const script = generatePlatformBridgeScript({
+      const { generateBridgeScript } = await import('./bridge/index.js');
+      const script = generateBridgeScript({
         theme,
         locale: 'en-US',
-        displayMode: 'inline',
         photon: photonName,
         method: methodName,
         hostName: 'beam',

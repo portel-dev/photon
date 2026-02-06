@@ -43,9 +43,23 @@ export {
   type PhotonHostOptions,
 } from './photon-host';
 
-// Platform Compatibility Layer - MCP Apps, ChatGPT Apps SDK, Claude Artifacts
+// Unified UI Bridge Architecture (MCP Apps Extension SDK-based)
 export {
-  generatePlatformBridgeScript,
+  generateBridgeScript,
+  generatePlatformBridgeScript, // backward compatible alias
+  type PhotonBridgeContext,
+  type SizeConstraints,
+  type PhotonAPI,
+  type OpenAIAPI,
+  type ProgressNotification,
+  type StatusNotification,
+  type StreamNotification,
+  type EmitNotification,
+  type ChannelEventNotification,
+} from './bridge/index';
+
+// Legacy Platform Compatibility Layer (deprecated - use bridge module instead)
+export {
   createMcpAppsInitialize,
   createThemeChangeMessages,
   type PlatformContext,
