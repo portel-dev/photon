@@ -1845,7 +1845,7 @@ Run: photon mcp ${mcpName} --config
       // (photon uses npm-cached module, runtime uses linked module)
       const ctorName = value.constructor?.name;
 
-      if (ctorName === 'ReactiveArray' || ctorName === 'ReactiveMap' || ctorName === 'ReactiveSet') {
+      if (ctorName === 'ReactiveArray' || ctorName === 'ReactiveMap' || ctorName === 'ReactiveSet' || ctorName === 'Collection') {
         (value as any)._propertyName = key;
         (value as any)._emitter = emit;
         this.log(`Wired ${ctorName}: ${key}`);

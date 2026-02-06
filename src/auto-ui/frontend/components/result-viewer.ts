@@ -15,6 +15,7 @@ type LayoutType =
   | 'code'
   | 'text'
   | 'chips'
+  | 'grid'
   | 'html';
 
 interface LayoutHints {
@@ -1824,8 +1825,31 @@ export class ResultViewer extends LitElement {
       if (format === 'md') return 'markdown';
     }
 
-    // 2. Detect from data shape
+    // 2. Collection rendering hint (from Collection.as())
     const data = this.result;
+    if (
+      data &&
+      typeof data === 'object' &&
+      !Array.isArray(data) &&
+      typeof (data as any)._photonType === 'string' &&
+      (data as any)._photonType.startsWith('collection:')
+    ) {
+      const hint = (data as any)._photonType.replace('collection:', '') as string;
+      // Extract items for rendering, replace result reference
+      this.result = (data as any).items ?? [];
+      // Map collection format names to layout types
+      const formatMap: Record<string, LayoutType> = {
+        table: 'table',
+        cards: 'card',
+        list: 'list',
+        chart: 'json', // fallback until chart layout exists
+        grid: 'grid',
+        chips: 'chips',
+      };
+      return formatMap[hint] ?? 'table';
+    }
+
+    // 3. Detect from data shape
 
     // String detection
     if (typeof data === 'string') {
