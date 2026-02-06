@@ -154,7 +154,7 @@ export class ResultViewer extends LitElement {
         --syntax-function: #8250df;
         --syntax-operator: #0550ae;
         --syntax-punctuation: #24292f;
-        --code-bg: rgba(0, 0, 0, 0.05);
+        --code-bg: rgba(0, 0, 0, 0.04);
       }
 
       /* Prism.js Code Highlighting Overrides */
@@ -973,7 +973,7 @@ export class ResultViewer extends LitElement {
       }
 
       :host([data-theme='light']) .fullscreen-content .mermaid-container {
-        background: #f8fafc;
+        background: #F4F6F8;
       }
 
       .fullscreen-content .mermaid-container svg {
@@ -995,7 +995,7 @@ export class ResultViewer extends LitElement {
       }
 
       :host([data-theme='light']) .fullscreen-content .markdown-container {
-        background: #ffffff;
+        background: var(--bg-panel);
       }
 
       .fullscreen-close {
@@ -2451,7 +2451,7 @@ export class ResultViewer extends LitElement {
     if (!mermaid) return;
 
     // Update background color for existing wrappers
-    const bgColor = this.theme === 'light' ? '#f8fafc' : '#1e293b';
+    const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
     wrappers.forEach((wrapper) => {
       (wrapper as HTMLElement).style.background = bgColor;
     });
@@ -2477,10 +2477,10 @@ export class ResultViewer extends LitElement {
               primaryBorderColor: '#6366f1',
               lineColor: '#64748b',
               secondaryColor: '#f1f5f9',
-              tertiaryColor: '#f8fafc',
-              background: '#ffffff',
-              mainBkg: '#f8fafc',
-              textColor: '#1e293b',
+              tertiaryColor: '#F4F6F8',
+              background: '#F9FAFB',
+              mainBkg: '#F4F6F8',
+              textColor: '#1F2937',
               nodeBorder: '#cbd5e1',
             }
           : {
@@ -2508,7 +2508,7 @@ export class ResultViewer extends LitElement {
         // Create mermaid container with theme-aware background
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
-        const bgColor = this.theme === 'light' ? '#f8fafc' : '#1e293b';
+        const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
         wrapper.style.cssText = `position: relative; background: ${bgColor}; border-radius: 8px; padding: 16px; margin: 16px 0;`;
 
         const diagramDiv = document.createElement('div');

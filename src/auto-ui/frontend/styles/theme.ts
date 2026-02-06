@@ -42,7 +42,7 @@ export const theme = css`
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
-    box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-md);
   }
 
   .glass-panel {
@@ -51,6 +51,7 @@ export const theme = css`
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
   }
 
   .text-gradient {

@@ -30,6 +30,7 @@ export {
 
   // Elevation
   elevation,
+  elevationLight,
 
   // Border Radius
   radius,

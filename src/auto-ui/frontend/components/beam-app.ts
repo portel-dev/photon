@@ -33,6 +33,11 @@ export class BeamApp extends LitElement {
         --accent-secondary: hsl(190, 100%, 50%);
         --glow-primary: hsla(260, 100%, 65%, 0.3);
 
+        /* Shadow tokens (dark defaults) */
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
+
         display: flex;
         height: 100vh;
         width: 100vw;
@@ -42,18 +47,23 @@ export class BeamApp extends LitElement {
         overflow: hidden;
       }
 
-      /* ===== Light Theme - "Warm Editorial" ===== */
+      /* ===== Light Theme - "Soft, Accessible, Professional" ===== */
       :host([data-theme='light']) {
-        --bg-app: hsl(40, 20%, 94%);
-        --bg-glass: hsla(45, 40%, 99%, 0.92);
-        --bg-glass-strong: hsla(45, 50%, 100%, 0.97);
-        --bg-panel: hsl(42, 35%, 97%);
-        --t-primary: hsl(220, 30%, 15%);
-        --t-muted: hsl(220, 10%, 45%);
-        --border-glass: hsla(30, 20%, 50%, 0.15);
+        --bg-app: #F4F6F8;
+        --bg-glass: rgba(255, 255, 255, 0.85);
+        --bg-glass-strong: rgba(255, 255, 255, 0.95);
+        --bg-panel: #FFFFFF;
+        --t-primary: #1F2937;
+        --t-muted: #6B7280;
+        --border-glass: rgba(0, 0, 0, 0.08);
         --accent-primary: hsl(215, 70%, 48%);
         --accent-secondary: hsl(165, 60%, 38%);
-        --glow-primary: hsla(215, 70%, 48%, 0.15);
+        --glow-primary: hsla(215, 70%, 48%, 0.12);
+
+        /* Light-mode soft shadows */
+        --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.08), 0px 1px 2px rgba(0, 0, 0, 0.06);
+        --shadow-md: 0px 2px 4px rgba(0, 0, 0, 0.08), 0px 4px 6px rgba(0, 0, 0, 0.05);
+        --shadow-lg: 0px 4px 6px rgba(0, 0, 0, 0.07), 0px 10px 15px rgba(0, 0, 0, 0.05);
       }
 
       .sidebar-area {
@@ -126,7 +136,7 @@ export class BeamApp extends LitElement {
         font-size: 28px;
         color: white;
         flex-shrink: 0;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--shadow-lg);
       }
 
       .photon-icon-large.mcp-icon {
@@ -316,7 +326,7 @@ export class BeamApp extends LitElement {
       .photon-icon-large.editable:hover {
         transform: scale(1.05);
         box-shadow:
-          0 8px 32px rgba(0, 0, 0, 0.3),
+          var(--shadow-lg),
           0 0 0 3px var(--accent-primary);
       }
 
@@ -329,7 +339,7 @@ export class BeamApp extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
         padding: var(--space-sm);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         z-index: 100;
         display: grid;
         grid-template-columns: repeat(8, 1fr);
@@ -389,7 +399,7 @@ export class BeamApp extends LitElement {
 
       .asset-card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         border-color: var(--accent-secondary);
       }
 
@@ -798,7 +808,7 @@ export class BeamApp extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
         min-width: 200px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         z-index: 100;
         overflow: hidden;
       }
@@ -1076,7 +1086,7 @@ export class BeamApp extends LitElement {
 
       .copy-btn:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--shadow-md);
       }
 
       .resource-image {
@@ -1102,7 +1112,7 @@ export class BeamApp extends LitElement {
         align-items: center;
         justify-content: center;
         font-size: 1.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--shadow-md);
         transition: all 0.2s;
       }
 
