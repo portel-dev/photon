@@ -530,6 +530,10 @@ export class PhotonLoader {
       // Set photon name for event source identification
       instance._photonName = name;
 
+      // Auto-wire ReactiveArray/Map/Set properties for zero-boilerplate reactivity
+      // Developers just `import { Array } from '@portel/photon-core'` and use normally
+      this.wireReactiveCollections(instance);
+
       // Inject @mcp dependencies from source (this.github, this.fs, etc.)
       if (tsContent) {
         await this.injectMCPDependencies(instance, tsContent, name);
@@ -1798,6 +1802,55 @@ Run: photon mcp ${mcpName} --config
           break;
       }
     };
+  }
+
+  /**
+   * Auto-wire ReactiveArray/Map/Set properties for zero-boilerplate reactivity
+   *
+   * When a photon developer imports { Array } from '@portel/photon-core',
+   * it shadows the global Array. The runtime then auto-wires these properties:
+   * - Sets _propertyName to the property key (e.g., 'items')
+   * - Sets _emitter to instance.emit.bind(instance)
+   *
+   * This enables the pattern:
+   * ```typescript
+   * import { Array } from '@portel/photon-core';
+   *
+   * export default class TodoList {
+   *   items: Array<Task> = [];  // Just use it normally
+   *
+   *   add(text: string) {
+   *     this.items.push({ id: crypto.randomUUID(), text });
+   *     // Auto-emits 'items:added' - no manual wiring needed!
+   *   }
+   * }
+   * ```
+   */
+  private wireReactiveCollections(instance: Record<string, unknown>): void {
+    // Get the emit function if available
+    const emit = typeof instance.emit === 'function'
+      ? (instance.emit as (event: string, data: unknown) => void).bind(instance)
+      : null;
+
+    if (!emit) {
+      return; // No emit function, skip wiring
+    }
+
+    // Iterate over instance properties
+    for (const key of Object.keys(instance)) {
+      const value = instance[key];
+      if (!value || typeof value !== 'object') continue;
+
+      // Check by constructor name since different module instances break instanceof
+      // (photon uses npm-cached module, runtime uses linked module)
+      const ctorName = value.constructor?.name;
+
+      if (ctorName === 'ReactiveArray' || ctorName === 'ReactiveMap' || ctorName === 'ReactiveSet') {
+        (value as any)._propertyName = key;
+        (value as any)._emitter = emit;
+        this.log(`Wired ${ctorName}: ${key}`);
+      }
+    }
   }
 
   /**
