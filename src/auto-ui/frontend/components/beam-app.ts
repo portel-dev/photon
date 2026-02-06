@@ -1808,19 +1808,31 @@ export class BeamApp extends LitElement {
         }
       });
 
-      // Handle channel events (task-moved, task-updated, etc.) - forward with delta
+      // Handle channel events (task-moved, task-updated, etc.) via unified JSON-RPC format
       mcpClient.on('channel-event', (data: any) => {
-        this._forwardToIframes({ type: 'photon:channel-event', ...data });
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'photon/notifications/emit',
+          params: data,
+        });
       });
 
-      // Handle board updates (legacy) - forward to custom UI iframes
+      // Handle board updates via unified JSON-RPC format
       mcpClient.on('board-update', (data: any) => {
-        this._forwardToIframes({ type: 'photon:board-update', ...data });
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'photon/notifications/emit',
+          params: { emit: 'board-update', ...data },
+        });
       });
 
-      // Handle refresh-needed (lastEventId too old) - forward to custom UI iframes
+      // Handle refresh-needed via unified JSON-RPC format
       mcpClient.on('refresh-needed', (data: any) => {
-        this._forwardToIframes({ type: 'photon:refresh-needed', ...data });
+        this._forwardToIframes({
+          jsonrpc: '2.0',
+          method: 'photon/notifications/emit',
+          params: { emit: 'refresh-needed', ...data },
+        });
       });
 
       // MCP Apps standard: forward ui/notifications/tool-result to iframes as JSON-RPC

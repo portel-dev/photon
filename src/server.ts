@@ -1336,21 +1336,23 @@ export class PhotonServer {
 
   /**
    * Handle incoming channel messages and forward as MCP notifications
+   * This enables cross-client real-time updates (e.g., Beam updates show in Claude Desktop)
    */
   private async handleChannelMessage(message: unknown) {
     if (!message || typeof message !== 'object') return;
 
     const msg = message as Record<string, unknown>;
 
-    // Format message for display
-    const displayMessage = msg.event
-      ? `[${msg.event}] ${JSON.stringify(msg.data || {})}`
-      : JSON.stringify(msg);
-
-    // Forward as MCP status notification to all connected clients
+    // Forward as photon emit notification with structured data
+    // This allows the UI bridge to convert it to the appropriate event format
     const payload = {
-      method: 'notifications/status',
-      params: { type: 'info', message: displayMessage },
+      method: 'photon/notifications/emit',
+      params: {
+        photon: this.daemonName,
+        channel: msg.channel,
+        event: msg.event,
+        data: msg.data,
+      },
     };
 
     try {
