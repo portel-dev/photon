@@ -4,6 +4,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import type { BeamSidebar } from './beam-sidebar.js';
+import type { ResultViewer } from './result-viewer.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
@@ -1501,6 +1502,13 @@ export class BeamApp extends LitElement {
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
 
+  @query('result-viewer')
+  private _resultViewer!: ResultViewer;
+
+  // Collection auto-subscription for ReactiveArray/Map/Set events
+  private _collectionUnsubscribes: Array<() => void> = [];
+  private _currentCollectionName: string | null = null;
+
   private _pendingBridgeCalls = new Map<string, Window>();
 
   // File storage for ChatGPT Apps SDK uploadFile/getFileDownloadUrl
@@ -1556,6 +1564,7 @@ export class BeamApp extends LitElement {
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
     document.removeEventListener('click', this._handleDocumentClick);
+    this._cleanupCollectionSubscriptions();
   }
 
   private _handleDocumentClick = (e: MouseEvent) => {
@@ -3589,6 +3598,9 @@ export class BeamApp extends LitElement {
     this._isExecuting = true;
     this._progress = null;
 
+    // Clean up previous collection subscriptions
+    this._cleanupCollectionSubscriptions();
+
     // Use MCP for all tool invocations
     if (this._mcpReady) {
       try {
@@ -3602,6 +3614,12 @@ export class BeamApp extends LitElement {
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
           this._log('success', 'Execution completed');
+
+          // Auto-subscribe to collection events if result is an array
+          // Convention: method name is the collection name (e.g., tasks() -> tasks:added)
+          if (Array.isArray(this._lastResult)) {
+            this._setupCollectionSubscriptions(this._selectedMethod.name);
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -3617,6 +3635,66 @@ export class BeamApp extends LitElement {
       this._isExecuting = false;
       this._progress = null;
     }
+  }
+
+  /**
+   * Set up automatic subscriptions for collection events (ReactiveArray/Map/Set)
+   * When a method returns an array, we subscribe to {methodName}:added, :removed, :updated, :changed
+   * and forward those events to result-viewer for incremental updates with animations.
+   */
+  private _setupCollectionSubscriptions(collectionName: string): void {
+    this._currentCollectionName = collectionName;
+
+    // Handler for channel-event that filters by collection name
+    const handler = (eventData: unknown) => {
+      const data = eventData as { event?: string; data?: unknown };
+      if (!data?.event) return;
+
+      // Check if this event matches our collection pattern
+      // Event format: "{collectionName}:{eventType}" (e.g., "tasks:added")
+      const pattern = `${collectionName}:`;
+      if (!data.event.startsWith(pattern)) return;
+
+      const eventType = data.event.slice(pattern.length);
+      if (['added', 'removed', 'updated', 'changed'].includes(eventType)) {
+        this._handleCollectionEvent(
+          eventType as 'added' | 'removed' | 'updated' | 'changed',
+          data.data
+        );
+      }
+    };
+
+    // Subscribe to channel-event and store the handler for cleanup
+    mcpClient.on('channel-event', handler);
+    this._collectionUnsubscribes.push(() => mcpClient.off('channel-event', handler));
+
+    if (this._verboseLogging) {
+      this._log('info', `Auto-subscribed to ${collectionName}:* collection events`);
+    }
+  }
+
+  /**
+   * Handle a collection event and forward to result-viewer
+   */
+  private _handleCollectionEvent(
+    type: 'added' | 'removed' | 'updated' | 'changed',
+    data: unknown
+  ): void {
+    // Get the result-viewer component and forward the event
+    if (this._resultViewer) {
+      this._resultViewer.handleCollectionEvent(type, data);
+    }
+  }
+
+  /**
+   * Clean up collection event subscriptions
+   */
+  private _cleanupCollectionSubscriptions(): void {
+    for (const unsubscribe of this._collectionUnsubscribes) {
+      unsubscribe();
+    }
+    this._collectionUnsubscribes = [];
+    this._currentCollectionName = null;
   }
 
   private async _handleConfigure(e: CustomEvent) {
