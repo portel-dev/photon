@@ -49,21 +49,21 @@ export class BeamApp extends LitElement {
 
       /* ===== Light Theme - "Soft, Accessible, Professional" ===== */
       :host([data-theme='light']) {
-        --bg-app: #F4F6F8;
-        --bg-glass: rgba(255, 255, 255, 0.85);
-        --bg-glass-strong: rgba(255, 255, 255, 0.95);
-        --bg-panel: #FFFFFF;
-        --t-primary: #1F2937;
-        --t-muted: #6B7280;
-        --border-glass: rgba(0, 0, 0, 0.08);
-        --accent-primary: hsl(215, 70%, 48%);
-        --accent-secondary: hsl(165, 60%, 38%);
-        --glow-primary: hsla(215, 70%, 48%, 0.12);
+        --bg-app: #E5E9EE;
+        --bg-glass: rgba(255, 255, 255, 0.72);
+        --bg-glass-strong: rgba(255, 255, 255, 0.88);
+        --bg-panel: #F6F7F9;
+        --t-primary: #1A2332;
+        --t-muted: #556270;
+        --border-glass: rgba(0, 0, 0, 0.13);
+        --accent-primary: hsl(215, 70%, 45%);
+        --accent-secondary: hsl(165, 60%, 35%);
+        --glow-primary: hsla(215, 70%, 45%, 0.15);
 
-        /* Light-mode soft shadows */
-        --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.08), 0px 1px 2px rgba(0, 0, 0, 0.06);
-        --shadow-md: 0px 2px 4px rgba(0, 0, 0, 0.08), 0px 4px 6px rgba(0, 0, 0, 0.05);
-        --shadow-lg: 0px 4px 6px rgba(0, 0, 0, 0.07), 0px 10px 15px rgba(0, 0, 0, 0.05);
+        /* Light-mode shadows — visible but not harsh */
+        --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.1), 0px 1px 2px rgba(0, 0, 0, 0.08);
+        --shadow-md: 0px 2px 6px rgba(0, 0, 0, 0.1), 0px 4px 8px rgba(0, 0, 0, 0.06);
+        --shadow-lg: 0px 4px 8px rgba(0, 0, 0, 0.1), 0px 10px 20px rgba(0, 0, 0, 0.06);
       }
 
       .sidebar-area {
