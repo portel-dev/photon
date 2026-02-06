@@ -64,6 +64,10 @@ export class BeamApp extends LitElement {
         --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.1), 0px 1px 2px rgba(0, 0, 0, 0.08);
         --shadow-md: 0px 2px 6px rgba(0, 0, 0, 0.1), 0px 4px 8px rgba(0, 0, 0, 0.06);
         --shadow-lg: 0px 4px 8px rgba(0, 0, 0, 0.1), 0px 10px 20px rgba(0, 0, 0, 0.06);
+
+        /* Parameter tags — visible chip style for light backgrounds */
+        --param-tag-bg: hsla(215, 25%, 55%, 0.12);
+        --param-tag-color: hsl(215, 20%, 42%);
       }
 
       .sidebar-area {

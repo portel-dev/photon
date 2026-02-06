@@ -188,8 +188,8 @@ export class MethodCard extends LitElement {
         font-size: 0.65rem;
         padding: 1px 6px;
         border-radius: 3px;
-        background: hsla(220, 10%, 80%, 0.08);
-        color: var(--t-muted);
+        background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.08));
+        color: var(--param-tag-color, var(--t-muted));
         font-family: var(--font-mono);
         white-space: nowrap;
       }
@@ -199,8 +199,8 @@ export class MethodCard extends LitElement {
         min-width: 18px;
         height: 18px;
         border-radius: 9px;
-        background: hsla(220, 10%, 80%, 0.1);
-        color: var(--t-muted);
+        background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.1));
+        color: var(--param-tag-color, var(--t-muted));
         display: inline-flex;
         align-items: center;
         justify-content: center;
