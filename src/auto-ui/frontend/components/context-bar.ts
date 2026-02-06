@@ -102,7 +102,9 @@ export class ContextBar extends LitElement {
         cursor: pointer;
         font-size: 0.7rem;
         color: var(--t-muted);
-        transition: opacity 0.15s, color 0.15s;
+        transition:
+          opacity 0.15s,
+          color 0.15s;
         padding: 2px 4px;
         border-radius: 3px;
         flex-shrink: 0;
@@ -301,11 +303,11 @@ export class ContextBar extends LitElement {
         ${this.breadcrumbs.length > 0
           ? html`
               <div class="breadcrumb">
-                ${this.breadcrumbs.map(
-                  (crumb, i) =>
-                    i < this.breadcrumbs.length - 1
-                      ? html`<a @click=${() => this._emitAction(crumb.action || '')}>${crumb.label}</a><span class="separator">/</span>`
-                      : html`<span class="current">${crumb.label}</span>`
+                ${this.breadcrumbs.map((crumb, i) =>
+                  i < this.breadcrumbs.length - 1
+                    ? html`<a @click=${() => this._emitAction(crumb.action || '')}>${crumb.label}</a
+                        ><span class="separator">/</span>`
+                    : html`<span class="current">${crumb.label}</span>`
                 )}
               </div>
             `
@@ -325,14 +327,23 @@ export class ContextBar extends LitElement {
                           style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-weight:600;font-size:0.95rem;outline:none;min-width:0;width:auto;"
                           type="text"
                           .value=${this._editedName}
-                          @input=${(e: Event) => { this._editedName = (e.target as HTMLInputElement).value; }}
+                          @input=${(e: Event) => {
+                            this._editedName = (e.target as HTMLInputElement).value;
+                          }}
                           @blur=${this._saveName}
                           @keydown=${this._handleNameKeydown}
                           autofocus
                         />`
                       : html`<span class="editable">
                           <span class="name">${p.name}</span>
-                          ${!p.isExternalMCP ? html`<span class="edit-pencil" @click=${this._startEditingName} title="Rename">✎</span>` : ''}
+                          ${!p.isExternalMCP
+                            ? html`<span
+                                class="edit-pencil"
+                                @click=${this._startEditingName}
+                                title="Rename"
+                                >✎</span
+                              >`
+                            : ''}
                         </span>`}
                     <span class="separator">·</span>
                     ${this._editingDescription
@@ -340,26 +351,42 @@ export class ContextBar extends LitElement {
                           style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-size:0.8rem;outline:none;flex:1;min-width:0;"
                           type="text"
                           .value=${this._editedDescription}
-                          @input=${(e: Event) => { this._editedDescription = (e.target as HTMLInputElement).value; }}
+                          @input=${(e: Event) => {
+                            this._editedDescription = (e.target as HTMLInputElement).value;
+                          }}
                           placeholder="Add a description..."
                           @blur=${this._saveDescription}
                           @keydown=${this._handleDescriptionKeydown}
                           autofocus
                         />`
                       : html`<span class="editable" style="flex:1;min-width:0;">
-                          <span class="desc ${isGenericDesc ? 'placeholder' : ''}" style="flex:1;min-width:0;">
+                          <span
+                            class="desc ${isGenericDesc ? 'placeholder' : ''}"
+                            style="flex:1;min-width:0;"
+                          >
                             ${isGenericDesc ? 'Add description...' : description}
                           </span>
-                          <span class="edit-pencil" @click=${this._startEditingDescription} title="Edit description">✎</span>
+                          <span
+                            class="edit-pencil"
+                            @click=${this._startEditingDescription}
+                            title="Edit description"
+                            >✎</span
+                          >
                         </span>`}
                   </div>
                   <div class="meta">
                     ${p.isApp
                       ? html`<span class="meta-badge app">App</span>`
                       : html`<span class="meta-badge">MCP</span>`}
-                    <span class="meta-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
+                    <span class="meta-badge"
+                      >${methodCount} method${methodCount !== 1 ? 's' : ''}</span
+                    >
                     ${p.version ? html`<span class="meta-badge">${p.version}</span>` : ''}
-                    ${p.hasUpdate ? html`<span class="meta-badge update" @click=${() => this._emit('upgrade')}>Update</span>` : ''}
+                    ${p.hasUpdate
+                      ? html`<span class="meta-badge update" @click=${() => this._emit('upgrade')}
+                          >Update</span
+                        >`
+                      : ''}
                   </div>
                 </div>
               </div>

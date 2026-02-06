@@ -49,11 +49,11 @@ export class BeamApp extends LitElement {
 
       /* ===== Light Theme - "Soft, Accessible, Professional" ===== */
       :host([data-theme='light']) {
-        --bg-app: #E5E9EE;
+        --bg-app: #e5e9ee;
         --bg-glass: rgba(255, 255, 255, 0.72);
         --bg-glass-strong: rgba(255, 255, 255, 0.88);
-        --bg-panel: #F6F7F9;
-        --t-primary: #1A2332;
+        --bg-panel: #f6f7f9;
+        --t-primary: #1a2332;
         --t-muted: #556270;
         --border-glass: rgba(0, 0, 0, 0.13);
         --accent-primary: hsl(215, 70%, 45%);
@@ -1385,7 +1385,14 @@ export class BeamApp extends LitElement {
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
-  @state() private _view: 'list' | 'form' | 'marketplace' | 'config' | 'diagnostics' | 'mcp-app' | 'studio' = 'list';
+  @state() private _view:
+    | 'list'
+    | 'form'
+    | 'marketplace'
+    | 'config'
+    | 'diagnostics'
+    | 'mcp-app'
+    | 'studio' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
   private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
@@ -2188,7 +2195,8 @@ export class BeamApp extends LitElement {
       <h3
         style="color: var(--t-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: var(--space-sm);"
       >
-        Photons (${d.configuredCount} loaded${d.unconfiguredCount > 0 ? `, ${d.unconfiguredCount} unconfigured` : ''})
+        Photons (${d.configuredCount}
+        loaded${d.unconfiguredCount > 0 ? `, ${d.unconfiguredCount} unconfigured` : ''})
       </h3>
       <div class="glass-panel" style="padding: var(--space-md);">
         ${(d.photons || []).map(
@@ -2203,14 +2211,25 @@ export class BeamApp extends LitElement {
                       ? '#fbbf24'
                       : '#f87171'}; flex-shrink: 0;"
                 ></span>
-                <span style="flex: 1;">${p.name}${p.internal ? html` <span style="color: var(--t-muted); font-size: 0.7rem; font-style: italic;">system</span>` : ''}</span>
+                <span style="flex: 1;"
+                  >${p.name}${p.internal
+                    ? html` <span
+                        style="color: var(--t-muted); font-size: 0.7rem; font-style: italic;"
+                        >system</span
+                      >`
+                    : ''}</span
+                >
                 <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
                 ${p.error
                   ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
                   : ''}
               </div>
               ${p.path
-                ? html`<div style="font-family: monospace; font-size: 0.65rem; color: var(--t-muted); opacity: 0.6; margin-left: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.path.replace(/^\/Users\/[^/]+\/|^\/home\/[^/]+\//, '~/')}</div>`
+                ? html`<div
+                    style="font-family: monospace; font-size: 0.65rem; color: var(--t-muted); opacity: 0.6; margin-left: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                  >
+                    ${p.path.replace(/^\/Users\/[^/]+\/|^\/home\/[^/]+\//, '~/')}
+                  </div>`
                 : ''}
             </div>
           `
@@ -2591,43 +2610,63 @@ export class BeamApp extends LitElement {
 
         // Phase 1: Welcome screen with two paths
         return html`
-          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; text-align:center;">
+          <div
+            style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; text-align:center;"
+          >
             <h1 class="text-gradient" style="font-size:2rem; margin-bottom: var(--space-sm);">
               Welcome to Photon Beam
             </h1>
-            <p style="color: var(--t-muted); font-size: 1.05rem; max-width: 520px; margin: 0 auto var(--space-lg) auto; line-height: 1.6;">
-              Photon lets you build and run MCP tools — callable from
-              Claude, Cursor, or any AI assistant.
+            <p
+              style="color: var(--t-muted); font-size: 1.05rem; max-width: 520px; margin: 0 auto var(--space-lg) auto; line-height: 1.6;"
+            >
+              Photon lets you build and run MCP tools — callable from Claude, Cursor, or any AI
+              assistant.
             </p>
-            <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: var(--space-sm); max-width: 580px; width: 100%; margin-bottom: var(--space-xl); align-items: center;">
+            <div
+              style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: var(--space-sm); max-width: 580px; width: 100%; margin-bottom: var(--space-xl); align-items: center;"
+            >
               <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
                 <div style="font-size: 1.2rem; margin-bottom: 4px;">📄</div>
                 <div style="font-size: 0.75rem; font-weight: 600;">One .ts file</div>
-                <div style="font-size: 0.65rem; color: var(--t-muted); font-family: monospace;">app.photon.ts</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted); font-family: monospace;">
+                  app.photon.ts
+                </div>
               </div>
               <div style="color: var(--t-muted); font-size: 1.2rem;">→</div>
               <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
                 <div style="font-size: 1.2rem; margin-bottom: 4px;">⚡</div>
                 <div style="font-size: 0.75rem; font-weight: 600;">Methods = Tools</div>
-                <div style="font-size: 0.65rem; color: var(--t-muted);">Each method becomes an MCP tool</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted);">
+                  Each method becomes an MCP tool
+                </div>
               </div>
               <div style="color: var(--t-muted); font-size: 1.2rem;">→</div>
               <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
                 <div style="font-size: 1.2rem; margin-bottom: 4px;">🤖</div>
                 <div style="font-size: 0.75rem; font-weight: 600;">Use anywhere</div>
-                <div style="font-size: 0.65rem; color: var(--t-muted);">CLI, Beam, Claude, Cursor</div>
+                <div style="font-size: 0.65rem; color: var(--t-muted);">
+                  CLI, Beam, Claude, Cursor
+                </div>
               </div>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); max-width: 520px; width:100%;">
+            <div
+              style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); max-width: 520px; width:100%;"
+            >
               <button
                 class="glass-panel"
                 style="padding: var(--space-lg); border:1px solid var(--border-glass); cursor:pointer; text-align:center; transition: border-color 0.2s, box-shadow 0.2s;"
-                @mouseenter=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)'}
-                @mouseleave=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)'}
+                @mouseenter=${(e: Event) =>
+                  ((e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)')}
+                @mouseleave=${(e: Event) =>
+                  ((e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)')}
                 @click=${() => (this._welcomePhase = 'marketplace')}
               >
                 <div style="font-size: 2rem; margin-bottom: var(--space-sm);">📦</div>
-                <div style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);">Browse & Install</div>
+                <div
+                  style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);"
+                >
+                  Browse & Install
+                </div>
                 <div style="color: var(--t-muted); font-size: 0.85rem; line-height:1.5;">
                   Install a ready-made photon from the marketplace
                 </div>
@@ -2635,12 +2674,21 @@ export class BeamApp extends LitElement {
               <button
                 class="glass-panel"
                 style="padding: var(--space-lg); border:1px solid var(--border-glass); cursor:pointer; text-align:center; transition: border-color 0.2s, box-shadow 0.2s;"
-                @mouseenter=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)'}
-                @mouseleave=${(e: Event) => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)'}
-                @click=${() => this._handleMakerAction(new CustomEvent('maker-action', { detail: { action: 'wizard' } }))}
+                @mouseenter=${(e: Event) =>
+                  ((e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)')}
+                @mouseleave=${(e: Event) =>
+                  ((e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)')}
+                @click=${() =>
+                  this._handleMakerAction(
+                    new CustomEvent('maker-action', { detail: { action: 'wizard' } })
+                  )}
               >
                 <div style="font-size: 2rem; margin-bottom: var(--space-sm);">🛠️</div>
-                <div style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);">Create Your Own</div>
+                <div
+                  style="font-weight:600; font-size:1.05rem; margin-bottom: var(--space-xs); color: var(--t-primary);"
+                >
+                  Create Your Own
+                </div>
                 <div style="color: var(--t-muted); font-size: 0.85rem; line-height:1.5;">
                   Build a custom photon from scratch with the guided wizard
                 </div>
@@ -2766,15 +2814,21 @@ export class BeamApp extends LitElement {
     }
 
     // MCP App view for external MCPs with MCP Apps Extension
-    if (this._view === 'mcp-app' && this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
-      const uris = this._selectedPhoton.mcpAppUris?.length > 0
-        ? this._selectedPhoton.mcpAppUris
-        : [this._selectedPhoton.mcpAppUri];
+    if (
+      this._view === 'mcp-app' &&
+      this._selectedPhoton.isExternalMCP &&
+      this._selectedPhoton.hasMcpApp
+    ) {
+      const uris =
+        this._selectedPhoton.mcpAppUris?.length > 0
+          ? this._selectedPhoton.mcpAppUris
+          : [this._selectedPhoton.mcpAppUri];
       const hasMultipleUIs = uris.length > 1;
       // Use selected URI or default to first
-      const currentUri = this._selectedMcpAppUri && uris.includes(this._selectedMcpAppUri)
-        ? this._selectedMcpAppUri
-        : uris[0];
+      const currentUri =
+        this._selectedMcpAppUri && uris.includes(this._selectedMcpAppUri)
+          ? this._selectedMcpAppUri
+          : uris[0];
 
       // Find the linked tool (the one with _meta.ui.resourceUri matching the current URI)
       // This tool provides initial data to the app
@@ -2797,7 +2851,9 @@ export class BeamApp extends LitElement {
       return html`
         ${hasMultipleUIs
           ? html`
-              <div class="mcp-app-tabs" style="
+              <div
+                class="mcp-app-tabs"
+                style="
                 display: flex;
                 gap: var(--space-xs);
                 padding: var(--space-sm) var(--space-md);
@@ -2805,15 +2861,20 @@ export class BeamApp extends LitElement {
                 border-bottom: 1px solid var(--border-glass);
                 border-radius: var(--radius-md) var(--radius-md) 0 0;
                 margin-bottom: 0;
-              ">
+              "
+              >
                 ${uris.map(
                   (uri: string) => html`
                     <button
                       style="
                         padding: var(--space-xs) var(--space-md);
-                        background: ${uri === currentUri ? 'var(--accent-primary)' : 'var(--bg-glass)'};
+                        background: ${uri === currentUri
+                        ? 'var(--accent-primary)'
+                        : 'var(--bg-glass)'};
                         color: ${uri === currentUri ? 'white' : 'var(--t-muted)'};
-                        border: 1px solid ${uri === currentUri ? 'var(--accent-primary)' : 'var(--border-glass)'};
+                        border: 1px solid ${uri === currentUri
+                        ? 'var(--accent-primary)'
+                        : 'var(--border-glass)'};
                         border-radius: var(--radius-sm);
                         cursor: pointer;
                         font-size: 0.85rem;
@@ -2833,7 +2894,9 @@ export class BeamApp extends LitElement {
           : ''}
         <div
           class="glass-panel"
-          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); ${hasMultipleUIs ? 'border-radius: 0 0 var(--radius-md) var(--radius-md);' : ''}"
+          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); ${hasMultipleUIs
+            ? 'border-radius: 0 0 var(--radius-md) var(--radius-md);'
+            : ''}"
         >
           <mcp-app-renderer
             .mcpName=${this._selectedPhoton.name}
@@ -2849,7 +2912,9 @@ export class BeamApp extends LitElement {
               <div
                 style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
               >
-                <h4 style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);">
+                <h4
+                  style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);"
+                >
                   Available Tools
                 </h4>
                 <div class="cards-grid">
@@ -2890,7 +2955,9 @@ export class BeamApp extends LitElement {
         // iframe from loading data independently while an elicitation is pending
         const appRenderer = this._isExecuting
           ? html`
-              <div style="display: flex; align-items: center; justify-content: center; height: calc(100vh - 140px); opacity: 0.5;">
+              <div
+                style="display: flex; align-items: center; justify-content: center; height: calc(100vh - 140px); opacity: 0.5;"
+              >
                 <span class="spinner"></span>
               </div>
             `
@@ -2921,9 +2988,7 @@ export class BeamApp extends LitElement {
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
             >
-              <div slot="app" style="min-height: calc(100vh - 140px);">
-                ${appRenderer}
-              </div>
+              <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
               <div slot="popout" style="height: 100%;">
                 ${isExternalMCP
                   ? html`
@@ -3779,10 +3844,7 @@ export class BeamApp extends LitElement {
               : mcpClient.parseToolResult(mcpResult);
 
             if (event.source) {
-              (event.source as Window).postMessage(
-                { jsonrpc: '2.0', id: msg.id, result },
-                '*'
-              );
+              (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result }, '*');
             }
           }
         } catch (error) {
@@ -4295,7 +4357,12 @@ export class BeamApp extends LitElement {
 
     const photon = this._selectedPhoton;
     const name = photon.name;
-    const displayName = photon.label || name.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const displayName =
+      photon.label ||
+      name
+        .split('-')
+        .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
     const lines: string[] = [];
 
     // Header with icon
@@ -4327,10 +4394,14 @@ export class BeamApp extends LitElement {
       lines.push(`npx @portel/photon mcp ${name}`);
       lines.push('```');
       lines.push('');
-      lines.push('That\'s it — no prior setup needed. Photon auto-installs from the marketplace and prompts for any missing configuration.');
+      lines.push(
+        "That's it — no prior setup needed. Photon auto-installs from the marketplace and prompts for any missing configuration."
+      );
       lines.push('');
       if (photon.installSource?.marketplace) {
-        lines.push(`From a custom marketplace: \`npx @portel/photon mcp ${photon.installSource.marketplace}:${name}\``);
+        lines.push(
+          `From a custom marketplace: \`npx @portel/photon mcp ${photon.installSource.marketplace}:${name}\``
+        );
         lines.push('');
       }
       lines.push('Or add to your MCP client config (Claude Desktop, Cursor, etc.):');
@@ -4375,7 +4446,9 @@ export class BeamApp extends LitElement {
             .filter((p: any) => p.required)
             .map((p: any) => `--${p.name} <${p.type || 'value'}>`)
             .join(' ');
-          lines.push(`CLI: \`photon cli ${name} ${method.name}${paramHints ? ' ' + paramHints : ''}\``);
+          lines.push(
+            `CLI: \`photon cli ${name} ${method.name}${paramHints ? ' ' + paramHints : ''}\``
+          );
           lines.push('');
         }
 
@@ -4415,15 +4488,17 @@ export class BeamApp extends LitElement {
   /**
    * Build overflow menu items for the context bar ⋯ menu
    */
-  private _buildOverflowItems(opts: {
-    showRefresh?: boolean;
-    showRename?: boolean;
-    showViewSource?: boolean;
-    showDelete?: boolean;
-    showHelp?: boolean;
-    showRunTests?: boolean;
-    showRemove?: boolean;
-  } = {}): import('./overflow-menu.js').OverflowMenuItem[] {
+  private _buildOverflowItems(
+    opts: {
+      showRefresh?: boolean;
+      showRename?: boolean;
+      showViewSource?: boolean;
+      showDelete?: boolean;
+      showHelp?: boolean;
+      showRunTests?: boolean;
+      showRemove?: boolean;
+    } = {}
+  ): import('./overflow-menu.js').OverflowMenuItem[] {
     const {
       showRefresh = true,
       showRename = this._selectedPhoton?.name !== 'maker',
@@ -4528,15 +4603,33 @@ export class BeamApp extends LitElement {
       case 'overflow': {
         const { id } = e.detail;
         switch (id) {
-          case 'refresh': this._handleRefresh(); break;
-          case 'run-tests': this._runTests(); break;
-          case 'remember-values': this._toggleRememberValues(); break;
-          case 'verbose-logging': this._toggleVerboseLogging(); break;
-          case 'rename': this._handleRenamePhoton(); break;
-          case 'view-source': this._handleViewSource(); break;
-          case 'delete': this._handleDeletePhoton(); break;
-          case 'remove': this._handleRemove(); break;
-          case 'help': this._showPhotonHelpModal(); break;
+          case 'refresh':
+            this._handleRefresh();
+            break;
+          case 'run-tests':
+            this._runTests();
+            break;
+          case 'remember-values':
+            this._toggleRememberValues();
+            break;
+          case 'verbose-logging':
+            this._toggleVerboseLogging();
+            break;
+          case 'rename':
+            this._handleRenamePhoton();
+            break;
+          case 'view-source':
+            this._handleViewSource();
+            break;
+          case 'delete':
+            this._handleDeletePhoton();
+            break;
+          case 'remove':
+            this._handleRemove();
+            break;
+          case 'help':
+            this._showPhotonHelpModal();
+            break;
         }
         break;
       }
@@ -5481,11 +5574,14 @@ export class BeamApp extends LitElement {
     if ((window as any).marked) {
       // Extract mermaid blocks before parsing
       const mermaidBlocks: { id: string; code: string }[] = [];
-      let processed = markdown.replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match: string, code: string) => {
-        const id = `help-mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        mermaidBlocks.push({ id, code: code.trim() });
-        return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
-      });
+      let processed = markdown.replace(
+        /```mermaid\s*\n([\s\S]*?)```/g,
+        (_match: string, code: string) => {
+          const id = `help-mermaid-${Math.random().toString(36).substr(2, 9)}`;
+          mermaidBlocks.push({ id, code: code.trim() });
+          return `<div data-mermaid-id="${id}" style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
+        }
+      );
       htmlContent = (window as any).marked.parse(processed);
 
       // Render mermaid blocks after DOM update
@@ -5497,15 +5593,20 @@ export class BeamApp extends LitElement {
           for (const { id, code } of mermaidBlocks) {
             const el = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`);
             if (el) {
-              mermaid.render(id + '-svg', code).then(({ svg }: { svg: string }) => {
-                el.innerHTML = svg;
-                (el as HTMLElement).style.minHeight = '';
-                (el as HTMLElement).style.background = isDark ? 'hsla(220, 15%, 18%, 0.8)' : 'hsla(0, 0%, 97%, 0.8)';
-                (el as HTMLElement).style.borderRadius = '8px';
-                (el as HTMLElement).style.padding = '12px';
-              }).catch(() => {
-                el.textContent = 'Diagram rendering failed';
-              });
+              mermaid
+                .render(id + '-svg', code)
+                .then(({ svg }: { svg: string }) => {
+                  el.innerHTML = svg;
+                  (el as HTMLElement).style.minHeight = '';
+                  (el as HTMLElement).style.background = isDark
+                    ? 'hsla(220, 15%, 18%, 0.8)'
+                    : 'hsla(0, 0%, 97%, 0.8)';
+                  (el as HTMLElement).style.borderRadius = '8px';
+                  (el as HTMLElement).style.padding = '12px';
+                })
+                .catch(() => {
+                  el.textContent = 'Diagram rendering failed';
+                });
             }
           }
         });
@@ -5532,7 +5633,9 @@ export class BeamApp extends LitElement {
             <h2 id="photon-help-title" class="text-gradient" style="margin: 0;">
               Help
               ${this._photonHelpLoading
-                ? html`<span style="font-size: 0.7em; opacity: 0.6; margin-left: 8px;">Loading...</span>`
+                ? html`<span style="font-size: 0.7em; opacity: 0.6; margin-left: 8px;"
+                    >Loading...</span
+                  >`
                 : ''}
             </h2>
             <button

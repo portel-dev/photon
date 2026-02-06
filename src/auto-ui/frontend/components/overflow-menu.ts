@@ -121,7 +121,8 @@ export class OverflowMenu extends LitElement {
     this.items.forEach((item) => {
       if (item.dividerBefore) {
         const divider = document.createElement('div');
-        divider.style.cssText = 'height: 1px; background: var(--border-glass, rgba(255,255,255,0.08)); margin: 4px 0;';
+        divider.style.cssText =
+          'height: 1px; background: var(--border-glass, rgba(255,255,255,0.08)); margin: 4px 0;';
         portal.appendChild(divider);
       }
 
@@ -147,7 +148,9 @@ export class OverflowMenu extends LitElement {
           ? 'hsla(0, 80%, 60%, 0.1)'
           : 'var(--bg-glass, rgba(255,255,255,0.05))';
       };
-      btn.onmouseleave = () => { btn.style.background = 'none'; };
+      btn.onmouseleave = () => {
+        btn.style.background = 'none';
+      };
 
       if (item.toggle) {
         const labelSpan = document.createElement('span');

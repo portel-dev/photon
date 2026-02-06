@@ -59,8 +59,8 @@ export class PhotonStudio extends LitElement {
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      background: var(--bg-elevated, rgba(255,255,255,0.04));
-      border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+      border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       flex-shrink: 0;
     }
 
@@ -85,8 +85,8 @@ export class PhotonStudio extends LitElement {
     .toolbar-btn {
       padding: 5px 12px;
       border-radius: 5px;
-      border: 1px solid var(--border, rgba(255,255,255,0.1));
-      background: var(--bg-elevated, rgba(255,255,255,0.06));
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
       color: var(--t-primary, #e0e0e0);
       font-size: 0.78rem;
       cursor: pointer;
@@ -94,7 +94,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .toolbar-btn:hover {
-      background: rgba(255,255,255,0.1);
+      background: rgba(255, 255, 255, 0.1);
     }
 
     .toolbar-btn.primary {
@@ -158,7 +158,7 @@ export class PhotonStudio extends LitElement {
     /* ─── Preview pane ─── */
     .preview-pane {
       width: 280px;
-      border-left: 1px solid var(--border, rgba(255,255,255,0.06));
+      border-left: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       overflow-y: auto;
       padding: 12px;
       flex-shrink: 0;
@@ -183,7 +183,7 @@ export class PhotonStudio extends LitElement {
     .templates-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.6);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -192,7 +192,7 @@ export class PhotonStudio extends LitElement {
 
     .templates-modal {
       background: var(--bg-primary, #1a1a2e);
-      border: 1px solid var(--border, rgba(255,255,255,0.08));
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
       border-radius: 10px;
       padding: 24px;
       width: 90%;
@@ -215,12 +215,14 @@ export class PhotonStudio extends LitElement {
     }
 
     .template-card {
-      background: var(--bg-elevated, rgba(255,255,255,0.04));
-      border: 1px solid var(--border, rgba(255,255,255,0.06));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       border-radius: 8px;
       padding: 14px;
       cursor: pointer;
-      transition: border-color 0.15s, transform 0.1s;
+      transition:
+        border-color 0.15s,
+        transform 0.1s;
     }
 
     .template-card:hover {
@@ -251,8 +253,8 @@ export class PhotonStudio extends LitElement {
       align-items: center;
       gap: 12px;
       padding: 4px 12px;
-      background: var(--bg-elevated, rgba(255,255,255,0.02));
-      border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       font-size: 0.72rem;
       color: var(--t-muted, #888);
       flex-shrink: 0;
@@ -269,13 +271,14 @@ export class PhotonStudio extends LitElement {
       display: inline-block;
       padding: 0 4px;
       border-radius: 3px;
-      background: rgba(255,255,255,0.06);
+      background: rgba(255, 255, 255, 0.06);
       font-family: var(--font-mono, monospace);
       font-size: 0.68rem;
     }
 
     /* ─── Loading / Error ─── */
-    .loading-state, .error-state {
+    .loading-state,
+    .error-state {
       flex: 1;
       display: flex;
       align-items: center;
@@ -362,33 +365,52 @@ export class PhotonStudio extends LitElement {
           { autocomplete: photonFormatCompletions },
         ]),
         // JSDoc comment continuation at high priority so it fires before basicSetup's Enter
-        Prec.high(keymap.of([{
-          key: 'Enter',
-          run: (view: EditorView) => {
-            const { state: st } = view;
-            const pos = st.selection.main.head;
-            const textBefore = st.doc.sliceString(Math.max(0, pos - 500), pos);
-            const lastOpen = textBefore.lastIndexOf('/**');
-            const lastClose = textBefore.lastIndexOf('*/');
-            if (lastOpen <= lastClose) return false; // not inside JSDoc
+        Prec.high(
+          keymap.of([
+            {
+              key: 'Enter',
+              run: (view: EditorView) => {
+                const { state: st } = view;
+                const pos = st.selection.main.head;
+                const textBefore = st.doc.sliceString(Math.max(0, pos - 500), pos);
+                const lastOpen = textBefore.lastIndexOf('/**');
+                const lastClose = textBefore.lastIndexOf('*/');
+                if (lastOpen <= lastClose) return false; // not inside JSDoc
 
-            // Detect indentation of current line's " * " prefix
-            const line = st.doc.lineAt(pos);
-            const match = line.text.match(/^(\s*)\*\s?/);
-            if (!match) return false; // no leading * pattern
+                // Detect indentation of current line's " * " prefix
+                const line = st.doc.lineAt(pos);
+                const match = line.text.match(/^(\s*)\*\s?/);
+                if (!match) return false; // no leading * pattern
 
-            const indent = match[1];
-            view.dispatch(st.update({
-              changes: { from: pos, insert: `\n${indent}* ` },
-              selection: { anchor: pos + indent.length + 3 }, // after "* "
-            }));
-            return true;
-          },
-        }])),
+                const indent = match[1];
+                view.dispatch(
+                  st.update({
+                    changes: { from: pos, insert: `\n${indent}* ` },
+                    selection: { anchor: pos + indent.length + 3 }, // after "* "
+                  })
+                );
+                return true;
+              },
+            },
+          ])
+        ),
         keymap.of([
           ...defaultKeymap,
-          { key: 'Mod-s', run: () => { this._save(); return true; } },
-          { key: 'Mod-p', run: () => { this._parse(); return true; }, preventDefault: true },
+          {
+            key: 'Mod-s',
+            run: () => {
+              this._save();
+              return true;
+            },
+          },
+          {
+            key: 'Mod-p',
+            run: () => {
+              this._parse();
+              return true;
+            },
+            preventDefault: true,
+          },
         ]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -516,26 +538,31 @@ export class PhotonStudio extends LitElement {
           class="toolbar-btn"
           @click=${() => (this._showTemplates = true)}
           title="Template Gallery"
-        >Templates</button>
+        >
+          Templates
+        </button>
 
         <button
           class="toolbar-btn"
           @click=${this._parse}
           ?disabled=${this._parsing}
           title="Parse source (Cmd+P)"
-        >${this._parsing ? 'Parsing...' : 'Parse'}</button>
+        >
+          ${this._parsing ? 'Parsing...' : 'Parse'}
+        </button>
 
-        <button
-          class="toolbar-btn"
-          @click=${() => (this._showPreview = !this._showPreview)}
-        >${this._showPreview ? 'Hide Preview' : 'Preview'}</button>
+        <button class="toolbar-btn" @click=${() => (this._showPreview = !this._showPreview)}>
+          ${this._showPreview ? 'Hide Preview' : 'Preview'}
+        </button>
 
         <button
           class="toolbar-btn primary"
           @click=${this._save}
           ?disabled=${!this._dirty || this._saving}
           title="Save (Cmd+S)"
-        >${this._saving ? 'Saving...' : 'Save'}</button>
+        >
+          ${this._saving ? 'Saving...' : 'Save'}
+        </button>
 
         <button class="close-btn" @click=${this._close} title="Close Studio">&times;</button>
       </div>
@@ -545,17 +572,19 @@ export class PhotonStudio extends LitElement {
           <div class="editor-container"></div>
         </div>
 
-        ${this._showPreview ? html`
-          <div class="preview-pane">
-            <div class="preview-header">
-              <span class="preview-title">Schema Preview</span>
-            </div>
-            <studio-preview
-              .parseResult=${this._parseResult}
-              .loading=${this._parsing}
-            ></studio-preview>
-          </div>
-        ` : ''}
+        ${this._showPreview
+          ? html`
+              <div class="preview-pane">
+                <div class="preview-header">
+                  <span class="preview-title">Schema Preview</span>
+                </div>
+                <studio-preview
+                  .parseResult=${this._parseResult}
+                  .loading=${this._parsing}
+                ></studio-preview>
+              </div>
+            `
+          : ''}
       </div>
 
       <div class="status-bar">
@@ -564,26 +593,33 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+P</span> Parse</span>
       </div>
 
-      ${this._showTemplates ? html`
-        <div class="templates-overlay" @click=${(e: Event) => {
-          if ((e.target as HTMLElement).classList.contains('templates-overlay')) {
-            this._showTemplates = false;
-          }
-        }}>
-          <div class="templates-modal">
-            <div class="templates-title">Choose a Template</div>
-            <div class="template-grid">
-              ${templates.map(t => html`
-                <div class="template-card" @click=${() => this._applyTemplate(t)}>
-                  <div class="template-icon">${t.icon}</div>
-                  <div class="template-name">${t.name}</div>
-                  <div class="template-desc">${t.description}</div>
+      ${this._showTemplates
+        ? html`
+            <div
+              class="templates-overlay"
+              @click=${(e: Event) => {
+                if ((e.target as HTMLElement).classList.contains('templates-overlay')) {
+                  this._showTemplates = false;
+                }
+              }}
+            >
+              <div class="templates-modal">
+                <div class="templates-title">Choose a Template</div>
+                <div class="template-grid">
+                  ${templates.map(
+                    (t) => html`
+                      <div class="template-card" @click=${() => this._applyTemplate(t)}>
+                        <div class="template-icon">${t.icon}</div>
+                        <div class="template-name">${t.name}</div>
+                        <div class="template-desc">${t.description}</div>
+                      </div>
+                    `
+                  )}
                 </div>
-              `)}
+              </div>
             </div>
-          </div>
-        </div>
-      ` : ''}
+          `
+        : ''}
     `;
   }
 }

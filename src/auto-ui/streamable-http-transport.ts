@@ -969,9 +969,8 @@ const handlers: Record<string, RequestHandler> = {
         }
 
         // Use return value if no chunks were yielded, otherwise use chunks
-        const finalResult = chunks.length > 0
-          ? (chunks.length === 1 ? chunks[0] : chunks)
-          : returnValue;
+        const finalResult =
+          chunks.length > 0 ? (chunks.length === 1 ? chunks[0] : chunks) : returnValue;
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
@@ -1750,8 +1749,14 @@ async function handleBeamStudioWrite(
         version: versionMatch?.[1],
         runtime: runtimeMatch?.[1],
         stateful: !!statefulMatch,
-        dependencies: depsMatch?.[1]?.split(',').map((d: string) => d.trim()).filter(Boolean),
-        tags: tagsMatch?.[1]?.split(',').map((t: string) => t.trim()).filter(Boolean),
+        dependencies: depsMatch?.[1]
+          ?.split(',')
+          .map((d: string) => d.trim())
+          .filter(Boolean),
+        tags: tagsMatch?.[1]
+          ?.split(',')
+          .map((t: string) => t.trim())
+          .filter(Boolean),
         methods: schemas
           .filter((s: any) => !['onInitialize', 'onShutdown', 'constructor'].includes(s.name))
           .map((s: any) => ({
@@ -1856,8 +1861,14 @@ async function handleBeamStudioParse(
       version: versionMatch?.[1],
       runtime: runtimeMatch?.[1],
       stateful: !!statefulMatch,
-      dependencies: depsMatch?.[1]?.split(',').map((d: string) => d.trim()).filter(Boolean),
-      tags: tagsMatch?.[1]?.split(',').map((t: string) => t.trim()).filter(Boolean),
+      dependencies: depsMatch?.[1]
+        ?.split(',')
+        .map((d: string) => d.trim())
+        .filter(Boolean),
+      tags: tagsMatch?.[1]
+        ?.split(',')
+        .map((t: string) => t.trim())
+        .filter(Boolean),
       methods: schemas
         .filter((s: any) => !['onInitialize', 'onShutdown', 'constructor'].includes(s.name))
         .map((s: any) => ({

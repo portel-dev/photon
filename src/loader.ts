@@ -329,7 +329,9 @@ export class PhotonLoader {
       const depDir = this.getDependencyCacheDir(cacheKey);
       const buildDir = this.getBuildCacheDir(cacheKey);
       if (coreVersionChanged) {
-        this.log(`🔄 photon-core version changed (${metadata?.photonCoreVersion} → ${resolvedCoreVersion}), clearing cache for ${mcpName}`);
+        this.log(
+          `🔄 photon-core version changed (${metadata?.photonCoreVersion} → ${resolvedCoreVersion}), clearing cache for ${mcpName}`
+        );
       } else {
         this.log(`🔄 Dependencies changed for ${mcpName} (${cacheKey}), clearing caches`, {
           dependencyCache: depDir,
@@ -347,7 +349,13 @@ export class PhotonLoader {
       }
     }
 
-    await this.writeDependencyMetadata(cacheKey, sourceHash, dependencies, photonPath, resolvedCoreVersion);
+    await this.writeDependencyMetadata(
+      cacheKey,
+      sourceHash,
+      dependencies,
+      photonPath,
+      resolvedCoreVersion
+    );
     return nodeModules;
   }
 
@@ -1840,9 +1848,10 @@ Run: photon mcp ${mcpName} --config
    */
   private wireReactiveCollections(instance: Record<string, unknown>): void {
     // Get the emit function if available
-    const emit = typeof instance.emit === 'function'
-      ? (instance.emit as (event: string, data: unknown) => void).bind(instance)
-      : null;
+    const emit =
+      typeof instance.emit === 'function'
+        ? (instance.emit as (event: string, data: unknown) => void).bind(instance)
+        : null;
 
     if (!emit) {
       return; // No emit function, skip wiring
@@ -1857,7 +1866,12 @@ Run: photon mcp ${mcpName} --config
       // (photon uses npm-cached module, runtime uses linked module)
       const ctorName = value.constructor?.name;
 
-      if (ctorName === 'ReactiveArray' || ctorName === 'ReactiveMap' || ctorName === 'ReactiveSet' || ctorName === 'Collection') {
+      if (
+        ctorName === 'ReactiveArray' ||
+        ctorName === 'ReactiveMap' ||
+        ctorName === 'ReactiveSet' ||
+        ctorName === 'Collection'
+      ) {
         (value as any)._propertyName = key;
         (value as any)._emitter = emit;
         this.log(`Wired ${ctorName}: ${key}`);

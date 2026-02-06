@@ -1101,9 +1101,12 @@ program
       // Handle --validate flag (requires resolved filePath)
       if (options.validate) {
         if (!filePath) {
-          exitWithError(`Cannot validate: ${name} has multiple sources. Install it first with 'photon add ${name}'.`, {
-            exitCode: ExitCode.CONFIG_ERROR,
-          });
+          exitWithError(
+            `Cannot validate: ${name} has multiple sources. Install it first with 'photon add ${name}'.`,
+            {
+              exitCode: ExitCode.CONFIG_ERROR,
+            }
+          );
         }
         await validateConfiguration(filePath, name);
         return;
@@ -1112,9 +1115,12 @@ program
       // Handle --config flag
       if (options.config) {
         if (!filePath) {
-          exitWithError(`Cannot show config: ${name} has multiple sources. Install it first with 'photon add ${name}'.`, {
-            exitCode: ExitCode.CONFIG_ERROR,
-          });
+          exitWithError(
+            `Cannot show config: ${name} has multiple sources. Install it first with 'photon add ${name}'.`,
+            {
+              exitCode: ExitCode.CONFIG_ERROR,
+            }
+          );
         }
         await showConfigTemplate(filePath, name, workingDir);
         return;

@@ -87,11 +87,11 @@ export class StudioPreview extends LitElement {
     }
 
     .method-item {
-      background: var(--bg-elevated, rgba(255,255,255,0.04));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
       border-radius: 6px;
       padding: 8px 10px;
       margin-bottom: 6px;
-      border: 1px solid var(--border, rgba(255,255,255,0.06));
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
     }
 
     .method-header {
@@ -177,14 +177,15 @@ export class StudioPreview extends LitElement {
     .dep-tag {
       display: inline-block;
       padding: 1px 6px;
-      background: var(--bg-elevated, rgba(255,255,255,0.04));
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
       border-radius: 3px;
       font-size: 0.72rem;
       margin: 2px 2px 2px 0;
       color: var(--t-muted, #888);
     }
 
-    .error-list, .warning-list {
+    .error-list,
+    .warning-list {
       list-style: none;
       padding: 0;
       margin: 0;
@@ -230,10 +231,18 @@ export class StudioPreview extends LitElement {
     }
 
     @keyframes dots {
-      0% { content: ''; }
-      33% { content: '.'; }
-      66% { content: '..'; }
-      100% { content: '...'; }
+      0% {
+        content: '';
+      }
+      33% {
+        content: '.';
+      }
+      66% {
+        content: '..';
+      }
+      100% {
+        content: '...';
+      }
     }
   `;
 
@@ -249,52 +258,67 @@ export class StudioPreview extends LitElement {
     const r = this.parseResult;
 
     return html`
-      ${r.errors?.length ? html`
-        <div class="preview-section">
-          <div class="section-title">Errors</div>
-          <ul class="error-list">
-            ${r.errors.map(e => html`<li class="error-item">${e}</li>`)}
-          </ul>
-        </div>
-      ` : ''}
-
-      ${r.warnings?.length ? html`
-        <div class="preview-section">
-          <div class="section-title">Warnings</div>
-          <ul class="warning-list">
-            ${r.warnings.map(w => html`<li class="warning-item">${w}</li>`)}
-          </ul>
-        </div>
-      ` : ''}
+      ${r.errors?.length
+        ? html`
+            <div class="preview-section">
+              <div class="section-title">Errors</div>
+              <ul class="error-list">
+                ${r.errors.map((e) => html`<li class="error-item">${e}</li>`)}
+              </ul>
+            </div>
+          `
+        : ''}
+      ${r.warnings?.length
+        ? html`
+            <div class="preview-section">
+              <div class="section-title">Warnings</div>
+              <ul class="warning-list">
+                ${r.warnings.map((w) => html`<li class="warning-item">${w}</li>`)}
+              </ul>
+            </div>
+          `
+        : ''}
 
       <div class="preview-section">
         <div class="photon-name">${r.icon || ''} ${r.className || 'Unknown'}</div>
         ${r.description ? html`<div class="photon-desc">${r.description}</div>` : ''}
-
-        ${r.version ? html`<div class="meta-row"><span class="meta-label">Version</span><span class="meta-value">${r.version}</span></div>` : ''}
-        ${r.runtime ? html`<div class="meta-row"><span class="meta-label">Runtime</span><span class="meta-value">${r.runtime}</span></div>` : ''}
-        ${r.stateful ? html`<div class="meta-row"><span class="badge badge-stateful">stateful</span></div>` : ''}
+        ${r.version
+          ? html`<div class="meta-row">
+              <span class="meta-label">Version</span><span class="meta-value">${r.version}</span>
+            </div>`
+          : ''}
+        ${r.runtime
+          ? html`<div class="meta-row">
+              <span class="meta-label">Runtime</span><span class="meta-value">${r.runtime}</span>
+            </div>`
+          : ''}
+        ${r.stateful
+          ? html`<div class="meta-row"><span class="badge badge-stateful">stateful</span></div>`
+          : ''}
       </div>
 
-      ${r.dependencies?.length ? html`
-        <div class="preview-section">
-          <div class="section-title">Dependencies</div>
-          <div>${r.dependencies.map(d => html`<span class="dep-tag">${d}</span>`)}</div>
-        </div>
-      ` : ''}
-
-      ${r.tags?.length ? html`
-        <div class="preview-section">
-          <div class="section-title">Tags</div>
-          <div>${r.tags.map(t => html`<span class="dep-tag">${t}</span>`)}</div>
-        </div>
-      ` : ''}
+      ${r.dependencies?.length
+        ? html`
+            <div class="preview-section">
+              <div class="section-title">Dependencies</div>
+              <div>${r.dependencies.map((d) => html`<span class="dep-tag">${d}</span>`)}</div>
+            </div>
+          `
+        : ''}
+      ${r.tags?.length
+        ? html`
+            <div class="preview-section">
+              <div class="section-title">Tags</div>
+              <div>${r.tags.map((t) => html`<span class="dep-tag">${t}</span>`)}</div>
+            </div>
+          `
+        : ''}
 
       <div class="preview-section">
         <div class="section-title">Methods (${r.methods.length})</div>
         ${r.methods.length === 0
           ? html`<div class="empty-state" style="padding:8px 0;">No methods found</div>`
-          : r.methods.map(m => this._renderMethod(m))}
+          : r.methods.map((m) => this._renderMethod(m))}
       </div>
     `;
   }
@@ -316,17 +340,23 @@ export class StudioPreview extends LitElement {
           ${m.locked ? html`<span class="badge badge-locked">locked</span>` : ''}
         </div>
         ${m.description ? html`<div class="method-desc">${m.description}</div>` : ''}
-        ${params.length > 0 ? html`
-          <div class="method-params">
-            ${params.map(([name, schema]) => html`
-              <div class="param-item">
-                <span class="param-name">${name}</span>
-                <span class="param-type">${(schema as any).type || 'any'}</span>
-                ${required.includes(name) ? html`<span class="param-required">required</span>` : ''}
+        ${params.length > 0
+          ? html`
+              <div class="method-params">
+                ${params.map(
+                  ([name, schema]) => html`
+                    <div class="param-item">
+                      <span class="param-name">${name}</span>
+                      <span class="param-type">${(schema as any).type || 'any'}</span>
+                      ${required.includes(name)
+                        ? html`<span class="param-required">required</span>`
+                        : ''}
+                    </div>
+                  `
+                )}
               </div>
-            `)}
-          </div>
-        ` : ''}
+            `
+          : ''}
       </div>
     `;
   }

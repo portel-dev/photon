@@ -101,7 +101,9 @@ export class MethodCard extends LitElement {
         cursor: pointer;
         font-size: 0.7rem;
         color: var(--t-muted);
-        transition: opacity 0.15s, color 0.15s;
+        transition:
+          opacity 0.15s,
+          color 0.15s;
         padding: 2px 4px;
         border-radius: 3px;
         flex-shrink: 0;
@@ -400,11 +402,15 @@ export class MethodCard extends LitElement {
     const isTyped = isAutorun || isWebhook || isCron || isLocked;
 
     // Determine accent color for typed methods
-    const typeAccent = isWebhook ? 'hsl(45, 80%, 50%)'
-      : isCron ? 'hsl(215, 80%, 60%)'
-      : isLocked ? 'hsl(0, 65%, 55%)'
-      : isAutorun ? 'hsl(160, 60%, 45%)'
-      : '';
+    const typeAccent = isWebhook
+      ? 'hsl(45, 80%, 50%)'
+      : isCron
+        ? 'hsl(215, 80%, 60%)'
+        : isLocked
+          ? 'hsl(0, 65%, 55%)'
+          : isAutorun
+            ? 'hsl(160, 60%, 45%)'
+            : '';
 
     return html`
       <div
@@ -415,18 +421,22 @@ export class MethodCard extends LitElement {
         <div>
           <div class="header">
             <div class="title-row">
-              ${hasIcon ? html`
-                <div
-                  class="method-icon"
-                  @click=${this._handleIconClick}
-                  title="Click to set icon"
-                >
-                  ${this.method.icon}
-                </div>
-              ` : ''}
+              ${hasIcon
+                ? html`
+                    <div
+                      class="method-icon"
+                      @click=${this._handleIconClick}
+                      title="Click to set icon"
+                    >
+                      ${this.method.icon}
+                    </div>
+                  `
+                : ''}
               <span class="editable">
                 <h3 class="title">${this.method.name}</h3>
-                <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method">✎</span>
+                <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method"
+                  >✎</span
+                >
               </span>
             </div>
             ${this.method.isTemplate
@@ -435,30 +445,47 @@ export class MethodCard extends LitElement {
                   const props = this.method.params?.properties || {};
                   const count = Object.keys(props).length;
                   if (count === 0) {
-                    return html`<span class="badge" style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;">Ready</span>`;
+                    return html`<span
+                      class="badge"
+                      style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;"
+                      >Ready</span
+                    >`;
                   }
                   return '';
                 })()}
           </div>
-          ${!this.method.isTemplate ? (() => {
-            const props = this.method.params?.properties || {};
-            const paramNames = Object.keys(props);
-            const count = paramNames.length;
-            if (count === 0) return '';
-            if (count <= 4) {
-              return html`<div class="param-tags">${paramNames.map(n => html`<span class="param-tag">${n}</span>`)}</div>`;
-            } else {
-              return html`<div class="param-tags">${paramNames.slice(0, 3).map(n => html`<span class="param-tag">${n}</span>`)}<span class="param-count">+${count - 3}</span></div>`;
-            }
-          })() : ''}
-          ${isTyped ? html`
-            <div class="type-badges">
-              ${isAutorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
-              ${isWebhook ? html`<span class="type-badge webhook">webhook</span>` : ''}
-              ${isCron ? html`<span class="type-badge cron">cron</span>` : ''}
-              ${isLocked ? html`<span class="type-badge locked">locked</span>` : ''}
-            </div>
-          ` : ''}
+          ${!this.method.isTemplate
+            ? (() => {
+                const props = this.method.params?.properties || {};
+                const paramNames = Object.keys(props);
+                const count = paramNames.length;
+                if (count === 0) return '';
+                if (count <= 4) {
+                  return html`<div class="param-tags">
+                    ${paramNames.map((n) => html`<span class="param-tag">${n}</span>`)}
+                  </div>`;
+                } else {
+                  return html`<div class="param-tags">
+                    ${paramNames
+                      .slice(0, 3)
+                      .map((n) => html`<span class="param-tag">${n}</span>`)}<span
+                      class="param-count"
+                      >+${count - 3}</span
+                    >
+                  </div>`;
+                }
+              })()
+            : ''}
+          ${isTyped
+            ? html`
+                <div class="type-badges">
+                  ${isAutorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
+                  ${isWebhook ? html`<span class="type-badge webhook">webhook</span>` : ''}
+                  ${isCron ? html`<span class="type-badge cron">cron</span>` : ''}
+                  ${isLocked ? html`<span class="type-badge locked">locked</span>` : ''}
+                </div>
+              `
+            : ''}
           ${this._editingDescription
             ? html`
                 <div class="description editing" @click=${(e: Event) => e.stopPropagation()}>
@@ -480,7 +507,12 @@ export class MethodCard extends LitElement {
                   <p class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
                     ${hasDescription ? this.method.description : 'Add description...'}
                   </p>
-                  <span class="edit-pencil" @click=${this._handleDescriptionEditClick} title="Edit description">✎</span>
+                  <span
+                    class="edit-pencil"
+                    @click=${this._handleDescriptionEditClick}
+                    title="Edit description"
+                    >✎</span
+                  >
                 </div>
               `}
         </div>

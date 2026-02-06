@@ -22,7 +22,13 @@ function singularize(word: string): string {
   if (irregulars[lower]) return irregulars[lower];
   // Standard rules
   if (lower.endsWith('ies')) return word.slice(0, -3) + 'y';
-  if (lower.endsWith('es') && (lower.endsWith('sses') || lower.endsWith('xes') || lower.endsWith('ches') || lower.endsWith('shes'))) {
+  if (
+    lower.endsWith('es') &&
+    (lower.endsWith('sses') ||
+      lower.endsWith('xes') ||
+      lower.endsWith('ches') ||
+      lower.endsWith('shes'))
+  ) {
     return word.slice(0, -2);
   }
   if (lower.endsWith('s') && !lower.endsWith('ss')) return word.slice(0, -1);
@@ -606,7 +612,8 @@ export class InvokeForm extends LitElement {
 
   render() {
     const properties = (this.params as any)?.properties || this.params;
-    const hasParams = properties && typeof properties === 'object' && Object.keys(properties).length > 0;
+    const hasParams =
+      properties && typeof properties === 'object' && Object.keys(properties).length > 0;
 
     // For no-param methods, show minimal UI with just a re-execute button
     if (!hasParams) {
@@ -631,19 +638,24 @@ export class InvokeForm extends LitElement {
 
     return html`
       <div class="form-container">
-        ${hasComplexTypes ? html`
-          <div class="view-tabs">
-            <button
-              class="view-tab ${this._viewMode === 'form' ? 'active' : ''}"
-              @click=${() => this._switchToFormView()}
-            >Form</button>
-            <button
-              class="view-tab ${this._viewMode === 'json' ? 'active' : ''}"
-              @click=${() => this._switchToJsonView()}
-            >JSON</button>
-          </div>
-        ` : ''}
-
+        ${hasComplexTypes
+          ? html`
+              <div class="view-tabs">
+                <button
+                  class="view-tab ${this._viewMode === 'form' ? 'active' : ''}"
+                  @click=${() => this._switchToFormView()}
+                >
+                  Form
+                </button>
+                <button
+                  class="view-tab ${this._viewMode === 'json' ? 'active' : ''}"
+                  @click=${() => this._switchToJsonView()}
+                >
+                  JSON
+                </button>
+              </div>
+            `
+          : ''}
         ${this._viewMode === 'form' ? this._renderFields() : this._renderJsonEditor()}
 
         <div class="actions">
@@ -818,9 +830,8 @@ export class InvokeForm extends LitElement {
     const schemaAccept = (schema as any).accept || '';
     const isFileBySchema = fmt === 'path' || fmt === 'file' || fmt === 'directory';
     const lk = key.toLowerCase();
-    const isFileByHeuristic = !fmt && (
-      lk.includes('path') || lk.includes('file') || lk.includes('dir')
-    );
+    const isFileByHeuristic =
+      !fmt && (lk.includes('path') || lk.includes('file') || lk.includes('dir'));
 
     if (isFileBySchema || isFileByHeuristic) {
       const isDir = fmt === 'directory' || (!fmt && (lk.includes('dir') || lk.includes('folder')));
@@ -842,10 +853,29 @@ export class InvokeForm extends LitElement {
     // Heuristic: Use textarea for keys suggesting multi-line content
     const lowerKey = key.toLowerCase();
     const lowerDesc = ((schema as any).description || '').toLowerCase();
-    const multiLineKeys = ['code', 'content', 'body', 'script', 'query', 'sql',
-      'html', 'json', 'yaml', 'xml', 'markdown', 'template', 'snippet', 'source'];
+    const multiLineKeys = [
+      'code',
+      'content',
+      'body',
+      'script',
+      'query',
+      'sql',
+      'html',
+      'json',
+      'yaml',
+      'xml',
+      'markdown',
+      'template',
+      'snippet',
+      'source',
+    ];
     const isMultiLine =
-      multiLineKeys.some(k => lowerKey === k || lowerKey.endsWith('_' + k) || lowerKey.endsWith(k.charAt(0).toUpperCase() + k.slice(1))) ||
+      multiLineKeys.some(
+        (k) =>
+          lowerKey === k ||
+          lowerKey.endsWith('_' + k) ||
+          lowerKey.endsWith(k.charAt(0).toUpperCase() + k.slice(1))
+      ) ||
       lowerDesc.includes('multi-line') ||
       lowerDesc.includes('multiline') ||
       (schema as any).format === 'textarea';
@@ -903,7 +933,7 @@ export class InvokeForm extends LitElement {
     for (const [key, value] of Object.entries(this._values)) {
       if (value === undefined || value === null || value === '') continue;
       // Serialize objects and arrays as JSON
-      const strVal = (typeof value === 'object') ? JSON.stringify(value) : String(value);
+      const strVal = typeof value === 'object' ? JSON.stringify(value) : String(value);
       // Quote values with spaces or special characters
       if (strVal.includes(' ') || strVal.includes('"') || strVal.includes("'")) {
         parts.push(`--${key}`, `'${strVal.replace(/'/g, "\\'")}'`);
@@ -920,10 +950,15 @@ export class InvokeForm extends LitElement {
       <div class="cli-preview">
         <div class="cli-preview-header">
           <span class="cli-preview-label">CLI</span>
-          <button class="cli-preview-copy" @click=${() => {
-            navigator.clipboard.writeText(cmd);
-            showToast('Command copied', 'success');
-          }}>Copy</button>
+          <button
+            class="cli-preview-copy"
+            @click=${() => {
+              navigator.clipboard.writeText(cmd);
+              showToast('Command copied', 'success');
+            }}
+          >
+            Copy
+          </button>
         </div>
         <code class="cli-preview-cmd">${cmd}</code>
       </div>
@@ -991,40 +1026,50 @@ export class InvokeForm extends LitElement {
 
     return html`
       <div class="array-container">
-        ${items.map((item, index) => html`
-          <div class="array-item">
-            <div class="array-item-header">
-              <span class="array-item-title">Item ${index + 1}</span>
-              <button
-                class="array-item-remove"
-                @click=${() => this._removeArrayItem(key, index)}
-              >✕ Remove</button>
+        ${items.map(
+          (item, index) => html`
+            <div class="array-item">
+              <div class="array-item-header">
+                <span class="array-item-title">Item ${index + 1}</span>
+                <button class="array-item-remove" @click=${() => this._removeArrayItem(key, index)}>
+                  ✕ Remove
+                </button>
+              </div>
+              ${Object.entries(itemProperties).map(([propKey, propSchema]: [string, any]) => {
+                const isRequired = itemRequired.includes(propKey);
+                return html`
+                  <div class="nested-field">
+                    <label class="nested-label">
+                      ${propKey}
+                      ${isRequired
+                        ? html`<span style="color: var(--accent-secondary)">*</span>`
+                        : ''}
+                      ${propSchema.description
+                        ? html`<span class="nested-hint">${propSchema.description}</span>`
+                        : ''}
+                    </label>
+                    ${this._renderNestedInput(key, index, propKey, propSchema, item[propKey])}
+                  </div>
+                `;
+              })}
             </div>
-            ${Object.entries(itemProperties).map(([propKey, propSchema]: [string, any]) => {
-              const isRequired = itemRequired.includes(propKey);
-              return html`
-                <div class="nested-field">
-                  <label class="nested-label">
-                    ${propKey}
-                    ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
-                    ${propSchema.description ? html`<span class="nested-hint">${propSchema.description}</span>` : ''}
-                  </label>
-                  ${this._renderNestedInput(key, index, propKey, propSchema, item[propKey])}
-                </div>
-              `;
-            })}
-          </div>
-        `)}
-        <button
-          class="array-add-btn"
-          @click=${() => this._addArrayItem(key, itemProperties)}
-        >+ Add ${singularize(key)}</button>
+          `
+        )}
+        <button class="array-add-btn" @click=${() => this._addArrayItem(key, itemProperties)}>
+          + Add ${singularize(key)}
+        </button>
       </div>
     `;
   }
 
   /** Render input for nested field within array item */
-  private _renderNestedInput(arrayKey: string, index: number, propKey: string, schema: any, value: any) {
+  private _renderNestedInput(
+    arrayKey: string,
+    index: number,
+    propKey: string,
+    schema: any,
+    value: any
+  ) {
     const handleNestedChange = (newValue: any) => {
       const items = [...(this._values[arrayKey] || [])];
       items[index] = { ...items[index], [propKey]: newValue };
@@ -1039,32 +1084,38 @@ export class InvokeForm extends LitElement {
       const arrValue = (value as string[]) || [];
       return html`
         <div class="array-container" style="padding: 4px;">
-          ${arrValue.map((item, i) => html`
-            <div style="display: flex; gap: 4px; margin-bottom: 4px;">
-              <input
-                type="text"
-                style="flex: 1;"
-                .value=${item}
-                @input=${(e: Event) => {
-                  const newArr = [...arrValue];
-                  newArr[i] = (e.target as HTMLInputElement).value;
-                  handleNestedChange(newArr);
-                }}
-              />
-              <button
-                class="array-item-remove"
-                @click=${() => {
-                  const newArr = arrValue.filter((_, idx) => idx !== i);
-                  handleNestedChange(newArr);
-                }}
-              >✕</button>
-            </div>
-          `)}
+          ${arrValue.map(
+            (item, i) => html`
+              <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+                <input
+                  type="text"
+                  style="flex: 1;"
+                  .value=${item}
+                  @input=${(e: Event) => {
+                    const newArr = [...arrValue];
+                    newArr[i] = (e.target as HTMLInputElement).value;
+                    handleNestedChange(newArr);
+                  }}
+                />
+                <button
+                  class="array-item-remove"
+                  @click=${() => {
+                    const newArr = arrValue.filter((_, idx) => idx !== i);
+                    handleNestedChange(newArr);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            `
+          )}
           <button
             class="array-add-btn"
             style="padding: 4px; font-size: 0.75rem;"
             @click=${() => handleNestedChange([...arrValue, ''])}
-          >+ Add ${singularize(propKey)}</button>
+          >
+            + Add ${singularize(propKey)}
+          </button>
         </div>
       `;
     }
@@ -1077,9 +1128,9 @@ export class InvokeForm extends LitElement {
           @change=${(e: Event) => handleNestedChange((e.target as HTMLSelectElement).value)}
         >
           <option value="">Select...</option>
-          ${schema.enum.map((opt: string) => html`
-            <option value=${opt} ?selected=${opt === value}>${opt}</option>
-          `)}
+          ${schema.enum.map(
+            (opt: string) => html` <option value=${opt} ?selected=${opt === value}>${opt}</option> `
+          )}
         </select>
       `;
     }

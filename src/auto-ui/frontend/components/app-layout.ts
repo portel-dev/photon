@@ -199,7 +199,9 @@ export class AppLayout extends LitElement {
     return html`
       <div class="popout-overlay">
         <div class="popout-header">
-          <span class="app-name">${this.photonIcon ? html`${this.photonIcon} ` : ''}${this.photonName}</span>
+          <span class="app-name"
+            >${this.photonIcon ? html`${this.photonIcon} ` : ''}${this.photonName}</span
+          >
           <button class="popout-close" @click=${() => (this._poppedOut = false)}>
             ✕ Close <kbd>Esc</kbd>
           </button>

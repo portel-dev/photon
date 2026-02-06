@@ -271,7 +271,10 @@ export class ResultViewer extends LitElement {
         padding: var(--space-sm) var(--space-md);
         background: var(--bg-panel);
         font-family: var(--font-sans);
-        transition: background 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+        transition:
+          background 0.3s ease,
+          transform 0.3s ease,
+          opacity 0.3s ease;
       }
 
       /* Animation for newly added items */
@@ -327,7 +330,9 @@ export class ResultViewer extends LitElement {
 
       /* Table row animations */
       .smart-table tbody tr {
-        transition: background 0.3s ease, opacity 0.3s ease;
+        transition:
+          background 0.3s ease,
+          opacity 0.3s ease;
       }
 
       .smart-table tbody tr.item-added {
@@ -973,7 +978,7 @@ export class ResultViewer extends LitElement {
       }
 
       :host([data-theme='light']) .fullscreen-content .mermaid-container {
-        background: #F4F6F8;
+        background: #f4f6f8;
       }
 
       .fullscreen-content .mermaid-container svg {
@@ -1336,7 +1341,8 @@ export class ResultViewer extends LitElement {
       return;
     }
 
-    const itemId = data && typeof data === 'object' ? (data as Record<string, unknown>)[idField] : String(data);
+    const itemId =
+      data && typeof data === 'object' ? (data as Record<string, unknown>)[idField] : String(data);
     const stringId = String(itemId);
 
     switch (type) {
@@ -1356,12 +1362,11 @@ export class ResultViewer extends LitElement {
         this._animatedItems.set(stringId, 'removed');
         this.requestUpdate();
         setTimeout(() => {
-          this._internalResult = this._internalResult.filter(
-            (item: unknown) => {
-              const id = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
-              return String(id) !== stringId;
-            }
-          );
+          this._internalResult = this._internalResult.filter((item: unknown) => {
+            const id =
+              item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+            return String(id) !== stringId;
+          });
           this._animatedItems.delete(stringId);
           this.requestUpdate();
         }, 300);
@@ -1371,13 +1376,14 @@ export class ResultViewer extends LitElement {
         // Update item and highlight
         const updateData = data as { index?: number; value?: unknown };
         if (updateData.index !== undefined && updateData.value !== undefined) {
-          this._internalResult = this._internalResult.map(
-            (item: unknown, i: number) => i === updateData.index ? updateData.value : item
+          this._internalResult = this._internalResult.map((item: unknown, i: number) =>
+            i === updateData.index ? updateData.value : item
           );
         } else {
           // Find and replace by ID
           this._internalResult = this._internalResult.map((item: unknown) => {
-            const id = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+            const id =
+              item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
             return String(id) === stringId ? data : item;
           });
         }
@@ -1390,7 +1396,7 @@ export class ResultViewer extends LitElement {
 
       case 'changed':
         // Full replacement
-        this._internalResult = Array.isArray(data) ? [...data as unknown[]] : data;
+        this._internalResult = Array.isArray(data) ? [...(data as unknown[])] : data;
         break;
     }
   }
@@ -1420,7 +1426,8 @@ export class ResultViewer extends LitElement {
    * Get the animation class for an item
    */
   private _getItemAnimationClass(item: unknown, idField: string = 'id'): string {
-    const itemId = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+    const itemId =
+      item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
     const animation = this._animatedItems.get(String(itemId));
     return animation ? `item-${animation}` : '';
   }
@@ -2147,37 +2154,46 @@ export class ResultViewer extends LitElement {
     const nestedKeys = keys.filter((k) => this._isNestedValue(data[k]));
 
     return html`
-      ${scalarKeys.length > 0 ? html`
-        <table class="smart-table kv-table">
-          <thead>
-            <tr>
-              <th>Property</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${scalarKeys.map(
-              (key) => html`
+      ${scalarKeys.length > 0
+        ? html`
+            <table class="smart-table kv-table">
+              <thead>
                 <tr>
-                  <td class="kv-key">${this._formatColumnName(key)}</td>
-                  <td>${this._formatCellValue(data[key], key, true)}</td>
+                  <th>Property</th>
+                  <th>Value</th>
                 </tr>
-              `
-            )}
-          </tbody>
-        </table>
-      ` : ''}
-      ${nestedKeys.map((key) => html`
-        <div style="margin-top:var(--space-sm);">
-          ${this._formatCellValue(data[key], key, true)}
-        </div>
-      `)}
+              </thead>
+              <tbody>
+                ${scalarKeys.map(
+                  (key) => html`
+                    <tr>
+                      <td class="kv-key">${this._formatColumnName(key)}</td>
+                      <td>${this._formatCellValue(data[key], key, true)}</td>
+                    </tr>
+                  `
+                )}
+              </tbody>
+            </table>
+          `
+        : ''}
+      ${nestedKeys.map(
+        (key) => html`
+          <div style="margin-top:var(--space-sm);">
+            ${this._formatCellValue(data[key], key, true)}
+          </div>
+        `
+      )}
     `;
   }
 
   /** Returns true for arrays of objects or large nested objects that deserve their own section */
   private _isNestedValue(value: any): boolean {
-    if (Array.isArray(value) && value.length > 0 && value.some((v) => typeof v === 'object' && v !== null)) return true;
+    if (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.some((v) => typeof v === 'object' && v !== null)
+    )
+      return true;
     if (typeof value === 'object' && value !== null && Object.keys(value).length > 4) return true;
     return false;
   }
@@ -2681,9 +2697,15 @@ export class ResultViewer extends LitElement {
       if (value.length === 0) return '—';
       // Array of primitives → inline chips
       if (value.every((v) => typeof v !== 'object' || v === null)) {
-        return html`<span style="display:flex;flex-wrap:wrap;gap:3px;">${value.map(
-          (v) => html`<span style="font-size:0.75rem;padding:1px 6px;border-radius:3px;background:hsla(220,10%,80%,0.08);color:var(--t-muted);font-family:var(--font-mono);">${String(v)}</span>`
-        )}</span>`;
+        return html`<span style="display:flex;flex-wrap:wrap;gap:3px;"
+          >${value.map(
+            (v) =>
+              html`<span
+                style="font-size:0.75rem;padding:1px 6px;border-radius:3px;background:hsla(220,10%,80%,0.08);color:var(--t-muted);font-family:var(--font-mono);"
+                >${String(v)}</span
+              >`
+          )}</span
+        >`;
       }
       // Array of objects → collapsible nested table
       const nodeKey = `cell-${key}`;
@@ -2693,19 +2715,53 @@ export class ResultViewer extends LitElement {
         <div>
           <button
             style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
-            @click=${(e: Event) => { e.stopPropagation(); this._toggleNode(nodeKey); }}
-          >${isExpanded ? '▾' : '▸'} ${value.length} items</button>
-          ${isExpanded ? html`
-            <table class="smart-table" style="margin-top:6px;font-size:0.8rem;">
-              <thead><tr>${columns.map((c) => html`<th style="white-space:nowrap;">${this._formatColumnName(c)}</th>`)}</tr></thead>
-              <tbody>
-                ${value.slice(0, 100).map((row) => html`
-                  <tr>${columns.map((c) => html`<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this._formatCellValue(row[c], c, highlight)}</td>`)}</tr>
-                `)}
-                ${value.length > 100 ? html`<tr><td colspan="${columns.length}" style="text-align:center;color:var(--t-muted);font-style:italic;">…and ${value.length - 100} more</td></tr>` : ''}
-              </tbody>
-            </table>
-          ` : ''}
+            @click=${(e: Event) => {
+              e.stopPropagation();
+              this._toggleNode(nodeKey);
+            }}
+          >
+            ${isExpanded ? '▾' : '▸'} ${value.length} items
+          </button>
+          ${isExpanded
+            ? html`
+                <table class="smart-table" style="margin-top:6px;font-size:0.8rem;">
+                  <thead>
+                    <tr>
+                      ${columns.map(
+                        (c) =>
+                          html`<th style="white-space:nowrap;">${this._formatColumnName(c)}</th>`
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${value.slice(0, 100).map(
+                      (row) => html`
+                        <tr>
+                          ${columns.map(
+                            (c) =>
+                              html`<td
+                                style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                              >
+                                ${this._formatCellValue(row[c], c, highlight)}
+                              </td>`
+                          )}
+                        </tr>
+                      `
+                    )}
+                    ${value.length > 100
+                      ? html`<tr>
+                          <td
+                            colspan="${columns.length}"
+                            style="text-align:center;color:var(--t-muted);font-style:italic;"
+                          >
+                            …and ${value.length - 100} more
+                          </td>
+                        </tr>`
+                      : ''}
+                  </tbody>
+                </table>
+              `
+            : ''}
         </div>
       `;
     }
@@ -2714,9 +2770,17 @@ export class ResultViewer extends LitElement {
       // Single nested object → inline key-value pairs
       const entries = Object.entries(value).filter(([, v]) => v !== undefined);
       if (entries.length <= 4) {
-        return html`<span style="display:flex;flex-wrap:wrap;gap:4px 10px;">${entries.map(
-          ([k, v]) => html`<span><span style="color:var(--t-muted);font-size:0.75rem;text-transform:uppercase;">${k}</span> <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span></span>`
-        )}</span>`;
+        return html`<span style="display:flex;flex-wrap:wrap;gap:4px 10px;"
+          >${entries.map(
+            ([k, v]) =>
+              html`<span
+                ><span style="color:var(--t-muted);font-size:0.75rem;text-transform:uppercase;"
+                  >${k}</span
+                >
+                <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span></span
+              >`
+          )}</span
+        >`;
       }
       const nodeKey = `cell-${key}`;
       const isExpanded = this._expandedNodes.has(nodeKey);
@@ -2724,20 +2788,32 @@ export class ResultViewer extends LitElement {
         <div>
           <button
             style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
-            @click=${(e: Event) => { e.stopPropagation(); this._toggleNode(nodeKey); }}
-          >${isExpanded ? '▾' : '▸'} ${entries.length} fields</button>
-          ${isExpanded ? html`
-            <table class="smart-table kv-table" style="margin-top:6px;font-size:0.8rem;max-width:100%;">
-              <tbody>
-                ${entries.map(([k, v]) => html`
-                  <tr>
-                    <td class="kv-key">${this._formatColumnName(k)}</td>
-                    <td>${this._formatCellValue(v, k, highlight)}</td>
-                  </tr>
-                `)}
-              </tbody>
-            </table>
-          ` : ''}
+            @click=${(e: Event) => {
+              e.stopPropagation();
+              this._toggleNode(nodeKey);
+            }}
+          >
+            ${isExpanded ? '▾' : '▸'} ${entries.length} fields
+          </button>
+          ${isExpanded
+            ? html`
+                <table
+                  class="smart-table kv-table"
+                  style="margin-top:6px;font-size:0.8rem;max-width:100%;"
+                >
+                  <tbody>
+                    ${entries.map(
+                      ([k, v]) => html`
+                        <tr>
+                          <td class="kv-key">${this._formatColumnName(k)}</td>
+                          <td>${this._formatCellValue(v, k, highlight)}</td>
+                        </tr>
+                      `
+                    )}
+                  </tbody>
+                </table>
+              `
+            : ''}
         </div>
       `;
     }
@@ -2774,7 +2850,12 @@ export class ResultViewer extends LitElement {
   private _isImageUrl(value: any): boolean {
     if (typeof value !== 'string') return false;
     // Only match actual URLs, not bare file paths
-    if (!value.startsWith('http://') && !value.startsWith('https://') && !value.startsWith('data:image/')) return false;
+    if (
+      !value.startsWith('http://') &&
+      !value.startsWith('https://') &&
+      !value.startsWith('data:image/')
+    )
+      return false;
     return /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(value) || value.startsWith('data:image/');
   }
 

@@ -48,8 +48,22 @@ const execAsync = promisify(exec);
 
 /** Wizard step types using standard ask/emit protocol */
 type WizardStep =
-  | { ask: 'text'; id: string; message: string; label?: string; placeholder?: string; hint?: string; required?: boolean }
-  | { ask: 'select'; id: string; message: string; options: Array<{ value: string; label: string }>; multi?: boolean }
+  | {
+      ask: 'text';
+      id: string;
+      message: string;
+      label?: string;
+      placeholder?: string;
+      hint?: string;
+      required?: boolean;
+    }
+  | {
+      ask: 'select';
+      id: string;
+      message: string;
+      options: Array<{ value: string; label: string }>;
+      multi?: boolean;
+    }
   | { emit: 'status'; message: string }
   | { emit: 'result'; data: any };
 
@@ -266,9 +280,10 @@ ${allStubs.join('\n\n')}
     yield { emit: 'status' as const, message: 'Creating photon...' };
 
     const nameStr = String(name);
-    const description = typeof descriptionRaw === 'string' && descriptionRaw.trim()
-      ? descriptionRaw.trim()
-      : '[Add description]';
+    const description =
+      typeof descriptionRaw === 'string' && descriptionRaw.trim()
+        ? descriptionRaw.trim()
+        : '[Add description]';
     const icon = typeof iconRaw === 'string' && iconRaw.trim() ? iconRaw.trim() : '⚡';
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const fileName = `${nameStr}.photon.ts`;
@@ -283,8 +298,13 @@ ${allStubs.join('\n\n')}
     // Parse comma-separated lists
     const parseCsv = (val: any): string[] =>
       typeof val === 'string' && val.trim()
-        ? val.split(',').map((s) => s.trim()).filter(Boolean)
-        : Array.isArray(val) ? val : [];
+        ? val
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : Array.isArray(val)
+          ? val
+          : [];
 
     const methodList = parseCsv(methodsRaw);
     if (methodList.length === 0) methodList.push('example');
@@ -498,7 +518,9 @@ ${allStubs.join('\n\n')}
   // Helper Methods
   // ============================================
 
-  private static async validateNpmPackage(name: string): Promise<{ valid: boolean; version?: string }> {
+  private static async validateNpmPackage(
+    name: string
+  ): Promise<{ valid: boolean; version?: string }> {
     try {
       const { stdout } = await execAsync(`npm view ${name} version --json`, { timeout: 10000 });
       const version = JSON.parse(stdout.trim());

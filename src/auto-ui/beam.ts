@@ -213,9 +213,7 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
     logger.debug(`Connected to ${url} via Streamable HTTP`);
     return sdkClient;
   } catch (streamableError) {
-    logger.debug(
-      `Streamable HTTP failed for ${url}, trying legacy SSE: ${streamableError}`
-    );
+    logger.debug(`Streamable HTTP failed for ${url}, trying legacy SSE: ${streamableError}`);
   }
 
   // Fallback: legacy SSE transport
@@ -308,9 +306,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           const resources = resourcesResult.resources || [];
 
           const appResources = resources.filter(
-            (r: any) =>
-              r.uri?.startsWith('ui://') ||
-              r.mimeType === 'application/vnd.mcp.ui+html'
+            (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
           );
 
           // Count only non-UI resources (UI resources are internal implementation detail)
@@ -404,9 +400,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
 
             // Check for MCP App resources (ui:// scheme or application/vnd.mcp.ui+html mime)
             const appResources = resources.filter(
-              (r: any) =>
-                r.uri?.startsWith('ui://') ||
-                r.mimeType === 'application/vnd.mcp.ui+html'
+              (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
             );
 
             // Count only non-UI resources (UI resources are internal implementation detail)
@@ -487,9 +481,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
  * @param name - The MCP name to reconnect
  * @returns Success status and error message if failed
  */
-async function reconnectExternalMCP(
-  name: string
-): Promise<{ success: boolean; error?: string }> {
+async function reconnectExternalMCP(name: string): Promise<{ success: boolean; error?: string }> {
   const mcpIndex = externalMCPs.findIndex((m) => m.name === name);
   if (mcpIndex === -1) {
     return { success: false, error: `External MCP not found: ${name}` };
@@ -524,9 +516,7 @@ async function reconnectExternalMCP(
         const resources = resourcesResult.resources || [];
 
         const appResources = resources.filter(
-          (r: any) =>
-            r.uri?.startsWith('ui://') ||
-            r.mimeType === 'application/vnd.mcp.ui+html'
+          (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
         );
 
         // Count only non-UI resources (UI resources are internal implementation detail)
@@ -904,8 +894,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }));
 
         // Extract @ui template path from class-level JSDoc
-        const classJsdocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/)
-          || source.match(/^\/\*\*([\s\S]*?)\*\//);
+        const classJsdocMatch =
+          source.match(/\/\*\*[\s\S]*?\*\/\s*(?=export\s+default\s+class)/) ||
+          source.match(/^\/\*\*([\s\S]*?)\*\//);
         if (classJsdocMatch) {
           const uiMatch = classJsdocMatch[0].match(/@ui\s+([^\s*]+)/);
           if (uiMatch) {
@@ -1000,7 +991,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             linkedUi: linkedAsset?.id,
             ...(schema.isStatic ? { isStatic: true } : {}),
             ...(schema.webhook ? { webhook: schema.webhook } : {}),
-            ...(schema.scheduled || schema.cron ? { scheduled: schema.scheduled || schema.cron } : {}),
+            ...(schema.scheduled || schema.cron
+              ? { scheduled: schema.scheduled || schema.cron }
+              : {}),
             ...(schema.locked ? { locked: schema.locked } : {}),
           };
         });
@@ -1081,7 +1074,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         promptCount,
         installSource,
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
-        ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
+        ...(mcp.injectedPhotons &&
+          mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1095,7 +1089,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         label: prettifyName(name),
         internal: isInternal,
         requiredParams: constructorParams,
-        errorReason: constructorParams.length > 0 ? 'missing-config' as const : 'load-error' as const,
+        errorReason:
+          constructorParams.length > 0 ? ('missing-config' as const) : ('load-error' as const),
         errorMessage: errorMsg.slice(0, 200),
       };
     }
@@ -2892,7 +2887,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             icon: reloadClassMeta.icon,
             internal: reloadClassMeta.internal,
             ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
-            ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
+            ...(mcp.injectedPhotons &&
+              mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
           };
 
           if (isNewPhoton) {
@@ -3078,9 +3074,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       ? `${configuredCount} ready, ${unconfiguredCount} need setup`
       : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
   const mcpStatus =
-    externalMCPList.length > 0
-      ? `, ${connectedMCPs}/${externalMCPList.length} MCPs`
-      : '';
+    externalMCPList.length > 0 ? `, ${connectedMCPs}/${externalMCPList.length} MCPs` : '';
   console.log(`⚡ Photon Beam ready (${photonStatus}${mcpStatus})`);
 
   // Notify connected clients that photon list is now available
@@ -3199,7 +3193,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           const data = await fs.readFile(CONFIG_FILE, 'utf-8');
           newConfig = migrateConfig(JSON.parse(data));
         } catch (err) {
-          logger.warn(`⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : err}`);
+          logger.warn(
+            `⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : err}`
+          );
           return;
         }
 
@@ -3237,7 +3233,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               await sdkClient.close();
               externalMCPSDKClients.delete(name);
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
           externalMCPClients.delete(name);
 
           logger.info(`🔌 Removed external MCP: ${name}`);
@@ -3269,7 +3267,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 await sdkClient.close();
                 externalMCPSDKClients.delete(name);
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
             externalMCPClients.delete(name);
             externalMCPs.splice(idx, 1);
           }
@@ -3404,7 +3404,8 @@ async function configurePhotonViaMCP(
       isApp,
       appEntry: mainMethod,
       assets: mcp.assets,
-      ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
+      ...(mcp.injectedPhotons &&
+        mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
     photons[photonIndex] = configuredPhoton;
@@ -3524,7 +3525,8 @@ async function reloadPhotonViaMCP(
       description: reloadClassMeta.description,
       icon: reloadClassMeta.icon,
       internal: reloadClassMeta.internal,
-      ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
+      ...(mcp.injectedPhotons &&
+        mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
     photons[photonIndex] = reloadedPhoton;
@@ -3650,10 +3652,7 @@ async function generatePhotonHelpMarkdown(
 
   // Check if .md file already exists and is newer than the photon source
   try {
-    const [mdStat, srcStat] = await Promise.all([
-      fs.stat(mdPath),
-      fs.stat(photon.path),
-    ]);
+    const [mdStat, srcStat] = await Promise.all([fs.stat(mdPath), fs.stat(photon.path)]);
     if (mdStat.mtimeMs >= srcStat.mtimeMs) {
       const existing = await fs.readFile(mdPath, 'utf-8');
       if (existing.trim()) {

@@ -713,7 +713,11 @@ export class BeamSidebar extends LitElement {
           ? html`
               <div class="section-header" id="apps-header">APPS</div>
               <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
-                ${this._apps.map((photon) => photon.isExternalMCP ? this._renderExternalMCPItem(photon) : this._renderPhotonItem(photon, 'app'))}
+                ${this._apps.map((photon) =>
+                  photon.isExternalMCP
+                    ? this._renderExternalMCPItem(photon)
+                    : this._renderPhotonItem(photon, 'app')
+                )}
               </ul>
             `
           : ''}
@@ -842,8 +846,10 @@ export class BeamSidebar extends LitElement {
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
           ? photon.errorReason === 'load-error'
-            ? html`<span class="method-count error" aria-label="Error loading">\u00d7</span>`
-            : html`<span class="method-count unconfigured" aria-label="Needs configuration">?</span>`
+            ? html`<span class="method-count error" aria-label="Error loading">×</span>`
+            : html`<span class="method-count unconfigured" aria-label="Needs configuration"
+                >?</span
+              >`
           : this._renderCountsPill(photon, methodCount)}
       </li>
     `;
@@ -872,7 +878,9 @@ export class BeamSidebar extends LitElement {
         </div>
         ${!isConnected
           ? html`
-              <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}">Offline</span>
+              <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}"
+                >Offline</span
+              >
               <button
                 class="reconnect-btn"
                 @click=${(e: Event) => this._reconnectMCP(e, mcp.name)}

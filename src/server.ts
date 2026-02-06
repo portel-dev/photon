@@ -633,10 +633,7 @@ export class PhotonServer {
       } catch (error) {
         // Check for config error — attempt elicitation to resolve missing env vars
         const errorMsg = getErrorMessage(error);
-        if (
-          this.mcp?.instance?._photonConfigError &&
-          this.clientSupportsElicitation()
-        ) {
+        if (this.mcp?.instance?._photonConfigError && this.clientSupportsElicitation()) {
           const retryResult = await this.attemptConfigElicitation(toolName, args || {});
           if (retryResult) return retryResult;
         }
@@ -1171,7 +1168,8 @@ export class PhotonServer {
         if (param.hasDefault || param.isOptional) continue;
 
         properties[envVarName] = {
-          type: param.type === 'number' ? 'number' : param.type === 'boolean' ? 'boolean' : 'string',
+          type:
+            param.type === 'number' ? 'number' : param.type === 'boolean' ? 'boolean' : 'string',
           title: param.name,
           description: `Environment variable: ${envVarName}`,
         };
@@ -1217,7 +1215,8 @@ export class PhotonServer {
         outputHandler,
       });
 
-      const isStateful = retryResult && typeof retryResult === 'object' && retryResult._stateful === true;
+      const isStateful =
+        retryResult && typeof retryResult === 'object' && retryResult._stateful === true;
       const actualResult = isStateful ? retryResult.result : retryResult;
 
       return {
@@ -1236,7 +1235,10 @@ export class PhotonServer {
     try {
       // If unresolvedPhoton is set, skip loading — defer to first tool call
       if (this.options.unresolvedPhoton) {
-        this.log('info', `Deferred loading for ${this.options.unresolvedPhoton.name} (${this.options.unresolvedPhoton.sources.length} marketplace sources)`);
+        this.log(
+          'info',
+          `Deferred loading for ${this.options.unresolvedPhoton.name} (${this.options.unresolvedPhoton.sources.length} marketplace sources)`
+        );
       } else {
         // Initialize MCP client factory for enabling this.mcp() in Photons
         // This allows Photons to call external MCPs via protocol

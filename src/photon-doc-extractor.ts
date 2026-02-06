@@ -476,7 +476,11 @@ export class PhotonDocExtractor {
   /**
    * Parse a single tool method from its JSDoc content
    */
-  private parseToolMethodFromJSDoc(jsdoc: string, methodName: string, signatureParams?: string): Tool | null {
+  private parseToolMethodFromJSDoc(
+    jsdoc: string,
+    methodName: string,
+    signatureParams?: string
+  ): Tool | null {
     // Extract method description (first line(s) before @param)
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
     const description = descMatch
@@ -517,7 +521,10 @@ export class PhotonDocExtractor {
       // Try to extract type and optional info from description
       // Format: "Param description (optional)" or "Param description (default: value)"
       let cleanDesc = parsed.description;
-      const optional = /\(optional\)/i.test(cleanDesc) || /\(default:/i.test(cleanDesc) || (sigTypes[paramName]?.optional ?? false);
+      const optional =
+        /\(optional\)/i.test(cleanDesc) ||
+        /\(default:/i.test(cleanDesc) ||
+        (sigTypes[paramName]?.optional ?? false);
       cleanDesc = cleanDesc
         .replace(/\(optional\)/gi, '')
         .replace(/\(default:.*?\)/gi, '')

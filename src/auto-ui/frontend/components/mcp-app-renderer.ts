@@ -28,37 +28,89 @@ import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/
  */
 const VALID_STYLE_KEYS = new Set([
   // Background colors
-  '--color-background-primary', '--color-background-secondary', '--color-background-tertiary',
-  '--color-background-inverse', '--color-background-ghost', '--color-background-info',
-  '--color-background-danger', '--color-background-success', '--color-background-warning',
+  '--color-background-primary',
+  '--color-background-secondary',
+  '--color-background-tertiary',
+  '--color-background-inverse',
+  '--color-background-ghost',
+  '--color-background-info',
+  '--color-background-danger',
+  '--color-background-success',
+  '--color-background-warning',
   '--color-background-disabled',
   // Text colors
-  '--color-text-primary', '--color-text-secondary', '--color-text-tertiary',
-  '--color-text-inverse', '--color-text-ghost', '--color-text-info',
-  '--color-text-danger', '--color-text-success', '--color-text-warning', '--color-text-disabled',
+  '--color-text-primary',
+  '--color-text-secondary',
+  '--color-text-tertiary',
+  '--color-text-inverse',
+  '--color-text-ghost',
+  '--color-text-info',
+  '--color-text-danger',
+  '--color-text-success',
+  '--color-text-warning',
+  '--color-text-disabled',
   // Border colors
-  '--color-border-primary', '--color-border-secondary', '--color-border-tertiary',
-  '--color-border-inverse', '--color-border-ghost', '--color-border-info',
-  '--color-border-danger', '--color-border-success', '--color-border-warning', '--color-border-disabled',
+  '--color-border-primary',
+  '--color-border-secondary',
+  '--color-border-tertiary',
+  '--color-border-inverse',
+  '--color-border-ghost',
+  '--color-border-info',
+  '--color-border-danger',
+  '--color-border-success',
+  '--color-border-warning',
+  '--color-border-disabled',
   // Ring colors
-  '--color-ring-primary', '--color-ring-secondary', '--color-ring-inverse',
-  '--color-ring-info', '--color-ring-danger', '--color-ring-success', '--color-ring-warning',
+  '--color-ring-primary',
+  '--color-ring-secondary',
+  '--color-ring-inverse',
+  '--color-ring-info',
+  '--color-ring-danger',
+  '--color-ring-success',
+  '--color-ring-warning',
   // Typography
-  '--font-sans', '--font-mono',
-  '--font-weight-normal', '--font-weight-medium', '--font-weight-semibold', '--font-weight-bold',
-  '--font-text-xs-size', '--font-text-sm-size', '--font-text-md-size', '--font-text-lg-size',
-  '--font-heading-xs-size', '--font-heading-sm-size', '--font-heading-md-size',
-  '--font-heading-lg-size', '--font-heading-xl-size', '--font-heading-2xl-size', '--font-heading-3xl-size',
-  '--font-text-xs-line-height', '--font-text-sm-line-height', '--font-text-md-line-height', '--font-text-lg-line-height',
-  '--font-heading-xs-line-height', '--font-heading-sm-line-height', '--font-heading-md-line-height',
-  '--font-heading-lg-line-height', '--font-heading-xl-line-height', '--font-heading-2xl-line-height', '--font-heading-3xl-line-height',
+  '--font-sans',
+  '--font-mono',
+  '--font-weight-normal',
+  '--font-weight-medium',
+  '--font-weight-semibold',
+  '--font-weight-bold',
+  '--font-text-xs-size',
+  '--font-text-sm-size',
+  '--font-text-md-size',
+  '--font-text-lg-size',
+  '--font-heading-xs-size',
+  '--font-heading-sm-size',
+  '--font-heading-md-size',
+  '--font-heading-lg-size',
+  '--font-heading-xl-size',
+  '--font-heading-2xl-size',
+  '--font-heading-3xl-size',
+  '--font-text-xs-line-height',
+  '--font-text-sm-line-height',
+  '--font-text-md-line-height',
+  '--font-text-lg-line-height',
+  '--font-heading-xs-line-height',
+  '--font-heading-sm-line-height',
+  '--font-heading-md-line-height',
+  '--font-heading-lg-line-height',
+  '--font-heading-xl-line-height',
+  '--font-heading-2xl-line-height',
+  '--font-heading-3xl-line-height',
   // Border radius
-  '--border-radius-xs', '--border-radius-sm', '--border-radius-md',
-  '--border-radius-lg', '--border-radius-xl', '--border-radius-full',
+  '--border-radius-xs',
+  '--border-radius-sm',
+  '--border-radius-md',
+  '--border-radius-lg',
+  '--border-radius-xl',
+  '--border-radius-full',
   // Border width
   '--border-width-regular',
   // Shadows
-  '--shadow-hairline', '--shadow-sm', '--shadow-md', '--shadow-lg',
+  '--shadow-hairline',
+  '--shadow-sm',
+  '--shadow-md',
+  '--shadow-lg',
 ]);
 
 function filterSpecVariables(tokens: Record<string, string>): Record<string, string> {
@@ -621,7 +673,9 @@ export class McpAppRenderer extends LitElement {
           class="fullscreen-btn"
           @click=${() => (this._fullscreen = true)}
           title="Full screen"
-        >⛶</button>
+        >
+          ⛶
+        </button>
         <iframe
           srcdoc=${this._srcDoc}
           sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"

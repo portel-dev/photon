@@ -56,7 +56,7 @@ async function mcpRequest(
     headers['Mcp-Session-Id'] = sessionId;
   }
 
-  const response = await fetch(`http://localhost:${port}/mcp`, {
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -212,7 +212,7 @@ async function runTests() {
     }
 
     // Send initialized notification (no response expected)
-    await fetch(`http://localhost:${port}/mcp`, {
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

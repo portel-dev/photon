@@ -110,7 +110,9 @@ export class TemplateManager {
       const context: Record<string, any> = { ...data, ...helpers };
       return this.evaluateTemplate(template, context);
     } catch (error: any) {
-      throw new Error(`Template rendering error: ${error.message}\n  Context keys: ${Object.keys(data).join(', ')}`);
+      throw new Error(
+        `Template rendering error: ${error.message}\n  Context keys: ${Object.keys(data).join(', ')}`
+      );
     }
   }
 
@@ -171,12 +173,14 @@ export class TemplateManager {
    */
   private evalExpression(expr: string, context: Record<string, any>): any {
     const keys = Object.keys(context);
-    const values = keys.map(k => context[k]);
+    const values = keys.map((k) => context[k]);
     try {
       const fn = new Function(...keys, 'return (' + expr + ')');
       return fn(...values);
     } catch (error: any) {
-      throw new Error(`${error.message}\n  Expression: ${expr.length > 200 ? expr.substring(0, 200) + '...' : expr}`);
+      throw new Error(
+        `${error.message}\n  Expression: ${expr.length > 200 ? expr.substring(0, 200) + '...' : expr}`
+      );
     }
   }
 
@@ -217,7 +221,10 @@ export class TemplateManager {
     const quote = str[start];
     let i = start + 1;
     while (i < str.length) {
-      if (str[i] === '\\') { i += 2; continue; }
+      if (str[i] === '\\') {
+        i += 2;
+        continue;
+      }
       if (str[i] === quote) return i + 1;
       i++;
     }
@@ -227,7 +234,10 @@ export class TemplateManager {
   private skipTemplateLiteral(str: string, start: number): number {
     let i = start + 1;
     while (i < str.length) {
-      if (str[i] === '\\') { i += 2; continue; }
+      if (str[i] === '\\') {
+        i += 2;
+        continue;
+      }
       if (str[i] === '`') return i + 1;
       if (str[i] === '$' && i + 1 < str.length && str[i + 1] === '{') {
         i += 2;
