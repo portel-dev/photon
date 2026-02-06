@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.1](https://github.com/portel-dev/photon/compare/v1.6.0...v1.6.1) (2026-02-06)
+
+### Bug Fixes
+
+* move esbuild from devDependencies to dependencies ([0349502](https://github.com/portel-dev/photon/commit/034950272f78111974e32c26914f531883b7e556))
+
 ## [1.6.0](https://github.com/portel-dev/photon/compare/v1.5.1...v1.6.0) (2026-02-06)
 
 ### Features
