@@ -14,6 +14,8 @@ export interface PhotonBridgeContext {
   locale?: string;
   hostName?: string;
   hostVersion?: string;
+  /** Names of injected @photon dependencies (for client-side event routing) */
+  injectedPhotons?: string[];
 }
 
 /**

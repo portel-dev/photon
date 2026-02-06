@@ -2053,6 +2053,7 @@ export class PhotonServer {
    */
   private generateMcpAppsBridge(): string {
     const photonName = this.mcp?.name || 'photon-app';
+    const injectedPhotons = this.mcp?.injectedPhotons || [];
     return `<script>
 (function() {
   'use strict';
@@ -2063,7 +2064,9 @@ export class PhotonServer {
   var emitListeners = [];
   var themeListeners = [];
   var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
+  var photonEventListeners = {};  // Namespaced by photon name for injected photons
   var currentTheme = 'dark';
+  var injectedPhotons = ${JSON.stringify(injectedPhotons)};
 
   function generateCallId() {
     return 'call_' + (++callIdCounter) + '_' + Math.random().toString(36).slice(2);
@@ -2141,8 +2144,18 @@ export class PhotonServer {
           var photonData = m.params._photon;
           // Route to generic emit listeners
           emitListeners.forEach(function(cb) { cb(photonData); });
-          // Route to specific event listeners (e.g., 'taskMove' -> eventListeners.taskMove)
+
           var eventName = photonData.event;
+          var sourcePhoton = photonData.data && photonData.data._source;
+
+          // Route to photon-specific listeners if _source is specified (injected photon events)
+          if (sourcePhoton && photonEventListeners[sourcePhoton] && photonEventListeners[sourcePhoton][eventName]) {
+            photonEventListeners[sourcePhoton][eventName].forEach(function(cb) {
+              cb(photonData.data);
+            });
+          }
+
+          // Also route to global event listeners (main photon events, or fallback)
           if (eventName && eventListeners[eventName]) {
             eventListeners[eventName].forEach(function(cb) {
               cb(photonData.data);
@@ -2213,6 +2226,18 @@ export class PhotonServer {
         var i = eventListeners[eventName].indexOf(cb);
         if (i >= 0) eventListeners[eventName].splice(i, 1);
       };
+    },
+
+    // Photon-specific event subscription (for injected photon events)
+    // Usage: photon.onPhoton('notifications', 'alertCreated', function(data) { ... })
+    onPhoton: function(photonName, eventName, cb) {
+      if (!photonEventListeners[photonName]) photonEventListeners[photonName] = {};
+      if (!photonEventListeners[photonName][eventName]) photonEventListeners[photonName][eventName] = [];
+      photonEventListeners[photonName][eventName].push(cb);
+      return function() {
+        var i = photonEventListeners[photonName][eventName].indexOf(cb);
+        if (i >= 0) photonEventListeners[photonName][eventName].splice(i, 1);
+      };
     }
   };
 
@@ -2241,6 +2266,28 @@ export class PhotonServer {
         return window.photon.callTool(prop, args);
       };
     }
+  });
+
+  // Create proxies for injected photons (for event subscriptions)
+  // e.g., notifications.onAlertCreated(cb) subscribes to 'alertCreated' from 'notifications' photon
+  injectedPhotons.forEach(function(injectedName) {
+    window[injectedName] = new Proxy({}, {
+      get: function(target, prop) {
+        if (typeof prop !== 'string') return undefined;
+
+        // onEventName -> subscribe to photon-specific event
+        if (prop.startsWith('on') && prop.length > 2) {
+          var eventName = prop.charAt(2).toLowerCase() + prop.slice(3);
+          return function(cb) {
+            return window.photon.onPhoton(injectedName, eventName, cb);
+          };
+        }
+
+        // Method calls on injected photons are not supported from client
+        // (injected photon methods are only available server-side)
+        return undefined;
+      }
+    });
   });
 
   // Size notification helper

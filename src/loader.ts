@@ -498,7 +498,7 @@ export class PhotonLoader {
       const name = this.getMCPName(MCPClass);
 
       // Resolve all constructor injections using type-based detection
-      const { values, configError } = await this.resolveAllInjections(
+      const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
         tsContent || '',
         name,
         absolutePath
@@ -526,6 +526,9 @@ export class PhotonLoader {
         this.logger.warn(`⚠️  ${name} loaded with configuration warnings:`);
         this.logger.warn(String(configError));
       }
+
+      // Set photon name for event source identification
+      instance._photonName = name;
 
       // Inject @mcp dependencies from source (this.github, this.fs, etc.)
       if (tsContent) {
@@ -590,6 +593,7 @@ export class PhotonLoader {
         statics,
         instance,
         assets,
+        injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
       };
       // Store class constructor for static method access
       (result as any).classConstructor = MCPClass;
@@ -875,7 +879,7 @@ export class PhotonLoader {
     source: string,
     mcpName: string,
     photonPath: string
-  ): Promise<{ values: any[]; configError: string | null }> {
+  ): Promise<{ values: any[]; configError: string | null; injectedPhotonNames: string[] }> {
     const extractor = new SchemaExtractor();
     const injections = extractor.resolveInjections(source, mcpName);
 
@@ -883,6 +887,7 @@ export class PhotonLoader {
     const missingEnvVars: Array<{ paramName: string; envVarName: string; type: string }> = [];
     const missingMCPs: MissingMCPInfo[] = [];
     const missingPhotons: string[] = [];
+    const injectedPhotonNames: string[] = [];
 
     for (const injection of injections) {
       const { param, injectionType } = injection;
@@ -942,6 +947,7 @@ export class PhotonLoader {
           try {
             const photonInstance = await this.getPhotonInstance(photonDep, photonPath);
             values.push(photonInstance);
+            injectedPhotonNames.push(photonDep.name);
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
           } catch (error) {
             this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${getErrorMessage(error)}`);
@@ -981,7 +987,7 @@ export class PhotonLoader {
       configError = parts.join('\n\n');
     }
 
-    return { values, configError };
+    return { values, configError, injectedPhotonNames };
   }
 
   /**

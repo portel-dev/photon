@@ -126,6 +126,8 @@ export interface PhotonInfo {
   installSource?: { marketplace: string; installedAt?: string };
   /** Constructor parameters (available for reconfiguration) */
   requiredParams?: ConfigParam[];
+  /** Names of injected @photon dependencies (for client-side event routing) */
+  injectedPhotons?: string[];
 }
 
 /**

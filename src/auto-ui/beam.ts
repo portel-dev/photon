@@ -1081,6 +1081,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         promptCount,
         installSource,
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
+        ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2075,6 +2076,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const photonName = url.searchParams.get('photon') || '';
       const methodName = url.searchParams.get('method') || '';
 
+      // Look up injected photons for this photon
+      const photon = photons.find((p) => p.name === photonName);
+      const injectedPhotonsList =
+        photon && photon.configured && (photon as PhotonInfo).injectedPhotons;
+
       const { generateBridgeScript } = await import('./bridge/index.js');
       const script = generateBridgeScript({
         theme,
@@ -2083,6 +2089,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         method: methodName,
         hostName: 'beam',
         hostVersion: '1.5.0',
+        injectedPhotons: injectedPhotonsList || [],
       });
 
       res.setHeader('Content-Type', 'text/html');
@@ -2885,6 +2892,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             icon: reloadClassMeta.icon,
             internal: reloadClassMeta.internal,
             ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
+            ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
           };
 
           if (isNewPhoton) {
@@ -3393,6 +3401,7 @@ async function configurePhotonViaMCP(
       isApp,
       appEntry: mainMethod,
       assets: mcp.assets,
+      ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
     photons[photonIndex] = configuredPhoton;
@@ -3512,6 +3521,7 @@ async function reloadPhotonViaMCP(
       description: reloadClassMeta.description,
       icon: reloadClassMeta.icon,
       internal: reloadClassMeta.internal,
+      ...(mcp.injectedPhotons && mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
     photons[photonIndex] = reloadedPhoton;
