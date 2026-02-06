@@ -123,15 +123,78 @@ setWidgetState(state: any): void;
 callTool(name: string, args: Record<string, any>): Promise<any>;
 invoke(name: string, args: Record<string, any>): Promise<any>; // Alias
 
+// Generic event subscription (returns unsubscribe function)
+on(eventName: string, callback: (data: any) => void): () => void;
+
 // Follow-up message
 sendFollowUpMessage(message: string): void;
+```
+
+### Mirrored Class API
+
+Each photon gets a mirrored object at `window.photon.{photonName}`:
+
+```typescript
+// For a photon named "kanban":
+window.photon.kanban = {
+  // onEventName → subscribes to 'eventName'
+  onTaskMove(cb): () => void,    // subscribes to 'taskMove' event
+  onTaskCreate(cb): () => void,  // subscribes to 'taskCreate' event
+  // ... any event name works (convention: on + PascalCase)
+
+  // methodName → calls server tool
+  taskMove(args): Promise<any>,   // calls photon.callTool('taskMove', args)
+  taskCreate(args): Promise<any>, // calls photon.callTool('taskCreate', args)
+  // ... any method name works
+};
+```
+
+**Usage pattern:**
+```javascript
+// Server code:                    // Client code:
+this.emit('taskMove', data);   →   kanban.onTaskMove(cb)
+taskMove(params) { ... }       →   kanban.taskMove(params)
 ```
 
 ### Event Subscriptions
 
 ```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// MIRRORED CLASS API (Recommended for real-time sync)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Subscribe to specific events using the mirrored API
+// Server: this.emit('taskMove', data)
+// Client: photon.kanban.onTaskMove(callback)
+photon.kanban.onTaskMove((data) => {
+  moveTaskInUI(data.taskId, data.column);
+});
+
+photon.kanban.onTaskCreate((data) => {
+  addTaskToUI(data.task);
+});
+
+// Call server methods
+await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GENERIC EVENT SUBSCRIPTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Subscribe to any event by name
+const unsubscribe = photon.on('taskMove', (data) => {
+  console.log('Task moved:', data);
+});
+
+// Cleanup when done
+unsubscribe();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUILT-IN EVENT TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
 // Progress updates (0-1 value)
-const unsubscribe = photon.onProgress((event) => {
+photon.onProgress((event) => {
   console.log(`${event.value * 100}%: ${event.message}`);
 });
 
@@ -145,9 +208,9 @@ photon.onStream((event) => {
   console.log(`Chunk: ${event.chunk}`);
 });
 
-// All emit events
+// All emit events (includes custom events)
 photon.onEmit((event) => {
-  console.log(`Event: ${event.emit}`, event);
+  console.log(`Event: ${event.event}`, event.data);
 });
 
 // Final result
@@ -155,24 +218,10 @@ photon.onResult((result) => {
   console.log('Complete:', result);
 });
 
-// Errors
-photon.onError((error) => {
-  console.error('Error:', error.message);
-});
-
 // Theme changes
 photon.onThemeChange((theme) => {
   document.body.className = theme;
 });
-
-// Elicitation (ask for user input)
-photon.onElicitation((ask) => {
-  // Return promise with user's response
-  return prompt(ask.message);
-});
-
-// Cleanup on unmount
-unsubscribe();
 ```
 
 ---
@@ -313,25 +362,73 @@ searchBtn.onclick = async () => {
 
 ## Real-time Updates
 
-### Subscribing to Channels
+### Cross-Client Sync
 
-For photons that emit real-time updates:
+Photon enables real-time sync between Beam, Claude Desktop, and any MCP Apps-compatible client using standard MCP protocol.
+
+**How it works:**
+1. Server emits: `this.emit('taskMove', data)`
+2. Photon sends standard `ui/notifications/host-context-changed` with embedded `_photon` data
+3. Claude Desktop (and other hosts) forward this standard notification
+4. Photon bridge extracts `_photon` and routes to your event handlers
+
+### Mirrored API (Recommended)
+
+The cleanest way to handle real-time events:
 
 ```typescript
-// Notify host what resource we're viewing
+// Subscribe to specific events
+// Pattern: photon.{photonName}.on{EventName}(callback)
+photon.kanban.onTaskMove((data) => {
+  moveTaskInUI(data.taskId, data.column);
+});
+
+photon.kanban.onTaskCreate((data) => {
+  addTaskToUI(data.task);
+});
+
+photon.kanban.onBoardUpdate((data) => {
+  refreshBoard(data);
+});
+
+// Call methods (same pattern)
+await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+```
+
+### Generic Event Subscription
+
+For dynamic event names or catching all events:
+
+```typescript
+// Subscribe to any event by name
+photon.on('taskMove', (data) => {
+  handleTaskMove(data);
+});
+
+// Listen for ALL events
+photon.onEmit((event) => {
+  console.log(`Event: ${event.event}`, event.data);
+
+  switch (event.event) {
+    case 'taskMove':
+      moveTaskInUI(event.data.taskId, event.data.column);
+      break;
+    case 'taskCreate':
+      addTaskToUI(event.data.task);
+      break;
+  }
+});
+```
+
+### Notify Viewing (for subscription management)
+
+Tell the host what resource you're viewing (enables ref-counted subscriptions):
+
+```typescript
 window.parent.postMessage({
   type: 'photon:viewing',
   itemId: 'my-board'
 }, '*');
-
-// Listen for updates
-photon.onEmit((event) => {
-  if (event.emit === 'task-created') {
-    addTaskToUI(event.task);
-  } else if (event.emit === 'task-moved') {
-    moveTaskInUI(event.taskId, event.column);
-  }
-});
 ```
 
 ### Progress Visualization
@@ -407,9 +504,12 @@ declare global {
       widgetState: any;
       setWidgetState: (state: any) => void;
       callTool: (name: string, args: any) => Promise<any>;
+      on: (event: string, cb: (data: any) => void) => () => void;
       onProgress: (cb: (e: any) => void) => () => void;
       onResult: (cb: (r: any) => void) => () => void;
       theme: 'light' | 'dark';
+      // Mirrored API (dynamic per photon)
+      [photonName: string]: any;
     };
   }
 }
@@ -427,19 +527,46 @@ export function usePhoton() {
   return { input, state, updateState, theme, callTool: window.photon.callTool };
 }
 
-function App() {
-  const { input, state, updateState, callTool } = usePhoton();
-  const [results, setResults] = useState(null);
+// Hook for real-time event subscription
+export function usePhotonEvent(eventName: string, callback: (data: any) => void) {
+  useEffect(() => {
+    const unsubscribe = window.photon.on(eventName, callback);
+    return unsubscribe;
+  }, [eventName, callback]);
+}
 
-  const handleSearch = async () => {
-    const data = await callTool('search', { query: input.query });
-    setResults(data);
+function KanbanApp() {
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  // Subscribe to real-time events using mirrored API
+  useEffect(() => {
+    const kanban = window.photon.kanban;
+
+    const unsub1 = kanban.onTaskMove((data: any) => {
+      setTasks(prev => prev.map(t =>
+        t.id === data.taskId ? { ...t, column: data.column } : t
+      ));
+    });
+
+    const unsub2 = kanban.onTaskCreate((data: any) => {
+      setTasks(prev => [...prev, data.task]);
+    });
+
+    return () => { unsub1(); unsub2(); };
+  }, []);
+
+  const moveTask = async (taskId: string, column: string) => {
+    await window.photon.kanban.taskMove({ id: taskId, column });
   };
 
   return (
     <div>
-      <button onClick={handleSearch}>Search</button>
-      {results && <pre>{JSON.stringify(results, null, 2)}</pre>}
+      {tasks.map(task => (
+        <div key={task.id}>
+          {task.title} ({task.column})
+          <button onClick={() => moveTask(task.id, 'Done')}>Done</button>
+        </div>
+      ))}
     </div>
   );
 }

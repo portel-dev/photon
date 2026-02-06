@@ -354,23 +354,67 @@ const response = await fetch(url, {
 
 ## Required Patterns
 
-### Real-Time Updates
+### Real-Time Updates (Cross-Client Sync)
 
+Photon uses **standard MCP protocol** for real-time sync, enabling events to flow between Beam, Claude Desktop, and any MCP Apps-compatible client.
+
+```
+SERVER: Photon Class                    CLIENT: Mirrored API
+┌─────────────────────────┐            ┌─────────────────────────┐
+│ class Kanban {          │            │ kanban.onTaskMove(cb)   │
+│   taskMove(params) {    │            │ kanban.onTaskCreate(cb) │
+│     this.emit('taskMove'│ ─────────► │ kanban.taskMove(params) │
+│       , data);          │            │                         │
+│   }                     │            │                         │
+│ }                       │            │                         │
+└─────────────────────────┘            └─────────────────────────┘
+           │                                      ▲
+           ▼                                      │
+┌──────────────────────────────────────────────────────────────┐
+│ WIRE: Standard MCP notification                              │
+│ {                                                            │
+│   method: 'ui/notifications/host-context-changed',          │
+│   params: { _photon: { event: 'taskMove', data: {...} } }   │
+│ }                                                            │
+│                                                              │
+│ Claude Desktop forwards this (standard notification)         │
+│ Photon bridge extracts _photon and routes to onTaskMove()   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Server-side: emit events**
 ```typescript
-// Server-side: emit events
-this.emit({
-  channel: `${this.photonId}:${itemId}`,
-  event: 'data-changed',
-  data: { ... }
-});
+// Simple event emission
+this.emit('taskMove', { taskId, column });
 
-// Client-side: receive via postMessage
-window.addEventListener('message', (event) => {
-  if (event.data.type === 'photon:channel-event') {
-    handleUpdate(event.data);
-  }
+// Or with explicit channel
+this.emit({
+  channel: `${this.photonId}:${boardName}`,
+  event: 'taskMove',
+  data: { taskId, column }
 });
 ```
+
+**Client-side: mirrored class API**
+```javascript
+// Subscribe to specific events (recommended)
+photon.kanban.onTaskMove((data) => {
+  moveTaskInUI(data.taskId, data.column);
+});
+
+// Or use generic event subscription
+photon.on('taskMove', (data) => {
+  moveTaskInUI(data.taskId, data.column);
+});
+
+// Call server methods
+await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+```
+
+**Why standard protocol?**
+- Claude Desktop and other MCP Apps hosts forward standard notifications
+- No custom protocol support required from hosts
+- Events work cross-client (Beam ↔ Claude Desktop)
 
 ### Error Handling
 
@@ -414,4 +458,4 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ---
 
-*Last updated: January 2026*
+*Last updated: February 2026*

@@ -252,6 +252,47 @@ When a change happens in one browser, all other browsers receive updates:
                     └──────────────┘ └──────────────┘ └──────────────┘
 ```
 
+### Wire Protocol (Standard MCP)
+
+Photon uses **standard MCP notifications** for cross-client sync. This ensures events work with any MCP Apps host (Claude Desktop, etc.) without requiring custom protocol support.
+
+**Server sends:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "ui/notifications/host-context-changed",
+  "params": {
+    "_photon": {
+      "photon": "kanban",
+      "channel": "kanban:my-board",
+      "event": "taskMove",
+      "data": { "taskId": "task-1", "column": "Done" }
+    }
+  }
+}
+```
+
+**Why `ui/notifications/host-context-changed`?**
+- It's a **standard MCP Apps notification** that hosts forward to UIs
+- Claude Desktop (and other MCP Apps hosts) pass this through automatically
+- No custom protocol support required from the host
+
+**Bridge extracts `_photon`:**
+```javascript
+// In the injected bridge script
+if (m.method === 'ui/notifications/host-context-changed') {
+  if (m.params && m.params._photon) {
+    var photonData = m.params._photon;
+    var eventName = photonData.event;
+
+    // Route to specific listeners
+    if (eventListeners[eventName]) {
+      eventListeners[eventName].forEach(cb => cb(photonData.data));
+    }
+  }
+}
+```
+
 ### In-Process vs Cross-Process
 
 **In-Process (same Beam server):**
@@ -327,9 +368,52 @@ mcpClient.on('channel-event', (data) => {
 
 ## Custom UI Integration
 
-### Receiving Events
+### Mirrored Class API (Recommended)
 
-Custom UIs receive events via postMessage from the parent Beam app:
+Photon provides a **mirrored class API** that matches server-side event names:
+
+```javascript
+// Server emits: this.emit('taskMove', { taskId, column })
+// Client subscribes: photon.{photonName}.onTaskMove(callback)
+
+// Subscribe to specific events
+photon.kanban.onTaskMove((data) => {
+  console.log('Task moved:', data.taskId, '→', data.column);
+  moveTaskInDOM(data.taskId, data.column);
+});
+
+photon.kanban.onTaskCreate((data) => {
+  console.log('Task created:', data.task);
+  addTaskToDOM(data.task);
+});
+
+// Call server methods (same mirrored pattern)
+await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+await photon.kanban.taskCreate({ title: 'New task' });
+```
+
+### Generic Event Subscription
+
+For dynamic event names or listening to all events:
+
+```javascript
+// Subscribe to any event by name
+const unsubscribe = photon.on('taskMove', (data) => {
+  handleTaskMove(data);
+});
+
+// Later: cleanup
+unsubscribe();
+
+// Subscribe to ALL events
+photon.onEmit((event) => {
+  console.log(`Event: ${event.event}`, event.data);
+});
+```
+
+### Legacy postMessage API
+
+For backward compatibility, events are still delivered via postMessage:
 
 ```javascript
 // In your Custom UI HTML
@@ -382,6 +466,7 @@ The `window.photon` bridge provides:
 interface PhotonBridge {
   // Call photon methods
   invoke(method: string, params: object): Promise<any>;
+  callTool(method: string, params: object): Promise<any>;  // Alias
 
   // Get current theme
   theme: 'light' | 'dark';
@@ -389,9 +474,44 @@ interface PhotonBridge {
   // Photon's unique ID
   photonId: string;
 
-  // Listen for events (deprecated - use postMessage)
-  on(event: string, callback: Function): void;
+  // Generic event subscription
+  // Returns unsubscribe function
+  on(eventName: string, callback: (data: any) => void): () => void;
+
+  // Listen for all emit events
+  onEmit(callback: (event: { event: string; data: any }) => void): () => void;
+
+  // Theme changes
+  onThemeChange(callback: (theme: 'light' | 'dark') => void): () => void;
+
+  // Tool result updates
+  onResult(callback: (result: any) => void): () => void;
 }
+
+// Mirrored class API (auto-generated per photon)
+// Available at: window.photon.{photonName}
+interface MirroredPhotonAPI {
+  // onEventName -> subscribes to 'eventName'
+  onTaskMove(callback: (data: any) => void): () => void;
+  onTaskCreate(callback: (data: any) => void): () => void;
+  // ... any event name works
+
+  // methodName -> calls server tool
+  taskMove(params: object): Promise<any>;
+  taskCreate(params: object): Promise<any>;
+  // ... any method name works
+}
+```
+
+**Mirrored API Pattern:**
+- `photon.kanban.onTaskMove(cb)` → subscribes to `taskMove` event
+- `photon.kanban.taskMove(args)` → calls `photon.callTool('taskMove', args)`
+
+This pattern ensures client code mirrors server code structure:
+```
+// Server                           // Client
+this.emit('taskMove', data);   →    kanban.onTaskMove(cb)
+taskMove(params) { ... }       →    kanban.taskMove(params)
 ```
 
 ---
@@ -459,20 +579,32 @@ this.emit({
 
 ### For Custom UI Developers
 
-1. **Always notify viewing**: Call `notifyViewingBoard` on load and switch
+1. **Use the mirrored API**: Subscribe to specific events with `photon.{name}.onEventName(cb)`
 2. **Handle partial updates**: Process granular events efficiently
 3. **Graceful degradation**: Work even if real-time fails
+4. **Always notify viewing**: Call `notifyViewingBoard` on load and switch
 
 ```javascript
-// Good: Handle specific event
-if (data.event === 'task-moved') {
-  moveTaskInDOM(data.taskId, data.toColumn);
-}
+// Best: Use mirrored API for type-safe, readable code
+photon.kanban.onTaskMove((data) => {
+  moveTaskInDOM(data.taskId, data.column);
+});
 
-// Fallback: Full refresh if needed
-if (data.event === 'unknown') {
-  reloadBoard();
-}
+photon.kanban.onTaskCreate((data) => {
+  addTaskToDOM(data.task);
+});
+
+// Alternative: Generic subscription for dynamic events
+photon.on('taskMove', (data) => {
+  moveTaskInDOM(data.taskId, data.column);
+});
+
+// Fallback: Catch-all handler
+photon.onEmit((event) => {
+  if (!knownEvents.includes(event.event)) {
+    reloadBoard();  // Unknown event - refresh everything
+  }
+});
 ```
 
 ---
@@ -509,4 +641,4 @@ await window.photon.invoke('moveTask', { taskId, column });
 
 ---
 
-*Last updated: January 2026*
+*Last updated: February 2026*
