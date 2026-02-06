@@ -81,7 +81,7 @@ interface DependencySpec {
 }
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
-import { PHOTON_VERSION, PHOTON_CORE_VERSION } from './version.js';
+import { PHOTON_VERSION, PHOTON_CORE_VERSION, getResolvedPhotonCoreVersion } from './version.js';
 
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
@@ -250,7 +250,7 @@ export class PhotonLoader {
 
   private async readDependencyMetadata(
     cacheKey: string
-  ): Promise<{ hash: string; dependencies: DependencySpec[] } | null> {
+  ): Promise<{ hash: string; dependencies: DependencySpec[]; photonCoreVersion?: string } | null> {
     try {
       const data = await fs.readFile(this.getDependencyMetadataPath(cacheKey), 'utf-8');
       return JSON.parse(data);
@@ -288,14 +288,20 @@ export class PhotonLoader {
     cacheKey: string,
     hash: string,
     dependencies: DependencySpec[],
-    photonPath?: string
+    photonPath?: string,
+    photonCoreVersion?: string
   ): Promise<void> {
     const metadataPath = this.getDependencyMetadataPath(cacheKey);
     await fs.mkdir(path.dirname(metadataPath), { recursive: true });
     await fs.writeFile(
       metadataPath,
       JSON.stringify(
-        { hash, dependencies, photonPath: photonPath ? path.resolve(photonPath) : undefined },
+        {
+          hash,
+          dependencies,
+          photonPath: photonPath ? path.resolve(photonPath) : undefined,
+          photonCoreVersion,
+        },
         null,
         2
       ),
@@ -315,15 +321,21 @@ export class PhotonLoader {
     const depsMatch = metadata
       ? this.dependenciesEqual(metadata.dependencies, dependencies)
       : false;
-    const needsClear = Boolean(metadata && (!hashMatches || !depsMatch));
+    const resolvedCoreVersion = getResolvedPhotonCoreVersion();
+    const coreVersionChanged = metadata?.photonCoreVersion !== resolvedCoreVersion;
+    const needsClear = Boolean(metadata && (!hashMatches || !depsMatch || coreVersionChanged));
 
     if (needsClear) {
       const depDir = this.getDependencyCacheDir(cacheKey);
       const buildDir = this.getBuildCacheDir(cacheKey);
-      this.log(`🔄 Dependencies changed for ${mcpName} (${cacheKey}), clearing caches`, {
-        dependencyCache: depDir,
-        buildCache: buildDir,
-      });
+      if (coreVersionChanged) {
+        this.log(`🔄 photon-core version changed (${metadata?.photonCoreVersion} → ${resolvedCoreVersion}), clearing cache for ${mcpName}`);
+      } else {
+        this.log(`🔄 Dependencies changed for ${mcpName} (${cacheKey}), clearing caches`, {
+          dependencyCache: depDir,
+          buildCache: buildDir,
+        });
+      }
       await this.clearAllCaches(cacheKey);
     }
 
@@ -335,7 +347,7 @@ export class PhotonLoader {
       }
     }
 
-    await this.writeDependencyMetadata(cacheKey, sourceHash, dependencies, photonPath);
+    await this.writeDependencyMetadata(cacheKey, sourceHash, dependencies, photonPath, resolvedCoreVersion);
     return nodeModules;
   }
 

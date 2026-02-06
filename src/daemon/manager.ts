@@ -226,6 +226,29 @@ export function stopDaemon(_photonName?: string): void {
 }
 
 /**
+ * Restart the global daemon (stop → clean socket → start)
+ * Used by daemon client when connection fails and auto-restart is needed.
+ */
+export async function restartGlobalDaemon(): Promise<void> {
+  stopGlobalDaemon();
+
+  // Wait for graceful shutdown
+  await new Promise((r) => setTimeout(r, 300));
+
+  // Clean stale socket if still present
+  const socketPath = getGlobalSocketPath();
+  if (fs.existsSync(socketPath) && process.platform !== 'win32') {
+    try {
+      fs.unlinkSync(socketPath);
+    } catch {
+      // Ignore — startGlobalDaemon will also clean it
+    }
+  }
+
+  await startGlobalDaemon(true);
+}
+
+/**
  * Stop all daemons (now just stops the single global daemon)
  */
 export function stopAllDaemons(): void {

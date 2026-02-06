@@ -10,7 +10,7 @@ import * as net from 'net';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
-import { getGlobalSocketPath } from './manager.js';
+import { getGlobalSocketPath, restartGlobalDaemon } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 
@@ -40,10 +40,43 @@ async function promptUser(message: string, defaultValue?: string): Promise<strin
 }
 
 /**
- * Send command to daemon and wait for response
- * Handles bidirectional prompts - if daemon requests input, uses readline
+ * Check if an error indicates the daemon is unreachable (crashed or not started)
+ */
+function isDaemonConnectionError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes('ENOENT') || msg.includes('ECONNREFUSED') || msg.includes('Connection error');
+}
+
+/**
+ * Send command to daemon with auto-restart on connection failure.
+ * If the daemon is unreachable, restarts it and retries once.
  */
 export async function sendCommand(
+  photonName: string,
+  method: string,
+  args: Record<string, any>,
+  options?: { maxRetries?: number }
+): Promise<any> {
+  const maxRetries = options?.maxRetries ?? 1;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await sendCommandDirect(photonName, method, args);
+    } catch (error) {
+      if (isDaemonConnectionError(error) && attempt < maxRetries) {
+        logger.info('Daemon unreachable, auto-restarting...');
+        await restartGlobalDaemon();
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Send command directly to daemon (no retry logic)
+ */
+async function sendCommandDirect(
   photonName: string,
   method: string,
   args: Record<string, any>
