@@ -15,13 +15,15 @@ Complete guide to creating `.photon.ts` files and understanding how Photon works
 9. [Advanced Workflows](#advanced-workflows)
 10. [Lifecycle Hooks](#lifecycle-hooks)
 11. [Configuration Convention](#configuration-convention)
-12. [Common Patterns](#common-patterns)
-13. [CLI Command Reference](#cli-command-reference)
-14. [Testing and Development](#testing-and-development)
-15. [Deployment](#deployment)
-16. [How Photon Works](#how-photon-works)
-17. [Best Practices](#best-practices)
-18. [Troubleshooting](#troubleshooting)
+12. [Reactive Collections](#reactive-collections)
+13. [Real-Time Sync](#real-time-sync)
+14. [Common Patterns](#common-patterns)
+15. [CLI Command Reference](#cli-command-reference)
+16. [Testing and Development](#testing-and-development)
+17. [Deployment](#deployment)
+18. [How Photon Works](#how-photon-works)
+19. [Best Practices](#best-practices)
+20. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -987,6 +989,206 @@ Setup flow:
 | `onInitialize()` | Startup lifecycle | ✗ No |
 | `onShutdown()` | Shutdown lifecycle | ✗ No |
 
+### Reconfiguration
+
+Already-configured photons can be reconfigured at any time. In Beam, users click the config icon on an installed photon to edit its settings. On the CLI, run the configure method again.
+
+When you reconfigure, new values are merged with existing ones. If your config had `{ endpoint: "https://old.api.com", timeout: 5000 }` and you only submit a new `endpoint`, the `timeout` stays put. No data lost, no surprises.
+
+Under the hood, Beam calls `reloadFile` after saving the updated config, which recompiles the photon and picks up the new values without restarting the server. It is, genuinely, that simple.
+
+---
+
+## Reactive Collections
+
+Photon can make your plain arrays reactive, which means mutations like `.push()` and `.splice()` automatically emit events. No decorators, no wrapper functions, no "please remember to call `notifyListeners()`." You just write normal TypeScript.
+
+There are three levels, depending on how much you want.
+
+### Truly Zero Effort
+
+If your class extends `PhotonMCP` and has array properties, the compiler does everything:
+
+```typescript
+import { PhotonMCP } from '@portel/photon-core';
+
+interface Task {
+  id: string;
+  text: string;
+}
+
+export default class TodoList extends PhotonMCP {
+  items: Task[] = [];  // Completely normal TypeScript
+
+  async add(params: { text: string }) {
+    this.items.push({ id: crypto.randomUUID(), text: params.text });
+    // Auto-emits 'items:added'. You wrote zero extra code.
+  }
+
+  async remove(params: { id: string }) {
+    const idx = this.items.findIndex(t => t.id === params.id);
+    if (idx !== -1) this.items.splice(idx, 1);
+    // Auto-emits 'items:removed'
+  }
+}
+```
+
+The compiler detects `extends PhotonMCP` plus array properties, and auto-injects the reactive wiring at build time. Your source stays clean.
+
+### Level 1: Explicit Import
+
+If you prefer being explicit about what is happening (or your class does not extend PhotonMCP), import `Array` from photon-core. It shadows the global `Array` with a reactive version:
+
+```typescript
+import { Array } from '@portel/photon-core';
+
+interface Task {
+  id: string;
+  text: string;
+}
+
+export default class TodoList {
+  items: Array<Task> = [];
+
+  async add(params: { text: string }) {
+    this.items.push({ id: crypto.randomUUID(), text: params.text });
+    // Auto-emits 'items:added'
+  }
+}
+```
+
+Same result, just more visible. The `= []` initializer gets transformed to `= new Array()` at compile time.
+
+### Level 2: Rich Collections
+
+For cases where you need query methods (filtering, sorting, grouping), use `Collection<T>`. Think of it as a reactive array that also happens to have opinions about data access:
+
+```typescript
+import { Collection } from '@portel/photon-core';
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  category: string;
+}
+
+export default class ProductCatalog extends PhotonMCP {
+  products = new Collection<Product>();
+
+  async inStock() {
+    return this.products.where('stock', '>', 0);
+  }
+
+  async byCategory(params: { category: string }) {
+    return this.products
+      .where('category', params.category)
+      .sortBy('price');
+  }
+
+  async summary() {
+    return {
+      total: this.products.count(),
+      categories: this.products.groupBy('category'),
+      avgPrice: this.products.avg('price'),
+    };
+  }
+}
+```
+
+Collections give you convenience methods like `.where()`, `.pluck()`, `.groupBy()`, `.sortBy()`, `.avg()`, and `.count()`. They also provide rendering hints for auto-UI (tables, cards, charts). And they are still reactive, so mutations emit events just like plain arrays.
+
+### How It Works
+
+The magic is split between compile time and runtime:
+
+1. **Compile time**: The Photon compiler sees `= []` on class properties and transforms it to `= new Array()` (the reactive version, not the global one). For `extends PhotonMCP` classes, the import is auto-injected.
+
+2. **Runtime**: After the class is instantiated, the loader inspects instance properties. For any `ReactiveArray`, it auto-wires:
+   - `_propertyName` to the property key (so events know their source)
+   - `_emitter` bound to `instance.emit.bind(instance)` (so events flow through the photon's event system)
+
+3. **You**: Write `this.items.push(thing)` and move on with your life.
+
+---
+
+## Real-Time Sync
+
+Photon methods can push updates to all connected clients in real time. This is how a kanban board updated in Claude Desktop also updates in Beam, or how a long-running task can stream progress without anyone polling.
+
+### Emitting Events
+
+Any method can call `this.emit()` to broadcast data:
+
+```typescript
+export default class KanbanBoard extends PhotonMCP {
+  async move(params: { taskId: string; column: string }) {
+    await this.updateTask(params.taskId, { column: params.column });
+
+    // Push update to every connected client
+    this.emit('board:updated', {
+      taskId: params.taskId,
+      column: params.column,
+    });
+
+    return { success: true };
+  }
+}
+```
+
+### Event Flow
+
+The path from `this.emit()` to a browser tab is short but crosses a few boundaries:
+
+```
+this.emit('board:updated', data)
+       │
+       ▼
+  Daemon pub/sub (Unix socket)
+       │
+       ▼
+  SSE push to all connected clients
+       │
+       ▼
+  Beam tab, Claude Desktop, other Beam tabs...
+```
+
+Every client subscribed to that photon's channel gets the event. If you have Beam open in two browser tabs and Claude Desktop running, all three update simultaneously.
+
+### Receiving Events in Custom UIs
+
+If your photon has a `@ui` template, the bridge API gives you a callback:
+
+```javascript
+// Inside your @ui HTML template
+window.photon.onEmit((event, data) => {
+  if (event === 'board:updated') {
+    // Re-render the board with new data
+    renderBoard(data);
+  }
+});
+```
+
+That is the entire client-side setup. The bridge handles SSE subscription, reconnection, and message parsing.
+
+### Reactive Collections + Real-Time Sync
+
+These two features compose naturally. When a reactive array emits `items:added`, that event flows through the same daemon pub/sub pipeline:
+
+```typescript
+export default class TodoList extends PhotonMCP {
+  items: Task[] = [];
+
+  async add(params: { text: string }) {
+    this.items.push({ id: crypto.randomUUID(), text: params.text });
+    // 'items:added' auto-emits → daemon → SSE → all clients
+  }
+}
+```
+
+No explicit `this.emit()` needed. The reactive array handles it.
+
 ---
 
 ## Common Patterns
@@ -1724,6 +1926,25 @@ In `--dev` mode:
    - Re-extract schemas
    - Update tool registry
 3. **Server continues:** No restart needed
+
+### Cache and Resilience
+
+Photon caches compiled artifacts and installed dependencies so repeated startups are fast. Here is where things live and what happens when they go stale.
+
+**Dependency cache**: `~/.cache/photon-mcp/dependencies/{cacheKey}/`
+
+Each photon's `@dependencies` get their own isolated `node_modules`. The cache key is derived from the dependency list, so changing your `@dependencies` tag naturally creates a fresh cache.
+
+**Auto-invalidation on photon-core updates**: The cache tracks the *resolved* version of `@portel/photon-core` (not the semver range). If you upgrade photon-core from 2.5.3 to 2.5.4, the next run detects the mismatch and rebuilds the dependency cache automatically. No manual intervention, no mysterious "it works on my machine" moments.
+
+**Daemon auto-restart**: If the daemon process has crashed or become unreachable (ECONNREFUSED), the next CLI command automatically restarts it and retries the operation. You might notice a slightly longer first response, but that is the only visible sign.
+
+**Manual cache clearing**: When all else fails:
+```bash
+photon clear-cache
+```
+
+This wipes compiled artifacts and dependency caches. The next run rebuilds everything from scratch.
 
 ---
 

@@ -12,6 +12,7 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 - [Marketplace Problems](#marketplace-problems)
 - [Performance Issues](#performance-issues)
 - [MCP Protocol Errors](#mcp-protocol-errors)
+- [Stale Cache After Upgrade](#stale-cache-after-upgrade)
 
 ---
 
@@ -584,6 +585,65 @@ Error: Connection refused
    # Windows
    Get-Content "$env:APPDATA\Claude\Logs\mcp*.log" -Wait
    ```
+
+---
+
+## Stale Cache After Upgrade
+
+### "does not provide an export named 'Array'"
+
+**Symptom**:
+```
+SyntaxError: The requested module '@portel/photon-core' does not provide an export named 'Array'
+```
+
+**What happened**: You upgraded `@portel/photon-core` but the dependency cache still has the old version compiled. The old build does not know about reactive collections.
+
+**Fix**:
+
+```bash
+photon clear-cache
+```
+
+Then run your photon again. The cache rebuilds with the new version. In most cases you will not even see this error, because Photon auto-invalidates the cache when it detects a photon-core version change. But if you are doing something creative with symlinks or local development, the auto-detection can miss it.
+
+### "ECONNREFUSED" / Daemon Unreachable
+
+**Symptom**:
+```
+Error: connect ECONNREFUSED /tmp/photon-daemon.sock
+```
+
+Or any variant that boils down to "I tried to talk to the daemon and nobody answered."
+
+**What happened**: The daemon process crashed, was killed, or never started. This is not as dramatic as it sounds.
+
+**Fix**: Usually, nothing. The next CLI command auto-restarts the daemon and retries. You might see a slightly longer response time on that first call, but everything should work normally after.
+
+If the problem persists:
+```bash
+# Run diagnostics
+photon doctor
+
+# Nuclear option: kill any lingering daemon and let it restart
+pkill -f photon-daemon 2>/dev/null
+photon doctor
+```
+
+### Config Form Shows Stale Values
+
+**Symptom**: You changed the `configure()` method in your photon (added a new field, changed defaults), but the config form in Beam still shows the old fields.
+
+**What happened**: Beam caches the photon schema at startup. Code changes to the backend are not reflected until Beam re-reads the schema.
+
+**Fix**: Restart Beam.
+
+```bash
+# Stop Beam (Ctrl+C in the terminal running it), then:
+photon beam
+```
+
+After restart, Beam recompiles and re-extracts the schema. Your new config fields will appear.
 
 ---
 
