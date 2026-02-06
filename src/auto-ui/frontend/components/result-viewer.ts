@@ -270,6 +270,75 @@ export class ResultViewer extends LitElement {
         padding: var(--space-sm) var(--space-md);
         background: var(--bg-panel);
         font-family: var(--font-sans);
+        transition: background 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+      }
+
+      /* Animation for newly added items */
+      @keyframes item-added {
+        0% {
+          opacity: 0;
+          transform: translateX(-20px);
+          background: hsla(120, 60%, 50%, 0.2);
+        }
+        50% {
+          background: hsla(120, 60%, 50%, 0.15);
+        }
+        100% {
+          opacity: 1;
+          transform: translateX(0);
+          background: var(--bg-panel);
+        }
+      }
+
+      @keyframes item-removed {
+        0% {
+          opacity: 1;
+          transform: translateX(0);
+        }
+        100% {
+          opacity: 0;
+          transform: translateX(20px);
+          background: hsla(0, 60%, 50%, 0.2);
+        }
+      }
+
+      .list-item.item-added {
+        animation: item-added 0.5s ease-out forwards;
+      }
+
+      .list-item.item-removed {
+        animation: item-removed 0.3s ease-in forwards;
+      }
+
+      /* Highlight for updated items */
+      .list-item.item-updated {
+        animation: item-highlight 0.8s ease-out;
+      }
+
+      @keyframes item-highlight {
+        0% {
+          background: hsla(45, 80%, 50%, 0.3);
+        }
+        100% {
+          background: var(--bg-panel);
+        }
+      }
+
+      /* Table row animations */
+      .smart-table tbody tr {
+        transition: background 0.3s ease, opacity 0.3s ease;
+      }
+
+      .smart-table tbody tr.item-added {
+        animation: item-added 0.5s ease-out forwards;
+      }
+
+      .smart-table tbody tr.item-removed {
+        animation: item-removed 0.3s ease-in forwards;
+      }
+
+      .smart-table tbody tr.item-updated {
+        animation: item-highlight 0.8s ease-out;
       }
 
       .list-item-leading {
@@ -1179,6 +1248,18 @@ export class ResultViewer extends LitElement {
   private _lastPanX = 0;
   private _lastPanY = 0;
 
+  // Track animated items for collection events
+  @state()
+  private _animatedItems = new Map<string, 'added' | 'removed' | 'updated'>();
+
+  // Internal result copy for incremental updates
+  @state()
+  private _internalResult: any = null;
+
+  // Property name for event subscriptions (set by parent)
+  @property({ type: String })
+  collectionProperty?: string;
+
   private _pageSize = 20;
 
   @query('.filter-input')
@@ -1218,6 +1299,136 @@ export class ResultViewer extends LitElement {
     this._fullscreenMermaid = null;
     this._fullscreenMarkdown = null;
     this._resetZoom();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUBLIC API: Incremental Updates for Collection Events
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle a collection event (e.g., items:added, items:removed)
+   * Call this when receiving events from ReactiveArray/ReactiveMap/ReactiveSet
+   *
+   * @example
+   * ```typescript
+   * // Subscribe to collection events
+   * kanban.onTasksAdded((task) => {
+   *   resultViewer.handleCollectionEvent('added', task, 'id');
+   * });
+   * ```
+   */
+  handleCollectionEvent(
+    type: 'added' | 'removed' | 'updated' | 'changed',
+    data: unknown,
+    idField: string = 'id'
+  ): void {
+    // Initialize internal result if needed
+    if (this._internalResult === null) {
+      this._internalResult = Array.isArray(this.result) ? [...this.result] : this.result;
+    }
+
+    if (!Array.isArray(this._internalResult)) {
+      // For non-array results, just replace
+      if (type === 'changed') {
+        this._internalResult = data;
+      }
+      return;
+    }
+
+    const itemId = data && typeof data === 'object' ? (data as Record<string, unknown>)[idField] : String(data);
+    const stringId = String(itemId);
+
+    switch (type) {
+      case 'added':
+        // Add item and track for animation
+        this._internalResult = [...this._internalResult, data];
+        this._animatedItems.set(stringId, 'added');
+        // Clear animation class after animation completes
+        setTimeout(() => {
+          this._animatedItems.delete(stringId);
+          this.requestUpdate();
+        }, 500);
+        break;
+
+      case 'removed':
+        // Mark for removal animation, then remove
+        this._animatedItems.set(stringId, 'removed');
+        this.requestUpdate();
+        setTimeout(() => {
+          this._internalResult = this._internalResult.filter(
+            (item: unknown) => {
+              const id = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+              return String(id) !== stringId;
+            }
+          );
+          this._animatedItems.delete(stringId);
+          this.requestUpdate();
+        }, 300);
+        break;
+
+      case 'updated':
+        // Update item and highlight
+        const updateData = data as { index?: number; value?: unknown };
+        if (updateData.index !== undefined && updateData.value !== undefined) {
+          this._internalResult = this._internalResult.map(
+            (item: unknown, i: number) => i === updateData.index ? updateData.value : item
+          );
+        } else {
+          // Find and replace by ID
+          this._internalResult = this._internalResult.map((item: unknown) => {
+            const id = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+            return String(id) === stringId ? data : item;
+          });
+        }
+        this._animatedItems.set(stringId, 'updated');
+        setTimeout(() => {
+          this._animatedItems.delete(stringId);
+          this.requestUpdate();
+        }, 800);
+        break;
+
+      case 'changed':
+        // Full replacement
+        this._internalResult = Array.isArray(data) ? [...data as unknown[]] : data;
+        break;
+    }
+  }
+
+  /**
+   * Add an item with animation
+   */
+  addItem(item: unknown, idField: string = 'id'): void {
+    this.handleCollectionEvent('added', item, idField);
+  }
+
+  /**
+   * Remove an item with animation
+   */
+  removeItem(item: unknown, idField: string = 'id'): void {
+    this.handleCollectionEvent('removed', item, idField);
+  }
+
+  /**
+   * Update an item with highlight animation
+   */
+  updateItem(item: unknown, idField: string = 'id'): void {
+    this.handleCollectionEvent('updated', item, idField);
+  }
+
+  /**
+   * Get the animation class for an item
+   */
+  private _getItemAnimationClass(item: unknown, idField: string = 'id'): string {
+    const itemId = item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+    const animation = this._animatedItems.get(String(itemId));
+    return animation ? `item-${animation}` : '';
+  }
+
+  /**
+   * Get the effective result (internal copy if available, otherwise prop)
+   */
+  private _getEffectiveResult(): unknown {
+    return this._internalResult !== null ? this._internalResult : this.result;
   }
 
   private _resetZoom() {
@@ -1524,10 +1735,11 @@ export class ResultViewer extends LitElement {
   }
 
   private _getFilteredData(): any {
-    if (!this._filterQuery.trim()) return this.result;
+    const effectiveResult = this._getEffectiveResult();
+    if (!this._filterQuery.trim()) return effectiveResult;
 
     const query = this._filterQuery.toLowerCase();
-    const data = this.result;
+    const data = effectiveResult;
 
     // Array filtering
     if (Array.isArray(data)) {
@@ -1850,8 +2062,10 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderListItem(item: any): TemplateResult {
+    const animClass = this._getItemAnimationClass(item);
+
     if (typeof item !== 'object' || item === null) {
-      return html`<li class="list-item">
+      return html`<li class="list-item ${animClass}">
         <span class="list-item-title">${this._highlightText(String(item))}</span>
       </li>`;
     }
@@ -1859,7 +2073,7 @@ export class ResultViewer extends LitElement {
     const mapping = this._analyzeFields(item);
 
     return html`
-      <li class="list-item">
+      <li class="list-item ${animClass}">
         ${mapping.icon
           ? html`
               <div class="list-item-leading">
@@ -2141,6 +2355,12 @@ export class ResultViewer extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
+
+    // Reset internal result when result prop changes (full data refresh)
+    if (changedProperties.has('result')) {
+      this._internalResult = null;
+      this._animatedItems.clear();
+    }
 
     // Render mermaid blocks after DOM update (only if there are pending blocks)
     if (this._pendingMermaidBlocks.length > 0 && (window as any).mermaid) {

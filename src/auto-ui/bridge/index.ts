@@ -393,13 +393,13 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     }
   };
 
-  // Create mirrored object: window.photon.{photonName}
-  // This provides a class-like API that mirrors server methods:
+  // Create direct window object: window.{photonName}
+  // This provides a clean class-like API that mirrors server methods:
   //   Server: this.emit('taskMove', data)
-  //   Client: photon.kanban.onTaskMove(cb) - subscribe to events
-  //   Client: photon.kanban.taskMove(args) - call server method
+  //   Client: kanban.onTaskMove(cb) - subscribe to events
+  //   Client: kanban.taskMove(args) - call server method
   if (ctx.photon) {
-    window.photon[ctx.photon] = new Proxy({}, {
+    window[ctx.photon] = new Proxy({}, {
       get: function(target, prop) {
         if (typeof prop !== 'string') return undefined;
 

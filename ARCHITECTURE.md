@@ -395,10 +395,10 @@ this.emit({
 });
 ```
 
-**Client-side: mirrored class API**
+**Client-side: direct window API**
 ```javascript
 // Subscribe to specific events (recommended)
-photon.kanban.onTaskMove((data) => {
+kanban.onTaskMove((data) => {
   moveTaskInUI(data.taskId, data.column);
 });
 
@@ -408,7 +408,7 @@ photon.on('taskMove', (data) => {
 });
 
 // Call server methods
-await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+await kanban.taskMove({ id: 'task-1', column: 'Done' });
 ```
 
 **Why standard protocol?**

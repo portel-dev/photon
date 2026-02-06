@@ -374,22 +374,22 @@ Photon provides a **mirrored class API** that matches server-side event names:
 
 ```javascript
 // Server emits: this.emit('taskMove', { taskId, column })
-// Client subscribes: photon.{photonName}.onTaskMove(callback)
+// Client subscribes: {photonName}.onTaskMove(callback)
 
 // Subscribe to specific events
-photon.kanban.onTaskMove((data) => {
+kanban.onTaskMove((data) => {
   console.log('Task moved:', data.taskId, '→', data.column);
   moveTaskInDOM(data.taskId, data.column);
 });
 
-photon.kanban.onTaskCreate((data) => {
+kanban.onTaskCreate((data) => {
   console.log('Task created:', data.task);
   addTaskToDOM(data.task);
 });
 
-// Call server methods (same mirrored pattern)
-await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
-await photon.kanban.taskCreate({ title: 'New task' });
+// Call server methods (same pattern)
+await kanban.taskMove({ id: 'task-1', column: 'Done' });
+await kanban.taskCreate({ title: 'New task' });
 ```
 
 ### Generic Event Subscription
@@ -503,9 +503,9 @@ interface MirroredPhotonAPI {
 }
 ```
 
-**Mirrored API Pattern:**
-- `photon.kanban.onTaskMove(cb)` → subscribes to `taskMove` event
-- `photon.kanban.taskMove(args)` → calls `photon.callTool('taskMove', args)`
+**Direct Window API Pattern:**
+- `kanban.onTaskMove(cb)` → subscribes to `taskMove` event
+- `kanban.taskMove(args)` → calls `photon.callTool('taskMove', args)`
 
 This pattern ensures client code mirrors server code structure:
 ```
@@ -579,18 +579,18 @@ this.emit({
 
 ### For Custom UI Developers
 
-1. **Use the mirrored API**: Subscribe to specific events with `photon.{name}.onEventName(cb)`
+1. **Use the direct window API**: Subscribe to specific events with `{name}.onEventName(cb)`
 2. **Handle partial updates**: Process granular events efficiently
 3. **Graceful degradation**: Work even if real-time fails
 4. **Always notify viewing**: Call `notifyViewingBoard` on load and switch
 
 ```javascript
-// Best: Use mirrored API for type-safe, readable code
-photon.kanban.onTaskMove((data) => {
+// Best: Use direct window API for clean, readable code
+kanban.onTaskMove((data) => {
   moveTaskInDOM(data.taskId, data.column);
 });
 
-photon.kanban.onTaskCreate((data) => {
+kanban.onTaskCreate((data) => {
   addTaskToDOM(data.task);
 });
 

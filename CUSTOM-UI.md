@@ -130,13 +130,13 @@ on(eventName: string, callback: (data: any) => void): () => void;
 sendFollowUpMessage(message: string): void;
 ```
 
-### Mirrored Class API
+### Direct Window API
 
-Each photon gets a mirrored object at `window.photon.{photonName}`:
+Each photon gets a direct object at `window.{photonName}`:
 
 ```typescript
 // For a photon named "kanban":
-window.photon.kanban = {
+window.kanban = {
   // onEventName → subscribes to 'eventName'
   onTaskMove(cb): () => void,    // subscribes to 'taskMove' event
   onTaskCreate(cb): () => void,  // subscribes to 'taskCreate' event
@@ -160,22 +160,22 @@ taskMove(params) { ... }       →   kanban.taskMove(params)
 
 ```typescript
 // ═══════════════════════════════════════════════════════════════════════════
-// MIRRORED CLASS API (Recommended for real-time sync)
+// DIRECT WINDOW API (Recommended for real-time sync)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Subscribe to specific events using the mirrored API
+// Subscribe to specific events using the direct window API
 // Server: this.emit('taskMove', data)
-// Client: photon.kanban.onTaskMove(callback)
-photon.kanban.onTaskMove((data) => {
+// Client: kanban.onTaskMove(callback)
+kanban.onTaskMove((data) => {
   moveTaskInUI(data.taskId, data.column);
 });
 
-photon.kanban.onTaskCreate((data) => {
+kanban.onTaskCreate((data) => {
   addTaskToUI(data.task);
 });
 
 // Call server methods
-await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+await kanban.taskMove({ id: 'task-1', column: 'Done' });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GENERIC EVENT SUBSCRIPTION
@@ -372,27 +372,27 @@ Photon enables real-time sync between Beam, Claude Desktop, and any MCP Apps-com
 3. Claude Desktop (and other hosts) forward this standard notification
 4. Photon bridge extracts `_photon` and routes to your event handlers
 
-### Mirrored API (Recommended)
+### Direct Window API (Recommended)
 
 The cleanest way to handle real-time events:
 
 ```typescript
 // Subscribe to specific events
-// Pattern: photon.{photonName}.on{EventName}(callback)
-photon.kanban.onTaskMove((data) => {
+// Pattern: {photonName}.on{EventName}(callback)
+kanban.onTaskMove((data) => {
   moveTaskInUI(data.taskId, data.column);
 });
 
-photon.kanban.onTaskCreate((data) => {
+kanban.onTaskCreate((data) => {
   addTaskToUI(data.task);
 });
 
-photon.kanban.onBoardUpdate((data) => {
+kanban.onBoardUpdate((data) => {
   refreshBoard(data);
 });
 
 // Call methods (same pattern)
-await photon.kanban.taskMove({ id: 'task-1', column: 'Done' });
+await kanban.taskMove({ id: 'task-1', column: 'Done' });
 ```
 
 ### Generic Event Subscription
@@ -508,9 +508,9 @@ declare global {
       onProgress: (cb: (e: any) => void) => () => void;
       onResult: (cb: (r: any) => void) => () => void;
       theme: 'light' | 'dark';
-      // Mirrored API (dynamic per photon)
-      [photonName: string]: any;
     };
+    // Direct window API (e.g., window.kanban)
+    [photonName: string]: any;
   }
 }
 
@@ -538,9 +538,9 @@ export function usePhotonEvent(eventName: string, callback: (data: any) => void)
 function KanbanApp() {
   const [tasks, setTasks] = useState<any[]>([]);
 
-  // Subscribe to real-time events using mirrored API
+  // Subscribe to real-time events using direct window API
   useEffect(() => {
-    const kanban = window.photon.kanban;
+    const kanban = window.kanban;
 
     const unsub1 = kanban.onTaskMove((data: any) => {
       setTasks(prev => prev.map(t =>
@@ -556,7 +556,7 @@ function KanbanApp() {
   }, []);
 
   const moveTask = async (taskId: string, column: string) => {
-    await window.photon.kanban.taskMove({ id: taskId, column });
+    await window.kanban.taskMove({ id: taskId, column });
   };
 
   return (
