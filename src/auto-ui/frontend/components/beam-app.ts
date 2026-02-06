@@ -2015,10 +2015,11 @@ export class BeamApp extends LitElement {
         requiredParams: Object.entries(config.properties || {}).map(
           ([key, prop]: [string, any]) => ({
             name: key,
+            envVar: prop['x-env-var'] || key,
             type: prop.type || 'string',
-            format: prop.format,
-            default: prop.default,
-            required: config.required?.includes(key),
+            isOptional: !config.required?.includes(key),
+            hasDefault: prop.default !== undefined,
+            defaultValue: prop.default,
           })
         ),
         errorMessage: config['x-error-message'],
@@ -3467,10 +3468,11 @@ export class BeamApp extends LitElement {
           requiredParams: Object.entries(photonSchema.properties).map(
             ([key, prop]: [string, any]) => ({
               name: key,
+              envVar: prop['x-env-var'] || key,
               type: prop.type || 'string',
-              format: prop.format,
-              default: prop.default,
-              required: photonSchema.required?.includes(key),
+              isOptional: !photonSchema.required?.includes(key),
+              hasDefault: prop.default !== undefined,
+              defaultValue: prop.default,
             })
           ),
         };

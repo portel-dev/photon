@@ -2786,7 +2786,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
           if (missingRequired.length > 0 && constructorParams.length > 0) {
             // Add as unconfigured photon
-            const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+            const targetPhoton: UnconfiguredPhotonInfo = {
               id: generatePhotonId(photonPath),
               name: photonName,
               path: photonPath,
@@ -2795,7 +2795,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               errorReason: 'missing-config',
               errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
             };
-            photons.push(unconfiguredPhoton);
+            photons.push(targetPhoton);
             broadcastPhotonChange();
             logger.info(`⚙️ ${photonName} added (needs configuration)`);
             return;
@@ -2930,7 +2930,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Ignore extraction errors
             }
 
-            const unconfiguredPhoton: UnconfiguredPhotonInfo = {
+            const targetPhoton: UnconfiguredPhotonInfo = {
               id: generatePhotonId(photonPath),
               name: photonName,
               path: photonPath,
@@ -2939,9 +2939,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
               errorMessage: errorMsg.slice(0, 200),
             };
-            photons.push(unconfiguredPhoton);
+            photons.push(targetPhoton);
             broadcastPhotonChange();
-            logger.info(`⚙️ ${photonName} added (needs attention: ${unconfiguredPhoton.errorReason})`);
+            logger.info(`⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`);
             return;
           }
 
@@ -3313,26 +3313,29 @@ async function configurePhotonViaMCP(
   loader: PhotonLoader,
   savedConfig: PhotonConfig
 ): Promise<{ success: boolean; error?: string }> {
-  // Find the unconfigured photon
-  const photonIndex = photons.findIndex((p) => p.name === photonName && !p.configured);
+  // Find the photon (configured or unconfigured)
+  const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
-    return { success: false, error: `Photon not found or already configured: ${photonName}` };
+    return { success: false, error: `Photon not found: ${photonName}` };
   }
-
-  const unconfiguredPhoton = photons[photonIndex] as UnconfiguredPhotonInfo;
 
   // Apply config to environment
   for (const [key, value] of Object.entries(config)) {
     process.env[key] = String(value);
   }
 
-  // Save config to file
-  savedConfig.photons[photonName] = config;
+  // Save config to file (merge with existing config for edit mode)
+  savedConfig.photons[photonName] = { ...(savedConfig.photons[photonName] || {}), ...config };
   await saveConfig(savedConfig);
+
+  const targetPhoton = photons[photonIndex];
+  const isReconfigure = targetPhoton.configured === true;
 
   // Try to reload the photon
   try {
-    const mcp = await loader.loadFile(unconfiguredPhoton.path);
+    const mcp = isReconfigure
+      ? await loader.reloadFile(targetPhoton.path)
+      : await loader.loadFile(targetPhoton.path);
     const instance = mcp.instance;
 
     if (!instance) {
@@ -3340,11 +3343,11 @@ async function configurePhotonViaMCP(
     }
 
     photonMCPs.set(photonName, mcp);
-    backfillEnvDefaults(instance, unconfiguredPhoton.requiredParams || []);
+    backfillEnvDefaults(instance, targetPhoton.requiredParams || []);
 
     // Extract schema for UI
     const extractor = new SchemaExtractor();
-    const configSource = await fs.readFile(unconfiguredPhoton.path, 'utf-8');
+    const configSource = await fs.readFile(targetPhoton.path, 'utf-8');
     const { tools: schemas, templates } = extractor.extractAllFromSource(configSource);
     (mcp as any).schemas = schemas;
 
@@ -3393,9 +3396,9 @@ async function configurePhotonViaMCP(
 
     // Replace unconfigured photon with configured one
     const configuredPhoton: PhotonInfo = {
-      id: generatePhotonId(unconfiguredPhoton.path),
+      id: generatePhotonId(targetPhoton.path),
       name: photonName,
-      path: unconfiguredPhoton.path,
+      path: targetPhoton.path,
       configured: true,
       methods,
       isApp,

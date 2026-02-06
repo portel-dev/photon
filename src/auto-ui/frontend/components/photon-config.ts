@@ -98,6 +98,11 @@ export class PhotonConfig extends LitElement {
         opacity: 0.6;
       }
 
+      /* Mask secret fields without type="password" to avoid browser credential autofill */
+      .form-group input.secret-field {
+        -webkit-text-security: disc;
+      }
+
       .toggle-switch {
         display: flex;
         background: var(--bg-glass);
@@ -240,10 +245,10 @@ export class PhotonConfig extends LitElement {
         ? html` <div class="error-banner">${this.photon.errorMessage}</div> `
         : ''}
 
-      <form class="config-form" @submit=${this._handleSubmit}>
+      <div class="config-form" role="presentation">
         ${params.map((param) => this._renderField(param))}
 
-        <button type="submit" class="submit-btn" ?disabled=${this._loading}>
+        <button type="button" class="submit-btn" ?disabled=${this._loading} @click=${this._handleSubmit}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path
               d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"
@@ -255,7 +260,7 @@ export class PhotonConfig extends LitElement {
               ? 'Save Changes'
               : 'Configure & Enable'}
         </button>
-      </form>
+      </div>
     `;
   }
 
@@ -308,10 +313,10 @@ export class PhotonConfig extends LitElement {
     return html`
       <input
         type="number"
+        id="photon-${param.envVar}"
         name="${param.envVar}"
         .value=${this._formData[param.envVar] ?? defaultValue}
         placeholder="Enter ${param.name}..."
-        ?required=${isRequired}
         @input=${(e: Event) =>
           this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
       />
@@ -326,11 +331,12 @@ export class PhotonConfig extends LitElement {
   ) {
     return html`
       <input
-        type="${isSecret ? 'password' : 'text'}"
+        type="text"
+        id="photon-${param.envVar}"
         name="${param.envVar}"
+        class="${isSecret ? 'secret-field' : ''}"
         .value=${this._formData[param.envVar] ?? defaultValue}
         placeholder="Enter ${param.name}..."
-        ?required=${isRequired}
         @input=${(e: Event) =>
           this._updateField(param.envVar, (e.target as HTMLInputElement).value)}
       />
@@ -355,9 +361,7 @@ export class PhotonConfig extends LitElement {
     this._formData = { ...this._formData, [envVar]: value };
   }
 
-  private _handleSubmit(e: Event) {
-    e.preventDefault();
-
+  private _handleSubmit() {
     if (!this.photon) return;
 
     // Collect form data
