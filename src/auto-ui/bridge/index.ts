@@ -68,6 +68,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     stream: [],
     emit: []
   };
+  var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
 
   function subscribe(arr, cb) {
     arr.push(cb);
@@ -154,6 +155,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       }
       else if (m.method === 'ui/notifications/host-context-changed' || m.method === 'ui/notifications/context') {
         var ctxParams = m.params || {};
+        // Standard theme/styles handling
         if (ctxParams.styles && ctxParams.styles.variables) {
           themeTokens = ctxParams.styles.variables;
           applyThemeTokens();
@@ -162,6 +164,20 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           ctx.theme = ctxParams.theme;
           applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
+        }
+
+        // Extract embedded photon event data (for real-time sync)
+        if (ctxParams._photon) {
+          var photonData = ctxParams._photon;
+          // Route to generic emit listeners
+          listeners.emit.forEach(function(cb) { cb(photonData); });
+          // Route to specific event listeners
+          var eventName = photonData.event;
+          if (eventName && eventListeners[eventName]) {
+            eventListeners[eventName].forEach(function(cb) {
+              cb(photonData.data);
+            });
+          }
         }
       }
       else if (m.method === 'ui/resource-teardown' && m.id != null) {
@@ -363,8 +379,47 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
 
     sendSizeChanged: sendSizeChanged,
     setupAutoResize: setupAutoResize,
-    parseSizeMeta: parseSizeMeta
+    parseSizeMeta: parseSizeMeta,
+
+    // Generic event subscription for real-time sync
+    // Usage: photon.on('taskMove', function(data) { ... })
+    on: function(eventName, cb) {
+      if (!eventListeners[eventName]) eventListeners[eventName] = [];
+      eventListeners[eventName].push(cb);
+      return function() {
+        var i = eventListeners[eventName].indexOf(cb);
+        if (i >= 0) eventListeners[eventName].splice(i, 1);
+      };
+    }
   };
+
+  // Create mirrored object: window.photon.{photonName}
+  // This provides a class-like API that mirrors server methods:
+  //   Server: this.emit('taskMove', data)
+  //   Client: photon.kanban.onTaskMove(cb) - subscribe to events
+  //   Client: photon.kanban.taskMove(args) - call server method
+  if (ctx.photon) {
+    window.photon[ctx.photon] = new Proxy({}, {
+      get: function(target, prop) {
+        if (typeof prop !== 'string') return undefined;
+
+        // onEventName -> subscribe to 'eventName' event
+        // e.g., onTaskMove -> subscribe to 'taskMove'
+        if (prop.startsWith('on') && prop.length > 2) {
+          var eventName = prop.charAt(2).toLowerCase() + prop.slice(3);
+          return function(cb) {
+            return window.photon.on(eventName, cb);
+          };
+        }
+
+        // methodName -> call server tool
+        // e.g., taskMove(args) -> photon.callTool(prop, args)
+        return function(args) {
+          return window.photon.callTool(prop, args);
+        };
+      }
+    });
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // WINDOW.OPENAI API (ChatGPT Apps SDK Compatibility)

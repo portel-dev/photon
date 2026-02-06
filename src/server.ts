@@ -1337,21 +1337,30 @@ export class PhotonServer {
   /**
    * Handle incoming channel messages and forward as MCP notifications
    * This enables cross-client real-time updates (e.g., Beam updates show in Claude Desktop)
+   *
+   * Uses standard MCP Apps notification with embedded _photon data:
+   * - Claude Desktop forwards standard notifications (ui/notifications/host-context-changed)
+   * - Photon bridge extracts _photon field and routes to event listeners
+   * - This ensures cross-client sync works without requiring custom protocol support
    */
   private async handleChannelMessage(message: unknown) {
     if (!message || typeof message !== 'object') return;
 
     const msg = message as Record<string, unknown>;
 
-    // Forward as photon emit notification with structured data
-    // This allows the UI bridge to convert it to the appropriate event format
+    // Use STANDARD notification with embedded photon data
+    // Claude Desktop will forward this (it's a standard notification)
+    // Our bridge extracts _photon and routes to the appropriate event handler
     const payload = {
-      method: 'photon/notifications/emit',
+      method: 'ui/notifications/host-context-changed',
       params: {
-        photon: this.daemonName,
-        channel: msg.channel,
-        event: msg.event,
-        data: msg.data,
+        // _photon field carries our custom event data
+        _photon: {
+          photon: this.daemonName,
+          channel: msg.channel,
+          event: msg.event,
+          data: msg.data,
+        },
       },
     };
 
@@ -2051,6 +2060,10 @@ export class PhotonServer {
   var callIdCounter = 0;
   var toolResult = null;
   var resultListeners = [];
+  var emitListeners = [];
+  var themeListeners = [];
+  var eventListeners = {};  // For specific event subscriptions (e.g., 'taskMove')
+  var currentTheme = 'dark';
 
   function generateCallId() {
     return 'call_' + (++callIdCounter) + '_' + Math.random().toString(36).slice(2);
@@ -2071,8 +2084,22 @@ export class PhotonServer {
       if (m.id && !m.method && pendingCalls[m.id]) {
         var pending = pendingCalls[m.id];
         delete pendingCalls[m.id];
-        if (m.error) pending.reject(new Error(m.error.message));
-        else pending.resolve(m.result);
+        if (m.error) {
+          pending.reject(new Error(m.error.message));
+        } else {
+          // Extract clean data from MCP result format
+          var result = m.result;
+          var cleanData = result;
+          if (result && result.structuredContent) {
+            cleanData = result.structuredContent;
+          } else if (result && result.content && Array.isArray(result.content)) {
+            var textItem = result.content.find(function(i) { return i.type === 'text'; });
+            if (textItem && textItem.text) {
+              try { cleanData = JSON.parse(textItem.text); } catch(e) { cleanData = textItem.text; }
+            }
+          }
+          pending.resolve(cleanData);
+        }
         return;
       }
 
@@ -2097,12 +2124,30 @@ export class PhotonServer {
         resultListeners.forEach(function(cb) { cb(toolResult); });
       }
 
-      // Host context changed
+      // Host context changed (theme + embedded photon events)
       if (m.method === 'ui/notifications/host-context-changed') {
+        // Standard theme handling
         if (m.params && m.params.theme) {
+          currentTheme = m.params.theme;
           document.documentElement.classList.remove('light', 'dark');
           document.documentElement.classList.add(m.params.theme);
           document.documentElement.setAttribute('data-theme', m.params.theme);
+          themeListeners.forEach(function(cb) { cb(currentTheme); });
+        }
+
+        // Extract embedded photon event data
+        // This enables real-time sync via standard MCP protocol
+        if (m.params && m.params._photon) {
+          var photonData = m.params._photon;
+          // Route to generic emit listeners
+          emitListeners.forEach(function(cb) { cb(photonData); });
+          // Route to specific event listeners (e.g., 'taskMove' -> eventListeners.taskMove)
+          var eventName = photonData.event;
+          if (eventName && eventListeners[eventName]) {
+            eventListeners[eventName].forEach(function(cb) {
+              cb(photonData.data);
+            });
+          }
         }
       }
     }
@@ -2140,8 +2185,63 @@ export class PhotonServer {
         }, 30000);
       });
     },
-    invoke: function(name, args) { return window.photon.callTool(name, args); }
+    invoke: function(name, args) { return window.photon.callTool(name, args); },
+    onEmit: function(cb) {
+      emitListeners.push(cb);
+      return function() {
+        var i = emitListeners.indexOf(cb);
+        if (i >= 0) emitListeners.splice(i, 1);
+      };
+    },
+    onThemeChange: function(cb) {
+      themeListeners.push(cb);
+      // Call immediately with current theme
+      cb(currentTheme);
+      return function() {
+        var i = themeListeners.indexOf(cb);
+        if (i >= 0) themeListeners.splice(i, 1);
+      };
+    },
+    get theme() { return currentTheme; },
+
+    // Generic event subscription for real-time sync
+    // Usage: photon.on('taskMove', function(data) { ... })
+    on: function(eventName, cb) {
+      if (!eventListeners[eventName]) eventListeners[eventName] = [];
+      eventListeners[eventName].push(cb);
+      return function() {
+        var i = eventListeners[eventName].indexOf(cb);
+        if (i >= 0) eventListeners[eventName].splice(i, 1);
+      };
+    }
   };
+
+  // Create mirrored object: window.photon.{photonName}
+  // This provides a class-like API that mirrors server methods:
+  //   Server: this.emit('taskMove', data)
+  //   Client: photon.kanban.onTaskMove(cb) - subscribe to events
+  //   Client: photon.kanban.taskMove(args) - call server method
+  var photonName = '${photonName}';
+  window.photon[photonName] = new Proxy({}, {
+    get: function(target, prop) {
+      if (typeof prop !== 'string') return undefined;
+
+      // onEventName -> subscribe to 'eventName' event
+      // e.g., onTaskMove -> subscribe to 'taskMove'
+      if (prop.startsWith('on') && prop.length > 2) {
+        var eventName = prop.charAt(2).toLowerCase() + prop.slice(3);
+        return function(cb) {
+          return window.photon.on(eventName, cb);
+        };
+      }
+
+      // methodName -> call server tool
+      // e.g., taskMove(args) -> photon.callTool('taskMove', args)
+      return function(args) {
+        return window.photon.callTool(prop, args);
+      };
+    }
+  });
 
   // Size notification helper
   function sendSizeChanged() {
