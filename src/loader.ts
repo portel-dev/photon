@@ -72,6 +72,8 @@ import {
   checkRuntimeCompatibility,
   discoverAssets as sharedDiscoverAssets,
   autoDiscoverAssets as sharedAutoDiscoverAssets,
+  // Execution audit trail
+  getAuditTrail,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -1599,6 +1601,10 @@ Run: photon mcp ${mcpName} --config
     parameters: any,
     options?: { resumeRunId?: string; outputHandler?: OutputHandler; inputProvider?: InputProvider }
   ): Promise<any> {
+    // Start audit trail recording
+    const audit = getAuditTrail();
+    const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
+
     try {
       // Check for configuration errors before executing tool
       if (mcp.instance._photonConfigError) {
@@ -1623,10 +1629,12 @@ Run: photon mcp ${mcpName} --config
           );
           // Clear any lingering progress
           this.progressRenderer.done();
+          auditFinish(finalResult);
           return finalResult;
         }
         // Clear any lingering progress
         this.progressRenderer.done();
+        auditFinish(result);
         return result;
       }
 
@@ -1676,12 +1684,13 @@ Run: photon mcp ${mcpName} --config
         if (execResult.runId) {
           error.runId = execResult.runId;
         }
+        auditFinish(null, execResult.error);
         throw error;
       }
 
       // For stateful workflows, wrap result with metadata
       if (execResult.isStateful && execResult.runId) {
-        return {
+        const wrappedResult = {
           _stateful: true,
           runId: execResult.runId,
           resumed: execResult.resumed,
@@ -1690,13 +1699,17 @@ Run: photon mcp ${mcpName} --config
           status: execResult.status,
           result: execResult.result,
         };
+        auditFinish(execResult.result);
+        return wrappedResult;
       }
 
       // For ephemeral execution, return result directly
+      auditFinish(execResult.result);
       return execResult.result;
     } catch (error) {
       // Clear progress on error too
       this.progressRenderer.done();
+      auditFinish(null, error as Error);
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
     }
