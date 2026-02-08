@@ -95,6 +95,7 @@ import {
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
+import { warnIfDangerous } from './shared/security.js';
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -478,6 +479,14 @@ export class PhotonLoader {
           sourceHash,
           absolutePath
         );
+      }
+
+      // Security: scan source for dangerous patterns before loading
+      if (tsContent) {
+        const warnings = warnIfDangerous(tsContent);
+        for (const w of warnings) {
+          this.log(`⚠️  Security: ${w} in ${absolutePath}`);
+        }
       }
 
       const importModule = async () => {

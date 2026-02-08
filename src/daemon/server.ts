@@ -317,6 +317,9 @@ function unscheduleJob(jobId: string): boolean {
 let webhookServer: http.Server | null = null;
 const WEBHOOK_PORT = parseInt(process.env.PHOTON_WEBHOOK_PORT || '0');
 
+// Security: rate limiter for webhook endpoint
+const webhookRateLimiter = new SimpleRateLimiter(30, 60_000);
+
 function startWebhookServer(port: number): void {
   if (port <= 0) return;
 
@@ -328,6 +331,14 @@ function startWebhookServer(port: number): void {
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Security: rate limiting
+    const clientKey = req.socket?.remoteAddress || 'unknown';
+    if (!webhookRateLimiter.isAllowed(clientKey)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many requests' }));
       return;
     }
 

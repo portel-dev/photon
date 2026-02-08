@@ -1348,6 +1348,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
   };
 
+  // Security: rate limiter for API endpoints
+  const apiRateLimiter = new SimpleRateLimiter(30, 60_000);
+
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
     // Security: set standard security headers on all responses
@@ -2055,6 +2058,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (!isLocalRequest(req)) {
         res.writeHead(403);
         res.end(JSON.stringify({ error: 'Forbidden: non-local request' }));
+        return;
+      }
+
+      // Security: rate limiting
+      const clientKey = req.socket?.remoteAddress || 'unknown';
+      if (!apiRateLimiter.isAllowed(clientKey)) {
+        res.writeHead(429);
+        res.end(JSON.stringify({ error: 'Too many requests' }));
         return;
       }
 
