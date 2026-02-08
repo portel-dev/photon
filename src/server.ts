@@ -45,6 +45,7 @@ import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 import { subscribeChannel, pingDaemon, reloadDaemon, publishToChannel } from './daemon/client.js';
 import { isDaemonRunning, startDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
+import { isLocalRequest, readBody, setSecurityHeaders, isPathWithin, validateAssetPath } from './shared/security.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -1564,8 +1565,15 @@ export class PhotonServer {
 
       // API: Call tool
       if (req.method === 'POST' && url.pathname === '/api/call') {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        // Security: restrict CORS to localhost and require local request
+        res.setHeader('Access-Control-Allow-Origin', `http://localhost:${this.options.port || 3000}`);
         res.setHeader('Content-Type', 'application/json');
+
+        if (!isLocalRequest(req)) {
+          res.writeHead(403);
+          res.end(JSON.stringify({ success: false, error: 'Forbidden: non-local request' }));
+          return;
+        }
 
         let body = '';
         req.on('data', (chunk) => (body += chunk));
@@ -1591,7 +1599,7 @@ export class PhotonServer {
 
       // API: Call tool with streaming progress (SSE)
       if (req.method === 'POST' && url.pathname === '/api/call-stream') {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Origin', `http://localhost:${this.options.port || 3000}`);
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');

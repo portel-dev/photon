@@ -15,6 +15,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
+import { isPathWithin, isLocalRequest, setSecurityHeaders, readBody, SimpleRateLimiter } from '../shared/security.js';
 
 /**
  * Generate a unique ID for a photon based on its path.
@@ -1503,19 +1504,21 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         }
       }
 
-      const dirPath = url.searchParams.get('path') || root || workingDir;
+      // Security: default browse root to workingDir if not specified
+      if (!root) {
+        root = workingDir;
+      }
+
+      const dirPath = url.searchParams.get('path') || root;
 
       try {
         const resolved = path.resolve(dirPath);
 
-        // Validate path is within root (if specified)
-        if (root) {
-          const resolvedRoot = path.resolve(root);
-          if (!resolved.startsWith(resolvedRoot)) {
-            res.writeHead(403);
-            res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
-            return;
-          }
+        // Security: always enforce path boundary using isPathWithin
+        if (!isPathWithin(resolved, root)) {
+          res.writeHead(403);
+          res.end(JSON.stringify({ error: 'Access denied: outside allowed directory' }));
+          return;
         }
 
         const stat = await fs.stat(resolved);
@@ -1565,6 +1568,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       const resolved = path.resolve(filePath);
+
+      // Security: prevent path traversal — file must be within working directory
+      if (!isPathWithin(resolved, workingDir)) {
+        res.writeHead(403);
+        res.end('Access denied: outside allowed directory');
+        return;
+      }
 
       try {
         const fileStat = await fs.stat(resolved);
@@ -1771,9 +1781,22 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Resolve template path relative to photon's directory
       const photonDir = path.dirname(photon.path);
-      const fullTemplatePath = path.isAbsolute(templateFile)
-        ? templateFile
-        : path.join(photonDir, templateFile);
+
+      // Security: reject absolute template paths — must be relative to photon dir
+      if (path.isAbsolute(templateFile)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'Absolute template paths are not allowed' }));
+        return;
+      }
+
+      const fullTemplatePath = path.join(photonDir, templateFile);
+
+      // Security: validate resolved path is within photon directory
+      if (!isPathWithin(fullTemplatePath, photonDir)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'Template path traversal detected' }));
+        return;
+      }
 
       try {
         const templateContent = await fs.readFile(fullTemplatePath, 'utf-8');
@@ -2026,6 +2049,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     // Invoke API: Direct HTTP endpoint for method invocation (used by PWA)
     if (url.pathname === '/api/invoke' && req.method === 'POST') {
+      // Security: only allow local requests
+      if (!isLocalRequest(req)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'Forbidden: non-local request' }));
+        return;
+      }
+
       let body = '';
       req.on('data', (chunk) => (body += chunk));
       req.on('end', async () => {
