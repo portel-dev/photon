@@ -83,7 +83,7 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "@portel/photon-core": "^2.6.1",
+    "@portel/photon-core": "^2.7.0",
     "chokidar": "^4.0.3",
     "cli-highlight": "^2.1.11",
     "commander": "^12.1.0",
