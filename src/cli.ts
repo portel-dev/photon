@@ -306,8 +306,10 @@ async function handleUrlElicitation(ask: {
   const openCommand = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
 
   try {
-    const { exec } = await import('child_process');
-    exec(`${openCommand} "${ask.url}"`);
+    // Security: validate URL and use execFile to prevent shell injection
+    new URL(ask.url); // throws on invalid URL
+    const { execFile } = await import('child_process');
+    execFile(openCommand, [ask.url]);
   } catch (error) {
     cliHint('Please open the URL manually in your browser.');
   }

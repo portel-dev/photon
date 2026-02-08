@@ -2,13 +2,15 @@
  * Security Scanner - Check dependencies for known vulnerabilities
  */
 
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import { validateNpmPackageName } from './shared/security.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 interface NpmAuditVulnerability {
   severity: 'info' | 'low' | 'moderate' | 'high' | 'critical';
@@ -180,7 +182,12 @@ export class SecurityScanner {
       const version = parts.pop() || 'latest';
       const name = parts.join('@');
 
-      const { stdout } = await execAsync(`npm view ${name}@${version} version`, {
+      // Security: validate package name before passing to shell
+      if (!validateNpmPackageName(`${name}@${version}`)) {
+        return false;
+      }
+
+      const { stdout } = await execFileAsync('npm', ['view', `${name}@${version}`, 'version'], {
         timeout: 10000,
       });
 

@@ -41,10 +41,12 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
+import { validateNpmPackageName } from '../shared/security.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /** Wizard step types using standard ask/emit protocol */
 type WizardStep =
@@ -521,8 +523,12 @@ ${allStubs.join('\n\n')}
   private static async validateNpmPackage(
     name: string
   ): Promise<{ valid: boolean; version?: string }> {
+    // Security: validate package name before passing to shell
+    if (!validateNpmPackageName(name)) {
+      return { valid: false };
+    }
     try {
-      const { stdout } = await execAsync(`npm view ${name} version --json`, { timeout: 10000 });
+      const { stdout } = await execFileAsync('npm', ['view', name, 'version', '--json'], { timeout: 10000 });
       const version = JSON.parse(stdout.trim());
       if (typeof version === 'string') return { valid: true, version };
       return { valid: false };

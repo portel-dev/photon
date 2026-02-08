@@ -9,6 +9,7 @@ import { existsSync } from 'fs';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
+import { verifyContentHash, validateAssetPath } from './shared/security.js';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
@@ -683,6 +684,15 @@ export class MarketplaceManager {
           // Try to fetch metadata from manifest
           const manifest = await this.getCachedManifest(marketplace.name);
           const metadata = manifest?.photons.find((p) => p.name === mcpName);
+
+          // Security: verify content hash if metadata provides one
+          if (metadata?.hash && marketplace.sourceType !== 'local') {
+            const expectedHash = metadata.hash.replace(/^sha256:/, '');
+            if (!verifyContentHash(content, expectedHash)) {
+              this.logger.warn(`Content hash mismatch for ${mcpName} — skipping`);
+              continue;
+            }
+          }
 
           return { content, marketplace, metadata };
         }
