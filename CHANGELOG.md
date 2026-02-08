@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.7.0](https://github.com/portel-dev/photon/compare/v1.6.1...v1.7.0) (2026-02-08)
+
+### Features
+
+* upgrade photon-core to 2.6.1 and re-export elevationLight ([e47f777](https://github.com/portel-dev/photon/commit/e47f7779837a309db1af89fe0c0513c66db9a147))
+* upgrade photon-core to 2.7.0 ([ce0a289](https://github.com/portel-dev/photon/commit/ce0a289dfa60eaa7ee0956b7684220fcf00cee0b))
+* wire async execution and cross-photon calls in runtime ([7647f1e](https://github.com/portel-dev/photon/commit/7647f1e8ede2382ba7e135b8f92ba3bdf93dc062))
+* wire execution audit trail into tool execution pipeline ([4090072](https://github.com/portel-dev/photon/commit/40900725011417c00ad13977fcb8c8e5bf178cdb))
+
+### Bug Fixes
+
+* add body size limits, enforce HTTPS marketplace, add security headers ([e149f44](https://github.com/portel-dev/photon/commit/e149f44bf6cfdc4862eb4e85c13149fe61277cb5))
+* add mitigations for sandboxing, postMessage, and rate limiting ([648f120](https://github.com/portel-dev/photon/commit/648f1208cf64310a71056582950e415035747d86))
+* add path validation and auth guards for HTTP endpoints ([81efc70](https://github.com/portel-dev/photon/commit/81efc701a5852194417ef82d1caa9be5ce923fd1))
+* format code with prettier and fix IPv6 test failure in CI ([98a366d](https://github.com/portel-dev/photon/commit/98a366d4dd1a4c5abf50e3eda6ea31d87b16dc04))
+* format loader.ts and server.ts with prettier ([4088f2d](https://github.com/portel-dev/photon/commit/4088f2daebde992b1d8b7ebeec0d66f2d8ba45e8))
+* inline npm package validation in maker photon ([e6d1950](https://github.com/portel-dev/photon/commit/e6d1950be1de3a1259f95c9b5ba1c62deeb16b77))
+* prevent command injection in npm view calls and URL handling ([fbcc443](https://github.com/portel-dev/photon/commit/fbcc443441f0456e3927fd436009cad50643c017))
+* prevent path traversal in asset downloads and harden server binding ([6ff9557](https://github.com/portel-dev/photon/commit/6ff9557d2a81f1dda4ff860cbbd1e0e00d291aa8))
+* prevent XSS, prototype pollution, and code injection ([f7c95cd](https://github.com/portel-dev/photon/commit/f7c95cddf97824f54be2e67776ffc3f0791b4634))
+* remove duplicate marketplace content and stray photon files ([5bf7c25](https://github.com/portel-dev/photon/commit/5bf7c25948ada8a0d067b6ec3f0f6be55eae7bea))
+* remove marketplace sync from runtime repo, clean up artifacts ([bf1dd4a](https://github.com/portel-dev/photon/commit/bf1dd4acc3bf5c6989f5eb5942ca3c0c85cfb18e))
+* simplify release workflow to validation-only ([65cf9ed](https://github.com/portel-dev/photon/commit/65cf9ed435fd8de509e6270660cb8b8ce91cd904))
+
 ## [1.6.1](https://github.com/portel-dev/photon/compare/v1.6.0...v1.6.1) (2026-02-06)
 
 ### Bug Fixes
