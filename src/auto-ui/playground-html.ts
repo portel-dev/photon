@@ -696,20 +696,20 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
 
       container.innerHTML = photons.map(photon => {
         const toolsHtml = photon.tools.map(t => \`
-          <div class="tool-item" data-tool="\${t.name}" data-photon="\${photon.name}">
+          <div class="tool-item" data-tool="\${escapeHtml(t.name)}" data-photon="\${escapeHtml(photon.name)}">
             <div class="tool-name">
-              \${t.name}
+              \${escapeHtml(t.name)}
               \${t.ui ? '<span class="ui-badge">UI</span>' : ''}
             </div>
-            <div class="tool-desc">\${t.description || 'No description'}</div>
+            <div class="tool-desc">\${escapeHtml(t.description || 'No description')}</div>
           </div>
         \`).join('');
 
         return \`
           <div class="photon-group">
-            <div class="photon-header" data-photon="\${photon.name}">
+            <div class="photon-header" data-photon="\${escapeHtml(photon.name)}">
               <span class="photon-toggle">▶</span>
-              <span class="photon-name">\${photon.name}</span>
+              <span class="photon-name">\${escapeHtml(photon.name)}</span>
               <span class="photon-count">\${photon.tools.length}</span>
             </div>
             <div class="photon-tools collapsed">

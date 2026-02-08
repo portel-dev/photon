@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { logger } from './shared/logger.js';
+import { findForbiddenIdentifier } from './shared/security.js';
 
 interface TemplateHash {
   version: string;
@@ -172,11 +173,18 @@ export class TemplateManager {
    * raw backticks, escaped backticks are \`, interpolations are ${...}).
    */
   private evalExpression(expr: string, context: Record<string, any>): any {
+    // Security: block dangerous identifiers in template expressions
+    const forbidden = findForbiddenIdentifier(expr);
+    if (forbidden) {
+      throw new Error(`Forbidden identifier "${forbidden}" in template expression`);
+    }
+
     const keys = Object.keys(context);
     const values = keys.map((k) => context[k]);
     try {
-      const fn = new Function(...keys, 'return (' + expr + ')');
-      return fn(...values);
+      // Shadow dangerous globals to prevent access even if identifiers sneak through
+      const fn = new Function(...keys, 'process', 'require', 'globalThis', 'global', 'return (' + expr + ')');
+      return fn(...values, undefined, undefined, undefined, undefined);
     } catch (error: any) {
       throw new Error(
         `${error.message}\n  Expression: ${expr.length > 200 ? expr.substring(0, 200) + '...' : expr}`

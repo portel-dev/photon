@@ -132,6 +132,10 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
   // ══════════════════════════════════════════════════════════════════════════
 
   window.addEventListener('message', function(e) {
+    // Security: validate message origin (allow same-origin, parent, or null for sandboxed iframes)
+    if (e.origin !== window.location.origin && e.origin !== 'null' && e.source !== window.parent) {
+      return;
+    }
     var m = e.data;
     if (!m || typeof m !== 'object') return;
 
@@ -215,8 +219,14 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
           applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
-        // Legacy: flat merge
-        Object.assign(ctx, ctxParams);
+        // Legacy: flat merge (sanitize to prevent prototype pollution)
+        var safeParams = {};
+        Object.keys(ctxParams).forEach(function(k) {
+          if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') {
+            safeParams[k] = ctxParams[k];
+          }
+        });
+        Object.assign(ctx, safeParams);
       }
       return;
     }

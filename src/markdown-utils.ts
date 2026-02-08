@@ -6,7 +6,8 @@
 export function simpleMarkdownToHtml(markdown: string): string {
   if (!markdown) return '';
 
-  let html = markdown;
+  // Security: escape HTML first to prevent XSS, then apply markdown formatting
+  let html = escapeHtml(markdown);
 
   // Bold: **text** or __text__
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
