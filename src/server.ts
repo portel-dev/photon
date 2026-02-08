@@ -1450,6 +1450,8 @@ export class PhotonServer {
     const messagesPath = '/mcp/messages';
 
     this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      // Security: set standard security headers on all responses
+      setSecurityHeaders(res);
       if (!req.url) {
         res.writeHead(400).end('Missing URL');
         return;
@@ -1581,25 +1583,23 @@ export class PhotonServer {
           return;
         }
 
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
-          try {
-            const { tool, args } = JSON.parse(body);
-            const result = await this.loader.executeTool(this.mcp!, tool, args || {});
-            const isStateful = result && typeof result === 'object' && result._stateful === true;
-            res.writeHead(200);
-            res.end(
-              JSON.stringify({
-                success: true,
-                data: isStateful ? result.result : result,
-              })
-            );
-          } catch (error) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
-          }
-        });
+        try {
+          const body = await readBody(req);
+          const { tool, args } = JSON.parse(body);
+          const result = await this.loader.executeTool(this.mcp!, tool, args || {});
+          const isStateful = result && typeof result === 'object' && result._stateful === true;
+          res.writeHead(200);
+          res.end(
+            JSON.stringify({
+              success: true,
+              data: isStateful ? result.result : result,
+            })
+          );
+        } catch (error: any) {
+          const status = error.message?.includes('too large') ? 413 : 500;
+          res.writeHead(status);
+          res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
+        }
         return;
       }
 

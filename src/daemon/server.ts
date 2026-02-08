@@ -359,61 +359,56 @@ function startWebhookServer(port: number): void {
       return;
     }
 
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
+    let args: Record<string, unknown> = {};
 
-    req.on('end', async () => {
-      let args: Record<string, unknown> = {};
-
-      try {
-        if (body) {
-          args = JSON.parse(body);
-        }
-        args._webhook = {
-          method: req.method,
-          headers: req.headers,
-          query: Object.fromEntries(url.searchParams),
-          timestamp: Date.now(),
-        };
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
-        return;
+    try {
+      const body = await readBody(req);
+      if (body) {
+        args = JSON.parse(body);
       }
+      args._webhook = {
+        method: req.method,
+        headers: req.headers,
+        query: Object.fromEntries(url.searchParams),
+        timestamp: Date.now(),
+      };
+    } catch (err: any) {
+      const status = err.message?.includes('too large') ? 413 : 400;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invalid JSON body' }));
+      return;
+    }
 
-      const sessionManager = sessionManagers.get(photonName);
-      if (!sessionManager) {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
-        return;
-      }
+    const sessionManager = sessionManagers.get(photonName);
+    if (!sessionManager) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
+      return;
+    }
 
-      try {
-        const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
-        const result = await sessionManager.loader.executeTool(session.instance, method, args);
+    try {
+      const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
+      const result = await sessionManager.loader.executeTool(session.instance, method, args);
 
-        logger.info('Webhook executed', { photon: photonName, method });
+      logger.info('Webhook executed', { photon: photonName, method });
 
-        publishToChannel(`webhooks:${photonName}`, {
-          event: 'webhook-received',
-          method,
-          timestamp: Date.now(),
-        });
+      publishToChannel(`webhooks:${photonName}`, {
+        event: 'webhook-received',
+        method,
+        timestamp: Date.now(),
+      });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, data: result }));
-      } catch (error) {
-        logger.error('Webhook execution failed', {
-          photon: photonName,
-          method,
-          error: getErrorMessage(error),
-        });
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: getErrorMessage(error) }));
-      }
-    });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, data: result }));
+    } catch (error) {
+      logger.error('Webhook execution failed', {
+        photon: photonName,
+        method,
+        error: getErrorMessage(error),
+      });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: getErrorMessage(error) }));
+    }
   });
 
   webhookServer.listen(port, () => {

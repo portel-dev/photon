@@ -1350,6 +1350,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
+    // Security: set standard security headers on all responses
+    setSecurityHeaders(res);
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -2056,41 +2058,39 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
-      let body = '';
-      req.on('data', (chunk) => (body += chunk));
-      req.on('end', async () => {
-        try {
-          const { photon: photonName, method, args } = JSON.parse(body);
+      try {
+        const body = await readBody(req);
+        const { photon: photonName, method, args } = JSON.parse(body);
 
-          if (!photonName || !method) {
-            res.writeHead(400);
-            res.end(JSON.stringify({ error: 'Missing photon or method' }));
-            return;
-          }
-
-          const mcp = photonMCPs.get(photonName);
-          if (!mcp || !mcp.instance) {
-            res.writeHead(404);
-            res.end(JSON.stringify({ error: `Photon not found: ${photonName}` }));
-            return;
-          }
-
-          if (typeof mcp.instance[method] !== 'function') {
-            res.writeHead(404);
-            res.end(JSON.stringify({ error: `Method not found: ${method}` }));
-            return;
-          }
-
-          const result = await mcp.instance[method](args || {});
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(200);
-          res.end(JSON.stringify({ result }));
-        } catch (err: any) {
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(500);
-          res.end(JSON.stringify({ error: err.message || String(err) }));
+        if (!photonName || !method) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing photon or method' }));
+          return;
         }
-      });
+
+        const mcp = photonMCPs.get(photonName);
+        if (!mcp || !mcp.instance) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: `Photon not found: ${photonName}` }));
+          return;
+        }
+
+        if (typeof mcp.instance[method] !== 'function') {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: `Method not found: ${method}` }));
+          return;
+        }
+
+        const result = await mcp.instance[method](args || {});
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200);
+        res.end(JSON.stringify({ result }));
+      } catch (err: any) {
+        const status = err.message?.includes('too large') ? 413 : 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(status);
+        res.end(JSON.stringify({ error: err.message || String(err) }));
+      }
       return;
     }
 

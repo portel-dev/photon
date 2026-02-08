@@ -257,21 +257,28 @@ export class MarketplaceManager {
 
     // Pattern 4: https://example.com/photons.json (Direct URL)
     if (input.startsWith('http://') || input.startsWith('https://')) {
+      // Security: auto-upgrade HTTP to HTTPS unless explicitly allowed
+      let safeInput = input;
+      if (input.startsWith('http://') && !process.env.PHOTON_ALLOW_HTTP_MARKETPLACE) {
+        safeInput = input.replace(/^http:\/\//, 'https://');
+        this.logger.info(`Upgraded marketplace URL to HTTPS: ${safeInput}`);
+      }
+
       // Extract name from URL
-      const urlObj = new URL(input);
+      const urlObj = new URL(safeInput);
       const pathParts = urlObj.pathname.split('/');
       const fileName = pathParts[pathParts.length - 1];
       const name = fileName.replace(/\.(json|ts)$/, '') || urlObj.hostname;
 
       // Base URL is the directory containing the photons.json
-      const baseUrl = input.replace(/\/[^/]*$/, '');
+      const baseUrl = safeInput.replace(/\/[^/]*$/, '');
 
       return {
         name,
         repo: '', // Not a repo
         url: baseUrl,
         sourceType: 'url',
-        source: input,
+        source: safeInput,
       };
     }
 
