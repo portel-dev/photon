@@ -327,19 +327,13 @@ Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://d
 
 ## Why did we build this?
 
-Writing an MCP server usually involves 4 to 6 files and about 150 lines of code before you even start writing the thing you actually wanted to write.
+Three reasons, if you want the short version. ([Read the longer version](./WHY-PHOTON.md))
 
-With Photon, it’s one file.
+**MCP is personal.** The best MCP is the one built for exactly one use case. Yours. Your team's. Your company's. When you stop building for everyone, the code gets absurdly simple. One file. Twelve lines. Not twelve hundred.
 
-| | Traditional MCP | Photon |
-|---|---|---|
-| **Files** | 4-6 (server, transport, schemas, types, config) | 1 |
-| **Boilerplate** | 150+ lines | 0 |
-| **Dependencies** | Manual `npm install` | Automatic |
-| **Schema** | Hand-written JSON Schema | Generated from TS types |
-| **Config** | Manual env var parsing | Automatic from Constructor |
+**Solve once, run forever.** If an LLM figured out your workflow the first time, why ask it to re-derive the same answer from scratch every time? Photon lets you keep the answer. No middleman, no tokens, no latency.
 
-It is unnecessarily difficult to do it the old way. So we stopped doing it.
+**Same door, every key.** AI calls it through MCP. You call it through CLI. You open it in Beam. Same methods, same data, same result. And half the time, you don't need AI at all. You just need the data.
 
 ---
 
