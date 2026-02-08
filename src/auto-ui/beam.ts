@@ -3067,7 +3067,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         }
       });
 
-      server.listen(currentPort, '0.0.0.0', () => {
+      // Security: bind to localhost by default, configurable via BEAM_BIND_ADDRESS
+      const bindAddress = process.env.BEAM_BIND_ADDRESS || '127.0.0.1';
+      server.listen(currentPort, bindAddress, () => {
         process.env.BEAM_PORT = String(currentPort);
         const url = `http://localhost:${currentPort}`;
         console.log(`\n⚡ Photon Beam → ${url} (loading photons...)\n`);

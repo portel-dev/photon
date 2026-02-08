@@ -48,6 +48,7 @@ import { registerMarketplaceCommands } from './cli/commands/marketplace.js';
 import { registerInfoCommand } from './cli/commands/info.js';
 import { registerPackageCommands } from './cli/commands/package.js';
 import { registerPackageAppCommand } from './cli/commands/package-app.js';
+import { validateAssetPath, isPathWithin } from './shared/security.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // BUNDLED PHOTONS
@@ -1079,7 +1080,13 @@ program
             if (source.metadata.assets && source.metadata.assets.length > 0) {
               const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
               for (const [assetPath, content] of assets) {
-                const assetTarget = path.join(workingDir, assetPath);
+                // Security: validate asset path to prevent traversal
+                const safePath = validateAssetPath(assetPath);
+                const assetTarget = path.join(workingDir, safePath);
+                if (!isPathWithin(assetTarget, workingDir)) {
+                  console.error(`Skipping unsafe asset path: ${assetPath}`);
+                  continue;
+                }
                 const assetDir = path.dirname(assetTarget);
                 await fs.mkdir(assetDir, { recursive: true });
                 await fs.writeFile(assetTarget, content, 'utf-8');

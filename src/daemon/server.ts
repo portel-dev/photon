@@ -24,6 +24,7 @@ import {
 import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
+import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
 
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
@@ -346,11 +347,16 @@ function startWebhookServer(port: number): void {
     const expectedSecret = process.env.PHOTON_WEBHOOK_SECRET;
     if (expectedSecret) {
       const providedSecret = req.headers['x-webhook-secret'];
-      if (providedSecret !== expectedSecret) {
+      if (!providedSecret || typeof providedSecret !== 'string' || !timingSafeEqual(providedSecret, expectedSecret)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid webhook secret' }));
         return;
       }
+    } else if (!process.env.PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED) {
+      // Security: require explicit opt-in for unauthenticated webhooks
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Webhook secret not configured. Set PHOTON_WEBHOOK_SECRET or PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED=true' }));
+      return;
     }
 
     let body = '';

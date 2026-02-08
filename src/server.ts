@@ -1164,7 +1164,13 @@ export class PhotonServer {
       if (source.metadata.assets && source.metadata.assets.length > 0) {
         const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
         for (const [assetPath, content] of assets) {
-          const targetPath = (await import('path')).join(workingDir, assetPath);
+          // Security: validate asset path to prevent traversal
+          const safePath = validateAssetPath(assetPath);
+          const targetPath = (await import('path')).join(workingDir, safePath);
+          if (!isPathWithin(targetPath, workingDir)) {
+            this.log('warn', `Skipping unsafe asset path: ${assetPath}`);
+            continue;
+          }
           const targetDir = (await import('path')).dirname(targetPath);
           await fsPromises.mkdir(targetDir, { recursive: true });
           await fsPromises.writeFile(targetPath, content, 'utf-8');

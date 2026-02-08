@@ -712,6 +712,9 @@ export class MarketplaceManager {
 
     for (const assetPath of assets) {
       try {
+        // Security: validate asset path to prevent traversal
+        validateAssetPath(assetPath);
+
         if (marketplace.sourceType === 'local') {
           // Local filesystem
           const localPath = marketplace.url.replace('file://', '');
