@@ -120,7 +120,7 @@ Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://d
 
 ## Marketplace
 
-We also have a marketplace. 31 photons and counting.
+We also have a marketplace. 35 photons and counting.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="700">
