@@ -14,7 +14,7 @@ A framework, runtime, and ecosystem. Batteries included.
 [![Node](https://img.shields.io/badge/node-%3E%3D18-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
-[Quick Start](#quick-start) · [How It Works](#how-it-works) · [Beam UI](#beam) · [Marketplace](#marketplace) · [Docs](#documentation)
+[Quick Start](#quick-start) · [Why Photon](#why-did-we-build-this) · [Beam UI](#beam) · [How It Works](#how-it-works) · [Docs](#documentation)
 
 </div>
 
@@ -22,7 +22,7 @@ A framework, runtime, and ecosystem. Batteries included.
 
 ## What Is This Thing?
 
-So, here is the situation. You write a single TypeScript file. Just one. And somehow, through some dark magic I don’t fully understand either, you get three things at once:
+So, here is the situation. You write a single TypeScript file. Just one. And somehow, through some dark magic I don't fully understand either, you get three things at once:
 
 1.  **An MCP server** (so Claude or Cursor can use your tools).
 2.  **A CLI tool** (so you can run it from the terminal like a normal human).
@@ -36,20 +36,6 @@ It looks like this:
 
 You just write the logic. Photon deals with the protocols, schemas, and the boring stuff that usually makes you question your life choices.
 
-### The Basics
-
-If you are just skimming, here is what you need to know:
-
-| Concept | What it is | Learn more |
-|---------|-----------|------------|
-| **MCP** | A way for AI to use your tools. It’s a standard. | [modelcontextprotocol.io](https://modelcontextprotocol.io/introduction) |
-| **Photon file** | A `.photon.ts` file. You define tools as methods in a class. | [Guide](./GUIDE.md) |
-| **Beam** | A web dashboard. It shows your tools as forms. | [Beam UI](#beam) |
-| **Marketplace** | A way to get other people’s photons. | [Marketplace](#marketplace) |
-| **Daemon** | A background thing that handles messages and jobs. | [Daemon Pub/Sub](./DAEMON-PUBSUB.md) |
-| **Tags** | JSDoc comments that tell Photon what to do. | [Tag Reference](./DOCBLOCK-TAGS.md) |
-| **Custom UI** | When the auto-generated forms aren't enough. | [Custom UI Guide](./CUSTOM-UI.md) |
-
 ### Who Is This For?
 
 *   **Developers** who want to give AI access to their database but are too lazy to write a full server.
@@ -57,6 +43,18 @@ If you are just skimming, here is what you need to know:
 *   **Anyone** who wants a CLI and a web UI without writing the boilerplate.
 
 You don't need to know what "MCP" actually stands for. If you can write a TypeScript class, you are qualified.
+
+---
+
+## Why did we build this?
+
+Three reasons, if you want the short version. ([Read the longer version](./WHY-PHOTON.md))
+
+**MCP is personal.** The best MCP is the one built for exactly one use case. Yours. Your team's. Your company's. When you stop building for everyone, the code gets absurdly simple. One file. Twelve lines. Not twelve hundred.
+
+**Solve once, run forever.** If an LLM figured out your workflow the first time, why ask it to re-derive the same answer from scratch every time? Photon lets you keep the answer. No middleman, no tokens, no latency.
+
+**Same door, every key.** AI calls it through MCP. You call it through CLI. You open it in Beam. Same methods, same data, same result. And half the time, you don't need AI at all. You just need the data.
 
 ---
 
@@ -81,11 +79,69 @@ npx @portel/photon
 
 ---
 
+## Beam
+
+Beam is the dashboard. It's where you go to poke your tools and see if they work before you let an AI loose on them.
+
+Run `photon`. That's it.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="700">
+</div>
+
+---
+
+## Connecting to AI
+
+If you want to use this with Claude or Cursor, you need the config.
+
+```bash
+photon info weather --mcp
+```
+
+It spits out some JSON:
+
+```json
+{
+  "mcpServers": {
+    "weather": {
+      "command": "photon",
+      "args": ["mcp", "weather"]
+    }
+  }
+}
+```
+
+Copy that. Paste it into your AI client's config file. Done.
+
+Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any [MCP-compatible client](https://modelcontextprotocol.io).
+
+---
+
+## Marketplace
+
+We also have a marketplace. 31 photons and counting.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="700">
+</div>
+
+```bash
+photon search postgres
+photon add postgres
+```
+
+Browse the full catalog and documentation in the [official photons repository](https://github.com/portel-dev/photons).
+
+You can also make a private marketplace for your team, so internal tools stay off the public internet.
+
+---
+
 ## How It Works
 
 A photon is just a TypeScript class. The **public methods become tools**. Photon reads your code, looks at the types, reads your comments, and then generates everything else.
 
-I’ll show you.
+I'll show you.
 
 ### Step 1: The Bare Minimum
 
@@ -286,73 +342,19 @@ export default class Weather {
 
 ---
 
-## Beam
+## The Basics
 
-Beam is the dashboard. It’s where you go to poke your tools and see if they work before you let an AI loose on them.
+If you are just skimming, here is what you need to know:
 
-Run `photon`. That’s it.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="700">
-</div>
-
----
-
-## Connecting to AI
-
-If you want to use this with Claude or Cursor, you need the config.
-
-```bash
-photon info weather --mcp
-```
-
-It spits out some JSON:
-
-```json
-{
-  "mcpServers": {
-    "weather": {
-      "command": "photon",
-      "args": ["mcp", "weather"]
-    }
-  }
-}
-```
-
-Copy that. Paste it into your AI client’s config file. Done.
-
-Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any [MCP-compatible client](https://modelcontextprotocol.io).
-
----
-
-## Why did we build this?
-
-Three reasons, if you want the short version. ([Read the longer version](./WHY-PHOTON.md))
-
-**MCP is personal.** The best MCP is the one built for exactly one use case. Yours. Your team's. Your company's. When you stop building for everyone, the code gets absurdly simple. One file. Twelve lines. Not twelve hundred.
-
-**Solve once, run forever.** If an LLM figured out your workflow the first time, why ask it to re-derive the same answer from scratch every time? Photon lets you keep the answer. No middleman, no tokens, no latency.
-
-**Same door, every key.** AI calls it through MCP. You call it through CLI. You open it in Beam. Same methods, same data, same result. And half the time, you don't need AI at all. You just need the data.
-
----
-
-## Marketplace
-
-We also have a marketplace. 31 photons and counting.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="700">
-</div>
-
-```bash
-photon search postgres
-photon add postgres
-```
-
-Browse the full catalog and documentation in the [official photons repository](https://github.com/portel-dev/photons).
-
-You can also make a private marketplace for your team, so internal tools stay off the public internet.
+| Concept | What it is | Learn more |
+|---------|-----------|------------|
+| **MCP** | A way for AI to use your tools. It's a standard. | [modelcontextprotocol.io](https://modelcontextprotocol.io/introduction) |
+| **Photon file** | A `.photon.ts` file. You define tools as methods in a class. | [Guide](./GUIDE.md) |
+| **Beam** | A web dashboard. It shows your tools as forms. | [Beam UI](#beam) |
+| **Marketplace** | A way to get other people's photons. | [Marketplace](#marketplace) |
+| **Daemon** | A background thing that handles messages and jobs. | [Daemon Pub/Sub](./DAEMON-PUBSUB.md) |
+| **Tags** | JSDoc comments that tell Photon what to do. | [Tag Reference](./DOCBLOCK-TAGS.md) |
+| **Custom UI** | When the auto-generated forms aren't enough. | [Custom UI Guide](./CUSTOM-UI.md) |
 
 ---
 
@@ -465,4 +467,3 @@ If you find a bug, or if my code offends you, feel free to open an issue or a PR
 Made by [Portel](https://github.com/portel-dev)
 
 </div>
-
