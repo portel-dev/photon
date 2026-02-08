@@ -26,5 +26,6 @@ _Tasks/
 !tests/**/*.photon.ts
 !examples/*.photon.ts
 .marketplace/
+.claude-plugin/
 beam-kanban-photon-board.png
 kanban-markdown-checkboxes.png
