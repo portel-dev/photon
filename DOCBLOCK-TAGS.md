@@ -16,7 +16,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@runtime` | **Required runtime version.** The photon will refuse to load if the runtime doesn't match. | `@runtime ^1.5.0` |
 | `@dependencies` | NPM packages to auto-install on first run. | `@dependencies axios@^1.0.0, lodash` |
 | `@mcp` | Declares an MCP dependency for constructor injection. | `@mcp github anthropics/mcp-server-github` |
-| `@photon` | Declares a Photon dependency for constructor injection. | `@photon helper ./helper.photon.ts` |
+| `@photon` | Declares a Photon dependency (auto-install + auto-load). | `@photon billing billing-photon` |
 | `@cli` | Declares a system CLI tool dependency. | `@cli git - https://git-scm.com/downloads` |
 | `@mcps` | Lists MCP dependencies (for diagram generation). | `@mcps filesystem, git` |
 | `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |
@@ -52,7 +52,44 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@format` | Hints the output format for CLI/Web interfaces. | `@format table` |
 | `@icon` | Sets the tool icon (emoji or icon name). | `@icon calculator` or `@icon 🧮` |
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
+| `@async` | Run in background, return execution ID immediately. | `@async` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
+
+### Async Execution
+
+Methods tagged with `@async` run in the background. The client receives an execution ID immediately while the method continues executing. Results are recorded in the execution audit trail.
+
+```typescript
+/**
+ * Generate a quarterly report — takes several minutes
+ * @async
+ * @param quarter The quarter to generate (e.g., "Q1-2026")
+ */
+async generate({ quarter }: { quarter: string }) {
+  const data = await this.fetchAllData(quarter);
+  const report = await this.buildReport(data);
+  await this.memory.set('latest_report', report);
+  return report; // Stored in audit trail, retrievable by execution ID
+}
+```
+
+**Client response (immediate):**
+```json
+{
+  "executionId": "exec_a1b2c3d4e5f6g7h8",
+  "status": "running",
+  "photon": "report-generator",
+  "method": "generate",
+  "message": "Task started in background. Use execution ID to check status."
+}
+```
+
+**When to use `@async`:**
+- Data processing or report generation that takes minutes
+- Batch operations across large datasets
+- Any operation where the client shouldn't block waiting
+
+**How results are stored:** The execution audit trail (`~/.photon/logs/{photonId}/executions.jsonl`) records the full result, timing, and any errors once the background task completes.
 
 ## Daemon Feature Tags
 
@@ -452,6 +489,155 @@ photon beam
 ```
 
 The naming convention is: `PHOTON_<PHOTONNAME>_<PARAMNAME>` (uppercase, no hyphens).
+
+## Scoped Memory (`this.memory`)
+
+Every photon that extends `PhotonMCP` gets a built-in `this.memory` provider — zero-config persistent key-value storage that eliminates manual file I/O.
+
+### Three Scopes
+
+| Scope | Storage | Use Case |
+|-------|---------|----------|
+| `photon` (default) | `~/.photon/data/{photonId}/` | Private state for this photon |
+| `session` | `~/.photon/sessions/{sessionId}/{photonId}/` | Per-user session data |
+| `global` | `~/.photon/data/_global/` | Shared across all photons |
+
+### Example: Bookmark Manager
+
+```typescript
+/**
+ * Bookmark Manager
+ * @tags bookmarks, productivity
+ */
+export default class Bookmarks extends PhotonMCP {
+  /**
+   * Save a bookmark
+   * @param url The URL to bookmark
+   * @param title Display title
+   * @param tags Comma-separated tags
+   */
+  async save({ url, title, tags }: { url: string; title: string; tags?: string }) {
+    const bookmarks = await this.memory.get<Bookmark[]>('bookmarks') ?? [];
+
+    bookmarks.push({
+      id: crypto.randomUUID(),
+      url,
+      title,
+      tags: tags?.split(',').map(t => t.trim()) ?? [],
+      savedAt: new Date().toISOString(),
+    });
+
+    await this.memory.set('bookmarks', bookmarks);
+    return { saved: true, total: bookmarks.length };
+  }
+
+  /**
+   * List all bookmarks, optionally filtered by tag
+   * @param tag Filter by tag
+   * @format list {@title title, @subtitle url, @badge tags}
+   */
+  async list({ tag }: { tag?: string } = {}) {
+    const bookmarks = await this.memory.get<Bookmark[]>('bookmarks') ?? [];
+    if (tag) return bookmarks.filter(b => b.tags.includes(tag));
+    return bookmarks;
+  }
+
+  /**
+   * Track total bookmarks saved — shared counter across all photons
+   * @autorun
+   */
+  async stats() {
+    // Update a global counter that any photon can read
+    const count = (await this.memory.get<Bookmark[]>('bookmarks'))?.length ?? 0;
+    await this.memory.set('bookmark-count', count, 'global');
+    return { bookmarks: count };
+  }
+}
+
+interface Bookmark {
+  id: string;
+  url: string;
+  title: string;
+  tags: string[];
+  savedAt: string;
+}
+```
+
+### API Reference
+
+| Method | Description |
+|--------|-------------|
+| `get<T>(key, scope?)` | Retrieve a value (returns `null` if not found) |
+| `set(key, value, scope?)` | Store a JSON-serializable value |
+| `delete(key, scope?)` | Remove a key |
+| `has(key, scope?)` | Check if key exists |
+| `keys(scope?)` | List all keys in scope |
+| `clear(scope?)` | Remove all keys in scope |
+| `getAll(scope?)` | Get all key-value pairs |
+| `update(key, fn, scope?)` | Atomic read-modify-write |
+
+The `scope` parameter defaults to `'photon'` for all methods.
+
+## Photon Dependencies (`@photon`)
+
+The `@photon` tag declares a dependency on another photon. This ensures the dependency is **auto-installed** when the current photon is installed and **auto-loaded** when the runtime starts.
+
+There are two ways to use a declared photon dependency:
+
+### Approach 1: Constructor Injection (Direct Instance)
+
+The dependency is instantiated and injected into the constructor as a live object. You call methods directly on it.
+
+```typescript
+/**
+ * Order Processor
+ * @photon billing billing-photon
+ * @photon shipping shipping-photon
+ */
+export default class OrderProcessor extends PhotonMCP {
+  constructor(
+    private billing: any,   // Injected: live billing photon instance
+    private shipping: any   // Injected: live shipping photon instance
+  ) { super(); }
+
+  async process({ orderId }: { orderId: string }) {
+    const invoice = await this.billing.generate({ orderId });
+    const label = await this.shipping.createLabel({ orderId });
+    return { invoice, label };
+  }
+}
+```
+
+### Approach 2: `this.call()` (Daemon-Routed)
+
+Declare the dependency with `@photon` (so it's auto-installed and loaded), but use `this.call()` to invoke methods through the daemon. No constructor parameter needed.
+
+```typescript
+/**
+ * Order Processor
+ * @photon billing billing-photon
+ * @photon shipping shipping-photon
+ */
+export default class OrderProcessor extends PhotonMCP {
+  async process({ orderId }: { orderId: string }) {
+    const invoice = await this.call('billing.generate', { orderId });
+    const label = await this.call('shipping.createLabel', { orderId });
+    return { invoice, label };
+  }
+}
+```
+
+### When to Use Which
+
+| | Constructor Injection | `this.call()` |
+|---|---|---|
+| **Setup** | Declare `@photon` + constructor param | Declare `@photon` only |
+| **Execution** | In-process, direct method call | Via daemon, cross-process |
+| **Speed** | Faster (no IPC overhead) | Slight overhead (daemon routing) |
+| **Isolation** | Shares process with parent | Runs in its own daemon session |
+| **Use case** | Tightly coupled helpers | Loosely coupled services |
+
+Both approaches benefit from `@photon` ensuring the dependency is installed and available. The `@photon` tag is what triggers auto-installation — without it, `this.call()` would fail if the target photon isn't loaded.
 
 ## Notes
 
