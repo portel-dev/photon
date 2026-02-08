@@ -43,10 +43,16 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
-import { validateNpmPackageName } from '../shared/security.js';
-
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+
+// Inlined from shared/security.ts — photon files compile to isolated cache dirs
+// so they can't import from the runtime's shared modules
+const NPM_PACKAGE_NAME_RE =
+  /^(@[a-z0-9\-~][a-z0-9\-._~]*\/)?[a-z0-9\-~][a-z0-9\-._~]*(@[a-z0-9\-._^~>=<| ]+)?$/;
+function validateNpmPackageName(input: string): boolean {
+  return NPM_PACKAGE_NAME_RE.test(input);
+}
 
 /** Wizard step types using standard ask/emit protocol */
 type WizardStep =
