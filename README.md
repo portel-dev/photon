@@ -16,8 +16,7 @@ A framework, runtime, and ecosystem. Batteries included.
 
 [Quick Start](#quick-start) · [Why Photon](#why-did-we-build-this) · [Beam UI](#beam) · [How It Works](#how-it-works) · [Docs](#documentation)
 
-<!-- TODO: Replace with actual video link once uploaded -->
-<!-- ▶️ [Watch: Why Photon? (2 min)](VIDEO_URL_HERE) -->
+[![Watch: Why Photon? (2 min)](https://img.youtube.com/vi/FI0M8s6ZKv4/maxresdefault.jpg)](https://www.youtube.com/watch?v=FI0M8s6ZKv4)
 
 </div>
 
