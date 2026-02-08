@@ -21,7 +21,12 @@ import * as fs from 'fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import { PhotonMCPClassExtended, ConstructorParam, getAuditTrail, generateExecutionId } from '@portel/photon-core';
+import {
+  PhotonMCPClassExtended,
+  ConstructorParam,
+  getAuditTrail,
+  generateExecutionId,
+} from '@portel/photon-core';
 import type { ExtractedSchema } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
@@ -598,27 +603,35 @@ export class PhotonServer {
           const executionId = generateExecutionId();
 
           // Run in background — don't await
-          this.loader.executeTool(this.mcp, toolName, args || {}, {
-            inputProvider,
-            outputHandler,
-          }).catch((error) => {
-            this.log('error', `Async tool ${toolName} failed`, {
-              executionId,
-              error: getErrorMessage(error),
+          this.loader
+            .executeTool(this.mcp, toolName, args || {}, {
+              inputProvider,
+              outputHandler,
+            })
+            .catch((error) => {
+              this.log('error', `Async tool ${toolName} failed`, {
+                executionId,
+                error: getErrorMessage(error),
+              });
             });
-          });
 
           return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                executionId,
-                status: 'running',
-                photon: this.mcp.name,
-                method: toolName,
-                message: `Task started in background. Use execution ID to check status.`,
-              }, null, 2),
-            }],
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    executionId,
+                    status: 'running',
+                    photon: this.mcp.name,
+                    method: toolName,
+                    message: `Task started in background. Use execution ID to check status.`,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
           };
         }
 
