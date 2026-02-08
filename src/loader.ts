@@ -568,6 +568,16 @@ export class PhotonLoader {
         this.log(`Injected MCP factory into ${name}`);
       }
 
+      // Inject cross-photon call handler (enables this.call() calls)
+      if (typeof instance._callHandler === 'undefined' || instance._callHandler === undefined) {
+        instance._callHandler = async (photonName: string, method: string, params: Record<string, any>) => {
+          // Dynamic import to avoid circular dependency
+          const { sendCommand } = await import('./daemon/client.js');
+          return sendCommand(photonName, method, params);
+        };
+        this.log(`Injected call handler into ${name}`);
+      }
+
       // Check @cli dependencies (required system CLI tools)
       if (tsContent) {
         await this.checkCLIDependencies(tsContent, name);
