@@ -328,6 +328,34 @@ console.log('\n#4 Dangerous module detection (warnIfDangerous)');
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PHOTON ISOLATION — photon files must not import runtime internals
+// ═══════════════════════════════════════════════════════════════════
+// Photon files compile to isolated cache directories. Imports that
+// reference the runtime's internal modules (e.g. ../shared/security.js)
+// will break at load time because those paths don't exist in the cache.
+
+console.log('\nPhoton isolation (no runtime-internal imports)');
+{
+  const fs = await import('fs');
+  const photonDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'photons');
+  const files = fs.readdirSync(photonDir).filter((f: string) => f.endsWith('.photon.ts'));
+
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(photonDir, file), 'utf-8');
+    const lines = content.split('\n');
+    let hasRuntimeImport = false;
+    for (const line of lines) {
+      // Match import/require from parent directories (runtime internals)
+      if (/^\s*(import|export)\s.*from\s+['"]\.\.\//.test(line)) {
+        hasRuntimeImport = true;
+        break;
+      }
+    }
+    test(!hasRuntimeImport, `${file} has no runtime-internal imports`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SUMMARY
 // ═══════════════════════════════════════════════════════════════════
 
