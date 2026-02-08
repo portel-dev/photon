@@ -315,7 +315,10 @@ export class Serv {
 /**
  * Create a SERV instance for development
  */
-export async function createDevServ(options?: { baseUrl?: string; baseDomain?: string }): Promise<Serv> {
+export async function createDevServ(options?: {
+  baseUrl?: string;
+  baseDomain?: string;
+}): Promise<Serv> {
   const baseUrl = options?.baseUrl ?? 'http://localhost:3000'; // dev-only default
   const baseDomain = options?.baseDomain ?? 'localhost';
 

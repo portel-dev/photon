@@ -534,7 +534,9 @@ ${allStubs.join('\n\n')}
       return { valid: false };
     }
     try {
-      const { stdout } = await execFileAsync('npm', ['view', name, 'version', '--json'], { timeout: 10000 });
+      const { stdout } = await execFileAsync('npm', ['view', name, 'version', '--json'], {
+        timeout: 10000,
+      });
       const version = JSON.parse(stdout.trim());
       if (typeof version === 'string') return { valid: true, version };
       return { valid: false };

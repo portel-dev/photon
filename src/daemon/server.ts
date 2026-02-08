@@ -358,7 +358,11 @@ function startWebhookServer(port: number): void {
     const expectedSecret = process.env.PHOTON_WEBHOOK_SECRET;
     if (expectedSecret) {
       const providedSecret = req.headers['x-webhook-secret'];
-      if (!providedSecret || typeof providedSecret !== 'string' || !timingSafeEqual(providedSecret, expectedSecret)) {
+      if (
+        !providedSecret ||
+        typeof providedSecret !== 'string' ||
+        !timingSafeEqual(providedSecret, expectedSecret)
+      ) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid webhook secret' }));
         return;
@@ -366,7 +370,12 @@ function startWebhookServer(port: number): void {
     } else if (!process.env.PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED) {
       // Security: require explicit opt-in for unauthenticated webhooks
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Webhook secret not configured. Set PHOTON_WEBHOOK_SECRET or PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED=true' }));
+      res.end(
+        JSON.stringify({
+          error:
+            'Webhook secret not configured. Set PHOTON_WEBHOOK_SECRET or PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED=true',
+        })
+      );
       return;
     }
 
@@ -386,7 +395,9 @@ function startWebhookServer(port: number): void {
     } catch (err: any) {
       const status = err.message?.includes('too large') ? 413 : 400;
       res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invalid JSON body' }));
+      res.end(
+        JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invalid JSON body' })
+      );
       return;
     }
 

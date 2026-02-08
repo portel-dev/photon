@@ -20,8 +20,7 @@ export function isPathWithin(candidate: string, root: string): boolean {
   const resolvedRoot = path.resolve(root);
   // Exact match or starts with root + separator
   return (
-    resolvedCandidate === resolvedRoot ||
-    resolvedCandidate.startsWith(resolvedRoot + path.sep)
+    resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(resolvedRoot + path.sep)
   );
 }
 
@@ -50,11 +49,7 @@ export function validateAssetPath(assetPath: string): string {
 export function isLocalRequest(req: IncomingMessage): boolean {
   const addr = req.socket?.remoteAddress;
   if (!addr) return false;
-  return (
-    addr === '127.0.0.1' ||
-    addr === '::1' ||
-    addr === '::ffff:127.0.0.1'
-  );
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
 /**
@@ -128,9 +123,8 @@ export function sanitizeObject<T extends Record<string, any>>(obj: T): T {
   for (const key of Object.keys(obj)) {
     if (DANGEROUS_KEYS.has(key)) continue;
     const val = obj[key];
-    result[key] = val !== null && typeof val === 'object' && !Array.isArray(val)
-      ? sanitizeObject(val)
-      : val;
+    result[key] =
+      val !== null && typeof val === 'object' && !Array.isArray(val) ? sanitizeObject(val) : val;
   }
   return result as T;
 }

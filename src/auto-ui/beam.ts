@@ -15,7 +15,13 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
-import { isPathWithin, isLocalRequest, setSecurityHeaders, readBody, SimpleRateLimiter } from '../shared/security.js';
+import {
+  isPathWithin,
+  isLocalRequest,
+  setSecurityHeaders,
+  readBody,
+  SimpleRateLimiter,
+} from '../shared/security.js';
 
 /**
  * Generate a unique ID for a photon based on its path.

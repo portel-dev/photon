@@ -183,7 +183,14 @@ export class TemplateManager {
     const values = keys.map((k) => context[k]);
     try {
       // Shadow dangerous globals to prevent access even if identifiers sneak through
-      const fn = new Function(...keys, 'process', 'require', 'globalThis', 'global', 'return (' + expr + ')');
+      const fn = new Function(
+        ...keys,
+        'process',
+        'require',
+        'globalThis',
+        'global',
+        'return (' + expr + ')'
+      );
       return fn(...values, undefined, undefined, undefined, undefined);
     } catch (error: any) {
       throw new Error(
