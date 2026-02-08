@@ -16,6 +16,9 @@ A framework, runtime, and ecosystem. Batteries included.
 
 [Quick Start](#quick-start) · [Why Photon](#why-did-we-build-this) · [Beam UI](#beam) · [How It Works](#how-it-works) · [Docs](#documentation)
 
+<!-- TODO: Replace with actual video link once uploaded -->
+<!-- ▶️ [Watch: Why Photon? (2 min)](VIDEO_URL_HERE) -->
+
 </div>
 
 ---
@@ -86,7 +89,7 @@ Beam is the dashboard. It's where you go to poke your tools and see if they work
 Run `photon`. That's it.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="700">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="100%">
 </div>
 
 ---
@@ -123,7 +126,7 @@ Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://d
 We also have a marketplace. 35 photons and counting.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="700">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
 </div>
 
 ```bash
@@ -163,7 +166,7 @@ export default class Weather {
 *   `photon` (The web UI)
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1 — Bare method in Beam" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1 — Bare method in Beam" width="100%">
 </div>
 
 ### Step 2: Adding Descriptions
@@ -190,7 +193,7 @@ export default class Weather {
 **What happens:** Now the UI has helpful text. Also, the AI client reads this to understand what the tool does.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2 — JSDoc descriptions in Beam" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2 — JSDoc descriptions in Beam" width="100%">
 </div>
 
 ### Step 3: Configuration (The clever bit)
@@ -216,7 +219,7 @@ export default class Weather {
 **What happens:** Beam creates a settings panel. `apiKey` becomes a password field. It also maps to environment variables like `WEATHER_API_KEY`. It just works.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3 — Configuration panel in Beam" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3 — Configuration panel in Beam" width="100%">
 </div>
 
 ### Step 4: Validation (Stop bad inputs)
@@ -279,7 +282,7 @@ VideoProcessor requires the following CLI tools to be installed:
 > See the full [Tag Reference](./DOCBLOCK-TAGS.md) for all available tags. There are 30+ covering validation, UI hints, scheduling, webhooks, and more.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4 — Validation and formatting in Beam" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4 — Validation and formatting in Beam" width="100%">
 </div>
 
 ### Step 5: Custom UI (When you want to be fancy)
@@ -323,7 +326,7 @@ export default class Weather {
 > Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./CUSTOM-UI.md).
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-5.png" alt="Step 5 — Custom UI result in Beam" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-5.png" alt="Step 5 — Custom UI result in Beam" width="100%">
 </div>
 
 ### In Summary
@@ -337,7 +340,7 @@ export default class Weather {
 | **5. Custom UI** | HTML | A custom app |
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon Ecosystem" width="600">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon Ecosystem" width="100%">
 </div>
 
 ---
