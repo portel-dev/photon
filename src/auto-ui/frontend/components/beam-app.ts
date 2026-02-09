@@ -1274,6 +1274,7 @@ export class BeamApp extends LitElement {
       /* Method detail view */
       .method-detail {
         padding: var(--space-lg);
+        margin-top: var(--space-md);
       }
 
       .method-detail h2 {
@@ -1666,6 +1667,7 @@ export class BeamApp extends LitElement {
     this._connectMCP();
 
     window.addEventListener('hashchange', this._handleHashChange);
+    window.addEventListener('popstate', this._handlePopState);
     window.addEventListener('message', this._handleBridgeMessage);
     window.addEventListener('keydown', this._handleKeydown);
   }
@@ -1673,6 +1675,7 @@ export class BeamApp extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('hashchange', this._handleHashChange);
+    window.removeEventListener('popstate', this._handlePopState);
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
     document.removeEventListener('click', this._handleDocumentClick);
@@ -1726,7 +1729,7 @@ export class BeamApp extends LitElement {
         } else if (!this._selectedPhoton && this._photons.length > 0) {
           const firstUserPhoton = this._photons.find((p) => !p.internal);
           if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
-          this._updateHash();
+          this._updateHash(true);
         }
       });
 
@@ -1756,7 +1759,7 @@ export class BeamApp extends LitElement {
             this._selectedPhoton = newUserPhoton;
             this._welcomePhase = 'welcome';
             this._view = 'list';
-            this._updateHash();
+            this._updateHash(true);
           }
         }
       });
@@ -1843,7 +1846,7 @@ export class BeamApp extends LitElement {
               } else {
                 this._view = 'list';
               }
-              this._updateHash();
+              this._updateHash(true);
             }
           }
         }
@@ -1908,7 +1911,7 @@ export class BeamApp extends LitElement {
             } else {
               this._view = 'list';
             }
-            this._updateHash();
+            this._updateHash(true);
           }
         }
       });
@@ -2088,14 +2091,22 @@ export class BeamApp extends LitElement {
     }
   };
 
-  private _updateHash() {
+  private _handlePopState = () => {
+    this._handleHashChange();
+  };
+
+  private _updateHash(replace = false) {
     if (!this._selectedPhoton) return;
     let hash = this._selectedPhoton.name;
     if (this._selectedMethod) {
       hash += `/${this._selectedMethod.name}`;
     }
-    // Update URL without scrolling
-    history.replaceState(null, '', `#${hash}`);
+    // Push state for browser back/forward navigation
+    if (replace) {
+      history.replaceState(null, '', `#${hash}`);
+    } else {
+      history.pushState(null, '', `#${hash}`);
+    }
   }
 
   /**
@@ -3528,7 +3539,7 @@ export class BeamApp extends LitElement {
       // For Apps, go back to the main Custom UI and scroll to methods
       this._selectedMethod = this._selectedPhoton.appEntry;
       this._view = 'form';
-      this._updateHash();
+      this._updateHash(true);
 
       // Scroll to methods section after render
       this.updateComplete.then(() => {
@@ -3546,12 +3557,12 @@ export class BeamApp extends LitElement {
       this._selectedPhoton = null;
       this._welcomePhase = 'welcome';
       this._view = 'list';
-      this._updateHash();
+      this._updateHash(true);
     } else {
       // For regular photons, go back to methods list
       this._view = 'list';
       this._selectedMethod = null;
-      this._updateHash();
+      this._updateHash(true);
     }
   }
 
