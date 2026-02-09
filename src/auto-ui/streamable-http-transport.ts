@@ -971,11 +971,15 @@ const handlers: Record<string, RequestHandler> = {
         // Use return value if no chunks were yielded, otherwise use chunks
         const finalResult =
           chunks.length > 0 ? (chunks.length === 1 ? chunks[0] : chunks) : returnValue;
+        const genResultText =
+          finalResult === undefined || finalResult === null
+            ? 'Done'
+            : JSON.stringify(finalResult, null, 2);
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
           result: {
-            content: [{ type: 'text', text: JSON.stringify(finalResult, null, 2) }],
+            content: [{ type: 'text', text: genResultText }],
             isError: false,
             ...uiMetadata,
           },
@@ -997,11 +1001,15 @@ const handlers: Record<string, RequestHandler> = {
         return genResponse;
       }
 
+      // For void methods, provide a success acknowledgment so the UI shows feedback
+      const resultText =
+        result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
+
       const toolResponse = {
         jsonrpc: '2.0' as const,
         id: req.id,
         result: {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          content: [{ type: 'text', text: resultText }],
           isError: false,
           ...uiMetadata,
         },

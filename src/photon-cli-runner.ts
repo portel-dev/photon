@@ -94,6 +94,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
           type: prop.type || 'any',
           optional: !schema.required?.includes(name),
           description: prop.description,
+          ...(prop.title ? { label: prop.title } : {}),
           ...(prop.examples?.[0] !== undefined ? { example: String(prop.examples[0]) } : {}),
         });
       }
