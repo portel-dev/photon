@@ -1510,10 +1510,11 @@ export class ResultViewer extends LitElement {
   }
 
   /**
-   * Diff two arrays and set animation + heat timestamps for changes
+   * Diff two arrays and set animation + heat timestamps for changes.
+   * Handles added, removed (ghost exit animation), updated, and reordered items.
    */
   private _applyDiff(oldArr: any[], newArr: any[]): void {
-    const idField = this._detectIdField(newArr);
+    const idField = this._detectIdField(newArr.length ? newArr : oldArr);
 
     const key = (item: any): string =>
       item && typeof item === 'object' ? String(item[idField]) : String(item);
@@ -1521,8 +1522,14 @@ export class ResultViewer extends LitElement {
     const oldMap = new Map(oldArr.map((item) => [key(item), item]));
     const newMap = new Map(newArr.map((item) => [key(item), item]));
 
+    // Build old position index for reorder detection
+    const oldPositions = new Map(oldArr.map((item, i) => [key(item), i]));
+    const newPositions = new Map(newArr.map((item, i) => [key(item), i]));
+
     // Clear previous animations, keep heat timestamps
     this._animatedItems.clear();
+
+    const removedItems: any[] = [];
 
     // Added items
     for (const [id] of newMap) {
@@ -1536,10 +1543,12 @@ export class ResultViewer extends LitElement {
       }
     }
 
-    // Removed items
-    for (const [id] of oldMap) {
+    // Removed items — keep as ghosts for exit animation
+    for (const [id, item] of oldMap) {
       if (!newMap.has(id)) {
+        this._animatedItems.set(id, 'removed');
         this._itemHeatTimestamps.delete(id);
+        removedItems.push(item);
       }
     }
 
@@ -1554,6 +1563,42 @@ export class ResultViewer extends LitElement {
           this.requestUpdate();
         }, 800);
       }
+    }
+
+    // Reordered items — same content but different position
+    for (const [id, newItem] of newMap) {
+      if (this._animatedItems.has(id)) continue; // already animated
+      const oldPos = oldPositions.get(id);
+      const newPos = newPositions.get(id);
+      if (oldPos !== undefined && newPos !== undefined && oldPos !== newPos) {
+        this._animatedItems.set(id, 'updated'); // reuse highlight animation
+        setTimeout(() => {
+          this._animatedItems.delete(id);
+          this.requestUpdate();
+        }, 800);
+      }
+    }
+
+    // If items were removed, build a merged list with ghosts at their original positions
+    if (removedItems.length > 0) {
+      // Merge: start from new array, insert ghosts at original indices
+      const merged = [...newArr];
+      for (const item of removedItems) {
+        const oldIdx = oldPositions.get(key(item)) ?? merged.length;
+        // Clamp to current length
+        const insertAt = Math.min(oldIdx, merged.length);
+        merged.splice(insertAt, 0, item);
+      }
+      this._internalResult = merged;
+
+      // After exit animation, purge ghosts
+      setTimeout(() => {
+        this._internalResult = null; // fall back to result prop (no ghosts)
+        for (const item of removedItems) {
+          this._animatedItems.delete(key(item));
+        }
+        this.requestUpdate();
+      }, 300);
     }
 
     // Trigger re-render so animation classes appear (we're called from updated(), post-render)
@@ -2587,7 +2632,10 @@ export class ResultViewer extends LitElement {
 
         if (baseline) {
           this._applyDiff(baseline, this.result);
-          this._internalResult = null; // fall through to result property
+          // _applyDiff may set _internalResult for ghost removal animation — don't overwrite
+          if (this._internalResult === null) {
+            // No ghosts, fall through to result property
+          }
         } else {
           // First load — no diff, clean slate
           this._internalResult = null;
