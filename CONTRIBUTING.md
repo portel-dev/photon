@@ -63,9 +63,9 @@ Detailed documentation for contributors can be found in `docs/core/`:
 
 For general usage and development of Photon MCPs:
 
-- [GUIDE.md](GUIDE.md) — The main developer guide
-- [ADVANCED.md](ADVANCED.md) — Advanced features and patterns
-- [PHOTON_BEST_PRACTICES.md](PHOTON_BEST_PRACTICES.md) — Best practices for writing Photons
+- [GUIDE.md](docs/GUIDE.md) — The main developer guide
+- [ADVANCED.md](docs/guides/ADVANCED.md) — Advanced features and patterns
+- [BEST-PRACTICES.md](docs/guides/BEST-PRACTICES.md) — Best practices for writing Photons
 
 ## Reporting Issues
 

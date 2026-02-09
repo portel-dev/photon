@@ -464,6 +464,6 @@ photon upgrade my-photon --force
 
 ## Next Steps
 
-- [GUIDE.md](GUIDE.md) - Photon development guide
-- [SECURITY.md](SECURITY.md) - Security best practices
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment options
+- [GUIDE.md](../GUIDE.md) - Photon development guide
+- [SECURITY.md](../../SECURITY.md) - Security best practices
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - Deployment options

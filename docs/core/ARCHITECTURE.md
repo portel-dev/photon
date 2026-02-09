@@ -452,9 +452,9 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ## Related Documentation
 
-- [DAEMON-PUBSUB.md](DAEMON-PUBSUB.md) - Detailed pub/sub protocol
-- [docs/core/AUTO-UI-ARCHITECTURE.md](docs/core/AUTO-UI-ARCHITECTURE.md) - UI system architecture
-- [ADVANCED.md](ADVANCED.md) - Integration patterns (external services)
+- [DAEMON-PUBSUB.md](./DAEMON-PUBSUB.md) - Detailed pub/sub protocol
+- [AUTO-UI-ARCHITECTURE.md](./AUTO-UI-ARCHITECTURE.md) - UI system architecture
+- [ADVANCED.md](../guides/ADVANCED.md) - Integration patterns (external services)
 
 ---
 

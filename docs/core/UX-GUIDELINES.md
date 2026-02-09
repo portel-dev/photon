@@ -26,4 +26,4 @@ These conventions keep the CLI, MCP runtime, and playground output consistent an
 ## Suggested workflow additions
 
 - Add a `photon doctor` entry to any new docs when introducing features that affect environment health so users discover it.
-- When adding commands, document the purpose and sample output in `GUIDE.md` and align terminology with these sections.
+- When adding commands, document the purpose and sample output in [`GUIDE.md`](../GUIDE.md) and align terminology with these sections.

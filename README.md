@@ -278,7 +278,7 @@ VideoProcessor requires the following CLI tools to be installed:
   - ffmpeg: Install from https://ffmpeg.org/download.html
 ```
 
-> See the full [Tag Reference](./DOCBLOCK-TAGS.md) for all available tags. There are 30+ covering validation, UI hints, scheduling, webhooks, and more.
+> See the full [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) for all available tags. There are 30+ covering validation, UI hints, scheduling, webhooks, and more.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4 — Validation and formatting in Beam" width="100%">
@@ -322,7 +322,7 @@ export default class Weather {
 
 **What changes in Beam:** Instead of the auto-generated table, results render inside your custom HTML (a weather dashboard with icons, charts, or any visualization you build). The `window.photon` API bridges your UI to the tool system.
 
-> Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./CUSTOM-UI.md).
+> Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-5.png" alt="Step 5 — Custom UI result in Beam" width="100%">
@@ -351,12 +351,12 @@ If you are just skimming, here is what you need to know:
 | Concept | What it is | Learn more |
 |---------|-----------|------------|
 | **MCP** | A way for AI to use your tools. It's a standard. | [modelcontextprotocol.io](https://modelcontextprotocol.io/introduction) |
-| **Photon file** | A `.photon.ts` file. You define tools as methods in a class. | [Guide](./GUIDE.md) |
+| **Photon file** | A `.photon.ts` file. You define tools as methods in a class. | [Guide](./docs/GUIDE.md) |
 | **Beam** | A web dashboard. It shows your tools as forms. | [Beam UI](#beam) |
 | **Marketplace** | A way to get other people's photons. | [Marketplace](#marketplace) |
-| **Daemon** | A background thing that handles messages and jobs. | [Daemon Pub/Sub](./DAEMON-PUBSUB.md) |
-| **Tags** | JSDoc comments that tell Photon what to do. | [Tag Reference](./DOCBLOCK-TAGS.md) |
-| **Custom UI** | When the auto-generated forms aren't enough. | [Custom UI Guide](./CUSTOM-UI.md) |
+| **Daemon** | A background thing that handles messages and jobs. | [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) |
+| **Tags** | JSDoc comments that tell Photon what to do. | [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) |
+| **Custom UI** | When the auto-generated forms aren't enough. | [Custom UI Guide](./docs/guides/CUSTOM-UI.md) |
 
 ---
 
@@ -412,7 +412,7 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 | `@mcp` | Class | Inject another MCP server as a dependency |
 | `@icon` | Class/Method | Set emoji icon |
 
-> This is a subset. See the full [Tag Reference](./DOCBLOCK-TAGS.md) for all 30+ tags with examples.
+> This is a subset. See the full [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) for all 30+ tags with examples.
 
 ---
 
@@ -422,33 +422,33 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 
 | Guide | |
 |-------|-|
-| [Getting Started](./GUIDE.md) | Create your first photon, step by step |
-| [Tag Reference](./DOCBLOCK-TAGS.md) | Complete JSDoc tag reference with examples |
-| [Naming Conventions](./NAMING-CONVENTIONS.md) | How to name methods so they read naturally as CLI commands |
-| [Troubleshooting](./TROUBLESHOOTING.md) | Common issues and solutions |
+| [Getting Started](./docs/GUIDE.md) | Create your first photon, step by step |
+| [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) | Complete JSDoc tag reference with examples |
+| [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) | How to name methods so they read naturally as CLI commands |
+| [Troubleshooting](./docs/TROUBLESHOOTING.md) | Common issues and solutions |
 
 **Build more:**
 
 | Topic | |
 |-------|-|
-| [Custom UI](./CUSTOM-UI.md) | Build rich interactive interfaces with `window.photon` |
-| [OAuth](./AUTH.md) | Built-in OAuth 2.1 with Google, GitHub, Microsoft |
-| [Daemon Pub/Sub](./DAEMON-PUBSUB.md) | Real-time cross-process messaging |
-| [Webhooks](./WEBHOOKS.md) | HTTP endpoints for external services |
-| [Locks](./LOCKS.md) | Distributed locks for exclusive access |
-| [Advanced Patterns](./ADVANCED.md) | Lifecycle hooks, dependency injection, interactive workflows |
-| [Deployment](./DEPLOYMENT.md) | Docker, Cloudflare Workers, AWS Lambda, Systemd |
+| [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with `window.photon` |
+| [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.1 with Google, GitHub, Microsoft |
+| [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
+| [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
+| [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
+| [Advanced Patterns](./docs/guides/ADVANCED.md) | Lifecycle hooks, dependency injection, interactive workflows |
+| [Deployment](./docs/guides/DEPLOYMENT.md) | Docker, Cloudflare Workers, AWS Lambda, Systemd |
 
 **Operate:**
 
 | Topic | |
 |-------|-|
 | [Security](./SECURITY.md) | Best practices and audit checklist |
-| [Marketplace Publishing](./MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
-| [Best Practices](./PHOTON_BEST_PRACTICES.md) | Patterns for production photons |
-| [Comparison](./COMPARISON.md) | Benchmarks vs official MCP implementations |
+| [Marketplace Publishing](./docs/guides/MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
+| [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
+| [Comparison](./docs/COMPARISON.md) | Benchmarks vs official MCP implementations |
 
-**Reference:** [Architecture](./ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
+**Reference:** [Architecture](./docs/core/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
 
 ---
 

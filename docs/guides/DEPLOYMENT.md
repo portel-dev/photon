@@ -354,6 +354,6 @@ Set up alerts for:
 
 ## Next Steps
 
-- [SECURITY.md](SECURITY.md) - Security hardening guide
-- [GUIDE.md](GUIDE.md) - Development guide
-- [ADVANCED.md](ADVANCED.md) - Advanced patterns
+- [SECURITY.md](../../SECURITY.md) - Security hardening guide
+- [GUIDE.md](../GUIDE.md) - Development guide
+- [ADVANCED.md](./ADVANCED.md) - Advanced patterns

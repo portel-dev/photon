@@ -594,6 +594,6 @@ window.openai.openExternal({ href }); // Open link
 
 ## Next Steps
 
-- [GUIDE.md](GUIDE.md) - Full development guide
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Deploy your photon
-- [SECURITY.md](SECURITY.md) - Security best practices
+- [GUIDE.md](../GUIDE.md) - Full development guide
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - Deploy your photon
+- [SECURITY.md](../../SECURITY.md) - Security best practices
