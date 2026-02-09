@@ -79,6 +79,47 @@ export class ResultViewer extends LitElement {
         pointer-events: none;
       }
 
+      /* Live indicator */
+      .live-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #4ade80;
+        text-transform: uppercase;
+      }
+
+      .live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4ade80;
+        box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+        animation: live-pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes live-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+        }
+        50% {
+          opacity: 0.5;
+          box-shadow: 0 0 3px 1px rgba(74, 222, 128, 0.3);
+        }
+      }
+
+      :host([data-theme='light']) .live-indicator {
+        color: #16a34a;
+      }
+      :host([data-theme='light']) .live-dot {
+        background: #16a34a;
+        box-shadow: 0 0 6px 2px rgba(22, 163, 74, 0.5);
+      }
+
       .actions {
         display: flex;
         gap: var(--space-sm);
@@ -1316,6 +1357,10 @@ export class ResultViewer extends LitElement {
   @property({ type: String })
   collectionProperty?: string;
 
+  // Whether this result is receiving live updates
+  @property({ type: Boolean })
+  live = false;
+
   private _pageSize = 20;
 
   @query('.filter-input')
@@ -1774,6 +1819,9 @@ export class ResultViewer extends LitElement {
       <div class="container glass-panel">
         <div class="header">
           <span class="title">Result</span>
+          ${this.live
+            ? html`<span class="live-indicator"><span class="live-dot"></span> LIVE</span>`
+            : ''}
           <div class="filter-container">
             <input
               type="text"

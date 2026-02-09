@@ -3460,6 +3460,7 @@ export class BeamApp extends LitElement {
             .outputFormat=${this._selectedMethod?.outputFormat}
             .layoutHints=${this._selectedMethod?.layoutHints}
             .theme=${this._theme}
+            .live=${this._currentCollectionName !== null}
             @share=${this._handleShareResult}
           ></result-viewer>
         </div>
@@ -3513,6 +3514,7 @@ export class BeamApp extends LitElement {
                 .outputFormat=${this._selectedMethod?.outputFormat}
                 .layoutHints=${this._selectedMethod?.layoutHints}
                 .theme=${this._theme}
+                .live=${this._currentCollectionName !== null}
                 @share=${this._handleShareResult}
               ></result-viewer>
             `
