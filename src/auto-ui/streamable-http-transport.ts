@@ -36,9 +36,6 @@ import type {
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
 
-// Track which stateful photons have active daemon subscriptions for state-changed events
-const statefulSubscriptions = new Set<string>();
-
 // ════════════════════════════════════════════════════════════════════════════════
 // LOCAL TYPES (specific to this transport)
 // ════════════════════════════════════════════════════════════════════════════════
@@ -759,23 +756,6 @@ const handlers: Record<string, RequestHandler> = {
             await new Promise((r) => setTimeout(r, 500));
             if (await pingDaemon(photonName)) break;
           }
-        }
-
-        // Lazily subscribe to state-changed channel for cross-client push updates
-        if (!statefulSubscriptions.has(photonName)) {
-          statefulSubscriptions.add(photonName);
-          const { subscribeChannel } = await import('../daemon/client.js');
-          const channel = `${photonName}:state-changed`;
-          subscribeChannel(photonName, channel, (message: any) => {
-            broadcastToBeam('photon/state-changed', {
-              photon: photonName,
-              method: message?.method,
-              data: message?.data,
-            });
-          }).catch(() => {
-            // If subscription fails, allow retry on next tool call
-            statefulSubscriptions.delete(photonName);
-          });
         }
 
         const result = await sendCommand(

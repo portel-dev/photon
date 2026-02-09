@@ -38,11 +38,13 @@ const __dirname = path.dirname(__filename);
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
+import { getErrorMessage } from '../shared/error-handler.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
 import { PhotonDocExtractor } from '../photon-doc-extractor.js';
 import { TemplateManager } from '../template-manager.js';
 import { subscribeChannel, pingDaemon } from '../daemon/client.js';
+import { ensureDaemon } from '../daemon/manager.js';
 import {
   SchemaExtractor,
   type PhotonYield,
@@ -3132,8 +3134,41 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();
 
-  // NOTE: Stateful photon daemon subscriptions happen lazily in streamable-http-transport.ts
-  // on the first tool call, when the daemon is guaranteed to be running.
+  // Auto-start daemon and subscribe to state-changed events for stateful photons
+  // Uses reconnect: true so subscriptions survive daemon restarts
+  const statefulPhotons = photons.filter((p) => p.stateful && p.configured);
+  if (statefulPhotons.length > 0) {
+    try {
+      await ensureDaemon();
+      for (const photon of statefulPhotons) {
+        const photonName = photon.name;
+        const channel = `${photonName}:state-changed`;
+        subscribeChannel(
+          photonName,
+          channel,
+          (message: any) => {
+            broadcastToBeam('photon/state-changed', {
+              photon: photonName,
+              method: message?.method,
+              data: message?.data,
+            });
+          },
+          {
+            reconnect: true,
+            onReconnect: () => logger.info(`📡 Reconnected ${channel} subscription`),
+          }
+        )
+          .then(() => {
+            logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
+          })
+          .catch((err) => {
+            logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
+          });
+      }
+    } catch (err) {
+      logger.warn(`Failed to start daemon for stateful photons: ${getErrorMessage(err)}`);
+    }
+  }
 
   // Set up file watchers for symlinked and bundled photon assets (now that photons are loaded)
   for (const photon of photons) {

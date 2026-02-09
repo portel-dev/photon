@@ -204,6 +204,12 @@ export interface SubscribeOptions {
   lastEventId?: string;
   /** Handler for refresh-needed signal (when lastEventId is too old) */
   onRefreshNeeded?: () => void;
+  /** Auto-reconnect on connection drop (restarts daemon if needed) */
+  reconnect?: boolean;
+  /** Max reconnect attempts (default: Infinity) */
+  maxReconnectAttempts?: number;
+  /** Called when reconnection succeeds */
+  onReconnect?: () => void;
 }
 
 /**
@@ -216,97 +222,135 @@ export async function subscribeChannel(
   handler: (message: unknown, eventId?: string) => void,
   options?: SubscribeOptions
 ): Promise<() => void> {
-  const socketPath = getGlobalSocketPath();
-  const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  let cancelled = false;
+  let currentClient: net.Socket | null = null;
+  let lastSeenEventId: string | undefined = options?.lastEventId;
 
-  return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
-    let subscribed = false;
-    let buffer = '';
+  const connect = (): Promise<() => void> => {
+    const socketPath = getGlobalSocketPath();
+    const subscribeId = `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    client.on('connect', () => {
-      // Send subscribe request
-      const request: DaemonRequest = {
-        type: 'subscribe',
-        id: subscribeId,
-        photonName,
-        channel,
-        clientType: 'beam',
-        lastEventId: options?.lastEventId,
-      };
-      client.write(JSON.stringify(request) + '\n');
-    });
+    return new Promise((resolve, reject) => {
+      const client = net.createConnection(socketPath);
+      currentClient = client;
+      let subscribed = false;
+      let buffer = '';
 
-    client.on('data', (chunk) => {
-      buffer += chunk.toString();
+      client.on('connect', () => {
+        const request: DaemonRequest = {
+          type: 'subscribe',
+          id: subscribeId,
+          photonName,
+          channel,
+          clientType: 'beam',
+          lastEventId: lastSeenEventId,
+        };
+        client.write(JSON.stringify(request) + '\n');
+      });
 
-      // Process complete JSON messages (newline-delimited)
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      client.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-        try {
-          const response: DaemonResponse = JSON.parse(line);
+          try {
+            const response: DaemonResponse = JSON.parse(line);
 
-          // Handle subscription confirmation
-          if (response.id === subscribeId && response.type === 'result') {
-            subscribed = true;
-            // Return unsubscribe function
-            resolve(() => {
-              if (!client.destroyed) {
-                const unsubRequest: DaemonRequest = {
-                  type: 'unsubscribe',
-                  id: `unsub_${Date.now()}`,
-                  photonName,
-                  channel,
-                };
-                client.write(JSON.stringify(unsubRequest) + '\n');
-                client.end();
+            if (response.id === subscribeId && response.type === 'result') {
+              subscribed = true;
+              resolve(() => {
+                cancelled = true;
+                if (!client.destroyed) {
+                  const unsubRequest: DaemonRequest = {
+                    type: 'unsubscribe',
+                    id: `unsub_${Date.now()}`,
+                    photonName,
+                    channel,
+                  };
+                  client.write(JSON.stringify(unsubRequest) + '\n');
+                  client.end();
+                }
+              });
+            }
+
+            if (response.type === 'refresh_needed') {
+              if (options?.onRefreshNeeded) {
+                options.onRefreshNeeded();
               }
-            });
-          }
-
-          // Handle refresh-needed signal (lastEventId too old)
-          if (response.type === 'refresh_needed') {
-            if (options?.onRefreshNeeded) {
-              options.onRefreshNeeded();
             }
-          }
 
-          // Handle channel messages (supports wildcard subscriptions)
-          if (response.type === 'channel_message' && response.channel) {
-            const isMatch = channel.endsWith(':*')
-              ? response.channel.startsWith(channel.slice(0, -1)) // "kanban:*" matches "kanban:anything"
-              : response.channel === channel; // exact match
-            if (isMatch) {
-              handler(response.message, response.eventId);
+            if (response.type === 'channel_message' && response.channel) {
+              const isMatch = channel.endsWith(':*')
+                ? response.channel.startsWith(channel.slice(0, -1))
+                : response.channel === channel;
+              if (isMatch) {
+                // Track last seen eventId for replay on reconnect
+                if (response.eventId) {
+                  lastSeenEventId = response.eventId;
+                }
+                handler(response.message, response.eventId);
+              }
             }
-          }
 
-          // Handle errors
-          if (response.type === 'error' && response.id === subscribeId) {
-            reject(new Error(response.error || 'Subscription failed'));
+            if (response.type === 'error' && response.id === subscribeId) {
+              reject(new Error(response.error || 'Subscription failed'));
+            }
+          } catch {
+            // Ignore parse errors for partial messages
           }
-        } catch {
-          // Ignore parse errors for partial messages
         }
-      }
-    });
+      });
 
-    client.on('error', (error) => {
-      if (!subscribed) {
-        reject(new Error(`Connection error: ${getErrorMessage(error)}`));
-      }
-    });
+      client.on('error', (error) => {
+        if (!subscribed) {
+          reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+        } else if (options?.reconnect && !cancelled) {
+          scheduleReconnect();
+        }
+      });
 
-    client.on('end', () => {
-      if (!subscribed) {
-        reject(new Error('Connection closed before subscription confirmed'));
-      }
+      client.on('end', () => {
+        if (!subscribed) {
+          reject(new Error('Connection closed before subscription confirmed'));
+        } else if (options?.reconnect && !cancelled) {
+          scheduleReconnect();
+        }
+      });
     });
-  });
+  };
+
+  let reconnectAttempts = 0;
+  const maxAttempts = options?.maxReconnectAttempts ?? Infinity;
+
+  const scheduleReconnect = () => {
+    if (cancelled || reconnectAttempts >= maxAttempts) return;
+    reconnectAttempts++;
+
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
+    logger.info(
+      `Subscription lost for ${channel}, reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`
+    );
+
+    setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        // Restart daemon if needed
+        await restartGlobalDaemon();
+        await new Promise((r) => setTimeout(r, 500));
+        await connect();
+        reconnectAttempts = 0;
+        logger.info(`Reconnected subscription for ${channel}`);
+        options?.onReconnect?.();
+      } catch {
+        if (!cancelled) scheduleReconnect();
+      }
+    }, delay);
+  };
+
+  return connect();
 }
 
 /**
