@@ -71,6 +71,12 @@ export class InvokeForm extends LitElement {
         border-top: 1px solid var(--border-glass);
       }
 
+      .actions.no-params {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
       .cli-preview {
         margin-top: var(--space-md);
         background: var(--cli-bg);
@@ -368,6 +374,7 @@ export class InvokeForm extends LitElement {
 
         .actions {
           flex-direction: column-reverse;
+          gap: var(--space-sm);
         }
 
         .actions button {
@@ -515,7 +522,7 @@ export class InvokeForm extends LitElement {
     if (!hasParams) {
       return html`
         <div class="form-container">
-          <div class="actions">
+          <div class="actions no-params">
             <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
               Cancel
             </button>

@@ -1087,7 +1087,12 @@ export class ResultViewer extends LitElement {
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .container {
-          max-height: 400px;
+          max-height: none;
+        }
+
+        .content {
+          max-height: 50vh;
+          overflow-y: auto;
         }
 
         .header {
@@ -1140,6 +1145,16 @@ export class ResultViewer extends LitElement {
       @media (max-width: 480px) {
         .container {
           padding: var(--space-sm);
+        }
+
+        .actions button {
+          padding: 4px 6px;
+          font-size: 0.7rem;
+          min-height: 32px;
+        }
+
+        .format-badge {
+          display: none;
         }
 
         pre {

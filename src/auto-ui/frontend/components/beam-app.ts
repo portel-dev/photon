@@ -1271,6 +1271,19 @@ export class BeamApp extends LitElement {
         color: var(--accent-secondary);
       }
 
+      /* Method detail view */
+      .method-detail {
+        padding: var(--space-lg);
+      }
+
+      .method-detail h2 {
+        margin-top: 0;
+      }
+
+      .method-detail p {
+        color: var(--t-muted);
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .mobile-menu-btn {
@@ -1360,6 +1373,11 @@ export class BeamApp extends LitElement {
           z-index: 1000;
         }
 
+        /* Compact method detail on mobile */
+        .method-detail {
+          padding: var(--space-md);
+        }
+
         /* Help modal adjustments */
         .help-modal {
           padding: var(--space-lg);
@@ -1368,6 +1386,18 @@ export class BeamApp extends LitElement {
       }
 
       @media (max-width: 480px) {
+        .method-detail {
+          padding: var(--space-sm);
+        }
+
+        .method-detail h2 {
+          font-size: 1.25rem;
+        }
+
+        .method-detail p {
+          font-size: 0.85rem;
+        }
+
         .main-area {
           padding: var(--space-sm);
           padding-top: calc(var(--space-sm) + 60px);
@@ -3412,9 +3442,9 @@ export class BeamApp extends LitElement {
 
     // Standard form mode
     return html`
-      <div class="glass-panel" style="padding: var(--space-lg);">
-        <h2 style="margin-top:0;">${this._selectedMethod.name}</h2>
-        <p style="color: var(--t-muted);">${this._selectedMethod.description}</p>
+      <div class="glass-panel method-detail">
+        <h2>${this._selectedMethod.name}</h2>
+        <p>${this._selectedMethod.description}</p>
         <invoke-form
           .params=${this._selectedMethod.params}
           .loading=${this._isExecuting}
@@ -3792,6 +3822,14 @@ export class BeamApp extends LitElement {
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
           this._log('success', 'Execution completed');
+
+          // Scroll result into view on mobile
+          this.updateComplete.then(() => {
+            const rv = this.shadowRoot?.querySelector('result-viewer');
+            if (rv && window.innerWidth <= 768) {
+              rv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          });
 
           // Auto-subscribe to collection events if result is an array
           // Convention: method name is the collection name (e.g., tasks() -> tasks:added)
