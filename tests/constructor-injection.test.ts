@@ -248,10 +248,8 @@ async function run() {
     `;
     const injections = extractor.resolveInjections(source, 'list');
     assert.equal(injections.length, 1);
-    // Currently resolves as 'env' fallback since 'state' type not yet implemented.
-    // When implemented, this should become:
-    //   assert.equal(injections[0].injectionType, 'state');
-    // For now, verify the param metadata is correct for future implementation.
+    assert.equal(injections[0].injectionType, 'state');
+    assert.equal(injections[0].stateKey, 'items');
     assert.equal(injections[0].param.name, 'items');
     assert.equal(injections[0].param.isPrimitive, false);
     assert.equal(injections[0].param.hasDefault, true);
@@ -279,10 +277,10 @@ async function run() {
     assert.equal(injections[0].injectionType, 'env');
     assert.equal(injections[0].param.name, 'label');
     assert.equal(injections[0].param.isPrimitive, true);
-    // Second param is non-primitive with default → state candidate
+    // Second param is non-primitive with default → state
+    assert.equal(injections[1].injectionType, 'state');
+    assert.equal(injections[1].stateKey, 'counts');
     assert.equal(injections[1].param.name, 'counts');
-    assert.equal(injections[1].param.isPrimitive, false);
-    assert.equal(injections[1].param.hasDefault, true);
   });
 
   await test('stateful with all four injection types', () => {
@@ -320,10 +318,9 @@ async function run() {
     assert.equal(injections[2].injectionType, 'photon');
     assert.equal(injections[2].photonDependency!.name, 'pagerduty');
 
-    // 4. state candidate (non-primitive + default + @stateful)
-    assert.equal(injections[3].param.name, 'incidents');
-    assert.equal(injections[3].param.isPrimitive, false);
-    assert.equal(injections[3].param.hasDefault, true);
+    // 4. state
+    assert.equal(injections[3].injectionType, 'state');
+    assert.equal(injections[3].stateKey, 'incidents');
   });
 
   // ═══════════════════════════════════════════════════════════════

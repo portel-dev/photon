@@ -1007,6 +1007,27 @@ export class PhotonLoader {
           }
           break;
         }
+
+        case 'state': {
+          // Inject persisted state from snapshot file
+          const stateKey = injection.stateKey!;
+          const stateFile = path.join(os.homedir(), '.photon', 'state', `${mcpName}.json`);
+          try {
+            const snapshot = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+            if (stateKey in snapshot) {
+              values.push(snapshot[stateKey]);
+              this.log(`  ✅ Restored state: ${stateKey}`);
+            } else {
+              values.push(undefined); // constructor default applies
+              this.log(`  ℹ️ No saved state for key '${stateKey}', using default`);
+            }
+          } catch {
+            // No snapshot file → first run, constructor default applies
+            values.push(undefined);
+            this.log(`  ℹ️ No state snapshot for ${mcpName}, using defaults`);
+          }
+          break;
+        }
       }
     }
 
