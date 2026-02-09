@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme, buttons } from '../styles/index.js';
+import { theme, buttons, forms } from '../styles/index.js';
 
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'form';
@@ -46,6 +46,7 @@ export class ElicitationModal extends LitElement {
   static styles = [
     theme,
     buttons,
+    forms,
     css`
       :host {
         display: none;
@@ -79,41 +80,6 @@ export class ElicitationModal extends LitElement {
         font-size: 1.25rem;
         font-weight: 600;
         color: var(--t-primary);
-      }
-
-      .form-group {
-        margin-bottom: var(--space-md);
-      }
-
-      label {
-        display: block;
-        margin-bottom: var(--space-xs);
-        font-size: 0.875rem;
-        color: var(--t-muted);
-      }
-
-      input[type='text'],
-      input[type='password'],
-      input[type='number'],
-      textarea,
-      select {
-        width: 100%;
-        padding: var(--space-sm) var(--space-md);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-sm);
-        color: var(--t-primary);
-        font-size: 1rem;
-        font-family: var(--font-sans);
-        box-sizing: border-box;
-      }
-
-      input:focus-visible,
-      textarea:focus-visible,
-      select:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .actions {

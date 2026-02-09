@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 
 interface ConfigParam {
@@ -23,6 +23,7 @@ interface UnconfiguredPhoton {
 export class PhotonConfig extends LitElement {
   static styles = [
     theme,
+    forms,
     css`
       :host {
         display: block;
@@ -50,13 +51,13 @@ export class PhotonConfig extends LitElement {
       }
 
       .form-group {
+        margin-bottom: 0; /* parent .config-form uses gap */
         display: flex;
         flex-direction: column;
         gap: var(--space-xs);
       }
 
       .form-group label {
-        font-weight: 500;
         display: flex;
         align-items: center;
         gap: var(--space-sm);
@@ -76,26 +77,8 @@ export class PhotonConfig extends LitElement {
       }
 
       .form-group input {
-        width: 100%;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
         padding: var(--space-sm) var(--space-md);
-        border-radius: var(--radius-sm);
-        font-family: var(--font-sans);
         font-size: 0.95rem;
-        box-sizing: border-box;
-      }
-
-      .form-group input:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
-      }
-
-      .form-group input::placeholder {
-        color: var(--t-muted);
-        opacity: 0.6;
       }
 
       /* Mask secret fields without type="password" to avoid browser credential autofill */

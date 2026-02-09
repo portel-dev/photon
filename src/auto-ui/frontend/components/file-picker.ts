@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme, buttons } from '../styles/index.js';
+import { theme, buttons, forms } from '../styles/index.js';
 
 interface FileEntry {
   name: string;
@@ -19,6 +19,7 @@ export class FilePicker extends LitElement {
   static styles = [
     theme,
     buttons,
+    forms,
     css`
       :host {
         display: block;
@@ -81,33 +82,6 @@ export class FilePicker extends LitElement {
 
       .icon {
         opacity: 0.7;
-      }
-
-      /* Input Base Styles */
-      input {
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
-        padding: var(--space-sm);
-        border-radius: var(--radius-sm);
-        font-family: var(--font-sans);
-        box-sizing: border-box;
-        width: 100%;
-        transition: all 0.2s;
-      }
-
-      input:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
-      }
-
-      input.error {
-        border-color: var(--color-error);
-      }
-
-      input.error:focus-visible {
-        box-shadow: 0 0 0 2px var(--color-error-glow);
       }
 
       .input-wrapper {

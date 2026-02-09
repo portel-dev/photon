@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
-import { theme, Theme } from '../styles/theme.js';
+import { theme, forms, type Theme } from '../styles/index.js';
 
 interface PhotonItem {
   name: string;
@@ -31,6 +31,7 @@ interface PhotonItem {
 export class BeamSidebar extends LitElement {
   static styles = [
     theme,
+    forms,
     css`
       :host {
         display: flex;
@@ -223,20 +224,7 @@ export class BeamSidebar extends LitElement {
       }
 
       input {
-        width: 100%;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
         padding: var(--space-sm) var(--space-md);
-        border-radius: var(--radius-sm);
-        font-family: var(--font-sans);
-        box-sizing: border-box;
-      }
-
-      input:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .section-header {

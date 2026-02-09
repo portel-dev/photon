@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 
 interface MarketplaceItem {
@@ -27,6 +27,7 @@ interface MarketplaceSource {
 export class MarketplaceView extends LitElement {
   static styles = [
     theme,
+    forms,
     css`
       :host {
         display: block;
@@ -47,20 +48,10 @@ export class MarketplaceView extends LitElement {
       }
 
       .search-box input {
-        width: 100%;
         padding: var(--space-sm) var(--space-lg);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
         border-radius: var(--radius-md);
         font-size: 1rem;
         transition: all 0.2s;
-      }
-
-      .search-box input:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .grid {
@@ -450,21 +441,9 @@ export class MarketplaceView extends LitElement {
       }
 
       .modal-body input {
-        width: 100%;
         padding: var(--space-sm) var(--space-md);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
-        border-radius: var(--radius-sm);
         font-size: 0.95rem;
         margin-bottom: var(--space-sm);
-        box-sizing: border-box;
-      }
-
-      .modal-body input:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .modal-hint {

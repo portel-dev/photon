@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme, buttons } from '../styles/index.js';
+import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 
 /** Convert plural field names to singular for button labels */
@@ -46,6 +46,7 @@ export class InvokeForm extends LitElement {
   static styles = [
     theme,
     buttons,
+    forms,
     css`
       :host {
         display: block;
@@ -55,41 +56,10 @@ export class InvokeForm extends LitElement {
         padding: var(--space-lg);
       }
 
-      .form-group {
-        margin-bottom: var(--space-md);
-      }
-
-      label {
-        display: block;
-        margin-bottom: var(--space-xs);
-        font-weight: 500;
-        font-size: 0.9rem;
-      }
-
       .hint {
         font-size: 0.8rem;
         color: var(--t-muted);
         margin-left: var(--space-xs);
-      }
-
-      input,
-      textarea,
-      select {
-        width: 100%;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
-        padding: var(--space-sm);
-        border-radius: var(--radius-sm);
-        font-family: var(--font-sans);
-        box-sizing: border-box;
-      }
-
-      input:focus-visible,
-      textarea:focus-visible {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .actions {
@@ -153,23 +123,6 @@ export class InvokeForm extends LitElement {
       .cli-preview-cmd::before {
         content: '$ ';
         color: var(--cli-muted);
-      }
-
-      .error-text {
-        color: var(--color-error);
-        font-size: 0.75rem;
-        margin-top: var(--space-xs);
-      }
-
-      input.error,
-      textarea.error,
-      select.error {
-        border-color: var(--color-error);
-      }
-
-      input.error:focus-visible,
-      textarea.error:focus-visible {
-        box-shadow: 0 0 0 2px var(--color-error-glow);
       }
 
       /* Multiselect Styles */
