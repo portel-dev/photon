@@ -49,7 +49,7 @@ export interface DaemonRequest {
   jobId?: string;
   /** Cron expression for scheduled jobs */
   cron?: string;
-  /** Last event ID received by client (for replay on reconnect) */
+  /** Last event timestamp received by client (for delta sync on reconnect) */
   lastEventId?: string;
 }
 
@@ -73,7 +73,7 @@ export interface DaemonResponse {
   channel?: string;
   /** Message payload for channel_message type */
   message?: unknown;
-  /** Event ID for tracking (for replay support) */
+  /** Event timestamp for tracking (for delta sync support) */
   eventId?: string;
 }
 

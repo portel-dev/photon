@@ -1128,6 +1128,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // ══════════════════════════════════════════════════════════════════════════════
 
   interface BufferedEvent {
+    /** Timestamp-based ID (Date.now()) */
     id: number;
     method: string;
     params: Record<string, unknown>;
@@ -1136,43 +1137,44 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   interface ChannelBuffer {
     events: BufferedEvent[];
-    nextId: number;
   }
 
-  const EVENT_BUFFER_SIZE = 30; // Keep last 30 events per channel
+  /** Buffer retention window — events older than this are purged */
+  const EVENT_BUFFER_DURATION_MS = 5 * 60 * 1000; // 5 minutes
   const channelEventBuffers = new Map<string, ChannelBuffer>();
 
   // Store an event in the channel buffer
   function bufferEvent(channel: string, method: string, params: Record<string, unknown>): number {
     let buffer = channelEventBuffers.get(channel);
     if (!buffer) {
-      buffer = { events: [], nextId: 1 };
+      buffer = { events: [] };
       channelEventBuffers.set(channel, buffer);
     }
 
-    const eventId = buffer.nextId++;
+    const now = Date.now();
     const event: BufferedEvent = {
-      id: eventId,
+      id: now,
       method,
       params,
-      timestamp: Date.now(),
+      timestamp: now,
     };
 
     buffer.events.push(event);
 
-    // Keep only last N events (circular buffer)
-    if (buffer.events.length > EVENT_BUFFER_SIZE) {
+    // Purge events older than retention window
+    const cutoff = now - EVENT_BUFFER_DURATION_MS;
+    while (buffer.events.length > 0 && buffer.events[0].timestamp < cutoff) {
       buffer.events.shift();
     }
 
-    return eventId;
+    return now;
   }
 
-  // Replay missed events to a specific session, or signal refresh needed
+  // Replay missed events to a specific session, or signal full sync needed
   function replayEventsToSession(
     sessionId: string,
     channel: string,
-    lastEventId?: number
+    lastTimestamp?: number
   ): { replayed: number; refreshNeeded: boolean } {
     const buffer = channelEventBuffers.get(channel);
 
@@ -1181,37 +1183,34 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return { replayed: 0, refreshNeeded: false };
     }
 
-    // No lastEventId = client is fresh, no replay needed
-    if (lastEventId === undefined) {
+    // No lastTimestamp = client is fresh, no replay needed
+    if (lastTimestamp === undefined) {
       return { replayed: 0, refreshNeeded: false };
     }
 
     const oldestEvent = buffer.events[0];
 
-    // If lastEventId is older than our oldest buffered event, signal refresh needed
-    if (lastEventId < oldestEvent.id) {
+    // Stale: client's timestamp is older than buffer window → full sync needed
+    if (lastTimestamp < oldestEvent.timestamp) {
       sendToSession(sessionId, 'photon/refresh-needed', { channel });
       logger.info(
-        `📡 Replay: ${channel} - lastEventId ${lastEventId} too old (oldest: ${oldestEvent.id}), refresh needed`
+        `📡 Stale client on ${channel} - last seen ${new Date(lastTimestamp).toISOString()}, oldest buffered ${new Date(oldestEvent.timestamp).toISOString()}, full sync needed`
       );
       return { replayed: 0, refreshNeeded: true };
     }
 
-    // Find events to replay (all events after lastEventId)
-    const eventsToReplay = buffer.events.filter((e) => e.id > lastEventId);
+    // Delta sync: replay events after client's last timestamp
+    const eventsToReplay = buffer.events.filter((e) => e.timestamp > lastTimestamp);
 
     if (eventsToReplay.length === 0) {
       return { replayed: 0, refreshNeeded: false };
     }
 
-    // Replay each missed event to this session
     for (const event of eventsToReplay) {
-      sendToSession(sessionId, event.method, { ...event.params, _eventId: event.id });
+      sendToSession(sessionId, event.method, { ...event.params, _eventId: event.timestamp });
     }
 
-    logger.info(
-      `📡 Replay: ${channel} - replayed ${eventsToReplay.length} events (${lastEventId + 1} to ${buffer.nextId - 1})`
-    );
+    logger.info(`📡 Delta sync: ${channel} - replayed ${eventsToReplay.length} events`);
     return { replayed: eventsToReplay.length, refreshNeeded: false };
   }
 
@@ -1296,12 +1295,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Called when a client starts viewing a board (from MCP notification)
   // photonId: hash of photon path (unique across servers)
   // itemId: whatever the photon uses to identify the item (e.g., board name)
-  // lastEventId: optional - if provided, replay missed events or signal refresh needed
+  // lastTimestamp: optional - if provided, delta sync missed events or signal full sync needed
   function onClientViewingBoard(
     sessionId: string,
     photonId: string,
     itemId: string,
-    lastEventId?: number
+    lastTimestamp?: number
   ): void {
     const prevState = sessionViewState.get(sessionId);
 
@@ -1316,9 +1315,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     sessionViewState.set(sessionId, { photonId, itemId });
     subscribeToChannel(channel);
 
-    // Replay missed events if lastEventId is provided
-    if (lastEventId !== undefined) {
-      replayEventsToSession(sessionId, channel, lastEventId);
+    // Delta sync missed events if lastTimestamp is provided
+    if (lastTimestamp !== undefined) {
+      replayEventsToSession(sessionId, channel, lastTimestamp);
     }
   }
 

@@ -200,9 +200,9 @@ async function sendCommandDirect(
  * Subscription options
  */
 export interface SubscribeOptions {
-  /** Last event ID for replay on reconnect */
+  /** Last event timestamp for delta sync on reconnect */
   lastEventId?: string;
-  /** Handler for refresh-needed signal (when lastEventId is too old) */
+  /** Handler for full sync signal (when client is stale beyond buffer window) */
   onRefreshNeeded?: () => void;
   /** Auto-reconnect on connection drop (restarts daemon if needed) */
   reconnect?: boolean;
@@ -861,8 +861,8 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 }
 
 /**
- * Get events since a specific eventId for a channel
- * Used for explicit replay when client has missed events
+ * Get events since a specific timestamp for a channel
+ * Used for explicit delta sync when client has missed events
  */
 export async function getEventsSince(
   photonName: string,

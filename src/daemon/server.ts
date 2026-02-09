@@ -64,6 +64,7 @@ const channelSubscriptions = new Map<string, Set<net.Socket>>();
 // ════════════════════════════════════════════════════════════════════════════════
 
 interface BufferedEvent {
+  /** Timestamp-based ID (Date.now()) — no sequential generation needed */
   id: number;
   channel: string;
   message: unknown;
@@ -72,40 +73,41 @@ interface BufferedEvent {
 
 interface ChannelBuffer {
   events: BufferedEvent[];
-  nextId: number;
 }
 
-const EVENT_BUFFER_SIZE = 30;
+/** Buffer retention window — events older than this are purged */
+const EVENT_BUFFER_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const channelEventBuffers = new Map<string, ChannelBuffer>();
 
 function bufferEvent(channel: string, message: unknown): number {
   let buffer = channelEventBuffers.get(channel);
   if (!buffer) {
-    buffer = { events: [], nextId: 1 };
+    buffer = { events: [] };
     channelEventBuffers.set(channel, buffer);
   }
 
-  const eventId = buffer.nextId++;
+  const now = Date.now();
   const event: BufferedEvent = {
-    id: eventId,
+    id: now,
     channel,
     message,
-    timestamp: Date.now(),
+    timestamp: now,
   };
 
   buffer.events.push(event);
 
-  // Keep only last N events (circular buffer)
-  if (buffer.events.length > EVENT_BUFFER_SIZE) {
+  // Purge events older than retention window
+  const cutoff = now - EVENT_BUFFER_DURATION_MS;
+  while (buffer.events.length > 0 && buffer.events[0].timestamp < cutoff) {
     buffer.events.shift();
   }
 
-  return eventId;
+  return now;
 }
 
 function getEventsSince(
   channel: string,
-  lastEventId: number
+  lastTimestamp: number
 ): { events: BufferedEvent[]; refreshNeeded: boolean } {
   const buffer = channelEventBuffers.get(channel);
 
@@ -115,13 +117,13 @@ function getEventsSince(
 
   const oldestEvent = buffer.events[0];
 
-  // If lastEventId is older than our oldest buffered event, refresh needed
-  if (lastEventId < oldestEvent.id) {
+  // Client's last timestamp is older than our oldest buffered event → stale, full sync needed
+  if (lastTimestamp < oldestEvent.timestamp) {
     return { events: [], refreshNeeded: true };
   }
 
-  // Find events to replay
-  const events = buffer.events.filter((e) => e.id > lastEventId);
+  // Delta sync: return events after the client's last timestamp
+  const events = buffer.events.filter((e) => e.timestamp > lastTimestamp);
   return { events, refreshNeeded: false };
 }
 
@@ -654,12 +656,12 @@ async function handleRequest(
     subs.add(socket);
     logger.info('Client subscribed to channel', { channel, subscribers: subs.size });
 
-    // Replay missed events if lastEventId provided
+    // Replay missed events if lastEventId (timestamp) provided
     if (lastEventId !== undefined) {
-      const parsedLastEventId = parseInt(String(lastEventId), 10) || 0;
-      const { events, refreshNeeded } = getEventsSince(channel, parsedLastEventId);
+      const lastTimestamp = parseInt(String(lastEventId), 10) || 0;
+      const { events, refreshNeeded } = getEventsSince(channel, lastTimestamp);
       if (refreshNeeded) {
-        // Send refresh-needed signal
+        // Stale: client's timestamp is older than buffer window → full sync needed
         socket.write(
           JSON.stringify({
             type: 'refresh_needed',
@@ -667,22 +669,22 @@ async function handleRequest(
             channel,
           }) + '\n'
         );
-        logger.info('Replay: refresh needed', { channel, lastEventId });
+        logger.info('Stale client, full sync needed', { channel, lastTimestamp });
       } else if (events.length > 0) {
-        // Replay events
+        // Delta sync: replay missed events
         for (const event of events) {
           socket.write(
             JSON.stringify({
               type: 'channel_message',
-              id: `replay_${event.id}`,
-              eventId: event.id,
+              id: `replay_${event.timestamp}`,
+              eventId: event.timestamp,
               channel: event.channel,
               message: event.message,
               replay: true,
             }) + '\n'
           );
         }
-        logger.info('Replayed events', { channel, count: events.length });
+        logger.info('Delta sync: replayed events', { channel, count: events.length });
       }
     }
 
@@ -721,11 +723,11 @@ async function handleRequest(
     };
   }
 
-  // Handle get_events_since (for event replay)
+  // Handle get_events_since (for delta sync / full sync detection)
   if (request.type === 'get_events_since') {
     const channel = request.channel!;
-    const parsedLastEventId = parseInt(String(request.lastEventId || '0'), 10) || 0;
-    const { events, refreshNeeded } = getEventsSince(channel, parsedLastEventId);
+    const lastTimestamp = parseInt(String(request.lastEventId || '0'), 10) || 0;
+    const { events, refreshNeeded } = getEventsSince(channel, lastTimestamp);
     return {
       type: 'result',
       id: request.id,

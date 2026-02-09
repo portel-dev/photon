@@ -230,7 +230,7 @@ interface HandlerContext {
       sessionId: string,
       photon: string,
       board: string,
-      lastEventId?: number
+      lastTimestamp?: number
     ) => void;
     onClientDisconnect: (sessionId: string) => void;
   };
@@ -317,16 +317,16 @@ const handlers: Record<string, RequestHandler> = {
   // Client notifies what resource they're viewing (for on-demand subscriptions)
   // photonId: hash of photon path (unique across servers)
   // itemId: whatever the photon uses to identify the item (e.g., board name)
-  // lastEventId: optional - for replay of missed events on reconnect
+  // lastTimestamp: optional - for delta sync of missed events on reconnect
   'beam/viewing': async (req, session, ctx) => {
     const params = req.params as
-      | { photonId?: string; itemId?: string; lastEventId?: number }
+      | { photonId?: string; itemId?: string; lastTimestamp?: number }
       | undefined;
     const photonId = params?.photonId;
     const itemId = params?.itemId;
-    const lastEventId = params?.lastEventId;
+    const lastTimestamp = params?.lastTimestamp;
     if (photonId && itemId && ctx.subscriptionManager) {
-      ctx.subscriptionManager.onClientViewingBoard(session.id, photonId, itemId, lastEventId);
+      ctx.subscriptionManager.onClientViewingBoard(session.id, photonId, itemId, lastTimestamp);
     }
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
@@ -2009,7 +2009,7 @@ export interface StreamableHTTPOptions {
       sessionId: string,
       photon: string,
       board: string,
-      lastEventId?: number
+      lastTimestamp?: number
     ) => void;
     onClientDisconnect: (sessionId: string) => void;
   };

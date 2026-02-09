@@ -313,6 +313,18 @@ Photons marked with `@stateful` have their state persisted to disk and shared ac
 
 This is an **eventually-consistent** model: if a notification is missed, the client's view is stale until the next explicit request. The `_silentRefresh()` mechanism in Beam auto-re-executes on notification, but if that notification is lost, a manual re-execute always works.
 
+### Sync Protocol: Delta Sync vs Full Sync
+
+Events are identified by **timestamps** (`Date.now()`) — no sequential ID generation needed. Each layer maintains a time-based buffer (5-minute retention window).
+
+When a client reconnects, it sends its **last seen timestamp**. The server responds with one of:
+
+| Scenario | Response | Client Action |
+|----------|----------|---------------|
+| Timestamp within buffer window | **Delta sync**: replay missed events | Apply events incrementally |
+| Timestamp older than buffer | **Full sync signal** (`refresh-needed`) | Re-fetch entire state |
+| No timestamp (fresh client) | No replay | Fetch state on demand |
+
 ### Reliability at Each Layer
 
 ```
@@ -322,15 +334,17 @@ Layer 1: Client → Daemon (Unix Socket)
 └── Recovery: re-execute the command
 
 Layer 2: Daemon → Subscribers (Pub/Sub)
-├── Circular buffer: 30 events per channel
-├── Replay on reconnect via lastEventId
+├── Time-based buffer: 5-minute retention window per channel
+├── Delta sync on reconnect via lastTimestamp
 ├── Auto-reconnect with exponential backoff (subscribeChannel)
+├── Full sync signal when client is stale (beyond buffer window)
 └── Gap: buffer lost on daemon restart (in-memory only)
 
 Layer 3: Beam → Browser (SSE)
-├── Beam-side event buffer: 30 events per channel
-├── Replay on SSE reconnect via lastEventId
+├── Beam-side event buffer: 5-minute retention window per channel
+├── Delta sync on SSE reconnect via lastTimestamp
 ├── SSE keepalive every 30s, stale detection at 60s
+├── Full sync signal when client is stale
 └── Gap: events during SSE disconnect are lost
 
 Layer 4: Browser → Beam (HTTP POST)
@@ -344,10 +358,11 @@ Layer 4: Browser → Beam (HTTP POST)
 
 When a notification is missed at any layer, the system self-heals:
 
-1. **Subscription reconnect** (Layer 2): `subscribeChannel({ reconnect: true })` auto-reconnects with exponential backoff, restarts daemon if needed, replays missed events via `lastEventId`
-2. **SSE reconnect** (Layer 3): Browser's `EventSource` auto-reconnects, Beam replays buffered events
-3. **Silent refresh** (Layer 3→4): On `state-changed` notification, Beam UI re-executes the displayed method without spinner
-4. **Manual re-execute** (any layer): User can always click Execute to get current state — disk is the source of truth
+1. **Delta sync** (Layer 2): `subscribeChannel({ reconnect: true })` auto-reconnects with exponential backoff, restarts daemon if needed, replays events missed during the outage via `lastTimestamp`
+2. **Full sync** (Layer 2/3): When client's timestamp is older than the 5-minute buffer, server sends `refresh-needed` signal — client re-fetches entire state
+3. **SSE reconnect** (Layer 3): Browser's `EventSource` auto-reconnects, Beam replays buffered events
+4. **Silent refresh** (Layer 3→4): On `state-changed` notification, Beam UI re-executes the displayed method without spinner
+5. **Manual re-execute** (any layer): User can always click Execute to get current state — disk is the source of truth
 
 ### Daemon Lifecycle
 

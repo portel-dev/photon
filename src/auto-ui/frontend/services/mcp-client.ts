@@ -89,7 +89,7 @@ type MCPEventType =
   | 'elicitation' // User input needed
   | 'board-update' // Kanban board update (legacy, triggers refresh)
   | 'channel-event' // Specific event with delta (task-moved, task-updated, etc.)
-  | 'refresh-needed' // Server signals lastEventId too old, full refresh required
+  | 'refresh-needed' // Server signals stale client, full sync required
   | 'result' // Tool execution result
   | 'configured' // Photon configuration complete
   | 'notification' // Generic notification
