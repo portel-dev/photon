@@ -128,6 +128,8 @@ export interface PhotonInfo {
   requiredParams?: ConfigParam[];
   /** Names of injected @photon dependencies (for client-side event routing) */
   injectedPhotons?: string[];
+  /** True if marked with @stateful */
+  stateful?: boolean;
 }
 
 /**
@@ -152,6 +154,8 @@ export interface UnconfiguredPhotonInfo {
   label?: string;
   /** True if marked with @internal (system photon, hidden from normal UI) */
   internal?: boolean;
+  /** True if marked with @stateful */
+  stateful?: boolean;
 }
 
 /**

@@ -1061,6 +1061,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         // No install metadata - that's fine
       }
 
+      const isStateful = schemaSource ? /@stateful\b/.test(schemaSource) : false;
+
       return {
         id: generatePhotonId(photonPath),
         name,
@@ -1080,6 +1082,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         resourceCount,
         promptCount,
         installSource,
+        ...(isStateful && { stateful: true }),
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
         ...(mcp.injectedPhotons &&
           mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),

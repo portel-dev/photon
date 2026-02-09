@@ -1308,7 +1308,7 @@ export async function runMethod(
       // Send command to daemon with a stable session so all CLI invocations share one instance
       result = await sendCommand(photonName, methodName, parsedArgs, {
         photonPath: resolvedPath,
-        sessionId: `cli-shared-${photonName}`,
+        sessionId: `shared-${photonName}`,
       });
     } else {
       // STATELESS PATH: Direct execution

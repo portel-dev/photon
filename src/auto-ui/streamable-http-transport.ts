@@ -742,6 +742,57 @@ const handlers: Record<string, RequestHandler> = {
       uiMetadata['x-output-format'] = methodInfo.outputFormat;
     }
 
+    // Stateful photons: route through daemon for shared instance across all clients
+    if (photonInfo?.stateful && photonInfo.path) {
+      try {
+        const { sendCommand, pingDaemon } = await import('../daemon/client.js');
+        const { isDaemonRunning, startDaemon } = await import('../daemon/manager.js');
+
+        // Ensure daemon is running
+        if (!isDaemonRunning(photonName)) {
+          await startDaemon(photonName, photonInfo.path, true);
+          // Wait for daemon readiness
+          for (let i = 0; i < 10; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            if (await pingDaemon(photonName)) break;
+          }
+        }
+
+        const result = await sendCommand(
+          photonName,
+          methodName,
+          (args || {}) as Record<string, any>,
+          {
+            photonPath: photonInfo.path,
+            sessionId: `shared-${photonName}`,
+          }
+        );
+
+        const resultText =
+          result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
+
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: resultText }],
+            isError: false,
+            ...uiMetadata,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            isError: true,
+          },
+        };
+      }
+    }
+
     const mcp = ctx.photonMCPs.get(photonName);
     if (!mcp?.instance) {
       // Check if it's a disconnected external MCP
@@ -1746,7 +1797,7 @@ async function handleBeamStudioWrite(
       const versionMatch = source.match(/@version\s+(\S+)/);
       const runtimeMatch = source.match(/@runtime\s+(\S+)/);
       const iconMatch = source.match(/@icon\s+(\S+)/);
-      const statefulMatch = source.match(/@stateful\s+true/);
+      const statefulMatch = source.match(/@stateful\b/);
       const depsMatch = source.match(/@dependencies\s+(.+)/);
       const tagsMatch = source.match(/@tags\s+(.+)/);
 
@@ -1852,7 +1903,7 @@ async function handleBeamStudioParse(
     const versionMatch = source.match(/@version\s+(\S+)/);
     const runtimeMatch = source.match(/@runtime\s+(\S+)/);
     const iconMatch = source.match(/@icon\s+(\S+)/);
-    const statefulMatch = source.match(/@stateful\s+true/);
+    const statefulMatch = source.match(/@stateful\b/);
     const depsMatch = source.match(/@dependencies\s+(.+)/);
     const tagsMatch = source.match(/@tags\s+(.+)/);
 
