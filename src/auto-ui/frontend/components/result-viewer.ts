@@ -1555,22 +1555,59 @@ export class ResultViewer extends LitElement {
         }, 800);
       }
     }
+
+    // Trigger re-render so animation classes appear (we're called from updated(), post-render)
+    if (this._animatedItems.size > 0) {
+      this.requestUpdate();
+    }
   }
 
+  private static _TIMESTAMP_FIELDS = [
+    'updatedAt',
+    'updated_at',
+    'lastModified',
+    'last_modified',
+    'modifiedAt',
+    'modified_at',
+    'createdAt',
+    'created_at',
+  ];
+
   /**
-   * Get the warmth class based on recency heat
+   * Get the warmth class based on recency heat.
+   * Reads timestamp from item data first (survives refresh), falls back to in-memory map.
    */
   private _getItemWarmthClass(item: unknown, idField: string = 'id'): string {
-    const itemId =
-      item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
-    const timestamp = this._itemHeatTimestamps.get(String(itemId));
+    let timestamp: number | undefined;
+
+    // Try to read timestamp from item data (persisted, survives refresh)
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+      for (const field of ResultViewer._TIMESTAMP_FIELDS) {
+        const val = rec[field];
+        if (val !== undefined && val !== null) {
+          const parsed = typeof val === 'number' ? val : new Date(String(val)).getTime();
+          if (!isNaN(parsed)) {
+            timestamp = parsed;
+            break;
+          }
+        }
+      }
+    }
+
+    // Fall back to in-memory heat map (for items without timestamp fields)
+    if (timestamp === undefined) {
+      const itemId =
+        item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+      timestamp = this._itemHeatTimestamps.get(String(itemId));
+    }
+
     if (!timestamp) return '';
 
     const age = Date.now() - timestamp;
     if (age < 5 * 60_000) return 'warmth-hot'; // < 5 min
     if (age < 30 * 60_000) return 'warmth-warm'; // < 30 min
     if (age < 2 * 3600_000) return 'warmth-cool'; // < 2 hr
-    this._itemHeatTimestamps.delete(String(itemId)); // expired
     return '';
   }
 
