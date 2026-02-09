@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, buttons } from '../styles/index.js';
 
 interface FileEntry {
   name: string;
@@ -18,6 +18,7 @@ interface BrowseResponse {
 export class FilePicker extends LitElement {
   static styles = [
     theme,
+    buttons,
     css`
       :host {
         display: block;
@@ -131,27 +132,6 @@ export class FilePicker extends LitElement {
          for now it's inline */
       .browser-area {
         border-top: 1px solid var(--border-glass);
-      }
-
-      /* Button Styles */
-      button {
-        font-family: var(--font-sans);
-        font-size: 0.9rem;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      .btn-secondary {
-        background: transparent;
-        color: var(--t-muted);
-        border: 1px solid var(--border-glass);
-        padding: var(--space-sm) var(--space-md);
-        border-radius: var(--radius-sm);
-      }
-
-      .btn-secondary:hover {
-        background: hsla(220, 10%, 80%, 0.1);
-        color: var(--t-primary);
       }
 
       /* ===== Responsive Design ===== */

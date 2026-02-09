@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, buttons } from '../styles/index.js';
 
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'form';
@@ -45,6 +45,7 @@ export interface FormField {
 export class ElicitationModal extends LitElement {
   static styles = [
     theme,
+    buttons,
     css`
       :host {
         display: none;
@@ -120,35 +121,6 @@ export class ElicitationModal extends LitElement {
         gap: var(--space-sm);
         justify-content: flex-end;
         margin-top: var(--space-lg);
-      }
-
-      button {
-        padding: var(--space-sm) var(--space-lg);
-        border-radius: var(--radius-sm);
-        font-size: 0.9rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-        border: none;
-      }
-
-      .btn-primary {
-        background: var(--accent-primary);
-        color: white;
-      }
-
-      .btn-primary:hover {
-        opacity: 0.9;
-      }
-
-      .btn-secondary {
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
-      }
-
-      .btn-secondary:hover {
-        background: var(--bg-glass-strong);
       }
 
       .btn-success {
