@@ -3461,6 +3461,9 @@ export class BeamApp extends LitElement {
             .layoutHints=${this._selectedMethod?.layoutHints}
             .theme=${this._theme}
             .live=${this._currentCollectionName !== null}
+            .resultKey=${this._selectedPhoton && this._selectedMethod
+              ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
+              : undefined}
             @share=${this._handleShareResult}
           ></result-viewer>
         </div>
@@ -3515,6 +3518,9 @@ export class BeamApp extends LitElement {
                 .layoutHints=${this._selectedMethod?.layoutHints}
                 .theme=${this._theme}
                 .live=${this._currentCollectionName !== null}
+                .resultKey=${this._selectedPhoton && this._selectedMethod
+                  ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
+                  : undefined}
                 @share=${this._handleShareResult}
               ></result-viewer>
             `

@@ -1353,6 +1353,9 @@ export class ResultViewer extends LitElement {
   private _itemHeatTimestamps = new Map<string, number>();
   private _warmthTimer: number | undefined;
 
+  // The detected ID field for the current result (shared across diff, animation, warmth)
+  private _activeIdField = 'id';
+
   // Property name for event subscriptions (set by parent)
   @property({ type: String })
   collectionProperty?: string;
@@ -1360,6 +1363,10 @@ export class ResultViewer extends LitElement {
   // Whether this result is receiving live updates
   @property({ type: Boolean })
   live = false;
+
+  // Key for persisting heat timestamps across refresh (e.g. "photonName/methodName")
+  @property({ type: String })
+  resultKey?: string;
 
   private _pageSize = 20;
 
@@ -1426,8 +1433,15 @@ export class ResultViewer extends LitElement {
   handleCollectionEvent(
     type: 'added' | 'removed' | 'updated' | 'changed',
     data: unknown,
-    idField: string = 'id'
+    idField?: string
   ): void {
+    // Auto-detect ID field if not provided
+    if (!idField) {
+      const effective = this._getEffectiveResult();
+      idField = Array.isArray(effective) ? this._detectIdField(effective) : 'id';
+    }
+    this._activeIdField = idField;
+
     // Initialize internal result if needed
     if (this._internalResult === null) {
       this._internalResult = Array.isArray(this.result) ? [...this.result] : this.result;
@@ -1502,6 +1516,8 @@ export class ResultViewer extends LitElement {
         this._internalResult = Array.isArray(data) ? [...(data as unknown[])] : data;
         break;
     }
+
+    this._persistHeatTimestamps();
   }
 
   /**
@@ -1528,7 +1544,8 @@ export class ResultViewer extends LitElement {
   /**
    * Get the animation class for an item
    */
-  private _getItemAnimationClass(item: unknown, idField: string = 'id'): string {
+  private _getItemAnimationClass(item: unknown): string {
+    const idField = this._activeIdField;
     const itemId =
       item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
     const animation = this._animatedItems.get(String(itemId));
@@ -1560,6 +1577,7 @@ export class ResultViewer extends LitElement {
    */
   private _applyDiff(oldArr: any[], newArr: any[]): void {
     const idField = this._detectIdField(newArr.length ? newArr : oldArr);
+    this._activeIdField = idField;
 
     const key = (item: any): string =>
       item && typeof item === 'object' ? String(item[idField]) : String(item);
@@ -1646,6 +1664,9 @@ export class ResultViewer extends LitElement {
       }, 300);
     }
 
+    // Persist heat timestamps so warmth survives browser refresh
+    this._persistHeatTimestamps();
+
     // Trigger re-render so animation classes appear (we're called from updated(), post-render)
     if (this._animatedItems.size > 0) {
       this.requestUpdate();
@@ -1667,7 +1688,8 @@ export class ResultViewer extends LitElement {
    * Get the warmth class based on recency heat.
    * Reads timestamp from item data first (survives refresh), falls back to in-memory map.
    */
-  private _getItemWarmthClass(item: unknown, idField: string = 'id'): string {
+  private _getItemWarmthClass(item: unknown): string {
+    const idField = this._activeIdField;
     let timestamp: number | undefined;
 
     // Try to read timestamp from item data (persisted, survives refresh)
@@ -1685,7 +1707,7 @@ export class ResultViewer extends LitElement {
       }
     }
 
-    // Fall back to in-memory heat map (for items without timestamp fields)
+    // Fall back to in-memory heat map (populated from sessionStorage or live events)
     if (timestamp === undefined) {
       const itemId =
         item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
@@ -1699,6 +1721,42 @@ export class ResultViewer extends LitElement {
     if (age < 30 * 60_000) return 'warmth-warm'; // < 30 min
     if (age < 2 * 3600_000) return 'warmth-cool'; // < 2 hr
     return '';
+  }
+
+  /**
+   * Persist heat timestamps to sessionStorage so warmth survives browser refresh.
+   */
+  private _persistHeatTimestamps(): void {
+    if (!this.resultKey || this._itemHeatTimestamps.size === 0) return;
+    try {
+      const key = `photon-heat:${this.resultKey}`;
+      const data = Object.fromEntries(this._itemHeatTimestamps);
+      sessionStorage.setItem(key, JSON.stringify(data));
+    } catch {
+      // sessionStorage full or unavailable — ignore
+    }
+  }
+
+  /**
+   * Restore heat timestamps from sessionStorage on load.
+   */
+  private _restoreHeatTimestamps(): void {
+    if (!this.resultKey) return;
+    try {
+      const key = `photon-heat:${this.resultKey}`;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      const data = JSON.parse(raw) as Record<string, number>;
+      const now = Date.now();
+      const maxAge = 2 * 3600_000; // 2 hours — matches warmth-cool cutoff
+      for (const [id, ts] of Object.entries(data)) {
+        if (now - ts < maxAge) {
+          this._itemHeatTimestamps.set(id, ts);
+        }
+      }
+    } catch {
+      // corrupt data — ignore
+    }
   }
 
   private _resetZoom() {
@@ -2685,9 +2743,11 @@ export class ResultViewer extends LitElement {
             // No ghosts, fall through to result property
           }
         } else {
-          // First load — no diff, clean slate
+          // First load — no diff, clean slate. Detect ID field and restore persisted heat.
+          this._activeIdField = this._detectIdField(this.result);
           this._internalResult = null;
           this._animatedItems.clear();
+          this._restoreHeatTimestamps();
         }
       } else {
         // Non-array result — reset
