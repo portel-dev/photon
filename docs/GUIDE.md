@@ -579,7 +579,7 @@ Use these *within* `@param` descriptions for validation and UI generation.
 
 ## Dependency Injection
 
-Photon makes it easy to compose complex workflows by injecting other MCPs or Photons directly into your class instances.
+Photon uses constructor parameters as the single injection point for all dependencies: environment variables, MCP clients, photon instances, and persisted state. See [Constructor Injection](core/CONSTRUCTOR-INJECTION.md) for the complete reference.
 
 ### Declaring Dependencies
 Use `@mcp` and `@photon` tags at the class level to declare external dependencies.
@@ -591,15 +591,18 @@ Use `@mcp` and `@photon` tags at the class level to declare external dependencie
  */
 export default class Manager {
   constructor(
-    private github: any, // Injected from @mcp github
-    private fs: any      // Injected from @mcp storage
+    private apiKey: string,  // Env var: MANAGER_API_KEY
+    private github: any,     // Injected from @mcp github
+    private storage: any     // Injected from @mcp storage
   ) {}
 }
 ```
 
 ### Injection Rules
-- **Non-primitive parameters** in the constructor that match a declared dependency name are automatically injected.
-- The name in the constructor must match the first argument of the `@mcp` or `@photon` tag.
+- **Primitive parameters** (`string`, `number`, `boolean`) → mapped to environment variables
+- **Non-primitive parameters** matching an `@mcp` declaration → MCP client proxy
+- **Non-primitive parameters** matching a `@photon` declaration → loaded photon instance
+- **Non-primitive parameters** with defaults on `@stateful` photons → restored from persisted state
 
 ---
 
@@ -751,11 +754,38 @@ export default class Workflow {
 
     // Next step
     const step2 = await nextWork(step1);
-    
+
     return { step1, step2 };
   }
 }
 ```
+
+### Stateful Persistence via Constructor
+
+For simpler stateful photons that don't need generators or checkpoints, `@stateful true` combined with constructor defaults gives you automatic persistence across daemon restarts:
+
+```typescript
+/**
+ * @stateful true
+ */
+export default class List {
+  items: string[];
+  constructor(items: string[] = []) {
+    this.items = items;
+  }
+
+  add(item: string): void {
+    this.items.push(item);
+    // Reactive array auto-persists state to disk
+  }
+
+  getAll(): string[] {
+    return this.items;
+  }
+}
+```
+
+The runtime snapshots non-primitive constructor parameters on every mutation and restores them via constructor injection on restart. See [Constructor Injection](core/CONSTRUCTOR-INJECTION.md) for the full design.
 
 ---
 
