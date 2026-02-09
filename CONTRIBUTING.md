@@ -55,7 +55,6 @@ Thank you for your interest in contributing to Photon!
 Detailed documentation for contributors can be found in `docs/core/`:
 
 - [Auto-UI Architecture](docs/core/AUTO-UI-ARCHITECTURE.md) — How the Auto-UI system generates interfaces
-- [Auto-UI Implementation](docs/core/AUTO-UI-IMPLEMENTATION.md) — Deep dive into the Auto-UI code
 - [Daemon PubSub Protocol](docs/core/DAEMON-PUBSUB.md) — Protocol for the Photon Daemon's pub/sub system
 - [Elicitation Architecture](docs/core/ELICITATION-ARCHITECTURE.md) — Architecture of the elicitation system
 - [MCP Elicitation Implementation](docs/core/MCP-ELICITATION-IMPLEMENTATION.md) — Implementation details for MCP elicitation
