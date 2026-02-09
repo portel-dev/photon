@@ -3891,9 +3891,13 @@ export class BeamApp extends LitElement {
    * Silently re-execute the current method to refresh results (no spinner, no clearing)
    * Used when external state changes are detected (e.g., CLI mutated stateful photon)
    */
+  private _isSilentRefreshing = false;
+
   private async _silentRefresh(): Promise<void> {
     if (!this._mcpReady || !this._selectedPhoton || !this._selectedMethod) return;
+    if (this._isSilentRefreshing) return; // Prevent feedback loop
 
+    this._isSilentRefreshing = true;
     try {
       const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
       const result = await mcpClient.callTool(toolName, this._lastFormParams || {});
@@ -3903,6 +3907,8 @@ export class BeamApp extends LitElement {
       }
     } catch {
       // Silent refresh failure is not critical - user can manually re-execute
+    } finally {
+      this._isSilentRefreshing = false;
     }
   }
 
