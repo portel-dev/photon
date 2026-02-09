@@ -1306,7 +1306,7 @@ export async function runMethod(
       }
 
       // Send command to daemon
-      result = await sendCommand(photonName, methodName, parsedArgs);
+      result = await sendCommand(photonName, methodName, parsedArgs, { photonPath: resolvedPath });
     } else {
       // STATELESS PATH: Direct execution
       const loader = new PhotonLoader(false); // verbose=false for CLI mode
