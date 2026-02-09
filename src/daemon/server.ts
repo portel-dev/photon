@@ -868,6 +868,17 @@ async function handleRequest(
 
       setPromptHandler(null);
 
+      // Notify subscribers that state may have changed
+      publishToChannel(
+        `${photonName}:state-changed`,
+        {
+          event: 'state-changed',
+          method: request.method,
+          data: result,
+        },
+        socket
+      );
+
       return { type: 'result', id: request.id, success: true, data: result };
     } catch (error) {
       logger.error('Error executing request', {

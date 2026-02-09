@@ -1959,6 +1959,21 @@ export class BeamApp extends LitElement {
         });
       });
 
+      // Handle stateful photon state changes (e.g., CLI added item → Beam auto-refreshes)
+      mcpClient.on('state-changed', (data: any) => {
+        if (!data?.photon) return;
+        // Only auto-refresh if we're viewing the changed photon and have a result displayed
+        if (
+          this._selectedPhoton?.name === data.photon &&
+          this._selectedMethod &&
+          this._lastResult !== null &&
+          !this._isExecuting
+        ) {
+          this._log('info', `State changed externally, refreshing...`);
+          this._silentRefresh();
+        }
+      });
+
       // MCP Apps standard: forward ui/notifications/tool-result to iframes as JSON-RPC
       mcpClient.on('ui-tool-result', (params: any) => {
         this._forwardToIframes({
@@ -3861,6 +3876,25 @@ export class BeamApp extends LitElement {
       this._showError('Not connected');
       this._isExecuting = false;
       this._progress = null;
+    }
+  }
+
+  /**
+   * Silently re-execute the current method to refresh results (no spinner, no clearing)
+   * Used when external state changes are detected (e.g., CLI mutated stateful photon)
+   */
+  private async _silentRefresh(): Promise<void> {
+    if (!this._mcpReady || !this._selectedPhoton || !this._selectedMethod) return;
+
+    try {
+      const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
+      const result = await mcpClient.callTool(toolName, this._lastFormParams || {});
+
+      if (!result.isError) {
+        this._lastResult = mcpClient.parseToolResult(result);
+      }
+    } catch {
+      // Silent refresh failure is not critical - user can manually re-execute
     }
   }
 

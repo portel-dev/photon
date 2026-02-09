@@ -97,7 +97,8 @@ type MCPEventType =
   | 'queue-processed' // Queued operations processed
   | 'ui-tool-result' // MCP Apps: tool result notification
   | 'ui-tool-input' // MCP Apps: tool input notification
-  | 'ui-tool-input-partial'; // MCP Apps: partial tool input (streaming)
+  | 'ui-tool-input-partial' // MCP Apps: partial tool input (streaming)
+  | 'state-changed'; // Stateful photon state changed (via daemon)
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -1002,6 +1003,10 @@ class MCPClientService {
 
       case 'photon/refresh-needed':
         this.emit('refresh-needed', notification.params);
+        break;
+
+      case 'photon/state-changed':
+        this.emit('state-changed', notification.params);
         break;
 
       // MCP Apps standard notifications

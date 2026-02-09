@@ -3132,6 +3132,30 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();
 
+  // Subscribe to daemon state-changed events for stateful photons
+  // This enables cross-client sync: CLI mutations push updates to Beam UI
+  for (const photon of photons) {
+    if (photon.stateful && photon.configured) {
+      const photonName = photon.name;
+      const channel = `${photonName}:state-changed`;
+      try {
+        const isRunning = await pingDaemon(photonName);
+        if (isRunning) {
+          await subscribeChannel(photonName, channel, (message: any) => {
+            broadcastToBeam('photon/state-changed', {
+              photon: photonName,
+              method: message?.method,
+              data: message?.data,
+            });
+          });
+          logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
+        }
+      } catch {
+        // Daemon not running yet — subscription will happen when first tool call starts it
+      }
+    }
+  }
+
   // Set up file watchers for symlinked and bundled photon assets (now that photons are loaded)
   for (const photon of photons) {
     if (!photon.path) {
