@@ -107,9 +107,9 @@ export class ElicitationModal extends LitElement {
         box-sizing: border-box;
       }
 
-      input:focus,
-      textarea:focus,
-      select:focus {
+      input:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -152,12 +152,12 @@ export class ElicitationModal extends LitElement {
       }
 
       .btn-success {
-        background: #22c55e;
+        background: var(--color-success);
         color: white;
       }
 
       .btn-danger {
-        background: #ef4444;
+        background: var(--color-error);
         color: white;
       }
 

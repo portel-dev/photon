@@ -250,6 +250,11 @@ export class BeamSidebar extends LitElement {
         border-left: 2px solid var(--accent-primary);
       }
 
+      .section-header.attention {
+        color: var(--color-warning);
+        border-left-color: var(--color-warning);
+      }
+
       .photon-list {
         list-style: none;
         padding: 0 var(--space-sm);
@@ -344,15 +349,15 @@ export class BeamSidebar extends LitElement {
       }
 
       .method-count.unconfigured {
-        background: hsla(45, 80%, 50%, 0.15);
-        border-color: hsla(45, 80%, 50%, 0.3);
-        color: hsl(45, 80%, 50%);
+        background: var(--color-warning-bg);
+        border-color: var(--color-warning-glow);
+        color: var(--color-warning);
       }
 
       .method-count.error {
-        background: hsla(0, 80%, 50%, 0.15);
-        border-color: hsla(0, 80%, 50%, 0.3);
-        color: hsl(0, 80%, 50%);
+        background: var(--color-error-bg);
+        border-color: var(--color-error-glow);
+        color: var(--color-error);
       }
 
       .counts-pill {
@@ -560,6 +565,7 @@ export class BeamSidebar extends LitElement {
 
         .photon-item .star-btn {
           padding: var(--space-sm);
+          opacity: 0.4;
         }
 
         .filter-btn {
@@ -777,7 +783,7 @@ export class BeamSidebar extends LitElement {
           : ''}
         ${this._needsSetup.length > 0
           ? html`
-              <div class="section-header" id="setup-header">NEEDS ATTENTION</div>
+              <div class="section-header attention" id="setup-header">NEEDS ATTENTION</div>
               <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
                 ${this._needsSetup.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
               </ul>

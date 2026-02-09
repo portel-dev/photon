@@ -60,7 +60,7 @@ export class CustomUiRenderer extends LitElement {
       }
 
       .error-message {
-        color: #f87171;
+        color: var(--color-error);
         font-size: 0.9rem;
         max-width: 400px;
       }

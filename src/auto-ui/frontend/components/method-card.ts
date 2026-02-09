@@ -328,6 +328,13 @@ export class MethodCard extends LitElement {
 
         .run-btn {
           width: 100%;
+          background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+          border-color: transparent;
+          color: white;
+        }
+
+        .edit-pencil {
+          opacity: 0.4;
         }
 
         .emoji-picker {

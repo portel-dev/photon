@@ -95,18 +95,18 @@ export class FilePicker extends LitElement {
         transition: all 0.2s;
       }
 
-      input:focus {
+      input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       input.error {
-        border-color: #f87171;
+        border-color: var(--color-error);
       }
 
-      input.error:focus {
-        box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+      input.error:focus-visible {
+        box-shadow: 0 0 0 2px var(--color-error-glow);
       }
 
       .input-wrapper {
