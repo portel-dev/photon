@@ -347,6 +347,34 @@ export class ResultViewer extends LitElement {
         animation: item-highlight 0.8s ease-out;
       }
 
+      /* Warm Data: recency heat indicators */
+      .list-item.warmth-hot,
+      .smart-table tbody tr.warmth-hot {
+        border-left: 3px solid #ff6b6b;
+        transition: border-left-color 2s ease-out;
+      }
+      .list-item.warmth-warm,
+      .smart-table tbody tr.warmth-warm {
+        border-left: 3px solid #ffa94d;
+        transition: border-left-color 2s ease-out;
+      }
+      .list-item.warmth-cool,
+      .smart-table tbody tr.warmth-cool {
+        border-left: 3px solid #ffe066;
+        transition: border-left-color 2s ease-out;
+      }
+
+      /* Light theme warmth */
+      :host([data-theme='light']) .warmth-hot {
+        border-left-color: #e03131;
+      }
+      :host([data-theme='light']) .warmth-warm {
+        border-left-color: #f76707;
+      }
+      :host([data-theme='light']) .warmth-cool {
+        border-left-color: #f59f00;
+      }
+
       .list-item-leading {
         width: 36px;
         height: 36px;
@@ -1277,6 +1305,13 @@ export class ResultViewer extends LitElement {
   @state()
   private _internalResult: any = null;
 
+  // Bridge old result across null-gap during execute cycles
+  private _previousResult: any = null;
+
+  // Recency heat: track when items were last added/updated
+  private _itemHeatTimestamps = new Map<string, number>();
+  private _warmthTimer: number | undefined;
+
   // Property name for event subscriptions (set by parent)
   @property({ type: String })
   collectionProperty?: string;
@@ -1289,11 +1324,16 @@ export class ResultViewer extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     window.addEventListener('keydown', this._handleGlobalKeydown);
+    // Periodically re-render to decay warmth classes
+    this._warmthTimer = window.setInterval(() => {
+      if (this._itemHeatTimestamps.size > 0) this.requestUpdate();
+    }, 60_000);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('keydown', this._handleGlobalKeydown);
+    if (this._warmthTimer) clearInterval(this._warmthTimer);
   }
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {
@@ -1365,6 +1405,7 @@ export class ResultViewer extends LitElement {
         // Add item and track for animation
         this._internalResult = [...this._internalResult, data];
         this._animatedItems.set(stringId, 'added');
+        this._itemHeatTimestamps.set(stringId, Date.now());
         // Clear animation class after animation completes
         setTimeout(() => {
           this._animatedItems.delete(stringId);
@@ -1383,6 +1424,7 @@ export class ResultViewer extends LitElement {
             return String(id) !== stringId;
           });
           this._animatedItems.delete(stringId);
+          this._itemHeatTimestamps.delete(stringId);
           this.requestUpdate();
         }, 300);
         break;
@@ -1403,6 +1445,7 @@ export class ResultViewer extends LitElement {
           });
         }
         this._animatedItems.set(stringId, 'updated');
+        this._itemHeatTimestamps.set(stringId, Date.now());
         setTimeout(() => {
           this._animatedItems.delete(stringId);
           this.requestUpdate();
@@ -1452,6 +1495,83 @@ export class ResultViewer extends LitElement {
    */
   private _getEffectiveResult(): unknown {
     return this._internalResult !== null ? this._internalResult : this.result;
+  }
+
+  /**
+   * Detect the best ID field from an array of objects
+   */
+  private _detectIdField(arr: any[]): string {
+    if (!arr.length || typeof arr[0] !== 'object') return 'id';
+    if ('id' in arr[0]) return 'id';
+    if ('_id' in arr[0]) return '_id';
+    if ('uuid' in arr[0]) return 'uuid';
+    if ('name' in arr[0]) return 'name';
+    return Object.keys(arr[0])[0] || 'id';
+  }
+
+  /**
+   * Diff two arrays and set animation + heat timestamps for changes
+   */
+  private _applyDiff(oldArr: any[], newArr: any[]): void {
+    const idField = this._detectIdField(newArr);
+
+    const key = (item: any): string =>
+      item && typeof item === 'object' ? String(item[idField]) : String(item);
+
+    const oldMap = new Map(oldArr.map((item) => [key(item), item]));
+    const newMap = new Map(newArr.map((item) => [key(item), item]));
+
+    // Clear previous animations, keep heat timestamps
+    this._animatedItems.clear();
+
+    // Added items
+    for (const [id] of newMap) {
+      if (!oldMap.has(id)) {
+        this._animatedItems.set(id, 'added');
+        this._itemHeatTimestamps.set(id, Date.now());
+        setTimeout(() => {
+          this._animatedItems.delete(id);
+          this.requestUpdate();
+        }, 500);
+      }
+    }
+
+    // Removed items
+    for (const [id] of oldMap) {
+      if (!newMap.has(id)) {
+        this._itemHeatTimestamps.delete(id);
+      }
+    }
+
+    // Updated items
+    for (const [id, newItem] of newMap) {
+      const oldItem = oldMap.get(id);
+      if (oldItem && JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
+        this._animatedItems.set(id, 'updated');
+        this._itemHeatTimestamps.set(id, Date.now());
+        setTimeout(() => {
+          this._animatedItems.delete(id);
+          this.requestUpdate();
+        }, 800);
+      }
+    }
+  }
+
+  /**
+   * Get the warmth class based on recency heat
+   */
+  private _getItemWarmthClass(item: unknown, idField: string = 'id'): string {
+    const itemId =
+      item && typeof item === 'object' ? (item as Record<string, unknown>)[idField] : item;
+    const timestamp = this._itemHeatTimestamps.get(String(itemId));
+    if (!timestamp) return '';
+
+    const age = Date.now() - timestamp;
+    if (age < 5 * 60_000) return 'warmth-hot'; // < 5 min
+    if (age < 30 * 60_000) return 'warmth-warm'; // < 30 min
+    if (age < 2 * 3600_000) return 'warmth-cool'; // < 2 hr
+    this._itemHeatTimestamps.delete(String(itemId)); // expired
+    return '';
   }
 
   private _resetZoom() {
@@ -2014,7 +2134,7 @@ export class ResultViewer extends LitElement {
         <tbody>
           ${pageData.map(
             (row) => html`
-              <tr>
+              <tr class="${this._getItemAnimationClass(row)} ${this._getItemWarmthClass(row)}">
                 ${columns.map(
                   (col) => html`<td>${this._formatCellValue(row[col], col, true)}</td>`
                 )}
@@ -2109,9 +2229,10 @@ export class ResultViewer extends LitElement {
 
   private _renderListItem(item: any): TemplateResult {
     const animClass = this._getItemAnimationClass(item);
+    const warmthClass = this._getItemWarmthClass(item);
 
     if (typeof item !== 'object' || item === null) {
-      return html`<li class="list-item ${animClass}">
+      return html`<li class="list-item ${animClass} ${warmthClass}">
         <span class="list-item-title">${this._highlightText(String(item))}</span>
       </li>`;
     }
@@ -2119,7 +2240,7 @@ export class ResultViewer extends LitElement {
     const mapping = this._analyzeFields(item);
 
     return html`
-      <li class="list-item ${animClass}">
+      <li class="list-item ${animClass} ${warmthClass}">
         ${mapping.icon
           ? html`
               <div class="list-item-leading">
@@ -2411,10 +2532,36 @@ export class ResultViewer extends LitElement {
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
 
-    // Reset internal result when result prop changes (full data refresh)
+    // Diff-aware result handling: detect changes across null-gap and direct updates
     if (changedProperties.has('result')) {
-      this._internalResult = null;
-      this._animatedItems.clear();
+      const oldResult = changedProperties.get('result');
+
+      if (this.result === null || this.result === undefined) {
+        // Clearing (e.g., before execute) — save old for diffing when new result arrives
+        if (Array.isArray(oldResult)) {
+          this._previousResult = oldResult;
+        }
+        this._internalResult = null;
+        this._animatedItems.clear();
+      } else if (Array.isArray(this.result)) {
+        // New array result — try to diff against baseline
+        const baseline = this._previousResult ?? (Array.isArray(oldResult) ? oldResult : null);
+        this._previousResult = null;
+
+        if (baseline) {
+          this._applyDiff(baseline, this.result);
+          this._internalResult = null; // fall through to result property
+        } else {
+          // First load — no diff, clean slate
+          this._internalResult = null;
+          this._animatedItems.clear();
+        }
+      } else {
+        // Non-array result — reset
+        this._previousResult = null;
+        this._internalResult = null;
+        this._animatedItems.clear();
+      }
     }
 
     // Render mermaid blocks after DOM update (only if there are pending blocks)
