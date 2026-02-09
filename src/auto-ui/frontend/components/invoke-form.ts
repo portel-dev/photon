@@ -367,7 +367,7 @@ export class InvokeForm extends LitElement {
         }
 
         .actions {
-          flex-direction: column;
+          flex-direction: column-reverse;
         }
 
         .actions button {
