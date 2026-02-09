@@ -55,13 +55,19 @@ export async function sendCommand(
   photonName: string,
   method: string,
   args: Record<string, any>,
-  options?: { maxRetries?: number; photonPath?: string }
+  options?: { maxRetries?: number; photonPath?: string; sessionId?: string }
 ): Promise<any> {
   const maxRetries = options?.maxRetries ?? 1;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await sendCommandDirect(photonName, method, args, options?.photonPath);
+      return await sendCommandDirect(
+        photonName,
+        method,
+        args,
+        options?.photonPath,
+        options?.sessionId
+      );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
         logger.info('Daemon unreachable, auto-restarting...');
@@ -80,7 +86,8 @@ async function sendCommandDirect(
   photonName: string,
   method: string,
   args: Record<string, any>,
-  photonPath?: string
+  photonPath?: string,
+  sessionId?: string
 ): Promise<any> {
   const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
@@ -104,7 +111,7 @@ async function sendCommandDirect(
         id: requestId,
         photonName,
         photonPath,
-        sessionId: SESSION_ID,
+        sessionId: sessionId || SESSION_ID,
         clientType: 'cli',
         method,
         args,

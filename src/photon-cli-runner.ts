@@ -1305,8 +1305,11 @@ export async function runMethod(
         }
       }
 
-      // Send command to daemon
-      result = await sendCommand(photonName, methodName, parsedArgs, { photonPath: resolvedPath });
+      // Send command to daemon with a stable session so all CLI invocations share one instance
+      result = await sendCommand(photonName, methodName, parsedArgs, {
+        photonPath: resolvedPath,
+        sessionId: `cli-shared-${photonName}`,
+      });
     } else {
       // STATELESS PATH: Direct execution
       const loader = new PhotonLoader(false); // verbose=false for CLI mode
