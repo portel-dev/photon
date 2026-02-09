@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, badges } from '../styles/index.js';
 
 interface MethodInfo {
   name: string;
@@ -18,6 +18,7 @@ interface MethodInfo {
 export class MethodCard extends LitElement {
   static styles = [
     theme,
+    badges,
     css`
       :host {
         display: block;
@@ -186,16 +187,6 @@ export class MethodCard extends LitElement {
         align-items: center;
       }
 
-      .param-tag {
-        font-size: 0.65rem;
-        padding: 1px 6px;
-        border-radius: var(--radius-xs);
-        background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.08));
-        color: var(--param-tag-color, var(--t-muted));
-        font-family: var(--font-mono);
-        white-space: nowrap;
-      }
-
       .param-count {
         font-size: 0.65rem;
         min-width: 18px;
@@ -215,35 +206,6 @@ export class MethodCard extends LitElement {
         gap: 4px;
         flex-wrap: wrap;
         margin-top: 2px;
-      }
-
-      .type-badge {
-        font-size: 0.65rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        padding: 1px 6px;
-        border-radius: var(--radius-xs);
-      }
-
-      .type-badge.autorun {
-        background: hsla(160, 60%, 45%, 0.15);
-        color: hsl(160, 60%, 55%);
-      }
-
-      .type-badge.webhook {
-        background: hsla(45, 80%, 50%, 0.15);
-        color: hsl(45, 80%, 60%);
-      }
-
-      .type-badge.cron {
-        background: hsla(215, 80%, 60%, 0.15);
-        color: hsl(215, 80%, 70%);
-      }
-
-      .type-badge.locked {
-        background: hsla(0, 65%, 55%, 0.15);
-        color: hsl(0, 65%, 65%);
       }
 
       /* Left border accent for typed methods */

@@ -3,6 +3,7 @@
  */
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
+import { theme, badges } from '../styles/index.js';
 
 export interface ParseResult {
   className?: string;
@@ -36,215 +37,185 @@ export class StudioPreview extends LitElement {
   @property({ type: Object }) parseResult: ParseResult | null = null;
   @property({ type: Boolean }) loading = false;
 
-  static styles = css`
-    :host {
-      display: block;
-      font-family: var(--font-mono, 'SF Mono', monospace);
-      font-size: 0.82rem;
-      color: var(--t-primary, #e0e0e0);
-    }
+  static styles = [
+    theme,
+    badges,
+    css`
+      :host {
+        display: block;
+        font-family: var(--font-mono, 'SF Mono', monospace);
+        font-size: 0.82rem;
+        color: var(--t-primary, #e0e0e0);
+      }
 
-    .preview-section {
-      margin-bottom: 16px;
-    }
+      .preview-section {
+        margin-bottom: 16px;
+      }
 
-    .section-title {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--t-muted, #888);
-      margin-bottom: 6px;
-      font-weight: 600;
-    }
+      .section-title {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--t-muted, #888);
+        margin-bottom: 6px;
+        font-weight: 600;
+      }
 
-    .meta-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 3px 0;
-      font-size: 0.8rem;
-    }
+      .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 0;
+        font-size: 0.8rem;
+      }
 
-    .meta-label {
-      color: var(--t-muted, #888);
-      min-width: 70px;
-    }
+      .meta-label {
+        color: var(--t-muted, #888);
+        min-width: 70px;
+      }
 
-    .meta-value {
-      color: var(--t-primary, #e0e0e0);
-    }
+      .meta-value {
+        color: var(--t-primary, #e0e0e0);
+      }
 
-    .photon-name {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
+      .photon-name {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
 
-    .photon-desc {
-      color: var(--t-muted, #888);
-      font-size: 0.8rem;
-      margin-bottom: 12px;
-    }
+      .photon-desc {
+        color: var(--t-muted, #888);
+        font-size: 0.8rem;
+        margin-bottom: 12px;
+      }
 
-    .method-item {
-      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-      border-radius: var(--radius-sm);
-      padding: 8px 10px;
-      margin-bottom: 6px;
-      border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-    }
+      .method-item {
+        background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+        border-radius: var(--radius-sm);
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      }
 
-    .method-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 500;
-    }
+      .method-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 500;
+      }
 
-    .method-icon {
-      font-size: 0.9rem;
-    }
+      .method-icon {
+        font-size: 0.9rem;
+      }
 
-    .method-name {
-      color: var(--accent-primary);
-    }
+      .method-name {
+        color: var(--accent-primary);
+      }
 
-    .method-desc {
-      color: var(--t-muted, #888);
-      font-size: 0.75rem;
-      margin-top: 3px;
-    }
+      .method-desc {
+        color: var(--t-muted, #888);
+        font-size: 0.75rem;
+        margin-top: 3px;
+      }
 
-    .method-params {
-      margin-top: 6px;
-      padding-left: 12px;
-      font-size: 0.75rem;
-    }
+      .method-params {
+        margin-top: 6px;
+        padding-left: 12px;
+        font-size: 0.75rem;
+      }
 
-    .param-item {
-      display: flex;
-      gap: 6px;
-      padding: 1px 0;
-    }
+      .param-item {
+        display: flex;
+        gap: 6px;
+        padding: 1px 0;
+      }
 
-    .param-name {
-      color: var(--accent-secondary, #f0abfc);
-    }
+      .param-name {
+        color: var(--accent-secondary, #f0abfc);
+      }
 
-    .param-type {
-      color: var(--t-muted, #888);
-    }
+      .param-type {
+        color: var(--t-muted, #888);
+      }
 
-    .param-required {
-      color: var(--color-error);
-      font-size: 0.65rem;
-    }
+      .param-required {
+        color: var(--color-error);
+        font-size: 0.65rem;
+      }
 
-    .badge {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: var(--radius-xs);
-      font-size: 0.65rem;
-      font-weight: 500;
-      letter-spacing: 0.03em;
-    }
+      .dep-tag {
+        display: inline-block;
+        padding: 1px 6px;
+        background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+        border-radius: var(--radius-xs);
+        font-size: 0.72rem;
+        margin: 2px 2px 2px 0;
+        color: var(--t-muted, #888);
+      }
 
-    .badge-autorun {
-      background: rgba(52, 211, 153, 0.15);
-      color: #34d399;
-    }
+      .error-list,
+      .warning-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
 
-    .badge-webhook {
-      background: rgba(251, 191, 36, 0.15);
-      color: var(--color-warning);
-    }
+      .error-item {
+        color: var(--color-error);
+        font-size: 0.78rem;
+        padding: 2px 0;
+      }
 
-    .badge-cron {
-      background: rgba(96, 165, 250, 0.15);
-      color: #60a5fa;
-    }
+      .error-item::before {
+        content: '✕ ';
+      }
 
-    .badge-locked {
-      background: var(--color-error-bg);
-      color: var(--color-error);
-    }
+      .warning-item {
+        color: var(--color-warning);
+        font-size: 0.78rem;
+        padding: 2px 0;
+      }
 
-    .badge-stateful {
-      background: rgba(167, 139, 250, 0.15);
-      color: #a78bfa;
-    }
+      .warning-item::before {
+        content: '⚠ ';
+      }
 
-    .dep-tag {
-      display: inline-block;
-      padding: 1px 6px;
-      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-      border-radius: var(--radius-xs);
-      font-size: 0.72rem;
-      margin: 2px 2px 2px 0;
-      color: var(--t-muted, #888);
-    }
+      .empty-state {
+        color: var(--t-muted, #888);
+        font-style: italic;
+        text-align: center;
+        padding: 24px 0;
+        font-size: 0.82rem;
+      }
 
-    .error-list,
-    .warning-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
+      .loading {
+        text-align: center;
+        color: var(--t-muted, #888);
+        padding: 24px 0;
+      }
 
-    .error-item {
-      color: var(--color-error);
-      font-size: 0.78rem;
-      padding: 2px 0;
-    }
-
-    .error-item::before {
-      content: '✕ ';
-    }
-
-    .warning-item {
-      color: var(--color-warning);
-      font-size: 0.78rem;
-      padding: 2px 0;
-    }
-
-    .warning-item::before {
-      content: '⚠ ';
-    }
-
-    .empty-state {
-      color: var(--t-muted, #888);
-      font-style: italic;
-      text-align: center;
-      padding: 24px 0;
-      font-size: 0.82rem;
-    }
-
-    .loading {
-      text-align: center;
-      color: var(--t-muted, #888);
-      padding: 24px 0;
-    }
-
-    .loading::after {
-      content: '';
-      animation: dots 1.2s steps(3, end) infinite;
-    }
-
-    @keyframes dots {
-      0% {
+      .loading::after {
         content: '';
+        animation: dots 1.2s steps(3, end) infinite;
       }
-      33% {
-        content: '.';
+
+      @keyframes dots {
+        0% {
+          content: '';
+        }
+        33% {
+          content: '.';
+        }
+        66% {
+          content: '..';
+        }
+        100% {
+          content: '...';
+        }
       }
-      66% {
-        content: '..';
-      }
-      100% {
-        content: '...';
-      }
-    }
-  `;
+    `,
+  ];
 
   render() {
     if (this.loading) {
@@ -293,7 +264,7 @@ export class StudioPreview extends LitElement {
             </div>`
           : ''}
         ${r.stateful
-          ? html`<div class="meta-row"><span class="badge badge-stateful">stateful</span></div>`
+          ? html`<div class="meta-row"><span class="type-badge stateful">stateful</span></div>`
           : ''}
       </div>
 
@@ -334,10 +305,10 @@ export class StudioPreview extends LitElement {
         <div class="method-header">
           ${m.icon ? html`<span class="method-icon">${m.icon}</span>` : ''}
           <span class="method-name">${m.name}</span>
-          ${m.autorun ? html`<span class="badge badge-autorun">autorun</span>` : ''}
-          ${m.webhook ? html`<span class="badge badge-webhook">webhook: ${m.webhook}</span>` : ''}
-          ${m.scheduled ? html`<span class="badge badge-cron">cron: ${m.scheduled}</span>` : ''}
-          ${m.locked ? html`<span class="badge badge-locked">locked</span>` : ''}
+          ${m.autorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
+          ${m.webhook ? html`<span class="type-badge webhook">webhook: ${m.webhook}</span>` : ''}
+          ${m.scheduled ? html`<span class="type-badge cron">cron: ${m.scheduled}</span>` : ''}
+          ${m.locked ? html`<span class="type-badge locked">locked</span>` : ''}
         </div>
         ${m.description ? html`<div class="method-desc">${m.description}</div>` : ''}
         ${params.length > 0
