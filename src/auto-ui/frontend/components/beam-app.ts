@@ -33,6 +33,22 @@ export class BeamApp extends LitElement {
         --accent-secondary: hsl(190, 100%, 50%);
         --glow-primary: hsla(260, 100%, 65%, 0.3);
 
+        /* Semantic status colors */
+        --color-error: #f87171;
+        --color-error-glow: rgba(248, 113, 113, 0.3);
+        --color-error-bg: rgba(248, 113, 113, 0.1);
+        --color-success: #4ade80;
+        --color-success-bg: hsla(150, 50%, 40%, 0.2);
+        --color-warning: #fbbf24;
+        --color-info: var(--accent-secondary);
+
+        /* CLI preview */
+        --cli-bg: hsl(220, 15%, 6%);
+        --cli-border: hsl(220, 10%, 20%);
+        --cli-text: hsl(142, 76%, 57%);
+        --cli-muted: hsl(220, 10%, 40%);
+        --cli-hover-bg: hsl(220, 15%, 10%);
+
         /* Shadow tokens (dark defaults) */
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
         --shadow-md: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
@@ -59,6 +75,22 @@ export class BeamApp extends LitElement {
         --accent-primary: hsl(215, 70%, 45%);
         --accent-secondary: hsl(165, 60%, 35%);
         --glow-primary: hsla(215, 70%, 45%, 0.15);
+
+        /* Semantic status colors — light theme */
+        --color-error: hsl(0, 65%, 48%);
+        --color-error-glow: hsla(0, 65%, 48%, 0.2);
+        --color-error-bg: hsla(0, 65%, 48%, 0.08);
+        --color-success: hsl(142, 50%, 35%);
+        --color-success-bg: hsla(142, 50%, 35%, 0.12);
+        --color-warning: hsl(43, 80%, 42%);
+        --color-info: var(--accent-secondary);
+
+        /* CLI preview — light theme */
+        --cli-bg: hsl(220, 15%, 96%);
+        --cli-border: var(--border-glass);
+        --cli-text: hsl(142, 60%, 32%);
+        --cli-muted: var(--t-muted);
+        --cli-hover-bg: hsl(220, 15%, 92%);
 
         /* Light-mode shadows — visible but not harsh */
         --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.1), 0px 1px 2px rgba(0, 0, 0, 0.08);
@@ -91,6 +123,28 @@ export class BeamApp extends LitElement {
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: var(--space-md);
         align-items: stretch;
+      }
+
+      /* Empty states */
+      .empty-state-inline {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        padding: var(--space-lg);
+        color: var(--t-muted);
+        font-size: 0.9rem;
+        border: 1px dashed var(--border-glass);
+        border-radius: var(--radius-md);
+        justify-content: center;
+      }
+
+      .empty-state-icon {
+        font-size: 1.2rem;
+        opacity: 0.6;
+      }
+
+      .result-empty {
+        margin-top: var(--space-md);
       }
 
       /* Bento Layout */
@@ -132,7 +186,7 @@ export class BeamApp extends LitElement {
       .photon-icon-large {
         width: 64px;
         height: 64px;
-        border-radius: 16px;
+        border-radius: var(--radius-lg);
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
         display: flex;
         align-items: center;
@@ -205,7 +259,7 @@ export class BeamApp extends LitElement {
       .photon-badge {
         font-size: 0.75rem;
         padding: 4px 10px;
-        border-radius: 12px;
+        border-radius: var(--radius-md);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
@@ -239,7 +293,7 @@ export class BeamApp extends LitElement {
       .btn-sm {
         font-size: 0.75rem;
         padding: 4px 12px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         border: 1px solid var(--border-glass);
         background: var(--bg-glass);
         color: var(--t-primary);
@@ -384,7 +438,7 @@ export class BeamApp extends LitElement {
       .section-header .count {
         background: var(--bg-glass);
         padding: 2px 8px;
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-size: 0.7rem;
       }
 
@@ -410,7 +464,7 @@ export class BeamApp extends LitElement {
       .asset-card .asset-icon {
         width: 32px;
         height: 32px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         background: var(--bg-glass);
         display: flex;
         align-items: center;
@@ -468,7 +522,7 @@ export class BeamApp extends LitElement {
       .asset-viewer-icon {
         width: 48px;
         height: 48px;
-        border-radius: 12px;
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -513,7 +567,7 @@ export class BeamApp extends LitElement {
         background: hsla(45, 80%, 50%, 0.2);
         color: hsl(45, 80%, 60%);
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         font-weight: 500;
       }
 
@@ -533,7 +587,7 @@ export class BeamApp extends LitElement {
         top: 0;
         left: 0;
         right: 0;
-        background: #f87171;
+        background: var(--color-error);
         color: white;
         padding: var(--space-sm) var(--space-md);
         display: flex;
@@ -559,7 +613,7 @@ export class BeamApp extends LitElement {
       }
 
       .reconnecting {
-        background: #fbbf24;
+        background: var(--color-warning);
       }
 
       .modal-overlay {
@@ -626,14 +680,14 @@ export class BeamApp extends LitElement {
       .markdown-body code {
         background: var(--bg-glass);
         padding: 2px 5px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-size: 0.85em;
       }
 
       .markdown-body pre {
         background: var(--bg-glass);
         padding: var(--space-md);
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         overflow-x: auto;
       }
 
@@ -681,7 +735,7 @@ export class BeamApp extends LitElement {
       .shortcut-key kbd {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         padding: 2px 8px;
         font-family: var(--font-mono);
         font-size: 0.85rem;
@@ -743,8 +797,8 @@ export class BeamApp extends LitElement {
       }
 
       .toolbar-btn.danger:hover {
-        border-color: #f87171;
-        color: #f87171;
+        border-color: var(--color-error);
+        color: var(--color-error);
       }
 
       .toolbar-btn.active {
@@ -856,7 +910,7 @@ export class BeamApp extends LitElement {
         width: 36px;
         height: 20px;
         background: var(--bg-glass);
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         position: relative;
         transition: background 0.2s ease;
       }
@@ -1025,9 +1079,10 @@ export class BeamApp extends LitElement {
         font-size: 0.9rem;
       }
 
-      .variable-input input:focus {
+      .variable-input input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       /* Content Preview */
@@ -1060,14 +1115,14 @@ export class BeamApp extends LitElement {
         background: hsla(45, 80%, 50%, 0.2);
         color: hsl(45, 80%, 60%);
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
       }
 
       .content-preview .var-filled {
         background: hsla(150, 80%, 50%, 0.2);
         color: hsl(150, 80%, 60%);
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
       }
 
       /* Copy Button */
@@ -1170,14 +1225,14 @@ export class BeamApp extends LitElement {
       .progress-bar-wrapper {
         height: 8px;
         background: rgba(0, 0, 0, 0.2);
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         overflow: hidden;
       }
 
       .progress-bar {
         height: 100%;
         background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         transition: width 0.3s ease;
       }
 
@@ -2206,10 +2261,10 @@ export class BeamApp extends LitElement {
                 <span
                   style="width: 10px; height: 10px; border-radius: 50; background: ${p.status ===
                   'loaded'
-                    ? '#4ade80'
+                    ? 'var(--color-success)'
                     : p.status === 'unconfigured'
-                      ? '#fbbf24'
-                      : '#f87171'}; flex-shrink: 0;"
+                      ? 'var(--color-warning)'
+                      : 'var(--color-error)'}; flex-shrink: 0;"
                 ></span>
                 <span style="flex: 1;"
                   >${p.name}${p.internal
@@ -2221,7 +2276,9 @@ export class BeamApp extends LitElement {
                 >
                 <span style="color: var(--t-muted); font-size: 0.8rem;">${p.methods} methods</span>
                 ${p.error
-                  ? html`<span style="color: #f87171; font-size: 0.75rem;">${p.error}</span>`
+                  ? html`<span style="color: var(--color-error); font-size: 0.75rem;"
+                      >${p.error}</span
+                    >`
                   : ''}
               </div>
               ${p.path
@@ -2273,7 +2330,7 @@ export class BeamApp extends LitElement {
                               >`
                             : ''}
                           ${r.error
-                            ? html`<span style="color: #f87171; font-size: 0.75rem;"
+                            ? html`<span style="color: var(--color-error); font-size: 0.75rem;"
                                 >${r.error}</span
                               >`
                             : ''}
@@ -2297,7 +2354,8 @@ export class BeamApp extends LitElement {
               style="padding: var(--space-md); color: var(--t-muted); font-size: 0.85rem;"
             >
               No test methods found. Add methods prefixed with
-              <code style="background: var(--bg-panel); padding: 2px 6px; border-radius: 4px;"
+              <code
+                style="background: var(--bg-panel); padding: 2px 6px; border-radius: var(--radius-xs);"
                 >test</code
               >
               to any photon.
@@ -2417,7 +2475,7 @@ export class BeamApp extends LitElement {
                   ? html`<div style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">
                       Server may have stopped. Restart:
                       <code
-                        style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: 3px;"
+                        style="background: rgba(255,255,255,0.2); padding: 1px 4px; border-radius: var(--radius-xs);"
                         >photon beam</code
                       >
                     </div>`
@@ -2746,7 +2804,7 @@ export class BeamApp extends LitElement {
             <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
               Press
               <kbd
-                style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 0.85rem;"
+                style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); font-size: 0.85rem;"
                 >?</kbd
               >
               to see all shortcuts.
@@ -3125,18 +3183,30 @@ export class BeamApp extends LitElement {
 
       <div class="bento-methods">
         <h3 class="bento-section-title">Methods</h3>
-        <div class="cards-grid">
-          ${(this._selectedPhoton.methods || []).map(
-            (method: any) => html`
-              <method-card
-                .method=${method}
-                .photonName=${this._selectedPhoton.name}
-                @select=${this._handleMethodSelect}
-                @update-metadata=${this._handleMethodMetadataUpdate}
-              ></method-card>
+        ${(this._selectedPhoton.methods || []).length > 0
+          ? html`
+              <div class="cards-grid">
+                ${(this._selectedPhoton.methods || []).map(
+                  (method: any) => html`
+                    <method-card
+                      .method=${method}
+                      .photonName=${this._selectedPhoton.name}
+                      @select=${this._handleMethodSelect}
+                      @update-metadata=${this._handleMethodMetadataUpdate}
+                    ></method-card>
+                  `
+                )}
+              </div>
             `
-          )}
-        </div>
+          : html`
+              <div class="empty-state-inline">
+                <span class="empty-state-icon">⚡</span>
+                <span
+                  >No methods available. Add public methods to this photon's class to expose them
+                  here.</span
+                >
+              </div>
+            `}
       </div>
 
       ${this._testResults.length > 0
@@ -3156,7 +3226,9 @@ export class BeamApp extends LitElement {
                         >`
                       : ''}
                     ${r.error
-                      ? html`<span style="color: #f87171; font-size: 0.75rem;">${r.error}</span>`
+                      ? html`<span style="color: var(--color-error); font-size: 0.75rem;"
+                          >${r.error}</span
+                        >`
                       : ''}
                   </div>
                 `
@@ -3368,7 +3440,12 @@ export class BeamApp extends LitElement {
                 @share=${this._handleShareResult}
               ></result-viewer>
             `
-          : ''}
+          : html`
+              <div class="empty-state-inline result-empty">
+                <span class="empty-state-icon">▶️</span>
+                <span>Run the method to see results here</span>
+              </div>
+            `}
       </div>
     `;
   }
@@ -4882,7 +4959,7 @@ export class BeamApp extends LitElement {
                   ? html`
                       <button
                         class="settings-dropdown-item"
-                        style="color: #f87171;"
+                        style="color: var(--color-error);"
                         @click=${this._handleDeletePhoton}
                       >
                         <span class="icon">🗑️</span>
@@ -4894,7 +4971,7 @@ export class BeamApp extends LitElement {
                   ? html`
                       <button
                         class="settings-dropdown-item"
-                        style="color: #f87171;"
+                        style="color: var(--color-error);"
                         @click=${this._handleRemove}
                       >
                         <span class="icon">🗑️</span>

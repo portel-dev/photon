@@ -70,7 +70,7 @@ export class ResultViewer extends LitElement {
         padding: 2px 8px;
         background: transparent;
         border: none;
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         color: var(--t-muted);
         opacity: 0.6;
         text-transform: uppercase;
@@ -396,7 +396,7 @@ export class ResultViewer extends LitElement {
 
       .status-badge {
         padding: 2px 8px;
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-size: 0.75rem;
         font-weight: 500;
       }
@@ -524,7 +524,7 @@ export class ResultViewer extends LitElement {
         padding: var(--space-xs) var(--space-md);
         background: var(--bg-glass-strong);
         border: 1px solid var(--border-glass);
-        border-radius: 20px;
+        border-radius: var(--radius-full);
         font-size: 0.85rem;
         color: var(--t-primary);
       }
@@ -541,14 +541,14 @@ export class ResultViewer extends LitElement {
       .markdown-body code {
         background: var(--code-bg);
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         font-family: var(--font-mono);
         font-size: 0.9em;
       }
       .markdown-body pre {
         background: var(--code-bg);
         padding: 1em;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         overflow-x: auto;
         border: 1px solid var(--border-glass);
       }
@@ -638,7 +638,7 @@ export class ResultViewer extends LitElement {
         font-family: var(--font-sans);
       }
 
-      .filter-input:focus {
+      .filter-input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -870,7 +870,7 @@ export class ResultViewer extends LitElement {
         align-items: center;
         gap: 4px;
         background: rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         padding: 4px;
       }
 
@@ -886,7 +886,7 @@ export class ResultViewer extends LitElement {
         color: white;
         width: 36px;
         height: 36px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         cursor: pointer;
         font-size: 1.1rem;
         display: flex;
@@ -1062,7 +1062,7 @@ export class ResultViewer extends LitElement {
         color: var(--t-muted);
         width: 28px;
         height: 28px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         cursor: pointer;
         font-size: 1rem;
         display: flex;
@@ -2525,7 +2525,7 @@ export class ResultViewer extends LitElement {
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
         const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
-        wrapper.style.cssText = `position: relative; background: ${bgColor}; border-radius: 8px; padding: 16px; margin: 16px 0;`;
+        wrapper.style.cssText = `position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0;`;
 
         const diagramDiv = document.createElement('div');
         diagramDiv.id = id;
@@ -2561,7 +2561,7 @@ export class ResultViewer extends LitElement {
       } catch (e) {
         console.error('Mermaid render error:', e);
         (placeholder as HTMLElement).innerHTML =
-          `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px;">Mermaid Error: ${e}\n\n${code}</pre>`;
+          `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e}\n\n${code}</pre>`;
       }
     }
   }

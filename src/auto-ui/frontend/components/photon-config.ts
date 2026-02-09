@@ -63,7 +63,7 @@ export class PhotonConfig extends LitElement {
       }
 
       .form-group label .required {
-        color: #f87171;
+        color: var(--color-error);
       }
 
       .form-group label .hint {
@@ -72,7 +72,7 @@ export class PhotonConfig extends LitElement {
         font-family: var(--font-mono);
         background: var(--bg-glass);
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
       }
 
       .form-group input {
@@ -87,7 +87,7 @@ export class PhotonConfig extends LitElement {
         box-sizing: border-box;
       }
 
-      .form-group input:focus {
+      .form-group input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -167,7 +167,7 @@ export class PhotonConfig extends LitElement {
       .error-banner {
         background: hsla(0, 70%, 50%, 0.15);
         border: 1px solid hsla(0, 70%, 50%, 0.3);
-        color: #f87171;
+        color: var(--color-error);
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
         font-size: 0.85rem;

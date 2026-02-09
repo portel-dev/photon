@@ -88,7 +88,7 @@ export class StudioPreview extends LitElement {
 
     .method-item {
       background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       padding: 8px 10px;
       margin-bottom: 6px;
       border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
@@ -106,7 +106,7 @@ export class StudioPreview extends LitElement {
     }
 
     .method-name {
-      color: var(--accent-primary, #818cf8);
+      color: var(--accent-primary);
     }
 
     .method-desc {
@@ -136,14 +136,14 @@ export class StudioPreview extends LitElement {
     }
 
     .param-required {
-      color: #f87171;
+      color: var(--color-error);
       font-size: 0.65rem;
     }
 
     .badge {
       display: inline-block;
       padding: 1px 6px;
-      border-radius: 3px;
+      border-radius: var(--radius-xs);
       font-size: 0.65rem;
       font-weight: 500;
       letter-spacing: 0.03em;
@@ -156,7 +156,7 @@ export class StudioPreview extends LitElement {
 
     .badge-webhook {
       background: rgba(251, 191, 36, 0.15);
-      color: #fbbf24;
+      color: var(--color-warning);
     }
 
     .badge-cron {
@@ -165,8 +165,8 @@ export class StudioPreview extends LitElement {
     }
 
     .badge-locked {
-      background: rgba(248, 113, 113, 0.15);
-      color: #f87171;
+      background: var(--color-error-bg);
+      color: var(--color-error);
     }
 
     .badge-stateful {
@@ -178,7 +178,7 @@ export class StudioPreview extends LitElement {
       display: inline-block;
       padding: 1px 6px;
       background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-      border-radius: 3px;
+      border-radius: var(--radius-xs);
       font-size: 0.72rem;
       margin: 2px 2px 2px 0;
       color: var(--t-muted, #888);
@@ -192,7 +192,7 @@ export class StudioPreview extends LitElement {
     }
 
     .error-item {
-      color: #f87171;
+      color: var(--color-error);
       font-size: 0.78rem;
       padding: 2px 0;
     }
@@ -202,7 +202,7 @@ export class StudioPreview extends LitElement {
     }
 
     .warning-item {
-      color: #fbbf24;
+      color: var(--color-warning);
       font-size: 0.78rem;
       padding: 2px 0;
     }

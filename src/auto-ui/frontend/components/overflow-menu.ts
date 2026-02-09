@@ -112,7 +112,7 @@ export class OverflowMenu extends LitElement {
       min-width: 220px;
       background: #1a1a2e;
       border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
+      border-radius: var(--radius-md);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       font-family: 'Inter', sans-serif;
       padding: 4px 0;
@@ -133,7 +133,7 @@ export class OverflowMenu extends LitElement {
         gap: 10px;
         padding: 10px 14px;
         cursor: pointer;
-        color: ${item.danger ? '#f87171' : 'var(--t-primary, #e2e8f0)'};
+        color: ${item.danger ? 'var(--color-error)' : 'var(--t-primary, #e2e8f0)'};
         font-size: 0.85rem;
         border: none;
         background: none;
@@ -170,7 +170,7 @@ export class OverflowMenu extends LitElement {
         toggle.style.cssText = `
           width: 32px; height: 18px;
           background: ${item.toggleActive ? 'var(--accent-primary, #7c3aed)' : 'var(--bg-glass, rgba(255,255,255,0.05))'};
-          border-radius: 9px; position: relative; flex-shrink: 0;
+          border-radius: var(--radius-sm); position: relative; flex-shrink: 0;
         `;
         const knob = document.createElement('span');
         knob.style.cssText = `

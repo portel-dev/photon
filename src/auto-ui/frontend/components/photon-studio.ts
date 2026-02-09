@@ -78,13 +78,13 @@ export class PhotonStudio extends LitElement {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #fbbf24;
+      background: var(--color-warning);
       display: inline-block;
     }
 
     .toolbar-btn {
       padding: 5px 12px;
-      border-radius: 5px;
+      border-radius: var(--radius-xs);
       border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
       background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
       color: var(--t-primary, #e0e0e0);
@@ -98,7 +98,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .toolbar-btn.primary {
-      background: var(--accent-primary, #818cf8);
+      background: var(--accent-primary);
       color: #fff;
       border-color: transparent;
     }
@@ -193,7 +193,7 @@ export class PhotonStudio extends LitElement {
     .templates-modal {
       background: var(--bg-primary, #1a1a2e);
       border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-      border-radius: 10px;
+      border-radius: var(--radius-full);
       padding: 24px;
       width: 90%;
       max-width: 600px;
@@ -217,7 +217,7 @@ export class PhotonStudio extends LitElement {
     .template-card {
       background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
       border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
       padding: 14px;
       cursor: pointer;
       transition:
@@ -226,7 +226,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .template-card:hover {
-      border-color: var(--accent-primary, #818cf8);
+      border-color: var(--accent-primary);
       transform: translateY(-1px);
     }
 
@@ -270,7 +270,7 @@ export class PhotonStudio extends LitElement {
     .kbd {
       display: inline-block;
       padding: 0 4px;
-      border-radius: 3px;
+      border-radius: var(--radius-xs);
       background: rgba(255, 255, 255, 0.06);
       font-family: var(--font-mono, monospace);
       font-size: 0.68rem;
@@ -288,7 +288,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .error-state {
-      color: #f87171;
+      color: var(--color-error);
       flex-direction: column;
       gap: 8px;
     }

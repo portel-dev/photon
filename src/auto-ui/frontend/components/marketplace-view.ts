@@ -57,7 +57,7 @@ export class MarketplaceView extends LitElement {
         transition: all 0.2s;
       }
 
-      .search-box input:focus {
+      .search-box input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -126,14 +126,14 @@ export class MarketplaceView extends LitElement {
         font-size: 0.7rem;
         padding: 2px 8px;
         background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         color: var(--t-muted);
       }
 
       .source-pill {
         font-size: 0.65rem;
         padding: 2px 8px;
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -179,7 +179,7 @@ export class MarketplaceView extends LitElement {
 
       .filter-pill {
         padding: 6px 12px;
-        border-radius: 16px;
+        border-radius: var(--radius-lg);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         font-size: 0.85rem;
@@ -205,7 +205,7 @@ export class MarketplaceView extends LitElement {
       .filter-pill .count {
         background: rgba(255, 255, 255, 0.2);
         padding: 2px 6px;
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-size: 0.75rem;
         font-weight: 500;
       }
@@ -461,9 +461,10 @@ export class MarketplaceView extends LitElement {
         box-sizing: border-box;
       }
 
-      .modal-body input:focus {
+      .modal-body input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .modal-hint {
@@ -475,7 +476,7 @@ export class MarketplaceView extends LitElement {
       .modal-hint code {
         background: var(--bg-glass);
         padding: 1px 4px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
       }
 
@@ -501,7 +502,7 @@ export class MarketplaceView extends LitElement {
       .formats-table td code {
         background: var(--bg-glass);
         padding: 2px 6px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
         color: var(--t-secondary);
       }

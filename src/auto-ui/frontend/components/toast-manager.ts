@@ -82,29 +82,29 @@ export class ToastManager extends LitElement {
       }
 
       .toast.success .icon {
-        color: #4ade80;
+        color: var(--color-success);
       }
       .toast.error .icon {
-        color: #f87171;
+        color: var(--color-error);
       }
       .toast.info .icon {
         color: var(--accent-secondary);
       }
       .toast.warning .icon {
-        color: #fbbf24;
+        color: var(--color-warning);
       }
 
       .toast.success {
-        border-left: 3px solid #4ade80;
+        border-left: 3px solid var(--color-success);
       }
       .toast.error {
-        border-left: 3px solid #f87171;
+        border-left: 3px solid var(--color-error);
       }
       .toast.info {
         border-left: 3px solid var(--accent-secondary);
       }
       .toast.warning {
-        border-left: 3px solid #fbbf24;
+        border-left: 3px solid var(--color-warning);
       }
 
       .message {
@@ -133,7 +133,7 @@ export class ToastManager extends LitElement {
         color: var(--accent-secondary);
         cursor: pointer;
         padding: 3px 10px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         font-size: 0.8rem;
         font-weight: 500;
         transition: all 0.2s;

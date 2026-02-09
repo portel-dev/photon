@@ -50,7 +50,7 @@ export class ContextBar extends LitElement {
       .icon {
         width: 32px;
         height: 32px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
         display: flex;
         align-items: center;
@@ -106,7 +106,7 @@ export class ContextBar extends LitElement {
           opacity 0.15s,
           color 0.15s;
         padding: 2px 4px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         flex-shrink: 0;
       }
 
@@ -149,7 +149,7 @@ export class ContextBar extends LitElement {
         padding: 1px 6px;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-weight: 500;
       }
 
@@ -324,7 +324,8 @@ export class ContextBar extends LitElement {
                   <div class="top-line">
                     ${this._editingName
                       ? html`<input
-                          style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-weight:600;font-size:0.95rem;outline:none;min-width:0;width:auto;"
+                          class="editable-input"
+                          style="font-weight:600;font-size:0.95rem;min-width:0;width:auto;"
                           type="text"
                           .value=${this._editedName}
                           @input=${(e: Event) => {
@@ -348,7 +349,8 @@ export class ContextBar extends LitElement {
                     <span class="separator">·</span>
                     ${this._editingDescription
                       ? html`<input
-                          style="background:transparent;border:none;color:var(--t-primary);font:inherit;font-size:0.8rem;outline:none;flex:1;min-width:0;"
+                          class="editable-input"
+                          style="font-size:0.8rem;flex:1;min-width:0;"
                           type="text"
                           .value=${this._editedDescription}
                           @input=${(e: Event) => {

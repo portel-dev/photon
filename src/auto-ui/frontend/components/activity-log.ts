@@ -46,7 +46,7 @@ export class ActivityLog extends LitElement {
         font-size: 0.8rem;
         cursor: pointer;
         padding: 4px 8px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
       }
 
       .clear-btn:hover {
@@ -96,13 +96,13 @@ export class ActivityLog extends LitElement {
         border-left-color: var(--accent-secondary);
       }
       .type-success {
-        border-left-color: #4ade80;
+        border-left-color: var(--color-success);
       }
       .type-error {
-        border-left-color: #f87171;
+        border-left-color: var(--color-error);
       }
       .type-warning {
-        border-left-color: #fbbf24;
+        border-left-color: var(--color-warning);
       }
 
       /* ===== Responsive Design ===== */

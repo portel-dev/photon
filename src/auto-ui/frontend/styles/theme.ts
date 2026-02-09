@@ -16,9 +16,11 @@ export const theme = css`
     --space-xl: 32px;
 
     /* Radius - same for all themes */
+    --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 12px;
     --radius-lg: 18px;
+    --radius-full: 9999px;
 
     /* Typography - same for all themes */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -60,6 +62,37 @@ export const theme = css`
     -webkit-text-fill-color: transparent;
   }
 
+  /* Focus visibility — WCAG 2.4.7 */
+  *:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+
+  /* Input elements use glow ring instead of outline */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--glow-primary);
+  }
+
+  /* Inline editable inputs — focus inherited from parent container */
+  .editable-input,
+  .description-input {
+    background: transparent;
+    border: none;
+    color: var(--t-primary);
+    font: inherit;
+    padding: 0;
+    margin: 0;
+  }
+
+  .editable-input:focus-visible,
+  .description-input:focus-visible {
+    outline: none;
+  }
+
   /* Scrollbar */
   ::-webkit-scrollbar {
     width: 8px;
@@ -70,7 +103,7 @@ export const theme = css`
   }
   ::-webkit-scrollbar-thumb {
     background: var(--border-glass);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: var(--t-muted);
@@ -100,7 +133,7 @@ export const theme = css`
     background-color: var(--bg-glass);
     border: 1px solid var(--border-glass);
     transition: 0.4s;
-    border-radius: 24px;
+    border-radius: var(--radius-full);
   }
 
   .slider:before {
@@ -125,7 +158,19 @@ export const theme = css`
     background-color: white;
   }
 
-  input:focus + .slider {
-    box-shadow: 0 0 1px var(--accent-primary);
+  input:focus-visible + .slider {
+    box-shadow: 0 0 0 2px var(--glow-primary);
+  }
+
+  /* Reduced motion — WCAG 2.3.3 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 `;

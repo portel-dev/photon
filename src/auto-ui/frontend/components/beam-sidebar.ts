@@ -44,6 +44,52 @@ export class BeamSidebar extends LitElement {
         overflow-y: auto;
       }
 
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-xl) var(--space-md);
+        text-align: center;
+        flex: 1;
+      }
+
+      .empty-icon {
+        font-size: 2rem;
+        margin-bottom: var(--space-sm);
+        opacity: 0.6;
+      }
+
+      .empty-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--t-primary);
+        margin-bottom: var(--space-xs);
+      }
+
+      .empty-hint {
+        font-size: 0.8rem;
+        color: var(--t-muted);
+        line-height: 1.4;
+      }
+
+      .empty-action {
+        margin-top: var(--space-md);
+        padding: var(--space-sm) var(--space-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        color: var(--accent-primary);
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .empty-action:hover {
+        background: var(--bg-glass-strong);
+        border-color: var(--accent-primary);
+      }
+
       .sidebar-footer {
         padding: var(--space-sm) var(--space-md);
         border-top: 1px solid var(--border-glass);
@@ -76,7 +122,7 @@ export class BeamSidebar extends LitElement {
         padding: 1px 4px;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-family: var(--font-mono);
       }
 
@@ -108,19 +154,19 @@ export class BeamSidebar extends LitElement {
       }
 
       .status-indicator.connected {
-        background: #4ade80;
-        box-shadow: 0 0 6px #4ade80;
+        background: var(--color-success);
+        box-shadow: 0 0 6px var(--color-success);
       }
 
       .status-indicator.reconnecting {
-        background: #fbbf24;
-        box-shadow: 0 0 6px #fbbf24;
+        background: var(--color-warning);
+        box-shadow: 0 0 6px var(--color-warning);
         animation: pulse 1s ease-in-out infinite;
       }
 
       .status-indicator.disconnected {
-        background: #f87171;
-        box-shadow: 0 0 6px #f87171;
+        background: var(--color-error);
+        box-shadow: 0 0 6px var(--color-error);
       }
 
       @keyframes pulse {
@@ -139,7 +185,7 @@ export class BeamSidebar extends LitElement {
         gap: var(--space-xs);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: 20px;
+        border-radius: var(--radius-full);
         padding: 4px;
         cursor: pointer;
       }
@@ -187,7 +233,7 @@ export class BeamSidebar extends LitElement {
         box-sizing: border-box;
       }
 
-      input:focus {
+      input:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -233,7 +279,7 @@ export class BeamSidebar extends LitElement {
       .photon-icon {
         width: 28px;
         height: 28px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: var(--bg-glass);
         display: flex;
         align-items: center;
@@ -247,7 +293,7 @@ export class BeamSidebar extends LitElement {
       .photon-icon.emoji-icon {
         background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
         color: white;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         font-size: 16px;
       }
 
@@ -260,7 +306,7 @@ export class BeamSidebar extends LitElement {
         padding: 1px 4px;
         background: linear-gradient(135deg, hsl(280, 60%, 50%), hsl(320, 60%, 50%));
         color: white;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         text-transform: uppercase;
         font-weight: 600;
         letter-spacing: 0.03em;
@@ -292,7 +338,7 @@ export class BeamSidebar extends LitElement {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-weight: 500;
         flex-shrink: 0;
       }
@@ -317,7 +363,7 @@ export class BeamSidebar extends LitElement {
         padding: 2px 6px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid var(--border-glass);
-        border-radius: 10px;
+        border-radius: var(--radius-full);
         font-weight: 500;
         flex-shrink: 0;
       }
@@ -353,7 +399,7 @@ export class BeamSidebar extends LitElement {
         padding: 1px 5px;
         background: hsl(0, 80%, 55%);
         color: white;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         font-weight: 600;
         flex-shrink: 0;
       }
@@ -393,7 +439,7 @@ export class BeamSidebar extends LitElement {
       .photon-icon.external-mcp-icon {
         background: linear-gradient(135deg, hsl(200, 60%, 45%), hsl(220, 60%, 55%));
         color: white;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         font-size: 14px;
       }
 
@@ -412,7 +458,7 @@ export class BeamSidebar extends LitElement {
         background: hsla(0, 60%, 50%, 0.2);
         color: hsl(0, 60%, 55%);
         border: 1px solid hsla(0, 60%, 50%, 0.3);
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         text-transform: uppercase;
         font-weight: 600;
         letter-spacing: 0.03em;
@@ -424,7 +470,7 @@ export class BeamSidebar extends LitElement {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         cursor: pointer;
         transition: all 0.2s;
       }
@@ -743,6 +789,34 @@ export class BeamSidebar extends LitElement {
               <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
                 ${this._nonAppExternalMCPs.map((mcp) => this._renderExternalMCPItem(mcp))}
               </ul>
+            `
+          : ''}
+        ${this._apps.length === 0 &&
+        this._configured.length === 0 &&
+        this._needsSetup.length === 0 &&
+        this._nonAppExternalMCPs.length === 0
+          ? html`
+              <div class="empty-state">
+                ${this._searchQuery.trim()
+                  ? html`
+                      <div class="empty-icon">🔍</div>
+                      <div class="empty-title">No results</div>
+                      <div class="empty-hint">No photons match "${this._searchQuery}"</div>
+                    `
+                  : html`
+                      <div class="empty-icon">📦</div>
+                      <div class="empty-title">No photons yet</div>
+                      <div class="empty-hint">
+                        Add photons from the marketplace or create your own
+                      </div>
+                      <button
+                        class="empty-action"
+                        @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
+                      >
+                        🛍️ Browse Marketplace
+                      </button>
+                    `}
+              </div>
             `
           : ''}
       </nav>

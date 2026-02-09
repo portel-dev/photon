@@ -84,8 +84,8 @@ export class InvokeForm extends LitElement {
         box-sizing: border-box;
       }
 
-      input:focus,
-      textarea:focus {
+      input:focus-visible,
+      textarea:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
         box-shadow: 0 0 0 2px var(--glow-primary);
@@ -102,9 +102,9 @@ export class InvokeForm extends LitElement {
 
       .cli-preview {
         margin-top: var(--space-md);
-        background: #000;
-        border: 1px solid #333;
-        border-radius: 6px;
+        background: var(--cli-bg);
+        border: 1px solid var(--cli-border);
+        border-radius: var(--radius-sm);
         padding: 12px 16px;
         font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
       }
@@ -120,7 +120,7 @@ export class InvokeForm extends LitElement {
         font-size: 0.6rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #666;
+        color: var(--cli-muted);
         font-family: inherit;
       }
 
@@ -129,29 +129,29 @@ export class InvokeForm extends LitElement {
         font-family: inherit;
         background: none;
         border: none;
-        color: #666;
+        color: var(--cli-muted);
         cursor: pointer;
         padding: 2px 6px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         transition: all 0.15s;
       }
 
       .cli-preview-copy:hover {
-        color: #aaa;
-        background: #1a1a1a;
+        color: var(--t-muted);
+        background: var(--cli-hover-bg);
       }
 
       .cli-preview-cmd {
         font-family: inherit;
         font-size: 0.85rem;
-        color: #22c55e;
+        color: var(--cli-text);
         word-break: break-all;
         line-height: 1.6;
       }
 
       .cli-preview-cmd::before {
         content: '$ ';
-        color: #555;
+        color: var(--cli-muted);
       }
 
       button {
@@ -214,7 +214,7 @@ export class InvokeForm extends LitElement {
       }
 
       .error-text {
-        color: #f87171;
+        color: var(--color-error);
         font-size: 0.75rem;
         margin-top: var(--space-xs);
       }
@@ -222,12 +222,12 @@ export class InvokeForm extends LitElement {
       input.error,
       textarea.error,
       select.error {
-        border-color: #f87171;
+        border-color: var(--color-error);
       }
 
-      input.error:focus,
-      textarea.error:focus {
-        box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+      input.error:focus-visible,
+      textarea.error:focus-visible {
+        box-shadow: 0 0 0 2px var(--color-error-glow);
       }
 
       /* Multiselect Styles */
@@ -330,15 +330,15 @@ export class InvokeForm extends LitElement {
       .array-item-remove {
         background: none;
         border: none;
-        color: #f87171;
+        color: var(--color-error);
         cursor: pointer;
         font-size: 0.75rem;
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
       }
 
       .array-item-remove:hover {
-        background: rgba(248, 113, 113, 0.1);
+        background: var(--color-error-bg);
       }
 
       .array-add-btn {
@@ -395,17 +395,18 @@ export class InvokeForm extends LitElement {
         resize: vertical;
       }
 
-      .json-editor:focus {
+      .json-editor:focus-visible {
         outline: none;
         border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .json-editor.error {
-        border-color: #f87171;
+        border-color: var(--color-error);
       }
 
       .json-error {
-        color: #f87171;
+        color: var(--color-error);
         font-size: 0.75rem;
         margin-top: var(--space-xs);
       }
@@ -421,7 +422,7 @@ export class InvokeForm extends LitElement {
         width: 100%;
         height: 6px;
         background: var(--bg-glass);
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         border: none;
         -webkit-appearance: none;
       }

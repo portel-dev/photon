@@ -62,7 +62,7 @@ export class MethodCard extends LitElement {
       .method-icon {
         width: 32px;
         height: 32px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         background: var(--bg-glass);
         display: flex;
         align-items: center;
@@ -105,7 +105,7 @@ export class MethodCard extends LitElement {
           opacity 0.15s,
           color 0.15s;
         padding: 2px 4px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         flex-shrink: 0;
       }
 
@@ -168,7 +168,7 @@ export class MethodCard extends LitElement {
       .badge {
         font-size: 0.75rem;
         padding: 2px 8px;
-        border-radius: 12px;
+        border-radius: var(--radius-md);
         background: hsla(220, 10%, 80%, 0.1);
         color: var(--t-muted);
         flex-shrink: 0;
@@ -189,7 +189,7 @@ export class MethodCard extends LitElement {
       .param-tag {
         font-size: 0.65rem;
         padding: 1px 6px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.08));
         color: var(--param-tag-color, var(--t-muted));
         font-family: var(--font-mono);
@@ -200,7 +200,7 @@ export class MethodCard extends LitElement {
         font-size: 0.65rem;
         min-width: 18px;
         height: 18px;
-        border-radius: 9px;
+        border-radius: var(--radius-sm);
         background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.1));
         color: var(--param-tag-color, var(--t-muted));
         display: inline-flex;
@@ -223,7 +223,7 @@ export class MethodCard extends LitElement {
         text-transform: uppercase;
         letter-spacing: 0.04em;
         padding: 1px 6px;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
       }
 
       .type-badge.autorun {
@@ -315,8 +315,8 @@ export class MethodCard extends LitElement {
       }
 
       .emoji-picker .remove-btn:hover {
-        color: #f87171;
-        background: hsla(0, 80%, 60%, 0.1);
+        color: var(--color-error);
+        background: var(--color-error-bg);
       }
 
       /* ===== Responsive Design ===== */
@@ -447,7 +447,7 @@ export class MethodCard extends LitElement {
                   if (count === 0) {
                     return html`<span
                       class="badge"
-                      style="background: hsla(150, 50%, 40%, 0.2); color: #4ade80;"
+                      style="background: var(--color-success-bg); color: var(--color-success);"
                       >Ready</span
                     >`;
                   }
