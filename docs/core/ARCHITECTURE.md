@@ -255,6 +255,119 @@ curl -X POST http://localhost:3458/webhook/handleGithubIssue \
 
 ---
 
+## Stateful Photons: Cross-Client Persistence
+
+Photons marked with `@stateful` have their state persisted to disk and shared across all clients (CLI, Beam, Claude Desktop). This enables scenarios like: add items via CLI → Beam auto-updates → Claude Desktop sees the same data.
+
+### Architecture
+
+```
+                        State on Disk
+                    ~/.photon/state/{name}.json
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                          DAEMON                                  │
+│                   (Single shared instance)                        │
+│                                                                  │
+│  ┌──────────────────┐  ┌──────────────────────────────────────┐  │
+│  │  Photon Instance  │  │  Event Buffer (in-memory, 30 events) │  │
+│  │  (shared session) │  │  Per-channel circular buffer          │  │
+│  └────────┬─────────┘  │  Supports replay via lastEventId      │  │
+│           │             └──────────────────────────────────────┘  │
+│           │                                                      │
+│   Tool execution                                                 │
+│   → mutates state                                                │
+│   → persists to disk                                             │
+│   → publishes {name}:state-changed                               │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────────┐
+        ▼              ▼                  ▼
+   ┌─────────┐   ┌──────────┐   ┌──────────────┐
+   │   CLI   │   │   Beam   │   │ Claude Desktop│
+   │         │   │ (MCP srv)│   │  (MCP stdio)  │
+   └─────────┘   └────┬─────┘   └──────────────┘
+                       │
+                  SSE broadcast
+                  photon/state-changed
+                       │
+                       ▼
+                 ┌───────────┐
+                 │  Browser  │
+                 │ (MCP cli) │
+                 │ auto-     │
+                 │ refreshes │
+                 └───────────┘
+```
+
+### Consistency Model: Eventually Consistent
+
+**State is durable. Notifications are best-effort.**
+
+| What | Durability | Mechanism |
+|------|-----------|-----------|
+| **State data** | Durable | Persisted to disk on every mutation |
+| **Change notifications** | Best-effort | In-memory event buffers, lost on daemon restart |
+| **Recovery** | Guaranteed | Any client can re-execute a method to get current state |
+
+This is an **eventually-consistent** model: if a notification is missed, the client's view is stale until the next explicit request. The `_silentRefresh()` mechanism in Beam auto-re-executes on notification, but if that notification is lost, a manual re-execute always works.
+
+### Reliability at Each Layer
+
+```
+Layer 1: Client → Daemon (Unix Socket)
+├── CLI: retry once + auto-restart daemon, then fail
+├── Beam: retry once + auto-restart daemon, then fail
+└── Recovery: re-execute the command
+
+Layer 2: Daemon → Subscribers (Pub/Sub)
+├── Circular buffer: 30 events per channel
+├── Replay on reconnect via lastEventId
+├── Auto-reconnect with exponential backoff (subscribeChannel)
+└── Gap: buffer lost on daemon restart (in-memory only)
+
+Layer 3: Beam → Browser (SSE)
+├── Beam-side event buffer: 30 events per channel
+├── Replay on SSE reconnect via lastEventId
+├── SSE keepalive every 30s, stale detection at 60s
+└── Gap: events during SSE disconnect are lost
+
+Layer 4: Browser → Beam (HTTP POST)
+├── Operation queue with 30s expiry
+├── Auto-process on SSE reconnect
+├── Connection error detection and queuing
+└── Gap: queue lost on page reload (in-memory)
+```
+
+### Recovery Strategy
+
+When a notification is missed at any layer, the system self-heals:
+
+1. **Subscription reconnect** (Layer 2): `subscribeChannel({ reconnect: true })` auto-reconnects with exponential backoff, restarts daemon if needed, replays missed events via `lastEventId`
+2. **SSE reconnect** (Layer 3): Browser's `EventSource` auto-reconnects, Beam replays buffered events
+3. **Silent refresh** (Layer 3→4): On `state-changed` notification, Beam UI re-executes the displayed method without spinner
+4. **Manual re-execute** (any layer): User can always click Execute to get current state — disk is the source of truth
+
+### Daemon Lifecycle
+
+| Event | Behavior |
+|-------|----------|
+| Beam starts with `@stateful` photons | `ensureDaemon()` auto-starts daemon |
+| CLI runs `photon cli <stateful> <method>` | Auto-starts daemon if not running |
+| Daemon crashes | `subscribeChannel(reconnect: true)` detects drop, restarts daemon, resubscribes |
+| All clients disconnect | Daemon stays running (detached process) |
+| Machine reboot | Daemon restarts on next client interaction, state restored from disk |
+
+### Shared Session Model
+
+All clients use the same daemon session ID (`shared-{photonName}`) for stateful photons. This means:
+- One photon instance in memory, shared across CLI, Beam, and MCP
+- Mutations from any client are immediately visible to all others (via state-changed notifications)
+- State constructor params are restored from disk on daemon restart
+
+---
+
 ## Communication Patterns
 
 ### Allowed Protocols
@@ -262,9 +375,11 @@ curl -X POST http://localhost:3458/webhook/handleGithubIssue \
 | Path | Protocol | Implementation |
 |------|----------|----------------|
 | Browser ↔ Beam | MCP Streamable HTTP | `POST /mcp` + SSE responses |
-| Cross-process sync | Daemon Unix Socket | `~/.photon/daemons/*.sock` |
+| Cross-process sync | Daemon Unix Socket | `~/.photon/daemon.sock` |
 | Photon ↔ External MCP | stdio / SSE / HTTP | `@mcp` directive |
-| CLI ↔ Photon | Direct method call | In-process |
+| CLI ↔ Photon (stateless) | Direct method call | In-process |
+| CLI ↔ Photon (`@stateful`) | Daemon Unix Socket | Shared session via daemon |
+| Beam ↔ Photon (`@stateful`) | Daemon Unix Socket | Routed through daemon for shared instance |
 
 ### Real-Time Flow
 
