@@ -13,6 +13,7 @@ const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
 const FETCH_TIMEOUT_MS = 10_000;
 const MCP_RECONNECT_DELAY_MS = 3_000;
+const MCP_MAX_CONNECT_RETRIES = 5;
 const SCROLL_RENDER_DELAY_MS = 100;
 
 @customElement('beam-app')
@@ -1440,6 +1441,7 @@ export class BeamApp extends LitElement {
   @state() private _connected = false;
   @state() private _reconnecting = false;
   @state() private _reconnectAttempt = 0;
+  private _connectRetries = 0;
   @state() private _sidebarVisible = false;
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
@@ -1961,15 +1963,22 @@ export class BeamApp extends LitElement {
       });
 
       await mcpClient.connect();
+      this._connectRetries = 0;
     } catch (error) {
       console.error('MCP connection failed:', error);
       this._mcpReady = false;
       this._connected = false;
-      this._reconnecting = true;
-      // Connection status shown via indicator, not log
-      this._showError('Connection lost');
-      // Retry connection after a delay
-      setTimeout(() => this._connectMCP(), MCP_RECONNECT_DELAY_MS);
+      this._connectRetries++;
+
+      if (this._connectRetries <= MCP_MAX_CONNECT_RETRIES) {
+        this._reconnecting = true;
+        this._reconnectAttempt = this._connectRetries;
+        // Retry with exponential backoff
+        setTimeout(() => this._connectMCP(), MCP_RECONNECT_DELAY_MS * this._connectRetries);
+      } else {
+        // Give up — show static disconnected banner, no more toasts
+        this._reconnecting = false;
+      }
     }
   }
 
@@ -2485,7 +2494,14 @@ export class BeamApp extends LitElement {
                     </div>`
                   : ''}
               </div>
-              <button @click=${() => this._connect()}>Retry Now</button>
+              <button
+                @click=${() => {
+                  this._connectRetries = 0;
+                  this._connectMCP();
+                }}
+              >
+                Retry Now
+              </button>
             </div>
           `
         : ''}

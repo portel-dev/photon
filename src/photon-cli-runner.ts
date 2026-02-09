@@ -81,191 +81,32 @@ interface MarkdownBlock {
 async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const source = await fs.readFile(filePath, 'utf-8');
   const extractor = new SchemaExtractor();
-  const methods: MethodInfo[] = [];
+  const metadata = extractor.extractAllFromSource(source);
 
-  // Extract methods using the schema extractor
-  // Also match async generator methods (async *methodName) and static methods
-  const methodMatches = source.matchAll(/(?:static\s+)?async\s+\*?\s*(\w+)\s*\(([^)]*)\)/g);
-
-  for (const match of methodMatches) {
-    const methodName = match[1];
-    const methodParams = match[2];
-
-    // Skip private methods and lifecycle hooks
-    if (
-      methodName.startsWith('_') ||
-      methodName === 'onInitialize' ||
-      methodName === 'onShutdown'
-    ) {
-      continue;
-    }
-
-    // Extract method signature
-    const methodIndex = match.index!;
-    const precedingContent = source.substring(0, methodIndex);
-
-    // Find JSDoc comment
-    const lastJSDocStart = precedingContent.lastIndexOf('/**');
-    if (lastJSDocStart === -1) continue;
-
-    const jsdocSection = precedingContent.substring(lastJSDocStart);
-    const jsdocMatch = jsdocSection.match(/\/\*\*([\s\S]*?)\*\/\s*$/);
-
-    if (!jsdocMatch) continue;
-
-    const jsdoc = jsdocMatch[1];
-
-    // Extract description
-    const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
-    const description = descMatch
-      ? descMatch[1]
-          .split('\n')
-          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-          .join(' ')
-          .trim()
-      : undefined;
-
-    // Parse TypeScript parameter types and optionality from method signature
-    const tsParamTypes = new Map<string, string>();
-    const tsParamOptional = new Map<string, boolean>();
-    if (methodParams.trim()) {
-      // Extract: params?: { mute?: boolean } | boolean
-      const paramTypeMatch = methodParams.match(/(\w+)(\??):\s*(.+)/);
-      if (paramTypeMatch) {
-        const tsParamName = paramTypeMatch[1];
-        const isParamOptional = paramTypeMatch[2] === '?';
-        const paramType = paramTypeMatch[3].trim();
-
-        // Extract base type (handle unions like "{ mute?: boolean } | boolean")
-        const baseType = extractBaseType(paramType);
-
-        // Store type for both the TS param name and any inner property names
-        tsParamTypes.set(tsParamName, baseType);
-        tsParamOptional.set(tsParamName, isParamOptional);
-
-        // Also extract inner object properties: { mute?: boolean }
-        const innerProps = extractObjectProperties(paramType);
-        for (const [propName, propInfo] of innerProps) {
-          tsParamTypes.set(propName, propInfo.type);
-          // If the parent param is optional, inner properties are also optional
-          tsParamOptional.set(propName, isParamOptional || propInfo.optional);
-        }
-      }
-    }
-
-    // Extract format hint from @format tag (structural and content formats)
-    let format: OutputFormat | undefined;
-
-    // Match structural formats (including card, tabs, accordion)
-    const structuralMatch = jsdoc.match(
-      /@format\s+(primitive|table|tree|list|card|tabs|accordion|none)/i
-    );
-    if (structuralMatch) {
-      format = structuralMatch[1].toLowerCase() as OutputFormat;
-    }
-    // Match content formats
-    else {
-      const contentMatch = jsdoc.match(/@format\s+(json|markdown|yaml|xml|html)/i);
-      if (contentMatch) {
-        format = contentMatch[1].toLowerCase() as OutputFormat;
-      } else {
-        // Match code format (with optional language)
-        const codeMatch = jsdoc.match(/@format\s+code(?::(\w+))?/i);
-        if (codeMatch) {
-          format = codeMatch[1] ? (`code:${codeMatch[1]}` as OutputFormat) : 'code';
-        }
-      }
-    }
-
-    // Extract parameters
+  return metadata.tools.map((tool) => {
     const params: MethodInfo['params'] = [];
-    const paramRegex = /@param\s+(\w+)\s+(.+?)(?=\n\s*\*\s*@|\n\s*\*\/|\n\s*$)/gs;
-    let paramMatch;
+    const schema = tool.inputSchema;
 
-    while ((paramMatch = paramRegex.exec(jsdoc)) !== null) {
-      const paramName = paramMatch[1];
-      const paramDesc = paramMatch[2].trim();
-
-      // Extract custom label from {@label displayName} tag
-      const labelMatch = paramDesc.match(/\{@label\s+([^}]+)\}/);
-      const customLabel = labelMatch ? labelMatch[1].trim() : undefined;
-
-      // Extract {@example ...} - handle nested braces/brackets for JSON
-      let example: string | undefined;
-      const exampleStart = paramDesc.indexOf('{@example ');
-      if (exampleStart !== -1) {
-        const contentStart = exampleStart + '{@example '.length;
-        let braceDepth = 0;
-        let bracketDepth = 0;
-        let i = contentStart;
-        let inString = false;
-
-        while (i < paramDesc.length) {
-          const ch = paramDesc[i];
-          const prevCh = i > 0 ? paramDesc[i - 1] : '';
-
-          if (ch === '"' && prevCh !== '\\') {
-            inString = !inString;
-          } else if (!inString) {
-            if (ch === '{') braceDepth++;
-            else if (ch === '[') bracketDepth++;
-            else if (ch === ']') bracketDepth--;
-            else if (ch === '}') {
-              if (braceDepth === 0 && bracketDepth === 0) {
-                example = paramDesc.substring(contentStart, i).trim();
-                break;
-              }
-              braceDepth--;
-            }
-          }
-          i++;
-        }
+    if (schema?.properties) {
+      for (const [name, prop] of Object.entries(schema.properties) as [string, any][]) {
+        params.push({
+          name,
+          type: prop.type || 'any',
+          optional: !schema.required?.includes(name),
+          description: prop.description,
+          ...(prop.examples?.[0] !== undefined ? { example: String(prop.examples[0]) } : {}),
+        });
       }
-
-      // Remove {@example ...} tag (handles nested braces/brackets)
-      let cleanedParamDesc = paramDesc;
-      if (exampleStart !== -1 && example) {
-        // Remove the full {@example ...} tag we extracted
-        const tagEnd = exampleStart + '{@example '.length + example.length + 1; // +1 for closing }
-        cleanedParamDesc = paramDesc.substring(0, exampleStart) + paramDesc.substring(tagEnd);
-      }
-
-      // Remove remaining JSDoc constraint tags for display
-      const cleanDesc = cleanedParamDesc
-        .replace(/\{@\w+[^}]*\}/g, '')
-        .replace(/\(optional\)/gi, '')
-        .replace(/\(default:.*?\)/gi, '')
-        .trim();
-
-      // Check optional from TypeScript signature first, fallback to JSDoc
-      const tsOptional = tsParamOptional.get(paramName);
-      const jsdocOptional = /\(optional\)/i.test(paramDesc) || /\(default:/i.test(paramDesc);
-      const optional = tsOptional !== undefined ? tsOptional : jsdocOptional;
-
-      params.push({
-        name: paramName,
-        type: tsParamTypes.get(paramName) || 'any',
-        optional,
-        description: cleanDesc,
-        ...(customLabel ? { label: customLabel } : {}),
-        ...(example ? { example } : {}),
-      });
     }
 
-    // Extract button label from @returns {@label ...} tag
-    const returnsMatch = jsdoc.match(/@returns?\s+.*?\{@label\s+([^}]+)\}/i);
-    const buttonLabel = returnsMatch ? returnsMatch[1].trim() : undefined;
-
-    methods.push({
-      name: methodName,
+    return {
+      name: tool.name,
       params,
-      description,
-      ...(format ? { format } : {}),
-      ...(buttonLabel ? { buttonLabel } : {}),
-    });
-  }
-
-  return methods;
+      description: tool.description !== 'No description' ? tool.description : undefined,
+      ...(tool.outputFormat ? { format: tool.outputFormat } : {}),
+      ...(tool.buttonLabel ? { buttonLabel: tool.buttonLabel } : {}),
+    };
+  });
 }
 
 /**

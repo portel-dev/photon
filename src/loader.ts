@@ -522,7 +522,7 @@ export class PhotonLoader {
       const MCPClass = this.findMCPClass(module);
 
       if (!MCPClass || !this.isClass(MCPClass)) {
-        throw new Error('No MCP class found in file. Expected a class with async methods.');
+        throw new Error('No class found in file. Expected a default-exported class with methods.');
       }
 
       // Get MCP name
@@ -1680,12 +1680,29 @@ Run: photon mcp ${mcpName} --config
         throw new Error(`Tool not found: ${toolName}`);
       }
 
+      // Check if this tool uses simple params (e.g., add(item: string) vs add(params: { item: string }))
+      // Simple params need to be destructured from the params object into individual arguments
+      const toolMeta = mcp.tools.find((t: any) => t.name === toolName);
+      let args: any[];
+      if (
+        toolMeta &&
+        (toolMeta as any).simpleParams &&
+        parameters &&
+        typeof parameters === 'object'
+      ) {
+        // Get param names from schema to preserve order
+        const paramNames = Object.keys(toolMeta.inputSchema?.properties || {});
+        args = paramNames.map((name) => parameters[name]);
+      } else {
+        args = [parameters];
+      }
+
       // Create a generator factory for maybeStatefulExecute
       // This allows re-execution on resume
       // For static methods, call on the class itself; for instance methods, bind to instance
       const generatorFn = isStatic
-        ? () => method.call(null, parameters)
-        : () => method.call(mcp.instance, parameters);
+        ? () => method.call(null, ...args)
+        : () => method.call(mcp.instance, ...args);
 
       // Use maybeStatefulExecute for all executions
       // It handles both regular async and generators, detecting checkpoint yields
