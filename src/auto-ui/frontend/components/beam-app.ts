@@ -289,10 +289,28 @@ export class BeamApp extends LitElement {
         color: hsl(200, 60%, 65%);
       }
 
-      .instance-select {
-        font-size: 0.75rem;
-        padding: 4px 10px;
+      .instance-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        margin-top: var(--space-sm);
+        padding: var(--space-xs) var(--space-md);
+        border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
+        background: var(--bg-glass);
+        backdrop-filter: blur(16px);
+      }
+
+      .instance-label {
+        font-size: 0.75rem;
+        color: var(--t-muted);
+        font-weight: 500;
+      }
+
+      .instance-select {
+        font-size: 0.8rem;
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         color: var(--t-primary);
@@ -3279,6 +3297,25 @@ export class BeamApp extends LitElement {
         @context-action=${this._handleContextAction}
       ></context-bar>
 
+      ${this._selectedPhoton.stateful && this._instances.length > 0
+        ? html`
+            <div class="instance-bar">
+              <span class="instance-label">Instance:</span>
+              <select
+                class="instance-select"
+                .value=${this._currentInstance}
+                @change=${(e: Event) => this._switchInstance((e.target as HTMLSelectElement).value)}
+              >
+                ${this._instances.map(
+                  (inst: string) =>
+                    html`<option value=${inst} ?selected=${inst === this._currentInstance}>
+                      ${inst || 'default'}
+                    </option>`
+                )}
+              </select>
+            </div>
+          `
+        : ''}
       ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
       <div class="bento-methods">
@@ -5247,21 +5284,6 @@ export class BeamApp extends LitElement {
               ? html`<span class="photon-badge source"
                   >from ${this._selectedPhoton.installSource.marketplace}</span
                 >`
-              : ''}
-            ${this._selectedPhoton.stateful && this._instances.length > 0
-              ? html`<select
-                  class="instance-select"
-                  .value=${this._currentInstance}
-                  @change=${(e: Event) =>
-                    this._switchInstance((e.target as HTMLSelectElement).value)}
-                >
-                  ${this._instances.map(
-                    (inst: string) =>
-                      html`<option value=${inst} ?selected=${inst === this._currentInstance}>
-                        ${inst || 'default'}
-                      </option>`
-                  )}
-                </select>`
               : ''}
           </div>
           ${this._selectedPhoton.path
