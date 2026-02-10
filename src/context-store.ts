@@ -79,7 +79,8 @@ export class InstanceStore {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CLI Session Store — per-terminal-session instance tracking
-// Uses parent PID (shell PID) to scope to the current terminal session.
+// Uses the controlling terminal (TTY) to scope to the current terminal window.
+// Falls back to PPID for non-TTY environments (CI, cron, etc.).
 // Files live in /tmp so they're cleaned on reboot.
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -87,8 +88,30 @@ export class CLISessionStore {
   private sessionDir: string;
 
   constructor() {
-    const ppid = process.ppid;
-    this.sessionDir = path.join(os.tmpdir(), 'photon-cli-sessions', String(ppid));
+    const sessionKey = CLISessionStore._getSessionKey();
+    this.sessionDir = path.join(os.tmpdir(), 'photon-cli-sessions', sessionKey);
+  }
+
+  /**
+   * Get a stable session key for the current terminal.
+   * Uses the controlling terminal (TTY) name — consistent across subshells,
+   * pipes, and $() command substitutions within the same terminal window.
+   * Falls back to PPID for non-TTY environments.
+   */
+  private static _getSessionKey(): string {
+    try {
+      const { execSync } = require('child_process');
+      const tty = execSync(`ps -o tty= -p ${process.pid}`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+      if (tty && tty !== '??' && tty !== '?') {
+        return `tty-${tty.replace(/\//g, '-')}`;
+      }
+    } catch {
+      // ps not available or failed
+    }
+    return String(process.ppid);
   }
 
   private _path(photonName: string): string {
