@@ -3466,7 +3466,7 @@ export class BeamApp extends LitElement {
           ${this._instances.map(
             (inst: string) =>
               html`<option value=${inst} ?selected=${inst === this._currentInstance}>
-                ${inst || 'default'}
+                ${inst === 'default' ? '(default)' : inst}
               </option>`
           )}
         </select>
@@ -3497,9 +3497,14 @@ export class BeamApp extends LitElement {
     try {
       await mcpClient.callTool(`${photonName}/_use`, { name });
       this._currentInstance = name || 'default';
-      showToast(`Switched to instance: ${name || 'default'}`, 'success');
+      const label = name === 'default' ? '(default)' : name || '(default)';
+      showToast(`Switched to instance: ${label}`, 'success');
       // Refresh instances list
       await this._fetchInstances(photonName);
+      // Auto-re-execute current method if it has no required params (e.g. get)
+      if (this._view === 'form' && this._selectedMethod) {
+        this._maybeAutoInvoke(this._selectedMethod);
+      }
     } catch {
       showToast('Failed to switch instance', 'error');
     }
