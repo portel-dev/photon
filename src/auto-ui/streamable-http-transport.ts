@@ -376,6 +376,31 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
+    // Add runtime-injected instance tools for stateful photons
+    for (const photon of ctx.photons) {
+      if (!photon.configured || !photon.stateful) continue;
+      tools.push({
+        name: `${photon.name}/_use`,
+        description: `Switch to a named instance of ${photon.name}. Pass empty name for default.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Instance name (empty for default)' },
+          },
+          required: ['name'],
+        },
+        'x-photon-id': photon.id,
+        'x-photon-internal': true,
+      });
+      tools.push({
+        name: `${photon.name}/_instances`,
+        description: `List all available instances of ${photon.name}.`,
+        inputSchema: { type: 'object', properties: {} },
+        'x-photon-id': photon.id,
+        'x-photon-internal': true,
+      });
+    }
+
     // Add external MCP tools (from mcpServers in config.json)
     if (ctx.externalMCPs) {
       for (const mcp of ctx.externalMCPs) {
@@ -758,13 +783,15 @@ const handlers: Record<string, RequestHandler> = {
           }
         }
 
+        // Use a stable session per photon for Beam
+        const beamSessionId = `beam-${photonName}`;
         const result = await sendCommand(
           photonName,
           methodName,
           (args || {}) as Record<string, any>,
           {
             photonPath: photonInfo.path,
-            sessionId: `shared-${photonName}`,
+            sessionId: beamSessionId,
           }
         );
 

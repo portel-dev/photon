@@ -846,10 +846,38 @@ async function handleRequest(
         request.clientType
       );
 
+      // ── Runtime-injected instance tools ──────────────────────────
+      if (request.method === '_use') {
+        const instanceName = String((request.args as any)?.name ?? '');
+        await sessionManager.switchInstance(session.id, instanceName);
+        const label = instanceName || 'default';
+        return {
+          type: 'result',
+          id: request.id,
+          success: true,
+          data: { instance: label, message: `Switched to instance: ${label}` },
+        };
+      }
+
+      if (request.method === '_instances') {
+        const { InstanceStore } = await import('../context-store.js');
+        const store = new InstanceStore();
+        const instances = store.listInstances(photonName);
+        const current = session.instanceName || 'default';
+        return {
+          type: 'result',
+          id: request.id,
+          success: true,
+          data: { instances, current },
+        };
+      }
+      // ─────────────────────────────────────────────────────────────
+
       logger.info('Executing request', {
         method: request.method,
         photon: photonName,
         sessionId: session.id,
+        instance: session.instanceName || 'default',
       });
 
       setPromptHandler(createSocketPromptHandler(socket, request.id));
@@ -869,6 +897,9 @@ async function handleRequest(
       );
 
       setPromptHandler(null);
+
+      // Persist reactive state after each tool call
+      await persistInstanceState(session.instance, photonName, session.instanceName);
 
       // Notify subscribers that state may have changed
       publishToChannel(
@@ -893,6 +924,48 @@ async function handleRequest(
   }
 
   return { type: 'error', id: request.id, error: `Unknown request type: ${request.type}` };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// STATE PERSISTENCE
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Persist reactive collection state to disk after each tool call.
+ * Scans the instance for properties with _propertyName (ReactiveArray/Map/Set markers)
+ * and serializes them to the instance-specific state file.
+ */
+async function persistInstanceState(
+  instance: any,
+  photonName: string,
+  instanceName: string
+): Promise<void> {
+  try {
+    const snapshot: Record<string, any> = {};
+    for (const key of Object.keys(instance)) {
+      if (key.startsWith('_')) continue; // skip internal properties
+      const value = instance[key];
+      if (value && typeof value === 'object' && value._propertyName) {
+        // ReactiveArray/Map/Set — serialize underlying data
+        snapshot[key] = value.toJSON ? value.toJSON() : globalThis.Array.from(value);
+      }
+    }
+
+    if (Object.keys(snapshot).length > 0) {
+      const { getInstanceStatePath } = await import('../context-store.js');
+      const statePath = getInstanceStatePath(photonName, instanceName);
+      const fsPromises = await import('fs/promises');
+      const path = await import('path');
+      await fsPromises.mkdir(path.dirname(statePath), { recursive: true });
+      await fsPromises.writeFile(statePath, JSON.stringify(snapshot, null, 2));
+      logger.debug('Persisted state', { photon: photonName, instance: instanceName || 'default' });
+    }
+  } catch (error) {
+    logger.error('Failed to persist state', {
+      photon: photonName,
+      error: getErrorMessage(error),
+    });
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

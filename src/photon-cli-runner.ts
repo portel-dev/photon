@@ -1305,11 +1305,20 @@ export async function runMethod(
         }
       }
 
-      // Send command to daemon with a stable session so all CLI invocations share one instance
-      result = await sendCommand(photonName, methodName, parsedArgs, {
-        photonPath: resolvedPath,
-        sessionId: `shared-${photonName}`,
-      });
+      // Read current instance from store
+      const { InstanceStore } = await import('./context-store.js');
+      const instanceStore = new InstanceStore();
+      const currentInstance = instanceStore.getCurrentInstance(photonName);
+      const sessionId = `cli-${photonName}`;
+      const sendOpts = { photonPath: resolvedPath, sessionId };
+
+      // Switch to the correct instance before executing the command
+      if (currentInstance) {
+        await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
+      }
+
+      // Send the actual command
+      result = await sendCommand(photonName, methodName, parsedArgs, sendOpts);
     } else {
       // STATELESS PATH: Direct execution
       const loader = new PhotonLoader(false); // verbose=false for CLI mode

@@ -1,11 +1,14 @@
 /**
- * Context Store & Environment Store
+ * Instance Store & Environment Store
  *
- * Manages two types of constructor parameter values:
- * - Context (primitive with default) → `photon use` → ~/.photon/context/{photon}.json
- * - Environment (primitive, no default) → `photon set` → ~/.photon/env/{photon}.json
+ * Manages:
+ * - Instance naming → `photon use <photon> [name]` → ~/.photon/context/{photon}.json
+ * - Environment vars → `photon set` → ~/.photon/env/{photon}.json
+ * - Instance state paths → ~/.photon/state/{photon}/{instance}.json
  *
- * Also provides argument parsing and state partition path resolution.
+ * Instance naming is a runtime concept. Every @stateful photon automatically
+ * supports named instances — the runtime manages them. Clients (CLI, Beam,
+ * Claude Desktop) specify which instance to use via the _use MCP tool.
  */
 
 import * as fs from 'fs';
@@ -16,50 +19,10 @@ import type { ConstructorParam } from '@portel/photon-core';
 const PHOTON_DIR = path.join(os.homedir(), '.photon');
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Argument Parsing
+// Instance Store — tracks current instance name per photon per client
 // ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Parse positional/named args for `photon use` or `photon set`.
- *
- * Algorithm:
- * 1. Read next arg
- * 2. Does it match a known param name AND has a following arg? → named pair
- * 3. Doesn't match? → positional value for the next unset param
- */
-export function parseContextArgs(args: string[], params: ConstructorParam[]): Map<string, string> {
-  const result = new Map<string, string>();
-  const paramNames = new Set(params.map((p) => p.name));
-  let positionalIndex = 0;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (paramNames.has(arg) && i + 1 < args.length) {
-      // Named: arg is a param name, next arg is its value
-      result.set(arg, args[i + 1]);
-      i++; // skip value
-    } else {
-      // Positional: map to next unset param
-      while (positionalIndex < params.length) {
-        const param = params[positionalIndex];
-        positionalIndex++;
-        if (!result.has(param.name)) {
-          result.set(param.name, arg);
-          break;
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Context Store — for `photon use` (primitive params with defaults)
-// ══════════════════════════════════════════════════════════════════════════════
-
-export class ContextStore {
+export class InstanceStore {
   private baseDir: string;
 
   constructor(baseDir: string = PHOTON_DIR) {
@@ -70,28 +33,40 @@ export class ContextStore {
     return path.join(this.baseDir, 'context', `${photonName}.json`);
   }
 
-  read(photonName: string): Record<string, string> {
+  /**
+   * Get current instance name for a photon. Returns "" for default.
+   */
+  getCurrentInstance(photonName: string): string {
     try {
-      return JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
+      return data.instance || '';
     } catch {
-      return {};
+      return '';
     }
   }
 
-  write(photonName: string, values: Record<string, string>): void {
+  /**
+   * Set current instance name for a photon. Pass "" for default.
+   */
+  setCurrentInstance(photonName: string, instance: string): void {
     const filePath = this._path(photonName);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const existing = this.read(photonName);
-    const merged = { ...existing, ...values };
-    fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
+    fs.writeFileSync(filePath, JSON.stringify({ instance }, null, 2));
   }
 
   /**
-   * Get the value of a specific context param, falling back to its default.
+   * List all instances by scanning the state directory.
    */
-  resolve(photonName: string, paramName: string, defaultValue?: string): string | undefined {
-    const stored = this.read(photonName);
-    return stored[paramName] ?? defaultValue;
+  listInstances(photonName: string): string[] {
+    const stateDir = path.join(this.baseDir, 'state', photonName);
+    try {
+      return fs
+        .readdirSync(stateDir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => f.replace('.json', ''));
+    } catch {
+      return [];
+    }
   }
 }
 
@@ -154,61 +129,33 @@ export class EnvStore {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// State Partition Path
+// Instance State Path
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Determine the state directory path based on context values.
- * Non-default context values create a partitioned path: {photon}--{val1}--{val2}
+ * Get the state file path for a photon instance.
+ * Path: ~/.photon/state/{photon}/{instance}.json
+ * Default instance: ~/.photon/state/{photon}/default.json
  */
-export function getStatePartitionPath(
-  photonName: string,
-  contextValues: Map<string, string>,
-  contextParams: ConstructorParam[]
-): string {
-  const parts: string[] = [];
-  for (const param of contextParams) {
-    const value = contextValues.get(param.name) ?? param.defaultValue;
-    if (value && value !== param.defaultValue) {
-      parts.push(value);
-    }
-  }
-
-  if (parts.length === 0) {
-    return path.join(os.homedir(), '.photon', 'state', photonName);
-  }
-  return path.join(os.homedir(), '.photon', 'state', `${photonName}--${parts.join('--')}`);
-}
-
-/**
- * Get the state file path for a photon, considering context-based partitioning.
- */
-export function getStatePath(
-  photonName: string,
-  contextStore?: ContextStore,
-  contextParams?: ConstructorParam[]
-): string {
-  if (!contextStore || !contextParams || contextParams.length === 0) {
-    // No context params → standard state path
-    return path.join(os.homedir(), '.photon', 'state', `${photonName}.json`);
-  }
-
-  const stored = contextStore.read(photonName);
-  const contextValues = new Map(Object.entries(stored));
-  const partitionDir = getStatePartitionPath(photonName, contextValues, contextParams);
-
-  return path.join(partitionDir, 'snapshot.json');
+export function getInstanceStatePath(photonName: string, instance: string): string {
+  const name = instance || 'default';
+  return path.join(os.homedir(), '.photon', 'state', photonName, `${name}.json`);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Param Classification
 // ══════════════════════════════════════════════════════════════════════════════
 
-export type InjectionType = 'env' | 'context' | 'mcp' | 'photon' | 'state';
+export type InjectionType = 'env' | 'mcp' | 'photon' | 'state';
 
 /**
  * Classify a constructor param into an injection type.
- * This extends the photon-core classification to distinguish env vs context.
+ *
+ * 3 types (context type removed — instance naming is runtime, not code):
+ * - env: primitive params → environment variables
+ * - mcp: matches @mcp declaration
+ * - photon: matches @photon declaration
+ * - state: non-primitive with default on @stateful → persisted reactive state
  */
 export function classifyParam(
   param: ConstructorParam,
@@ -218,17 +165,8 @@ export function classifyParam(
 ): InjectionType {
   if (mcpNames.has(param.name)) return 'mcp';
   if (photonNames.has(param.name)) return 'photon';
-  if (param.isPrimitive && !param.hasDefault) return 'env';
-  if (param.isPrimitive && param.hasDefault) return 'context';
   if (!param.isPrimitive && param.hasDefault && isStateful) return 'state';
-  return 'env'; // fallback
-}
-
-/**
- * Filter constructor params by injection type.
- */
-export function getContextParams(params: ConstructorParam[]): ConstructorParam[] {
-  return params.filter((p) => p.isPrimitive && p.hasDefault);
+  return 'env'; // primitives (with or without default) are env
 }
 
 export function getEnvParams(params: ConstructorParam[]): ConstructorParam[] {

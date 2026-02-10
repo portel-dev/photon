@@ -95,6 +95,7 @@ export interface DaemonStatus {
 export interface PhotonSession {
   id: string;
   instance: PhotonMCPClass;
+  instanceName: string; // Named instance ("" for default)
   createdAt: number;
   lastActivity: number;
   clientType?: string;

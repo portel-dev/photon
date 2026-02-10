@@ -908,8 +908,9 @@ Runtime Commands:
   serve                   Start local multi-tenant MCP hosting for development
 
 Configuration:
-  use <photon> [values]   Switch context for a photon (params with defaults)
-  set <photon> [values]   Configure environment for a photon (params without defaults)
+  use <photon> [instance]  Switch to a named instance of a stateful photon
+  instances <photon>       List all instances of a stateful photon
+  set <photon> [values]    Configure environment for a photon
 
 Hosting:
   host <command>          Manage cloud hosting (preview, deploy)
@@ -2082,83 +2083,51 @@ SEE ALSO:
     }
   });
 
-// Use command: switch context for photons (primitive params with defaults)
+// Use command: switch to a named instance of a stateful photon
 program
   .command('use')
   .argument('<photon>', 'Photon name')
-  .argument('[args...]', 'Context values (positional or named)')
-  .description('Switch context for a photon (params with defaults)')
-  .action(async (photonName: string, args: string[]) => {
+  .argument('[instance]', 'Instance name (omit for default)')
+  .description('Switch to a named instance of a stateful photon')
+  .action(async (photonName: string, instance?: string) => {
     try {
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const { InstanceStore } = await import('./context-store.js');
+      const store = new InstanceStore();
 
-      // Resolve photon path
-      const filePath = await resolvePhotonPathWithBundled(photonName, workingDir);
-      if (!filePath) {
-        printError(`Photon not found: ${photonName}`);
-        process.exit(1);
-      }
+      store.setCurrentInstance(photonName, instance || '');
+      const label = instance || 'default';
+      printSuccess(`${photonName} → instance: ${label}`);
+    } catch (error) {
+      printError(getErrorMessage(error));
+      process.exit(1);
+    }
+  });
 
-      // Extract constructor params and filter context params
-      const allParams = await extractConstructorParams(filePath);
-      const { getContextParams, parseContextArgs, ContextStore } =
-        await import('./context-store.js');
-      const contextParams = getContextParams(allParams);
+// Instances command: list all instances of a stateful photon
+program
+  .command('instances')
+  .argument('<photon>', 'Photon name')
+  .description('List all instances of a stateful photon')
+  .action(async (photonName: string) => {
+    try {
+      const { InstanceStore } = await import('./context-store.js');
+      const store = new InstanceStore();
 
-      if (contextParams.length === 0) {
-        printInfo(`${photonName} has no context parameters.`);
+      const instances = store.listInstances(photonName);
+      const current = store.getCurrentInstance(photonName) || 'default';
+
+      if (instances.length === 0) {
+        printInfo(`No instances found for ${photonName}.`);
         return;
       }
 
-      const store = new ContextStore();
-
-      if (args.length === 0) {
-        // Interactive mode: prompt for all context params
-        cliHeading(`${photonName} — Context`);
-        cliSpacer();
-
-        const current = store.read(photonName);
-        const values: Record<string, string> = {};
-
-        for (const param of contextParams) {
-          const currentVal = current[param.name] ?? param.defaultValue ?? '';
-          const answer = await promptText(
-            `  ${param.name} (default: '${param.defaultValue ?? ''}')\n  Current: ${currentVal}\n  > `
-          );
-          if (answer.trim() !== '') {
-            values[param.name] = answer.trim();
-          }
-        }
-
-        if (Object.keys(values).length > 0) {
-          store.write(photonName, values);
-          const summary = Object.entries(values)
-            .map(([k, v]) => `${k}=${v}`)
-            .join(', ');
-          printSuccess(`Context switched: ${summary}`);
-        } else {
-          printInfo('No changes.');
-        }
-      } else {
-        // Direct mode: parse positional/named args
-        const parsed = parseContextArgs(args, contextParams);
-
-        if (parsed.size === 0) {
-          printError('No valid context values provided.');
-          process.exit(1);
-        }
-
-        const values: Record<string, string> = {};
-        for (const [key, val] of parsed) {
-          values[key] = val;
-        }
-
-        store.write(photonName, values);
-        const summary = Object.entries(values)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(', ');
-        printSuccess(`Context: ${summary}`);
+      cliHeading(`${photonName} — Instances`);
+      cliSpacer();
+      for (const name of instances) {
+        const marker = name === current ? ' ← current' : '';
+        console.log(`  ${name}${marker}`);
       }
+      cliSpacer();
     } catch (error) {
       printError(getErrorMessage(error));
       process.exit(1);
@@ -2169,7 +2138,7 @@ program
 program
   .command('set')
   .argument('<photon>', 'Photon name')
-  .argument('[args...]', 'Environment values (positional or named)')
+  .argument('[args...]', 'Environment values (name=value pairs)')
   .description('Configure environment for a photon (params without defaults)')
   .action(async (photonName: string, args: string[]) => {
     try {
@@ -2184,7 +2153,7 @@ program
 
       // Extract constructor params and filter env params
       const allParams = await extractConstructorParams(filePath);
-      const { getEnvParams, parseContextArgs, EnvStore } = await import('./context-store.js');
+      const { getEnvParams, EnvStore } = await import('./context-store.js');
       const envParams = getEnvParams(allParams);
 
       if (envParams.length === 0) {
@@ -2194,17 +2163,26 @@ program
 
       const store = new EnvStore();
 
-      // Parse any directly provided args
-      const directValues =
-        args.length > 0 ? parseContextArgs(args, envParams) : new Map<string, string>();
+      // Parse name=value pairs from args
       const values: Record<string, string> = {};
+      const paramNames = new Set(envParams.map((p) => p.name));
 
-      for (const [key, val] of directValues) {
-        values[key] = val;
+      for (const arg of args) {
+        const eqIdx = arg.indexOf('=');
+        if (eqIdx > 0) {
+          const key = arg.slice(0, eqIdx);
+          const val = arg.slice(eqIdx + 1);
+          if (paramNames.has(key)) {
+            values[key] = val;
+          }
+        } else if (envParams.length === 1) {
+          // Single env param: positional value
+          values[envParams[0].name] = arg;
+        }
       }
 
-      // Find params that still need values (not set directly)
-      const remaining = envParams.filter((p) => !directValues.has(p.name));
+      // Find params that still need values
+      const remaining = envParams.filter((p) => !(p.name in values));
 
       if (remaining.length > 0) {
         // Interactive mode for remaining params
@@ -2329,8 +2307,9 @@ const RESERVED_COMMANDS = [
   'doctor',
   'clear-cache',
   'clean',
-  // Context/env
+  // Instance/env
   'use',
+  'instances',
   'set',
   // Aliases
   'cli',
@@ -2382,6 +2361,7 @@ const knownCommands = [
   'clean',
   'doctor',
   'use',
+  'instances',
   'set',
   'cli',
   'alias',

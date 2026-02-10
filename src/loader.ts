@@ -414,7 +414,10 @@ export class PhotonLoader {
   /**
    * Load a single Photon MCP file
    */
-  async loadFile(filePath: string): Promise<PhotonMCPClassExtended> {
+  async loadFile(
+    filePath: string,
+    options?: { instanceName?: string }
+  ): Promise<PhotonMCPClassExtended> {
     // Validate input
     assertString(filePath, 'filePath');
     validateOrThrow(filePath, [
@@ -532,7 +535,8 @@ export class PhotonLoader {
       const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
         tsContent || '',
         name,
-        absolutePath
+        absolutePath,
+        options?.instanceName ?? ''
       );
 
       // Create instance with injected dependencies
@@ -560,6 +564,9 @@ export class PhotonLoader {
 
       // Set photon name for event source identification
       instance._photonName = name;
+
+      // Inject instance name for named instances (runtime concept, not code)
+      instance.instanceName = options?.instanceName ?? '';
 
       // Auto-wire ReactiveArray/Map/Set properties for zero-boilerplate reactivity
       // Developers just `import { Array } from '@portel/photon-core'` and use normally
@@ -927,18 +934,15 @@ export class PhotonLoader {
   private async resolveAllInjections(
     source: string,
     mcpName: string,
-    photonPath: string
+    photonPath: string,
+    instanceName: string = ''
   ): Promise<{ values: any[]; configError: string | null; injectedPhotonNames: string[] }> {
     const extractor = new SchemaExtractor();
     const injections = extractor.resolveInjections(source, mcpName);
 
-    // Lazy-load context and env stores
-    const { ContextStore, EnvStore, getContextParams, getStatePath } =
-      await import('./context-store.js');
-    const contextStore = new ContextStore();
+    // Lazy-load env store and instance state path
+    const { EnvStore, getInstanceStatePath } = await import('./context-store.js');
     const envStore = new EnvStore();
-    const allParams = injections.map((inj) => inj.param);
-    const contextParams = getContextParams(allParams);
 
     const values: any[] = [];
     const missingEnvVars: Array<{ paramName: string; envVarName: string; type: string }> = [];
@@ -951,42 +955,24 @@ export class PhotonLoader {
 
       switch (injectionType) {
         case 'env': {
-          if (param.isPrimitive && param.hasDefault) {
-            // Context param: check ContextStore, fall back to default
-            const contextValue = contextStore.resolve(mcpName, param.name, param.defaultValue);
-            if (contextValue !== undefined && contextValue !== param.defaultValue) {
-              values.push(this.parseEnvValue(contextValue, param.type));
-              this.log(`  ✅ Context: ${param.name}=${contextValue}`);
-            } else {
-              // Check process.env as last resort, then fall through to default
-              const envVarName = injection.envVarName!;
-              const envValue = process.env[envVarName];
-              if (envValue !== undefined) {
-                values.push(this.parseEnvValue(envValue, param.type));
-              } else {
-                values.push(undefined); // constructor default applies
-              }
-            }
-          } else {
-            // True env param: check EnvStore first, then process.env
-            const envVarName = injection.envVarName!;
-            const storedValue = envStore.resolve(mcpName, param.name, envVarName);
+          // All primitive params are env: check EnvStore first, then process.env
+          const envVarName = injection.envVarName!;
+          const storedValue = envStore.resolve(mcpName, param.name, envVarName);
 
-            if (storedValue !== undefined) {
-              values.push(this.parseEnvValue(storedValue, param.type));
-              this.log(
-                `  ✅ Env: ${param.name} (from ${storedValue === process.env[envVarName] ? 'process.env' : 'env store'})`
-              );
-            } else if (param.hasDefault || param.isOptional) {
-              values.push(undefined);
-            } else {
-              missingEnvVars.push({
-                paramName: param.name,
-                envVarName,
-                type: param.type,
-              });
-              values.push(undefined);
-            }
+          if (storedValue !== undefined) {
+            values.push(this.parseEnvValue(storedValue, param.type));
+            this.log(
+              `  ✅ Env: ${param.name} (from ${storedValue === process.env[envVarName] ? 'process.env' : 'env store'})`
+            );
+          } else if (param.hasDefault || param.isOptional) {
+            values.push(undefined); // constructor default applies
+          } else {
+            missingEnvVars.push({
+              paramName: param.name,
+              envVarName,
+              type: param.type,
+            });
+            values.push(undefined);
           }
           break;
         }
@@ -1038,9 +1024,9 @@ export class PhotonLoader {
         }
 
         case 'state': {
-          // Inject persisted state from snapshot file (supports context partitioning)
+          // Inject persisted state from instance-specific state file
           const stateKey = injection.stateKey!;
-          const stateFile = getStatePath(mcpName, contextStore, contextParams);
+          const stateFile = getInstanceStatePath(mcpName, instanceName);
           try {
             const snapshot = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
             if (stateKey in snapshot) {

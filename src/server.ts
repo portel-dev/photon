@@ -556,23 +556,43 @@ export class PhotonServer {
         return { tools: [] };
       }
 
-      return {
-        tools: this.mcp.tools.map((tool) => {
-          const toolDef: any = {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          };
+      const tools = this.mcp.tools.map((tool) => {
+        const toolDef: any = {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        };
 
-          // Add _meta with UI template reference (format depends on client capabilities)
-          const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-          if (linkedUI) {
-            toolDef._meta = this.buildUIToolMeta(linkedUI.id);
-          }
+        // Add _meta with UI template reference (format depends on client capabilities)
+        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+        if (linkedUI) {
+          toolDef._meta = this.buildUIToolMeta(linkedUI.id);
+        }
 
-          return toolDef;
-        }),
-      };
+        return toolDef;
+      });
+
+      // Add runtime-injected instance tools for stateful photons
+      if (this.daemonName) {
+        tools.push({
+          name: '_use',
+          description: `Switch to a named instance. Pass empty name for default.`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Instance name (empty for default)' },
+            },
+            required: ['name'],
+          },
+        });
+        tools.push({
+          name: '_instances',
+          description: `List all available instances.`,
+          inputSchema: { type: 'object', properties: {} },
+        });
+      }
+
+      return { tools };
     });
 
     // Handle tools/call
@@ -586,6 +606,23 @@ export class PhotonServer {
 
       if (!this.mcp) {
         throw new Error('MCP not loaded');
+      }
+
+      // Route _use and _instances through daemon for stateful photons
+      if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
+        const { sendCommand } = await import('./daemon/client.js');
+        const result = await sendCommand(
+          this.daemonName,
+          toolName,
+          (args || {}) as Record<string, any>,
+          {
+            photonPath: this.options.filePath,
+            sessionId: `stdio-${this.daemonName}`,
+          }
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
       }
 
       try {
@@ -1904,29 +1941,66 @@ export class PhotonServer {
     // Handle tools/list
     sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
       if (!this.mcp) return { tools: [] };
-      return {
-        tools: this.mcp.tools.map((tool) => {
-          const toolDef: any = {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          };
+      const tools = this.mcp.tools.map((tool) => {
+        const toolDef: any = {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        };
 
-          // Add _meta with UI template reference (format depends on client capabilities)
-          const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-          if (linkedUI) {
-            toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
-          }
+        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+        if (linkedUI) {
+          toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
+        }
 
-          return toolDef;
-        }),
-      };
+        return toolDef;
+      });
+
+      // Add runtime-injected instance tools for stateful photons
+      if (this.daemonName) {
+        tools.push({
+          name: '_use',
+          description: `Switch to a named instance. Pass empty name for default.`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Instance name (empty for default)' },
+            },
+            required: ['name'],
+          },
+        });
+        tools.push({
+          name: '_instances',
+          description: `List all available instances.`,
+          inputSchema: { type: 'object', properties: {} },
+        });
+      }
+
+      return { tools };
     });
 
     // Handle tools/call
     sessionServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (!this.mcp) throw new Error('MCP not loaded');
       const { name: toolName, arguments: args } = request.params;
+
+      // Route _use and _instances through daemon for stateful photons
+      if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
+        const { sendCommand } = await import('./daemon/client.js');
+        const result = await sendCommand(
+          this.daemonName,
+          toolName,
+          (args || {}) as Record<string, any>,
+          {
+            photonPath: this.options.filePath,
+            sessionId: `sse-${this.daemonName}`,
+          }
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
       try {
         // Create MCP-aware input provider for elicitation support (use sessionServer for SSE)
         const inputProvider = this.createMCPInputProvider(sessionServer);
