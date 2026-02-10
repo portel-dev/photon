@@ -289,6 +289,28 @@ export class BeamApp extends LitElement {
         color: hsl(200, 60%, 65%);
       }
 
+      .instance-select {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+        border-radius: var(--radius-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .instance-select:hover,
+      .instance-select:focus {
+        border-color: var(--accent-primary, hsl(260, 100%, 65%));
+      }
+
+      .instance-select option {
+        background: var(--bg-primary, #1a1a2e);
+        color: var(--t-primary);
+      }
+
       .photon-header-actions {
         display: flex;
         gap: var(--space-sm);
@@ -1606,6 +1628,8 @@ export class BeamApp extends LitElement {
     latestVersion: string;
     marketplace: string;
   }> = [];
+  @state() private _instances: string[] = [];
+  @state() private _currentInstance = 'default';
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -3373,6 +3397,15 @@ export class BeamApp extends LitElement {
     this._lastResult = null;
     this._selectedMcpAppUri = null; // Reset MCP App tab when switching MCPs
 
+    // Reset instance state
+    this._instances = [];
+    this._currentInstance = 'default';
+
+    // Fetch instances for stateful, configured photons
+    if (this._selectedPhoton.stateful && this._selectedPhoton.configured) {
+      this._fetchInstances(this._selectedPhoton.name);
+    }
+
     // For unconfigured photons, show configuration view
     if (this._selectedPhoton.configured === false) {
       this._view = 'config';
@@ -3395,6 +3428,37 @@ export class BeamApp extends LitElement {
       this._view = 'list';
     }
     this._updateHash();
+  }
+
+  private async _fetchInstances(photonName: string) {
+    try {
+      const result = await mcpClient.callTool(`${photonName}/_instances`, {});
+      if (result && !result.isError) {
+        // MCP response: { content: [{ type: 'text', text: '...' }] }
+        const textContent = result.content?.find((c: any) => c.type === 'text')?.text;
+        if (textContent) {
+          const parsed = JSON.parse(textContent);
+          this._instances = parsed.instances || [];
+          this._currentInstance = parsed.current || 'default';
+        }
+      }
+    } catch {
+      // Silently fail — instance dropdown just won't show
+    }
+  }
+
+  private async _switchInstance(name: string) {
+    if (!this._selectedPhoton) return;
+    const photonName = this._selectedPhoton.name;
+    try {
+      await mcpClient.callTool(`${photonName}/_use`, { name });
+      this._currentInstance = name || 'default';
+      showToast(`Switched to instance: ${name || 'default'}`, 'success');
+      // Refresh instances list
+      await this._fetchInstances(photonName);
+    } catch {
+      showToast('Failed to switch instance', 'error');
+    }
   }
 
   private _handleMethodSelect(e: CustomEvent) {
@@ -5183,6 +5247,21 @@ export class BeamApp extends LitElement {
               ? html`<span class="photon-badge source"
                   >from ${this._selectedPhoton.installSource.marketplace}</span
                 >`
+              : ''}
+            ${this._selectedPhoton.stateful && this._instances.length > 0
+              ? html`<select
+                  class="instance-select"
+                  .value=${this._currentInstance}
+                  @change=${(e: Event) =>
+                    this._switchInstance((e.target as HTMLSelectElement).value)}
+                >
+                  ${this._instances.map(
+                    (inst: string) =>
+                      html`<option value=${inst} ?selected=${inst === this._currentInstance}>
+                        ${inst || 'default'}
+                      </option>`
+                  )}
+                </select>`
               : ''}
           </div>
           ${this._selectedPhoton.path

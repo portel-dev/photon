@@ -1263,10 +1263,21 @@ export async function runMethod(
       resumeRunId = args[resumeIndex + 1];
     }
 
+    // Check for --instance <name> flag
+    let instanceName: string | undefined;
+    const instanceIndex = args.indexOf('--instance');
+    if (instanceIndex !== -1 && args[instanceIndex + 1]) {
+      instanceName = args[instanceIndex + 1];
+    }
+
     // Filter out special flags before parsing method args
     const filteredArgs = args.filter(
       (arg, i) =>
-        arg !== '--json' && arg !== '--resume' && (resumeIndex === -1 || i !== resumeIndex + 1)
+        arg !== '--json' &&
+        arg !== '--resume' &&
+        (resumeIndex === -1 || i !== resumeIndex + 1) &&
+        arg !== '--instance' &&
+        (instanceIndex === -1 || i !== instanceIndex + 1)
     );
 
     // Parse arguments
@@ -1325,16 +1336,12 @@ export async function runMethod(
         }
       }
 
-      // Read current instance from store
-      const { InstanceStore } = await import('./context-store.js');
-      const instanceStore = new InstanceStore();
-      const currentInstance = instanceStore.getCurrentInstance(photonName);
+      // CLI is ephemeral: each invocation starts on 'default' unless --instance is given
       const sessionId = `cli-${photonName}`;
       const sendOpts = { photonPath: resolvedPath, sessionId };
 
-      // Switch to the correct instance before executing the command
-      if (currentInstance) {
-        await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
+      if (instanceName) {
+        await sendCommand(photonName, '_use', { name: instanceName }, sendOpts);
       }
 
       // Send the actual command

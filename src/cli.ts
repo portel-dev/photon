@@ -2073,6 +2073,9 @@ EXAMPLES:
     # Output raw JSON instead of formatted text
     photon lg-remote status --json
 
+    # Target a specific instance of a stateful photon
+    photon cli list get --instance groceries
+
     # Escape hatch for reserved-name photons
     photon cli list get       (photon named "list", method "get")
     photon cli serve status   (photon named "serve", method "status")
@@ -2100,7 +2103,7 @@ program
   .command('use')
   .argument('<photon>', 'Photon name')
   .argument('[instance]', 'Instance name (omit for default)')
-  .description('Switch to a named instance of a stateful photon')
+  .description('Set the active instance for Beam UI')
   .action(async (photonName: string, instance?: string) => {
     try {
       const { InstanceStore } = await import('./context-store.js');

@@ -356,6 +356,7 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-description': photon.description,
           'x-photon-icon': photon.icon,
           'x-photon-internal': photon.internal,
+          'x-photon-stateful': photon.stateful || false,
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
@@ -790,11 +791,16 @@ const handlers: Record<string, RequestHandler> = {
           sessionId: beamSessionId,
         };
 
-        // Sync Beam session to the current instance (same as CLI does)
+        // For non-_use calls: sync Beam session to the stored instance
+        // For _use calls: skip read, let daemon handle it, then persist the new instance
         const { InstanceStore } = await import('../context-store.js');
-        const currentInstance = new InstanceStore().getCurrentInstance(photonName);
-        if (currentInstance) {
-          await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
+        const instanceStore = new InstanceStore();
+
+        if (methodName !== '_use') {
+          const currentInstance = instanceStore.getCurrentInstance(photonName);
+          if (currentInstance) {
+            await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
+          }
         }
 
         const result = await sendCommand(
@@ -803,6 +809,12 @@ const handlers: Record<string, RequestHandler> = {
           (args || {}) as Record<string, any>,
           sendOpts
         );
+
+        // After a _use call succeeds, persist the new instance for Beam
+        if (methodName === '_use') {
+          const newInstance = (args as Record<string, any>)?.name || '';
+          instanceStore.setCurrentInstance(photonName, newInstance);
+        }
 
         const resultText =
           result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);

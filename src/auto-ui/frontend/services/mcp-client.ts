@@ -774,6 +774,7 @@ class MCPClientService {
             description: tool['x-photon-description'],
             icon: tool['x-photon-icon'],
             internal: tool['x-photon-internal'],
+            stateful: tool['x-photon-stateful'] || false,
             promptCount: tool['x-photon-prompt-count'] || 0,
             resourceCount: tool['x-photon-resource-count'] || 0,
             configured: true,
