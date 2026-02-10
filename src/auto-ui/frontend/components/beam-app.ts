@@ -1973,15 +1973,17 @@ export class BeamApp extends LitElement {
           this._setCurrentInstance(data.photon, data.data.instance);
         }
 
-        // Only auto-refresh if we're viewing the changed photon and have a result displayed.
-        // IMPORTANT: Skip if the current method is the one that triggered the change —
-        // re-executing a mutation (e.g. add) would cause infinite cascading adds.
+        // Only auto-refresh if we're viewing a SAFE (read-only) method on the changed photon.
+        // Methods with required params are mutations (add, remove, update) — replaying them
+        // would duplicate side-effects. Only parameterless methods (get, list, stats) are safe.
+        const methodParams = this._selectedMethod?.params;
+        const hasRequiredParams = methodParams?.required?.length > 0;
         if (
           this._selectedPhoton?.name === data.photon &&
           this._selectedMethod &&
           this._lastResult !== null &&
           !this._isExecuting &&
-          this._selectedMethod.name !== data.method
+          !hasRequiredParams
         ) {
           this._log(
             'info',
