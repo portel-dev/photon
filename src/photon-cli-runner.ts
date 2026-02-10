@@ -50,7 +50,7 @@ import {
   OutputFormat,
   formatKey,
 } from './cli-formatter.js';
-import { getErrorMessage } from './shared/error-handler.js';
+import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
 import { logger } from './shared/logger.js';
 
 interface MethodInfo {
@@ -1124,10 +1124,11 @@ export async function listMethods(photonName: string): Promise<void> {
     const resolvedPath = await resolvePhotonPathWithBundled(photonName);
 
     if (!resolvedPath) {
-      logger.error(`Photon '${photonName}' not found`);
-      console.error(`\nMake sure the photon is installed in ~/.photon/`);
-      console.error(`If '${photonName}' is a command, run 'photon --help' for available commands.`);
-      process.exit(1);
+      exitWithError(`Photon '${photonName}' not found`, {
+        exitCode: ExitCode.NOT_FOUND,
+        searchedIn: '~/.photon/',
+        suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
+      });
     }
 
     const methods = await extractMethods(resolvedPath);
@@ -1169,8 +1170,9 @@ export async function listMethods(photonName: string): Promise<void> {
       console.log('');
     }
   } catch (error) {
-    logger.error(`Error: ${getErrorMessage(error)}`);
-    process.exit(1);
+    exitWithError(`Cannot list methods for ${photonName}: ${getErrorMessage(error)}`, {
+      suggestion: `Verify the photon file is valid: ~/.photon/${photonName}.photon.ts`,
+    });
   }
 }
 
@@ -1207,10 +1209,11 @@ export async function runMethod(
     const resolvedPath = await resolvePhotonPathWithBundled(photonName);
 
     if (!resolvedPath) {
-      logger.error(`Photon '${photonName}' not found`);
-      console.error(`\nMake sure the photon is installed in ~/.photon/`);
-      console.error(`If '${photonName}' is a command, run 'photon --help' for available commands.`);
-      process.exit(1);
+      exitWithError(`Photon '${photonName}' not found`, {
+        exitCode: ExitCode.NOT_FOUND,
+        searchedIn: '~/.photon/',
+        suggestion: `Install it with: photon add ${photonName}\nIf '${photonName}' is a command, run 'photon --help' for available commands`,
+      });
     }
 
     // Extract MCP name from filename
@@ -1228,10 +1231,11 @@ export async function runMethod(
     const method = methods.find((m) => m.name === methodName);
 
     if (!method) {
-      logger.error(`Method '${methodName}' not found in ${photonName}`);
-      console.error(`\nAvailable methods: ${methods.map((m) => m.name).join(', ')}`);
-      console.error(`\nRun 'photon cli ${photonName}' to see all methods`);
-      process.exit(1);
+      const available = methods.map((m) => m.name).join(', ');
+      exitWithError(`Method '${methodName}' not found in ${photonName}`, {
+        exitCode: ExitCode.NOT_FOUND,
+        suggestion: `Available methods: ${available}\nRun 'photon cli ${photonName}' to see details`,
+      });
     }
 
     // Check for --help flag in args (e.g., photon cli test-cli-calc add --help)
@@ -1268,13 +1272,19 @@ export async function runMethod(
     }
 
     if (missing.length > 0) {
-      logger.error(`Missing required parameters: ${missing.join(', ')}`);
-      console.error(
-        `\nUsage: photon cli ${photonName} ${methodName} ${method.params
-          .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
-          .join(' ')}`
-      );
-      process.exit(1);
+      const usage = method.params
+        .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
+        .join(' ');
+      const details = missing
+        .map((name) => {
+          const p = method.params.find((mp) => mp.name === name);
+          return `  --${name} (${p?.type || 'string'})${p?.description ? ': ' + p.description : ''}`;
+        })
+        .join('\n');
+      exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
+        exitCode: ExitCode.INVALID_ARGUMENT,
+        suggestion: `Usage: photon cli ${photonName} ${methodName} ${usage}\n\nRequired:\n${details}`,
+      });
     }
 
     // Check if photon is stateful
@@ -1300,8 +1310,9 @@ export async function runMethod(
         }
 
         if (!ready) {
-          logger.error(`Failed to start daemon for ${photonName}`);
-          process.exit(1);
+          exitWithError(`Failed to start daemon for ${photonName}`, {
+            suggestion: `Check logs: cat ~/.photon/daemons/${photonName}/daemon.log\nOr try: photon daemon restart ${photonName}`,
+          });
         }
       }
 
@@ -1370,17 +1381,15 @@ export async function runMethod(
     // Check for custom user-facing message from photon
     // Photons can throw: throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
     const userMessage =
-      (error && typeof error === 'object' && 'userMessage' in error && error.userMessage) ||
+      (error && typeof error === 'object' && 'userMessage' in error && String(error.userMessage)) ||
       getErrorMessage(error) ||
       'Unknown error occurred';
-    const hint = error && typeof error === 'object' && 'hint' in error ? error.hint : undefined;
+    const hint =
+      error && typeof error === 'object' && 'hint' in error ? String(error.hint) : undefined;
 
-    logger.error(`${userMessage}`);
-    if (hint) {
-      console.error(`💡 ${hint}`);
-    }
-
-    process.exit(1);
+    exitWithError(String(userMessage), {
+      suggestion: hint ? String(hint) : undefined,
+    });
   }
 }
 

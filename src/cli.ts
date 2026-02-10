@@ -41,6 +41,7 @@ import {
   getErrorMessage,
   ExitCode,
   exitWithError,
+  isNodeError,
 } from './shared/error-handler.js';
 import { validateOrThrow, inRange, isPositive, isInteger } from './shared/validation.js';
 import { createReadline, promptText, promptWait } from './shared/cli-utils.js';
@@ -312,7 +313,10 @@ async function handleUrlElicitation(ask: {
     const { execFile } = await import('child_process');
     execFile(openCommand, [ask.url]);
   } catch (error) {
-    cliHint('Please open the URL manually in your browser.');
+    const msg = isNodeError(error, 'ENOENT')
+      ? `Could not find '${openCommand}' to open URLs`
+      : getErrorMessage(error);
+    cliHint(`Could not open browser: ${msg}. Please open the URL manually.`);
   }
 
   const shouldContinue = await promptWait('Press Enter when done', true);
@@ -1591,10 +1595,14 @@ maker
       // Check if file already exists
       try {
         await fs.access(filePath);
-        logger.error(`File already exists: ${filePath}`);
-        process.exit(1);
-      } catch {
-        // File doesn't exist, good
+        exitWithError(`File already exists: ${filePath}`, {
+          suggestion: `Choose a different name or delete the existing file`,
+        });
+      } catch (err) {
+        if (!isNodeError(err, 'ENOENT')) {
+          exitWithError(`Cannot access ${filePath}: ${getErrorMessage(err)}`);
+        }
+        // ENOENT = file doesn't exist — good, proceed
       }
 
       // Read template
@@ -1603,8 +1611,8 @@ maker
 
       try {
         template = await fs.readFile(templatePath, 'utf-8');
-      } catch {
-        // Fallback inline template if file not found
+      } catch (err) {
+        logger.debug(`Template not found at ${templatePath}, using inline template`);
         template = getInlineTemplate();
       }
 

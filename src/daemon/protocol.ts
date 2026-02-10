@@ -62,6 +62,8 @@ export interface DaemonResponse {
   success?: boolean;
   data?: unknown;
   error?: string;
+  /** Actionable hint for the caller when type === 'error' */
+  suggestion?: string;
   /** Prompt request details (when type === 'prompt') */
   prompt?: {
     type: 'text' | 'password' | 'confirm' | 'select';

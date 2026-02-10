@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { ConstructorParam } from '@portel/photon-core';
+import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 
 const PHOTON_DIR = path.join(os.homedir(), '.photon');
 
@@ -40,7 +41,11 @@ export class InstanceStore {
     try {
       const data = JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
       return data.instance || '';
-    } catch {
+    } catch (err) {
+      if (isNodeError(err, 'ENOENT')) return ''; // No instance set — expected
+      console.warn(
+        `[photon] Corrupt instance file for ${photonName}, resetting: ${getErrorMessage(err)}`
+      );
       return '';
     }
   }
@@ -64,7 +69,9 @@ export class InstanceStore {
         .readdirSync(stateDir)
         .filter((f) => f.endsWith('.json'))
         .map((f) => f.replace('.json', ''));
-    } catch {
+    } catch (err) {
+      if (isNodeError(err, 'ENOENT')) return []; // No state dir yet — normal
+      console.warn(`[photon] Cannot read instances for ${photonName}: ${getErrorMessage(err)}`);
       return [];
     }
   }
@@ -88,7 +95,11 @@ export class EnvStore {
   read(photonName: string): Record<string, string> {
     try {
       return JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
-    } catch {
+    } catch (err) {
+      if (isNodeError(err, 'ENOENT')) return {};
+      console.warn(
+        `[photon] Corrupt env file for ${photonName}, resetting: ${getErrorMessage(err)}`
+      );
       return {};
     }
   }

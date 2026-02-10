@@ -481,7 +481,8 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
           socket.write(payload);
           sentSockets.add(socket);
         } catch {
-          // Socket write failed
+          // Dead socket — remove from subscribers
+          exactSubscribers.delete(socket);
         }
       }
     }
@@ -499,7 +500,8 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
             socket.write(payload);
             sentSockets.add(socket);
           } catch {
-            // Socket write failed
+            // Dead socket — remove from subscribers
+            wildcardSubscribers.delete(socket);
           }
         }
       }
@@ -782,7 +784,12 @@ async function handleRequest(
   if (request.type === 'schedule') {
     const photonName = request.photonName;
     if (!photonName) {
-      return { type: 'error', id: request.id, error: 'photonName required for scheduling' };
+      return {
+        type: 'error',
+        id: request.id,
+        error: 'photonName required for scheduling',
+        suggestion: 'Include photonName in the request payload',
+      };
     }
 
     const job: ScheduledJob & { photonName: string } = {
@@ -823,12 +830,22 @@ async function handleRequest(
   // Handle command execution
   if (request.type === 'command') {
     if (!request.method) {
-      return { type: 'error', id: request.id, error: 'Method name required' };
+      return {
+        type: 'error',
+        id: request.id,
+        error: 'Method name required',
+        suggestion: 'Specify the method to call: { method: "methodName" }',
+      };
     }
 
     const photonName = request.photonName;
     if (!photonName) {
-      return { type: 'error', id: request.id, error: 'photonName required for commands' };
+      return {
+        type: 'error',
+        id: request.id,
+        error: 'photonName required for commands',
+        suggestion: 'Include photonName in the request payload',
+      };
     }
 
     const sessionManager = await getOrCreateSessionManager(photonName, request.photonPath);

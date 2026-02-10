@@ -10,7 +10,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 
 // Helper to run CLI commands
-function runCLI(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+function runCLI(
+  args: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
     const cliPath = path.join(process.cwd(), 'dist', 'cli.js');
     const child = spawn(process.execPath, [cliPath, ...args], {
@@ -182,10 +184,7 @@ async function runTests() {
     // Test 4: Format detection - primitive
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'add', '2', '3']);
-      assert(
-        result.stdout.trim() === '5',
-        'Format primitive values correctly'
-      );
+      assert(result.stdout.trim() === '5', 'Format primitive values correctly');
     }
 
     // Test 5: Format detection - table
@@ -210,7 +209,9 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'nested']);
       assert(
-        result.stdout.includes('Calculator') && result.stdout.includes('Features') && result.exitCode === 0,
+        result.stdout.includes('Calculator') &&
+          result.stdout.includes('Features') &&
+          result.exitCode === 0,
         'Format tree (nested JSON) correctly'
       );
     }
@@ -237,10 +238,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'add', '2', '3', '--json']);
       const parsed = JSON.parse(result.stdout);
-      assert(
-        parsed === 5 && result.exitCode === 0,
-        'Output raw JSON with --json flag'
-      );
+      assert(parsed === 5 && result.exitCode === 0, 'Output raw JSON with --json flag');
     }
 
     // Test 11: Error handling - show error message
@@ -255,27 +253,23 @@ async function runTests() {
     // Test 12: Error handling - exit code 1
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'error']);
-      assert(
-        result.exitCode === 1,
-        'Return exit code 1 on error'
-      );
+      assert(result.exitCode === 1, 'Return exit code 1 on error');
     }
 
     // Test 13: Invalid photon name
     {
       const result = await runCLI(['cli', 'nonexistent-photon']);
       const combined = result.stdout + result.stderr;
-      assert(
-        result.exitCode === 1 && combined.includes('not found'),
-        'Handle invalid photon name'
-      );
+      assert(result.exitCode !== 0 && combined.includes('not found'), 'Handle invalid photon name');
     }
 
     // Test 14: --help flag for photon
     {
       const result = await runCLI(['cli', 'test-cli-calc', '--help']);
       assert(
-        result.stdout.includes('USAGE') && result.stdout.includes('test-cli-calc') && result.exitCode === 0,
+        result.stdout.includes('USAGE') &&
+          result.stdout.includes('test-cli-calc') &&
+          result.exitCode === 0,
         'Show help for photon with --help flag'
       );
     }
@@ -284,7 +278,9 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'add', '--help']);
       assert(
-        result.stdout.includes('Add two numbers') && result.stdout.includes('First number') && result.exitCode === 0,
+        result.stdout.includes('Add two numbers') &&
+          result.stdout.includes('First number') &&
+          result.exitCode === 0,
         'Show help for specific method'
       );
     }
@@ -293,7 +289,9 @@ async function runTests() {
     {
       const result = await runCLI(['cli', '--help']);
       assert(
-        result.stdout.includes('USAGE') && result.stdout.includes('photon cli') && result.exitCode === 0,
+        result.stdout.includes('USAGE') &&
+          result.stdout.includes('photon cli') &&
+          result.exitCode === 0,
         'Show CLI command help'
       );
     }
@@ -302,7 +300,9 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'multiply', '--help']);
       assert(
-        result.stdout.includes('Multiplier') && result.stdout.includes('Multiplicand') && result.exitCode === 0,
+        result.stdout.includes('Multiplier') &&
+          result.stdout.includes('Multiplicand') &&
+          result.exitCode === 0,
         'Show custom {@label} tags for parameters in help'
       );
     }
@@ -329,10 +329,7 @@ async function runTests() {
     // Test 17: Success exit code
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'add', '1', '1']);
-      assert(
-        result.exitCode === 0,
-        'Return exit code 0 on success'
-      );
+      assert(result.exitCode === 0, 'Return exit code 0 on success');
     }
 
     // Test 18: Type coercion - string to number
@@ -352,7 +349,6 @@ async function runTests() {
         'Render markdown output nicely'
       );
     }
-
   } catch (error: any) {
     console.error('Test setup error:', error.message);
     failed++;
@@ -361,7 +357,9 @@ async function runTests() {
     await cleanupTestPhoton();
   }
 
-  console.log(`\n${passed > 0 ? '✅' : '❌'} CLI Runner tests: ${passed} passed, ${failed} failed\n`);
+  console.log(
+    `\n${passed > 0 ? '✅' : '❌'} CLI Runner tests: ${passed} passed, ${failed} failed\n`
+  );
 
   if (failed > 0) {
     process.exit(1);
