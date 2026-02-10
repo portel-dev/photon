@@ -2151,16 +2151,54 @@ const shell = program.command('shell').description('Shell integration utilities'
 
 shell
   .command('init')
-  .option('--hook', 'Output the shell hook script (used internally by eval)')
+  .option('--hook', 'Output the shell hook script (used internally by eval/Invoke-Expression)')
   .description('Set up shell integration for direct photon commands and tab completion')
   .action(async (options: { hook?: boolean }) => {
+    // Detect shell type
     const userShell = process.env.SHELL || '';
-    const isZsh = userShell.includes('zsh');
-    const rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
-    const evalLine = 'eval "$(photon shell init --hook)"';
+    const isPowerShell = !!process.env.PSModulePath;
+    const isZsh = !isPowerShell && userShell.includes('zsh');
+    const isBash = !isPowerShell && userShell.includes('bash');
+
+    type ShellType = 'zsh' | 'bash' | 'powershell' | 'unsupported';
+    let shellType: ShellType = 'unsupported';
+    if (isZsh) shellType = 'zsh';
+    else if (isBash) shellType = 'bash';
+    else if (isPowerShell || process.platform === 'win32') shellType = 'powershell';
+
+    // Unsupported shell — show supported list and exit
+    if (shellType === 'unsupported') {
+      const detected = userShell ? path.basename(userShell) : 'unknown';
+      printError(`Unsupported shell: ${detected}`);
+      console.log('');
+      console.log('  Supported shells:');
+      console.log('    zsh         ~/.zshrc           (macOS default)');
+      console.log('    bash        ~/.bashrc          (Linux default)');
+      console.log('    PowerShell  $PROFILE           (Windows default, cross-platform)');
+      console.log('');
+      console.log('  To use a specific shell, set $SHELL and retry:');
+      console.log('    SHELL=/bin/zsh photon shell init');
+      process.exit(1);
+    }
+
+    // RC file and eval/invoke line per shell
+    let rcFile: string;
+    let evalLine: string;
     const marker = '# photon shell integration';
 
-    // --hook flag: output the hook script (called from eval in rc file)
+    if (shellType === 'powershell') {
+      // PowerShell profile path: cross-platform
+      rcFile =
+        process.platform === 'win32'
+          ? path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
+          : path.join(os.homedir(), '.config', 'powershell', 'Microsoft.PowerShell_profile.ps1');
+      evalLine = 'Invoke-Expression (& photon shell init --hook)';
+    } else {
+      rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
+      evalLine = 'eval "$(photon shell init --hook)"';
+    }
+
+    // --hook flag: output the hook script
     if (options.hook) {
       const photonDir = path.join(os.homedir(), '.photon');
       let photonNames: string[] = [];
@@ -2173,27 +2211,23 @@ shell
         // ~/.photon/ doesn't exist yet
       }
 
-      const fnHandler = isZsh ? 'command_not_found_handler' : 'command_not_found_handle';
-      const errMsg = isZsh ? 'zsh: command not found: $1' : 'bash: $1: command not found';
+      if (shellType === 'zsh') {
+        const functions = photonNames
+          .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+          .join('\n');
 
-      // Shell functions for installed photons
-      const functions = photonNames
-        .map((name) => `${name}() { photon cli ${name} "$@"; }`)
-        .join('\n');
-
-      if (isZsh) {
         console.log(`${marker}
 
 # Shell functions for installed photons (direct invocation)
 ${functions}
 
 # Fallback for newly installed photons (before shell restart)
-${fnHandler}() {
+command_not_found_handler() {
   if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
     photon cli "$@"
     return $?
   fi
-  echo "${errMsg}" >&2
+  echo "zsh: command not found: \$1" >&2
   return 127
 }
 
@@ -2223,8 +2257,10 @@ _photon_complete_direct() {
   esac
 }
 
-# Register completion for each photon function
-${photonNames.map((name) => `compdef _photon_complete_direct ${name}`).join('\n')}
+# Register completion for each photon function (guard for non-interactive shells)
+if (( $+functions[compdef] )); then
+${photonNames.map((name) => `  compdef _photon_complete_direct ${name}`).join('\n')}
+fi
 
 # Completion for the photon command itself
 _photon() {
@@ -2302,21 +2338,26 @@ _photon() {
   esac
 }
 
-compdef _photon photon`);
-      } else {
-        // Bash completion
+if (( $+functions[compdef] )); then
+  compdef _photon photon
+fi`);
+      } else if (shellType === 'bash') {
+        const functions = photonNames
+          .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+          .join('\n');
+
         console.log(`${marker}
 
 # Shell functions for installed photons (direct invocation)
 ${functions}
 
 # Fallback for newly installed photons (before shell restart)
-${fnHandler}() {
+command_not_found_handle() {
   if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
     photon cli "$@"
     return $?
   fi
-  echo "${errMsg}" >&2
+  echo "bash: \$1: command not found" >&2
   return 127
 }
 
@@ -2385,6 +2426,101 @@ _photon_complete() {
 # Register completions
 ${photonNames.map((name) => `complete -F _photon_complete_direct ${name}`).join('\n')}
 complete -F _photon_complete photon`);
+      } else if (shellType === 'powershell') {
+        // PowerShell functions and completion
+        const functions = photonNames
+          .map((name) => `function ${name} { photon cli ${name} @Args }`)
+          .join('\n');
+
+        const functionNames = photonNames.map((n) => `'${n}'`).join(', ');
+
+        console.log(`${marker}
+
+# Functions for installed photons (direct invocation)
+${functions}
+
+# Fallback for newly installed photons (CommandNotFoundAction, PowerShell 7.4+)
+if ($PSVersionTable.PSVersion.Major -ge 7 -and $PSVersionTable.PSVersion.Minor -ge 4) {
+  $ExecutionContext.InvokeCommand.CommandNotFoundAction = {
+    param($Name, $EventArgs)
+    $photonFile = Join-Path $HOME ".photon" "$Name.photon.ts"
+    $photonFileJs = Join-Path $HOME ".photon" "$Name.photon.js"
+    if ((Test-Path $photonFile) -or (Test-Path $photonFileJs)) {
+      $EventArgs.CommandScriptBlock = { photon cli $Name @Args }.GetNewClosure()
+      $EventArgs.StopSearch = $true
+    }
+  }
+}
+
+# Tab completion for photon methods, params, and instances
+$_photonCache = Join-Path $HOME ".photon" "cache" "completions.cache"
+
+# Completion for direct photon commands
+${photonNames
+  .map(
+    (name) => `Register-ArgumentCompleter -CommandName ${name} -ScriptBlock {
+  param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+  if (-not (Test-Path $_photonCache)) { return }
+  $pos = $commandAst.CommandElements.Count
+  if ($pos -le 1) {
+    # Complete method names
+    Get-Content $_photonCache | Where-Object { $_ -match "^method:\${commandName}:" } | ForEach-Object {
+      $parts = $_ -split ':', 4
+      [System.Management.Automation.CompletionResult]::new($parts[2], $parts[2], 'ParameterValue', ($parts[3] ?? $parts[2]))
+    } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
+  } elseif ($pos -le 2) {
+    # Complete parameter names
+    $method = $commandAst.CommandElements[1].Value
+    Get-Content $_photonCache | Where-Object { $_ -match "^param:\${commandName}:\${method}:" } | ForEach-Object {
+      $parts = $_ -split ':', 6
+      $paramName = "--$($parts[3])"
+      [System.Management.Automation.CompletionResult]::new($paramName, $paramName, 'ParameterName', "$($parts[4]) parameter")
+    } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
+  }
+}`
+  )
+  .join('\n')}
+
+# Completion for the photon command itself
+Register-ArgumentCompleter -CommandName photon -ScriptBlock {
+  param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+  $pos = $commandAst.CommandElements.Count
+  if ($pos -le 1) {
+    @('cli','use','instances','set','beam','serve','list','add','remove','search','info','shell','test','doctor') |
+      Where-Object { $_ -like "$wordToComplete*" } |
+      ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+  } elseif ($pos -le 2) {
+    $sub = $commandAst.CommandElements[1].Value
+    switch ($sub) {
+      { $_ -in 'cli','use','instances','set','info','serve' } {
+        if (Test-Path $_photonCache) {
+          Get-Content $_photonCache | Where-Object { $_ -match "^photon:" } | ForEach-Object {
+            $parts = $_ -split ':', 3
+            [System.Management.Automation.CompletionResult]::new($parts[1], $parts[1], 'ParameterValue', ($parts[2] ?? $parts[1]))
+          } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
+        }
+      }
+      'shell' {
+        @('init','completions') | Where-Object { $_ -like "$wordToComplete*" } |
+          ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+      }
+    }
+  } elseif ($pos -le 3) {
+    $sub = $commandAst.CommandElements[1].Value
+    $photonName = $commandAst.CommandElements[2].Value
+    if ($sub -eq 'cli' -and (Test-Path $_photonCache)) {
+      Get-Content $_photonCache | Where-Object { $_ -match "^method:\${photonName}:" } | ForEach-Object {
+        $parts = $_ -split ':', 4
+        [System.Management.Automation.CompletionResult]::new($parts[2], $parts[2], 'ParameterValue', ($parts[3] ?? $parts[2]))
+      } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
+    } elseif ($sub -eq 'use' -and (Test-Path $_photonCache)) {
+      Get-Content $_photonCache | Where-Object { $_ -match "^instance:\${photonName}:" } | ForEach-Object {
+        $parts = $_ -split ':', 3
+        [System.Management.Automation.CompletionResult]::new($parts[2], $parts[2], 'ParameterValue', $parts[2])
+      } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
+    }
+  }
+}`);
       }
 
       // Silently generate cache on first hook (non-blocking)
@@ -2402,6 +2538,10 @@ complete -F _photon_complete photon`);
 
     // Interactive mode → install into rc file
     try {
+      // Ensure profile directory exists (PowerShell profile dir may not)
+      const rcDir = path.dirname(rcFile);
+      await fs.mkdir(rcDir, { recursive: true });
+
       let rcContent = '';
       try {
         rcContent = await fs.readFile(rcFile, 'utf-8');
@@ -2411,7 +2551,11 @@ complete -F _photon_complete photon`);
 
       if (rcContent.includes(marker) || rcContent.includes(evalLine)) {
         printInfo(`Shell integration already installed in ${rcFile}`);
-        console.log(`  Restart your shell or run: source ${rcFile}`);
+        if (shellType === 'powershell') {
+          console.log(`  Restart PowerShell or run: . $PROFILE`);
+        } else {
+          console.log(`  Restart your shell or run: source ${rcFile}`);
+        }
         return;
       }
 
@@ -2423,7 +2567,11 @@ complete -F _photon_complete photon`);
       await generateCompletionCache();
 
       printSuccess(`Installed shell integration into ${rcFile}`);
-      console.log(`  Restart your shell or run: source ${rcFile}`);
+      if (shellType === 'powershell') {
+        console.log(`  Restart PowerShell or run: . $PROFILE`);
+      } else {
+        console.log(`  Restart your shell or run: source ${rcFile}`);
+      }
       console.log('');
       console.log(`  Then type any photon name directly:`);
       console.log(`    list get          → photon cli list get`);
@@ -2433,7 +2581,7 @@ complete -F _photon_complete photon`);
       console.log('    Photon names, methods, parameters, and instances.');
     } catch (error) {
       printError(`Failed to update ${rcFile}: ${getErrorMessage(error)}`);
-      console.log(`  Add this line manually:`);
+      console.log(`  Add this line manually to your shell profile:`);
       console.log(`    ${evalLine}`);
       process.exit(1);
     }
