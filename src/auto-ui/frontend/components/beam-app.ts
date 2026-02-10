@@ -3205,7 +3205,7 @@ export class BeamApp extends LitElement {
               {
                 label:
                   this._currentInstance !== 'default'
-                    ? `${this._selectedPhoton.name} › ${this._currentInstance}`
+                    ? `${this._selectedPhoton.name}:${this._currentInstance}`
                     : this._selectedPhoton.name,
                 action: 'back',
               },
@@ -3237,7 +3237,7 @@ export class BeamApp extends LitElement {
             {
               label:
                 this._currentInstance !== 'default'
-                  ? `${this._selectedPhoton.name} › ${this._currentInstance}`
+                  ? `${this._selectedPhoton.name}:${this._currentInstance}`
                   : this._selectedPhoton.name,
               action: 'back',
             },
