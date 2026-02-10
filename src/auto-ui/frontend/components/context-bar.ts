@@ -238,7 +238,7 @@ export class ContextBar extends LitElement {
         letter-spacing: 0.08em;
         color: #4ade80;
         text-transform: uppercase;
-        margin-left: 8px;
+        margin-left: auto;
       }
 
       .live-dot {
@@ -344,11 +344,12 @@ export class ContextBar extends LitElement {
                   i < this.breadcrumbs.length - 1
                     ? html`<a @click=${() => this._emitAction(crumb.action || '')}>${crumb.label}</a
                         ><span class="separator">/</span>`
-                    : html`<span class="current">${crumb.label}</span>${this.live
-                          ? html`<span class="live-badge"><span class="live-dot"></span>LIVE</span>`
-                          : ''}`
+                    : html`<span class="current">${crumb.label}</span>`
                 )}
               </div>
+              ${this.live
+                ? html`<span class="live-badge"><span class="live-dot"></span>LIVE</span>`
+                : ''}
             `
           : html`
               <div class="identity">
