@@ -1970,7 +1970,7 @@ export class BeamApp extends LitElement {
           data.data?.instance &&
           this._selectedPhoton?.name === data.photon
         ) {
-          this._currentInstance = data.data.instance;
+          this._setCurrentInstance(data.photon, data.data.instance);
         }
 
         // Only auto-refresh if we're viewing the changed photon and have a result displayed
@@ -2070,6 +2070,11 @@ export class BeamApp extends LitElement {
 
       if (photon) {
         this._selectedPhoton = photon;
+
+        // Restore saved instance for stateful photons (survives tab refresh)
+        if (photon.stateful && photon.configured) {
+          this._restoreInstance(photon.name);
+        }
 
         // Handle external MCPs with MCP Apps
         if (photon.isExternalMCP && photon.hasMcpApp) {
@@ -3392,6 +3397,31 @@ export class BeamApp extends LitElement {
     this._selectedMcpAppUri = uri;
   }
 
+  /** Update current instance and persist to sessionStorage for tab-refresh survival */
+  private _setCurrentInstance(photonName: string, instance: string) {
+    this._currentInstance = instance;
+    if (instance && instance !== 'default') {
+      sessionStorage.setItem(`photon-instance:${photonName}`, instance);
+    } else {
+      sessionStorage.removeItem(`photon-instance:${photonName}`);
+    }
+  }
+
+  /** Restore instance from sessionStorage, silently calling _use if needed */
+  private async _restoreInstance(photonName: string) {
+    const saved = sessionStorage.getItem(`photon-instance:${photonName}`);
+    if (saved && saved !== 'default') {
+      try {
+        await mcpClient.callTool(`${photonName}/_use`, { name: saved });
+        this._currentInstance = saved;
+      } catch {
+        // Failed to restore — clear stale value
+        sessionStorage.removeItem(`photon-instance:${photonName}`);
+        this._currentInstance = 'default';
+      }
+    }
+  }
+
   private _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
@@ -3411,6 +3441,11 @@ export class BeamApp extends LitElement {
       this._view = 'mcp-app';
       this._updateHash();
       return;
+    }
+
+    // Restore saved instance for stateful photons (survives tab refresh)
+    if (this._selectedPhoton.stateful && this._selectedPhoton.configured) {
+      this._restoreInstance(this._selectedPhoton.name);
     }
 
     // For Apps, automatically select the main method to show Custom UI
@@ -3441,7 +3476,7 @@ export class BeamApp extends LitElement {
           try {
             const parsed = JSON.parse(textContent);
             if (parsed.instance) {
-              this._currentInstance = parsed.instance;
+              this._setCurrentInstance(photonName, parsed.instance);
               showToast(
                 `Switched to instance: ${parsed.instance === 'default' ? '(default)' : parsed.instance}`,
                 'success'
