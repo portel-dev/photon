@@ -851,6 +851,12 @@ const handlers: Record<string, RequestHandler> = {
           }
 
           const useResult = await sendCommand(photonName, '_use', { name: selectedName }, sendOpts);
+          // Notify UI to refresh after instance switch
+          broadcastToBeam('photon/state-changed', {
+            photon: photonName,
+            method: '_use',
+            data: { instance: selectedName },
+          });
           const useText =
             useResult === undefined || useResult === null
               ? 'Done'
@@ -860,6 +866,31 @@ const handlers: Record<string, RequestHandler> = {
             id: req.id,
             result: {
               content: [{ type: 'text', text: useText }],
+              isError: false,
+            },
+          };
+        }
+
+        // For direct _use with name, also broadcast state-changed
+        if (methodName === '_use') {
+          const result = await sendCommand(
+            photonName,
+            methodName,
+            (args || {}) as Record<string, any>,
+            sendOpts
+          );
+          broadcastToBeam('photon/state-changed', {
+            photon: photonName,
+            method: '_use',
+            data: { instance: args?.name || 'default' },
+          });
+          const resultText =
+            result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
+          return {
+            jsonrpc: '2.0',
+            id: req.id,
+            result: {
+              content: [{ type: 'text', text: resultText }],
               isError: false,
             },
           };

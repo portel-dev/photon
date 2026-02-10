@@ -1963,6 +1963,16 @@ export class BeamApp extends LitElement {
       // Handle stateful photon state changes (e.g., CLI added item → Beam auto-refreshes)
       mcpClient.on('state-changed', (data: any) => {
         if (!data?.photon) return;
+
+        // Update breadcrumb if instance switched (from _use or external client)
+        if (
+          data.method === '_use' &&
+          data.data?.instance &&
+          this._selectedPhoton?.name === data.photon
+        ) {
+          this._currentInstance = data.data.instance;
+        }
+
         // Only auto-refresh if we're viewing the changed photon and have a result displayed
         if (
           this._selectedPhoton?.name === data.photon &&
@@ -3414,6 +3424,8 @@ export class BeamApp extends LitElement {
   /**
    * Trigger instance switch via MCP elicitation (calls _use without name).
    * The transport layer shows an elicitation modal with available instances.
+   * After _use succeeds, the transport broadcasts photon/state-changed which
+   * triggers _silentRefresh() to update the result and notifies custom UIs.
    */
   private async _switchInstance() {
     if (!this._selectedPhoton) return;
@@ -3435,10 +3447,6 @@ export class BeamApp extends LitElement {
             }
           } catch {
             // Non-JSON response — may be a simple status message
-          }
-          // Auto-re-execute current method if it has no required params
-          if (this._view === 'form' && this._selectedMethod) {
-            this._maybeAutoInvoke(this._selectedMethod);
           }
         }
       }
