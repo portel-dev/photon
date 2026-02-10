@@ -784,24 +784,13 @@ const handlers: Record<string, RequestHandler> = {
           }
         }
 
-        // Use a stable session per photon for Beam
-        const beamSessionId = `beam-${photonName}`;
+        // Each browser tab gets its own daemon session via the MCP session ID.
+        // Instance state is tracked per-session on the daemon — no global persistence.
+        const beamSessionId = `beam-${session.id}`;
         const sendOpts = {
           photonPath: photonInfo.path,
           sessionId: beamSessionId,
         };
-
-        // For non-_use calls: sync Beam session to the stored instance
-        // For _use calls: skip read, let daemon handle it, then persist the new instance
-        const { InstanceStore } = await import('../context-store.js');
-        const instanceStore = new InstanceStore();
-
-        if (methodName !== '_use') {
-          const currentInstance = instanceStore.getCurrentInstance(photonName);
-          if (currentInstance) {
-            await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
-          }
-        }
 
         const result = await sendCommand(
           photonName,
@@ -809,12 +798,6 @@ const handlers: Record<string, RequestHandler> = {
           (args || {}) as Record<string, any>,
           sendOpts
         );
-
-        // After a _use call succeeds, persist the new instance for Beam
-        if (methodName === '_use') {
-          const newInstance = (args as Record<string, any>)?.name || '';
-          instanceStore.setCurrentInstance(photonName, newInstance);
-        }
 
         const resultText =
           result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);

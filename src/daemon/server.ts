@@ -881,6 +881,11 @@ async function handleRequest(
         const store = new InstanceStore();
         const instances = store.listInstances(photonName);
         const current = session.instanceName || 'default';
+        // Ensure current instance is always in the list (may not have a state file yet)
+        if (!instances.includes(current)) {
+          instances.push(current);
+          instances.sort();
+        }
         return {
           type: 'result',
           id: request.id,

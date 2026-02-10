@@ -2103,11 +2103,10 @@ program
   .description('Switch to a named instance of a stateful photon')
   .action(async (photonName: string, instance?: string) => {
     try {
-      const { InstanceStore, CLISessionStore } = await import('./context-store.js');
+      const { CLISessionStore } = await import('./context-store.js');
 
-      // Write to both: session store (for CLI) and permanent store (for Beam)
+      // Write to CLI session store only — each client manages its own instance
       new CLISessionStore().setCurrentInstance(photonName, instance || '');
-      new InstanceStore().setCurrentInstance(photonName, instance || '');
 
       const label = instance || 'default';
       printSuccess(`${photonName} → instance: ${label}`);

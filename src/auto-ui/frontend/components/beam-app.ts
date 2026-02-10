@@ -329,6 +329,34 @@ export class BeamApp extends LitElement {
         color: var(--t-primary);
       }
 
+      .instance-add-btn {
+        font-size: 0.85rem;
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        cursor: pointer;
+        transition: all 0.2s;
+        line-height: 1.4;
+      }
+
+      .instance-add-btn:hover {
+        border-color: var(--accent-primary, hsl(260, 100%, 65%));
+        color: var(--t-primary);
+      }
+
+      .instance-new-input {
+        font-size: 0.8rem;
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-glass);
+        border: 1px solid var(--accent-primary, hsl(260, 100%, 65%));
+        color: var(--t-primary);
+        outline: none;
+        width: 140px;
+      }
+
       .photon-header-actions {
         display: flex;
         gap: var(--space-sm);
@@ -1648,6 +1676,7 @@ export class BeamApp extends LitElement {
   }> = [];
   @state() private _instances: string[] = [];
   @state() private _currentInstance = 'default';
+  @state() private _creatingInstance = false;
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -3470,6 +3499,36 @@ export class BeamApp extends LitElement {
               </option>`
           )}
         </select>
+        ${this._creatingInstance
+          ? html`<input
+              class="instance-new-input"
+              type="text"
+              placeholder="instance name"
+              @keydown=${(e: KeyboardEvent) => {
+                if (e.key === 'Enter') {
+                  const val = (e.target as HTMLInputElement).value.trim();
+                  if (val) this._switchInstance(val);
+                  this._creatingInstance = false;
+                } else if (e.key === 'Escape') {
+                  this._creatingInstance = false;
+                }
+              }}
+              @blur=${() => {
+                this._creatingInstance = false;
+              }}
+            />`
+          : html`<button
+              class="instance-add-btn"
+              title="Create new instance"
+              @click=${() => {
+                this._creatingInstance = true;
+                this.updateComplete.then(() => {
+                  this.renderRoot.querySelector<HTMLInputElement>('.instance-new-input')?.focus();
+                });
+              }}
+            >
+              +
+            </button>`}
       </div>
     `;
   }
