@@ -89,9 +89,18 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
 
     if (schema?.properties) {
       for (const [name, prop] of Object.entries(schema.properties) as [string, any][]) {
+        // Resolve type from anyOf/oneOf union schemas (e.g. number | string)
+        let type = prop.type;
+        if (!type && (prop.anyOf || prop.oneOf)) {
+          const variants = (prop.anyOf || prop.oneOf) as { type?: string }[];
+          type = variants
+            .map((v) => v.type)
+            .filter(Boolean)
+            .join(' | ');
+        }
         params.push({
           name,
-          type: prop.type || 'any',
+          type: type || 'any',
           optional: !schema.required?.includes(name),
           description: prop.description,
           ...(prop.title ? { label: prop.title } : {}),
@@ -354,7 +363,7 @@ function parseCliArgs(args: string[], params: MethodInfo['params']): Record<stri
 function coerceValue(value: string, expectedType: string): any {
   // Preserve strings starting with + or - for relative adjustments
   // Must check BEFORE JSON.parse because JSON.parse("-3") returns -3 (number)
-  if (expectedType === 'number' && (value.startsWith('+') || value.startsWith('-'))) {
+  if (expectedType.includes('number') && (value.startsWith('+') || value.startsWith('-'))) {
     return value;
   }
 
