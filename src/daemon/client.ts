@@ -330,9 +330,11 @@ export async function subscribeChannel(
     reconnectAttempts++;
 
     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
-    logger.info(
-      `Subscription lost for ${channel}, reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`
-    );
+    if (reconnectAttempts === 1) {
+      logger.info(`Subscription lost for ${channel}, reconnecting...`);
+    } else {
+      logger.debug(`Reconnecting ${channel} in ${delay}ms (attempt ${reconnectAttempts})`);
+    }
 
     setTimeout(async () => {
       if (cancelled) return;

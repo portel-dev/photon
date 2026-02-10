@@ -1308,8 +1308,12 @@ program
         });
       }
 
-      // Handle shutdown signals
+      // Handle shutdown signals (guard against duplicate Ctrl+C)
+      let shuttingDown = false;
       const shutdown = async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+
         console.error('\nShutting down Photon Beam...');
 
         // Gracefully close external MCP clients to prevent ugly tracebacks

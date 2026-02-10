@@ -201,7 +201,12 @@ export function stopGlobalDaemon(): void {
     const pid = parseInt(fs.readFileSync(GLOBAL_PID_FILE, 'utf-8').trim(), 10);
 
     // Send SIGTERM to gracefully shut down
-    process.kill(pid, 'SIGTERM');
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch (killError: any) {
+      // ESRCH = process already dead, not an error
+      if (killError.code !== 'ESRCH') throw killError;
+    }
 
     // Clean up PID file
     fs.unlinkSync(GLOBAL_PID_FILE);
@@ -211,9 +216,9 @@ export function stopGlobalDaemon(): void {
       fs.unlinkSync(socketPath);
     }
 
-    logger.info('Stopped global daemon', { pid });
+    logger.debug('Stopped global daemon', { pid });
   } catch (error) {
-    logger.error('Error stopping global daemon', { error: getErrorMessage(error) });
+    logger.debug('Error stopping global daemon', { error: getErrorMessage(error) });
   }
 }
 
