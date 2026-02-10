@@ -367,6 +367,12 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           }
         }
 
+        // Refresh completions cache
+        try {
+          const { generateCompletionCache } = await import('../../shell-completions.js');
+          await generateCompletionCache();
+        } catch {}
+
         console.error(`✅ Added ${name} from ${selectedMarketplace.name}`);
         if (selectedMetadata?.version) {
           console.error(`Version: ${selectedMetadata.version}`);
@@ -439,6 +445,12 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           }
           printSuccess(`Cleared cache`);
         }
+
+        // Refresh completions cache
+        try {
+          const { generateCompletionCache } = await import('../../shell-completions.js');
+          await generateCompletionCache();
+        } catch {}
 
         console.log('');
         printSuccess(`Successfully removed ${name}`);

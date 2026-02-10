@@ -2101,6 +2101,12 @@ program
       store.setCurrentInstance(photonName, instance || '');
       const label = instance || 'default';
       printSuccess(`${photonName} → instance: ${label}`);
+
+      // Refresh completions cache (picks up new instance)
+      try {
+        const { generateCompletionCache } = await import('./shell-completions.js');
+        await generateCompletionCache();
+      } catch {}
     } catch (error) {
       printError(getErrorMessage(error));
       process.exit(1);
@@ -2148,14 +2154,12 @@ shell
   .action(async (options: { hook?: boolean }) => {
     const userShell = process.env.SHELL || '';
     const isZsh = userShell.includes('zsh');
-    const shellName = isZsh ? 'zsh' : 'bash';
     const rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
     const evalLine = 'eval "$(photon shell init --hook)"';
     const marker = '# photon shell integration';
 
     // --hook flag: output the hook script (called from eval in rc file)
     if (options.hook) {
-      // Scan installed photons
       const photonDir = path.join(os.homedir(), '.photon');
       let photonNames: string[] = [];
       try {
@@ -2170,14 +2174,15 @@ shell
       const fnHandler = isZsh ? 'command_not_found_handler' : 'command_not_found_handle';
       const errMsg = isZsh ? 'zsh: command not found: $1' : 'bash: $1: command not found';
 
-      // Shell functions for installed photons (enables tab completion)
+      // Shell functions for installed photons
       const functions = photonNames
         .map((name) => `${name}() { photon cli ${name} "$@"; }`)
         .join('\n');
 
-      console.log(`${marker}
+      if (isZsh) {
+        console.log(`${marker}
 
-# Shell functions for installed photons (tab completion + direct invocation)
+# Shell functions for installed photons (direct invocation)
 ${functions}
 
 # Fallback for newly installed photons (before shell restart)
@@ -2188,7 +2193,208 @@ ${fnHandler}() {
   fi
   echo "${errMsg}" >&2
   return 127
-}`);
+}
+
+# Tab completion for photon methods, params, and instances
+_photon_cache="$HOME/.photon/cache/completions.cache"
+
+_photon_complete_direct() {
+  local cmd="\$words[1]"
+  local curcontext="\$curcontext" state line
+  _arguments -C "1: :->method" "*::arg:->params"
+  case "\$state" in
+    method)
+      if [[ -f "\$_photon_cache" ]]; then
+        local -a methods
+        methods=("\${(@f)$(grep "^method:\${cmd}:" "\$_photon_cache" | while IFS=: read -r _ _ name desc; do echo "\${name}:\${desc}"; done)}")
+        _describe 'method' methods
+      fi
+      ;;
+    params)
+      if [[ -f "\$_photon_cache" ]]; then
+        local method="\$line[1]"
+        local -a params
+        params=("\${(@f)$(grep "^param:\${cmd}:\${method}:" "\$_photon_cache" | while IFS=: read -r _ _ _ name type req; do echo "--\${name}[\${type}]"; done)}")
+        _describe 'parameter' params
+      fi
+      ;;
+  esac
+}
+
+# Register completion for each photon function
+${photonNames.map((name) => `compdef _photon_complete_direct ${name}`).join('\n')}
+
+# Completion for the photon command itself
+_photon() {
+  local curcontext="\$curcontext" state line
+  _arguments -C \\
+    "1: :->cmds" \\
+    "*::arg:->args"
+  case "\$state" in
+    cmds)
+      local -a builtins
+      builtins=(
+        'cli:Run a photon method'
+        'use:Switch to a named instance'
+        'instances:List instances of a photon'
+        'set:Configure environment for a photon'
+        'beam:Start the interactive UI'
+        'serve:Start MCP stdio server'
+        'list:List installed photons'
+        'add:Install a photon'
+        'remove:Uninstall a photon'
+        'search:Search for photons'
+        'info:Show photon details'
+        'shell:Shell integration'
+        'test:Run photon tests'
+        'doctor:Check system health'
+      )
+      _describe 'command' builtins
+      ;;
+    args)
+      case \$line[1] in
+        cli)
+          local curcontext="\$curcontext" state line
+          _arguments -C "1: :->photon_name" "*::arg:->method_args"
+          case "\$state" in
+            photon_name)
+              if [[ -f "\$_photon_cache" ]]; then
+                local -a photons
+                photons=("\${(@f)$(grep "^photon:" "\$_photon_cache" | while IFS=: read -r _ name desc; do echo "\${name}:\${desc}"; done)}")
+                _describe 'photon' photons
+              fi
+              ;;
+            method_args)
+              words[1]="\$line[1]"
+              _photon_complete_direct
+              ;;
+          esac
+          ;;
+        use|instances|set|info|serve)
+          if [[ -f "\$_photon_cache" ]]; then
+            local curcontext="\$curcontext" state line
+            _arguments -C "1: :->photon_name" "*::arg:->instance"
+            case "\$state" in
+              photon_name)
+                local -a photons
+                photons=("\${(@f)$(grep "^photon:" "\$_photon_cache" | while IFS=: read -r _ name desc; do echo "\${name}:\${desc}"; done)}")
+                _describe 'photon' photons
+                ;;
+              instance)
+                if [[ "\$line[-2]" == "use" ]]; then
+                  local -a instances
+                  instances=("\${(@f)$(grep "^instance:\${line[1]}:" "\$_photon_cache" | cut -d: -f3)}")
+                  [[ \${#instances} -gt 0 ]] && _describe 'instance' instances
+                fi
+                ;;
+            esac
+          fi
+          ;;
+        shell)
+          local -a subcmds
+          subcmds=('init:Set up shell integration' 'completions:Manage completion cache')
+          _describe 'subcommand' subcmds
+          ;;
+      esac
+      ;;
+  esac
+}
+
+compdef _photon photon`);
+      } else {
+        // Bash completion
+        console.log(`${marker}
+
+# Shell functions for installed photons (direct invocation)
+${functions}
+
+# Fallback for newly installed photons (before shell restart)
+${fnHandler}() {
+  if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
+    photon cli "$@"
+    return $?
+  fi
+  echo "${errMsg}" >&2
+  return 127
+}
+
+# Tab completion for photon methods, params, and instances
+_photon_cache="$HOME/.photon/cache/completions.cache"
+
+_photon_complete_direct() {
+  local cur="\${COMP_WORDS[COMP_CWORD]}"
+  local cmd="\${COMP_WORDS[0]}"
+  COMPREPLY=()
+
+  if [[ ! -f "\$_photon_cache" ]]; then return; fi
+
+  if [[ \$COMP_CWORD -eq 1 ]]; then
+    local methods
+    methods="$(grep "^method:\${cmd}:" "\$_photon_cache" | cut -d: -f3)"
+    COMPREPLY=($(compgen -W "\$methods" -- "\$cur"))
+  elif [[ \$COMP_CWORD -eq 2 ]]; then
+    local method="\${COMP_WORDS[1]}"
+    local params
+    params="$(grep "^param:\${cmd}:\${method}:" "\$_photon_cache" | cut -d: -f4 | sed 's/^/--/')"
+    COMPREPLY=($(compgen -W "\$params" -- "\$cur"))
+  fi
+}
+
+_photon_complete() {
+  local cur="\${COMP_WORDS[COMP_CWORD]}"
+  local prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  COMPREPLY=()
+
+  if [[ ! -f "\$_photon_cache" ]]; then return; fi
+
+  if [[ \$COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "cli use instances set beam serve list add remove search info shell test doctor" -- "\$cur"))
+  elif [[ \$COMP_CWORD -eq 2 ]]; then
+    case "\${COMP_WORDS[1]}" in
+      cli|use|instances|set|info|serve)
+        local photons
+        photons="$(grep "^photon:" "\$_photon_cache" | cut -d: -f2)"
+        COMPREPLY=($(compgen -W "\$photons" -- "\$cur"))
+        ;;
+      shell)
+        COMPREPLY=($(compgen -W "init completions" -- "\$cur"))
+        ;;
+    esac
+  elif [[ \$COMP_CWORD -eq 3 ]]; then
+    case "\${COMP_WORDS[1]}" in
+      cli)
+        local methods
+        methods="$(grep "^method:\${COMP_WORDS[2]}:" "\$_photon_cache" | cut -d: -f3)"
+        COMPREPLY=($(compgen -W "\$methods" -- "\$cur"))
+        ;;
+      use)
+        local instances
+        instances="$(grep "^instance:\${COMP_WORDS[2]}:" "\$_photon_cache" | cut -d: -f3)"
+        COMPREPLY=($(compgen -W "\$instances" -- "\$cur"))
+        ;;
+    esac
+  elif [[ \$COMP_CWORD -ge 4 && "\${COMP_WORDS[1]}" == "cli" ]]; then
+    local params
+    params="$(grep "^param:\${COMP_WORDS[2]}:\${COMP_WORDS[3]}:" "\$_photon_cache" | cut -d: -f4 | sed 's/^/--/')"
+    COMPREPLY=($(compgen -W "\$params" -- "\$cur"))
+  fi
+}
+
+# Register completions
+${photonNames.map((name) => `complete -F _photon_complete_direct ${name}`).join('\n')}
+complete -F _photon_complete photon`);
+      }
+
+      // Silently generate cache on first hook (non-blocking)
+      const { CACHE_FILE } = await import('./shell-completions.js');
+      try {
+        await fs.access(CACHE_FILE);
+      } catch {
+        // Cache doesn't exist yet — generate it
+        const { generateCompletionCache } = await import('./shell-completions.js');
+        await generateCompletionCache();
+      }
+
       return;
     }
 
@@ -2210,6 +2416,10 @@ ${fnHandler}() {
       const block = `\n${marker}\n${evalLine}\n`;
       await fs.appendFile(rcFile, block);
 
+      // Generate completions cache
+      const { generateCompletionCache } = await import('./shell-completions.js');
+      await generateCompletionCache();
+
       printSuccess(`Installed shell integration into ${rcFile}`);
       console.log(`  Restart your shell or run: source ${rcFile}`);
       console.log('');
@@ -2217,12 +2427,45 @@ ${fnHandler}() {
       console.log(`    list get          → photon cli list get`);
       console.log(`    list add "Milk"   → photon cli list add "Milk"`);
       console.log('');
-      console.log(`  Tab completion for photon names is included.`);
+      console.log('  Tab completion is enabled for:');
+      console.log('    Photon names, methods, parameters, and instances.');
     } catch (error) {
       printError(`Failed to update ${rcFile}: ${getErrorMessage(error)}`);
       console.log(`  Add this line manually:`);
       console.log(`    ${evalLine}`);
       process.exit(1);
+    }
+  });
+
+shell
+  .command('completions')
+  .option('--generate', 'Regenerate the completions cache')
+  .description('Manage shell completion cache')
+  .action(async (options: { generate?: boolean }) => {
+    const { generateCompletionCache, CACHE_FILE } = await import('./shell-completions.js');
+
+    if (options.generate) {
+      await generateCompletionCache();
+      printSuccess(`Completions cache updated: ${CACHE_FILE}`);
+      return;
+    }
+
+    // Default: show cache status
+    try {
+      const stat = await fs.stat(CACHE_FILE);
+      const age = Date.now() - stat.mtimeMs;
+      const ageStr =
+        age < 60_000
+          ? 'just now'
+          : age < 3_600_000
+            ? `${Math.floor(age / 60_000)}m ago`
+            : `${Math.floor(age / 3_600_000)}h ago`;
+      printInfo(`Cache: ${CACHE_FILE}`);
+      console.log(`  Last updated: ${ageStr}`);
+      console.log(`  Run \`photon shell completions --generate\` to refresh`);
+    } catch {
+      printInfo('No completions cache found.');
+      console.log('  Run `photon shell completions --generate` to create one.');
     }
   });
 
@@ -2473,7 +2716,7 @@ const knownCommands = [
 const knownSubcommands: Record<string, string[]> = {
   marketplace: ['list', 'add', 'remove', 'enable', 'disable'],
   maker: ['new', 'validate', 'sync', 'init'],
-  shell: ['init'],
+  shell: ['init', 'completions'],
 };
 
 /**
