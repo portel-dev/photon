@@ -2143,37 +2143,86 @@ const shell = program.command('shell').description('Shell integration utilities'
 
 shell
   .command('init')
-  .description('Output shell hook for direct photon commands (add to .bashrc/.zshrc)')
-  .action(async () => {
-    const photonBin = process.argv[1];
-    // Detect shell from parent process or SHELL env
+  .option('--hook', 'Output the shell hook script (used internally by eval)')
+  .description('Set up shell integration for direct photon commands and tab completion')
+  .action(async (options: { hook?: boolean }) => {
     const userShell = process.env.SHELL || '';
     const isZsh = userShell.includes('zsh');
+    const shellName = isZsh ? 'zsh' : 'bash';
+    const rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
+    const evalLine = 'eval "$(photon shell init --hook)"';
+    const marker = '# photon shell integration';
 
-    if (isZsh) {
-      console.log(`# Photon shell integration
-# Add to ~/.zshrc: eval "$(photon shell init)"
+    // --hook flag: output the hook script (called from eval in rc file)
+    if (options.hook) {
+      // Scan installed photons
+      const photonDir = path.join(os.homedir(), '.photon');
+      let photonNames: string[] = [];
+      try {
+        const entries = await fs.readdir(photonDir);
+        photonNames = entries
+          .filter((e) => /\.photon\.(ts|js)$/.test(e))
+          .map((e) => e.replace(/\.photon\.(ts|js)$/, ''));
+      } catch {
+        // ~/.photon/ doesn't exist yet
+      }
 
-command_not_found_handler() {
-  if [ -f "$HOME/.photon/$1.photon.ts" ] || [ -f "$HOME/.photon/$1.photon.js" ]; then
+      const fnHandler = isZsh ? 'command_not_found_handler' : 'command_not_found_handle';
+      const errMsg = isZsh ? 'zsh: command not found: $1' : 'bash: $1: command not found';
+
+      // Shell functions for installed photons (enables tab completion)
+      const functions = photonNames
+        .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+        .join('\n');
+
+      console.log(`${marker}
+
+# Shell functions for installed photons (tab completion + direct invocation)
+${functions}
+
+# Fallback for newly installed photons (before shell restart)
+${fnHandler}() {
+  if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
     photon cli "$@"
     return $?
   fi
-  echo "zsh: command not found: $1" >&2
+  echo "${errMsg}" >&2
   return 127
 }`);
-    } else {
-      console.log(`# Photon shell integration
-# Add to ~/.bashrc: eval "$(photon shell init)"
+      return;
+    }
 
-command_not_found_handle() {
-  if [ -f "$HOME/.photon/$1.photon.ts" ] || [ -f "$HOME/.photon/$1.photon.js" ]; then
-    photon cli "$@"
-    return $?
-  fi
-  echo "bash: $1: command not found" >&2
-  return 127
-}`);
+    // Interactive mode → install into rc file
+    try {
+      let rcContent = '';
+      try {
+        rcContent = await fs.readFile(rcFile, 'utf-8');
+      } catch {
+        // rc file doesn't exist, we'll create it
+      }
+
+      if (rcContent.includes(marker) || rcContent.includes(evalLine)) {
+        printInfo(`Shell integration already installed in ${rcFile}`);
+        console.log(`  Restart your shell or run: source ${rcFile}`);
+        return;
+      }
+
+      const block = `\n${marker}\n${evalLine}\n`;
+      await fs.appendFile(rcFile, block);
+
+      printSuccess(`Installed shell integration into ${rcFile}`);
+      console.log(`  Restart your shell or run: source ${rcFile}`);
+      console.log('');
+      console.log(`  Then type any photon name directly:`);
+      console.log(`    list get          → photon cli list get`);
+      console.log(`    list add "Milk"   → photon cli list add "Milk"`);
+      console.log('');
+      console.log(`  Tab completion for photon names is included.`);
+    } catch (error) {
+      printError(`Failed to update ${rcFile}: ${getErrorMessage(error)}`);
+      console.log(`  Add this line manually:`);
+      console.log(`    ${evalLine}`);
+      process.exit(1);
     }
   });
 
