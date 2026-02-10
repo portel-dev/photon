@@ -576,13 +576,15 @@ export class PhotonServer {
       if (this.daemonName) {
         tools.push({
           name: '_use',
-          description: `Switch to a named instance. Pass empty name for default.`,
+          description: `Switch to a named instance. Omit name to select interactively.`,
           inputSchema: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Instance name (empty for default)' },
+              name: {
+                type: 'string',
+                description: 'Instance name (empty for default). Omit to select interactively.',
+              },
             },
-            required: ['name'],
           },
         });
         tools.push({
@@ -611,14 +613,84 @@ export class PhotonServer {
       // Route _use and _instances through daemon for stateful photons
       if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
         const { sendCommand } = await import('./daemon/client.js');
+        const sendOpts = {
+          photonPath: this.options.filePath,
+          sessionId: `stdio-${this.daemonName}`,
+        };
+
+        // Elicitation-based instance selection when _use called without name
+        if (toolName === '_use' && !args?.name && this.clientSupportsElicitation()) {
+          const instancesResult = (await sendCommand(
+            this.daemonName,
+            '_instances',
+            {},
+            sendOpts
+          )) as { instances?: string[]; current?: string };
+          const instances = instancesResult?.instances || ['default'];
+
+          // Build oneOf options for elicitation
+          const options: Array<{ const: string; title: string }> = instances.map(
+            (inst: string) => ({ const: inst, title: inst === 'default' ? '(default)' : inst })
+          );
+          options.push({ const: '__create_new__', title: 'Create new...' });
+
+          const result = await this.server.elicitInput({
+            message: 'Select an instance',
+            requestedSchema: {
+              type: 'object' as const,
+              properties: {
+                instance: {
+                  type: 'string',
+                  title: 'Instance',
+                  oneOf: options,
+                  default: instancesResult?.current || 'default',
+                },
+              },
+              required: ['instance'],
+            },
+          });
+
+          if (result.action !== 'accept' || !result.content) {
+            return { content: [{ type: 'text', text: 'Cancelled' }] };
+          }
+
+          let selectedName = (result.content as Record<string, string>).instance;
+
+          // Handle "Create new..." selection
+          if (selectedName === '__create_new__') {
+            const nameResult = await this.server.elicitInput({
+              message: 'Enter a name for the new instance',
+              requestedSchema: {
+                type: 'object' as const,
+                properties: {
+                  name: { type: 'string', title: 'Instance name' },
+                },
+                required: ['name'],
+              },
+            });
+
+            if (nameResult.action !== 'accept' || !nameResult.content) {
+              return { content: [{ type: 'text', text: 'Cancelled' }] };
+            }
+            selectedName = (nameResult.content as Record<string, string>).name;
+          }
+
+          const useResult = await sendCommand(
+            this.daemonName,
+            '_use',
+            { name: selectedName },
+            sendOpts
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
+          };
+        }
+
         const result = await sendCommand(
           this.daemonName,
           toolName,
           (args || {}) as Record<string, any>,
-          {
-            photonPath: this.options.filePath,
-            sessionId: `stdio-${this.daemonName}`,
-          }
+          sendOpts
         );
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -1960,13 +2032,15 @@ export class PhotonServer {
       if (this.daemonName) {
         tools.push({
           name: '_use',
-          description: `Switch to a named instance. Pass empty name for default.`,
+          description: `Switch to a named instance. Omit name to select interactively.`,
           inputSchema: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Instance name (empty for default)' },
+              name: {
+                type: 'string',
+                description: 'Instance name (empty for default). Omit to select interactively.',
+              },
             },
-            required: ['name'],
           },
         });
         tools.push({
@@ -1987,14 +2061,82 @@ export class PhotonServer {
       // Route _use and _instances through daemon for stateful photons
       if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
         const { sendCommand } = await import('./daemon/client.js');
+        const sendOpts = {
+          photonPath: this.options.filePath,
+          sessionId: `sse-${this.daemonName}`,
+        };
+
+        // Elicitation-based instance selection when _use called without name
+        if (toolName === '_use' && !args?.name && this.clientSupportsElicitation(sessionServer)) {
+          const instancesResult = (await sendCommand(
+            this.daemonName,
+            '_instances',
+            {},
+            sendOpts
+          )) as { instances?: string[]; current?: string };
+          const instances = instancesResult?.instances || ['default'];
+
+          const options: Array<{ const: string; title: string }> = instances.map(
+            (inst: string) => ({ const: inst, title: inst === 'default' ? '(default)' : inst })
+          );
+          options.push({ const: '__create_new__', title: 'Create new...' });
+
+          const result = await sessionServer.elicitInput({
+            message: 'Select an instance',
+            requestedSchema: {
+              type: 'object' as const,
+              properties: {
+                instance: {
+                  type: 'string',
+                  title: 'Instance',
+                  oneOf: options,
+                  default: instancesResult?.current || 'default',
+                },
+              },
+              required: ['instance'],
+            },
+          });
+
+          if (result.action !== 'accept' || !result.content) {
+            return { content: [{ type: 'text', text: 'Cancelled' }] };
+          }
+
+          let selectedName = (result.content as Record<string, string>).instance;
+
+          if (selectedName === '__create_new__') {
+            const nameResult = await sessionServer.elicitInput({
+              message: 'Enter a name for the new instance',
+              requestedSchema: {
+                type: 'object' as const,
+                properties: {
+                  name: { type: 'string', title: 'Instance name' },
+                },
+                required: ['name'],
+              },
+            });
+
+            if (nameResult.action !== 'accept' || !nameResult.content) {
+              return { content: [{ type: 'text', text: 'Cancelled' }] };
+            }
+            selectedName = (nameResult.content as Record<string, string>).name;
+          }
+
+          const useResult = await sendCommand(
+            this.daemonName,
+            '_use',
+            { name: selectedName },
+            sendOpts
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
+          };
+        }
+
         const result = await sendCommand(
           this.daemonName,
           toolName,
           (args || {}) as Record<string, any>,
-          {
-            photonPath: this.options.filePath,
-            sessionId: `sse-${this.daemonName}`,
-          }
+          sendOpts
         );
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],

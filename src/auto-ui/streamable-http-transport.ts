@@ -382,13 +382,15 @@ const handlers: Record<string, RequestHandler> = {
       if (!photon.configured || !photon.stateful) continue;
       tools.push({
         name: `${photon.name}/_use`,
-        description: `Switch to a named instance of ${photon.name}. Pass empty name for default.`,
+        description: `Switch to a named instance of ${photon.name}. Omit name to select interactively.`,
         inputSchema: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Instance name (empty for default)' },
+            name: {
+              type: 'string',
+              description: 'Instance name (empty for default). Omit to select interactively.',
+            },
           },
-          required: ['name'],
         },
         'x-photon-id': photon.id,
         'x-photon-internal': true,
@@ -791,6 +793,77 @@ const handlers: Record<string, RequestHandler> = {
           photonPath: photonInfo.path,
           sessionId: beamSessionId,
         };
+
+        // Elicitation-based instance selection when _use called without name
+        if (methodName === '_use' && !args?.name) {
+          const instancesResult = (await sendCommand(photonName, '_instances', {}, sendOpts)) as {
+            instances?: string[];
+            current?: string;
+          };
+          const instances = instancesResult?.instances || ['default'];
+
+          // Build select options for elicitation modal
+          const selectOptions = instances.map((inst: string) => ({
+            value: inst,
+            label: inst === 'default' ? '(default)' : inst,
+            selected: inst === (instancesResult?.current || 'default'),
+          }));
+          selectOptions.push({ value: '__create_new__', label: 'Create new...', selected: false });
+
+          const elicitResult = await requestBeamElicitation({
+            ask: 'select',
+            message: 'Select an instance',
+            options: selectOptions,
+          });
+
+          if (elicitResult.action !== 'accept' || !elicitResult.content) {
+            return {
+              jsonrpc: '2.0',
+              id: req.id,
+              result: {
+                content: [{ type: 'text', text: 'Cancelled' }],
+                isError: false,
+              },
+            };
+          }
+
+          let selectedName = elicitResult.content as string;
+
+          // Handle "Create new..." selection
+          if (selectedName === '__create_new__') {
+            const nameResult = await requestBeamElicitation({
+              ask: 'text',
+              message: 'Enter a name for the new instance',
+              placeholder: 'e.g. groceries, work, personal',
+            });
+
+            if (nameResult.action !== 'accept' || !nameResult.content) {
+              return {
+                jsonrpc: '2.0',
+                id: req.id,
+                result: {
+                  content: [{ type: 'text', text: 'Cancelled' }],
+                  isError: false,
+                },
+              };
+            }
+            selectedName = nameResult.content as string;
+          }
+
+          const useResult = await sendCommand(photonName, '_use', { name: selectedName }, sendOpts);
+          const useText =
+            useResult === undefined || useResult === null
+              ? 'Done'
+              : JSON.stringify(useResult, null, 2);
+          return {
+            jsonrpc: '2.0',
+            id: req.id,
+            result: {
+              content: [{ type: 'text', text: useText }],
+              isError: false,
+            },
+          };
+        }
 
         const result = await sendCommand(
           photonName,
@@ -2339,6 +2412,50 @@ export function requestExternalElicitation(
     });
 
     // Timeout after 5 minutes
+    setTimeout(() => {
+      if (pendingElicitations.has(elicitationId)) {
+        pendingElicitations.delete(elicitationId);
+        resolve({ action: 'cancel' });
+      }
+    }, 300000);
+  });
+}
+
+/**
+ * Request elicitation from Beam using Photon-native ask types (select, text, etc.)
+ * Unlike requestExternalElicitation which uses MCP form/url mode, this sends
+ * the ask type directly so the elicitation modal renders the appropriate UI.
+ */
+function requestBeamElicitation(data: {
+  ask: 'select' | 'text' | 'confirm' | 'number';
+  message: string;
+  options?: Array<{ value: string; label: string; selected?: boolean; description?: string }>;
+  placeholder?: string;
+  default?: any;
+}): Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: any }> {
+  const elicitationId = randomUUID();
+
+  return new Promise((resolve) => {
+    pendingElicitations.set(elicitationId, {
+      resolve: (value: any) => {
+        resolve({ action: 'accept', content: value });
+      },
+      reject: (error: Error) => {
+        if (error.message.includes('cancelled')) {
+          resolve({ action: 'cancel' });
+        } else {
+          resolve({ action: 'decline' });
+        }
+      },
+      sessionId: '',
+    });
+
+    // Broadcast with Photon-native ask format (not MCP form mode)
+    broadcastToBeam('beam/elicitation', {
+      elicitationId,
+      ...data,
+    });
+
     setTimeout(() => {
       if (pendingElicitations.has(elicitationId)) {
         pendingElicitations.delete(elicitationId);

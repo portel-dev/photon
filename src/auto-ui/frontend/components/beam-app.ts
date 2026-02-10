@@ -289,74 +289,6 @@ export class BeamApp extends LitElement {
         color: hsl(200, 60%, 65%);
       }
 
-      .instance-bar {
-        display: flex;
-        align-items: center;
-        gap: var(--space-sm);
-        margin-top: var(--space-sm);
-        padding: var(--space-xs) var(--space-md);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-md);
-        background: var(--bg-glass);
-        backdrop-filter: blur(16px);
-      }
-
-      .instance-label {
-        font-size: 0.75rem;
-        color: var(--t-muted);
-        font-weight: 500;
-      }
-
-      .instance-select {
-        font-size: 0.8rem;
-        padding: 4px 10px;
-        border-radius: var(--radius-sm);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-primary);
-        cursor: pointer;
-        outline: none;
-        transition: border-color 0.2s;
-      }
-
-      .instance-select:hover,
-      .instance-select:focus {
-        border-color: var(--accent-primary, hsl(260, 100%, 65%));
-      }
-
-      .instance-select option {
-        background: var(--bg-primary, #1a1a2e);
-        color: var(--t-primary);
-      }
-
-      .instance-add-btn {
-        font-size: 0.85rem;
-        padding: 2px 8px;
-        border-radius: var(--radius-sm);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-muted);
-        cursor: pointer;
-        transition: all 0.2s;
-        line-height: 1.4;
-      }
-
-      .instance-add-btn:hover {
-        border-color: var(--accent-primary, hsl(260, 100%, 65%));
-        color: var(--t-primary);
-      }
-
-      .instance-new-input {
-        font-size: 0.8rem;
-        padding: 4px 10px;
-        border-radius: var(--radius-sm);
-        background: var(--bg-glass);
-        border: 1px solid var(--accent-primary, hsl(260, 100%, 65%));
-        color: var(--t-primary);
-        outline: none;
-        width: 140px;
-      }
-
       .photon-header-actions {
         display: flex;
         gap: var(--space-sm);
@@ -1674,9 +1606,7 @@ export class BeamApp extends LitElement {
     latestVersion: string;
     marketplace: string;
   }> = [];
-  @state() private _instances: string[] = [];
   @state() private _currentInstance = 'default';
-  @state() private _creatingInstance = false;
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -2130,11 +2060,6 @@ export class BeamApp extends LitElement {
 
       if (photon) {
         this._selectedPhoton = photon;
-
-        // Fetch instances for stateful photons
-        if (photon.stateful && photon.configured) {
-          this._fetchInstances(photon.name);
-        }
 
         // Handle external MCPs with MCP Apps
         if (photon.isExternalMCP && photon.hasMcpApp) {
@@ -3267,7 +3192,13 @@ export class BeamApp extends LitElement {
           <context-bar
             .photon=${this._selectedPhoton}
             .breadcrumbs=${[
-              { label: this._selectedPhoton.name, action: 'back' },
+              {
+                label:
+                  this._currentInstance !== 'default'
+                    ? `${this._selectedPhoton.name} › ${this._currentInstance}`
+                    : this._selectedPhoton.name,
+                action: 'back',
+              },
               { label: this._selectedMethod.name },
             ]}
             .showEdit=${false}
@@ -3292,7 +3223,13 @@ export class BeamApp extends LitElement {
         <context-bar
           .photon=${this._selectedPhoton}
           .breadcrumbs=${[
-            { label: this._selectedPhoton.name, action: 'back' },
+            {
+              label:
+                this._currentInstance !== 'default'
+                  ? `${this._selectedPhoton.name} › ${this._currentInstance}`
+                  : this._selectedPhoton.name,
+              action: 'back',
+            },
             { label: this._selectedMethod.name },
           ]}
           .showEdit=${false}
@@ -3307,7 +3244,7 @@ export class BeamApp extends LitElement {
           })}
           @context-action=${this._handleContextAction}
         ></context-bar>
-        ${this._renderInstanceBar()} ${this._renderMethodContent()}
+        ${this._renderMethodContent()}
       `;
     }
 
@@ -3331,7 +3268,7 @@ export class BeamApp extends LitElement {
         @context-action=${this._handleContextAction}
       ></context-bar>
 
-      ${this._renderInstanceBar()} ${this._editingIcon ? this._renderEmojiPicker() : ''}
+      ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
       <div class="bento-methods">
         <h3 class="bento-section-title">Methods</h3>
@@ -3448,15 +3385,7 @@ export class BeamApp extends LitElement {
     this._selectedMethod = null;
     this._lastResult = null;
     this._selectedMcpAppUri = null; // Reset MCP App tab when switching MCPs
-
-    // Reset instance state
-    this._instances = [];
     this._currentInstance = 'default';
-
-    // Fetch instances for stateful, configured photons
-    if (this._selectedPhoton.stateful && this._selectedPhoton.configured) {
-      this._fetchInstances(this._selectedPhoton.name);
-    }
 
     // For unconfigured photons, show configuration view
     if (this._selectedPhoton.configured === false) {
@@ -3482,87 +3411,36 @@ export class BeamApp extends LitElement {
     this._updateHash();
   }
 
-  private _renderInstanceBar() {
-    if (!this._selectedPhoton?.stateful || this._instances.length === 0) return '';
-    return html`
-      <div class="instance-bar">
-        <span class="instance-label">Instance:</span>
-        <select
-          class="instance-select"
-          .value=${this._currentInstance}
-          @change=${(e: Event) => this._switchInstance((e.target as HTMLSelectElement).value)}
-        >
-          ${this._instances.map(
-            (inst: string) =>
-              html`<option value=${inst} ?selected=${inst === this._currentInstance}>
-                ${inst === 'default' ? '(default)' : inst}
-              </option>`
-          )}
-        </select>
-        ${this._creatingInstance
-          ? html`<input
-              class="instance-new-input"
-              type="text"
-              placeholder="instance name"
-              @keydown=${(e: KeyboardEvent) => {
-                if (e.key === 'Enter') {
-                  const val = (e.target as HTMLInputElement).value.trim();
-                  if (val) this._switchInstance(val);
-                  this._creatingInstance = false;
-                } else if (e.key === 'Escape') {
-                  this._creatingInstance = false;
-                }
-              }}
-              @blur=${() => {
-                this._creatingInstance = false;
-              }}
-            />`
-          : html`<button
-              class="instance-add-btn"
-              title="Create new instance"
-              @click=${() => {
-                this._creatingInstance = true;
-                this.updateComplete.then(() => {
-                  this.renderRoot.querySelector<HTMLInputElement>('.instance-new-input')?.focus();
-                });
-              }}
-            >
-              +
-            </button>`}
-      </div>
-    `;
-  }
-
-  private async _fetchInstances(photonName: string) {
-    try {
-      const result = await mcpClient.callTool(`${photonName}/_instances`, {});
-      if (result && !result.isError) {
-        // MCP response: { content: [{ type: 'text', text: '...' }] }
-        const textContent = result.content?.find((c: any) => c.type === 'text')?.text;
-        if (textContent) {
-          const parsed = JSON.parse(textContent);
-          this._instances = parsed.instances || [];
-          this._currentInstance = parsed.current || 'default';
-        }
-      }
-    } catch {
-      // Silently fail — instance dropdown just won't show
-    }
-  }
-
-  private async _switchInstance(name: string) {
+  /**
+   * Trigger instance switch via MCP elicitation (calls _use without name).
+   * The transport layer shows an elicitation modal with available instances.
+   */
+  private async _switchInstance() {
     if (!this._selectedPhoton) return;
     const photonName = this._selectedPhoton.name;
     try {
-      await mcpClient.callTool(`${photonName}/_use`, { name });
-      this._currentInstance = name || 'default';
-      const label = name === 'default' ? '(default)' : name || '(default)';
-      showToast(`Switched to instance: ${label}`, 'success');
-      // Refresh instances list
-      await this._fetchInstances(photonName);
-      // Auto-re-execute current method if it has no required params (e.g. get)
-      if (this._view === 'form' && this._selectedMethod) {
-        this._maybeAutoInvoke(this._selectedMethod);
+      const result = await mcpClient.callTool(`${photonName}/_use`, {});
+      // Parse result to update current instance for breadcrumb
+      if (result && !result.isError) {
+        const textContent = result.content?.find((c: any) => c.type === 'text')?.text;
+        if (textContent && textContent !== 'Cancelled') {
+          try {
+            const parsed = JSON.parse(textContent);
+            if (parsed.instance) {
+              this._currentInstance = parsed.instance;
+              showToast(
+                `Switched to instance: ${parsed.instance === 'default' ? '(default)' : parsed.instance}`,
+                'success'
+              );
+            }
+          } catch {
+            // Non-JSON response — may be a simple status message
+          }
+          // Auto-re-execute current method if it has no required params
+          if (this._view === 'form' && this._selectedMethod) {
+            this._maybeAutoInvoke(this._selectedMethod);
+          }
+        }
       }
     } catch {
       showToast('Failed to switch instance', 'error');
@@ -4930,8 +4808,22 @@ export class BeamApp extends LitElement {
           dividerBefore: !showRename && !showViewSource && !showDelete && first === 3,
         });
     }
+    // Add "Switch Instance" for stateful photons
+    if (this._selectedPhoton?.stateful) {
+      items.push({
+        id: 'switch-instance',
+        label: 'Switch Instance',
+        icon: '📦',
+        dividerBefore: true,
+      });
+    }
     if (showHelp) {
-      items.push({ id: 'help', label: 'Help', icon: '📖', dividerBefore: true });
+      items.push({
+        id: 'help',
+        label: 'Help',
+        icon: '📖',
+        dividerBefore: !this._selectedPhoton?.stateful,
+      });
     }
     return items;
   }
@@ -4992,6 +4884,9 @@ export class BeamApp extends LitElement {
             break;
           case 'remove':
             this._handleRemove();
+            break;
+          case 'switch-instance':
+            this._switchInstance();
             break;
           case 'help':
             this._showPhotonHelpModal();
