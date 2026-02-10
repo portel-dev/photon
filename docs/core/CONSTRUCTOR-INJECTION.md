@@ -21,22 +21,26 @@ export default class Dashboard {
 }
 ```
 
-| # | Type | Trigger | Source |
-|---|------|---------|--------|
-| 1 | **Environment** | Primitive type (`string`, `number`, `boolean`) | `process.env.DASHBOARD_API_KEY` |
-| 2 | **MCP client** | Name matches `@mcp` declaration | Proxy to running MCP server |
-| 3 | **Photon instance** | Name matches `@photon` declaration | Loaded photon class instance |
-| 4 | **Persisted state** | Non-primitive with default, on `@stateful` photon | `~/.photon/state/dashboard.json` |
+| # | Type | Trigger | Managed by | Source |
+|---|------|---------|------------|--------|
+| 1 | **Environment** | Primitive, no default | `photon set` | `~/.photon/env/` or `process.env` |
+| 2 | **Context** | Primitive, has default | `photon use` | `~/.photon/context/` |
+| 3 | **MCP client** | Name matches `@mcp` declaration | Runtime | Proxy to running MCP server |
+| 4 | **Photon instance** | Name matches `@photon` declaration | Runtime | Loaded photon class instance |
+| 5 | **Persisted state** | Non-primitive with default, on `@stateful` photon | Runtime | `~/.photon/state/` |
+
+> **See [CONSTRUCTOR-CONTEXT.md](CONSTRUCTOR-CONTEXT.md)** for full details on `photon use` and `photon set` commands, including context-based state partitioning for `@stateful` photons.
 
 ### Resolution Order
 
 For each constructor parameter, the runtime resolves in this order:
 
-1. **Primitive?** → Environment variable (`{PHOTON_NAME}_{PARAM_NAME}` in SCREAMING_SNAKE_CASE)
-2. **Matches `@mcp` tag?** → Create/reuse MCP client proxy
-3. **Matches `@photon` tag?** → Load/reuse photon instance
-4. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
-5. **Fallback** → `undefined` (constructor default applies)
+1. **Matches `@mcp` tag?** → Create/reuse MCP client proxy
+2. **Matches `@photon` tag?** → Load/reuse photon instance
+3. **Primitive, no default?** → Environment variable (`~/.photon/env/` then `process.env`)
+4. **Primitive, has default?** → Context value (`~/.photon/context/`, falls back to default)
+5. **Non-primitive with default on `@stateful`?** → Restore from state snapshot
+6. **Fallback** → `undefined` (constructor default applies)
 
 ---
 
