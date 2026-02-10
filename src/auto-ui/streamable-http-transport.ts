@@ -785,14 +785,23 @@ const handlers: Record<string, RequestHandler> = {
 
         // Use a stable session per photon for Beam
         const beamSessionId = `beam-${photonName}`;
+        const sendOpts = {
+          photonPath: photonInfo.path,
+          sessionId: beamSessionId,
+        };
+
+        // Sync Beam session to the current instance (same as CLI does)
+        const { InstanceStore } = await import('../context-store.js');
+        const currentInstance = new InstanceStore().getCurrentInstance(photonName);
+        if (currentInstance) {
+          await sendCommand(photonName, '_use', { name: currentInstance }, sendOpts);
+        }
+
         const result = await sendCommand(
           photonName,
           methodName,
           (args || {}) as Record<string, any>,
-          {
-            photonPath: photonInfo.path,
-            sessionId: beamSessionId,
-          }
+          sendOpts
         );
 
         const resultText =
