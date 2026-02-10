@@ -78,6 +78,38 @@ export class InstanceStore {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// CLI Session Store — per-terminal-session instance tracking
+// Uses parent PID (shell PID) to scope to the current terminal session.
+// Files live in /tmp so they're cleaned on reboot.
+// ══════════════════════════════════════════════════════════════════════════════
+
+export class CLISessionStore {
+  private sessionDir: string;
+
+  constructor() {
+    const ppid = process.ppid;
+    this.sessionDir = path.join(os.tmpdir(), 'photon-cli-sessions', String(ppid));
+  }
+
+  private _path(photonName: string): string {
+    return path.join(this.sessionDir, `${photonName}.instance`);
+  }
+
+  getCurrentInstance(photonName: string): string {
+    try {
+      return fs.readFileSync(this._path(photonName), 'utf-8').trim();
+    } catch {
+      return ''; // No session instance set → default
+    }
+  }
+
+  setCurrentInstance(photonName: string, instance: string): void {
+    fs.mkdirSync(this.sessionDir, { recursive: true });
+    fs.writeFileSync(this._path(photonName), instance);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Environment Store — for `photon set` (primitive params without defaults)
 // ══════════════════════════════════════════════════════════════════════════════
 

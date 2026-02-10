@@ -912,7 +912,7 @@ Runtime Commands:
   serve                   Start local multi-tenant MCP hosting for development
 
 Configuration:
-  use <photon> [instance]  Set the active instance for Beam UI
+  use <photon> [instance]  Switch to a named instance of a stateful photon
   instances <photon>       List all instances of a stateful photon
   set <photon> [values]    Configure environment for a photon
 
@@ -2073,9 +2073,6 @@ EXAMPLES:
     # Output raw JSON instead of formatted text
     photon lg-remote status --json
 
-    # Target a specific instance of a stateful photon
-    photon cli list get --instance groceries
-
     # Escape hatch for reserved-name photons
     photon cli list get       (photon named "list", method "get")
     photon cli serve status   (photon named "serve", method "status")
@@ -2103,13 +2100,15 @@ program
   .command('use')
   .argument('<photon>', 'Photon name')
   .argument('[instance]', 'Instance name (omit for default)')
-  .description('Set the active instance for Beam UI')
+  .description('Switch to a named instance of a stateful photon')
   .action(async (photonName: string, instance?: string) => {
     try {
-      const { InstanceStore } = await import('./context-store.js');
-      const store = new InstanceStore();
+      const { InstanceStore, CLISessionStore } = await import('./context-store.js');
 
-      store.setCurrentInstance(photonName, instance || '');
+      // Write to both: session store (for CLI) and permanent store (for Beam)
+      new CLISessionStore().setCurrentInstance(photonName, instance || '');
+      new InstanceStore().setCurrentInstance(photonName, instance || '');
+
       const label = instance || 'default';
       printSuccess(`${photonName} → instance: ${label}`);
 
@@ -2284,7 +2283,7 @@ _photon() {
       local -a builtins
       builtins=(
         'cli:Run a photon method'
-        'use:Set the active instance for Beam UI'
+        'use:Switch to a named instance'
         'instances:List instances of a photon'
         'set:Configure environment for a photon'
         'beam:Start the interactive UI'

@@ -1263,21 +1263,10 @@ export async function runMethod(
       resumeRunId = args[resumeIndex + 1];
     }
 
-    // Check for --instance <name> flag
-    let instanceName: string | undefined;
-    const instanceIndex = args.indexOf('--instance');
-    if (instanceIndex !== -1 && args[instanceIndex + 1]) {
-      instanceName = args[instanceIndex + 1];
-    }
-
     // Filter out special flags before parsing method args
     const filteredArgs = args.filter(
       (arg, i) =>
-        arg !== '--json' &&
-        arg !== '--resume' &&
-        (resumeIndex === -1 || i !== resumeIndex + 1) &&
-        arg !== '--instance' &&
-        (instanceIndex === -1 || i !== instanceIndex + 1)
+        arg !== '--json' && arg !== '--resume' && (resumeIndex === -1 || i !== resumeIndex + 1)
     );
 
     // Parse arguments
@@ -1336,11 +1325,12 @@ export async function runMethod(
         }
       }
 
-      // CLI is ephemeral: always reset to 'default' unless --instance is given.
-      // This ensures the shared daemon session doesn't leak state between invocations.
+      // Read session-scoped instance set by `photon use` (scoped to this terminal)
+      const { CLISessionStore } = await import('./context-store.js');
+      const sessionInstance = new CLISessionStore().getCurrentInstance(photonName);
       const sessionId = `cli-${photonName}`;
       const sendOpts = { photonPath: resolvedPath, sessionId };
-      await sendCommand(photonName, '_use', { name: instanceName || '' }, sendOpts);
+      await sendCommand(photonName, '_use', { name: sessionInstance }, sendOpts);
 
       // Send the actual command
       result = await sendCommand(photonName, methodName, parsedArgs, sendOpts);
