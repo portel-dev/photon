@@ -367,11 +367,13 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           }
         }
 
-        // Refresh completions cache
+        // Refresh completions cache (best-effort, don't break main flow)
         try {
           const { generateCompletionCache } = await import('../../shell-completions.js');
           await generateCompletionCache();
-        } catch {}
+        } catch {
+          /* silent */
+        }
 
         console.error(`✅ Added ${name} from ${selectedMarketplace.name}`);
         if (selectedMetadata?.version) {
@@ -446,11 +448,13 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           printSuccess(`Cleared cache`);
         }
 
-        // Refresh completions cache
+        // Refresh completions cache (best-effort, don't break main flow)
         try {
           const { generateCompletionCache } = await import('../../shell-completions.js');
           await generateCompletionCache();
-        } catch {}
+        } catch {
+          /* silent */
+        }
 
         console.log('');
         printSuccess(`Successfully removed ${name}`);

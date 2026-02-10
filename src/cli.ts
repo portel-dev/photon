@@ -2106,7 +2106,9 @@ program
       try {
         const { generateCompletionCache } = await import('./shell-completions.js');
         await generateCompletionCache();
-      } catch {}
+      } catch {
+        // Best-effort: don't break the use command if cache refresh fails
+      }
     } catch (error) {
       printError(getErrorMessage(error));
       process.exit(1);
