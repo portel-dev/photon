@@ -912,7 +912,7 @@ Runtime Commands:
   serve                   Start local multi-tenant MCP hosting for development
 
 Configuration:
-  use <photon> [instance]  Switch to a named instance of a stateful photon
+  use <photon> [instance]  Set the active instance for Beam UI
   instances <photon>       List all instances of a stateful photon
   set <photon> [values]    Configure environment for a photon
 
@@ -2284,7 +2284,7 @@ _photon() {
       local -a builtins
       builtins=(
         'cli:Run a photon method'
-        'use:Switch to a named instance'
+        'use:Set the active instance for Beam UI'
         'instances:List instances of a photon'
         'set:Configure environment for a photon'
         'beam:Start the interactive UI'

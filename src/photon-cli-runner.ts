@@ -1336,13 +1336,11 @@ export async function runMethod(
         }
       }
 
-      // CLI is ephemeral: each invocation starts on 'default' unless --instance is given
+      // CLI is ephemeral: always reset to 'default' unless --instance is given.
+      // This ensures the shared daemon session doesn't leak state between invocations.
       const sessionId = `cli-${photonName}`;
       const sendOpts = { photonPath: resolvedPath, sessionId };
-
-      if (instanceName) {
-        await sendCommand(photonName, '_use', { name: instanceName }, sendOpts);
-      }
+      await sendCommand(photonName, '_use', { name: instanceName || '' }, sendOpts);
 
       // Send the actual command
       result = await sendCommand(photonName, methodName, parsedArgs, sendOpts);
