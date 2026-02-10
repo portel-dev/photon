@@ -3211,6 +3211,7 @@ export class BeamApp extends LitElement {
               },
               { label: this._selectedMethod.name },
             ]}
+            .live=${this._currentCollectionName !== null}
             .showEdit=${false}
             .showConfigure=${false}
             .showCopyConfig=${false}
@@ -3242,6 +3243,7 @@ export class BeamApp extends LitElement {
             },
             { label: this._selectedMethod.name },
           ]}
+          .live=${this._currentCollectionName !== null}
           .showEdit=${false}
           .showConfigure=${false}
           .showCopyConfig=${false}

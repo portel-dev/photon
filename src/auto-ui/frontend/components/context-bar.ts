@@ -229,6 +229,39 @@ export class ContextBar extends LitElement {
         font-weight: 500;
       }
 
+      .live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #4ade80;
+        text-transform: uppercase;
+        margin-left: 8px;
+      }
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #4ade80;
+        box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+        animation: live-pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes live-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+        }
+        50% {
+          opacity: 0.5;
+          box-shadow: 0 0 3px 1px rgba(74, 222, 128, 0.3);
+        }
+      }
+
       /* Responsive */
       @media (max-width: 768px) {
         .context-bar {
@@ -272,6 +305,10 @@ export class ContextBar extends LitElement {
   @property({ type: Boolean })
   showCopyConfig = true;
 
+  /** Show live indicator next to breadcrumb (stateful auto-refresh) */
+  @property({ type: Boolean })
+  live = false;
+
   /** Overflow menu items */
   @property({ type: Array })
   overflowItems: OverflowMenuItem[] = [];
@@ -307,7 +344,9 @@ export class ContextBar extends LitElement {
                   i < this.breadcrumbs.length - 1
                     ? html`<a @click=${() => this._emitAction(crumb.action || '')}>${crumb.label}</a
                         ><span class="separator">/</span>`
-                    : html`<span class="current">${crumb.label}</span>`
+                    : html`<span class="current">${crumb.label}</span>${this.live
+                          ? html`<span class="live-badge"><span class="live-dot"></span>LIVE</span>`
+                          : ''}`
                 )}
               </div>
             `
