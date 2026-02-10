@@ -1973,14 +1973,20 @@ export class BeamApp extends LitElement {
           this._setCurrentInstance(data.photon, data.data.instance);
         }
 
-        // Only auto-refresh if we're viewing the changed photon and have a result displayed
+        // Only auto-refresh if we're viewing the changed photon and have a result displayed.
+        // IMPORTANT: Skip if the current method is the one that triggered the change —
+        // re-executing a mutation (e.g. add) would cause infinite cascading adds.
         if (
           this._selectedPhoton?.name === data.photon &&
           this._selectedMethod &&
           this._lastResult !== null &&
-          !this._isExecuting
+          !this._isExecuting &&
+          this._selectedMethod.name !== data.method
         ) {
-          this._log('info', `State changed externally, refreshing...`);
+          this._log(
+            'info',
+            `State changed externally (${data.method}), refreshing ${this._selectedMethod.name}...`
+          );
           this._silentRefresh();
         }
       });
