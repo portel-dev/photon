@@ -2102,6 +2102,11 @@ export class BeamApp extends LitElement {
       if (photon) {
         this._selectedPhoton = photon;
 
+        // Fetch instances for stateful photons
+        if (photon.stateful && photon.configured) {
+          this._fetchInstances(photon.name);
+        }
+
         // Handle external MCPs with MCP Apps
         if (photon.isExternalMCP && photon.hasMcpApp) {
           this._selectedMethod = null;
@@ -3273,7 +3278,7 @@ export class BeamApp extends LitElement {
           })}
           @context-action=${this._handleContextAction}
         ></context-bar>
-        ${this._renderMethodContent()}
+        ${this._renderInstanceBar()} ${this._renderMethodContent()}
       `;
     }
 
@@ -3297,26 +3302,7 @@ export class BeamApp extends LitElement {
         @context-action=${this._handleContextAction}
       ></context-bar>
 
-      ${this._selectedPhoton.stateful && this._instances.length > 0
-        ? html`
-            <div class="instance-bar">
-              <span class="instance-label">Instance:</span>
-              <select
-                class="instance-select"
-                .value=${this._currentInstance}
-                @change=${(e: Event) => this._switchInstance((e.target as HTMLSelectElement).value)}
-              >
-                ${this._instances.map(
-                  (inst: string) =>
-                    html`<option value=${inst} ?selected=${inst === this._currentInstance}>
-                      ${inst || 'default'}
-                    </option>`
-                )}
-              </select>
-            </div>
-          `
-        : ''}
-      ${this._editingIcon ? this._renderEmojiPicker() : ''}
+      ${this._renderInstanceBar()} ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
       <div class="bento-methods">
         <h3 class="bento-section-title">Methods</h3>
@@ -3465,6 +3451,27 @@ export class BeamApp extends LitElement {
       this._view = 'list';
     }
     this._updateHash();
+  }
+
+  private _renderInstanceBar() {
+    if (!this._selectedPhoton?.stateful || this._instances.length === 0) return '';
+    return html`
+      <div class="instance-bar">
+        <span class="instance-label">Instance:</span>
+        <select
+          class="instance-select"
+          .value=${this._currentInstance}
+          @change=${(e: Event) => this._switchInstance((e.target as HTMLSelectElement).value)}
+        >
+          ${this._instances.map(
+            (inst: string) =>
+              html`<option value=${inst} ?selected=${inst === this._currentInstance}>
+                ${inst || 'default'}
+              </option>`
+          )}
+        </select>
+      </div>
+    `;
   }
 
   private async _fetchInstances(photonName: string) {
