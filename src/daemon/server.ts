@@ -935,19 +935,69 @@ async function handleRequest(
  * Scans the instance for properties with _propertyName (ReactiveArray/Map/Set markers)
  * and serializes them to the instance-specific state file.
  */
+/** Cache of state keys per photon (extracted once from source) */
+const stateKeysCache = new Map<string, string[]>();
+
+/**
+ * Get the state property keys for a photon by extracting constructor params.
+ * State params: non-primitive with default on @stateful photon.
+ */
+async function getStateKeys(photonName: string, photonPath: string): Promise<string[]> {
+  if (stateKeysCache.has(photonName)) {
+    return stateKeysCache.get(photonName)!;
+  }
+
+  try {
+    const { SchemaExtractor } = await import('@portel/photon-core');
+    const fsPromises = await import('fs/promises');
+    const source = await fsPromises.readFile(photonPath, 'utf-8');
+    const extractor = new SchemaExtractor();
+    const injections = extractor.resolveInjections(source, photonName);
+    const keys = injections
+      .filter((inj) => inj.injectionType === 'state')
+      .map((inj) => inj.stateKey!);
+    stateKeysCache.set(photonName, keys);
+    logger.debug('State keys extracted', { photon: photonName, keys });
+    return keys;
+  } catch (error) {
+    logger.error('Failed to extract state keys', {
+      photon: photonName,
+      error: getErrorMessage(error),
+    });
+    return [];
+  }
+}
+
+/**
+ * Persist reactive collection state to disk after each tool call.
+ * Only persists properties identified as 'state' injection type
+ * (non-primitive constructor params with defaults on @stateful photons).
+ */
 async function persistInstanceState(
   instance: any,
   photonName: string,
   instanceName: string
 ): Promise<void> {
   try {
+    const photonPath = photonPaths.get(photonName);
+    if (!photonPath) return;
+
+    const keys = await getStateKeys(photonName, photonPath);
+    if (keys.length === 0) return;
+
+    // instance is PhotonMCPClass wrapper — actual user class is instance.instance
+    const target = instance?.instance ?? instance;
     const snapshot: Record<string, any> = {};
-    for (const key of Object.keys(instance)) {
-      if (key.startsWith('_')) continue; // skip internal properties
-      const value = instance[key];
+    for (const key of keys) {
+      const value = target[key];
+      if (value === undefined) continue;
+
       if (value && typeof value === 'object' && value._propertyName) {
         // ReactiveArray/Map/Set — serialize underlying data
         snapshot[key] = value.toJSON ? value.toJSON() : globalThis.Array.from(value);
+      } else {
+        // Plain value (array, object, etc.)
+        snapshot[key] = value;
       }
     }
 
