@@ -2138,6 +2138,45 @@ program
     }
   });
 
+// Shell command group: shell integration utilities
+const shell = program.command('shell').description('Shell integration utilities');
+
+shell
+  .command('init')
+  .description('Output shell hook for direct photon commands (add to .bashrc/.zshrc)')
+  .action(async () => {
+    const photonBin = process.argv[1];
+    // Detect shell from parent process or SHELL env
+    const userShell = process.env.SHELL || '';
+    const isZsh = userShell.includes('zsh');
+
+    if (isZsh) {
+      console.log(`# Photon shell integration
+# Add to ~/.zshrc: eval "$(photon shell init)"
+
+command_not_found_handler() {
+  if [ -f "$HOME/.photon/$1.photon.ts" ] || [ -f "$HOME/.photon/$1.photon.js" ]; then
+    photon cli "$@"
+    return $?
+  fi
+  echo "zsh: command not found: $1" >&2
+  return 127
+}`);
+    } else {
+      console.log(`# Photon shell integration
+# Add to ~/.bashrc: eval "$(photon shell init)"
+
+command_not_found_handle() {
+  if [ -f "$HOME/.photon/$1.photon.ts" ] || [ -f "$HOME/.photon/$1.photon.js" ]; then
+    photon cli "$@"
+    return $?
+  fi
+  echo "bash: $1: command not found" >&2
+  return 127
+}`);
+    }
+  });
+
 // Set command: configure environment for photons (primitive params without defaults)
 program
   .command('set')
@@ -2329,6 +2368,7 @@ const RESERVED_COMMANDS = [
   'search',
   'maker',
   'host',
+  'shell',
   'diagram',
   'diagrams',
   'enable',
@@ -2376,6 +2416,7 @@ const knownCommands = [
   'marketplace',
   'maker',
   'host',
+  'shell',
   'diagram',
   'diagrams',
 ];
@@ -2383,6 +2424,7 @@ const knownCommands = [
 const knownSubcommands: Record<string, string[]> = {
   marketplace: ['list', 'add', 'remove', 'enable', 'disable'],
   maker: ['new', 'validate', 'sync', 'init'],
+  shell: ['init'],
 };
 
 /**
