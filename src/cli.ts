@@ -907,6 +907,10 @@ Runtime Commands:
   beam                    Launch Photon Beam (interactive control panel)
   serve                   Start local multi-tenant MCP hosting for development
 
+Configuration:
+  use <photon> [values]   Switch context for a photon (params with defaults)
+  set <photon> [values]   Configure environment for a photon (params without defaults)
+
 Hosting:
   host <command>          Manage cloud hosting (preview, deploy)
 
@@ -2078,6 +2082,159 @@ SEE ALSO:
     }
   });
 
+// Use command: switch context for photons (primitive params with defaults)
+program
+  .command('use')
+  .argument('<photon>', 'Photon name')
+  .argument('[args...]', 'Context values (positional or named)')
+  .description('Switch context for a photon (params with defaults)')
+  .action(async (photonName: string, args: string[]) => {
+    try {
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve photon path
+      const filePath = await resolvePhotonPathWithBundled(photonName, workingDir);
+      if (!filePath) {
+        printError(`Photon not found: ${photonName}`);
+        process.exit(1);
+      }
+
+      // Extract constructor params and filter context params
+      const allParams = await extractConstructorParams(filePath);
+      const { getContextParams, parseContextArgs, ContextStore } =
+        await import('./context-store.js');
+      const contextParams = getContextParams(allParams);
+
+      if (contextParams.length === 0) {
+        printInfo(`${photonName} has no context parameters.`);
+        return;
+      }
+
+      const store = new ContextStore();
+
+      if (args.length === 0) {
+        // Interactive mode: prompt for all context params
+        cliHeading(`${photonName} — Context`);
+        cliSpacer();
+
+        const current = store.read(photonName);
+        const values: Record<string, string> = {};
+
+        for (const param of contextParams) {
+          const currentVal = current[param.name] ?? param.defaultValue ?? '';
+          const answer = await promptText(
+            `  ${param.name} (default: '${param.defaultValue ?? ''}')\n  Current: ${currentVal}\n  > `
+          );
+          if (answer.trim() !== '') {
+            values[param.name] = answer.trim();
+          }
+        }
+
+        if (Object.keys(values).length > 0) {
+          store.write(photonName, values);
+          const summary = Object.entries(values)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(', ');
+          printSuccess(`Context switched: ${summary}`);
+        } else {
+          printInfo('No changes.');
+        }
+      } else {
+        // Direct mode: parse positional/named args
+        const parsed = parseContextArgs(args, contextParams);
+
+        if (parsed.size === 0) {
+          printError('No valid context values provided.');
+          process.exit(1);
+        }
+
+        const values: Record<string, string> = {};
+        for (const [key, val] of parsed) {
+          values[key] = val;
+        }
+
+        store.write(photonName, values);
+        const summary = Object.entries(values)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', ');
+        printSuccess(`Context: ${summary}`);
+      }
+    } catch (error) {
+      printError(getErrorMessage(error));
+      process.exit(1);
+    }
+  });
+
+// Set command: configure environment for photons (primitive params without defaults)
+program
+  .command('set')
+  .argument('<photon>', 'Photon name')
+  .argument('[args...]', 'Environment values (positional or named)')
+  .description('Configure environment for a photon (params without defaults)')
+  .action(async (photonName: string, args: string[]) => {
+    try {
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+
+      // Resolve photon path
+      const filePath = await resolvePhotonPathWithBundled(photonName, workingDir);
+      if (!filePath) {
+        printError(`Photon not found: ${photonName}`);
+        process.exit(1);
+      }
+
+      // Extract constructor params and filter env params
+      const allParams = await extractConstructorParams(filePath);
+      const { getEnvParams, parseContextArgs, EnvStore } = await import('./context-store.js');
+      const envParams = getEnvParams(allParams);
+
+      if (envParams.length === 0) {
+        printInfo(`${photonName} has no environment parameters.`);
+        return;
+      }
+
+      const store = new EnvStore();
+
+      // Parse any directly provided args
+      const directValues =
+        args.length > 0 ? parseContextArgs(args, envParams) : new Map<string, string>();
+      const values: Record<string, string> = {};
+
+      for (const [key, val] of directValues) {
+        values[key] = val;
+      }
+
+      // Find params that still need values (not set directly)
+      const remaining = envParams.filter((p) => !directValues.has(p.name));
+
+      if (remaining.length > 0) {
+        // Interactive mode for remaining params
+        cliHeading(`${photonName} — Environment`);
+        cliSpacer();
+
+        const masked = store.getMasked(photonName);
+
+        for (const param of remaining) {
+          const currentDisplay = masked[param.name] ? `Current: ${masked[param.name]}` : 'Not set';
+          const answer = await promptText(`  ${param.name} (required)\n  ${currentDisplay}\n  > `);
+          if (answer.trim() !== '') {
+            values[param.name] = answer.trim();
+          }
+        }
+      }
+
+      if (Object.keys(values).length > 0) {
+        store.write(photonName, values);
+        const summary = Object.keys(values).join(', ');
+        printSuccess(`Environment saved: ${summary}`);
+      } else {
+        printInfo('No changes.');
+      }
+    } catch (error) {
+      printError(getErrorMessage(error));
+      process.exit(1);
+    }
+  });
+
 // Alias commands: create CLI shortcuts for photons
 program
   .command('alias', { hidden: true })
@@ -2172,6 +2329,9 @@ const RESERVED_COMMANDS = [
   'doctor',
   'clear-cache',
   'clean',
+  // Context/env
+  'use',
+  'set',
   // Aliases
   'cli',
   'alias',
@@ -2221,6 +2381,8 @@ const knownCommands = [
   'clear-cache',
   'clean',
   'doctor',
+  'use',
+  'set',
   'cli',
   'alias',
   'unalias',

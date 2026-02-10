@@ -11,6 +11,14 @@ import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import type { ConstructorParam } from '@portel/photon-core';
+import {
+  parseContextArgs,
+  ContextStore,
+  EnvStore,
+  getStatePartitionPath,
+  classifyParam,
+} from '../src/context-store.js';
 
 let passed = 0;
 let failed = 0;
@@ -29,150 +37,11 @@ function test(name: string, fn: () => void | Promise<void>) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Test helpers
-// ══════════════════════════════════════════════════════════════════
-
-interface ConstructorParam {
-  name: string;
-  type: string;
-  isPrimitive: boolean;
-  hasDefault: boolean;
-  defaultValue?: string;
-  description?: string;
-}
-
-/**
- * Parse positional/named args for `photon use` or `photon set`.
- *
- * Algorithm:
- * 1. Read next arg
- * 2. Does it match a known param name? → next arg is its value
- * 3. Doesn't match? → positional value for the next unset param
- *
- * Returns a map of param name → value.
- */
-function parseContextArgs(args: string[], params: ConstructorParam[]): Map<string, string> {
-  const result = new Map<string, string>();
-  const paramNames = new Set(params.map((p) => p.name));
-  let positionalIndex = 0;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (paramNames.has(arg) && i + 1 < args.length) {
-      // Named: arg is a param name, next arg is its value
-      result.set(arg, args[i + 1]);
-      i++; // skip value
-    } else {
-      // Positional: map to next unset param
-      while (positionalIndex < params.length) {
-        const param = params[positionalIndex];
-        positionalIndex++;
-        if (!result.has(param.name)) {
-          result.set(param.name, arg);
-          break;
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Determine which state partition path to use based on context values.
- */
-function getStatePartitionPath(
-  photonName: string,
-  contextValues: Map<string, string>,
-  contextParams: ConstructorParam[]
-): string {
-  const parts: string[] = [];
-  for (const param of contextParams) {
-    const value = contextValues.get(param.name) ?? param.defaultValue;
-    if (value && value !== param.defaultValue) {
-      parts.push(value);
-    }
-  }
-
-  if (parts.length === 0) {
-    return path.join('state', photonName);
-  }
-  return path.join('state', `${photonName}--${parts.join('--')}`);
-}
-
-/**
- * Context store: read/write context values for a photon.
- */
-class ContextStore {
-  constructor(private baseDir: string) {}
-
-  private _path(photonName: string): string {
-    return path.join(this.baseDir, 'context', `${photonName}.json`);
-  }
-
-  read(photonName: string): Record<string, string> {
-    try {
-      return JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
-    } catch {
-      return {};
-    }
-  }
-
-  write(photonName: string, values: Record<string, string>): void {
-    const filePath = this._path(photonName);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const existing = this.read(photonName);
-    const merged = { ...existing, ...values };
-    fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
-  }
-}
-
-/**
- * Env store: read/write environment values for a photon.
- */
-class EnvStore {
-  constructor(private baseDir: string) {}
-
-  private _path(photonName: string): string {
-    return path.join(this.baseDir, 'env', `${photonName}.json`);
-  }
-
-  read(photonName: string): Record<string, string> {
-    try {
-      return JSON.parse(fs.readFileSync(this._path(photonName), 'utf-8'));
-    } catch {
-      return {};
-    }
-  }
-
-  write(photonName: string, values: Record<string, string>): void {
-    const filePath = this._path(photonName);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const existing = this.read(photonName);
-    const merged = { ...existing, ...values };
-    fs.writeFileSync(filePath, JSON.stringify(merged, null, 2));
-  }
-
-  getMasked(photonName: string): Record<string, string> {
-    const values = this.read(photonName);
-    const masked: Record<string, string> = {};
-    for (const [key, val] of Object.entries(values)) {
-      if (val.length > 6) {
-        masked[key] = val.slice(0, 3) + '***' + val.slice(-3);
-      } else {
-        masked[key] = '***';
-      }
-    }
-    return masked;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
 
 async function run() {
   // Create temp dir for test storage
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-context-test-'));
+  const homedir = os.homedir();
 
   try {
     // ═════════════════════════════════════════════════════════════
@@ -368,19 +237,19 @@ async function run() {
     await test('default context → base state path', () => {
       const ctx = new Map<string, string>();
       const result = getStatePartitionPath('todo-list', ctx, singleParam);
-      assert.equal(result, path.join('state', 'todo-list'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list'));
     });
 
     await test('default value explicitly set → base state path', () => {
       const ctx = new Map([['name', 'default']]);
       const result = getStatePartitionPath('todo-list', ctx, singleParam);
-      assert.equal(result, path.join('state', 'todo-list'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list'));
     });
 
     await test('non-default context → partitioned state path', () => {
       const ctx = new Map([['name', 'workouts']]);
       const result = getStatePartitionPath('todo-list', ctx, singleParam);
-      assert.equal(result, path.join('state', 'todo-list--workouts'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list--workouts'));
     });
 
     await test('multiple context params → joined partition path', () => {
@@ -389,13 +258,13 @@ async function run() {
         ['category', 'fitness'],
       ]);
       const result = getStatePartitionPath('todo-list', ctx, multiParams);
-      assert.equal(result, path.join('state', 'todo-list--workouts--fitness'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list--workouts--fitness'));
     });
 
     await test('only second param changed → partition includes only changed', () => {
       const ctx = new Map([['category', 'fitness']]);
       const result = getStatePartitionPath('todo-list', ctx, multiParams);
-      assert.equal(result, path.join('state', 'todo-list--fitness'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list--fitness'));
     });
 
     await test('all params at default → base path', () => {
@@ -405,28 +274,12 @@ async function run() {
         ['priority', 'normal'],
       ]);
       const result = getStatePartitionPath('todo-list', ctx, multiParams);
-      assert.equal(result, path.join('state', 'todo-list'));
+      assert.equal(result, path.join(homedir, '.photon', 'state', 'todo-list'));
     });
 
     // ═════════════════════════════════════════════════════════════
     console.log('\n📦 Injection Type Classification\n');
     // ═════════════════════════════════════════════════════════════
-
-    type InjectionType = 'env' | 'context' | 'mcp' | 'photon' | 'state';
-
-    function classifyParam(
-      param: ConstructorParam,
-      isStateful: boolean,
-      mcpNames: Set<string>,
-      photonNames: Set<string>
-    ): InjectionType {
-      if (mcpNames.has(param.name)) return 'mcp';
-      if (photonNames.has(param.name)) return 'photon';
-      if (param.isPrimitive && !param.hasDefault) return 'env';
-      if (param.isPrimitive && param.hasDefault) return 'context';
-      if (!param.isPrimitive && param.hasDefault && isStateful) return 'state';
-      return 'env'; // fallback
-    }
 
     await test('primitive without default → env', () => {
       const result = classifyParam(
@@ -523,7 +376,7 @@ async function run() {
         new Map(Object.entries(stored)),
         singleParam
       );
-      assert.equal(partitionPath, path.join('state', 'todo-list--workouts'));
+      assert.equal(partitionPath, path.join(homedir, '.photon', 'state', 'todo-list--workouts'));
     });
 
     await test('end-to-end: switch context changes partition', () => {
@@ -537,7 +390,7 @@ async function run() {
         new Map(Object.entries(stored)),
         singleParam
       );
-      assert.equal(partitionPath, path.join('state', 'todo-list--workouts'));
+      assert.equal(partitionPath, path.join(homedir, '.photon', 'state', 'todo-list--workouts'));
 
       // Switch: use groceries
       store.write('todo-list', { name: 'groceries' });
@@ -547,7 +400,7 @@ async function run() {
         new Map(Object.entries(stored)),
         singleParam
       );
-      assert.equal(partitionPath, path.join('state', 'todo-list--groceries'));
+      assert.equal(partitionPath, path.join(homedir, '.photon', 'state', 'todo-list--groceries'));
     });
 
     await test('end-to-end: no context set → uses default → base path', () => {
@@ -558,7 +411,7 @@ async function run() {
         new Map(Object.entries(stored)),
         singleParam
       );
-      assert.equal(partitionPath, path.join('state', 'fresh-photon'));
+      assert.equal(partitionPath, path.join(homedir, '.photon', 'state', 'fresh-photon'));
     });
 
     // ═════════════════════════════════════════════════════════════
