@@ -4470,7 +4470,8 @@ export class ResultViewer extends LitElement {
     const startY = cy - r * Math.sin(startAngle);
     const endX = cx + r * Math.cos(sweepAngle);
     const endY = cy - r * Math.sin(sweepAngle);
-    const largeArcFlag = normalized > 0.5 ? 1 : 0;
+    // For a semicircle gauge (180° max), arc is always < 180°, so largeArcFlag = 0
+    const largeArcFlag = 0;
 
     // Color gradient: green → yellow → red
     const color = this._getGaugeColor(normalized);
