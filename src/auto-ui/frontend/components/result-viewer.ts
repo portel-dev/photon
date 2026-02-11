@@ -3242,11 +3242,9 @@ export class ResultViewer extends LitElement {
             ? html`<span>${this._highlightText(String(item[mapping.detail]))}</span>`
             : ''}
           ${mapping.badge
-            ? html`
-                <span class="status-badge ${this._getStatusClass(item[mapping.badge])}"
-                  >${item[mapping.badge]}</span
-                >
-              `
+            ? html`<span class="status-badge ${this._getStatusClass(item[mapping.badge])}"
+                >${item[mapping.badge]}</span
+              >`
             : ''}
         </div>
       </li>
