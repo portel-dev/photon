@@ -33,16 +33,18 @@ export class MethodCard extends LitElement {
         cursor: pointer;
         transition:
           transform 0.2s ease,
-          box-shadow 0.2s ease;
+          box-shadow 0.2s ease,
+          border-left-color 0.2s ease;
         height: 100%;
         box-sizing: border-box;
         position: relative;
+        border-left: 3px solid transparent;
       }
 
       .card:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
-        border-color: var(--accent-secondary);
+        border-left-color: var(--accent-primary);
       }
 
       .header {
@@ -186,15 +188,25 @@ export class MethodCard extends LitElement {
         gap: 8px;
         align-items: center;
         min-height: 20px;
+        margin-top: 2px;
+      }
+
+      .param-tag {
+        font-size: 0.7rem;
+        padding: 4px 10px;
+        border-radius: var(--radius-xs);
+        background: hsla(220, 100%, 60%, 0.25);
+        color: hsl(220, 100%, 45%);
+        font-weight: 500;
       }
 
       .param-count {
         font-size: 0.65rem;
-        min-width: 18px;
-        height: 18px;
+        min-width: 20px;
+        height: 20px;
         border-radius: var(--radius-sm);
-        background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.1));
-        color: var(--param-tag-color, var(--t-muted));
+        background: hsla(45, 80%, 50%, 0.2);
+        color: hsl(45, 80%, 60%);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -214,12 +226,22 @@ export class MethodCard extends LitElement {
         bottom: var(--space-md);
         right: var(--space-md);
         font-size: 1.2rem;
-        opacity: 0.6;
-        transition: opacity 0.2s ease;
+        opacity: 0.5;
+        transition:
+          opacity 0.2s ease,
+          background 0.2s ease;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-sm);
+        background: hsla(220, 10%, 80%, 0.1);
       }
 
       .card:hover .action-icon {
         opacity: 1;
+        background: var(--bg-glass-strong);
       }
 
       /* Emoji Picker */
