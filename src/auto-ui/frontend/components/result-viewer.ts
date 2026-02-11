@@ -2220,8 +2220,10 @@ export class ResultViewer extends LitElement {
     'last_modified',
     'modifiedAt',
     'modified_at',
+    '_updatedAt', // ReactiveArray auto-stamp (fallback for updates)
     'createdAt',
     'created_at',
+    '_addedAt', // ReactiveArray auto-stamp (fallback for creation)
   ];
 
   /**
