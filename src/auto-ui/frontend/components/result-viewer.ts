@@ -3089,8 +3089,8 @@ export class ResultViewer extends LitElement {
         <thead>
           <tr>
             ${columns.map(
-              (col) => html`
-                <th
+              (col) =>
+                html`<th
                   class="sortable ${this._sortColumn === col ? 'sorted' : ''}"
                   @click=${() => this._toggleSort(col)}
                 >
@@ -3101,8 +3101,7 @@ export class ResultViewer extends LitElement {
                         : '↓'
                       : '↕'}</span
                   >
-                </th>
-              `
+                </th>`
             )}
           </tr>
         </thead>
