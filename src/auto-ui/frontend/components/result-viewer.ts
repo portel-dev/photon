@@ -3000,6 +3000,7 @@ export class ResultViewer extends LitElement {
         return this._renderList(filteredData);
       case 'card':
       case 'kv':
+      case 'grid':
         return this._renderCard(filteredData);
       case 'chips':
         return this._renderChips(filteredData);
