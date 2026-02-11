@@ -66,45 +66,45 @@ export class BeamApp extends LitElement {
         overflow: hidden;
       }
 
-      /* ===== Light Theme - "Soft, Accessible, Professional" ===== */
+      /* ===== Light Theme - "Warm, Soft, Professional" ===== */
       :host([data-theme='light']) {
-        --bg-app: #e5e9ee;
-        --bg-glass: rgba(255, 255, 255, 0.72);
-        --bg-glass-strong: rgba(255, 255, 255, 0.88);
-        --bg-panel: #f6f7f9;
-        --t-primary: #1a2332;
-        --t-muted: #556270;
-        --border-glass: rgba(0, 0, 0, 0.13);
-        --accent-primary: hsl(215, 70%, 45%);
-        --accent-secondary: hsl(165, 60%, 35%);
-        --glow-primary: hsla(215, 70%, 45%, 0.15);
+        --bg-app: #eae4dd;
+        --bg-glass: rgba(255, 253, 250, 0.75);
+        --bg-glass-strong: rgba(255, 253, 250, 0.9);
+        --bg-panel: #f8f5f1;
+        --t-primary: #2c2420;
+        --t-muted: #6b5e54;
+        --border-glass: rgba(120, 90, 60, 0.12);
+        --accent-primary: hsl(215, 55%, 45%);
+        --accent-secondary: hsl(165, 45%, 35%);
+        --glow-primary: hsla(215, 55%, 45%, 0.15);
 
         /* Semantic status colors — light theme */
-        --color-error: hsl(0, 65%, 48%);
-        --color-error-glow: hsla(0, 65%, 48%, 0.2);
-        --color-error-bg: hsla(0, 65%, 48%, 0.08);
-        --color-success: hsl(142, 50%, 35%);
-        --color-success-bg: hsla(142, 50%, 35%, 0.12);
-        --color-warning: hsl(43, 80%, 42%);
-        --color-warning-bg: hsla(43, 80%, 42%, 0.12);
-        --color-warning-glow: hsla(43, 80%, 42%, 0.2);
+        --color-error: hsl(0, 55%, 48%);
+        --color-error-glow: hsla(0, 55%, 48%, 0.2);
+        --color-error-bg: hsla(0, 55%, 48%, 0.08);
+        --color-success: hsl(142, 45%, 35%);
+        --color-success-bg: hsla(142, 45%, 35%, 0.12);
+        --color-warning: hsl(35, 70%, 42%);
+        --color-warning-bg: hsla(35, 70%, 42%, 0.12);
+        --color-warning-glow: hsla(35, 70%, 42%, 0.2);
         --color-info: var(--accent-secondary);
 
         /* CLI preview — light theme */
-        --cli-bg: hsl(220, 15%, 96%);
+        --cli-bg: hsl(30, 15%, 95%);
         --cli-border: var(--border-glass);
-        --cli-text: hsl(142, 60%, 32%);
+        --cli-text: hsl(142, 45%, 32%);
         --cli-muted: var(--t-muted);
-        --cli-hover-bg: hsl(220, 15%, 92%);
+        --cli-hover-bg: hsl(30, 15%, 91%);
 
-        /* Light-mode shadows — visible but not harsh */
-        --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.1), 0px 1px 2px rgba(0, 0, 0, 0.08);
-        --shadow-md: 0px 2px 6px rgba(0, 0, 0, 0.1), 0px 4px 8px rgba(0, 0, 0, 0.06);
-        --shadow-lg: 0px 4px 8px rgba(0, 0, 0, 0.1), 0px 10px 20px rgba(0, 0, 0, 0.06);
+        /* Light-mode shadows — warm, visible but not harsh */
+        --shadow-sm: 0px 1px 3px rgba(80, 60, 40, 0.1), 0px 1px 2px rgba(80, 60, 40, 0.08);
+        --shadow-md: 0px 2px 6px rgba(80, 60, 40, 0.1), 0px 4px 8px rgba(80, 60, 40, 0.06);
+        --shadow-lg: 0px 4px 8px rgba(80, 60, 40, 0.1), 0px 10px 20px rgba(80, 60, 40, 0.06);
 
-        /* Parameter tags — visible chip style for light backgrounds */
-        --param-tag-bg: hsla(215, 25%, 55%, 0.12);
-        --param-tag-color: hsl(215, 20%, 42%);
+        /* Parameter tags — warm chip style for light backgrounds */
+        --param-tag-bg: hsla(25, 20%, 55%, 0.12);
+        --param-tag-color: hsl(20, 15%, 40%);
       }
 
       .sidebar-area {
