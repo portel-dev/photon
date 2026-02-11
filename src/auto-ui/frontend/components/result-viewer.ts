@@ -8,6 +8,7 @@ type LayoutType =
   | 'table'
   | 'list'
   | 'card'
+  | 'kv'
   | 'tree'
   | 'json'
   | 'markdown'
@@ -423,6 +424,22 @@ export class ResultViewer extends LitElement {
       }
       :host([data-theme='light']) .warmth-cool {
         border-left-color: #f59f00;
+      }
+
+      .timeline-item.warmth-hot,
+      .cart-item.warmth-hot {
+        border-left: 3px solid #ff6b6b;
+        transition: border-left-color 2s ease-out;
+      }
+      .timeline-item.warmth-warm,
+      .cart-item.warmth-warm {
+        border-left: 3px solid #ffa94d;
+        transition: border-left-color 2s ease-out;
+      }
+      .timeline-item.warmth-cool,
+      .cart-item.warmth-cool {
+        border-left: 3px solid #ffe066;
+        transition: border-left-color 2s ease-out;
       }
 
       .list-item-leading {
@@ -1371,6 +1388,7 @@ export class ResultViewer extends LitElement {
         line-height: 1.1;
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.02em;
+        transition: color 0.3s ease-out;
       }
 
       .metric-label {
@@ -1389,6 +1407,9 @@ export class ResultViewer extends LitElement {
         font-weight: 600;
         padding: 2px 10px;
         border-radius: var(--radius-full);
+        transition:
+          color 0.3s ease-out,
+          background 0.3s ease-out;
       }
 
       .metric-delta.up {
@@ -1435,6 +1456,28 @@ export class ResultViewer extends LitElement {
         text-transform: uppercase;
         letter-spacing: 0.06em;
         font-weight: 500;
+      }
+
+      /* Value change flash animation for metric/gauge */
+      .value-flash .metric-value,
+      .value-flash text {
+        animation: value-pulse 0.6s ease-out;
+      }
+      @keyframes value-pulse {
+        0% {
+          transform: scale(1.05);
+          opacity: 0.7;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      .gauge-svg path {
+        transition:
+          stroke-dasharray 0.6s ease-out,
+          stroke 0.3s ease-out;
       }
 
       /* ═══════════════════════════════════════════════════════════════
@@ -1833,6 +1876,13 @@ export class ResultViewer extends LitElement {
         padding: var(--space-sm);
       }
 
+      .stack-item .metric-container {
+        padding: var(--space-xs) 0;
+      }
+      .stack-item .metric-value {
+        font-size: 2.2rem;
+      }
+
       /* Columns */
       .columns-grid {
         display: grid;
@@ -1913,6 +1963,10 @@ export class ResultViewer extends LitElement {
 
   @state()
   private _expandedSections = new Set<string>();
+
+  // Flash animation for object-based format changes (metric/gauge)
+  @state()
+  private _objectJustChanged = false;
 
   // Track animated items for collection events
   @state()
@@ -2032,9 +2086,15 @@ export class ResultViewer extends LitElement {
     }
 
     if (!Array.isArray(this._internalResult)) {
-      // For non-array results, just replace
+      // For non-array results, replace and trigger flash animation
       if (type === 'changed') {
         this._internalResult = data;
+        this._objectJustChanged = true;
+        this.requestUpdate();
+        setTimeout(() => {
+          this._objectJustChanged = false;
+          this.requestUpdate();
+        }, 600);
       }
       return;
     }
@@ -2939,6 +2999,7 @@ export class ResultViewer extends LitElement {
       case 'list':
         return this._renderList(filteredData);
       case 'card':
+      case 'kv':
         return this._renderCard(filteredData);
       case 'chips':
         return this._renderChips(filteredData);
@@ -4126,12 +4187,6 @@ export class ResultViewer extends LitElement {
     const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${this._chartCanvasId}`);
     if (!canvas) return;
 
-    // Destroy existing chart
-    if (this._chartInstance) {
-      this._chartInstance.destroy();
-      this._chartInstance = null;
-    }
-
     const isDark = this.theme !== 'light';
     const palette = isDark ? CHART_PALETTE.dark : CHART_PALETTE.light;
     const textColor = isDark ? '#94a3b8' : '#64748b';
@@ -4140,6 +4195,19 @@ export class ResultViewer extends LitElement {
     // Determine chart type and build config
     const config = this._buildChartConfig(data, palette, textColor, gridColor);
     if (!config) return;
+
+    // Incremental update if chart exists on same canvas
+    if (this._chartInstance && this._chartInstance.canvas === canvas) {
+      this._chartInstance.data = config.data;
+      if (config.options) this._chartInstance.options = config.options;
+      this._chartInstance.update('active');
+      return;
+    }
+
+    if (this._chartInstance) {
+      this._chartInstance.destroy();
+      this._chartInstance = null;
+    }
 
     this._chartInstance = new Chart(canvas, config);
   }
@@ -4330,7 +4398,7 @@ export class ResultViewer extends LitElement {
     const trendClass = trend === 'up' ? 'up' : trend === 'down' ? 'down' : 'neutral';
 
     return html`
-      <div class="metric-container">
+      <div class="metric-container ${this._objectJustChanged ? 'value-flash' : ''}">
         <div class="metric-value">${formattedValue}</div>
         ${label ? html`<div class="metric-label">${label}</div>` : ''}
         ${deltaStr
@@ -4406,7 +4474,7 @@ export class ResultViewer extends LitElement {
       data.progress !== undefined ? `${Math.round(value)}%` : String(Math.round(value));
 
     return html`
-      <div class="gauge-container">
+      <div class="gauge-container ${this._objectJustChanged ? 'value-flash' : ''}">
         <svg class="gauge-svg" viewBox="0 0 160 100">
           <!-- Background arc -->
           <path
@@ -4521,7 +4589,12 @@ export class ResultViewer extends LitElement {
             <div class="timeline-group-header">${day}</div>
             ${items.map(
               (item, i) => html`
-                <div class="timeline-item" style="animation-delay: ${i * 60}ms">
+                <div
+                  class="timeline-item ${this._getItemAnimationClass(
+                    item
+                  )} ${this._getItemWarmthClass(item)}"
+                  style="animation-delay: ${i * 60}ms"
+                >
                   <div class="timeline-title">
                     ${titleField ? item[titleField] : JSON.stringify(item)}
                   </div>
@@ -4789,7 +4862,11 @@ export class ResultViewer extends LitElement {
           const nameField =
             item.name ?? item.title ?? item.label ?? item.product ?? item.description ?? 'Item';
           return html`
-            <div class="cart-item">
+            <div
+              class="cart-item ${this._getItemAnimationClass(item)} ${this._getItemWarmthClass(
+                item
+              )}"
+            >
               ${item.image ? html`<img class="cart-item-image" src="${item.image}" alt="" />` : ''}
               <div class="cart-item-info">
                 <div class="cart-item-name">${nameField}</div>
@@ -4834,6 +4911,14 @@ export class ResultViewer extends LitElement {
 
     // If explicit layout specified, use it
     if (layout) {
+      // Handle chart subtypes: @inner chart:pie → render chart with outputFormat override
+      if (layout.startsWith('chart:')) {
+        const origFormat = this.outputFormat;
+        this.outputFormat = layout as any;
+        const result = this._renderContent('chart' as LayoutType, data);
+        this.outputFormat = origFormat;
+        return result;
+      }
       return this._renderContent(layout as LayoutType, data);
     }
 
