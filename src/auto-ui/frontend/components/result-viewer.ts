@@ -3099,7 +3099,7 @@ export class ResultViewer extends LitElement {
                       ? this._sortDirection === 'asc'
                         ? '↑'
                         : '↓'
-                      : '↕'}</span
+                      : '⇅'}</span
                   >
                 </th>`
             )}
