@@ -275,6 +275,8 @@ export class ResultViewer extends LitElement {
         color: var(--t-muted);
         font-weight: 600;
         text-transform: capitalize;
+        vertical-align: top;
+        line-height: 1.2;
       }
 
       .smart-table td {
@@ -817,9 +819,11 @@ export class ResultViewer extends LitElement {
       }
 
       .sort-indicator {
+        display: inline;
         margin-left: 4px;
         opacity: 0.5;
         font-size: 0.8em;
+        white-space: nowrap;
       }
 
       .smart-table th.sorted .sort-indicator {
