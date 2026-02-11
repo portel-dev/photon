@@ -43,6 +43,8 @@ if (!socketPath) {
 // Map of photonName -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
 const photonPaths = new Map<string, string>(); // photonName -> photonPath
+const fileWatchers = new Map<string, fs.FSWatcher>();
+const watchDebounce = new Map<string, NodeJS.Timeout>();
 
 let idleTimeout = 0; // Daemon stays alive — it manages persistent stateful data
 let idleTimer: NodeJS.Timeout | null = null;
@@ -112,7 +114,9 @@ function getEventsSince(
   const buffer = channelEventBuffers.get(channel);
 
   if (!buffer || buffer.events.length === 0) {
-    return { events: [], refreshNeeded: false };
+    // If client has a lastEventId but buffer is empty (e.g. daemon restarted),
+    // signal that a full refresh is needed — events were lost.
+    return { events: [], refreshNeeded: lastTimestamp > 0 };
   }
 
   const oldestEvent = buffer.events[0];
@@ -553,6 +557,7 @@ async function getOrCreateSessionManager(
 
     sessionManagers.set(photonName, manager);
     photonPaths.set(photonName, pathToUse);
+    watchPhotonFile(photonName, pathToUse);
 
     logger.info('Session manager initialized', { photonName });
     return manager;
@@ -1054,6 +1059,70 @@ async function persistInstanceState(
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// FILE WATCHING (Auto Hot-Reload)
+// ════════════════════════════════════════════════════════════════════════════════
+
+function watchPhotonFile(photonName: string, photonPath: string): void {
+  if (fileWatchers.has(photonPath)) return;
+
+  try {
+    const watcher = fs.watch(photonPath, (eventType) => {
+      // Debounce: 100ms (same as Beam)
+      const existing = watchDebounce.get(photonPath);
+      if (existing) clearTimeout(existing);
+
+      watchDebounce.set(
+        photonPath,
+        setTimeout(async () => {
+          watchDebounce.delete(photonPath);
+
+          // On macOS, editors like sed -i and some IDEs replace the file (new inode),
+          // which kills the watcher. Re-watch if file still exists.
+          if (eventType === 'rename') {
+            unwatchPhotonFile(photonPath);
+            if (fs.existsSync(photonPath)) {
+              watchPhotonFile(photonName, photonPath);
+            }
+          }
+
+          if (!fs.existsSync(photonPath)) return;
+
+          logger.info('File changed, auto-reloading', { photonName, path: photonPath });
+
+          // Invalidate cached state keys so they're re-extracted from fresh source
+          stateKeysCache.delete(photonName);
+
+          await reloadPhoton(photonName, photonPath);
+        }, 100)
+      );
+    });
+
+    watcher.on('error', (err) => {
+      logger.warn('File watcher error', { photonName, error: getErrorMessage(err) });
+      unwatchPhotonFile(photonPath);
+    });
+
+    fileWatchers.set(photonPath, watcher);
+    logger.info('Watching photon file', { photonName, path: photonPath });
+  } catch (err) {
+    logger.warn('Failed to watch photon file', { photonName, error: getErrorMessage(err) });
+  }
+}
+
+function unwatchPhotonFile(photonPath: string): void {
+  const watcher = fileWatchers.get(photonPath);
+  if (watcher) {
+    watcher.close();
+    fileWatchers.delete(photonPath);
+  }
+  const timer = watchDebounce.get(photonPath);
+  if (timer) {
+    clearTimeout(timer);
+    watchDebounce.delete(photonPath);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // HOT RELOAD
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -1066,8 +1135,9 @@ async function reloadPhoton(
 
     const sessionManager = sessionManagers.get(photonName);
     if (!sessionManager) {
-      // First time - just register the path
+      // First time - just register the path and start watching
       photonPaths.set(photonName, newPhotonPath);
+      watchPhotonFile(photonName, newPhotonPath);
       return { success: true, sessionsUpdated: 0 };
     }
 
@@ -1252,6 +1322,11 @@ function shutdown(): void {
   jobTimers.clear();
   scheduledJobs.clear();
   activeLocks.clear();
+
+  // Close file watchers and debounce timers
+  for (const photonPath of fileWatchers.keys()) {
+    unwatchPhotonFile(photonPath);
+  }
 
   for (const manager of sessionManagers.values()) {
     manager.destroy();
