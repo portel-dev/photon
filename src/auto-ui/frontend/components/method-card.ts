@@ -29,7 +29,7 @@ export class MethodCard extends LitElement {
         padding: var(--space-md);
         display: flex;
         flex-direction: column;
-        gap: var(--space-md);
+        gap: 6px;
         cursor: pointer;
         transition:
           transform 0.2s ease,
@@ -185,8 +185,7 @@ export class MethodCard extends LitElement {
         flex-wrap: wrap;
         gap: 8px;
         align-items: center;
-        margin-bottom: var(--space-md);
-        min-height: 24px;
+        min-height: 20px;
       }
 
       .param-count {
