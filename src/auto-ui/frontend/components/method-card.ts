@@ -195,8 +195,8 @@ export class MethodCard extends LitElement {
         font-size: 0.7rem;
         padding: 4px 10px;
         border-radius: var(--radius-xs);
-        background: hsla(220, 100%, 60%, 0.25);
-        color: hsl(220, 100%, 45%);
+        background: hsla(270, 60%, 50%, 0.12);
+        color: inherit;
         font-weight: 500;
       }
 
