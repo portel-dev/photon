@@ -605,6 +605,50 @@ export class ResultViewer extends LitElement {
         border-radius: var(--radius-full);
         font-size: 0.85rem;
         color: var(--t-primary);
+        transition:
+          background 0.3s ease,
+          transform 0.3s ease,
+          opacity 0.3s ease;
+      }
+
+      .chip.item-added {
+        animation: chip-added 0.4s ease-out forwards;
+      }
+
+      .chip.item-removed {
+        animation: chip-removed 0.3s ease-in forwards;
+      }
+
+      .chip.item-updated {
+        animation: item-highlight 0.8s ease-out;
+      }
+
+      @keyframes chip-added {
+        0% {
+          opacity: 0;
+          transform: scale(0.6);
+          background: hsla(120, 60%, 50%, 0.25);
+        }
+        60% {
+          transform: scale(1.05);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+          background: var(--bg-glass-strong);
+        }
+      }
+
+      @keyframes chip-removed {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.6);
+          background: hsla(0, 60%, 50%, 0.2);
+        }
       }
 
       /* Markdown Styles */
@@ -3203,7 +3247,12 @@ export class ResultViewer extends LitElement {
 
     return html`
       <div class="smart-chips">
-        ${data.map((item) => html`<span class="chip">${this._highlightText(String(item))}</span>`)}
+        ${data.map(
+          (item) =>
+            html`<span class="chip ${this._getItemAnimationClass(item)}"
+              >${this._highlightText(String(item))}</span
+            >`
+        )}
       </div>
     `;
   }
@@ -3885,7 +3934,13 @@ export class ResultViewer extends LitElement {
       !value.startsWith('data:image/')
     )
       return false;
-    return /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(value) || value.startsWith('data:image/');
+    // Standard image file extensions
+    if (/\.(jpg|jpeg|png|gif|webp|svg|ico|bmp|avif)(\?.*)?$/i.test(value)) return true;
+    // Data URIs
+    if (value.startsWith('data:image/')) return true;
+    // Common avatar/image CDN patterns (URLs with no extension but known to serve images)
+    if (/\/(avatar|image|photo|img|thumb|pic|gravatar|pravatar)\b/i.test(value)) return true;
+    return false;
   }
 
   private _getStatusClass(status: any): string {
