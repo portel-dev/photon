@@ -1263,7 +1263,7 @@ export class ResultViewer extends LitElement {
           display: flex;
           flex-direction: column;
           border-bottom: 1px solid var(--border-glass);
-          padding: var(--space-sm) 0;
+          padding: var(--space-xs) 0;
         }
 
         .kv-table td:first-child,
@@ -1532,7 +1532,7 @@ export class ResultViewer extends LitElement {
 
       .timeline-item {
         position: relative;
-        padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);
+        padding: var(--space-xs) 0 var(--space-xs) var(--space-lg);
         animation: fadeInUp 0.3s ease-out both;
       }
 
@@ -1882,15 +1882,15 @@ export class ResultViewer extends LitElement {
       .stack-container {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        padding: var(--space-sm);
+        gap: 6px;
+        padding: 4px;
       }
 
       .stack-item {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
-        padding: var(--space-xs);
+        padding: 6px;
       }
 
       .stack-item .metric-container {
