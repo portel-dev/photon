@@ -580,13 +580,14 @@ export class PhotonServer {
       if (this.daemonName) {
         tools.push({
           name: '_use',
-          description: `Switch to a named instance. Omit name to select interactively.`,
+          description: `Switch to a named instance. Pass empty name for default. Omit name to select interactively.`,
           inputSchema: {
             type: 'object',
             properties: {
               name: {
                 type: 'string',
-                description: 'Instance name (empty for default). Omit to select interactively.',
+                description:
+                  'Instance name. Pass empty string "" for default. Omit entirely to select interactively.',
               },
             },
           },
@@ -624,7 +625,11 @@ export class PhotonServer {
         };
 
         // Elicitation-based instance selection when _use called without name
-        if (toolName === '_use' && !args?.name && this.clientSupportsElicitation()) {
+        if (
+          toolName === '_use' &&
+          (!args || !('name' in args)) &&
+          this.clientSupportsElicitation()
+        ) {
           const instancesResult = (await sendCommand(
             this.daemonName,
             '_instances',
@@ -2042,13 +2047,14 @@ export class PhotonServer {
       if (this.daemonName) {
         tools.push({
           name: '_use',
-          description: `Switch to a named instance. Omit name to select interactively.`,
+          description: `Switch to a named instance. Pass empty name for default. Omit name to select interactively.`,
           inputSchema: {
             type: 'object',
             properties: {
               name: {
                 type: 'string',
-                description: 'Instance name (empty for default). Omit to select interactively.',
+                description:
+                  'Instance name. Pass empty string "" for default. Omit entirely to select interactively.',
               },
             },
           },
@@ -2079,7 +2085,11 @@ export class PhotonServer {
         };
 
         // Elicitation-based instance selection when _use called without name
-        if (toolName === '_use' && !args?.name && this.clientSupportsElicitation(sessionServer)) {
+        if (
+          toolName === '_use' &&
+          (!args || !('name' in args)) &&
+          this.clientSupportsElicitation(sessionServer)
+        ) {
           const instancesResult = (await sendCommand(
             this.daemonName,
             '_instances',

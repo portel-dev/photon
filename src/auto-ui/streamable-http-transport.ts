@@ -798,7 +798,7 @@ const handlers: Record<string, RequestHandler> = {
         };
 
         // Elicitation-based instance selection when _use called without name
-        if (methodName === '_use' && !args?.name) {
+        if (methodName === '_use' && (!args || !('name' in args))) {
           const instancesResult = (await sendCommand(photonName, '_instances', {}, sendOpts)) as {
             instances?: string[];
             current?: string;
