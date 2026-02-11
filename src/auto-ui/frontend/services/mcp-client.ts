@@ -117,6 +117,7 @@ class MCPClientService {
   private connected = false;
   private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
+  private maxReconnectAttempts = Infinity; // Infinite retries by default, can be set to 0 to disable
   private reconnectDelay = 1000;
   private readonly MAX_RECONNECT_DELAY_MS = 30000; // Cap backoff at 30s
   private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
@@ -126,7 +127,7 @@ class MCPClientService {
   private lastMessageTime = 0;
   private heartbeatInterval: number | null = null;
   private visibilityHandler: (() => void) | null = null;
-  private readonly HEARTBEAT_TIMEOUT_MS = 60000; // 60s - server sends keepalive every 30s
+  private readonly HEARTBEAT_TIMEOUT_MS = 45000; // 45s - server sends keepalive every 15s (3x interval)
   private pendingOperations: PendingOperation[] = [];
   private isProcessingQueue = false;
   private readonly MAX_QUEUE_AGE_MS = 30000; // Discard operations older than 30s
@@ -312,6 +313,15 @@ class MCPClientService {
     }
 
     this.reconnectAttempts++;
+
+    // Check if we should stop reconnecting
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      this.connected = false;
+      this.emit('disconnect');
+      console.warn('[MCP] Max reconnect attempts reached, giving up');
+      return;
+    }
+
     const delay = Math.min(
       this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
       this.MAX_RECONNECT_DELAY_MS
