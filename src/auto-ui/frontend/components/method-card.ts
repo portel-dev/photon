@@ -29,7 +29,7 @@ export class MethodCard extends LitElement {
         padding: var(--space-md);
         display: flex;
         flex-direction: column;
-        gap: var(--space-sm);
+        gap: var(--space-md);
         cursor: pointer;
         transition:
           transform 0.2s ease,
@@ -183,8 +183,9 @@ export class MethodCard extends LitElement {
       .param-tags {
         display: flex;
         flex-wrap: wrap;
-        gap: 3px;
+        gap: 8px;
         align-items: center;
+        margin-bottom: var(--space-md);
       }
 
       .param-count {
@@ -208,29 +209,17 @@ export class MethodCard extends LitElement {
         margin-top: 2px;
       }
 
-      /* Left border accent for typed methods */
-      .card.typed {
-        border-left: 3px solid var(--type-accent, var(--border-glass));
+      .action-icon {
+        position: absolute;
+        bottom: var(--space-md);
+        right: var(--space-md);
+        font-size: 1.2rem;
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
       }
 
-      .run-btn {
-        align-self: flex-start;
-        background: transparent;
-        border: 1px solid var(--accent-primary);
-        padding: var(--space-sm) var(--space-lg);
-        border-radius: var(--radius-sm);
-        color: var(--accent-primary);
-        font-weight: 500;
-        font-size: 0.85rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .card:hover .run-btn,
-      .run-btn:hover {
-        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-        border-color: transparent;
-        color: white;
+      .card:hover .action-icon {
+        opacity: 1;
       }
 
       /* Emoji Picker */
@@ -408,20 +397,7 @@ export class MethodCard extends LitElement {
                 >
               </span>
             </div>
-            ${this.method.isTemplate
-              ? html`<span class="badge prompt">Prompt</span>`
-              : (() => {
-                  const props = this.method.params?.properties || {};
-                  const count = Object.keys(props).length;
-                  if (count === 0) {
-                    return html`<span
-                      class="badge"
-                      style="background: var(--color-success-bg); color: var(--color-success);"
-                      >Ready</span
-                    >`;
-                  }
-                  return '';
-                })()}
+            ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
           </div>
           ${!this.method.isTemplate
             ? (() => {
@@ -444,16 +420,6 @@ export class MethodCard extends LitElement {
                   </div>`;
                 }
               })()
-            : ''}
-          ${isTyped
-            ? html`
-                <div class="type-badges">
-                  ${isAutorun ? html`<span class="type-badge autorun">autorun</span>` : ''}
-                  ${isWebhook ? html`<span class="type-badge webhook">webhook</span>` : ''}
-                  ${isCron ? html`<span class="type-badge cron">cron</span>` : ''}
-                  ${isLocked ? html`<span class="type-badge locked">locked</span>` : ''}
-                </div>
-              `
             : ''}
           ${this._editingDescription
             ? html`
@@ -485,7 +451,17 @@ export class MethodCard extends LitElement {
                 </div>
               `}
         </div>
-        <button class="run-btn" @click=${this._handleRunClick}>Run ▸</button>
+        ${(() => {
+          const props = this.method.params?.properties || {};
+          const paramCount = Object.keys(props).length;
+          const hasParams = paramCount > 0;
+          return html`<div
+            class="action-icon"
+            title="${hasParams ? 'Requires parameters' : 'Click to execute'}"
+          >
+            ${hasParams ? '📋' : '▶'}
+          </div>`;
+        })()}
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
       </div>
     `;
