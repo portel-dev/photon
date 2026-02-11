@@ -43,7 +43,7 @@ import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
 import { PhotonDocExtractor } from '../photon-doc-extractor.js';
 import { TemplateManager } from '../template-manager.js';
-import { subscribeChannel, pingDaemon } from '../daemon/client.js';
+import { subscribeChannel, pingDaemon, reloadDaemon } from '../daemon/client.js';
 import { ensureDaemon } from '../daemon/manager.js';
 import {
   SchemaExtractor,
@@ -2926,6 +2926,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
           backfillEnvDefaults(mcp.instance, reloadConstructorParams);
 
+          const isStateful = /@stateful\b/.test(reloadSource);
           const reloadedPhoton: PhotonInfo = {
             id: generatePhotonId(photonPath),
             name: photonName,
@@ -2937,6 +2938,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             description: reloadClassMeta.description,
             icon: reloadClassMeta.icon,
             internal: reloadClassMeta.internal,
+            ...(isStateful && { stateful: true }),
             ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
             ...(mcp.injectedPhotons &&
               mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
@@ -2952,6 +2954,22 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
             broadcastPhotonChange();
             logger.info(`✅ ${photonName} hot reloaded`);
+          }
+
+          // Reload daemon's copy too — daemon caches its own instance separately
+          if (isStateful && photonPath) {
+            try {
+              const result = await reloadDaemon(photonName, photonPath);
+              if (result.success) {
+                logger.info(
+                  `🔄 Daemon reloaded ${photonName} (${result.sessionsUpdated || 0} sessions updated)`
+                );
+              } else {
+                logger.warn(`Daemon reload failed for ${photonName}: ${result.error}`);
+              }
+            } catch {
+              // Daemon might not be running — that's fine, it'll load fresh on next request
+            }
           }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
