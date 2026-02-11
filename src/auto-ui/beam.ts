@@ -431,21 +431,10 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           mcpInfo.connected = true;
           mcpInfo.methods = methods;
         } catch (sdkError) {
-          // SDK client failed - fall back to wrapper client
-          logger.debug(`SDK client failed for ${name}, using wrapper: ${sdkError}`);
-
-          // Try wrapper client as fallback
-          const tools = await client.list();
-          methods = (tools || []).map((tool: any) => ({
-            name: tool.name,
-            description: tool.description || '',
-            params: tool.inputSchema || { type: 'object', properties: {} },
-            returns: { type: 'object' },
-            icon: tool['x-icon'],
-          }));
-
-          mcpInfo.connected = true;
-          mcpInfo.methods = methods;
+          // SDK client failed — don't fall back to wrapper for stdio MCPs
+          // (same command would fail identically, and wrapper spawns a process
+          // without stderr suppression, leaking raw Node.js stack traces)
+          throw sdkError;
         }
       } else {
         // No command or URL — create wrapper client (legacy fallback)
@@ -475,7 +464,19 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       mcpInfo.errorMessage = errorMsg.slice(0, 200);
-      logger.warn(`⚠️ Failed to connect to external MCP: ${name} - ${errorMsg}`);
+
+      // User-friendly error messages for common failures
+      const shortMsg = errorMsg.includes('Cannot find module')
+        ? `Module not found (run npm build in the MCP directory)`
+        : errorMsg.includes('ENOENT')
+          ? `Command not found: ${serverConfig.command}`
+          : errorMsg.includes('Connection timeout')
+            ? `Connection timed out (server may not be running)`
+            : errorMsg.includes('Connection closed')
+              ? `Server exited immediately (check configuration)`
+              : errorMsg.slice(0, 120);
+
+      logger.warn(`⚠️  External MCP "${name}" — ${shortMsg}`);
     }
 
     results.push(mcpInfo);

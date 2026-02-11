@@ -1993,6 +1993,14 @@ export class BeamApp extends LitElement {
         }
       });
 
+      // Restore instance after SSE reconnection (daemon restart, network recovery, etc.)
+      mcpClient.on('reconnect', async () => {
+        this._log('info', 'Connection restored');
+        if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
+          await this._restoreInstance(this._selectedPhoton.name);
+        }
+      });
+
       // MCP Apps standard: forward ui/notifications/tool-result to iframes as JSON-RPC
       mcpClient.on('ui-tool-result', (params: any) => {
         this._forwardToIframes({

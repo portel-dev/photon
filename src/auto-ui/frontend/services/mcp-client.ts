@@ -98,7 +98,8 @@ type MCPEventType =
   | 'ui-tool-result' // MCP Apps: tool result notification
   | 'ui-tool-input' // MCP Apps: tool input notification
   | 'ui-tool-input-partial' // MCP Apps: partial tool input (streaming)
-  | 'state-changed'; // Stateful photon state changed (via daemon)
+  | 'state-changed' // Stateful photon state changed (via daemon)
+  | 'reconnect'; // SSE reconnected after disconnect
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -116,8 +117,8 @@ class MCPClientService {
   private connected = false;
   private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private readonly MAX_RECONNECT_DELAY_MS = 30000; // Cap backoff at 30s
   private eventListeners = new Map<MCPEventType, Set<(data?: unknown) => void>>();
   private baseUrl: string;
   private _configurationSchema: ConfigurationSchema | null = null;
@@ -218,12 +219,18 @@ class MCPClientService {
     this.eventSource = new EventSource(sseUrl);
 
     this.eventSource.onopen = () => {
-      // SSE connected - reset reconnect counter and start heartbeat monitoring
+      // SSE connected - check if this is a reconnection
+      const wasDisconnected = this.reconnectAttempts > 0;
       this.reconnectAttempts = 0;
+      this.connected = true;
       this.lastMessageTime = Date.now();
       this.startHeartbeatCheck();
       // Process any queued operations
       this.processQueue();
+      // Notify listeners if we recovered from a disconnect
+      if (wasDisconnected) {
+        this.emit('reconnect');
+      }
     };
 
     this.eventSource.onmessage = (event) => {
@@ -304,17 +311,20 @@ class MCPClientService {
       this.eventSource = null;
     }
 
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      setTimeout(() => {
-        if (this.connected) {
-          this.openSSEStream();
-        }
-      }, this.reconnectDelay * this.reconnectAttempts);
-    } else {
-      this.connected = false;
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.MAX_RECONNECT_DELAY_MS
+    );
+
+    // Emit disconnect after first failure so UI can show status
+    if (this.reconnectAttempts === 1) {
       this.emit('disconnect');
     }
+
+    setTimeout(() => {
+      this.openSSEStream();
+    }, delay);
   }
 
   /**
