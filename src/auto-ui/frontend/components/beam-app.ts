@@ -2081,7 +2081,7 @@ export class BeamApp extends LitElement {
 
         // Restore saved instance for stateful photons (survives tab refresh)
         if (photon.stateful && photon.configured) {
-          this._restoreInstance(photon.name);
+          await this._restoreInstance(photon.name);
         }
 
         // Handle external MCPs with MCP Apps
@@ -3453,7 +3453,7 @@ export class BeamApp extends LitElement {
 
     // Restore saved instance for stateful photons (survives tab refresh)
     if (this._selectedPhoton.stateful && this._selectedPhoton.configured) {
-      this._restoreInstance(this._selectedPhoton.name);
+      await this._restoreInstance(this._selectedPhoton.name);
     }
 
     // For Apps, automatically select the main method to show Custom UI

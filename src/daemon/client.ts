@@ -309,7 +309,15 @@ export async function subscribeChannel(
 
       client.on('error', (error) => {
         if (!subscribed) {
-          reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+          if (options?.reconnect && !cancelled) {
+            // Initial connection failed — retry (e.g. daemon not running yet)
+            resolve((() => {
+              cancelled = true;
+            }) as any);
+            scheduleReconnect();
+          } else {
+            reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+          }
         } else if (options?.reconnect && !cancelled) {
           scheduleReconnect();
         }
@@ -317,7 +325,14 @@ export async function subscribeChannel(
 
       client.on('end', () => {
         if (!subscribed) {
-          reject(new Error('Connection closed before subscription confirmed'));
+          if (options?.reconnect && !cancelled) {
+            resolve((() => {
+              cancelled = true;
+            }) as any);
+            scheduleReconnect();
+          } else {
+            reject(new Error('Connection closed before subscription confirmed'));
+          }
         } else if (options?.reconnect && !cancelled) {
           scheduleReconnect();
         }
