@@ -513,6 +513,185 @@ export function generateComponentCSS(): string {
   padding: var(--space-2);
 }
 
+/* Cart Component */
+.smart-cart-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-outline-variant, #334155);
+}
+
+.smart-cart-item:last-of-type {
+  border-bottom: none;
+}
+
+.smart-cart-item-image {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.smart-cart-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.smart-cart-item-name {
+  font-weight: 500;
+}
+
+.smart-cart-qty {
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.smart-cart-line-total {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 60px;
+  text-align: right;
+}
+
+.smart-cart-divider {
+  height: 1px;
+  background: var(--color-outline-variant, #334155);
+  margin: 8px 0;
+}
+
+.smart-cart-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 12px;
+  font-size: 0.9rem;
+}
+
+.smart-cart-summary-row.total {
+  font-weight: 700;
+  font-size: 1rem;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-outline-variant, #334155);
+  margin-top: 4px;
+}
+
+/* Panels Container */
+.smart-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.smart-panels.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.smart-panels.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.smart-panels.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+.smart-panel {
+  border: 1px solid var(--color-outline-variant, #334155);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.smart-panel-header {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--color-outline-variant, #334155);
+}
+
+.smart-panel-content {
+  padding: 8px;
+}
+
+/* Tabs Container */
+.smart-tabs-bar {
+  display: flex;
+  border-bottom: 1px solid var(--color-outline-variant, #334155);
+  margin-bottom: 12px;
+}
+
+.smart-tab {
+  padding: 8px 16px;
+  border-bottom: 2px solid transparent;
+  color: #64748b;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.smart-tab.active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+}
+
+.smart-tab-content { display: none; }
+.smart-tab-content.active { display: block; }
+
+/* Accordion Container */
+.smart-accordion {
+  border: 1px solid var(--color-outline-variant, #334155);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.smart-accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.02);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-outline-variant, #334155);
+}
+
+.smart-accordion-header:last-child { border-bottom: none; }
+.smart-accordion-body { display: none; padding: 8px 12px; }
+.smart-accordion-body.expanded { display: block; }
+
+/* Stack Container */
+.smart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.smart-stack-item {
+  border: 1px solid var(--color-outline-variant, #334155);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.smart-stack-label {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--color-outline-variant, #334155);
+}
+
+.smart-stack-content {
+  padding: 8px;
+}
+
+/* Columns Container */
+.smart-columns {
+  display: grid;
+  gap: 16px;
+}
+
+.smart-columns.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.smart-columns.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.smart-columns.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
 /* JSON Syntax Highlighting */
 .json-highlighted {
   margin: 0;
@@ -637,6 +816,18 @@ function renderSmartResult(data, format, layoutHints) {
       return renderTimeline(data);
     case 'dashboard':
       return renderDashboard(data);
+    case 'cart':
+      return renderCart(data);
+    case 'panels':
+      return renderPanels(data, layoutHints);
+    case 'tabs':
+      return renderTabs(data, layoutHints);
+    case 'accordion':
+      return renderAccordion(data, layoutHints);
+    case 'stack':
+      return renderStack(data, layoutHints);
+    case 'columns':
+      return renderColumns(data, layoutHints);
     case 'chart':
       // Charts require Chart.js (only in Beam). Fallback to table/JSON in playground.
       return '<pre class="json-highlighted">' + syntaxHighlightJson(data) + '</pre>';
@@ -1015,6 +1206,145 @@ function renderDashboard(data) {
       html += '<div style="padding:8px;">' + escapeHtml(String(val)) + '</div>';
     }
     html += '</div></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderInnerContent(data, innerLayout) {
+  if (innerLayout) {
+    return renderSmartResult(data, innerLayout, null);
+  }
+  // Auto-detect
+  return renderSmartResult(data, null, null);
+}
+
+function renderCart(data) {
+  if (!data) return '<div>No cart data</div>';
+  var items, summary = {};
+  if (Array.isArray(data)) {
+    items = data;
+  } else {
+    items = data.items || [];
+    for (var k in data) {
+      if (k !== 'items' && typeof data[k] === 'number') summary[k] = data[k];
+    }
+  }
+  if (items.length === 0) return '<div>Cart is empty</div>';
+  var computedTotal = 0;
+  for (var i = 0; i < items.length; i++) {
+    var qty = items[i].quantity || items[i].qty || 1;
+    computedTotal += (items[i].price || 0) * qty;
+  }
+  if (Object.keys(summary).length === 0) summary = { total: computedTotal };
+  var html = '<div>';
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var qty = item.quantity || item.qty || 1;
+    var lineTotal = (item.price || 0) * qty;
+    var name = item.name || item.title || item.label || item.product || 'Item';
+    html += '<div class="smart-cart-item">';
+    if (item.image) html += '<img class="smart-cart-item-image" src="' + escapeHtml(item.image) + '" alt="">';
+    html += '<div class="smart-cart-item-info"><div class="smart-cart-item-name">' + escapeHtml(name) + '</div></div>';
+    if (qty > 1) html += '<span class="smart-cart-qty">&times;' + qty + '</span>';
+    html += '<span class="smart-cart-line-total">$' + lineTotal.toFixed(2) + '</span>';
+    html += '</div>';
+  }
+  html += '<div class="smart-cart-divider"></div>';
+  var summaryKeys = Object.keys(summary);
+  for (var i = 0; i < summaryKeys.length; i++) {
+    var sk = summaryKeys[i];
+    var isTotal = sk.toLowerCase() === 'total';
+    html += '<div class="smart-cart-summary-row' + (isTotal ? ' total' : '') + '">';
+    html += '<span>' + formatFieldLabel(sk) + '</span>';
+    html += '<span>$' + summary[sk].toFixed(2) + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderPanels(data, layoutHints) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '<div>Panels require an object</div>';
+  var keys = Object.keys(data);
+  var cols = layoutHints && layoutHints.columns ? parseInt(layoutHints.columns) : 0;
+  var colsClass = cols >= 2 && cols <= 4 ? ' cols-' + cols : '';
+  var inner = layoutHints ? layoutHints.inner : null;
+  var html = '<div class="smart-panels' + colsClass + '">';
+  for (var i = 0; i < keys.length; i++) {
+    html += '<div class="smart-panel">';
+    html += '<div class="smart-panel-header">' + formatFieldLabel(keys[i]) + '</div>';
+    html += '<div class="smart-panel-content">' + renderInnerContent(data[keys[i]], inner) + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderTabs(data, layoutHints) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '<div>Tabs require an object</div>';
+  var keys = Object.keys(data);
+  var inner = layoutHints ? layoutHints.inner : null;
+  var tabId = 'tabs-' + Math.random().toString(36).slice(2, 8);
+  var html = '<div>';
+  html += '<div class="smart-tabs-bar">';
+  for (var i = 0; i < keys.length; i++) {
+    html += '<div class="smart-tab' + (i === 0 ? ' active' : '') + '" onclick="(function(el){var bar=el.parentElement;var tabs=bar.parentElement.querySelectorAll(\\'.smart-tab-content\\');bar.querySelectorAll(\\'.smart-tab\\').forEach(function(t){t.classList.remove(\\'active\\')});el.classList.add(\\'active\\');tabs.forEach(function(t){t.classList.remove(\\'active\\')});tabs[' + i + '].classList.add(\\'active\\');})(this)">' + formatFieldLabel(keys[i]) + '</div>';
+  }
+  html += '</div>';
+  for (var i = 0; i < keys.length; i++) {
+    html += '<div class="smart-tab-content' + (i === 0 ? ' active' : '') + '">';
+    html += renderInnerContent(data[keys[i]], inner);
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderAccordion(data, layoutHints) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '<div>Accordion requires an object</div>';
+  var keys = Object.keys(data);
+  var inner = layoutHints ? layoutHints.inner : null;
+  var html = '<div class="smart-accordion">';
+  for (var i = 0; i < keys.length; i++) {
+    var bodyId = 'acc-' + Math.random().toString(36).slice(2, 8);
+    html += '<div class="smart-accordion-header" onclick="var b=document.getElementById(\\'' + bodyId + '\\');b.classList.toggle(\\'expanded\\')">';
+    html += '<span>' + formatFieldLabel(keys[i]) + '</span><span>&#x25B6;</span>';
+    html += '</div>';
+    html += '<div id="' + bodyId + '" class="smart-accordion-body' + (i === 0 ? ' expanded' : '') + '">';
+    html += renderInnerContent(data[keys[i]], inner);
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderStack(data, layoutHints) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '<div>Stack requires an object</div>';
+  var keys = Object.keys(data);
+  var inner = layoutHints ? layoutHints.inner : null;
+  var html = '<div class="smart-stack">';
+  for (var i = 0; i < keys.length; i++) {
+    html += '<div class="smart-stack-item">';
+    html += '<div class="smart-stack-label">' + formatFieldLabel(keys[i]) + '</div>';
+    html += '<div class="smart-stack-content">' + renderInnerContent(data[keys[i]], inner) + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderColumns(data, layoutHints) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '<div>Columns require an object</div>';
+  var keys = Object.keys(data);
+  var cols = layoutHints && layoutHints.columns ? Math.min(Math.max(parseInt(layoutHints.columns), 2), 4) : Math.min(keys.length, 4);
+  var inner = layoutHints ? layoutHints.inner : null;
+  var html = '<div class="smart-columns cols-' + cols + '">';
+  for (var i = 0; i < keys.length; i++) {
+    html += '<div>';
+    html += '<div style="font-size:0.75rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">' + formatFieldLabel(keys[i]) + '</div>';
+    html += renderInnerContent(data[keys[i]], inner);
+    html += '</div>';
   }
   html += '</div>';
   return html;

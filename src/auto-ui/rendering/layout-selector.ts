@@ -13,6 +13,7 @@ import {
   isGaugeShaped,
   isTimelineShaped,
   isDashboardShaped,
+  isCartShaped,
 } from './field-analyzer.js';
 
 export type LayoutType =
@@ -33,7 +34,13 @@ export type LayoutType =
   | 'metric' // KPI/metric display with big number + delta
   | 'gauge' // Circular gauge/progress indicator
   | 'timeline' // Vertical timeline of events
-  | 'dashboard'; // Composite grid of auto-detected panels
+  | 'dashboard' // Composite grid of auto-detected panels
+  | 'cart' // Shopping cart with item rows + totals
+  | 'panels' // CSS grid of titled panels (composable)
+  | 'tabs' // Tab bar switching between items (composable)
+  | 'accordion' // Collapsible sections (composable)
+  | 'stack' // Vertical stack with spacing (composable)
+  | 'columns'; // Side-by-side columns (composable)
 
 export interface LayoutHints {
   title?: string; // Field to use as title
@@ -61,6 +68,8 @@ export interface LayoutHints {
   description?: string; // Description field for timeline
   // Dashboard-specific hints
   group?: string; // Field to group items by (sections, dashboard panels)
+  // Composable container hints
+  inner?: string; // Inner layout type for container formats (panels, tabs, etc.)
 }
 
 // Map legacy @format values to new layout types
@@ -84,6 +93,12 @@ const FORMAT_TO_LAYOUT: Record<string, LayoutType> = {
   gauge: 'gauge',
   timeline: 'timeline',
   dashboard: 'dashboard',
+  cart: 'cart',
+  panels: 'panels',
+  tabs: 'tabs',
+  accordion: 'accordion',
+  stack: 'stack',
+  columns: 'columns',
 };
 
 /**
@@ -146,6 +161,10 @@ export function selectLayout(data: any, format?: string, hints?: LayoutHints): L
 
     // Array of objects
     if (typeof first === 'object' && first !== null) {
+      // Check if cart-shaped (before image/timeline — more specific)
+      if (isCartShaped(data)) {
+        return 'cart';
+      }
       // Check if items have image fields -> grid
       if (hasImageFields(first)) {
         return 'grid';
@@ -171,6 +190,11 @@ export function selectLayout(data: any, format?: string, hints?: LayoutHints): L
     // Check for special fields
     if ('diagram' in data && typeof data.diagram === 'string') {
       return 'mermaid';
+    }
+
+    // Check if cart-shaped (items array with price+quantity)
+    if (isCartShaped(data)) {
+      return 'cart';
     }
 
     // Check if gauge-shaped (value + max/min or progress)
@@ -365,6 +389,10 @@ export function parseLayoutHints(hintsString: string): LayoutHints {
         case 'group':
           hints.group = cleanValue;
           break;
+        // Composable container hints
+        case 'inner':
+          hints.inner = cleanValue;
+          break;
       }
     }
   }
@@ -398,6 +426,12 @@ const FORMAT_TO_LAYOUT = {
   'gauge': 'gauge',
   'timeline': 'timeline',
   'dashboard': 'dashboard',
+  'cart': 'cart',
+  'panels': 'panels',
+  'tabs': 'tabs',
+  'accordion': 'accordion',
+  'stack': 'stack',
+  'columns': 'columns',
 };
 
 function selectLayout(data, format, hints) {
@@ -429,6 +463,7 @@ function selectLayout(data, format, hints) {
     const first = data[0];
     if (typeof first === 'string') return 'chips';
     if (typeof first === 'object' && first !== null) {
+      if (isCartShaped(data)) return 'cart';
       if (hasImageFields(first)) return 'grid';
       return 'list';
     }
@@ -437,6 +472,7 @@ function selectLayout(data, format, hints) {
 
   if (typeof data === 'object') {
     if ('diagram' in data && typeof data.diagram === 'string') return 'mermaid';
+    if (isCartShaped(data)) return 'cart';
     if (isNested(data)) return 'tree';
     const fieldCount = Object.keys(data).length;
     if (fieldCount > 10) return 'kv';
@@ -515,10 +551,25 @@ function parseLayoutHints(hintsString) {
         case 'date': hints.date = cleanValue; break;
         case 'description': hints.description = cleanValue; break;
         case 'group': hints.group = cleanValue; break;
+        case 'inner': hints.inner = cleanValue; break;
       }
     }
   }
   return hints;
+}
+
+function isCartShaped(data) {
+  if (Array.isArray(data)) {
+    return data.length > 0 && data.every(function(item) {
+      return item && typeof item === 'object' && 'price' in item && ('quantity' in item || 'qty' in item);
+    });
+  }
+  if (data && typeof data === 'object' && data.items && Array.isArray(data.items)) {
+    return data.items.length > 0 && data.items.every(function(item) {
+      return item && typeof item === 'object' && 'price' in item && ('quantity' in item || 'qty' in item);
+    });
+  }
+  return false;
 }
 `;
 }

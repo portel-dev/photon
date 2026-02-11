@@ -2049,7 +2049,7 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleHashChange = () => {
+  private _handleHashChange = async () => {
     const fullHash = window.location.hash.slice(1);
     // Parse hash format: photon/method?param1=value1&param2=value2
     const [pathPart, queryPart] = fullHash.split('?');
@@ -3430,7 +3430,7 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handlePhotonSelect(e: CustomEvent) {
+  private async _handlePhotonSelect(e: CustomEvent) {
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
     this._lastResult = null;

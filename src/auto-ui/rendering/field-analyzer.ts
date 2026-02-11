@@ -359,6 +359,40 @@ export function isDashboardShaped(data: any): boolean {
 }
 
 /**
+ * Check if data looks like a shopping cart
+ * Patterns:
+ * - Array where all items have price + (quantity | qty)
+ * - Object with items array where items have price + (quantity | qty)
+ */
+export function isCartShaped(data: any): boolean {
+  if (Array.isArray(data)) {
+    return (
+      data.length > 0 &&
+      data.every(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          'price' in item &&
+          ('quantity' in item || 'qty' in item)
+      )
+    );
+  }
+  if (data && typeof data === 'object' && data.items && Array.isArray(data.items)) {
+    return (
+      data.items.length > 0 &&
+      data.items.every(
+        (item: any) =>
+          item &&
+          typeof item === 'object' &&
+          'price' in item &&
+          ('quantity' in item || 'qty' in item)
+      )
+    );
+  }
+  return false;
+}
+
+/**
  * Generate JavaScript code for field analyzer (to embed in HTML)
  */
 export function generateFieldAnalyzerJS(): string {

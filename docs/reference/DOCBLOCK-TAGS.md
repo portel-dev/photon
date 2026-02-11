@@ -280,6 +280,19 @@ The `@format` tag on methods supports multiple format types:
 | `gauge` | Circular gauge/progress indicator |
 | `timeline` | Vertical timeline of events |
 | `dashboard` | Composite grid of auto-detected panels |
+| `cart` | Shopping cart with item rows + totals |
+
+### Container Formats (Composable)
+
+Container formats wrap inner content renderers. Data must be an **object** — keys become section titles/tab labels/panel headers, and each value is rendered using the `@inner` layout type (or auto-detected if omitted).
+
+| Value | Description |
+|-------|-------------|
+| `panels` | CSS grid of titled panels |
+| `tabs` | Tab bar switching between items |
+| `accordion` | Collapsible sections |
+| `stack` | Vertical stack with spacing |
+| `columns` | Side-by-side columns (2-4) |
 
 ### Code Formats
 
@@ -383,12 +396,82 @@ async activityLog(): Promise<{ createdAt: string; event: string; details: string
 | `@title fieldName` | Event title field |
 | `@description fieldName` | Event description field |
 
+### Cart Layout
+
+The `cart` format displays e-commerce cart data with item rows and a summary section.
+
+```typescript
+/**
+ * Get shopping cart
+ * @format cart
+ */
+async cart(): Promise<{
+  items: { name: string; price: number; quantity: number; image?: string }[];
+  subtotal: number;
+  tax: number;
+  total: number;
+}>
+```
+
+**Supported data shapes:**
+- Object with `items` array + numeric summary fields (`subtotal`, `tax`, `discount`, `shipping`, `total`)
+- Flat array where all items have `price` + (`quantity` or `qty`) fields
+
+**Auto-detection:** Data with `price` + `quantity`/`qty` fields is automatically detected as a cart without needing `@format cart`.
+
+### Container Layout Hints
+
+Containers accept the `@inner` hint to specify how each value is rendered:
+
+```typescript
+/**
+ * User dashboard with panels
+ * @format panels {@inner card, @columns 3}
+ */
+async overview(): Promise<{ users: User[]; orders: Order[]; stats: Stats }>
+
+/**
+ * Settings organized in tabs
+ * @format tabs {@inner kv, @style pills}
+ */
+async settings(): Promise<{ general: object; advanced: object; security: object }>
+
+/**
+ * FAQ sections
+ * @format accordion {@inner list, @style bordered}
+ */
+async faq(): Promise<{ billing: string[]; shipping: string[]; returns: string[] }>
+
+/**
+ * KPI metrics stacked vertically
+ * @format stack {@inner metric}
+ */
+async kpis(): Promise<{ revenue: object; users: object; conversion: object }>
+
+/**
+ * Side-by-side comparison
+ * @format columns {@inner chart:pie, @columns 2}
+ */
+async compare(): Promise<{ planA: object; planB: object }>
+```
+
+| Hint | Description |
+|------|-------------|
+| `@inner layoutType` | Render each value using this layout (e.g., `card`, `list`, `kv`, `metric`, `chart:pie`) |
+| `@columns N` | Number of columns for `panels` and `columns` (2-4) |
+| `@style pills` | Pill-style tabs (for `tabs`) |
+| `@style bordered` | Bordered sections (for `accordion`) |
+
+If `@inner` is omitted, each value auto-detects its own layout (like `dashboard` does).
+
 ### Auto-Detection
 
 When no `@format` is specified, the auto-UI detects visualization types from data shape:
 
 | Data Shape | Detected Layout |
 |------------|----------------|
+| Array where all items have `price` + `quantity`/`qty` | `cart` |
+| Object with `items` array where items have `price` + `quantity`/`qty` | `cart` |
 | Array with 1 string + 1 numeric field | `chart` (pie/bar) |
 | Array with date + numeric fields | `chart` (line) |
 | Array with date + title/description fields (3+ items) | `timeline` |

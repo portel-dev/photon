@@ -392,7 +392,13 @@ export type UIHint =
   | 'metric'
   | 'gauge'
   | 'timeline'
-  | 'dashboard';
+  | 'dashboard'
+  | 'cart'
+  | 'panels'
+  | 'tabs'
+  | 'accordion'
+  | 'stack'
+  | 'columns';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 

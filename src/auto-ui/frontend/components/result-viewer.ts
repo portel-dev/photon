@@ -21,7 +21,13 @@ type LayoutType =
   | 'metric'
   | 'gauge'
   | 'timeline'
-  | 'dashboard';
+  | 'dashboard'
+  | 'cart'
+  | 'panels'
+  | 'tabs'
+  | 'accordion'
+  | 'stack'
+  | 'columns';
 
 interface LayoutHints {
   title?: string;
@@ -47,6 +53,8 @@ interface LayoutHints {
   description?: string;
   // Dashboard/grouping hints
   group?: string;
+  // Composable container hints
+  inner?: string;
 }
 
 // Chart palette for dark/light themes
@@ -1509,6 +1517,298 @@ export class ResultViewer extends LitElement {
       .dashboard-panel .metric-value {
         font-size: 2rem;
       }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Cart Component
+         ═══════════════════════════════════════════════════════════════ */
+      .cart-container {
+        font-family: var(--font-sans);
+      }
+
+      .cart-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        padding: var(--space-sm) var(--space-md);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .cart-item:last-of-type {
+        border-bottom: none;
+      }
+
+      .cart-item-image {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--radius-sm);
+        object-fit: cover;
+        flex-shrink: 0;
+        background: var(--bg-glass);
+      }
+
+      .cart-item-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .cart-item-name {
+        font-weight: 500;
+        color: var(--t-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .cart-item-meta {
+        font-size: 0.8rem;
+        color: var(--t-muted);
+      }
+
+      .cart-qty {
+        padding: 2px 8px;
+        background: var(--bg-glass-strong);
+        border-radius: var(--radius-sm);
+        font-size: 0.8rem;
+        color: var(--t-muted);
+        font-variant-numeric: tabular-nums;
+        flex-shrink: 0;
+      }
+
+      .cart-line-total {
+        font-weight: 600;
+        color: var(--t-primary);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        min-width: 60px;
+        flex-shrink: 0;
+      }
+
+      .cart-divider {
+        height: 1px;
+        background: var(--border-glass);
+        margin: var(--space-sm) 0;
+      }
+
+      .cart-summary {
+        padding: var(--space-sm) var(--space-md);
+      }
+
+      .cart-summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        font-size: 0.9rem;
+        color: var(--t-secondary);
+      }
+
+      .cart-summary-row.total {
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--t-primary);
+        padding-top: var(--space-sm);
+        border-top: 1px solid var(--border-glass);
+        margin-top: var(--space-xs);
+      }
+
+      .cart-summary-label {
+        text-transform: capitalize;
+      }
+
+      .cart-summary-value {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Composable Container Components
+         ═══════════════════════════════════════════════════════════════ */
+      /* Panels */
+      .panels-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: var(--space-md);
+        padding: var(--space-sm);
+      }
+
+      .panels-grid.cols-2 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .panels-grid.cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .panels-grid.cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .panel-item {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        padding: var(--space-sm) var(--space-md);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .panel-content {
+        padding: var(--space-sm);
+      }
+
+      /* Tabs */
+      .tabs-container {
+        font-family: var(--font-sans);
+      }
+
+      .tabs-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border-glass);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .tabs-bar::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tab-btn {
+        padding: var(--space-sm) var(--space-md);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--t-muted);
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.2s;
+        font-family: var(--font-sans);
+      }
+
+      .tab-btn:hover {
+        color: var(--t-primary);
+        background: var(--bg-glass);
+      }
+
+      .tab-btn.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+      }
+
+      .tabs-bar.pills {
+        border-bottom: none;
+        gap: var(--space-xs);
+        padding: var(--space-xs);
+      }
+
+      .tabs-bar.pills .tab-btn {
+        border-bottom: none;
+        border-radius: var(--radius-full);
+        padding: 4px 12px;
+      }
+
+      .tabs-bar.pills .tab-btn.active {
+        background: var(--accent-primary);
+        color: white;
+      }
+
+      .tab-content {
+        padding: var(--space-md);
+      }
+
+      /* Accordion */
+      .accordion-container {
+        font-family: var(--font-sans);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+
+      .accordion-container.bordered .accordion-section {
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .accordion-container.bordered .accordion-section:last-child {
+        border-bottom: none;
+      }
+
+      .accordion-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-sm) var(--space-md);
+        cursor: pointer;
+        user-select: none;
+        background: var(--bg-glass);
+        transition: background 0.2s;
+        font-weight: 500;
+        font-size: 0.9rem;
+      }
+
+      .accordion-header:hover {
+        background: var(--bg-glass-strong);
+      }
+
+      .accordion-chevron {
+        font-size: 0.7rem;
+        color: var(--t-muted);
+        transition: transform 0.2s;
+      }
+
+      .accordion-chevron.expanded {
+        transform: rotate(90deg);
+      }
+
+      .accordion-body {
+        padding: var(--space-sm) var(--space-md);
+        display: none;
+      }
+
+      .accordion-body.expanded {
+        display: block;
+      }
+
+      /* Stack */
+      .stack-container {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-md);
+        padding: var(--space-sm);
+      }
+
+      .stack-item {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm);
+      }
+
+      /* Columns */
+      .columns-grid {
+        display: grid;
+        gap: var(--space-md);
+        padding: var(--space-sm);
+      }
+
+      .columns-grid.cols-2 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .columns-grid.cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .columns-grid.cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .column-item {
+        min-width: 0;
+      }
     `,
   ];
 
@@ -1562,6 +1862,13 @@ export class ResultViewer extends LitElement {
   private _panStartY = 0;
   private _lastPanX = 0;
   private _lastPanY = 0;
+
+  // Composable container state
+  @state()
+  private _activeTab = '';
+
+  @state()
+  private _expandedSections = new Set<string>();
 
   // Track animated items for collection events
   @state()
@@ -2385,6 +2692,12 @@ export class ResultViewer extends LitElement {
           'gauge',
           'timeline',
           'dashboard',
+          'cart',
+          'panels',
+          'tabs',
+          'accordion',
+          'stack',
+          'columns',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -2446,6 +2759,9 @@ export class ResultViewer extends LitElement {
       if (data.every((item) => typeof item === 'object' && item !== null)) {
         const sample = data[0];
 
+        // Cart: items with price + quantity
+        if (this._isCartShaped(data)) return 'cart';
+
         // Timeline: date + title/event field, 3+ items
         if (data.length >= 3) {
           const hasDate = this._hasDateLikeFields(sample);
@@ -2486,6 +2802,9 @@ export class ResultViewer extends LitElement {
 
     // Single object checks
     if (typeof data === 'object') {
+      // Cart: object with items array containing price+quantity
+      if (this._isCartShaped(data)) return 'cart';
+
       // Gauge: { value: N, max: N } or { progress: N }
       if (
         ('progress' in data && typeof data.progress === 'number') ||
@@ -2595,6 +2914,18 @@ export class ResultViewer extends LitElement {
         return this._renderTimeline(filteredData);
       case 'dashboard':
         return this._renderDashboard(filteredData);
+      case 'cart':
+        return this._renderCart(filteredData);
+      case 'panels':
+        return this._renderPanels(filteredData);
+      case 'tabs':
+        return this._renderTabs(filteredData);
+      case 'accordion':
+        return this._renderAccordion(filteredData);
+      case 'stack':
+        return this._renderStack(filteredData);
+      case 'columns':
+        return this._renderColumns(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -4327,5 +4658,297 @@ export class ResultViewer extends LitElement {
 
     // Fallback: text
     return html`<div style="padding:8px; font-size:0.9rem;">${String(value)}</div>`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Cart Detection & Rendering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _isCartShaped(data: any): boolean {
+    if (Array.isArray(data)) {
+      return (
+        data.length > 0 &&
+        data.every(
+          (item: any) =>
+            item &&
+            typeof item === 'object' &&
+            'price' in item &&
+            ('quantity' in item || 'qty' in item)
+        )
+      );
+    }
+    if (data && typeof data === 'object' && data.items && Array.isArray(data.items)) {
+      return (
+        data.items.length > 0 &&
+        data.items.every(
+          (item: any) =>
+            item &&
+            typeof item === 'object' &&
+            'price' in item &&
+            ('quantity' in item || 'qty' in item)
+        )
+      );
+    }
+    return false;
+  }
+
+  private _renderCart(data: any): TemplateResult {
+    if (!data) return html`<div class="empty-state">No cart data</div>`;
+
+    // Extract items and summary fields
+    let items: any[];
+    let summary: Record<string, number> = {};
+
+    if (Array.isArray(data)) {
+      items = data;
+    } else {
+      items = data.items || [];
+      // Collect non-items numeric fields as summary
+      for (const [key, value] of Object.entries(data)) {
+        if (key !== 'items' && typeof value === 'number') {
+          summary[key] = value as number;
+        }
+      }
+    }
+
+    if (items.length === 0) return html`<div class="empty-state">Cart is empty</div>`;
+
+    // Calculate totals if not provided
+    const computedSubtotal = items.reduce((sum: number, item: any) => {
+      const qty = item.quantity ?? item.qty ?? 1;
+      return sum + (item.price ?? 0) * qty;
+    }, 0);
+
+    // If no summary provided, calculate it
+    if (Object.keys(summary).length === 0) {
+      summary = { total: computedSubtotal };
+    }
+
+    return html`
+      <div class="cart-container">
+        ${items.map((item: any) => {
+          const qty = item.quantity ?? item.qty ?? 1;
+          const lineTotal = (item.price ?? 0) * qty;
+          const nameField =
+            item.name ?? item.title ?? item.label ?? item.product ?? item.description ?? 'Item';
+          return html`
+            <div class="cart-item">
+              ${item.image ? html`<img class="cart-item-image" src="${item.image}" alt="" />` : ''}
+              <div class="cart-item-info">
+                <div class="cart-item-name">${nameField}</div>
+                ${item.variant || item.sku
+                  ? html`<div class="cart-item-meta">${item.variant ?? item.sku}</div>`
+                  : ''}
+              </div>
+              <span class="cart-qty">${qty > 1 ? `×${qty}` : ''}</span>
+              <span class="cart-line-total">$${lineTotal.toFixed(2)}</span>
+            </div>
+          `;
+        })}
+        <div class="cart-divider"></div>
+        <div class="cart-summary">
+          ${Object.entries(summary).map(
+            ([key, value]) => html`
+              <div class="cart-summary-row ${key.toLowerCase() === 'total' ? 'total' : ''}">
+                <span class="cart-summary-label">${this._formatColumnName(key)}</span>
+                <span class="cart-summary-value"
+                  >${typeof value === 'number' ? `$${value.toFixed(2)}` : String(value)}</span
+                >
+              </div>
+            `
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Composable Container Rendering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Render a value using a specific layout type (for composable containers).
+   * Falls back to auto-detection if no layout specified.
+   */
+  private _renderInner(data: any, layout?: string): TemplateResult | string {
+    if (data === null || data === undefined) {
+      return html`<div class="empty-state">No data</div>`;
+    }
+
+    // If explicit layout specified, use it
+    if (layout) {
+      return this._renderContent(layout as LayoutType, data);
+    }
+
+    // Auto-detect: use dashboard panel logic for smart dispatch
+    return this._renderDashboardPanel(data);
+  }
+
+  private _getInnerLayout(): string | undefined {
+    return this.layoutHints?.inner;
+  }
+
+  private _renderPanels(data: any): TemplateResult {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return html`<div class="empty-state">
+        Panels require an object (keys become panel titles)
+      </div>`;
+    }
+
+    const entries = Object.entries(data);
+    const cols = this.layoutHints?.columns ? parseInt(this.layoutHints.columns, 10) : 0;
+    const colsClass = cols >= 2 && cols <= 4 ? `cols-${cols}` : '';
+    const innerLayout = this._getInnerLayout();
+
+    return html`
+      <div class="panels-grid ${colsClass}">
+        ${entries.map(
+          ([key, value]) => html`
+            <div class="panel-item">
+              <div class="panel-header">${this._formatColumnName(key)}</div>
+              <div class="panel-content">${this._renderInner(value, innerLayout)}</div>
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderTabs(data: any): TemplateResult {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return html`<div class="empty-state">Tabs require an object (keys become tab labels)</div>`;
+    }
+
+    const entries = Object.entries(data);
+    const keys = entries.map(([k]) => k);
+
+    // Default to first tab if not set or invalid
+    const activeTab = keys.includes(this._activeTab) ? this._activeTab : keys[0] || '';
+    const activeValue = data[activeTab];
+    const innerLayout = this._getInnerLayout();
+    const isPills = this.layoutHints?.style === 'pills';
+
+    return html`
+      <div class="tabs-container">
+        <div class="tabs-bar ${isPills ? 'pills' : ''}">
+          ${keys.map(
+            (key) => html`
+              <button
+                class="tab-btn ${key === activeTab ? 'active' : ''}"
+                @click=${() => {
+                  this._activeTab = key;
+                }}
+              >
+                ${this._formatColumnName(key)}
+              </button>
+            `
+          )}
+        </div>
+        <div class="tab-content">${this._renderInner(activeValue, innerLayout)}</div>
+      </div>
+    `;
+  }
+
+  private _renderAccordion(data: any): TemplateResult {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return html`<div class="empty-state">
+        Accordion requires an object (keys become section headers)
+      </div>`;
+    }
+
+    const entries = Object.entries(data);
+    const innerLayout = this._getInnerLayout();
+    const isBordered = this.layoutHints?.style === 'bordered';
+
+    // Default: expand first section if none expanded
+    if (this._expandedSections.size === 0 && entries.length > 0) {
+      this._expandedSections = new Set([entries[0][0]]);
+    }
+
+    return html`
+      <div class="accordion-container ${isBordered ? 'bordered' : ''}">
+        ${entries.map(
+          ([key, value]) => html`
+            <div class="accordion-section">
+              <div
+                class="accordion-header"
+                @click=${() => {
+                  const next = new Set(this._expandedSections);
+                  if (next.has(key)) {
+                    next.delete(key);
+                  } else {
+                    next.add(key);
+                  }
+                  this._expandedSections = next;
+                }}
+              >
+                <span>${this._formatColumnName(key)}</span>
+                <span class="accordion-chevron ${this._expandedSections.has(key) ? 'expanded' : ''}"
+                  >&#x25B6;</span
+                >
+              </div>
+              <div class="accordion-body ${this._expandedSections.has(key) ? 'expanded' : ''}">
+                ${this._renderInner(value, innerLayout)}
+              </div>
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderStack(data: any): TemplateResult {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return html`<div class="empty-state">Stack requires an object (keys become sections)</div>`;
+    }
+
+    const entries = Object.entries(data);
+    const innerLayout = this._getInnerLayout();
+
+    return html`
+      <div class="stack-container">
+        ${entries.map(
+          ([key, value]) => html`
+            <div class="stack-item">
+              <div
+                style="font-size:0.75rem;font-weight:600;color:var(--t-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-xs);"
+              >
+                ${this._formatColumnName(key)}
+              </div>
+              ${this._renderInner(value, innerLayout)}
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderColumns(data: any): TemplateResult {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return html`<div class="empty-state">Columns require an object (keys become columns)</div>`;
+    }
+
+    const entries = Object.entries(data);
+    const colCount = this.layoutHints?.columns
+      ? Math.min(Math.max(parseInt(this.layoutHints.columns, 10), 2), 4)
+      : Math.min(entries.length, 4);
+    const innerLayout = this._getInnerLayout();
+
+    return html`
+      <div class="columns-grid cols-${colCount}">
+        ${entries.map(
+          ([key, value]) => html`
+            <div class="column-item">
+              <div
+                style="font-size:0.75rem;font-weight:600;color:var(--t-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-xs);"
+              >
+                ${this._formatColumnName(key)}
+              </div>
+              ${this._renderInner(value, innerLayout)}
+            </div>
+          `
+        )}
+      </div>
+    `;
   }
 }
