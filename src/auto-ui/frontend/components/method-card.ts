@@ -186,6 +186,7 @@ export class MethodCard extends LitElement {
         gap: 8px;
         align-items: center;
         margin-bottom: var(--space-md);
+        min-height: 24px;
       }
 
       .param-count {
@@ -404,7 +405,6 @@ export class MethodCard extends LitElement {
                 const props = this.method.params?.properties || {};
                 const paramNames = Object.keys(props);
                 const count = paramNames.length;
-                if (count === 0) return '';
                 if (count <= 4) {
                   return html`<div class="param-tags">
                     ${paramNames.map((n) => html`<span class="param-tag">${n}</span>`)}
