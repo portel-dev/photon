@@ -322,7 +322,7 @@ export class ResultViewer extends LitElement {
         display: flex;
         align-items: center;
         gap: var(--space-md);
-        padding: var(--space-xs) var(--space-md);
+        padding: var(--space-sm) var(--space-md);
         background: var(--bg-panel);
         font-family: var(--font-sans);
         transition:
@@ -1846,7 +1846,7 @@ export class ResultViewer extends LitElement {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 6px 12px;
+        padding: var(--space-sm) var(--space-md);
         cursor: pointer;
         user-select: none;
         background: var(--bg-glass);
@@ -1870,7 +1870,7 @@ export class ResultViewer extends LitElement {
       }
 
       .accordion-body {
-        padding: 6px 12px;
+        padding: var(--space-sm) var(--space-md);
         display: none;
       }
 
@@ -4425,9 +4425,7 @@ export class ResultViewer extends LitElement {
         ${deltaStr
           ? html`
               <div class="metric-delta ${trendClass}">
-                <span class="metric-delta-arrow"
-                  >${trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'}</span
-                >
+                <span class="metric-delta-arrow">${trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'}</span>
                 <span class="metric-delta-value">${deltaStr}</span>
               </div>
             `
