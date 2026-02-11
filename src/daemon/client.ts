@@ -55,7 +55,7 @@ export async function sendCommand(
   photonName: string,
   method: string,
   args: Record<string, any>,
-  options?: { maxRetries?: number; photonPath?: string; sessionId?: string }
+  options?: { maxRetries?: number; photonPath?: string; sessionId?: string; instanceName?: string }
 ): Promise<any> {
   const maxRetries = options?.maxRetries ?? 1;
 
@@ -66,7 +66,8 @@ export async function sendCommand(
         method,
         args,
         options?.photonPath,
-        options?.sessionId
+        options?.sessionId,
+        options?.instanceName
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
@@ -87,7 +88,8 @@ async function sendCommandDirect(
   method: string,
   args: Record<string, any>,
   photonPath?: string,
-  sessionId?: string
+  sessionId?: string,
+  instanceName?: string
 ): Promise<any> {
   const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
@@ -115,6 +117,7 @@ async function sendCommandDirect(
         clientType: 'cli',
         method,
         args,
+        instanceName,
       };
 
       client.write(JSON.stringify(request) + '\n');

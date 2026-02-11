@@ -44,7 +44,7 @@ if (!socketPath) {
 const sessionManagers = new Map<string, SessionManager>();
 const photonPaths = new Map<string, string>(); // photonName -> photonPath
 
-let idleTimeout = 600000; // 10 minutes default
+let idleTimeout = 0; // Daemon stays alive — it manages persistent stateful data
 let idleTimer: NodeJS.Timeout | null = null;
 
 // Track pending prompts waiting for user input
@@ -862,6 +862,19 @@ async function handleRequest(
         request.sessionId,
         request.clientType
       );
+
+      // ── Auto-recover from instance drift ─────────────────────────
+      // If the client tells us which instance it expects but the daemon
+      // session has drifted (e.g. session expired and was recreated as
+      // "default"), silently switch back to the correct instance.
+      if (request.instanceName && request.instanceName !== session.instanceName) {
+        logger.info('Instance drift detected, auto-switching', {
+          from: session.instanceName || 'default',
+          to: request.instanceName,
+          sessionId: session.id,
+        });
+        await sessionManager.switchInstance(session.id, request.instanceName);
+      }
 
       // ── Runtime-injected instance tools ──────────────────────────
       if (request.method === '_use') {

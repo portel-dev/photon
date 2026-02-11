@@ -111,6 +111,10 @@ export class PhotonServer {
   private statusClients: Set<ServerResponse> = new Set();
   private channelUnsubscribers: Array<() => void> = [];
   private daemonName: string | null = null;
+  /** Tracked instance name for daemon drift recovery (STDIO path) */
+  private daemonInstanceName?: string;
+  /** Tracked instance names per SSE session for daemon drift recovery */
+  private sseInstanceNames = new Map<string, string>();
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -616,6 +620,7 @@ export class PhotonServer {
         const sendOpts = {
           photonPath: this.options.filePath,
           sessionId: `stdio-${this.daemonName}`,
+          instanceName: this.daemonInstanceName,
         };
 
         // Elicitation-based instance selection when _use called without name
@@ -681,6 +686,7 @@ export class PhotonServer {
             { name: selectedName },
             sendOpts
           );
+          this.daemonInstanceName = selectedName;
           return {
             content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
           };
@@ -692,6 +698,10 @@ export class PhotonServer {
           (args || {}) as Record<string, any>,
           sendOpts
         );
+        // Track instance name after successful _use
+        if (toolName === '_use') {
+          this.daemonInstanceName = String((args as any)?.name || '');
+        }
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         };
@@ -2061,9 +2071,11 @@ export class PhotonServer {
       // Route _use and _instances through daemon for stateful photons
       if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
         const { sendCommand } = await import('./daemon/client.js');
+        const sseSessionKey = `sse-${this.daemonName}`;
         const sendOpts = {
           photonPath: this.options.filePath,
-          sessionId: `sse-${this.daemonName}`,
+          sessionId: sseSessionKey,
+          instanceName: this.sseInstanceNames.get(sseSessionKey),
         };
 
         // Elicitation-based instance selection when _use called without name
@@ -2127,6 +2139,7 @@ export class PhotonServer {
             { name: selectedName },
             sendOpts
           );
+          this.sseInstanceNames.set(sseSessionKey, selectedName);
           return {
             content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
           };
@@ -2138,6 +2151,10 @@ export class PhotonServer {
           (args || {}) as Record<string, any>,
           sendOpts
         );
+        // Track instance name after successful _use
+        if (toolName === '_use') {
+          this.sseInstanceNames.set(sseSessionKey, String((args as any)?.name || ''));
+        }
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         };

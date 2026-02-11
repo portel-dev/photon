@@ -48,6 +48,8 @@ interface MCPSession {
   sseResponse?: ServerResponse; // For server-to-client notifications
   isBeam?: boolean; // True if client is Beam UI
   clientInfo?: { name: string; version: string };
+  /** Tracked instance name for daemon drift recovery */
+  instanceName?: string;
 }
 
 interface MCPTool {
@@ -792,6 +794,7 @@ const handlers: Record<string, RequestHandler> = {
         const sendOpts = {
           photonPath: photonInfo.path,
           sessionId: beamSessionId,
+          instanceName: session.instanceName,
         };
 
         // Elicitation-based instance selection when _use called without name
@@ -851,6 +854,7 @@ const handlers: Record<string, RequestHandler> = {
           }
 
           const useResult = await sendCommand(photonName, '_use', { name: selectedName }, sendOpts);
+          session.instanceName = selectedName;
           // Notify UI to refresh after instance switch
           broadcastToBeam('photon/state-changed', {
             photon: photonName,
@@ -879,6 +883,7 @@ const handlers: Record<string, RequestHandler> = {
             (args || {}) as Record<string, any>,
             sendOpts
           );
+          session.instanceName = String(args?.name || '');
           broadcastToBeam('photon/state-changed', {
             photon: photonName,
             method: '_use',

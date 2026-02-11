@@ -33,6 +33,8 @@ export interface DaemonRequest {
   photonPath?: string;
   sessionId?: string; // Client session identifier for isolation
   clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
+  /** Instance name hint for auto-recovery from session drift */
+  instanceName?: string;
   method?: string;
   args?: Record<string, unknown>;
   /** Response to a prompt request */
