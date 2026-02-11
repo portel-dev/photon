@@ -269,7 +269,7 @@ export class ResultViewer extends LitElement {
 
       .smart-table th {
         text-align: left;
-        padding: var(--space-sm) var(--space-md);
+        padding: 6px var(--space-md);
         background: var(--bg-glass-strong);
         border-bottom: 1px solid var(--border-glass);
         color: var(--t-muted);
@@ -278,7 +278,7 @@ export class ResultViewer extends LitElement {
       }
 
       .smart-table td {
-        padding: var(--space-sm) var(--space-md);
+        padding: 6px var(--space-md);
         border-bottom: 1px solid var(--border-glass);
         color: var(--t-primary);
       }
