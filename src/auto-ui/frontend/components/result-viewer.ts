@@ -2005,6 +2005,7 @@ export class ResultViewer extends LitElement {
 
   // Chart.js instance for reactive updates
   private _chartInstance: any = null;
+  private _chartInstances: Map<string, any> = new Map(); // Track multiple charts by canvas ID
   private _chartCanvasId = `chart-${Math.random().toString(36).slice(2, 9)}`;
 
   // Property name for event subscriptions (set by parent)
@@ -2041,6 +2042,9 @@ export class ResultViewer extends LitElement {
       this._chartInstance.destroy();
       this._chartInstance = null;
     }
+    // Clean up all chart instances
+    this._chartInstances.forEach((chart) => chart.destroy());
+    this._chartInstances.clear();
   }
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {
@@ -4193,19 +4197,23 @@ export class ResultViewer extends LitElement {
   private _renderChart(data: any): TemplateResult {
     if (!data) return html`<div class="empty-state">No chart data</div>`;
 
+    // Generate unique canvas ID for each chart instance (fixes columns format with multiple charts)
+    const canvasId = `chart-${Math.random().toString(36).slice(2, 9)}`;
+
     // Schedule chart creation after render
-    this.updateComplete.then(() => this._initChart(data));
+    this.updateComplete.then(() => this._initChart(data, canvasId));
 
     return html`
       <div class="chart-container">
-        <canvas id="${this._chartCanvasId}"></canvas>
+        <canvas id="${canvasId}"></canvas>
       </div>
     `;
   }
 
-  private async _initChart(data: any) {
+  private async _initChart(data: any, canvasId?: string) {
     const Chart = await loadChartJS();
-    const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${this._chartCanvasId}`);
+    const id = canvasId || this._chartCanvasId;
+    const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${id}`);
     if (!canvas) return;
 
     const isDark = this.theme !== 'light';
@@ -4217,20 +4225,34 @@ export class ResultViewer extends LitElement {
     const config = this._buildChartConfig(data, palette, textColor, gridColor);
     if (!config) return;
 
-    // Incremental update if chart exists on same canvas
-    if (this._chartInstance && this._chartInstance.canvas === canvas) {
-      this._chartInstance.data = config.data;
-      if (config.options) this._chartInstance.options = config.options;
-      this._chartInstance.update('active');
-      return;
+    // Handle multiple charts (for columns format) or single chart (backward compatible)
+    if (canvasId) {
+      // Multiple charts mode: track by canvas ID
+      const existingChart = this._chartInstances.get(id);
+      if (existingChart && existingChart.canvas === canvas) {
+        existingChart.data = config.data;
+        if (config.options) existingChart.options = config.options;
+        existingChart.update('active');
+        return;
+      }
+      if (existingChart) {
+        existingChart.destroy();
+      }
+      this._chartInstances.set(id, new Chart(canvas, config));
+    } else {
+      // Single chart mode (backward compatible with existing code)
+      if (this._chartInstance && this._chartInstance.canvas === canvas) {
+        this._chartInstance.data = config.data;
+        if (config.options) this._chartInstance.options = config.options;
+        this._chartInstance.update('active');
+        return;
+      }
+      if (this._chartInstance) {
+        this._chartInstance.destroy();
+        this._chartInstance = null;
+      }
+      this._chartInstance = new Chart(canvas, config);
     }
-
-    if (this._chartInstance) {
-      this._chartInstance.destroy();
-      this._chartInstance = null;
-    }
-
-    this._chartInstance = new Chart(canvas, config);
   }
 
   private _buildChartConfig(
