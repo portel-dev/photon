@@ -3094,10 +3094,13 @@ export class ResultViewer extends LitElement {
                   class="sortable ${this._sortColumn === col ? 'sorted' : ''}"
                   @click=${() => this._toggleSort(col)}
                 >
-                  ${this._formatColumnName(col)}
-                  <span class="sort-indicator">
-                    ${this._sortColumn === col ? (this._sortDirection === 'asc' ? '↑' : '↓') : '↕'}
-                  </span>
+                  ${this._formatColumnName(col)}<span class="sort-indicator"
+                    >${this._sortColumn === col
+                      ? this._sortDirection === 'asc'
+                        ? '↑'
+                        : '↓'
+                      : '↕'}</span
+                  >
                 </th>
               `
             )}
