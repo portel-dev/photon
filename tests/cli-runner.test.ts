@@ -200,8 +200,8 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'operations']);
       assert(
-        result.stdout.includes('*') && result.stdout.includes('add') && result.exitCode === 0,
-        'Format list with bullet points'
+        result.stdout.includes('│') && result.stdout.includes('add') && result.exitCode === 0,
+        'Format list with box-style output'
       );
     }
 
