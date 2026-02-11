@@ -1377,8 +1377,8 @@ export class ResultViewer extends LitElement {
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: var(--space-lg) var(--space-md);
-        gap: var(--space-xs);
+        padding: var(--space-md) var(--space-md);
+        gap: var(--space-sm);
       }
 
       .metric-value {
@@ -1440,7 +1440,7 @@ export class ResultViewer extends LitElement {
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: var(--space-md);
+        padding: 12px;
       }
 
       .gauge-svg {
@@ -1505,7 +1505,7 @@ export class ResultViewer extends LitElement {
         color: var(--t-muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        margin: var(--space-md) 0 var(--space-sm) 0;
+        margin: var(--space-sm) 0 var(--space-xs) 0;
         padding-left: var(--space-md);
       }
 
@@ -1567,8 +1567,8 @@ export class ResultViewer extends LitElement {
          ═══════════════════════════════════════════════════════════════ */
       .dashboard-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: var(--space-md);
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
         padding: var(--space-sm);
       }
 
@@ -1580,7 +1580,7 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel-header {
-        padding: var(--space-sm) var(--space-md);
+        padding: 6px var(--space-md);
         font-size: 0.75rem;
         font-weight: 600;
         color: var(--t-muted);
@@ -1590,7 +1590,7 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel-content {
-        padding: var(--space-sm);
+        padding: var(--space-xs);
       }
 
       .dashboard-panel .chart-container {
@@ -1598,7 +1598,7 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel .metric-container {
-        padding: var(--space-md) var(--space-sm);
+        padding: var(--space-xs);
       }
 
       .dashboard-panel .metric-value {
@@ -1615,8 +1615,8 @@ export class ResultViewer extends LitElement {
       .cart-item {
         display: flex;
         align-items: center;
-        gap: var(--space-md);
-        padding: var(--space-sm) var(--space-md);
+        gap: 12px;
+        padding: 6px var(--space-md);
         border-bottom: 1px solid var(--border-glass);
       }
 
@@ -1673,11 +1673,11 @@ export class ResultViewer extends LitElement {
       .cart-divider {
         height: 1px;
         background: var(--border-glass);
-        margin: var(--space-sm) 0;
+        margin: 4px 0;
       }
 
       .cart-summary {
-        padding: var(--space-sm) var(--space-md);
+        padding: var(--space-xs) var(--space-md);
       }
 
       .cart-summary-row {
@@ -1865,7 +1865,7 @@ export class ResultViewer extends LitElement {
       .stack-container {
         display: flex;
         flex-direction: column;
-        gap: var(--space-md);
+        gap: 10px;
         padding: var(--space-sm);
       }
 
@@ -1873,14 +1873,14 @@ export class ResultViewer extends LitElement {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
-        padding: var(--space-sm);
+        padding: var(--space-xs);
       }
 
       .stack-item .metric-container {
-        padding: var(--space-xs) 0;
+        padding: 0;
       }
       .stack-item .metric-value {
-        font-size: 2.2rem;
+        font-size: 2rem;
       }
 
       /* Columns */
