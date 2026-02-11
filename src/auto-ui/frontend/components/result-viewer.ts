@@ -157,7 +157,8 @@ export class ResultViewer extends LitElement {
         color: var(--t-primary);
         white-space: pre-wrap;
         overflow-x: auto;
-        max-height: 500px;
+        overflow-y: auto;
+        max-height: 600px;
         line-height: 1.5;
       }
 
@@ -1715,19 +1716,19 @@ export class ResultViewer extends LitElement {
       /* Panels */
       .panels-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         gap: var(--space-md);
         padding: var(--space-sm);
       }
 
       .panels-grid.cols-2 {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
       }
       .panels-grid.cols-3 {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(320px, 1fr));
       }
       .panels-grid.cols-4 {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, minmax(280px, 1fr));
       }
 
       .panel-item {
@@ -4005,7 +4006,10 @@ export class ResultViewer extends LitElement {
     // Data URIs
     if (value.startsWith('data:image/')) return true;
     // Common avatar/image CDN patterns (URLs with no extension but known to serve images)
+    // Check both path segments and domain names
     if (/\/(avatar|image|photo|img|thumb|pic|gravatar|pravatar)\b/i.test(value)) return true;
+    if (/\b(avatar|image|photo|img|thumb|pic|gravatar|pravatar)\.(cc|com|io|net)\b/i.test(value))
+      return true;
     return false;
   }
 
