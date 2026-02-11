@@ -5032,8 +5032,9 @@ export class ResultViewer extends LitElement {
                   this._expandedSections = next;
                 }}
               >
-                <span>${this._formatColumnName(key)}</span>
-                <span class="accordion-chevron ${this._expandedSections.has(key) ? 'expanded' : ''}"
+                <span>${this._formatColumnName(key)}</span
+                ><span
+                  class="accordion-chevron ${this._expandedSections.has(key) ? 'expanded' : ''}"
                   >&#x25B6;</span
                 >
               </div>
