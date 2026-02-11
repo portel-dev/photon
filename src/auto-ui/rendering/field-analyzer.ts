@@ -193,6 +193,171 @@ export function getDisplayValue(value: any, typeHint?: string): string {
   return String(value);
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// Chart Data Shape Detection
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Count numeric fields in an object
+ */
+export function countNumericFields(obj: object): number {
+  return Object.values(obj).filter((v) => typeof v === 'number').length;
+}
+
+/**
+ * Check if object has date-like fields (by name or value)
+ */
+export function hasDateFields(obj: object): boolean {
+  for (const [key, value] of Object.entries(obj)) {
+    if (FIELD_PATTERNS.date.test(key)) return true;
+    if (typeof value === 'string' && VALUE_PATTERNS.isoDate.test(value)) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if object has numeric fields
+ */
+export function hasNumericFields(obj: object): boolean {
+  return Object.values(obj).some((v) => typeof v === 'number');
+}
+
+/**
+ * Get the names of string fields in an object
+ */
+export function getStringFields(obj: object): string[] {
+  return Object.entries(obj)
+    .filter(([, v]) => typeof v === 'string')
+    .map(([k]) => k);
+}
+
+/**
+ * Get the names of numeric fields in an object
+ */
+export function getNumericFields(obj: object): string[] {
+  return Object.entries(obj)
+    .filter(([, v]) => typeof v === 'number')
+    .map(([k]) => k);
+}
+
+/**
+ * Get date field names from an object (by name pattern or ISO value)
+ */
+export function getDateFields(obj: object): string[] {
+  return Object.entries(obj)
+    .filter(
+      ([key, value]) =>
+        FIELD_PATTERNS.date.test(key) ||
+        (typeof value === 'string' && VALUE_PATTERNS.isoDate.test(value))
+    )
+    .map(([k]) => k);
+}
+
+/**
+ * Check if data looks like a single metric (KPI)
+ * Patterns: { value: 1234 }, { value: 1234, label: "Users" }, { value: 1234, delta: "+12%" }
+ */
+export function isMetricShaped(data: any): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  const keys = Object.keys(data);
+  if (keys.length < 1 || keys.length > 5) return false;
+
+  // Must have a primary numeric field
+  const numericKeys = keys.filter((k) => typeof data[k] === 'number');
+  if (numericKeys.length !== 1) return false;
+
+  // Remaining fields should be label-like strings (not complex objects)
+  const nonNumericKeys = keys.filter((k) => typeof data[k] !== 'number');
+  return nonNumericKeys.every((k) => typeof data[k] === 'string' || typeof data[k] === 'boolean');
+}
+
+/**
+ * Check if data looks like a gauge value
+ * Patterns: { value: 73, max: 100 }, { progress: 0.73 }
+ */
+export function isGaugeShaped(data: any): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+
+  if ('progress' in data && typeof data.progress === 'number') return true;
+  if ('value' in data && typeof data.value === 'number' && ('max' in data || 'min' in data)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check if array data is chart-shaped
+ * Conservative: only returns true for clearly chart-like data
+ */
+export function isChartShaped(data: any[]): boolean {
+  if (!Array.isArray(data) || data.length < 2) return false;
+  const sample = data[0];
+  if (!sample || typeof sample !== 'object') return false;
+
+  const numFields = countNumericFields(sample);
+  const strFields = getStringFields(sample).length;
+  const totalFields = Object.keys(sample).length;
+
+  // Pattern 1: exactly 1 string label + 1 numeric value (pie/bar candidate)
+  if (totalFields === 2 && strFields === 1 && numFields === 1) return true;
+
+  // Pattern 2: date field + numeric field(s) → time series
+  if (hasDateFields(sample) && numFields >= 1) return true;
+
+  // Pattern 3: 1 string label + 2+ numeric values → grouped bar
+  if (strFields === 1 && numFields >= 2 && totalFields <= 6) return true;
+
+  return false;
+}
+
+/**
+ * Check if array data is timeline-shaped
+ * Requires: date field + title/event/description field, 3+ items
+ */
+export function isTimelineShaped(data: any[]): boolean {
+  if (!Array.isArray(data) || data.length < 3) return false;
+  const sample = data[0];
+  if (!sample || typeof sample !== 'object') return false;
+
+  const hasDate = hasDateFields(sample);
+  const keys = Object.keys(sample).map((k) => k.toLowerCase());
+  const hasTitleLike = keys.some((k) =>
+    /^(title|event|name|label|subject|heading|action|activity)$/i.test(k)
+  );
+  const hasDescLike = keys.some((k) =>
+    /^(description|details|body|content|message|summary|text|note)$/i.test(k)
+  );
+
+  return hasDate && (hasTitleLike || hasDescLike);
+}
+
+/**
+ * Check if object data is dashboard-shaped
+ * Object where values are a mix of metrics, arrays, and objects (3+ keys)
+ */
+export function isDashboardShaped(data: any): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  const keys = Object.keys(data);
+  if (keys.length < 3) return false;
+
+  let hasArray = false;
+  let hasMetric = false;
+  let hasObject = false;
+
+  for (const key of keys) {
+    const val = data[key];
+    if (Array.isArray(val)) hasArray = true;
+    else if (typeof val === 'object' && val !== null) {
+      if (isMetricShaped(val) || isGaugeShaped(val)) hasMetric = true;
+      else hasObject = true;
+    } else if (typeof val === 'number') hasMetric = true;
+  }
+
+  // Dashboard needs at least 2 different types of content
+  const types = [hasArray, hasMetric, hasObject].filter(Boolean).length;
+  return types >= 2 || (hasArray && keys.length >= 3);
+}
+
 /**
  * Generate JavaScript code for field analyzer (to embed in HTML)
  */

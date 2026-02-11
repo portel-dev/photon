@@ -264,6 +264,23 @@ The `@format` tag on methods supports multiple format types:
 | `html` | HTML rendering |
 | `mermaid` | Mermaid diagram rendering |
 
+### Visualization Formats
+
+| Value | Description |
+|-------|-------------|
+| `chart` | Auto-detect chart type from data shape |
+| `chart:bar` | Bar chart |
+| `chart:line` | Line chart |
+| `chart:pie` | Pie chart |
+| `chart:area` | Area chart (line with fill) |
+| `chart:scatter` | Scatter plot |
+| `chart:donut` | Donut chart |
+| `chart:radar` | Radar/spider chart |
+| `metric` | KPI display (big number + label + delta) |
+| `gauge` | Circular gauge/progress indicator |
+| `timeline` | Vertical timeline of events |
+| `dashboard` | Composite grid of auto-detected panels |
+
 ### Code Formats
 
 | Value | Description |
@@ -302,6 +319,82 @@ Field names can include renderers with `:suffix`:
 - `email:link` - Render as mailto link
 - `createdAt:date` - Format as date
 - `price:currency` - Format as currency
+
+### Chart Layout Hints
+
+For `chart` formats, you can map data fields to chart axes:
+
+```typescript
+/**
+ * Revenue by region
+ * @format chart:bar {@label region, @value revenue}
+ */
+async revenueByRegion(): Promise<{ region: string; revenue: number }[]>
+
+/**
+ * Daily signups over time
+ * @format chart:line {@x date, @y signups}
+ */
+async signupTrend(): Promise<{ date: string; signups: number }[]>
+
+/**
+ * Category breakdown
+ * @format chart:pie {@label category, @value amount}
+ */
+async breakdown(): Promise<{ category: string; amount: number }[]>
+```
+
+| Hint | Description |
+|------|-------------|
+| `@label fieldName` | Chart labels (pie segments, x-axis categories) |
+| `@value fieldName` | Chart values (y-axis, pie sizes) |
+| `@x fieldName` | X-axis field |
+| `@y fieldName` | Y-axis field |
+| `@series fieldName` | Field to group into multiple series |
+
+### Gauge Layout Hints
+
+```typescript
+/**
+ * CPU usage
+ * @format gauge {@min 0, @max 100, @title CPU}
+ */
+async cpuUsage(): Promise<{ value: number; max: number; label: string }>
+```
+
+| Hint | Description |
+|------|-------------|
+| `@min N` | Minimum gauge value (default: 0) |
+| `@max N` | Maximum gauge value (default: 100) |
+
+### Timeline Layout Hints
+
+```typescript
+/**
+ * Recent activity log
+ * @format timeline {@date createdAt, @title event, @description details}
+ */
+async activityLog(): Promise<{ createdAt: string; event: string; details: string }[]>
+```
+
+| Hint | Description |
+|------|-------------|
+| `@date fieldName` | Date field for ordering and display |
+| `@title fieldName` | Event title field |
+| `@description fieldName` | Event description field |
+
+### Auto-Detection
+
+When no `@format` is specified, the auto-UI detects visualization types from data shape:
+
+| Data Shape | Detected Layout |
+|------------|----------------|
+| Array with 1 string + 1 numeric field | `chart` (pie/bar) |
+| Array with date + numeric fields | `chart` (line) |
+| Array with date + title/description fields (3+ items) | `timeline` |
+| Object with 1 numeric + few string fields | `metric` |
+| Object with `value` + `max`/`min` or `progress` | `gauge` |
+| Object with 3+ keys mixing arrays, objects, numbers | `dashboard` |
 
 ## Input Format Values
 

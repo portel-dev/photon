@@ -397,6 +397,122 @@ export function generateComponentCSS(): string {
   color: var(--color-on-surface-variant);
 }
 
+/* Metric Component */
+.smart-metric {
+  text-align: center;
+  padding: var(--space-5) var(--space-4);
+}
+
+.smart-metric-value {
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--color-on-surface);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.smart-metric-label {
+  font-size: var(--text-body-sm);
+  color: var(--color-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: var(--space-1);
+}
+
+.smart-metric-delta {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  margin-top: var(--space-2);
+}
+
+.smart-metric-delta.up { color: var(--color-success); }
+.smart-metric-delta.down { color: var(--color-error); }
+
+/* Gauge Component */
+.smart-gauge {
+  text-align: center;
+  padding: var(--space-4);
+}
+
+/* Timeline Component */
+.smart-timeline {
+  position: relative;
+  padding-left: var(--space-6);
+}
+
+.smart-timeline::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-2) + 4px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-outline-variant);
+}
+
+.timeline-item {
+  position: relative;
+  padding: var(--space-2) 0 var(--space-2) var(--space-4);
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--space-4));
+  top: calc(var(--space-2) + 6px);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 2px solid var(--color-surface);
+}
+
+.timeline-item-title {
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface);
+}
+
+.timeline-item-time {
+  font-size: var(--text-label-sm);
+  color: var(--color-on-surface-variant);
+}
+
+.timeline-item-description {
+  font-size: var(--text-body-sm);
+  color: var(--color-on-surface-variant);
+  margin-top: var(--space-1);
+}
+
+/* Dashboard Component */
+.smart-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.dashboard-panel {
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.dashboard-panel-header {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-label-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.dashboard-panel-content {
+  padding: var(--space-2);
+}
+
 /* JSON Syntax Highlighting */
 .json-highlighted {
   margin: 0;
@@ -513,6 +629,17 @@ function renderSmartResult(data, format, layoutHints) {
       return typeof data === 'string' ? data : (data?.html || String(data));
     case 'code':
       return '<pre class="code-block">' + escapeHtml(String(data)) + '</pre>';
+    case 'metric':
+      return renderMetric(data);
+    case 'gauge':
+      return renderGauge(data);
+    case 'timeline':
+      return renderTimeline(data);
+    case 'dashboard':
+      return renderDashboard(data);
+    case 'chart':
+      // Charts require Chart.js (only in Beam). Fallback to table/JSON in playground.
+      return '<pre class="json-highlighted">' + syntaxHighlightJson(data) + '</pre>';
     case 'json':
     default:
       return '<pre class="json-highlighted">' + syntaxHighlightJson(data) + '</pre>';
@@ -780,6 +907,117 @@ function getStatusClass(value) {
   if (/inactive|error|failed|disabled|no|false/.test(lower)) return 'status-inactive';
   if (/pending|warning|waiting|processing/.test(lower)) return 'status-pending';
   return '';
+}
+
+function renderMetric(data) {
+  if (!data || typeof data !== 'object') {
+    if (typeof data === 'number') {
+      return '<div style="text-align:center;padding:24px;"><div style="font-size:3rem;font-weight:700;">' + data.toLocaleString() + '</div></div>';
+    }
+    return '<div>No metric data</div>';
+  }
+  var keys = Object.keys(data);
+  var numericKey = keys.find(function(k) { return typeof data[k] === 'number'; });
+  if (!numericKey) return '<pre class="json-highlighted">' + syntaxHighlightJson(data) + '</pre>';
+  var value = data[numericKey];
+  var label = data.label || data.name || data.title || (numericKey !== 'value' ? formatFieldLabel(numericKey) : '');
+  var delta = data.delta || data.change || data.diff;
+  var html = '<div style="text-align:center;padding:24px;">';
+  html += '<div style="font-size:3rem;font-weight:700;">' + value.toLocaleString() + '</div>';
+  if (label) html += '<div style="font-size:0.85rem;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;">' + escapeHtml(label) + '</div>';
+  if (delta) {
+    var color = String(delta).startsWith('+') ? '#16a34a' : String(delta).startsWith('-') ? '#dc2626' : '#64748b';
+    html += '<div style="display:inline-block;padding:2px 10px;border-radius:12px;margin-top:8px;font-weight:600;color:' + color + ';">' + escapeHtml(String(delta)) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderGauge(data) {
+  if (!data || typeof data !== 'object') return '<div>No gauge data</div>';
+  var value, min = 0, max = 100, label;
+  if ('progress' in data && typeof data.progress === 'number') {
+    value = data.progress * 100;
+    label = data.label || 'Progress';
+  } else {
+    value = data.value || 0;
+    min = data.min || 0;
+    max = data.max || 100;
+    label = data.label;
+  }
+  var pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  var displayVal = data.progress !== undefined ? Math.round(value) + '%' : Math.round(value);
+  var html = '<div style="text-align:center;padding:16px;">';
+  html += '<div style="width:160px;margin:0 auto;">';
+  html += '<div style="position:relative;width:160px;height:12px;background:#334155;border-radius:6px;overflow:hidden;">';
+  html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);border-radius:6px;transition:width 0.5s;"></div>';
+  html += '</div>';
+  html += '<div style="font-size:1.5rem;font-weight:700;margin-top:8px;">' + displayVal + '</div>';
+  if (label) html += '<div style="font-size:0.8rem;color:#64748b;text-transform:uppercase;">' + escapeHtml(label) + '</div>';
+  html += '</div></div>';
+  return html;
+}
+
+function renderTimeline(data) {
+  if (!Array.isArray(data) || data.length === 0) return '<div>No timeline data</div>';
+  var datePattern = /^(date|time|createdAt|updatedAt|created|updated|timestamp)/i;
+  var titlePattern = /^(title|event|name|label|subject|action)/i;
+  var descPattern = /^(description|details|body|content|message|summary)/i;
+  var sample = data[0];
+  var dateField, titleField, descField;
+  var fields = Object.keys(sample);
+  for (var i = 0; i < fields.length; i++) {
+    if (!dateField && datePattern.test(fields[i])) dateField = fields[i];
+    if (!titleField && titlePattern.test(fields[i])) titleField = fields[i];
+    if (!descField && descPattern.test(fields[i])) descField = fields[i];
+  }
+  var html = '<div style="position:relative;padding-left:24px;">';
+  html += '<div style="position:absolute;left:9px;top:0;bottom:0;width:2px;background:#334155;"></div>';
+  for (var j = 0; j < data.length; j++) {
+    var item = data[j];
+    html += '<div style="position:relative;padding:8px 0 8px 16px;">';
+    html += '<div style="position:absolute;left:-4px;top:14px;width:10px;height:10px;border-radius:50%;background:#6366f1;border:2px solid #0f172a;z-index:1;"></div>';
+    if (titleField) html += '<div style="font-weight:600;">' + escapeHtml(String(item[titleField])) + '</div>';
+    if (dateField) {
+      try { html += '<div style="font-size:0.75rem;color:#64748b;">' + new Date(item[dateField]).toLocaleString() + '</div>'; }
+      catch(e) { html += '<div style="font-size:0.75rem;color:#64748b;">' + escapeHtml(String(item[dateField])) + '</div>'; }
+    }
+    if (descField && item[descField]) html += '<div style="font-size:0.85rem;color:#94a3b8;margin-top:4px;">' + escapeHtml(String(item[descField])) + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderDashboard(data) {
+  if (!data || typeof data !== 'object') return '<div>No dashboard data</div>';
+  var keys = Object.keys(data);
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">';
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var val = data[key];
+    html += '<div style="border:1px solid #334155;border-radius:8px;overflow:hidden;">';
+    html += '<div style="padding:8px 12px;font-size:0.75rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #334155;">' + formatFieldLabel(key) + '</div>';
+    html += '<div style="padding:8px;">';
+    if (typeof val === 'number') {
+      html += '<div style="text-align:center;padding:16px;font-size:2rem;font-weight:700;">' + val.toLocaleString() + '</div>';
+    } else if (Array.isArray(val)) {
+      html += renderSmartResult(val, null, null);
+    } else if (typeof val === 'object' && val !== null) {
+      if ('value' in val && typeof val.value === 'number') {
+        html += renderMetric(val);
+      } else if ('progress' in val && typeof val.progress === 'number') {
+        html += renderGauge(val);
+      } else {
+        html += renderSmartResult(val, null, null);
+      }
+    } else {
+      html += '<div style="padding:8px;">' + escapeHtml(String(val)) + '</div>';
+    }
+    html += '</div></div>';
+  }
+  html += '</div>';
+  return html;
 }
 `;
 }

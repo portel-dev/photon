@@ -4,8 +4,16 @@
  * Determines the optimal component/layout to render data based on:
  * 1. Explicit @format annotation (highest priority)
  * 2. Data shape (array vs object vs primitive)
- * 3. Data content (has images -> grid, etc.)
+ * 3. Data content (has images -> grid, charts -> chart, etc.)
  */
+
+import {
+  isChartShaped,
+  isMetricShaped,
+  isGaugeShaped,
+  isTimelineShaped,
+  isDashboardShaped,
+} from './field-analyzer.js';
 
 export type LayoutType =
   | 'text' // Simple text/markdown display
@@ -20,7 +28,12 @@ export type LayoutType =
   | 'mermaid' // Legacy: mermaid diagrams
   | 'code' // Code block with syntax highlighting
   | 'json' // Raw JSON display
-  | 'html'; // Raw HTML (for custom UIs)
+  | 'html' // Raw HTML (for custom UIs)
+  | 'chart' // Chart.js visualization (bar, line, pie, etc.)
+  | 'metric' // KPI/metric display with big number + delta
+  | 'gauge' // Circular gauge/progress indicator
+  | 'timeline' // Vertical timeline of events
+  | 'dashboard'; // Composite grid of auto-detected panels
 
 export interface LayoutHints {
   title?: string; // Field to use as title
@@ -33,6 +46,21 @@ export interface LayoutHints {
   accessory?: string; // Accessory type (chevron, switch, etc.)
   columns?: number; // Grid columns
   fields?: string[]; // Specific fields to show
+  // Chart-specific hints
+  label?: string; // Chart labels field (pie segments, x-axis categories)
+  value?: string; // Chart values field (y-axis, pie sizes)
+  x?: string; // X-axis field
+  y?: string; // Y-axis field
+  series?: string; // Field to group into multiple series
+  chartType?: string; // Chart subtype: bar, line, pie, area, scatter, radar, donut
+  // Gauge-specific hints
+  min?: number; // Gauge minimum value
+  max?: number; // Gauge maximum value
+  // Timeline-specific hints
+  date?: string; // Date field for timeline
+  description?: string; // Description field for timeline
+  // Dashboard-specific hints
+  group?: string; // Field to group items by (sections, dashboard panels)
 }
 
 // Map legacy @format values to new layout types
@@ -51,6 +79,11 @@ const FORMAT_TO_LAYOUT: Record<string, LayoutType> = {
   primitive: 'text',
   chips: 'chips',
   html: 'html',
+  chart: 'chart',
+  metric: 'metric',
+  gauge: 'gauge',
+  timeline: 'timeline',
+  dashboard: 'dashboard',
 };
 
 /**
@@ -61,6 +94,9 @@ export function selectLayout(data: any, format?: string, hints?: LayoutHints): L
   if (format) {
     // Handle code:language format
     if (format.startsWith('code:')) return 'code';
+
+    // Handle chart:subtype format (e.g., chart:bar, chart:pie)
+    if (format.startsWith('chart:')) return 'chart';
 
     const layout = FORMAT_TO_LAYOUT[format] || 'json';
 
@@ -114,6 +150,14 @@ export function selectLayout(data: any, format?: string, hints?: LayoutHints): L
       if (hasImageFields(first)) {
         return 'grid';
       }
+      // Check if timeline-shaped (before chart — more specific)
+      if (isTimelineShaped(data)) {
+        return 'timeline';
+      }
+      // Check if chart-shaped (date+numbers or label+value pairs)
+      if (isChartShaped(data)) {
+        return 'chart';
+      }
       // Default: list
       return 'list';
     }
@@ -127,6 +171,21 @@ export function selectLayout(data: any, format?: string, hints?: LayoutHints): L
     // Check for special fields
     if ('diagram' in data && typeof data.diagram === 'string') {
       return 'mermaid';
+    }
+
+    // Check if gauge-shaped (value + max/min or progress)
+    if (isGaugeShaped(data)) {
+      return 'gauge';
+    }
+
+    // Check if metric-shaped (single numeric + label)
+    if (isMetricShaped(data)) {
+      return 'metric';
+    }
+
+    // Check if dashboard-shaped (mix of arrays, objects, metrics)
+    if (isDashboardShaped(data)) {
+      return 'dashboard';
     }
 
     // Check if deeply nested -> tree
@@ -269,6 +328,43 @@ export function parseLayoutHints(hintsString: string): LayoutHints {
         case 'fields':
           hints.fields = cleanValue.split(/\s+/);
           break;
+        // Chart hints
+        case 'label':
+          hints.label = cleanValue;
+          break;
+        case 'value':
+          hints.value = cleanValue;
+          break;
+        case 'x':
+          hints.x = cleanValue;
+          break;
+        case 'y':
+          hints.y = cleanValue;
+          break;
+        case 'series':
+          hints.series = cleanValue;
+          break;
+        case 'chartType':
+          hints.chartType = cleanValue;
+          break;
+        // Gauge hints
+        case 'min':
+          hints.min = parseFloat(cleanValue);
+          break;
+        case 'max':
+          hints.max = parseFloat(cleanValue);
+          break;
+        // Timeline hints
+        case 'date':
+          hints.date = cleanValue;
+          break;
+        case 'description':
+          hints.description = cleanValue;
+          break;
+        // Dashboard/grouping hints
+        case 'group':
+          hints.group = cleanValue;
+          break;
       }
     }
   }
@@ -297,11 +393,17 @@ const FORMAT_TO_LAYOUT = {
   'primitive': 'text',
   'chips': 'chips',
   'html': 'html',
+  'chart': 'chart',
+  'metric': 'metric',
+  'gauge': 'gauge',
+  'timeline': 'timeline',
+  'dashboard': 'dashboard',
 };
 
 function selectLayout(data, format, hints) {
   if (format) {
     if (format.startsWith('code:')) return 'code';
+    if (format.startsWith('chart:')) return 'chart';
     var layout = FORMAT_TO_LAYOUT[format] || 'json';
     // Smart fallback: if list/table format but data is not an array, use card
     if ((layout === 'list' || format === 'table') && !Array.isArray(data) && typeof data === 'object' && data !== null) {
@@ -402,6 +504,17 @@ function parseLayoutHints(hintsString) {
         case 'accessory': hints.accessory = cleanValue; break;
         case 'columns': hints.columns = parseInt(cleanValue, 10); break;
         case 'fields': hints.fields = cleanValue.split(/\\s+/); break;
+        case 'label': hints.label = cleanValue; break;
+        case 'value': hints.value = cleanValue; break;
+        case 'x': hints.x = cleanValue; break;
+        case 'y': hints.y = cleanValue; break;
+        case 'series': hints.series = cleanValue; break;
+        case 'chartType': hints.chartType = cleanValue; break;
+        case 'min': hints.min = parseFloat(cleanValue); break;
+        case 'max': hints.max = parseFloat(cleanValue); break;
+        case 'date': hints.date = cleanValue; break;
+        case 'description': hints.description = cleanValue; break;
+        case 'group': hints.group = cleanValue; break;
       }
     }
   }

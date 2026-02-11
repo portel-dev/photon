@@ -388,7 +388,11 @@ export type UIHint =
   | 'markdown'
   | 'code'
   | 'progress'
-  | 'chart';
+  | 'chart'
+  | 'metric'
+  | 'gauge'
+  | 'timeline'
+  | 'dashboard';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 

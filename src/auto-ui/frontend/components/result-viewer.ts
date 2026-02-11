@@ -16,7 +16,12 @@ type LayoutType =
   | 'text'
   | 'chips'
   | 'grid'
-  | 'html';
+  | 'html'
+  | 'chart'
+  | 'metric'
+  | 'gauge'
+  | 'timeline'
+  | 'dashboard';
 
 interface LayoutHints {
   title?: string;
@@ -27,6 +32,43 @@ interface LayoutHints {
   style?: string;
   columns?: string;
   filter?: string;
+  // Chart hints
+  label?: string;
+  value?: string;
+  x?: string;
+  y?: string;
+  series?: string;
+  chartType?: string;
+  // Gauge hints
+  min?: string;
+  max?: string;
+  // Timeline hints
+  date?: string;
+  description?: string;
+  // Dashboard/grouping hints
+  group?: string;
+}
+
+// Chart palette for dark/light themes
+const CHART_PALETTE = {
+  dark: ['#6366f1', '#22c55e', '#f97316', '#06b6d4', '#a855f7', '#ec4899', '#eab308', '#14b8a6'],
+  light: ['#4f46e5', '#16a34a', '#ea580c', '#0891b2', '#9333ea', '#db2777', '#ca8a04', '#0d9488'],
+};
+
+// Lazy-loaded Chart.js module reference
+let ChartModule: any = null;
+let chartLoadPromise: Promise<any> | null = null;
+
+async function loadChartJS(): Promise<any> {
+  if (ChartModule) return ChartModule;
+  if (chartLoadPromise) return chartLoadPromise;
+  chartLoadPromise = import('chart.js').then((mod) => {
+    const { Chart, registerables } = mod;
+    Chart.register(...registerables);
+    ChartModule = Chart;
+    return Chart;
+  });
+  return chartLoadPromise;
 }
 
 @customElement('result-viewer')
@@ -1243,6 +1285,230 @@ export class ResultViewer extends LitElement {
         flex: 1;
         min-height: 400px;
       }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Chart Component
+         ═══════════════════════════════════════════════════════════════ */
+      .chart-container {
+        position: relative;
+        width: 100%;
+        max-height: 400px;
+        padding: var(--space-sm);
+      }
+
+      .chart-container canvas {
+        width: 100% !important;
+        max-height: 380px;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Metric/KPI Component
+         ═══════════════════════════════════════════════════════════════ */
+      .metric-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: var(--space-lg) var(--space-md);
+        gap: var(--space-xs);
+      }
+
+      .metric-value {
+        font-size: 3rem;
+        font-weight: 700;
+        color: var(--t-primary);
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+      }
+
+      .metric-label {
+        font-size: 0.85rem;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 500;
+      }
+
+      .metric-delta {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 2px 10px;
+        border-radius: var(--radius-full);
+      }
+
+      .metric-delta.up {
+        color: #16a34a;
+        background: rgba(22, 163, 74, 0.12);
+      }
+
+      .metric-delta.down {
+        color: #dc2626;
+        background: rgba(220, 38, 38, 0.12);
+      }
+
+      .metric-delta.neutral {
+        color: var(--t-muted);
+        background: rgba(128, 128, 128, 0.12);
+      }
+
+      .metric-sparkline {
+        width: 120px;
+        height: 32px;
+        margin-top: var(--space-xs);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Gauge Component
+         ═══════════════════════════════════════════════════════════════ */
+      .gauge-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: var(--space-md);
+      }
+
+      .gauge-svg {
+        width: 160px;
+        height: 100px;
+        overflow: visible;
+      }
+
+      .gauge-label {
+        font-size: 0.85rem;
+        color: var(--t-muted);
+        margin-top: var(--space-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 500;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Timeline Component
+         ═══════════════════════════════════════════════════════════════ */
+      .timeline-container {
+        position: relative;
+        padding: var(--space-sm) var(--space-md);
+        padding-left: calc(var(--space-md) + 12px);
+      }
+
+      .timeline-container::before {
+        content: '';
+        position: absolute;
+        left: calc(var(--space-md) + 5px);
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--border-glass);
+      }
+
+      .timeline-group-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: var(--space-md) 0 var(--space-sm) 0;
+        padding-left: var(--space-md);
+      }
+
+      .timeline-group-header:first-child {
+        margin-top: 0;
+      }
+
+      .timeline-item {
+        position: relative;
+        padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);
+        animation: fadeInUp 0.3s ease-out both;
+      }
+
+      .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -1px;
+        top: calc(var(--space-sm) + 6px);
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-primary, #6366f1);
+        border: 2px solid var(--bg-primary);
+        z-index: 1;
+      }
+
+      .timeline-title {
+        font-weight: 600;
+        color: var(--t-primary);
+        font-size: 0.9rem;
+      }
+
+      .timeline-time {
+        font-size: 0.75rem;
+        color: var(--t-muted);
+        margin-top: 2px;
+      }
+
+      .timeline-description {
+        font-size: 0.85rem;
+        color: var(--t-secondary);
+        margin-top: var(--space-xs);
+        line-height: 1.5;
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         Dashboard Component
+         ═══════════════════════════════════════════════════════════════ */
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: var(--space-md);
+        padding: var(--space-sm);
+      }
+
+      .dashboard-panel {
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+
+      .dashboard-panel-header {
+        padding: var(--space-sm) var(--space-md);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--t-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .dashboard-panel-content {
+        padding: var(--space-sm);
+      }
+
+      .dashboard-panel .chart-container {
+        max-height: 250px;
+      }
+
+      .dashboard-panel .metric-container {
+        padding: var(--space-md) var(--space-sm);
+      }
+
+      .dashboard-panel .metric-value {
+        font-size: 2rem;
+      }
     `,
   ];
 
@@ -1315,6 +1581,10 @@ export class ResultViewer extends LitElement {
   // The detected ID field for the current result (shared across diff, animation, warmth)
   private _activeIdField = 'id';
 
+  // Chart.js instance for reactive updates
+  private _chartInstance: any = null;
+  private _chartCanvasId = `chart-${Math.random().toString(36).slice(2, 9)}`;
+
   // Property name for event subscriptions (set by parent)
   @property({ type: String })
   collectionProperty?: string;
@@ -1345,6 +1615,10 @@ export class ResultViewer extends LitElement {
     super.disconnectedCallback();
     window.removeEventListener('keydown', this._handleGlobalKeydown);
     if (this._warmthTimer) clearInterval(this._warmthTimer);
+    if (this._chartInstance) {
+      this._chartInstance.destroy();
+      this._chartInstance = null;
+    }
   }
 
   private _handleGlobalKeydown = (e: KeyboardEvent) => {
@@ -2089,6 +2363,9 @@ export class ResultViewer extends LitElement {
     // 1. Explicit format from docblock
     if (this.outputFormat) {
       const format = this.outputFormat.toLowerCase();
+      // Handle chart:subtype format (e.g., chart:bar, chart:pie)
+      if (format.startsWith('chart:')) return 'chart';
+
       if (
         [
           'table',
@@ -2103,6 +2380,11 @@ export class ResultViewer extends LitElement {
           'chips',
           'grid',
           'html',
+          'chart',
+          'metric',
+          'gauge',
+          'timeline',
+          'dashboard',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -2128,7 +2410,7 @@ export class ResultViewer extends LitElement {
         table: 'table',
         cards: 'card',
         list: 'list',
-        chart: 'json', // fallback until chart layout exists
+        chart: 'chart',
         grid: 'grid',
         chips: 'chips',
       };
@@ -2160,8 +2442,36 @@ export class ResultViewer extends LitElement {
         return 'chips';
       }
 
-      // Array of objects → table or list
+      // Array of objects → check for chart/timeline/table/list
       if (data.every((item) => typeof item === 'object' && item !== null)) {
+        const sample = data[0];
+
+        // Timeline: date + title/event field, 3+ items
+        if (data.length >= 3) {
+          const hasDate = this._hasDateLikeFields(sample);
+          const hasTitleLike = this._hasSemanticFields(sample, [
+            'title',
+            'event',
+            'name',
+            'label',
+            'subject',
+            'action',
+            'activity',
+          ]);
+          const hasDescLike = this._hasSemanticFields(sample, [
+            'description',
+            'details',
+            'body',
+            'content',
+            'message',
+            'summary',
+          ]);
+          if (hasDate && (hasTitleLike || hasDescLike)) return 'timeline';
+        }
+
+        // Chart: predominantly numeric data patterns
+        if (this._isChartShaped(data)) return 'chart';
+
         // Check if we have semantic fields for list
         const hasListFields = this._hasSemanticFields(data[0], [
           'name',
@@ -2174,8 +2484,42 @@ export class ResultViewer extends LitElement {
       }
     }
 
-    // Single object → card
+    // Single object checks
     if (typeof data === 'object') {
+      // Gauge: { value: N, max: N } or { progress: N }
+      if (
+        ('progress' in data && typeof data.progress === 'number') ||
+        ('value' in data && typeof data.value === 'number' && ('max' in data || 'min' in data))
+      ) {
+        return 'gauge';
+      }
+
+      // Metric: 1 numeric + few string fields
+      const keys = Object.keys(data);
+      if (keys.length >= 1 && keys.length <= 5) {
+        const numericKeys = keys.filter((k) => typeof data[k] === 'number');
+        if (numericKeys.length === 1) {
+          const nonNumeric = keys.filter((k) => typeof data[k] !== 'number');
+          if (
+            nonNumeric.every((k) => typeof data[k] === 'string' || typeof data[k] === 'boolean')
+          ) {
+            return 'metric';
+          }
+        }
+      }
+
+      // Dashboard: 3+ keys with mix of arrays, objects, numbers
+      if (keys.length >= 3) {
+        let hasArray = false;
+        let hasMetricLike = false;
+        for (const k of keys) {
+          if (Array.isArray(data[k])) hasArray = true;
+          else if (typeof data[k] === 'number') hasMetricLike = true;
+          else if (typeof data[k] === 'object' && data[k] !== null) hasMetricLike = true;
+        }
+        if (hasArray && hasMetricLike) return 'dashboard';
+      }
+
       return 'card';
     }
 
@@ -2186,6 +2530,37 @@ export class ResultViewer extends LitElement {
     if (!obj || typeof obj !== 'object') return false;
     const keys = Object.keys(obj).map((k) => k.toLowerCase());
     return fields.some((f) => keys.includes(f.toLowerCase()));
+  }
+
+  private _hasDateLikeFields(obj: any): boolean {
+    if (!obj || typeof obj !== 'object') return false;
+    const datePattern =
+      /^(date|time|createdAt|updatedAt|created|updated|timestamp|.*At|.*Date|.*Time)$/i;
+    const isoPattern = /^\d{4}-\d{2}-\d{2}/;
+    for (const [key, value] of Object.entries(obj)) {
+      if (datePattern.test(key)) return true;
+      if (typeof value === 'string' && isoPattern.test(value)) return true;
+    }
+    return false;
+  }
+
+  private _isChartShaped(data: any[]): boolean {
+    if (data.length < 2) return false;
+    const sample = data[0];
+    if (!sample || typeof sample !== 'object') return false;
+
+    const keys = Object.keys(sample);
+    const numFields = keys.filter((k) => typeof sample[k] === 'number').length;
+    const strFields = keys.filter((k) => typeof sample[k] === 'string').length;
+
+    // Pattern 1: exactly 1 string + 1 numeric → pie/bar
+    if (keys.length === 2 && strFields === 1 && numFields === 1) return true;
+    // Pattern 2: date field + numeric → time series
+    if (this._hasDateLikeFields(sample) && numFields >= 1) return true;
+    // Pattern 3: 1 string label + 2+ numerics → grouped bar
+    if (strFields === 1 && numFields >= 2 && keys.length <= 6) return true;
+
+    return false;
   }
 
   private _renderContent(layout: LayoutType, filteredData: any): TemplateResult | string {
@@ -2210,6 +2585,16 @@ export class ResultViewer extends LitElement {
         return this._renderHtml();
       case 'text':
         return this._renderText(filteredData);
+      case 'chart':
+        return this._renderChart(filteredData);
+      case 'metric':
+        return this._renderMetric(filteredData);
+      case 'gauge':
+        return this._renderGauge(filteredData);
+      case 'timeline':
+        return this._renderTimeline(filteredData);
+      case 'dashboard':
+        return this._renderDashboard(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -3329,5 +3714,618 @@ export class ResultViewer extends LitElement {
     );
 
     return [headers.join(','), ...rows].join('\n');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chart Rendering (Chart.js)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderChart(data: any): TemplateResult {
+    if (!data) return html`<div class="empty-state">No chart data</div>`;
+
+    // Schedule chart creation after render
+    this.updateComplete.then(() => this._initChart(data));
+
+    return html`
+      <div class="chart-container">
+        <canvas id="${this._chartCanvasId}"></canvas>
+      </div>
+    `;
+  }
+
+  private async _initChart(data: any) {
+    const Chart = await loadChartJS();
+    const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${this._chartCanvasId}`);
+    if (!canvas) return;
+
+    // Destroy existing chart
+    if (this._chartInstance) {
+      this._chartInstance.destroy();
+      this._chartInstance = null;
+    }
+
+    const isDark = this.theme !== 'light';
+    const palette = isDark ? CHART_PALETTE.dark : CHART_PALETTE.light;
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+    const gridColor = isDark ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.1)';
+
+    // Determine chart type and build config
+    const config = this._buildChartConfig(data, palette, textColor, gridColor);
+    if (!config) return;
+
+    this._chartInstance = new Chart(canvas, config);
+  }
+
+  private _buildChartConfig(
+    data: any,
+    palette: string[],
+    textColor: string,
+    gridColor: string
+  ): any {
+    const chartType = this._getChartType(data);
+    const items = Array.isArray(data) ? data : [data];
+    if (items.length === 0) return null;
+
+    const sample = items[0];
+    if (!sample || typeof sample !== 'object') return null;
+
+    const keys = Object.keys(sample);
+    const numericKeys = keys.filter((k) => typeof sample[k] === 'number');
+    const stringKeys = keys.filter((k) => typeof sample[k] === 'string');
+    const dateKeys = keys.filter(
+      (k) =>
+        /^(date|time|createdAt|updatedAt|created|updated|timestamp|.*At|.*Date|.*Time)$/i.test(k) ||
+        (typeof sample[k] === 'string' && /^\d{4}-\d{2}-\d{2}/.test(sample[k]))
+    );
+
+    // Resolve label/x/y from hints or auto-detect
+    const labelField =
+      this.layoutHints?.label || this.layoutHints?.x || dateKeys[0] || stringKeys[0];
+    const valueFields = this.layoutHints?.y
+      ? [this.layoutHints.y]
+      : this.layoutHints?.value
+        ? [this.layoutHints.value]
+        : numericKeys;
+
+    if (!labelField || valueFields.length === 0) return null;
+
+    const labels = items.map((item: any) => {
+      const val = item[labelField];
+      // Format dates nicely
+      if (dateKeys.includes(labelField) && typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+          });
+        } catch {
+          return String(val);
+        }
+      }
+      return String(val);
+    });
+
+    const datasets = valueFields.map((field, i) => ({
+      label: this._formatColumnName(field),
+      data: items.map((item: any) => item[field] ?? 0),
+      backgroundColor:
+        chartType === 'pie' || chartType === 'doughnut'
+          ? palette.slice(0, items.length)
+          : this._hexToRgba(palette[i % palette.length], 0.7),
+      borderColor: palette[i % palette.length],
+      borderWidth: chartType === 'pie' || chartType === 'doughnut' ? 2 : 2,
+      tension: 0.3,
+      fill: chartType === 'line' && valueFields.length === 1 ? 'origin' : false,
+      pointRadius: chartType === 'scatter' ? 5 : 3,
+      pointHoverRadius: chartType === 'scatter' ? 8 : 5,
+    }));
+
+    const isPolar = chartType === 'pie' || chartType === 'doughnut' || chartType === 'radar';
+
+    return {
+      type: chartType === 'area' ? 'line' : chartType,
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        animation: { duration: 600, easing: 'easeOutQuart' as const },
+        plugins: {
+          legend: {
+            display: datasets.length > 1 || isPolar,
+            position: 'bottom' as const,
+            labels: { color: textColor, padding: 16, usePointStyle: true, pointStyleWidth: 10 },
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#e2e8f0',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(99, 102, 241, 0.3)',
+            borderWidth: 1,
+            cornerRadius: 8,
+            padding: 10,
+          },
+        },
+        scales: isPolar
+          ? {}
+          : {
+              x: {
+                grid: { color: gridColor },
+                ticks: { color: textColor, maxRotation: 45 },
+              },
+              y: {
+                grid: { color: gridColor },
+                ticks: { color: textColor },
+                beginAtZero: chartType === 'bar',
+              },
+            },
+      },
+    };
+  }
+
+  private _getChartType(data: any): string {
+    // Explicit from @format chart:type
+    if (this.outputFormat?.startsWith('chart:')) {
+      const sub = this.outputFormat.split(':')[1];
+      if (sub === 'donut') return 'doughnut';
+      if (sub === 'area') return 'line'; // area is line with fill
+      return sub;
+    }
+
+    // From layout hints
+    if (this.layoutHints?.chartType) {
+      const sub = this.layoutHints.chartType;
+      if (sub === 'donut') return 'doughnut';
+      if (sub === 'area') return 'line';
+      return sub;
+    }
+
+    // Auto-detect
+    const items = Array.isArray(data) ? data : [data];
+    if (items.length === 0) return 'bar';
+    const sample = items[0];
+    if (!sample || typeof sample !== 'object') return 'bar';
+
+    const keys = Object.keys(sample);
+    const numericKeys = keys.filter((k) => typeof sample[k] === 'number');
+    const hasDate = this._hasDateLikeFields(sample);
+
+    // Time series → line
+    if (hasDate && numericKeys.length >= 1) return 'line';
+    // 2 fields (label + value) with few items → pie
+    if (keys.length === 2 && numericKeys.length === 1 && items.length <= 8) return 'pie';
+    // Default → bar
+    return 'bar';
+  }
+
+  private _hexToRgba(hex: string, alpha: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Metric/KPI Rendering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderMetric(data: any): TemplateResult {
+    if (!data || typeof data !== 'object') {
+      // If it's a raw number, render as metric
+      if (typeof data === 'number') {
+        return this._renderMetricCard(data, undefined, undefined, undefined);
+      }
+      return html`<div class="empty-state">No metric data</div>`;
+    }
+
+    const keys = Object.keys(data);
+    // Find the numeric field
+    const numericKey = keys.find((k) => typeof data[k] === 'number');
+    if (!numericKey) return this._renderJson(data);
+
+    const value = data[numericKey];
+    const label =
+      data.label || data.name || data.title || (numericKey !== 'value' ? numericKey : undefined);
+    const delta = data.delta || data.change || data.diff;
+    const trend = data.trend || (delta ? this._detectTrend(delta) : undefined);
+
+    return this._renderMetricCard(value, label, delta, trend);
+  }
+
+  private _renderMetricCard(
+    value: number,
+    label?: string,
+    delta?: string | number,
+    trend?: string
+  ): TemplateResult {
+    const formattedValue = this._formatMetricValue(value);
+    const deltaStr = delta !== undefined ? String(delta) : undefined;
+    const trendClass = trend === 'up' ? 'up' : trend === 'down' ? 'down' : 'neutral';
+
+    return html`
+      <div class="metric-container">
+        <div class="metric-value">${formattedValue}</div>
+        ${label ? html`<div class="metric-label">${label}</div>` : ''}
+        ${deltaStr
+          ? html`
+              <div class="metric-delta ${trendClass}">
+                ${trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'} ${deltaStr}
+              </div>
+            `
+          : ''}
+      </div>
+    `;
+  }
+
+  private _formatMetricValue(value: number): string {
+    if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+    if (Number.isInteger(value)) return value.toLocaleString();
+    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  private _detectTrend(delta: string | number): string {
+    const str = String(delta);
+    if (str.startsWith('+') || str.startsWith('↑')) return 'up';
+    if (str.startsWith('-') || str.startsWith('↓')) return 'down';
+    if (typeof delta === 'number') return delta > 0 ? 'up' : delta < 0 ? 'down' : 'neutral';
+    return 'neutral';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Gauge Rendering (SVG)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderGauge(data: any): TemplateResult {
+    if (!data || typeof data !== 'object')
+      return html`<div class="empty-state">No gauge data</div>`;
+
+    let value: number;
+    let min = 0;
+    let max = 100;
+    let label: string | undefined;
+
+    if ('progress' in data && typeof data.progress === 'number') {
+      value = data.progress * 100;
+      label = data.label || 'Progress';
+    } else {
+      value = data.value ?? 0;
+      min = parseFloat(this.layoutHints?.min ?? String(data.min ?? 0));
+      max = parseFloat(this.layoutHints?.max ?? String(data.max ?? 100));
+      label = data.label || this.layoutHints?.title;
+    }
+
+    // Normalize to 0-1 range
+    const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
+
+    // SVG arc parameters (semicircle)
+    const cx = 80;
+    const cy = 80;
+    const r = 60;
+    const startAngle = Math.PI; // 180 degrees (left)
+    const endAngle = 0; // 0 degrees (right)
+    const sweepAngle = startAngle - (startAngle - endAngle) * normalized;
+
+    const startX = cx + r * Math.cos(startAngle);
+    const startY = cy - r * Math.sin(startAngle);
+    const endX = cx + r * Math.cos(sweepAngle);
+    const endY = cy - r * Math.sin(sweepAngle);
+    const largeArcFlag = normalized > 0.5 ? 1 : 0;
+
+    // Color gradient: green → yellow → red
+    const color = this._getGaugeColor(normalized);
+
+    const displayValue =
+      data.progress !== undefined ? `${Math.round(value)}%` : String(Math.round(value));
+
+    return html`
+      <div class="gauge-container">
+        <svg class="gauge-svg" viewBox="0 0 160 100">
+          <!-- Background arc -->
+          <path
+            d="M ${startX} ${startY} A ${r} ${r} 0 1 1 ${cx + r * Math.cos(endAngle)} ${cy -
+            r * Math.sin(endAngle)}"
+            fill="none"
+            stroke="${this.theme === 'light' ? '#e2e8f0' : '#334155'}"
+            stroke-width="12"
+            stroke-linecap="round"
+          />
+          <!-- Value arc -->
+          ${normalized > 0.01
+            ? html`<path
+                d="M ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY}"
+                fill="none"
+                stroke="${color}"
+                stroke-width="12"
+                stroke-linecap="round"
+              />`
+            : ''}
+          <!-- Center value -->
+          <text
+            x="${cx}"
+            y="${cy - 8}"
+            text-anchor="middle"
+            font-size="22"
+            font-weight="700"
+            fill="${this.theme === 'light' ? '#1e293b' : '#e2e8f0'}"
+            font-variant-numeric="tabular-nums"
+          >
+            ${displayValue}
+          </text>
+        </svg>
+        ${label ? html`<div class="gauge-label">${label}</div>` : ''}
+      </div>
+    `;
+  }
+
+  private _getGaugeColor(normalized: number): string {
+    if (normalized < 0.5) {
+      // Green to Yellow
+      const r = Math.round(34 + (234 - 34) * (normalized * 2));
+      const g = Math.round(197 + (179 - 197) * (normalized * 2));
+      const b = Math.round(94 + (8 - 94) * (normalized * 2));
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      // Yellow to Red
+      const t = (normalized - 0.5) * 2;
+      const r = Math.round(234 + (239 - 234) * t);
+      const g = Math.round(179 + (68 - 179) * t);
+      const b = Math.round(8 + (68 - 8) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Timeline Rendering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderTimeline(data: any): TemplateResult {
+    if (!Array.isArray(data) || data.length === 0)
+      return html`<div class="empty-state">No timeline data</div>`;
+
+    // Resolve field names
+    const sample = data[0];
+    const dateField = this._resolveTimelineField(
+      sample,
+      this.layoutHints?.date,
+      /^(date|time|createdAt|updatedAt|created|updated|timestamp|.*At|.*Date|.*Time)$/i
+    );
+    const titleField = this._resolveTimelineField(
+      sample,
+      this.layoutHints?.title,
+      /^(title|event|name|label|subject|heading|action|activity)$/i
+    );
+    const descField = this._resolveTimelineField(
+      sample,
+      this.layoutHints?.description,
+      /^(description|details|body|content|message|summary|text|note)$/i
+    );
+
+    // Sort by date (newest first)
+    const sorted = [...data].sort((a, b) => {
+      if (!dateField) return 0;
+      const da = new Date(a[dateField]).getTime();
+      const db = new Date(b[dateField]).getTime();
+      return db - da;
+    });
+
+    // Group by day
+    const groups = new Map<string, any[]>();
+    for (const item of sorted) {
+      const dateVal = dateField ? item[dateField] : '';
+      let dayKey: string;
+      try {
+        dayKey = new Date(dateVal).toLocaleDateString(undefined, {
+          weekday: 'long',
+          month: 'short',
+          day: 'numeric',
+        });
+      } catch {
+        dayKey = String(dateVal);
+      }
+      if (!groups.has(dayKey)) groups.set(dayKey, []);
+      groups.get(dayKey)!.push(item);
+    }
+
+    return html`
+      <div class="timeline-container">
+        ${[...groups.entries()].map(
+          ([day, items]) => html`
+            <div class="timeline-group-header">${day}</div>
+            ${items.map(
+              (item, i) => html`
+                <div class="timeline-item" style="animation-delay: ${i * 60}ms">
+                  <div class="timeline-title">
+                    ${titleField ? item[titleField] : JSON.stringify(item)}
+                  </div>
+                  ${dateField
+                    ? html`<div class="timeline-time">
+                        ${this._formatTimelineTime(item[dateField])}
+                      </div>`
+                    : ''}
+                  ${descField && item[descField]
+                    ? html`<div class="timeline-description">${item[descField]}</div>`
+                    : ''}
+                </div>
+              `
+            )}
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _resolveTimelineField(
+    sample: any,
+    hint: string | undefined,
+    pattern: RegExp
+  ): string | undefined {
+    if (hint && hint in sample) return hint;
+    return Object.keys(sample).find((k) => pattern.test(k));
+  }
+
+  private _formatTimelineTime(dateVal: any): string {
+    try {
+      return new Date(dateVal).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return String(dateVal);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Dashboard Rendering (Composite)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _renderDashboard(data: any): TemplateResult {
+    if (!data || typeof data !== 'object')
+      return html`<div class="empty-state">No dashboard data</div>`;
+
+    const entries = Object.entries(data);
+
+    return html`
+      <div class="dashboard-grid">
+        ${entries.map(
+          ([key, value]) => html`
+            <div class="dashboard-panel">
+              <div class="dashboard-panel-header">${this._formatColumnName(key)}</div>
+              <div class="dashboard-panel-content">${this._renderDashboardPanel(value)}</div>
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderDashboardPanel(value: any): TemplateResult | string {
+    // Metric: single number
+    if (typeof value === 'number') {
+      return this._renderMetricCard(value);
+    }
+
+    // Metric object: { value, label, delta }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'value' in value &&
+      typeof value.value === 'number'
+    ) {
+      const keys = Object.keys(value);
+      const numericKeys = keys.filter((k) => typeof value[k] === 'number');
+      if (numericKeys.length === 1 || keys.length <= 5) {
+        return this._renderMetric(value);
+      }
+    }
+
+    // Gauge: { value, max } or { progress }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (('progress' in value && typeof value.progress === 'number') ||
+        ('value' in value && typeof value.value === 'number' && ('max' in value || 'min' in value)))
+    ) {
+      return this._renderGauge(value);
+    }
+
+    // Array of objects → try chart first, then table
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+      if (this._isChartShaped(value)) {
+        // Inline chart for dashboard panel
+        const canvasId = `dash-chart-${Math.random().toString(36).slice(2, 9)}`;
+        this.updateComplete.then(async () => {
+          const Chart = await loadChartJS();
+          const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${canvasId}`);
+          if (!canvas) return;
+
+          const isDark = this.theme !== 'light';
+          const palette = isDark ? CHART_PALETTE.dark : CHART_PALETTE.light;
+          const textColor = isDark ? '#94a3b8' : '#64748b';
+          const gridColor = isDark ? 'rgba(148, 163, 184, 0.1)' : 'rgba(100, 116, 139, 0.1)';
+
+          // Build config using existing helper
+          const config = this._buildChartConfig(value, palette, textColor, gridColor);
+          if (config) {
+            // Make dashboard charts smaller
+            config.options.plugins.legend.display = false;
+            new Chart(canvas, config);
+          }
+        });
+
+        return html`
+          <div class="chart-container">
+            <canvas id="${canvasId}"></canvas>
+          </div>
+        `;
+      }
+
+      // Fallback: render as mini-list
+      return html`
+        <div style="max-height: 200px; overflow-y: auto; font-size: 0.85rem;">
+          ${value.slice(0, 5).map(
+            (item: any) => html`
+              <div
+                style="padding: 6px 8px; border-bottom: 1px solid var(--border-glass); display:flex; gap:8px;"
+              >
+                ${Object.entries(item)
+                  .slice(0, 3)
+                  .map(
+                    ([, v]) =>
+                      html`<span
+                        style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                        >${String(v)}</span
+                      >`
+                  )}
+              </div>
+            `
+          )}
+          ${value.length > 5
+            ? html`<div
+                style="padding:6px 8px;color:var(--t-muted);text-align:center;font-style:italic;"
+              >
+                +${value.length - 5} more
+              </div>`
+            : ''}
+        </div>
+      `;
+    }
+
+    // Array of primitives → chips
+    if (Array.isArray(value)) {
+      return html`
+        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px;">
+          ${value.map(
+            (v: any) =>
+              html`<span
+                style="padding:2px 8px;border-radius:12px;background:var(--bg-glass);font-size:0.8rem;"
+                >${String(v)}</span
+              >`
+          )}
+        </div>
+      `;
+    }
+
+    // Nested object → mini key-value
+    if (value && typeof value === 'object') {
+      return html`
+        <div style="font-size: 0.85rem;">
+          ${Object.entries(value).map(
+            ([k, v]) => html`
+              <div
+                style="display:flex; justify-content:space-between; padding:4px 8px; border-bottom:1px solid var(--border-glass);"
+              >
+                <span style="color:var(--t-muted);">${this._formatColumnName(k)}</span>
+                <span>${String(v)}</span>
+              </div>
+            `
+          )}
+        </div>
+      `;
+    }
+
+    // Fallback: text
+    return html`<div style="padding:8px; font-size:0.9rem;">${String(value)}</div>`;
   }
 }
