@@ -1,4 +1,4 @@
-import { LitElement, html, css, TemplateResult } from 'lit';
+import { LitElement, html, css, svg, TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
@@ -4497,7 +4497,7 @@ export class ResultViewer extends LitElement {
           />
           <!-- Value arc -->
           ${normalized > 0.01
-            ? html`<path
+            ? svg`<path
                 d="M ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY}"
                 fill="none"
                 stroke="${color}"
