@@ -2211,22 +2211,41 @@ export async function handleStreamableHTTP(
     // Disable Nagle's algorithm for immediate writes
     res.socket?.setNoDelay(true);
 
+    // Enable TCP keepalive to prevent connection drops from intermediaries
+    res.socket?.setKeepAlive(true, 60000);
+
     // Store SSE response for server-initiated messages
     session.sseResponse = res;
 
-    // Keep connection alive
+    // Keep connection alive with SSE comments (every 15s for better reliability)
     const keepAlive = setInterval(() => {
-      res.write(': keepalive\n\n');
-    }, 30000);
+      // Check if response is still writable before sending keepalive
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          res.write(': keepalive\n\n');
+        } catch (err) {
+          // If write fails, connection is dead - clean up
+          clearInterval(keepAlive);
+          session.sseResponse = undefined;
+        }
+      } else {
+        clearInterval(keepAlive);
+      }
+    }, 15000); // Reduced from 30s to 15s for better responsiveness
 
-    req.on('close', () => {
+    // Handle client disconnect
+    const cleanup = () => {
       clearInterval(keepAlive);
       session.sseResponse = undefined;
       // Clean up subscriptions when client disconnects
       if (options.subscriptionManager) {
         options.subscriptionManager.onClientDisconnect(session.id);
       }
-    });
+    };
+
+    req.on('close', cleanup);
+    req.on('error', cleanup);
+    res.on('error', cleanup);
 
     return true;
   }
@@ -2349,11 +2368,34 @@ export function broadcastNotification(
     params,
   };
 
-  for (const session of sessions.values()) {
-    if (session.sseResponse && !session.sseResponse.writableEnded) {
+  const data = `data: ${JSON.stringify(notification)}\n\n`;
+  const deadSessions: string[] = [];
+
+  for (const [sessionId, session] of sessions) {
+    if (
+      session.sseResponse &&
+      !session.sseResponse.writableEnded &&
+      !session.sseResponse.destroyed
+    ) {
       // Skip non-Beam clients if beamOnly is true
       if (beamOnly && !session.isBeam) continue;
-      session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
+      try {
+        session.sseResponse.write(data);
+      } catch (err) {
+        // Mark session for cleanup if write fails
+        deadSessions.push(sessionId);
+      }
+    } else if (session.sseResponse) {
+      // Response is ended/destroyed - mark for cleanup
+      deadSessions.push(sessionId);
+    }
+  }
+
+  // Clean up dead sessions
+  for (const sessionId of deadSessions) {
+    const session = sessions.get(sessionId);
+    if (session) {
+      session.sseResponse = undefined;
     }
   }
 }
@@ -2390,7 +2432,7 @@ export function sendToSession(
   params?: Record<string, unknown>
 ): boolean {
   const session = sessions.get(sessionId);
-  if (!session?.sseResponse || session.sseResponse.writableEnded) {
+  if (!session?.sseResponse || session.sseResponse.writableEnded || session.sseResponse.destroyed) {
     return false;
   }
   const notification: JSONRPCRequest = {
@@ -2398,8 +2440,14 @@ export function sendToSession(
     method,
     params,
   };
-  session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
-  return true;
+  try {
+    session.sseResponse.write(`data: ${JSON.stringify(notification)}\n\n`);
+    return true;
+  } catch (err) {
+    // Write failed - connection is dead
+    session.sseResponse = undefined;
+    return false;
+  }
 }
 
 /**

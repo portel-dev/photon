@@ -3099,6 +3099,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         console.log(`\n⚡ Photon Beam → ${url} (loading photons...)\n`);
         resolve();
       });
+
+      // Configure server and socket timeouts to prevent premature disconnections
+      // Disable server timeout for long-lived SSE connections (0 = no timeout)
+      server.setTimeout(0);
+
+      // Enable TCP keepalive on all connections to prevent intermediary timeouts
+      server.on('connection', (socket) => {
+        socket.setKeepAlive(true, 60000); // Send keepalive probe every 60s
+        socket.setTimeout(0); // Disable socket inactivity timeout
+      });
     };
 
     tryListen();
