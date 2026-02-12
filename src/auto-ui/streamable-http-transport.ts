@@ -2217,12 +2217,13 @@ export async function handleStreamableHTTP(
     // Store SSE response for server-initiated messages
     session.sseResponse = res;
 
-    // Keep connection alive with SSE comments (every 15s for better reliability)
+    // Keep connection alive with SSE data events (every 15s for better reliability)
     const keepAlive = setInterval(() => {
       // Check if response is still writable before sending keepalive
       if (!res.writableEnded && !res.destroyed) {
         try {
-          res.write(': keepalive\n\n');
+          // Send as data event so client onmessage handler fires and updates lastMessageTime
+          res.write('data: {"type":"keepalive"}\n\n');
         } catch (err) {
           // If write fails, connection is dead - clean up
           clearInterval(keepAlive);
