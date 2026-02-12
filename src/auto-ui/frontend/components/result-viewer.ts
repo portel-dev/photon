@@ -154,9 +154,6 @@ export class ResultViewer extends LitElement {
       .content {
         font-size: 0.9rem;
         color: var(--t-primary);
-        overflow-x: auto;
-        overflow-y: auto;
-        max-height: 600px;
         line-height: 1.5;
       }
 
@@ -164,12 +161,16 @@ export class ResultViewer extends LitElement {
       .content-text {
         font-family: var(--font-mono);
         white-space: pre-wrap;
+        overflow-x: auto;
+        overflow-y: auto;
+        max-height: 600px;
       }
 
       /* Structured formats: list, table, card, metric, etc. — normal flow */
       .content-structured {
         font-family: var(--font-sans);
         white-space: normal;
+        overflow: hidden;
       }
 
       /* JSON Syntax Highlighting - Theme Aware */
@@ -1622,6 +1623,14 @@ export class ResultViewer extends LitElement {
 
       .dashboard-panel .chart-container {
         max-height: 250px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .dashboard-panel .chart-container canvas {
+        max-width: 100%;
+        max-height: 230px;
       }
 
       .dashboard-panel .metric-container {
@@ -1738,19 +1747,19 @@ export class ResultViewer extends LitElement {
       /* Panels */
       .panels-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
         gap: var(--space-md);
         padding: var(--space-sm);
       }
 
       .panels-grid.cols-2 {
-        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
       }
       .panels-grid.cols-3 {
-        grid-template-columns: repeat(3, minmax(320px, 1fr));
+        grid-template-columns: repeat(3, 1fr);
       }
       .panels-grid.cols-4 {
-        grid-template-columns: repeat(4, minmax(280px, 1fr));
+        grid-template-columns: repeat(4, 1fr);
       }
 
       .panel-item {
@@ -1780,22 +1789,19 @@ export class ResultViewer extends LitElement {
       }
 
       .tabs-bar {
-        display: flex;
+        display: inline-flex;
         gap: 0;
-        border-bottom: 1px solid var(--border-glass);
-        overflow-x: auto;
-        scrollbar-width: none;
-      }
-
-      .tabs-bar::-webkit-scrollbar {
-        display: none;
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        margin-bottom: var(--space-xs);
       }
 
       .tab-btn {
-        padding: 6px var(--space-md);
+        padding: 6px 16px;
         background: transparent;
         border: none;
-        border-bottom: 2px solid transparent;
+        border-right: 1px solid var(--border-glass);
         color: var(--t-muted);
         font-size: 0.85rem;
         font-weight: 500;
@@ -1805,6 +1811,10 @@ export class ResultViewer extends LitElement {
         font-family: var(--font-sans);
       }
 
+      .tab-btn:last-child {
+        border-right: none;
+      }
+
       .tab-btn:hover {
         color: var(--t-primary);
         background: var(--bg-glass);
@@ -1812,24 +1822,7 @@ export class ResultViewer extends LitElement {
 
       .tab-btn.active {
         color: var(--accent-primary);
-        border-bottom-color: var(--accent-primary);
-      }
-
-      .tabs-bar.pills {
-        border-bottom: none;
-        gap: var(--space-xs);
-        padding: var(--space-xs);
-      }
-
-      .tabs-bar.pills .tab-btn {
-        border-bottom: none;
-        border-radius: var(--radius-full);
-        padding: 4px 12px;
-      }
-
-      .tabs-bar.pills .tab-btn.active {
-        background: var(--accent-primary);
-        color: white;
+        background: var(--bg-glass-strong);
       }
 
       .tab-content {
@@ -1929,6 +1922,7 @@ export class ResultViewer extends LitElement {
 
       .column-item {
         min-width: 0;
+        overflow: hidden;
       }
     `,
   ];
@@ -1990,6 +1984,8 @@ export class ResultViewer extends LitElement {
 
   @state()
   private _expandedSections = new Set<string>();
+
+  private _accordionInitialized = false;
 
   // Flash animation for object-based format changes (metric/gauge)
   @state()
@@ -4334,7 +4330,7 @@ export class ResultViewer extends LitElement {
           ? palette.slice(0, items.length)
           : this._hexToRgba(palette[i % palette.length], 0.7),
       borderColor: palette[i % palette.length],
-      borderWidth: chartType === 'pie' || chartType === 'doughnut' ? 2 : 2,
+      borderWidth: chartType === 'pie' || chartType === 'doughnut' ? 0 : 2,
       tension: 0.3,
       fill: chartType === 'line' && valueFields.length === 1 ? 'origin' : false,
       pointRadius: chartType === 'scatter' ? 5 : 3,
@@ -4354,7 +4350,13 @@ export class ResultViewer extends LitElement {
           legend: {
             display: datasets.length > 1 || isPolar,
             position: 'bottom' as const,
-            labels: { color: textColor, padding: 16, usePointStyle: true, pointStyleWidth: 10 },
+            labels: {
+              color: textColor,
+              padding: 16,
+              usePointStyle: true,
+              pointStyle: 'rect',
+              pointStyleWidth: 10,
+            },
           },
           tooltip: {
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
@@ -5037,11 +5039,9 @@ export class ResultViewer extends LitElement {
     const activeTab = keys.includes(this._activeTab) ? this._activeTab : keys[0] || '';
     const activeValue = data[activeTab];
     const innerLayout = this._getInnerLayout();
-    const isPills = this.layoutHints?.style === 'pills';
-
     return html`
       <div class="tabs-container">
-        <div class="tabs-bar ${isPills ? 'pills' : ''}">
+        <div class="tabs-bar">
           ${keys.map(
             (key) => html`
               <button
@@ -5071,8 +5071,9 @@ export class ResultViewer extends LitElement {
     const innerLayout = this._getInnerLayout();
     const isBordered = this.layoutHints?.style === 'bordered';
 
-    // Default: expand first section if none expanded
-    if (this._expandedSections.size === 0 && entries.length > 0) {
+    // Default: expand first section on initial render only
+    if (!this._accordionInitialized && entries.length > 0) {
+      this._accordionInitialized = true;
       this._expandedSections = new Set([entries[0][0]]);
     }
 
