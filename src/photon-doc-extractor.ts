@@ -27,6 +27,8 @@ interface Tool {
   params: ToolParam[];
   example?: string;
   isGenerator?: boolean;
+  outputFormat?: string;
+  layoutHints?: Record<string, string>;
 }
 
 type PhotonType = 'workflow' | 'streaming' | 'api';
@@ -562,11 +564,39 @@ export class PhotonDocExtractor {
       }
     }
 
+    // Extract @format tag with nested layout hints
+    // Format: @format type {@hint value, @hint2 value2}
+    const formatMatch = jsdoc.match(/@format\s+(\w+)(?:\s+\{([^}]+)\})?/);
+    let outputFormat: string | undefined;
+    let layoutHints: Record<string, string> | undefined;
+
+    if (formatMatch) {
+      outputFormat = formatMatch[1];
+
+      // Parse nested hints from {@hint value, @hint2 value2}
+      if (formatMatch[2]) {
+        layoutHints = {};
+        const hintsString = formatMatch[2];
+        const hintParts = hintsString.split(',').map((s) => s.trim());
+
+        for (const part of hintParts) {
+          // Match @key value
+          const hintMatch = part.match(/@(\w+)\s+(.+)/);
+          if (hintMatch) {
+            const [, key, value] = hintMatch;
+            layoutHints[key] = value.trim();
+          }
+        }
+      }
+    }
+
     return {
       name: methodName,
       description,
       params,
       example,
+      outputFormat,
+      layoutHints,
     };
   }
 
