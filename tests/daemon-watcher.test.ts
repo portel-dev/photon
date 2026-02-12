@@ -81,6 +81,11 @@ function startDaemon(): Promise<void> {
     const serverPath = path.join(process.cwd(), 'dist', 'daemon', 'server.js');
     daemonLog = [];
 
+    // Clean up stale socket before starting
+    try {
+      fs.unlinkSync(SOCKET_PATH);
+    } catch {}
+
     daemonProcess = spawn('node', [serverPath, SOCKET_PATH], {
       env: { ...process.env, PHOTON_STATE_DIR: STATE_DIR },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,6 +101,9 @@ function startDaemon(): Promise<void> {
     });
 
     daemonProcess.on('error', reject);
+    daemonProcess.on('exit', (code, signal) => {
+      daemonLog.push(`[daemon-exit] code=${code} signal=${signal}`);
+    });
 
     // Wait for socket to appear
     const check = setInterval(() => {
@@ -107,23 +115,25 @@ function startDaemon(): Promise<void> {
 
     setTimeout(() => {
       clearInterval(check);
-      reject(new Error('Daemon did not start in 5s'));
-    }, 5000);
+      const logSnapshot = daemonLog.join('\n');
+      reject(new Error(`Daemon did not start in 10s. Log: ${logSnapshot.slice(0, 500)}`));
+    }, 10000);
   });
 }
 
 function killDaemon(): Promise<void> {
   return new Promise((resolve) => {
-    if (!daemonProcess || daemonProcess.killed) {
+    const proc = daemonProcess; // Capture reference to avoid race with startDaemon
+    if (!proc || proc.killed) {
       resolve();
       return;
     }
-    daemonProcess.on('exit', () => resolve());
-    daemonProcess.kill('SIGTERM');
+    proc.on('exit', () => resolve());
+    proc.kill('SIGTERM');
     // Force kill after 2s
     setTimeout(() => {
-      if (daemonProcess && !daemonProcess.killed) {
-        daemonProcess.kill('SIGKILL');
+      if (proc && !proc.killed) {
+        proc.kill('SIGKILL');
       }
       resolve();
     }, 2000);
@@ -675,11 +685,9 @@ async function testInstanceRoutingAfterRestart() {
   });
 
   await test('without instanceName hint, falls back to default (documents known limitation)', async () => {
-    // Kill and restart again
+    // Kill and restart again (allow extra time for process cleanup)
     await killDaemon();
-    try {
-      fs.unlinkSync(SOCKET_PATH);
-    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
     await startDaemon();
 
     // Send command WITHOUT instanceName — no recovery possible
@@ -782,6 +790,9 @@ async function testSubscriptionRetryOnInitialFailure() {
   });
 
   // Restart daemon for remaining tests
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {}
   await startDaemon();
 }
 
@@ -809,10 +820,10 @@ async function testWatcherSurvivesReloadCycle() {
     const initLog = getDaemonLog().join('\n');
     assert.ok(initLog.includes('Watching photon file'), 'Watcher should be set up on init');
 
-    // Edit file and verify reload
+    // Edit file and verify reload (allow extra time after daemon restart)
     clearDaemonLog();
     fs.appendFileSync(PHOTON_FILE, '\n// resilience-test\n');
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1500));
 
     const reloadLog = getDaemonLog().join('\n');
     assert.ok(

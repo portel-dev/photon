@@ -145,7 +145,8 @@ type ClientMessage =
   | ReadResourceMessage;
 
 // Config file path
-const CONFIG_FILE = path.join(os.homedir(), '.photon', 'config.json');
+const CONFIG_FILE =
+  process.env.PHOTON_CONFIG_FILE || path.join(os.homedir(), '.photon', 'config.json');
 
 // Unified config structure (MCPServerConfig imported from types.ts)
 interface PhotonConfig {
