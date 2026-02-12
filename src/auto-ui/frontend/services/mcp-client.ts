@@ -236,6 +236,14 @@ class MCPClientService {
 
     this.eventSource.onmessage = (event) => {
       this.lastMessageTime = Date.now();
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'keepalive') {
+          return; // Don't process keepalives further
+        }
+      } catch {
+        // Not JSON or not a keepalive, continue normal processing
+      }
       this.handleSSEMessage(event.data);
     };
 
