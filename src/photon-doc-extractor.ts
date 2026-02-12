@@ -566,7 +566,7 @@ export class PhotonDocExtractor {
 
     // Extract @format tag with nested layout hints
     // Format: @format type {@hint value, @hint2 value2}
-    const formatMatch = jsdoc.match(/@format\s+(\w+)(?:\s+\{([^}]+)\})?/);
+    const formatMatch = jsdoc.match(/@format\s+([^\s{]+)(?:\s+\{([^}]+)\})?/);
     let outputFormat: string | undefined;
     let layoutHints: Record<string, string> | undefined;
 

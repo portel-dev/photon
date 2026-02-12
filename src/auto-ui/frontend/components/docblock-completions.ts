@@ -341,9 +341,9 @@ export function photonFormatCompletions(context: CompletionContext): CompletionR
   const lineText = line.text.substring(0, context.pos - line.from);
 
   // Match text after @format
-  const formatMatch = lineText.match(/@format\s+(\w*)$/);
+  const formatMatch = lineText.match(/@format\s+([^\s{]*)$/);
   if (!formatMatch) return null;
 
   const from = context.pos - formatMatch[1].length;
-  return { from, options: formatValues, validFor: /^\w*$/ };
+  return { from, options: formatValues, validFor: /^[^\s{]*$/ };
 }
