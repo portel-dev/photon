@@ -1514,17 +1514,18 @@ export class ResultViewer extends LitElement {
       .timeline-container {
         position: relative;
         padding: var(--space-sm) var(--space-md);
-        padding-left: calc(var(--space-md) + 20px);
+        padding-left: calc(var(--space-md) + 24px);
       }
 
       .timeline-container::before {
         content: '';
         position: absolute;
-        left: calc(var(--space-md) + 7px);
-        top: var(--space-sm);
-        bottom: var(--space-sm);
+        left: calc(var(--space-md) + 8px);
+        top: 0;
+        bottom: 0;
         width: 2px;
-        background: var(--border-glass);
+        background: var(--accent-primary, #6366f1);
+        opacity: 0.35;
       }
 
       .timeline-group-header {
@@ -1547,17 +1548,23 @@ export class ResultViewer extends LitElement {
         animation: fadeInUp 0.3s ease-out both;
       }
 
-      .timeline-item::before {
-        content: '';
+      .timeline-dot {
         position: absolute;
-        left: -17px;
-        top: 10px;
-        width: 10px;
-        height: 10px;
+        left: -20px;
+        width: 12px;
+        height: 12px;
         border-radius: 50%;
         background: var(--accent-primary, #6366f1);
         border: 2px solid var(--bg-primary);
         z-index: 1;
+        flex-shrink: 0;
+      }
+
+      .timeline-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        position: relative;
       }
 
       .timeline-title {
@@ -4672,8 +4679,11 @@ export class ResultViewer extends LitElement {
                         ${this._formatTimelineTime(item[dateField])}
                       </div>`
                     : ''}
-                  <div class="timeline-title">
-                    ${titleField ? item[titleField] : JSON.stringify(item)}
+                  <div class="timeline-title-row">
+                    <span class="timeline-dot"></span>
+                    <div class="timeline-title">
+                      ${titleField ? item[titleField] : JSON.stringify(item)}
+                    </div>
                   </div>
                   ${descField && item[descField]
                     ? html`<div class="timeline-description">${item[descField]}</div>`
