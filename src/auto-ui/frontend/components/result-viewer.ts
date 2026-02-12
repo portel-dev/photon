@@ -1514,27 +1514,27 @@ export class ResultViewer extends LitElement {
       .timeline-container {
         position: relative;
         padding: var(--space-sm) var(--space-md);
-        padding-left: calc(var(--space-md) + 12px);
+        padding-left: calc(var(--space-md) + 20px);
       }
 
       .timeline-container::before {
         content: '';
         position: absolute;
-        left: calc(var(--space-md) + 5px);
-        top: 0;
-        bottom: 0;
+        left: calc(var(--space-md) + 7px);
+        top: var(--space-sm);
+        bottom: var(--space-sm);
         width: 2px;
         background: var(--border-glass);
       }
 
       .timeline-group-header {
-        font-size: 0.75rem;
+        position: relative;
+        font-size: 0.7rem;
         font-weight: 600;
         color: var(--t-muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        margin: var(--space-sm) 0 var(--space-xs) 0;
-        padding-left: var(--space-md);
+        margin: var(--space-md) 0 var(--space-xs) 0;
       }
 
       .timeline-group-header:first-child {
@@ -1543,15 +1543,15 @@ export class ResultViewer extends LitElement {
 
       .timeline-item {
         position: relative;
-        padding: var(--space-xs) 0 var(--space-xs) var(--space-lg);
+        padding: 6px 0 6px 16px;
         animation: fadeInUp 0.3s ease-out both;
       }
 
       .timeline-item::before {
         content: '';
         position: absolute;
-        left: -1px;
-        top: calc(var(--space-sm) + 6px);
+        left: -17px;
+        top: 10px;
         width: 10px;
         height: 10px;
         border-radius: 50%;
@@ -1564,19 +1564,20 @@ export class ResultViewer extends LitElement {
         font-weight: 600;
         color: var(--t-primary);
         font-size: 0.9rem;
+        line-height: 1.3;
       }
 
       .timeline-time {
         font-size: 0.75rem;
-        color: var(--t-muted);
-        margin-top: 2px;
+        color: var(--accent-primary);
+        margin-bottom: 2px;
       }
 
       .timeline-description {
         font-size: 0.85rem;
         color: var(--t-secondary);
-        margin-top: var(--space-xs);
-        line-height: 1.5;
+        margin-top: 2px;
+        line-height: 1.4;
       }
 
       @keyframes fadeInUp {
@@ -4666,14 +4667,14 @@ export class ResultViewer extends LitElement {
                   )} ${this._getItemWarmthClass(item)}"
                   style="animation-delay: ${i * 60}ms"
                 >
-                  <div class="timeline-title">
-                    ${titleField ? item[titleField] : JSON.stringify(item)}
-                  </div>
                   ${dateField
                     ? html`<div class="timeline-time">
                         ${this._formatTimelineTime(item[dateField])}
                       </div>`
                     : ''}
+                  <div class="timeline-title">
+                    ${titleField ? item[titleField] : JSON.stringify(item)}
+                  </div>
                   ${descField && item[descField]
                     ? html`<div class="timeline-description">${item[descField]}</div>`
                     : ''}
