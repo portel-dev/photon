@@ -82,11 +82,14 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
   const cliPath = path.join(__dirname, '..', 'dist', 'cli.js');
 
   // --dir must come after 'beam' to avoid preprocessArgs() treating the path as a photon name
+  const emptyConfigPath = path.join(dir, 'config.json');
   const proc = spawn('node', [cliPath, 'beam', '--port', String(port), '--dir', dir], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       NODE_ENV: 'test',
+      // Use empty config so test doesn't load user's external MCPs
+      PHOTON_CONFIG_FILE: emptyConfigPath,
       // Ensure the test photon's env vars are NOT set so it stays unconfigured
       CONFIG_TEST_MCP_API_KEY: undefined as any,
       CONFIG_TEST_MCP_SOCKET_PATH: undefined as any,
@@ -135,6 +138,10 @@ async function runTests() {
       'utf-8'
     );
 
+    // Write an empty config so the test doesn't load user's external MCPs
+    const emptyConfigPath = path.join(tempDir, 'config.json');
+    await fs.writeFile(emptyConfigPath, JSON.stringify({ photons: {}, mcpServers: {} }), 'utf-8');
+
     // Start server with our temp dir
     server = await startBeamServer(port, tempDir);
 
@@ -157,12 +164,20 @@ async function runTests() {
       console.log('✅ configurationSchema is present in initialize response');
     }
 
+    // Determine the actual photon key name (kebab-case conversion of class name)
+    const schemaObj = result.configurationSchema as Record<string, Record<string, unknown>>;
+    const photonKey = Object.keys(schemaObj).find((k) => k.includes('config-test'));
+    assert.ok(
+      photonKey,
+      `Should have a config-test-* entry, got keys: ${Object.keys(schemaObj).join(', ')}`
+    );
+
     // Test 2: configurationSchema has correct structure
     {
       const schema = result.configurationSchema as Record<string, Record<string, unknown>>;
-      assert.ok(schema['config-test-mcp'], 'Should have config-test-mcp entry');
+      assert.ok(schema[photonKey!], `Should have ${photonKey} entry`);
 
-      const photonSchema = schema['config-test-mcp'];
+      const photonSchema = schema[photonKey!];
       assert.equal(photonSchema.type, 'object', 'Schema should be type object');
       assert.ok(photonSchema.properties, 'Schema should have properties');
       console.log('✅ configurationSchema has correct JSON Schema structure');
@@ -171,10 +186,7 @@ async function runTests() {
     // Test 3: Sensitive fields use format: password + writeOnly: true
     {
       const schema = result.configurationSchema as Record<string, Record<string, unknown>>;
-      const properties = schema['config-test-mcp'].properties as Record<
-        string,
-        Record<string, unknown>
-      >;
+      const properties = schema[photonKey!].properties as Record<string, Record<string, unknown>>;
 
       // apiKey should have format: password
       const apiKeyField = properties['apiKey'];
@@ -187,10 +199,7 @@ async function runTests() {
     // Test 4: Path fields use format: path
     {
       const schema = result.configurationSchema as Record<string, Record<string, unknown>>;
-      const properties = schema['config-test-mcp'].properties as Record<
-        string,
-        Record<string, unknown>
-      >;
+      const properties = schema[photonKey!].properties as Record<string, Record<string, unknown>>;
 
       const socketPathField = properties['socketPath'];
       assert.ok(socketPathField, 'Should have socketPath field');
@@ -201,10 +210,7 @@ async function runTests() {
     // Test 5: x-env-var is present for mapping to environment variables
     {
       const schema = result.configurationSchema as Record<string, Record<string, unknown>>;
-      const properties = schema['config-test-mcp'].properties as Record<
-        string,
-        Record<string, unknown>
-      >;
+      const properties = schema[photonKey!].properties as Record<string, Record<string, unknown>>;
 
       const apiKeyField = properties['apiKey'];
       assert.ok(apiKeyField['x-env-var'], 'Fields should have x-env-var for env mapping');
