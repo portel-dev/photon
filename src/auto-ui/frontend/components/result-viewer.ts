@@ -152,14 +152,24 @@ export class ResultViewer extends LitElement {
       }
 
       .content {
-        font-family: var(--font-mono);
         font-size: 0.9rem;
         color: var(--t-primary);
-        white-space: pre-wrap;
         overflow-x: auto;
         overflow-y: auto;
         max-height: 600px;
         line-height: 1.5;
+      }
+
+      /* Text-based formats: JSON, text, code, mermaid — preserve whitespace */
+      .content-text {
+        font-family: var(--font-mono);
+        white-space: pre-wrap;
+      }
+
+      /* Structured formats: list, table, card, metric, etc. — normal flow */
+      .content-structured {
+        font-family: var(--font-sans);
+        white-space: normal;
       }
 
       /* JSON Syntax Highlighting - Theme Aware */
@@ -2569,7 +2579,9 @@ export class ResultViewer extends LitElement {
             <button @click=${this._share} title="Share link to this result">🔗 Share</button>
           </div>
         </div>
-        <div class="content">${this._renderContent(layout, filteredData)}</div>
+        <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
+          ${this._renderContent(layout, filteredData)}
+        </div>
       </div>
 
       ${this._fullscreenImage
@@ -2791,6 +2803,16 @@ export class ResultViewer extends LitElement {
     const after = text.slice(index + query.length);
 
     return html`${before}<span class="highlight">${match}</span>${this._highlightText(after)}`;
+  }
+
+  private _isTextLayout(layout: LayoutType): boolean {
+    return (
+      layout === 'json' ||
+      layout === 'text' ||
+      layout === 'code' ||
+      layout === 'mermaid' ||
+      layout === 'tree'
+    );
   }
 
   private _selectLayout(): LayoutType {
