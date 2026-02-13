@@ -3990,30 +3990,30 @@ export class ResultViewer extends LitElement {
       try {
         const renderSuffix = Math.random().toString(36).substr(2, 6);
         const { svg } = await mermaid.render(`${id}-${renderSuffix}-svg`, code);
-        this._lastMermaidSvg = svg;
 
-        // Check if target is already a wrapper (from cached SVG render)
-        if (target.classList.contains('mermaid-wrapper')) {
-          // In-place SVG swap with fade transition
-          const diagramDiv = target.querySelector('.mermaid-diagram') as HTMLElement;
-          if (diagramDiv) {
-            diagramDiv.style.opacity = '0.4';
-            requestAnimationFrame(() => {
-              diagramDiv.innerHTML = svg;
-              diagramDiv.style.opacity = '1';
-            });
-          }
-          // Ensure expand button exists
-          if (!target.querySelector('.expand-btn')) {
+        // Live container (from _renderMermaid) — inject SVG in-place, never replace the element
+        if (target.classList.contains('mermaid-live-container')) {
+          let diagramDiv = target.querySelector('.mermaid-diagram') as HTMLElement;
+          if (!diagramDiv) {
+            diagramDiv = document.createElement('div');
+            diagramDiv.className = 'mermaid-diagram';
+            diagramDiv.style.transition = 'opacity 0.2s ease';
+            target.appendChild(diagramDiv);
             this._addMermaidExpandBtn(target, code, id);
-          } else {
-            const btn = target.querySelector('.expand-btn') as HTMLElement;
-            btn.onclick = () => this._openMermaidFullscreen(code, id);
           }
+          // Fade transition for streaming updates
+          diagramDiv.style.opacity = '0.4';
+          requestAnimationFrame(() => {
+            diagramDiv.innerHTML = svg;
+            diagramDiv.style.opacity = '1';
+          });
+          // Update expand button closure
+          const btn = target.querySelector('.expand-btn') as HTMLElement;
+          if (btn) btn.onclick = () => this._openMermaidFullscreen(code, id);
           continue;
         }
 
-        // First render — create wrapper from placeholder
+        // Inline mermaid (from markdown/cards) — replace placeholder with wrapper
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
         wrapper.setAttribute('data-mermaid-id', id);
@@ -4060,34 +4060,20 @@ export class ResultViewer extends LitElement {
     wrapper.appendChild(expandBtn);
   }
 
-  private _lastMermaidSvg: string = '';
-
   private _renderMermaid(data: any): TemplateResult {
     const code = String(data);
-    const mermaidId = `mermaid-top-${Math.random().toString(36).substr(2, 9)}`;
+    // Stable ID so streaming updates reuse the same container
+    const mermaidId = 'mermaid-top-live';
     this._pendingMermaidBlocks.push({ id: mermaidId, code });
     const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
 
-    // Show cached SVG immediately to prevent flash during streaming updates
-    if (this._lastMermaidSvg) {
-      return html`<div
-        class="mermaid-wrapper"
-        data-mermaid-id="${mermaidId}"
-        style="position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0;"
-      >
-        <div class="mermaid-diagram" style="transition: opacity 0.2s ease;">
-          ${unsafeHTML(this._lastMermaidSvg)}
-        </div>
-      </div>`;
-    }
-
+    // Single stable container — _renderMermaidBlocks injects SVG imperatively.
+    // Lit re-renders won't destroy the SVG because the container stays the same.
     return html`<div
-      class="mermaid-placeholder"
+      class="mermaid-live-container"
       data-mermaid-id="${mermaidId}"
-      style="min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);"
-    >
-      Loading diagram...
-    </div>`;
+      style="position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0; min-height: 120px;"
+    ></div>`;
   }
 
   private _renderText(data: any): TemplateResult | string {
