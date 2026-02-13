@@ -145,9 +145,20 @@ async *searchWithProgress(query: string) {
 
 ### Tool Output Templates
 
-Tools can specify UI templates using `_meta`:
+Tools can specify UI templates using `_meta`. The format depends on the client:
 
 ```typescript
+// MCP Apps standard (Claude Desktop, MCPJam, ChatGPT, and all third-party clients)
+{
+  name: "search",
+  description: "Search repositories",
+  inputSchema: {...},
+  _meta: {
+    ui: { resourceUri: "ui://github/search-results" }
+  }
+}
+
+// Beam format (Photon's own UI)
 {
   name: "search",
   description: "Search repositories",
@@ -157,6 +168,8 @@ Tools can specify UI templates using `_meta`:
   }
 }
 ```
+
+Photon detects the client at handshake and serves the right format automatically. Developer code stays unchanged — just use the `@ui` docblock tag.
 
 ### Beam UI
 

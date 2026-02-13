@@ -219,7 +219,7 @@ export class PhotonServer {
     const capabilities = targetServer.getClientCapabilities();
 
     if (!capabilities) {
-      // Before initialization or no capabilities - assume legacy Photon
+      // Before initialization - fall back to Photon format (upgrades once client capabilities are known)
       return 'photon';
     }
 
@@ -241,7 +241,7 @@ export class PhotonServer {
     const clientInfo = (targetServer as any)._clientVersion;
     if (clientInfo?.name) {
       const name = clientInfo.name.toLowerCase();
-      // Only Beam uses the legacy Photon format
+      // Beam uses its own Photon URI format (not MCP Apps standard)
       if (name.includes('beam') || name === 'photon-beam') {
         return 'photon';
       }
@@ -981,7 +981,7 @@ export class PhotonServer {
         return this.handleUIAssetRead(uri, assetId);
       }
 
-      // Check for legacy photon:// asset URI format
+      // Check for photon:// asset URI format (used by Beam)
       const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
       if (assetMatch && this.mcp.assets) {
         return this.handleAssetRead(uri, assetMatch);
@@ -2353,7 +2353,7 @@ export class PhotonServer {
         return this.handleUIAssetRead(uri, assetId);
       }
 
-      // Check for legacy photon:// asset URI format
+      // Check for photon:// asset URI format (used by Beam)
       const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
       if (assetMatch && this.mcp.assets) {
         return this.handleAssetRead(uri, assetMatch);
@@ -2722,7 +2722,7 @@ export class PhotonServer {
   }
 
   /**
-   * Handle legacy photon:// asset read
+   * Handle photon:// asset read (Beam format)
    */
   private async handleAssetRead(uri: string, assetMatch: RegExpMatchArray) {
     const [, _photonName, assetType, assetId] = assetMatch;
