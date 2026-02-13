@@ -347,16 +347,18 @@ export class ResultViewer extends LitElement {
       @keyframes item-added {
         0% {
           opacity: 0;
-          transform: translateX(-20px);
-          background: hsla(120, 60%, 50%, 0.2);
+          transform: translateX(-24px);
+          background: hsla(120, 70%, 45%, 0.3);
+          box-shadow: inset 3px 0 0 hsla(120, 70%, 50%, 0.6);
         }
-        50% {
-          background: hsla(120, 60%, 50%, 0.15);
+        40% {
+          background: hsla(120, 70%, 45%, 0.2);
         }
         100% {
           opacity: 1;
           transform: translateX(0);
           background: var(--bg-panel);
+          box-shadow: none;
         }
       }
 
@@ -364,11 +366,20 @@ export class ResultViewer extends LitElement {
         0% {
           opacity: 1;
           transform: translateX(0);
+          max-height: 80px;
+        }
+        50% {
+          background: hsla(0, 70%, 50%, 0.2);
         }
         100% {
           opacity: 0;
-          transform: translateX(20px);
-          background: hsla(0, 60%, 50%, 0.2);
+          transform: translateX(24px);
+          background: hsla(0, 70%, 50%, 0.25);
+          max-height: 0;
+          padding-top: 0;
+          padding-bottom: 0;
+          margin-top: 0;
+          margin-bottom: 0;
         }
       }
 
@@ -377,20 +388,23 @@ export class ResultViewer extends LitElement {
       }
 
       .list-item.item-removed {
-        animation: item-removed 0.3s ease-in forwards;
+        animation: item-removed 0.4s ease-in forwards;
+        overflow: hidden;
       }
 
-      /* Highlight for updated items */
+      /* Highlight for updated / reordered items */
       .list-item.item-updated {
-        animation: item-highlight 0.8s ease-out;
+        animation: item-highlight 1s ease-out;
       }
 
       @keyframes item-highlight {
         0% {
-          background: hsla(45, 80%, 50%, 0.3);
+          background: hsla(45, 90%, 55%, 0.35);
+          box-shadow: inset 3px 0 0 hsla(45, 90%, 55%, 0.6);
         }
         100% {
           background: var(--bg-panel);
+          box-shadow: none;
         }
       }
 
@@ -406,11 +420,12 @@ export class ResultViewer extends LitElement {
       }
 
       .smart-table tbody tr.item-removed {
-        animation: item-removed 0.3s ease-in forwards;
+        animation: item-removed 0.4s ease-in forwards;
+        overflow: hidden;
       }
 
       .smart-table tbody tr.item-updated {
-        animation: item-highlight 0.8s ease-out;
+        animation: item-highlight 1s ease-out;
       }
 
       /* Warm Data: recency heat indicators */
@@ -645,30 +660,33 @@ export class ResultViewer extends LitElement {
       }
 
       .chip.item-added {
-        animation: chip-added 0.4s ease-out forwards;
+        animation: chip-added 0.5s ease-out forwards;
       }
 
       .chip.item-removed {
-        animation: chip-removed 0.3s ease-in forwards;
+        animation: chip-removed 0.35s ease-in forwards;
       }
 
       .chip.item-updated {
-        animation: item-highlight 0.8s ease-out;
+        animation: chip-highlight 1s ease-out;
       }
 
       @keyframes chip-added {
         0% {
           opacity: 0;
-          transform: scale(0.6);
-          background: hsla(120, 60%, 50%, 0.25);
+          transform: scale(0.5);
+          background: hsla(120, 70%, 45%, 0.35);
+          box-shadow: 0 0 12px hsla(120, 70%, 50%, 0.4);
         }
-        60% {
-          transform: scale(1.05);
+        50% {
+          transform: scale(1.08);
+          background: hsla(120, 70%, 45%, 0.2);
         }
         100% {
           opacity: 1;
           transform: scale(1);
           background: var(--bg-glass-strong);
+          box-shadow: none;
         }
       }
 
@@ -677,11 +695,43 @@ export class ResultViewer extends LitElement {
           opacity: 1;
           transform: scale(1);
         }
+        40% {
+          background: hsla(0, 70%, 50%, 0.25);
+        }
         100% {
           opacity: 0;
-          transform: scale(0.6);
-          background: hsla(0, 60%, 50%, 0.2);
+          transform: scale(0.4);
+          background: hsla(0, 70%, 50%, 0.3);
         }
+      }
+
+      @keyframes chip-highlight {
+        0% {
+          background: hsla(45, 90%, 55%, 0.4);
+          box-shadow: 0 0 8px hsla(45, 90%, 55%, 0.3);
+        }
+        100% {
+          background: var(--bg-glass-strong);
+          box-shadow: none;
+        }
+      }
+
+      /* Chip warmth — ring glow instead of border-left */
+      .chip.warmth-hot {
+        box-shadow:
+          0 0 0 2px hsla(0, 80%, 60%, 0.5),
+          0 0 8px hsla(0, 80%, 55%, 0.25);
+        transition: box-shadow 2s ease-out;
+      }
+      .chip.warmth-warm {
+        box-shadow:
+          0 0 0 2px hsla(28, 80%, 55%, 0.4),
+          0 0 6px hsla(28, 80%, 55%, 0.15);
+        transition: box-shadow 2s ease-out;
+      }
+      .chip.warmth-cool {
+        box-shadow: 0 0 0 1.5px hsla(48, 80%, 50%, 0.3);
+        transition: box-shadow 2s ease-out;
       }
 
       /* Markdown Styles */
@@ -3361,7 +3411,8 @@ export class ResultViewer extends LitElement {
       <div class="smart-chips">
         ${data.map(
           (item) =>
-            html`<span class="chip ${this._getItemAnimationClass(item)}"
+            html`<span
+              class="chip ${this._getItemAnimationClass(item)} ${this._getItemWarmthClass(item)}"
               >${this._highlightText(String(item))}</span
             >`
         )}
