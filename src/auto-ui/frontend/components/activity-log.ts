@@ -32,7 +32,7 @@ export class ActivityLog extends LitElement {
 
       h3 {
         margin: 0;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.1em;
         color: var(--t-secondary); /* Brighter */
@@ -43,7 +43,7 @@ export class ActivityLog extends LitElement {
         background: none;
         border: none;
         color: var(--t-muted);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         cursor: pointer;
         padding: 4px 8px;
         border-radius: var(--radius-xs);
@@ -68,7 +68,7 @@ export class ActivityLog extends LitElement {
         border-left-width: 3px;
         border-left-style: solid;
         font-family: var(--font-mono);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         display: flex;
         gap: var(--space-md);
       }
@@ -81,7 +81,7 @@ export class ActivityLog extends LitElement {
 
       .count {
         color: var(--t-muted);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         opacity: 0.8;
         margin-left: var(--space-xs);
       }

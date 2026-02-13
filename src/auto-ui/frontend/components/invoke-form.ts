@@ -57,7 +57,7 @@ export class InvokeForm extends LitElement {
       }
 
       .hint {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         margin-left: var(--space-xs);
       }
@@ -94,7 +94,7 @@ export class InvokeForm extends LitElement {
       }
 
       .cli-preview-label {
-        font-size: 0.6rem;
+        font-size: var(--text-2xs);
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: var(--cli-muted);
@@ -102,7 +102,7 @@ export class InvokeForm extends LitElement {
       }
 
       .cli-preview-copy {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         font-family: inherit;
         background: none;
         border: none;
@@ -120,7 +120,7 @@ export class InvokeForm extends LitElement {
 
       .cli-preview-cmd {
         font-family: inherit;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--cli-text);
         word-break: break-all;
         line-height: 1.6;
@@ -181,7 +181,7 @@ export class InvokeForm extends LitElement {
         border: none;
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         font-weight: 500;
         border-bottom: 2px solid transparent;
         margin-bottom: -1px;
@@ -223,7 +223,7 @@ export class InvokeForm extends LitElement {
       }
 
       .array-item-title {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         font-weight: 500;
         color: var(--t-muted);
       }
@@ -233,7 +233,7 @@ export class InvokeForm extends LitElement {
         border: none;
         color: var(--color-error);
         cursor: pointer;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         padding: 2px 6px;
         border-radius: var(--radius-xs);
       }
@@ -250,7 +250,7 @@ export class InvokeForm extends LitElement {
         border-radius: var(--radius-sm);
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         transition: all 0.2s;
       }
 
@@ -268,14 +268,14 @@ export class InvokeForm extends LitElement {
       }
 
       .nested-label {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         margin-bottom: var(--space-xs);
         display: block;
       }
 
       .nested-hint {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         opacity: 0.7;
         margin-left: var(--space-xs);
@@ -291,7 +291,7 @@ export class InvokeForm extends LitElement {
         padding: var(--space-sm);
         border-radius: var(--radius-sm);
         font-family: var(--font-mono, monospace);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         line-height: 1.5;
         resize: vertical;
       }
@@ -308,7 +308,7 @@ export class InvokeForm extends LitElement {
 
       .json-error {
         color: var(--color-error);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         margin-top: var(--space-xs);
       }
 
@@ -350,7 +350,7 @@ export class InvokeForm extends LitElement {
       .range-labels {
         display: flex;
         justify-content: space-between;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
       }
 

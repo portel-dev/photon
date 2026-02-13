@@ -44,7 +44,7 @@ export class StudioPreview extends LitElement {
       :host {
         display: block;
         font-family: var(--font-mono, 'SF Mono', monospace);
-        font-size: 0.82rem;
+        font-size: var(--text-sm);
         color: var(--t-primary, #e0e0e0);
       }
 
@@ -53,7 +53,7 @@ export class StudioPreview extends LitElement {
       }
 
       .section-title {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: var(--t-muted, #888);
@@ -66,7 +66,7 @@ export class StudioPreview extends LitElement {
         align-items: center;
         gap: 8px;
         padding: 3px 0;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
       }
 
       .meta-label {
@@ -79,14 +79,14 @@ export class StudioPreview extends LitElement {
       }
 
       .photon-name {
-        font-size: 1rem;
+        font-size: var(--text-lg);
         font-weight: 600;
         margin-bottom: 4px;
       }
 
       .photon-desc {
         color: var(--t-muted, #888);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         margin-bottom: 12px;
       }
 
@@ -106,7 +106,7 @@ export class StudioPreview extends LitElement {
       }
 
       .method-icon {
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .method-name {
@@ -115,14 +115,14 @@ export class StudioPreview extends LitElement {
 
       .method-desc {
         color: var(--t-muted, #888);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         margin-top: 3px;
       }
 
       .method-params {
         margin-top: 6px;
         padding-left: 12px;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
       }
 
       .param-item {
@@ -141,7 +141,7 @@ export class StudioPreview extends LitElement {
 
       .param-required {
         color: var(--color-error);
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
       }
 
       .dep-tag {
@@ -149,7 +149,7 @@ export class StudioPreview extends LitElement {
         padding: 1px 6px;
         background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
         border-radius: var(--radius-xs);
-        font-size: 0.72rem;
+        font-size: var(--text-xs);
         margin: 2px 2px 2px 0;
         color: var(--t-muted, #888);
       }
@@ -163,7 +163,7 @@ export class StudioPreview extends LitElement {
 
       .error-item {
         color: var(--color-error);
-        font-size: 0.78rem;
+        font-size: var(--text-sm);
         padding: 2px 0;
       }
 
@@ -173,7 +173,7 @@ export class StudioPreview extends LitElement {
 
       .warning-item {
         color: var(--color-warning);
-        font-size: 0.78rem;
+        font-size: var(--text-sm);
         padding: 2px 0;
       }
 
@@ -186,7 +186,7 @@ export class StudioPreview extends LitElement {
         font-style: italic;
         text-align: center;
         padding: 24px 0;
-        font-size: 0.82rem;
+        font-size: var(--text-sm);
       }
 
       .loading {

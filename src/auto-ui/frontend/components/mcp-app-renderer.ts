@@ -174,13 +174,13 @@ export class McpAppRenderer extends LitElement {
       }
 
       .error-icon {
-        font-size: 3rem;
+        font-size: var(--text-3xl);
         opacity: 0.5;
       }
 
       .error-message {
         color: var(--color-error);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         max-width: 400px;
       }
 
@@ -217,7 +217,7 @@ export class McpAppRenderer extends LitElement {
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -257,7 +257,7 @@ export class McpAppRenderer extends LitElement {
 
       .fullscreen-header .app-name {
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         flex: 1;
       }
@@ -269,7 +269,7 @@ export class McpAppRenderer extends LitElement {
         padding: 4px 12px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         transition: all 0.2s ease;
       }
 

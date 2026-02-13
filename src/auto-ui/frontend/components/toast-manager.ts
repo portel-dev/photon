@@ -42,7 +42,7 @@ export class ToastManager extends LitElement {
         -webkit-backdrop-filter: blur(16px);
         border: 1px solid var(--border-glass);
         color: var(--t-primary);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         pointer-events: auto;
         animation: slideIn 0.3s ease-out;
         max-width: 350px;
@@ -134,7 +134,7 @@ export class ToastManager extends LitElement {
         cursor: pointer;
         padding: 3px 10px;
         border-radius: var(--radius-sm);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         font-weight: 500;
         transition: all 0.2s;
         white-space: nowrap;
