@@ -833,26 +833,17 @@ export class BeamSidebar extends LitElement {
         >
           ⌨️ <kbd>?</kbd>
         </button>
-        <div class="theme-toggle" role="group" aria-label="Theme selection">
-          <button
-            class="theme-btn ${this.theme === 'light' ? 'active' : ''}"
-            @click=${() => this._setTheme('light')}
-            title="Light theme"
-            aria-label="Switch to light theme"
-            aria-pressed="${this.theme === 'light'}"
-          >
-            ☀️
-          </button>
-          <button
-            class="theme-btn ${this.theme === 'dark' ? 'active' : ''}"
-            @click=${() => this._setTheme('dark')}
-            title="Dark theme"
-            aria-label="Switch to dark theme"
-            aria-pressed="${this.theme === 'dark'}"
-          >
-            🌙
-          </button>
-        </div>
+        <button
+          class="footer-link"
+          @click=${() =>
+            this.dispatchEvent(
+              new CustomEvent('open-theme-settings', { bubbles: true, composed: true })
+            )}
+          title="Theme settings (t)"
+          aria-label="Open theme settings"
+        >
+          🎨
+        </button>
       </div>
     `;
   }

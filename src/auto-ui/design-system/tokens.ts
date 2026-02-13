@@ -28,6 +28,17 @@ export {
   getThemeColors,
   getThemeTokens,
 
+  // OKLCH theme engine
+  type ThemeConfig,
+  type ThemePreset,
+  type GeneratedThemeColors,
+  type BeamThemeColors,
+  oklchToHex,
+  generateThemeColors,
+  generateBeamThemeColors,
+  beamThemeToCSS,
+  themePresets,
+
   // Elevation
   elevation,
   elevationLight,
