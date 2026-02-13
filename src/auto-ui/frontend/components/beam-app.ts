@@ -6,6 +6,12 @@ import { showToast } from './toast-manager.js';
 import type { BeamSidebar } from './beam-sidebar.js';
 import type { ResultViewer } from './result-viewer.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
+import { loadSavedThemeConfig } from './theme-settings.js';
+import {
+  generateBeamThemeColors,
+  beamThemeToCSS,
+  type ThemeConfig,
+} from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
 
@@ -1206,6 +1212,37 @@ export class BeamApp extends LitElement {
         opacity: 1;
       }
 
+      /* ===== Theme Settings Panel ===== */
+      .theme-settings-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+      }
+
+      .theme-settings-panel {
+        position: fixed;
+        top: var(--space-md);
+        right: var(--space-md);
+        bottom: var(--space-md);
+        width: 280px;
+        z-index: 1001;
+        overflow-y: auto;
+        border-radius: var(--radius-md);
+        animation: slideInRight 0.2s ease;
+      }
+
+      @keyframes slideInRight {
+        from {
+          transform: translateX(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
       /* ===== HTML UI Panel ===== */
       .html-ui-panel {
         min-height: 500px;
@@ -1593,6 +1630,8 @@ export class BeamApp extends LitElement {
   @state() private _selectedMcpAppUri: string | null = null; // Selected tab for MCP Apps with multiple UIs
   @state() private _mcpReady = false;
   @state() private _showSettingsMenu = false;
+  @state() private _showThemeSettings = false;
+  @state() private _oklchEnabled = false;
   @state() private _rememberFormValues = false;
   @state() private _verboseLogging = false;
   @state() private _showSourceModal = false;
@@ -1642,6 +1681,18 @@ export class BeamApp extends LitElement {
       this._theme = savedTheme;
     }
     this._applyTheme();
+
+    // Apply saved OKLCH theme config if present
+    const savedOklch = loadSavedThemeConfig();
+    if (savedOklch) {
+      this._oklchEnabled = true;
+      this._applyOklchTheme({
+        hue: savedOklch.hue,
+        chroma: savedOklch.chroma,
+        lightness: savedOklch.lightness,
+        theme: this._theme,
+      });
+    }
 
     // Load saved protocol preference
     const savedProtocol = localStorage.getItem(PROTOCOL_STORAGE_KEY) as 'legacy' | 'mcp';
@@ -2626,6 +2677,7 @@ export class BeamApp extends LitElement {
           @select=${this._handlePhotonSelectMobile}
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
+          @open-theme-settings=${() => (this._showThemeSettings = true)}
           @show-shortcuts=${this._showHelpModal}
           @reconnect-mcp=${this._handleReconnectMCP}
           @diagnostics=${() => {
@@ -2652,6 +2704,23 @@ export class BeamApp extends LitElement {
 
       <toast-manager></toast-manager>
 
+      ${this._showThemeSettings
+        ? html`
+            <div
+              class="theme-settings-overlay"
+              @click=${() => (this._showThemeSettings = false)}
+            ></div>
+            <div class="theme-settings-panel glass-panel">
+              <theme-settings
+                .currentTheme=${this._theme}
+                @theme-change=${this._handleThemeChange}
+                @oklch-theme-change=${this._handleOklchThemeChange}
+                @oklch-theme-reset=${this._handleOklchThemeReset}
+                @close=${() => (this._showThemeSettings = false)}
+              ></theme-settings>
+            </div>
+          `
+        : ''}
       ${this._showHelp ? this._renderHelpModal() : ''}
       ${this._showPhotonHelp ? this._renderPhotonHelpModal() : ''}
       ${this._showSourceModal ? this._renderSourceModal() : ''}
@@ -4347,8 +4416,52 @@ export class BeamApp extends LitElement {
     this._theme = newTheme;
     localStorage.setItem(THEME_STORAGE_KEY, newTheme);
     this._applyTheme();
+    // Re-apply OKLCH if enabled
+    if (this._oklchEnabled) {
+      const saved = loadSavedThemeConfig();
+      if (saved) {
+        this._applyOklchTheme({
+          hue: saved.hue,
+          chroma: saved.chroma,
+          lightness: saved.lightness,
+          theme: newTheme,
+        });
+      }
+    }
     this._broadcastThemeToIframes();
   };
+
+  private _handleOklchThemeChange = (e: CustomEvent) => {
+    const { cssVars } = e.detail as { config: ThemeConfig; cssVars: Record<string, string> };
+    this._oklchEnabled = true;
+    for (const [prop, value] of Object.entries(cssVars)) {
+      this.style.setProperty(prop, value);
+    }
+    this._broadcastThemeToIframes();
+  };
+
+  private _handleOklchThemeReset = () => {
+    this._oklchEnabled = false;
+    // Remove OKLCH overrides — clear all custom properties set on :host
+    const cssVars = beamThemeToCSS(
+      generateBeamThemeColors({ hue: 0, chroma: 0, lightness: 0.5, theme: 'dark' })
+    );
+    for (const prop of Object.keys(cssVars)) {
+      this.style.removeProperty(prop);
+    }
+    // Re-apply base theme
+    this._applyTheme();
+    this._broadcastThemeToIframes();
+    showToast('Theme reset to default', 'info');
+  };
+
+  private _applyOklchTheme(config: ThemeConfig) {
+    const beamColors = generateBeamThemeColors(config);
+    const cssVars = beamThemeToCSS(beamColors);
+    for (const [prop, value] of Object.entries(cssVars)) {
+      this.style.setProperty(prop, value);
+    }
+  }
 
   private _handleElicitationSubmit = async (e: CustomEvent) => {
     const { value } = e.detail;
@@ -4527,14 +4640,9 @@ export class BeamApp extends LitElement {
       return;
     }
 
-    // t to toggle theme
+    // t to open theme settings panel
     if (e.key === 't') {
-      const newTheme = this._theme === 'dark' ? 'light' : 'dark';
-      this._theme = newTheme;
-      localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-      this._applyTheme();
-      this._broadcastThemeToIframes();
-      showToast(`Theme: ${newTheme}`, 'info');
+      this._showThemeSettings = !this._showThemeSettings;
       return;
     }
 
@@ -5857,7 +5965,7 @@ export class BeamApp extends LitElement {
               </div>
               <div class="shortcut-item">
                 <span class="shortcut-key"><kbd>t</kbd></span>
-                <span class="shortcut-desc">Toggle theme</span>
+                <span class="shortcut-desc">Theme settings</span>
               </div>
               <div class="shortcut-item">
                 <span class="shortcut-key"><kbd>p</kbd></span>
