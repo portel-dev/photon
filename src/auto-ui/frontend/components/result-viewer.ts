@@ -2872,6 +2872,145 @@ export class ResultViewer extends LitElement {
     );
   }
 
+  /**
+   * Unwrap a purpose-driven UI type (Table, Chart, Stats, Cards, Progress)
+   * into a layout type + result data + layoutHints.
+   */
+  private _unwrapUIType(data: Record<string, any>): LayoutType {
+    const type = data._photonType as string;
+
+    switch (type) {
+      case 'table': {
+        // Extract rows as the renderable array; pass columns/fields via layoutHints
+        this.result = data.rows ?? [];
+        // Store column metadata for the table renderer
+        if (data.columns?.length || data.fields?.length) {
+          (this as any)._uiTypeColumns = data.columns;
+          (this as any)._uiTypeFields = data.fields;
+        }
+        if (data.options?.title) {
+          this.layoutHints = { ...this.layoutHints, title: data.options.title };
+        }
+        return 'table';
+      }
+      case 'cards': {
+        // Cards wraps items array with field mappings
+        this.result = data.items ?? [];
+        const fields = data.fields ?? {};
+        this.layoutHints = {
+          ...this.layoutHints,
+          title: fields.heading || data.options?.title,
+          subtitle: fields.subtitle,
+          icon: fields.image,
+          badge: fields.badge,
+          detail: fields.description,
+        };
+        return 'list'; // Cards render as rich list items
+      }
+      case 'chart': {
+        // Chart data stays as-is; set chartType hint
+        const chartType = data.chartType ?? 'line';
+        // For pie/doughnut with data points, convert to array format
+        if ((chartType === 'pie' || chartType === 'doughnut') && data.data?.length) {
+          this.result = data.data;
+        } else if (data.series?.length && data.labels?.length) {
+          // Convert series format to array of objects for chart renderer
+          const rows = data.labels.map((label: string, i: number) => {
+            const row: Record<string, any> = { label };
+            for (const s of data.series) {
+              row[s.name] = s.data[i] ?? 0;
+            }
+            return row;
+          });
+          this.result = rows;
+        }
+        this.layoutHints = {
+          ...this.layoutHints,
+          chartType,
+          label: 'label',
+          title: data.options?.title,
+          x: data.options?.xAxisLabel,
+          y: data.options?.yAxisLabel,
+        };
+        return 'chart';
+      }
+      case 'stats': {
+        // Stats: array of stat items → render as metric
+        const stats = data.stats ?? [];
+        if (stats.length === 1) {
+          // Single stat → gauge/metric
+          this.result = {
+            value: stats[0].value,
+            label: stats[0].label,
+            trend: stats[0].trend,
+            trendUp: stats[0].trendUp,
+          };
+          return 'metric';
+        }
+        // Multiple stats → render as dashboard of metrics
+        const dashboard: Record<string, any> = {};
+        for (const stat of stats) {
+          dashboard[stat.label] = {
+            value: stat.value,
+            trend: stat.trend,
+            trendUp: stat.trendUp,
+            prefix: stat.prefix,
+            suffix: stat.suffix,
+          };
+        }
+        this.result = dashboard;
+        if (data.options?.title) {
+          this.layoutHints = { ...this.layoutHints, title: data.options.title };
+        }
+        return 'dashboard';
+      }
+      case 'progress': {
+        // Progress: render as gauge for single bar, or list for steps/multi-bar
+        if (data.steps?.length) {
+          // Step indicator → timeline
+          this.result = data.steps.map((s: any) => ({
+            title: s.label,
+            status: s.status,
+            description: s.description,
+          }));
+          return 'timeline';
+        }
+        if (data.bars?.length) {
+          // Multi-bar → render as array of gauges via dashboard
+          const dashboard: Record<string, any> = {};
+          for (const bar of data.bars) {
+            dashboard[bar.label] = {
+              value: bar.value,
+              max: bar.max ?? 100,
+              progress: Math.round((bar.value / (bar.max ?? 100)) * 100),
+            };
+          }
+          this.result = dashboard;
+          return 'dashboard';
+        }
+        // Single bar → gauge
+        this.result = {
+          value: data.value ?? 0,
+          max: data.max ?? 100,
+          progress: Math.round(((data.value ?? 0) / (data.max ?? 100)) * 100),
+          label: data.options?.title,
+        };
+        return 'gauge';
+      }
+      case 'form': {
+        // Form type — render fields as card/kv for now
+        this.result = data.fields ?? data;
+        return 'card';
+      }
+      default: {
+        // Unknown UI type — strip _photonType and render as auto-detected
+        const { _photonType, ...rest } = data;
+        this.result = rest;
+        return this._selectLayout(); // Re-run detection on cleaned data
+      }
+    }
+  }
+
   private _selectLayout(): LayoutType {
     // 1. Explicit format from docblock
     if (this.outputFormat) {
@@ -2934,6 +3073,17 @@ export class ResultViewer extends LitElement {
         chips: 'chips',
       };
       return formatMap[hint] ?? 'table';
+    }
+
+    // 2b. Purpose-driven UI types (Table, Chart, Stats, Cards, Progress, Form)
+    if (
+      data &&
+      typeof data === 'object' &&
+      !Array.isArray(data) &&
+      typeof (data as any)._photonType === 'string' &&
+      !(data as any)._photonType.startsWith('collection:')
+    ) {
+      return this._unwrapUIType(data as Record<string, any>);
     }
 
     // 3. Detect from data shape
