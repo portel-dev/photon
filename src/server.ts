@@ -237,18 +237,18 @@ export class PhotonServer {
       return 'sep-1865';
     }
 
-    // Check client info for known SEP-1865 compatible clients
+    // Check client info for known clients
     const clientInfo = (targetServer as any)._clientVersion;
     if (clientInfo?.name) {
       const name = clientInfo.name.toLowerCase();
-      // Known SEP-1865 compatible clients
-      if (name.includes('claude') || name.includes('chatgpt') || name.includes('openai')) {
-        return 'sep-1865';
+      // Only Beam uses the legacy Photon format
+      if (name.includes('beam') || name === 'photon-beam') {
+        return 'photon';
       }
     }
 
-    // Default to Photon format for backward compatibility
-    return 'photon';
+    // Default to SEP-1865 (MCP standard) for all unknown/third-party clients
+    return 'sep-1865';
   }
 
   /**
@@ -801,6 +801,19 @@ export class PhotonServer {
               `This is a stateful workflow. To resume if interrupted, use run ID: ${result.runId}`,
           };
           return { content: [content, workflowInfo] };
+        }
+
+        // Enrich response with structuredContent + _meta for tools with linked UIs
+        // This enables ChatGPT, MCPJam Inspector, and other MCP Apps clients to render widgets
+        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
+        if (linkedUI) {
+          const response: any = { content: [content] };
+          if (actualResult !== undefined && actualResult !== null) {
+            response.structuredContent =
+              typeof actualResult === 'string' ? { text: actualResult } : actualResult;
+          }
+          response._meta = this.buildUIToolMeta(linkedUI.id);
+          return response;
         }
 
         return { content: [content] };
@@ -2210,6 +2223,19 @@ export class PhotonServer {
         if (isStateful) {
           response._meta = { runId: result.runId, status: result.status };
         }
+
+        // Enrich response with structuredContent + _meta for tools with linked UIs
+        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
+        if (linkedUI) {
+          if (actualResult !== undefined && actualResult !== null) {
+            response.structuredContent =
+              typeof actualResult === 'string' ? { text: actualResult } : actualResult;
+          }
+          // Merge UI meta (preserve existing _meta like runId/status)
+          const uiMeta = this.buildUIToolMeta(linkedUI.id, sessionServer);
+          response._meta = { ...response._meta, ...uiMeta };
+        }
+
         return response;
       } catch (error) {
         return this.formatError(error, toolName, args);
