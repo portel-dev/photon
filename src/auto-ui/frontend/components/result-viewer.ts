@@ -2940,8 +2940,8 @@ export class ResultViewer extends LitElement {
             chartType,
             label: 'label',
             title: data.options?.title,
-            x: data.options?.xAxisLabel,
-            y: data.options?.yAxisLabel,
+            // Note: xAxisLabel/yAxisLabel are display labels, not field names.
+            // Don't set x/y hints — let the renderer auto-detect numeric fields.
           },
         };
       }
