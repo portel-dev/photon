@@ -68,7 +68,7 @@ export type TransportType = 'stdio' | 'sse';
  * - 'photon': Legacy Photon format
  * - 'none': Text-only, no UI support
  */
-export type UIFormat = 'sep-1865' | 'photon' | 'none';
+export type UIFormat = 'sep-1865' | 'none';
 
 export interface UnresolvedPhoton {
   name: string;
@@ -208,46 +208,12 @@ export class PhotonServer {
   /**
    * Detect UI format based on client capabilities
    *
-   * SEP-1865 clients advertise ui capability in experimental or root capabilities.
-   * Legacy Photon clients may not have explicit UI capability but support photon:// URIs.
+   * All clients use the MCP Apps standard (SEP-1865) ui:// format.
    * Text-only clients have no UI support.
    *
    * @param server - Optional server instance (for SSE sessions), defaults to main server
    */
-  private getUIFormat(server?: Server): UIFormat {
-    const targetServer = server || this.server;
-    const capabilities = targetServer.getClientCapabilities();
-
-    if (!capabilities) {
-      // Before initialization - fall back to Photon format (upgrades once client capabilities are known)
-      return 'photon';
-    }
-
-    // Check for MCP Apps extension (io.modelcontextprotocol/ui)
-    // Claude Desktop and other MCP Apps clients use this format
-    const extensions = (capabilities as any).extensions as Record<string, unknown> | undefined;
-    if (extensions?.['io.modelcontextprotocol/ui']) {
-      return 'sep-1865';
-    }
-
-    // Check for SEP-1865 UI capability
-    // SEP-1865 clients advertise: { experimental: { ui: {} } } or { ui: {} }
-    const experimental = capabilities.experimental as Record<string, unknown> | undefined;
-    if (experimental?.ui || (capabilities as any).ui) {
-      return 'sep-1865';
-    }
-
-    // Check client info for known clients
-    const clientInfo = (targetServer as any)._clientVersion;
-    if (clientInfo?.name) {
-      const name = clientInfo.name.toLowerCase();
-      // Beam uses its own Photon URI format (not MCP Apps standard)
-      if (name.includes('beam') || name === 'photon-beam') {
-        return 'photon';
-      }
-    }
-
-    // Default to SEP-1865 (MCP standard) for all unknown/third-party clients
+  private getUIFormat(_server?: Server): UIFormat {
     return 'sep-1865';
   }
 
@@ -257,17 +223,9 @@ export class PhotonServer {
    * @param uiId - UI template identifier
    * @param server - Optional server instance (for SSE sessions)
    */
-  private buildUIResourceUri(uiId: string, server?: Server): string {
-    const format = this.getUIFormat(server);
+  private buildUIResourceUri(uiId: string, _server?: Server): string {
     const photonName = this.mcp?.name || 'unknown';
-
-    switch (format) {
-      case 'sep-1865':
-        return `ui://${photonName}/${uiId}`;
-      case 'photon':
-      default:
-        return `photon://${photonName}/ui/${uiId}`;
-    }
+    return `ui://${photonName}/${uiId}`;
   }
 
   /**
@@ -277,17 +235,8 @@ export class PhotonServer {
    * @param server - Optional server instance (for SSE sessions)
    */
   private buildUIToolMeta(uiId: string, server?: Server): Record<string, unknown> {
-    const format = this.getUIFormat(server);
     const uri = this.buildUIResourceUri(uiId, server);
-
-    switch (format) {
-      case 'sep-1865':
-        // Official MCP Apps spec: _meta.ui.resourceUri
-        return { ui: { resourceUri: uri } };
-      case 'photon':
-      default:
-        return { outputTemplate: uri };
-    }
+    return { ui: { resourceUri: uri } };
   }
 
   /**
@@ -295,20 +244,8 @@ export class PhotonServer {
    *
    * @param server - Optional server instance (for SSE sessions)
    */
-  private getUIMimeType(server?: Server): string {
-    const targetServer = server || this.server;
-    const capabilities = targetServer.getClientCapabilities();
-
-    // Check for MCP Apps extension with declared mimeTypes
-    // Claude Desktop uses: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } }
-    const extensions = (capabilities as any)?.extensions as Record<string, any> | undefined;
-    const mcpUI = extensions?.['io.modelcontextprotocol/ui'];
-    if (mcpUI?.mimeTypes?.[0]) {
-      return mcpUI.mimeTypes[0];
-    }
-
-    const format = this.getUIFormat(server);
-    return format === 'sep-1865' ? 'text/html;profile=mcp-app' : 'text/html';
+  private getUIMimeType(_server?: Server): string {
+    return 'text/html;profile=mcp-app';
   }
 
   /**
@@ -1691,7 +1628,7 @@ export class PhotonServer {
                 description: tool.description,
                 inputSchema: tool.inputSchema,
                 ui: linkedUI
-                  ? { id: linkedUI.id, uri: `photon://${this.mcp!.name}/ui/${linkedUI.id}` }
+                  ? { id: linkedUI.id, uri: `ui://${this.mcp!.name}/${linkedUI.id}` }
                   : null,
               };
             }) || [];
