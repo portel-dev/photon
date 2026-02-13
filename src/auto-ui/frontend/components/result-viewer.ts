@@ -4246,7 +4246,29 @@ export class ResultViewer extends LitElement {
     }
 
     const str = String(value);
+
+    // Detect mermaid diagram strings and render them visually
+    if (this._isMermaidString(str)) {
+      const mermaidId = `mermaid-cell-${Math.random().toString(36).substr(2, 9)}`;
+      // Queue for rendering — updated() lifecycle will call _renderMermaidBlocks
+      this._pendingMermaidBlocks.push({ id: mermaidId, code: str });
+      return html`<div
+        class="mermaid-placeholder"
+        data-mermaid-id="${mermaidId}"
+        style="min-height: 80px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);"
+      >
+        Loading diagram...
+      </div>`;
+    }
+
     return highlight ? this._highlightText(str) : str;
+  }
+
+  private _isMermaidString(str: string): boolean {
+    const trimmed = str.trimStart();
+    return /^(flowchart |graph |sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie |gitGraph|journey|mindmap|timeline|sankey|xychart|block-beta|packet-beta|architecture-beta|kanban)/.test(
+      trimmed
+    );
   }
 
   private _isDateField(key: string): boolean {
