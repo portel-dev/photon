@@ -1325,6 +1325,22 @@ export class BeamApp extends LitElement {
         color: var(--t-muted);
       }
 
+      .method-description p {
+        margin: 0 0 0.4em;
+      }
+      .method-description p:last-child {
+        margin-bottom: 0;
+      }
+      .method-description code {
+        background: var(--bg-glass);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 0.9em;
+      }
+      .method-description strong {
+        color: var(--t-primary);
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .mobile-menu-btn {
@@ -3633,6 +3649,16 @@ export class BeamApp extends LitElement {
   /**
    * Render the method content - either as a minimal HTML UI or full form
    */
+  private _renderDescription(description?: string) {
+    if (!description) return html``;
+    const marked = (window as any).marked;
+    if (marked) {
+      const htmlContent = marked.parse(description) as string;
+      return html`<div class="method-description">${unsafeHTML(htmlContent)}</div>`;
+    }
+    return html`<p>${description}</p>`;
+  }
+
   private _renderMethodContent() {
     // HTML UI mode: minimal chrome, just show the interactive content
     if (this._isHtmlUiMode()) {
@@ -3657,7 +3683,7 @@ export class BeamApp extends LitElement {
     return html`
       <div class="glass-panel method-detail">
         <h2>${this._selectedMethod.name}</h2>
-        <p>${this._selectedMethod.description}</p>
+        ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
           .loading=${this._isExecuting}
