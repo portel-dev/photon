@@ -4048,9 +4048,10 @@ export class BeamApp extends LitElement {
             }
           });
 
-          // Auto-subscribe to collection events if result is an array
+          // Auto-subscribe to collection events for live updates
           // Convention: method name is the collection name (e.g., tasks() -> tasks:added)
-          if (Array.isArray(this._lastResult)) {
+          // Works for arrays (added/removed/updated) AND objects (changed) like gauges/metrics
+          if (this._lastResult != null) {
             this._setupCollectionSubscriptions(this._selectedMethod.name);
           }
         }
