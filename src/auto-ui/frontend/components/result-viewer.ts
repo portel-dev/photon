@@ -4014,6 +4014,10 @@ export class ResultViewer extends LitElement {
 
   private _renderText(data: any): TemplateResult | string {
     const text = String(data);
+    // Fallback: detect mermaid strings that _selectLayout missed (e.g., timing)
+    if (this._isMermaidString(text)) {
+      return this._renderMermaid(text);
+    }
     return this._highlightText(text);
   }
 
