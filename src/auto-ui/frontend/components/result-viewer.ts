@@ -3981,62 +3981,106 @@ export class ResultViewer extends LitElement {
     });
 
     for (const { id, code } of blocks) {
-      const placeholder = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`);
-      if (!placeholder) {
+      const target = this.shadowRoot?.querySelector(`[data-mermaid-id="${id}"]`) as HTMLElement;
+      if (!target) {
         console.warn('Mermaid placeholder not found:', id);
         continue;
       }
 
       try {
-        // Create mermaid container with theme-aware background
+        const renderSuffix = Math.random().toString(36).substr(2, 6);
+        const { svg } = await mermaid.render(`${id}-${renderSuffix}-svg`, code);
+        this._lastMermaidSvg = svg;
+
+        // Check if target is already a wrapper (from cached SVG render)
+        if (target.classList.contains('mermaid-wrapper')) {
+          // In-place SVG swap with fade transition
+          const diagramDiv = target.querySelector('.mermaid-diagram') as HTMLElement;
+          if (diagramDiv) {
+            diagramDiv.style.opacity = '0.4';
+            requestAnimationFrame(() => {
+              diagramDiv.innerHTML = svg;
+              diagramDiv.style.opacity = '1';
+            });
+          }
+          // Ensure expand button exists
+          if (!target.querySelector('.expand-btn')) {
+            this._addMermaidExpandBtn(target, code, id);
+          } else {
+            const btn = target.querySelector('.expand-btn') as HTMLElement;
+            btn.onclick = () => this._openMermaidFullscreen(code, id);
+          }
+          continue;
+        }
+
+        // First render — create wrapper from placeholder
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
+        wrapper.setAttribute('data-mermaid-id', id);
         const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
         wrapper.style.cssText = `position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0;`;
 
         const diagramDiv = document.createElement('div');
+        diagramDiv.className = 'mermaid-diagram';
         diagramDiv.id = id;
-
-        // Render mermaid
-        const { svg } = await mermaid.render(id + '-svg', code);
+        diagramDiv.style.transition = 'opacity 0.2s ease';
         diagramDiv.innerHTML = svg;
 
-        // Add expand button
-        const expandBtn = document.createElement('button');
-        expandBtn.innerHTML = '⤢';
-        expandBtn.title = 'View fullscreen';
-        expandBtn.className = 'expand-btn';
-        expandBtn.style.opacity = '0'; // Start hidden, show on hover via CSS
-        expandBtn.onclick = () => {
-          this._resetZoom();
-          this._fullscreenMermaid = code;
-          setTimeout(async () => {
-            const fullscreenContainer = this.shadowRoot?.querySelector('#fullscreen-mermaid');
-            if (fullscreenContainer && mermaid) {
-              const fsId = 'fullscreen-' + id;
-              const { svg: fsSvg } = await mermaid.render(fsId + '-svg', code);
-              fullscreenContainer.innerHTML = fsSvg;
-              // Auto-fit: calculate zoom to fill viewport
-              this._autoFitFullscreen();
-            }
-          }, 50);
-        };
-
         wrapper.appendChild(diagramDiv);
-        wrapper.appendChild(expandBtn);
-        placeholder.replaceWith(wrapper);
+        this._addMermaidExpandBtn(wrapper, code, id);
+        target.replaceWith(wrapper);
       } catch (e) {
         console.error('Mermaid render error:', e);
-        (placeholder as HTMLElement).innerHTML =
-          `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e}\n\n${code}</pre>`;
+        target.innerHTML = `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e}\n\n${code}</pre>`;
       }
     }
   }
+
+  private _openMermaidFullscreen(code: string, id: string) {
+    this._resetZoom();
+    this._fullscreenMermaid = code;
+    setTimeout(async () => {
+      const fc = this.shadowRoot?.querySelector('#fullscreen-mermaid');
+      const m = (window as any).mermaid;
+      if (fc && m) {
+        const { svg } = await m.render(`fs-${id}-svg`, code);
+        fc.innerHTML = svg;
+        this._autoFitFullscreen();
+      }
+    }, 50);
+  }
+
+  private _addMermaidExpandBtn(wrapper: HTMLElement, code: string, id: string) {
+    const expandBtn = document.createElement('button');
+    expandBtn.innerHTML = '⤢';
+    expandBtn.title = 'View fullscreen';
+    expandBtn.className = 'expand-btn';
+    expandBtn.style.opacity = '0';
+    expandBtn.onclick = () => this._openMermaidFullscreen(code, id);
+    wrapper.appendChild(expandBtn);
+  }
+
+  private _lastMermaidSvg: string = '';
 
   private _renderMermaid(data: any): TemplateResult {
     const code = String(data);
     const mermaidId = `mermaid-top-${Math.random().toString(36).substr(2, 9)}`;
     this._pendingMermaidBlocks.push({ id: mermaidId, code });
+    const bgColor = this.theme === 'light' ? '#F4F6F8' : '#1e293b';
+
+    // Show cached SVG immediately to prevent flash during streaming updates
+    if (this._lastMermaidSvg) {
+      return html`<div
+        class="mermaid-wrapper"
+        data-mermaid-id="${mermaidId}"
+        style="position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0;"
+      >
+        <div class="mermaid-diagram" style="transition: opacity 0.2s ease;">
+          ${unsafeHTML(this._lastMermaidSvg)}
+        </div>
+      </div>`;
+    }
+
     return html`<div
       class="mermaid-placeholder"
       data-mermaid-id="${mermaidId}"
