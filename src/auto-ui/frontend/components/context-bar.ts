@@ -250,9 +250,13 @@ export class ContextBar extends LitElement {
       }
 
       .breadcrumb .chevron {
-        font-size: 10px;
-        opacity: 0.5;
+        opacity: 0.6;
         transition: transform 0.15s ease;
+        flex-shrink: 0;
+      }
+
+      .breadcrumb .current.has-dropdown:hover .chevron {
+        opacity: 1;
       }
 
       .breadcrumb .chevron.open {
@@ -423,10 +427,21 @@ export class ContextBar extends LitElement {
                           class="current has-dropdown"
                           @click=${this._toggleMethodDropdown}
                         >
-                          ${crumb.label}<span
+                          ${crumb.label}<svg
                             class="chevron ${this._methodDropdownOpen ? 'open' : ''}"
-                            >▾</span
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="none"
                           >
+                            <path
+                              d="M3 4.5L6 7.5L9 4.5"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
                           ${this._methodDropdownOpen ? this._renderMethodDropdown(crumb.label) : ''}
                         </span>`
                       : html`<span class="current">${crumb.label}</span>`
