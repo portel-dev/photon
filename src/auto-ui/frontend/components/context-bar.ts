@@ -26,6 +26,8 @@ export class ContextBar extends LitElement {
     css`
       :host {
         display: block;
+        position: relative;
+        z-index: 10;
       }
 
       .context-bar {
@@ -37,6 +39,7 @@ export class ContextBar extends LitElement {
         border-radius: var(--radius-md);
         background: var(--bg-glass);
         backdrop-filter: blur(16px);
+        position: relative;
       }
 
       .identity {
