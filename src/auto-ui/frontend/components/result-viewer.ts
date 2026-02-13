@@ -3085,8 +3085,13 @@ export class ResultViewer extends LitElement {
       if (this._isMermaidString(data)) {
         return 'mermaid';
       }
-      // Check for markdown indicators
-      if (data.includes('```') || data.includes('##') || data.includes('**')) {
+      // Check for markdown indicators (including YAML frontmatter)
+      if (
+        data.includes('```') ||
+        data.includes('##') ||
+        data.includes('**') ||
+        /^\s*---\s*[\r\n]/.test(data)
+      ) {
         return 'markdown';
       }
       return 'text';
@@ -3661,20 +3666,49 @@ export class ResultViewer extends LitElement {
   // Store code blocks for Prism highlighting after DOM update
   private _pendingCodeBlocks: { id: string; code: string; language: string }[] = [];
 
+  private _stripFrontMatter(text: string): { body: string; table: string } {
+    const fmRegex = /^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*/;
+    const tables: string[] = [];
+    let body = text.replace(/^\uFEFF/, '').trimStart();
+
+    while (true) {
+      const match = fmRegex.exec(body);
+      if (!match) break;
+      const pairs: [string, string][] = [];
+      for (const line of match[1].split(/\r?\n/)) {
+        const m = /^([^:\s][^:]*):\s*(.+)$/.exec(line.trim());
+        if (m) pairs.push([m[1].trim(), m[2].trim().replace(/^['"]|['"]$/g, '')]);
+      }
+      if (pairs.length) {
+        const rows = pairs.map(([k, v]) => `| ${k} | ${v} |`).join('\n');
+        tables.push(`| Field | Value |\n| --- | --- |\n${rows}`);
+      }
+      body = body.slice(match[0].length).trimStart();
+    }
+
+    return { body, table: tables.length ? tables.join('\n\n') + '\n\n' : '' };
+  }
+
   private _renderMarkdown(): TemplateResult {
     const str = String(this.result);
 
     if ((window as any).marked) {
+      // Convert YAML frontmatter to a table
+      const { body: strippedStr, table: fmTable } = this._stripFrontMatter(str);
+
       // Extract mermaid blocks before parsing to handle them separately
       const mermaidBlocks: { id: string; code: string }[] = [];
       const codeBlocks: { id: string; code: string; language: string }[] = [];
 
       // First extract mermaid blocks
-      let processedStr = str.replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match, code) => {
-        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        mermaidBlocks.push({ id, code: code.trim() });
-        return `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
-      });
+      let processedStr = (fmTable + strippedStr).replace(
+        /```mermaid\s*\n([\s\S]*?)```/g,
+        (_match, code) => {
+          const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+          mermaidBlocks.push({ id, code: code.trim() });
+          return `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
+        }
+      );
 
       // Extract other code blocks for Prism highlighting
       processedStr = processedStr.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
