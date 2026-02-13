@@ -109,7 +109,8 @@ export class ResultViewer extends LitElement {
       }
 
       .title {
-        font-size: 0.8rem;
+        font-family: var(--font-display);
+        font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--t-muted);
@@ -117,7 +118,7 @@ export class ResultViewer extends LitElement {
       }
 
       .format-badge {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 2px 8px;
         background: transparent;
         border: none;
@@ -142,7 +143,7 @@ export class ResultViewer extends LitElement {
         border-radius: var(--radius-sm);
         cursor: pointer;
         padding: 4px 8px;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         transition: all 0.2s;
       }
 
@@ -152,7 +153,7 @@ export class ResultViewer extends LitElement {
       }
 
       .content {
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         line-height: 1.5;
       }
@@ -276,7 +277,7 @@ export class ResultViewer extends LitElement {
         width: 100%;
         border-collapse: collapse;
         font-family: var(--font-sans);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .smart-table th {
@@ -312,7 +313,7 @@ export class ResultViewer extends LitElement {
         font-weight: 600;
         color: var(--t-muted);
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         letter-spacing: 0.05em;
       }
 
@@ -464,7 +465,7 @@ export class ResultViewer extends LitElement {
         justify-content: center;
         background: var(--bg-glass);
         border-radius: var(--radius-sm);
-        font-size: 1rem;
+        font-size: var(--text-lg);
         flex-shrink: 0;
       }
 
@@ -489,7 +490,7 @@ export class ResultViewer extends LitElement {
       }
 
       .list-item-subtitle {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         white-space: nowrap;
         overflow: hidden;
@@ -506,7 +507,7 @@ export class ResultViewer extends LitElement {
       .status-badge {
         padding: 2px 8px;
         border-radius: var(--radius-full);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 500;
       }
 
@@ -544,7 +545,7 @@ export class ResultViewer extends LitElement {
         text-decoration: none;
         border-radius: var(--radius-sm);
         font-weight: 500;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         word-break: break-all;
         transition:
           opacity 0.2s,
@@ -584,18 +585,19 @@ export class ResultViewer extends LitElement {
         justify-content: center;
         background: var(--bg-glass);
         border-radius: var(--radius-md);
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
       }
 
       .card-title {
-        font-size: 1.2rem;
+        font-family: var(--font-display);
+        font-size: var(--text-xl);
         font-weight: 600;
         color: var(--t-primary);
       }
 
       .card-subtitle {
         color: var(--t-muted);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .card-fields {
@@ -611,7 +613,7 @@ export class ResultViewer extends LitElement {
       }
 
       .card-field-label {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -634,7 +636,7 @@ export class ResultViewer extends LitElement {
         background: var(--bg-glass-strong);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-full);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         transition:
           background 0.3s ease,
@@ -755,7 +757,7 @@ export class ResultViewer extends LitElement {
         top: 0;
         right: 0;
         padding: 2px 8px;
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         text-transform: uppercase;
         color: var(--t-muted);
         background: var(--bg-glass-strong);
@@ -787,7 +789,7 @@ export class ResultViewer extends LitElement {
         border-radius: var(--radius-sm);
         padding: 4px 10px;
         color: var(--t-primary);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         font-family: var(--font-sans);
       }
 
@@ -803,7 +805,7 @@ export class ResultViewer extends LitElement {
       }
 
       .filter-count {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         white-space: nowrap;
       }
@@ -852,7 +854,7 @@ export class ResultViewer extends LitElement {
         margin-top: var(--space-sm);
         border-top: 1px solid var(--border-glass);
         font-family: var(--font-sans);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
       }
 
       .pagination-info {
@@ -871,7 +873,7 @@ export class ResultViewer extends LitElement {
         border-radius: var(--radius-sm);
         color: var(--t-primary);
         cursor: pointer;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
       }
 
       .pagination-btn:hover:not(:disabled) {
@@ -893,7 +895,7 @@ export class ResultViewer extends LitElement {
       /* Tree Component */
       .tree-container {
         font-family: var(--font-sans);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .tree-node {
@@ -945,7 +947,7 @@ export class ResultViewer extends LitElement {
         justify-content: center;
         cursor: pointer;
         color: var(--t-muted);
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         flex-shrink: 0;
       }
 
@@ -977,7 +979,7 @@ export class ResultViewer extends LitElement {
 
       .tree-type {
         color: var(--t-muted);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         opacity: 0.7;
       }
 
@@ -1043,7 +1045,7 @@ export class ResultViewer extends LitElement {
         height: 36px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 1.1rem;
+        font-size: var(--text-lg);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1069,7 +1071,7 @@ export class ResultViewer extends LitElement {
 
       .zoom-level {
         color: rgba(255, 255, 255, 0.7);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         min-width: 50px;
         text-align: center;
         font-variant-numeric: tabular-nums;
@@ -1077,7 +1079,7 @@ export class ResultViewer extends LitElement {
 
       .fullscreen-hint {
         color: rgba(255, 255, 255, 0.5);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
       }
 
       .fullscreen-viewport {
@@ -1169,7 +1171,7 @@ export class ResultViewer extends LitElement {
         height: 36px;
         border-radius: 50%;
         cursor: pointer;
-        font-size: 1.2rem;
+        font-size: var(--text-xl);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1196,7 +1198,7 @@ export class ResultViewer extends LitElement {
       }
 
       .expand-hint {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         margin-top: 4px;
         opacity: 0.7;
@@ -1219,7 +1221,7 @@ export class ResultViewer extends LitElement {
         height: 28px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1398,7 +1400,8 @@ export class ResultViewer extends LitElement {
       }
 
       .metric-value {
-        font-size: 3rem;
+        font-family: var(--font-display);
+        font-size: var(--text-3xl);
         font-weight: 700;
         color: var(--t-primary);
         line-height: 1.1;
@@ -1408,7 +1411,7 @@ export class ResultViewer extends LitElement {
       }
 
       .metric-label {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -1419,7 +1422,7 @@ export class ResultViewer extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         font-weight: 600;
         padding: 2px 10px;
         border-radius: var(--radius-full);
@@ -1478,7 +1481,7 @@ export class ResultViewer extends LitElement {
       }
 
       .gauge-label {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         margin-top: var(--space-xs);
         text-transform: uppercase;
@@ -1530,7 +1533,7 @@ export class ResultViewer extends LitElement {
 
       .timeline-group-header {
         position: relative;
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         font-weight: 600;
         color: var(--t-muted);
         text-transform: uppercase;
@@ -1570,18 +1573,18 @@ export class ResultViewer extends LitElement {
       .timeline-title {
         font-weight: 600;
         color: var(--t-primary);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         line-height: 1.3;
       }
 
       .timeline-time {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--accent-primary);
         margin-bottom: 2px;
       }
 
       .timeline-description {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-secondary);
         margin-top: 2px;
         line-height: 1.4;
@@ -1617,7 +1620,7 @@ export class ResultViewer extends LitElement {
 
       .dashboard-panel-header {
         padding: 6px var(--space-md);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 600;
         color: var(--t-muted);
         text-transform: uppercase;
@@ -1646,7 +1649,7 @@ export class ResultViewer extends LitElement {
       }
 
       .dashboard-panel .metric-value {
-        font-size: 2rem;
+        font-size: var(--text-3xl);
       }
 
       /* ═══════════════════════════════════════════════════════════════
@@ -1691,7 +1694,7 @@ export class ResultViewer extends LitElement {
       }
 
       .cart-item-meta {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
       }
 
@@ -1699,7 +1702,7 @@ export class ResultViewer extends LitElement {
         padding: 2px 8px;
         background: var(--bg-glass-strong);
         border-radius: var(--radius-sm);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         font-variant-numeric: tabular-nums;
         flex-shrink: 0;
@@ -1728,13 +1731,13 @@ export class ResultViewer extends LitElement {
         display: flex;
         justify-content: space-between;
         padding: 4px 0;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: var(--t-secondary);
       }
 
       .cart-summary-row.total {
         font-weight: 700;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         color: var(--t-primary);
         padding-top: var(--space-sm);
         border-top: 1px solid var(--border-glass);
@@ -1779,7 +1782,7 @@ export class ResultViewer extends LitElement {
 
       .panel-header {
         padding: 6px var(--space-md);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 600;
         color: var(--t-muted);
         text-transform: uppercase;
@@ -1811,7 +1814,7 @@ export class ResultViewer extends LitElement {
         border: none;
         border-right: 1px solid var(--border-glass);
         color: var(--t-muted);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         font-weight: 500;
         cursor: pointer;
         white-space: nowrap;
@@ -1863,7 +1866,7 @@ export class ResultViewer extends LitElement {
         background: var(--bg-glass);
         transition: background 0.2s;
         font-weight: 500;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .accordion-header:hover {
@@ -1871,7 +1874,7 @@ export class ResultViewer extends LitElement {
       }
 
       .accordion-chevron {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         transition: transform 0.2s;
       }
@@ -1908,7 +1911,7 @@ export class ResultViewer extends LitElement {
         padding: 0;
       }
       .stack-item .metric-value {
-        font-size: 2rem;
+        font-size: var(--text-3xl);
       }
 
       /* Columns */

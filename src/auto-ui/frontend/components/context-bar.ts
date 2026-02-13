@@ -83,8 +83,9 @@ export class ContextBar extends LitElement {
       }
 
       .name {
+        font-family: var(--font-display);
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         white-space: nowrap;
         overflow: hidden;
@@ -100,7 +101,7 @@ export class ContextBar extends LitElement {
       .edit-pencil {
         opacity: 0;
         cursor: pointer;
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         transition:
           opacity 0.15s,
@@ -126,7 +127,7 @@ export class ContextBar extends LitElement {
       }
 
       .desc {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         white-space: nowrap;
         overflow: hidden;
@@ -141,7 +142,7 @@ export class ContextBar extends LitElement {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
       }
 
@@ -180,7 +181,7 @@ export class ContextBar extends LitElement {
         padding: 4px 10px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 500;
         transition: all 0.2s ease;
         white-space: nowrap;
@@ -209,7 +210,7 @@ export class ContextBar extends LitElement {
         display: flex;
         align-items: center;
         gap: 4px;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         margin-right: auto;
       }
@@ -233,7 +234,7 @@ export class ContextBar extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        font-size: 0.6rem;
+        font-size: var(--text-2xs);
         font-weight: 700;
         letter-spacing: 0.08em;
         color: #4ade80;

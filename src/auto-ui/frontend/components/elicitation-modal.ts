@@ -77,7 +77,7 @@ export class ElicitationModal extends LitElement {
 
       h3 {
         margin: 0 0 var(--space-lg) 0;
-        font-size: 1.25rem;
+        font-size: var(--text-xl);
         font-weight: 600;
         color: var(--t-primary);
       }
@@ -163,7 +163,7 @@ export class ElicitationModal extends LitElement {
       }
 
       .option-description {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         margin-top: 2px;
       }
@@ -182,7 +182,7 @@ export class ElicitationModal extends LitElement {
       }
 
       .oauth-icon {
-        font-size: 3rem;
+        font-size: var(--text-3xl);
         margin-bottom: var(--space-md);
       }
 
@@ -192,7 +192,7 @@ export class ElicitationModal extends LitElement {
       }
 
       .oauth-scopes {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         margin-bottom: var(--space-lg);
       }

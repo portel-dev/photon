@@ -23,8 +23,19 @@ export const theme = css`
     --radius-full: 9999px;
 
     /* Typography - same for all themes */
+    --font-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+
+    /* Type scale */
+    --text-3xl: 2rem;
+    --text-2xl: 1.5rem;
+    --text-xl: 1.25rem;
+    --text-lg: 1.1rem;
+    --text-md: 0.9rem;
+    --text-sm: 0.8rem;
+    --text-xs: 0.7rem;
+    --text-2xs: 0.6rem;
 
     /* Bento layout */
     --bento-border: 1px solid var(--border-glass);

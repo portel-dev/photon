@@ -84,8 +84,9 @@ export class MethodCard extends LitElement {
       }
 
       .title {
+        font-family: var(--font-display);
         font-weight: 600;
-        font-size: 1.1rem;
+        font-size: var(--text-lg);
         margin: 0;
         color: var(--t-primary);
         white-space: nowrap;
@@ -102,7 +103,7 @@ export class MethodCard extends LitElement {
       .edit-pencil {
         opacity: 0;
         cursor: pointer;
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         transition:
           opacity 0.15s,
@@ -123,7 +124,7 @@ export class MethodCard extends LitElement {
       }
 
       .description {
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         line-height: 1.5;
         margin-bottom: var(--space-md);
@@ -169,7 +170,7 @@ export class MethodCard extends LitElement {
       }
 
       .badge {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         padding: 2px 8px;
         border-radius: var(--radius-md);
         background: hsla(220, 10%, 80%, 0.1);
@@ -192,7 +193,7 @@ export class MethodCard extends LitElement {
       }
 
       .param-tag {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         padding: 4px 10px;
         border-radius: var(--radius-xs);
         background: hsla(270, 60%, 50%, 0.12);
@@ -201,7 +202,7 @@ export class MethodCard extends LitElement {
       }
 
       .param-count {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         min-width: 20px;
         height: 20px;
         border-radius: var(--radius-sm);
@@ -225,7 +226,7 @@ export class MethodCard extends LitElement {
         position: absolute;
         bottom: var(--space-md);
         right: var(--space-md);
-        font-size: 1.2rem;
+        font-size: var(--text-xl);
         opacity: 0.5;
         transition:
           opacity 0.2s ease,
@@ -264,7 +265,7 @@ export class MethodCard extends LitElement {
       .emoji-picker button {
         background: none;
         border: none;
-        font-size: 1.2rem;
+        font-size: var(--text-xl);
         padding: 4px;
         cursor: pointer;
         border-radius: var(--radius-sm);
@@ -279,7 +280,7 @@ export class MethodCard extends LitElement {
       }
 
       .emoji-picker .remove-btn {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         grid-column: span 6;
         padding: 6px;

@@ -66,7 +66,7 @@ export class PhotonStudio extends LitElement {
 
     .toolbar-title {
       font-weight: 600;
-      font-size: 0.9rem;
+      font-size: var(--text-md);
       color: var(--t-primary, #e0e0e0);
       margin-right: auto;
       display: flex;
@@ -88,7 +88,7 @@ export class PhotonStudio extends LitElement {
       border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
       background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
       color: var(--t-primary, #e0e0e0);
-      font-size: 0.78rem;
+      font-size: var(--text-sm);
       cursor: pointer;
       transition: background 0.15s;
     }
@@ -117,7 +117,7 @@ export class PhotonStudio extends LitElement {
       border: none;
       color: var(--t-muted, #888);
       cursor: pointer;
-      font-size: 1.2rem;
+      font-size: var(--text-xl);
       padding: 2px 6px;
       line-height: 1;
     }
@@ -172,7 +172,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .preview-title {
-      font-size: 0.75rem;
+      font-size: var(--text-xs);
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--t-muted, #888);
@@ -202,7 +202,7 @@ export class PhotonStudio extends LitElement {
     }
 
     .templates-title {
-      font-size: 1.1rem;
+      font-size: var(--text-lg);
       font-weight: 600;
       color: var(--t-primary, #e0e0e0);
       margin-bottom: 16px;
@@ -231,19 +231,19 @@ export class PhotonStudio extends LitElement {
     }
 
     .template-icon {
-      font-size: 1.4rem;
+      font-size: var(--text-2xl);
       margin-bottom: 6px;
     }
 
     .template-name {
       font-weight: 600;
-      font-size: 0.88rem;
+      font-size: var(--text-md);
       margin-bottom: 4px;
       color: var(--t-primary, #e0e0e0);
     }
 
     .template-desc {
-      font-size: 0.76rem;
+      font-size: var(--text-xs);
       color: var(--t-muted, #888);
     }
 
@@ -255,7 +255,7 @@ export class PhotonStudio extends LitElement {
       padding: 4px 12px;
       background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
       border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-      font-size: 0.72rem;
+      font-size: var(--text-xs);
       color: var(--t-muted, #888);
       flex-shrink: 0;
     }
@@ -273,7 +273,7 @@ export class PhotonStudio extends LitElement {
       border-radius: var(--radius-xs);
       background: rgba(255, 255, 255, 0.06);
       font-family: var(--font-mono, monospace);
-      font-size: 0.68rem;
+      font-size: var(--text-xs);
     }
 
     /* ─── Loading / Error ─── */
@@ -284,7 +284,7 @@ export class PhotonStudio extends LitElement {
       align-items: center;
       justify-content: center;
       color: var(--t-muted, #888);
-      font-size: 0.9rem;
+      font-size: var(--text-md);
     }
 
     .error-state {

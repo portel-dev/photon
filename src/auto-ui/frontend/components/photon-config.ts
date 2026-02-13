@@ -34,14 +34,14 @@ export class PhotonConfig extends LitElement {
       }
 
       .config-title {
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         font-weight: 600;
         margin: 0 0 var(--space-sm) 0;
       }
 
       .config-description {
         color: var(--t-muted);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .config-form {
@@ -68,7 +68,7 @@ export class PhotonConfig extends LitElement {
       }
 
       .form-group label .hint {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         font-family: var(--font-mono);
         background: var(--bg-glass);
@@ -78,7 +78,7 @@ export class PhotonConfig extends LitElement {
 
       .form-group input {
         padding: var(--space-sm) var(--space-md);
-        font-size: 0.95rem;
+        font-size: var(--text-md);
       }
 
       /* Mask secret fields without type="password" to avoid browser credential autofill */
@@ -101,7 +101,7 @@ export class PhotonConfig extends LitElement {
         border: none;
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         transition: all 0.2s;
       }
 
@@ -124,7 +124,7 @@ export class PhotonConfig extends LitElement {
         border: none;
         color: white;
         font-weight: 600;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         border-radius: var(--radius-sm);
         cursor: pointer;
         margin-top: var(--space-md);
@@ -153,7 +153,7 @@ export class PhotonConfig extends LitElement {
         color: var(--color-error);
         padding: var(--space-sm) var(--space-md);
         border-radius: var(--radius-sm);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         margin-bottom: var(--space-md);
       }
 

@@ -30,7 +30,7 @@ export class OverflowMenu extends LitElement {
         padding: 4px 8px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         line-height: 1;
         transition: all 0.2s ease;
         display: flex;

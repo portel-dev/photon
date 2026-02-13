@@ -32,7 +32,7 @@ export class AppLayout extends LitElement {
         border: 1px solid var(--border-glass);
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -55,7 +55,7 @@ export class AppLayout extends LitElement {
         text-align: center;
         padding: var(--space-lg) 0;
         color: var(--t-muted);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
       }
 
       .below-fold {
@@ -88,7 +88,7 @@ export class AppLayout extends LitElement {
 
       .popout-header .app-name {
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         flex: 1;
         min-width: 0;
@@ -104,7 +104,7 @@ export class AppLayout extends LitElement {
         padding: 4px 12px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         transition: all 0.2s ease;
       }
 
@@ -128,7 +128,7 @@ export class AppLayout extends LitElement {
 
       .anchor-link {
         color: var(--accent-secondary);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         font-weight: 500;
         cursor: pointer;
         text-decoration: none;

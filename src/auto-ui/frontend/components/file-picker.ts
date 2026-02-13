@@ -39,7 +39,7 @@ export class FilePicker extends LitElement {
         padding: var(--space-sm);
         background: rgba(0, 0, 0, 0.2);
         font-family: var(--font-mono);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         display: flex;
         align-items: center;
@@ -66,7 +66,7 @@ export class FilePicker extends LitElement {
         display: flex;
         align-items: center;
         gap: 8px;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         transition: background 0.1s;
         border-bottom: 1px solid rgba(255, 255, 255, 0.02);
       }

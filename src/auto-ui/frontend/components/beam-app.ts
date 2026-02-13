@@ -143,14 +143,14 @@ export class BeamApp extends LitElement {
         gap: var(--space-sm);
         padding: var(--space-lg);
         color: var(--t-muted);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         border: 1px dashed var(--border-glass);
         border-radius: var(--radius-md);
         justify-content: center;
       }
 
       .empty-state-icon {
-        font-size: 1.2rem;
+        font-size: var(--text-xl);
         opacity: 0.6;
       }
 
@@ -165,9 +165,10 @@ export class BeamApp extends LitElement {
       }
 
       .bento-section-title {
+        font-family: var(--font-display);
         color: var(--t-muted);
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         letter-spacing: 0.1em;
         font-weight: 600;
         margin: 0 0 var(--space-md) 0;
@@ -227,7 +228,8 @@ export class BeamApp extends LitElement {
       }
 
       .photon-header-name {
-        font-size: 2rem;
+        font-family: var(--font-display);
+        font-size: var(--text-3xl);
         font-weight: 700;
         margin: 0 0 var(--space-sm) 0;
         background: linear-gradient(135deg, var(--t-primary), var(--accent-secondary));
@@ -238,7 +240,7 @@ export class BeamApp extends LitElement {
 
       .photon-header-desc {
         color: var(--t-muted);
-        font-size: 1rem;
+        font-size: var(--text-lg);
         line-height: 1.5;
         margin: 0;
       }
@@ -251,7 +253,7 @@ export class BeamApp extends LitElement {
 
       .photon-header-path {
         font-family: var(--font-mono, monospace);
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         margin-top: 4px;
         cursor: pointer;
@@ -268,7 +270,7 @@ export class BeamApp extends LitElement {
       }
 
       .photon-badge {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         padding: 4px 10px;
         border-radius: var(--radius-md);
         background: var(--bg-glass);
@@ -302,7 +304,7 @@ export class BeamApp extends LitElement {
       }
 
       .btn-sm {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         padding: 4px 12px;
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-glass);
@@ -349,7 +351,7 @@ export class BeamApp extends LitElement {
         right: -24px;
         top: 50%;
         transform: translateY(-50%);
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         opacity: 0.6;
       }
 
@@ -419,7 +421,7 @@ export class BeamApp extends LitElement {
       .emoji-picker button {
         background: none;
         border: none;
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         padding: 4px;
         cursor: pointer;
         border-radius: var(--radius-sm);
@@ -435,9 +437,10 @@ export class BeamApp extends LitElement {
 
       /* Prompts & Resources Section */
       .section-header {
+        font-family: var(--font-display);
         color: var(--t-muted);
         text-transform: uppercase;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         letter-spacing: 0.1em;
         margin-top: var(--space-xl);
         margin-bottom: var(--space-md);
@@ -450,7 +453,7 @@ export class BeamApp extends LitElement {
         background: var(--bg-glass);
         padding: 2px 8px;
         border-radius: var(--radius-full);
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
       }
 
       .asset-card {
@@ -502,18 +505,18 @@ export class BeamApp extends LitElement {
 
       .asset-card .asset-name {
         font-weight: 600;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         color: var(--t-primary);
       }
 
       .asset-card .asset-desc {
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         flex: 1;
       }
 
       .asset-card .asset-meta {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         opacity: 0.7;
       }
@@ -551,7 +554,7 @@ export class BeamApp extends LitElement {
       }
 
       .asset-viewer-title {
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         font-weight: 600;
         margin: 0;
       }
@@ -567,7 +570,7 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-md);
         padding: var(--space-md);
         font-family: var(--font-mono);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         white-space: pre-wrap;
         line-height: 1.6;
         max-height: 400px;
@@ -606,7 +609,7 @@ export class BeamApp extends LitElement {
         justify-content: center;
         gap: var(--space-md);
         z-index: 9998;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .connection-banner button {
@@ -616,7 +619,7 @@ export class BeamApp extends LitElement {
         padding: 4px 12px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
       }
 
       .connection-banner button:hover {
@@ -651,7 +654,7 @@ export class BeamApp extends LitElement {
 
       .help-modal h2 {
         margin: 0 0 var(--space-lg) 0;
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
       }
 
       .help-modal-close {
@@ -661,7 +664,7 @@ export class BeamApp extends LitElement {
         background: none;
         border: none;
         color: var(--t-muted);
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         cursor: pointer;
       }
 
@@ -669,7 +672,7 @@ export class BeamApp extends LitElement {
         border-collapse: collapse;
         width: 100%;
         margin: var(--space-sm) 0;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
       }
 
       .markdown-body th,
@@ -682,7 +685,7 @@ export class BeamApp extends LitElement {
       .markdown-body th {
         background: var(--bg-glass);
         font-weight: 600;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.03em;
         color: var(--t-muted);
@@ -718,7 +721,7 @@ export class BeamApp extends LitElement {
       }
 
       .shortcut-section h3 {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.1em;
         color: var(--t-muted);
@@ -749,12 +752,12 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-xs);
         padding: 2px 8px;
         font-family: var(--font-mono);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
       }
 
       .shortcut-desc {
         color: var(--t-muted);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       /* Header Toolbar */
@@ -788,7 +791,7 @@ export class BeamApp extends LitElement {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         transition: all 0.2s ease;
         white-space: nowrap;
       }
@@ -859,7 +862,7 @@ export class BeamApp extends LitElement {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         transition: all 0.2s ease;
       }
 
@@ -889,7 +892,7 @@ export class BeamApp extends LitElement {
         padding: 12px 16px;
         cursor: pointer;
         color: var(--t-primary);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         transition: background 0.15s ease;
         border: none;
         background: none;
@@ -902,7 +905,7 @@ export class BeamApp extends LitElement {
       }
 
       .settings-dropdown-item .icon {
-        font-size: 1rem;
+        font-size: var(--text-lg);
         width: 20px;
         text-align: center;
       }
@@ -1021,7 +1024,7 @@ export class BeamApp extends LitElement {
         background: none;
         border: none;
         color: var(--t-muted);
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         cursor: pointer;
         padding: 4px 8px;
         border-radius: var(--radius-sm);
@@ -1041,7 +1044,7 @@ export class BeamApp extends LitElement {
       }
 
       .asset-viewer-modal h2 .icon {
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
       }
 
       .asset-viewer-modal .description {
@@ -1060,7 +1063,7 @@ export class BeamApp extends LitElement {
 
       .variables-form h4 {
         margin: 0 0 var(--space-md) 0;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--t-muted);
@@ -1076,7 +1079,7 @@ export class BeamApp extends LitElement {
       .variable-input label {
         min-width: 120px;
         font-family: var(--font-mono);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: hsl(45, 80%, 60%);
       }
 
@@ -1087,7 +1090,7 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-sm);
         padding: var(--space-sm) var(--space-md);
         color: var(--t-primary);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
       }
 
       .variable-input input:focus-visible {
@@ -1103,7 +1106,7 @@ export class BeamApp extends LitElement {
 
       .content-section h4 {
         margin: 0 0 var(--space-sm) 0;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--t-muted);
@@ -1115,7 +1118,7 @@ export class BeamApp extends LitElement {
         border-radius: var(--radius-md);
         padding: var(--space-md);
         font-family: var(--font-mono);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         white-space: pre-wrap;
         line-height: 1.6;
         max-height: 300px;
@@ -1181,7 +1184,7 @@ export class BeamApp extends LitElement {
         cursor: pointer;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
+        font-size: var(--text-2xl);
         box-shadow: var(--shadow-md);
         transition: all 0.2s;
       }
@@ -1299,7 +1302,7 @@ export class BeamApp extends LitElement {
         justify-content: space-between;
         align-items: center;
         margin-top: var(--space-sm);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
       }
 

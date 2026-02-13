@@ -2,6 +2,7 @@ import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
+import { beamTypographyTokens } from '../styles/beam-tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
 
 @customElement('custom-ui-renderer')
@@ -55,13 +56,13 @@ export class CustomUiRenderer extends LitElement {
       }
 
       .error-icon {
-        font-size: 3rem;
+        font-size: var(--text-3xl);
         opacity: 0.5;
       }
 
       .error-message {
         color: var(--color-error);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         max-width: 400px;
       }
 
@@ -164,12 +165,12 @@ export class CustomUiRenderer extends LitElement {
           },
           '*'
         );
-        // Photon bridge notification (backward compat)
+        // Photon bridge notification (backward compat) — include Beam typography tokens
         this._iframeRef.contentWindow.postMessage(
           {
             type: 'photon:theme-change',
             theme: this.theme,
-            themeTokens: themeTokens,
+            themeTokens: { ...themeTokens, ...beamTypographyTokens },
           },
           '*'
         );
@@ -363,12 +364,12 @@ export class CustomUiRenderer extends LitElement {
       },
       '*'
     );
-    // Photon bridge notification (backward compat)
+    // Photon bridge notification (backward compat) — include Beam typography tokens
     this._iframeRef?.contentWindow?.postMessage(
       {
         type: 'photon:theme-change',
         theme: this.theme,
-        themeTokens: themeTokens,
+        themeTokens: { ...themeTokens, ...beamTypographyTokens },
       },
       '*'
     );

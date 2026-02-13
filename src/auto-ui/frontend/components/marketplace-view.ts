@@ -50,7 +50,7 @@ export class MarketplaceView extends LitElement {
       .search-box input {
         padding: var(--space-sm) var(--space-lg);
         border-radius: var(--radius-md);
-        font-size: 1rem;
+        font-size: var(--text-lg);
         transition: all 0.2s;
       }
 
@@ -89,18 +89,18 @@ export class MarketplaceView extends LitElement {
 
       .card-title {
         font-weight: 600;
-        font-size: 1.1rem;
+        font-size: var(--text-lg);
         color: var(--t-primary);
       }
 
       .card-author {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
       }
 
       .card-desc {
         flex: 1;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: var(--t-muted);
         line-height: 1.4;
         margin-bottom: var(--space-md);
@@ -114,7 +114,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .tag {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         padding: 2px 8px;
         background: rgba(255, 255, 255, 0.05);
         border-radius: var(--radius-full);
@@ -122,7 +122,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .source-pill {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 2px 8px;
         border-radius: var(--radius-full);
         font-weight: 600;
@@ -173,7 +173,7 @@ export class MarketplaceView extends LitElement {
         border-radius: var(--radius-lg);
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         color: var(--t-secondary);
         cursor: pointer;
         transition: all 0.2s;
@@ -197,7 +197,7 @@ export class MarketplaceView extends LitElement {
         background: rgba(255, 255, 255, 0.2);
         padding: 2px 6px;
         border-radius: var(--radius-full);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 500;
       }
 
@@ -266,7 +266,7 @@ export class MarketplaceView extends LitElement {
         border-radius: var(--radius-sm);
         font-weight: 500;
         cursor: default;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
       }
 
       .card.installed {
@@ -294,7 +294,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .toolbar-section-title {
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--t-muted);
@@ -321,7 +321,7 @@ export class MarketplaceView extends LitElement {
         color: var(--t-primary);
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         font-weight: 500;
         transition: all 0.2s;
         white-space: nowrap;
@@ -339,7 +339,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .toolbar-btn .icon {
-        font-size: 1rem;
+        font-size: var(--text-lg);
         line-height: 1;
       }
 
@@ -366,7 +366,7 @@ export class MarketplaceView extends LitElement {
         color: var(--t-primary);
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         font-weight: 500;
         transition: all 0.2s;
         white-space: nowrap;
@@ -384,7 +384,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .maker-btn .icon {
-        font-size: 1rem;
+        font-size: var(--text-lg);
         line-height: 1;
       }
 
@@ -419,7 +419,7 @@ export class MarketplaceView extends LitElement {
 
       .modal-header h3 {
         margin: 0;
-        font-size: 1.1rem;
+        font-size: var(--text-lg);
       }
 
       .modal-close {
@@ -442,12 +442,12 @@ export class MarketplaceView extends LitElement {
 
       .modal-body input {
         padding: var(--space-sm) var(--space-md);
-        font-size: 0.95rem;
+        font-size: var(--text-md);
         margin-bottom: var(--space-sm);
       }
 
       .modal-hint {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         line-height: 1.5;
       }
@@ -456,12 +456,12 @@ export class MarketplaceView extends LitElement {
         background: var(--bg-glass);
         padding: 1px 4px;
         border-radius: var(--radius-xs);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
       }
 
       .formats-table {
         width: 100%;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         border-collapse: collapse;
         margin-top: var(--space-md);
       }
@@ -473,7 +473,7 @@ export class MarketplaceView extends LitElement {
 
       .formats-table .type-label {
         color: var(--t-muted);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         width: 80px;
         font-weight: 500;
       }
@@ -482,7 +482,7 @@ export class MarketplaceView extends LitElement {
         background: var(--bg-glass);
         padding: 2px 6px;
         border-radius: var(--radius-xs);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-secondary);
       }
 

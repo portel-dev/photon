@@ -37,7 +37,7 @@ export class ThemeSettings extends LitElement {
 
       h3 {
         margin: 0;
-        font-size: 1rem;
+        font-size: var(--text-lg);
         font-weight: 600;
       }
 
@@ -46,7 +46,7 @@ export class ThemeSettings extends LitElement {
         border: none;
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 1.2rem;
+        font-size: var(--text-xl);
         padding: var(--space-xs);
         border-radius: var(--radius-sm);
         transition: all 0.2s;
@@ -62,7 +62,7 @@ export class ThemeSettings extends LitElement {
       }
 
       .section-label {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -89,7 +89,7 @@ export class ThemeSettings extends LitElement {
         background: transparent;
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         transition: all 0.2s;
       }
 
@@ -115,13 +115,13 @@ export class ThemeSettings extends LitElement {
       }
 
       .slider-label {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-primary);
         font-weight: 500;
       }
 
       .slider-value {
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--t-muted);
         font-family: var(--font-mono);
         min-width: 40px;
@@ -198,7 +198,7 @@ export class ThemeSettings extends LitElement {
         background: var(--bg-glass);
         color: var(--t-primary);
         cursor: pointer;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         transition: all 0.2s;
         text-align: center;
       }
@@ -250,7 +250,7 @@ export class ThemeSettings extends LitElement {
       }
 
       .swatch-label {
-        font-size: 0.55rem;
+        font-size: var(--text-2xs);
         color: var(--t-muted);
         text-align: center;
         line-height: 1;
@@ -265,7 +265,7 @@ export class ThemeSettings extends LitElement {
         border-radius: var(--radius-sm);
         color: var(--t-muted);
         cursor: pointer;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         transition: all 0.2s;
       }
 

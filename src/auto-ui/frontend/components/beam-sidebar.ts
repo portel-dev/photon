@@ -56,20 +56,20 @@ export class BeamSidebar extends LitElement {
       }
 
       .empty-icon {
-        font-size: 2rem;
+        font-size: var(--text-3xl);
         margin-bottom: var(--space-sm);
         opacity: 0.6;
       }
 
       .empty-title {
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         color: var(--t-primary);
         margin-bottom: var(--space-xs);
       }
 
       .empty-hint {
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         color: var(--t-muted);
         line-height: 1.4;
       }
@@ -81,7 +81,7 @@ export class BeamSidebar extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-sm);
         color: var(--accent-primary);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         cursor: pointer;
         transition: all 0.2s ease;
       }
@@ -101,7 +101,7 @@ export class BeamSidebar extends LitElement {
 
       .footer-link {
         color: var(--t-muted);
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -119,7 +119,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .footer-link kbd {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 1px 4px;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
@@ -139,8 +139,9 @@ export class BeamSidebar extends LitElement {
       }
 
       .logo {
-        font-size: 1.2rem;
-        font-weight: 600;
+        font-family: var(--font-display);
+        font-size: var(--text-xl);
+        font-weight: 700;
         margin: 0;
         display: flex;
         align-items: center;
@@ -228,8 +229,9 @@ export class BeamSidebar extends LitElement {
       }
 
       .section-header {
+        font-family: var(--font-display);
         padding: var(--space-sm) var(--space-md);
-        font-size: 0.7rem;
+        font-size: var(--text-xs);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.1em;
@@ -295,7 +297,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .internal-badge {
-        font-size: 0.6rem;
+        font-size: var(--text-2xs);
         padding: 1px 4px;
         background: linear-gradient(135deg, hsl(280, 60%, 50%), hsl(320, 60%, 50%));
         color: white;
@@ -311,7 +313,8 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-name {
-        font-weight: 500;
+        font-family: var(--font-display);
+        font-weight: 600;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -326,7 +329,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .method-count {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 2px 6px;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
@@ -352,7 +355,7 @@ export class BeamSidebar extends LitElement {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 2px 6px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid var(--border-glass);
@@ -372,7 +375,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .version-badge {
-        font-size: 0.6rem;
+        font-size: var(--text-2xs);
         color: var(--t-muted);
         opacity: 0.7;
       }
@@ -388,7 +391,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .update-badge {
-        font-size: 0.6rem;
+        font-size: var(--text-2xs);
         padding: 1px 5px;
         background: hsl(0, 80%, 55%);
         color: white;
@@ -424,7 +427,7 @@ export class BeamSidebar extends LitElement {
       .empty-section {
         padding: var(--space-sm) var(--space-md);
         color: var(--t-muted);
-        font-size: 0.85rem;
+        font-size: var(--text-md);
         font-style: italic;
       }
 
@@ -446,7 +449,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .disconnect-badge {
-        font-size: 0.55rem;
+        font-size: var(--text-2xs);
         padding: 1px 4px;
         background: hsla(0, 60%, 50%, 0.2);
         color: hsl(0, 60%, 55%);
@@ -458,7 +461,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .reconnect-btn {
-        font-size: 0.65rem;
+        font-size: var(--text-2xs);
         padding: 2px 6px;
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
@@ -493,7 +496,7 @@ export class BeamSidebar extends LitElement {
         align-items: center;
         justify-content: center;
         gap: 4px;
-        font-size: 0.8rem;
+        font-size: var(--text-sm);
         transition: all 0.2s;
       }
 
@@ -512,7 +515,7 @@ export class BeamSidebar extends LitElement {
         border: none;
         cursor: pointer;
         padding: 2px;
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         opacity: 0.3;
         transition: all 0.2s;
         flex-shrink: 0;
