@@ -1,5 +1,4 @@
 import { LitElement, html, css } from 'lit';
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 
@@ -138,22 +137,6 @@ export class MethodCard extends LitElement {
         margin: -4px -6px;
         margin-bottom: calc(var(--space-md) - 4px);
         border-radius: var(--radius-sm);
-      }
-
-      .description code {
-        background: var(--bg-glass);
-        padding: 1px 5px;
-        border-radius: 3px;
-        font-size: 0.9em;
-      }
-      .description p {
-        margin: 0 0 0.3em;
-      }
-      .description p:last-child {
-        margin-bottom: 0;
-      }
-      .description strong {
-        color: var(--t-primary);
       }
 
       .description.placeholder {
@@ -612,12 +595,13 @@ export class MethodCard extends LitElement {
   }
 
   private _renderDescription(description: string) {
-    const marked = (window as any).marked;
-    if (marked) {
-      const htmlContent = marked.parse(description) as string;
-      return html`${unsafeHTML(htmlContent)}`;
-    }
-    return description;
+    // Strip markdown to plain text for card preview — line-clamp truncation
+    // can break mid-HTML-tag and show rendering artifacts (dangling backticks).
+    // Full markdown rendering happens in the detail view (beam-app.ts).
+    return description
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
   }
 
   private _handleDescriptionEditClick(e: Event) {
