@@ -232,13 +232,28 @@ export class ThemeSettings extends LitElement {
         gap: 3px;
         border-radius: var(--radius-sm);
         overflow: hidden;
-        height: 32px;
         margin-top: var(--space-sm);
       }
 
       .preview-swatch {
         flex: 1;
-        border-radius: 2px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .swatch-color {
+        width: 100%;
+        height: 24px;
+        border-radius: 3px;
+      }
+
+      .swatch-label {
+        font-size: 0.55rem;
+        color: var(--t-muted);
+        text-align: center;
+        line-height: 1;
       }
 
       /* Reset */
@@ -485,16 +500,40 @@ export class ThemeSettings extends LitElement {
 
       <!-- Preview -->
       <div class="section">
-        <div class="section-label">Preview</div>
+        <div class="section-label">Palette</div>
         <div class="preview-strip">
-          <div class="preview-swatch" style="background: ${preview.bgApp}"></div>
-          <div class="preview-swatch" style="background: ${preview.bgPanel}"></div>
-          <div class="preview-swatch" style="background: ${preview.accentPrimary}"></div>
-          <div class="preview-swatch" style="background: ${preview.accentSecondary}"></div>
-          <div class="preview-swatch" style="background: ${preview.tPrimary}"></div>
-          <div class="preview-swatch" style="background: ${preview.colorSuccess}"></div>
-          <div class="preview-swatch" style="background: ${preview.colorWarning}"></div>
-          <div class="preview-swatch" style="background: ${preview.colorError}"></div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.bgApp}"></div>
+            <span class="swatch-label">Bg</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.bgPanel}"></div>
+            <span class="swatch-label">Panel</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.accentPrimary}"></div>
+            <span class="swatch-label">Accent</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.accentSecondary}"></div>
+            <span class="swatch-label">Alt</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.tPrimary}"></div>
+            <span class="swatch-label">Text</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.colorSuccess}"></div>
+            <span class="swatch-label">OK</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.colorWarning}"></div>
+            <span class="swatch-label">Warn</span>
+          </div>
+          <div class="preview-swatch">
+            <div class="swatch-color" style="background: ${preview.colorError}"></div>
+            <span class="swatch-label">Error</span>
+          </div>
         </div>
       </div>
 
