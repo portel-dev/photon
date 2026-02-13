@@ -5023,6 +5023,15 @@ export class BeamApp extends LitElement {
       case 'upgrade':
         this._handleUpgrade();
         break;
+      case 'select-method': {
+        const method = this._selectedPhoton?.methods?.find(
+          (m: any) => m.name === e.detail.methodName
+        );
+        if (method) {
+          this._handleMethodSelect(new CustomEvent('select', { detail: { method } }));
+        }
+        break;
+      }
       case 'edit-icon':
         this._startEditingIcon();
         break;

@@ -230,6 +230,73 @@ export class ContextBar extends LitElement {
         font-weight: 500;
       }
 
+      .breadcrumb .current.has-dropdown {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px 6px;
+        margin: -2px -6px;
+        border-radius: var(--radius-xs);
+        transition: background 0.15s ease;
+        position: relative;
+      }
+
+      .breadcrumb .current.has-dropdown:hover {
+        background: var(--bg-glass);
+      }
+
+      .breadcrumb .chevron {
+        font-size: 10px;
+        opacity: 0.5;
+        transition: transform 0.15s ease;
+      }
+
+      .breadcrumb .chevron.open {
+        transform: rotate(180deg);
+      }
+
+      .method-dropdown {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        min-width: 180px;
+        max-height: 280px;
+        overflow-y: auto;
+        background: var(--bg-glass-strong, var(--bg-glass));
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-md);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        padding: 4px;
+        z-index: 100;
+      }
+
+      .method-dropdown-item {
+        display: block;
+        width: 100%;
+        padding: 6px 10px;
+        border: none;
+        background: none;
+        color: var(--t-secondary);
+        font-size: var(--text-sm);
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        border-radius: var(--radius-xs);
+        transition: all 0.1s ease;
+      }
+
+      .method-dropdown-item:hover {
+        background: var(--bg-glass);
+        color: var(--t-primary);
+      }
+
+      .method-dropdown-item.active {
+        color: var(--accent-secondary);
+        font-weight: 500;
+      }
+
       .live-badge {
         display: inline-flex;
         align-items: center;
@@ -315,6 +382,9 @@ export class ContextBar extends LitElement {
   overflowItems: OverflowMenuItem[] = [];
 
   @state()
+  private _methodDropdownOpen = false;
+
+  @state()
   private _editingName = false;
 
   @state()
@@ -345,7 +415,18 @@ export class ContextBar extends LitElement {
                   i < this.breadcrumbs.length - 1
                     ? html`<a @click=${() => this._emitAction(crumb.action || '')}>${crumb.label}</a
                         ><span class="separator">/</span>`
-                    : html`<span class="current">${crumb.label}</span>`
+                    : this._hasMethodDropdown()
+                      ? html`<span
+                          class="current has-dropdown"
+                          @click=${this._toggleMethodDropdown}
+                        >
+                          ${crumb.label}<span
+                            class="chevron ${this._methodDropdownOpen ? 'open' : ''}"
+                            >▾</span
+                          >
+                          ${this._methodDropdownOpen ? this._renderMethodDropdown(crumb.label) : ''}
+                        </span>`
+                      : html`<span class="current">${crumb.label}</span>`
                 )}
               </div>
               ${this.live
@@ -465,6 +546,56 @@ export class ContextBar extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  private _hasMethodDropdown(): boolean {
+    return !!(
+      this.photon?.methods &&
+      this.photon.methods.length > 1 &&
+      this.breadcrumbs.length >= 2
+    );
+  }
+
+  private _toggleMethodDropdown(e: Event) {
+    e.stopPropagation();
+    this._methodDropdownOpen = !this._methodDropdownOpen;
+    if (this._methodDropdownOpen) {
+      // Close on click outside
+      const handler = (evt: MouseEvent) => {
+        const path = evt.composedPath();
+        if (!path.includes(this)) {
+          this._methodDropdownOpen = false;
+          document.removeEventListener('click', handler, true);
+        }
+      };
+      // Defer so the current click doesn't immediately close
+      requestAnimationFrame(() => {
+        document.addEventListener('click', handler, true);
+      });
+    }
+  }
+
+  private _renderMethodDropdown(currentLabel: string) {
+    const methods = this.photon?.methods || [];
+    return html`
+      <div class="method-dropdown" @click=${(e: Event) => e.stopPropagation()}>
+        ${methods.map(
+          (m: any) => html`
+            <button
+              class="method-dropdown-item ${m.name === currentLabel ? 'active' : ''}"
+              @click=${() => this._selectMethod(m.name)}
+            >
+              ${m.name}
+            </button>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _selectMethod(methodName: string) {
+    this._methodDropdownOpen = false;
+    this._emit('select-method', { methodName });
   }
 
   private _emit(action: string, detail?: any) {
