@@ -1,4 +1,5 @@
 import { LitElement, html, css } from 'lit';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 
@@ -137,6 +138,22 @@ export class MethodCard extends LitElement {
         margin: -4px -6px;
         margin-bottom: calc(var(--space-md) - 4px);
         border-radius: var(--radius-sm);
+      }
+
+      .description code {
+        background: var(--bg-glass);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 0.9em;
+      }
+      .description p {
+        margin: 0 0 0.3em;
+      }
+      .description p:last-child {
+        margin-bottom: 0;
+      }
+      .description strong {
+        color: var(--t-primary);
       }
 
       .description.placeholder {
@@ -461,9 +478,11 @@ export class MethodCard extends LitElement {
               `
             : html`
                 <div class="editable" style="flex:1;">
-                  <p class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
-                    ${hasDescription ? this.method.description : 'Add description...'}
-                  </p>
+                  <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
+                    ${hasDescription
+                      ? this._renderDescription(this.method.description)
+                      : 'Add description...'}
+                  </div>
                   <span
                     class="edit-pencil"
                     @click=${this._handleDescriptionEditClick}
@@ -590,6 +609,15 @@ export class MethodCard extends LitElement {
         },
       })
     );
+  }
+
+  private _renderDescription(description: string) {
+    const marked = (window as any).marked;
+    if (marked) {
+      const htmlContent = marked.parse(description) as string;
+      return html`${unsafeHTML(htmlContent)}`;
+    }
+    return description;
   }
 
   private _handleDescriptionEditClick(e: Event) {
