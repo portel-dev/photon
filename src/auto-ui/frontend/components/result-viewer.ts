@@ -3081,6 +3081,10 @@ export class ResultViewer extends LitElement {
 
     // String detection
     if (typeof data === 'string') {
+      // Check for mermaid diagram syntax
+      if (this._isMermaidString(data)) {
+        return 'mermaid';
+      }
       // Check for markdown indicators
       if (data.includes('```') || data.includes('##') || data.includes('**')) {
         return 'markdown';
@@ -3275,6 +3279,8 @@ export class ResultViewer extends LitElement {
         return this._renderStack(filteredData);
       case 'columns':
         return this._renderColumns(filteredData);
+      case 'mermaid':
+        return this._renderMermaid(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -3991,6 +3997,19 @@ export class ResultViewer extends LitElement {
           `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e}\n\n${code}</pre>`;
       }
     }
+  }
+
+  private _renderMermaid(data: any): TemplateResult {
+    const code = String(data);
+    const mermaidId = `mermaid-top-${Math.random().toString(36).substr(2, 9)}`;
+    this._pendingMermaidBlocks.push({ id: mermaidId, code });
+    return html`<div
+      class="mermaid-placeholder"
+      data-mermaid-id="${mermaidId}"
+      style="min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);"
+    >
+      Loading diagram...
+    </div>`;
   }
 
   private _renderText(data: any): TemplateResult | string {
