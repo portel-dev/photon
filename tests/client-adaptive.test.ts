@@ -1,11 +1,11 @@
 /**
  * Test progressive enhancement: MCP responses adapt by client capability
  *
- * Spins up a real PhotonServer via stdio, connects with different client
- * configurations, and verifies that tool definitions and tool call responses
- * differ based on announced capabilities.
+ * Tests BOTH transports:
+ * - STDIO: spawns PhotonServer as subprocess, connects via StdioClientTransport
+ * - SSE (HTTP): spawns PhotonServer with --transport sse, connects via SSEClientTransport
  *
- * Three tiers tested:
+ * Three tiers tested on each transport:
  * - basic: no UI capability → no _meta.ui, no structuredContent
  * - mcp-apps: experimental["io.modelcontextprotocol/ui"] → full UI response
  * - beam: clientInfo.name = "beam" → full UI response (name-based fallback)
@@ -13,9 +13,11 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { strict as assert } from 'assert';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn, type ChildProcess } from 'child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.join(__dirname, '..', 'dist', 'cli.js');
@@ -34,14 +36,20 @@ function ok(condition: boolean, message: string) {
   }
 }
 
-/**
- * Create a connected MCP client with specified identity and capabilities
- */
-async function createClient(opts: {
+// ─────────────────────────────────────────────────────────
+// Transport helpers
+// ─────────────────────────────────────────────────────────
+
+type ClientOpts = {
   name: string;
   version?: string;
   capabilities?: Record<string, unknown>;
-}): Promise<Client> {
+};
+
+/**
+ * Create a connected MCP client over STDIO transport
+ */
+async function createStdioClient(opts: ClientOpts): Promise<Client> {
   const transport = new StdioClientTransport({
     command: 'node',
     args: [cliPath, `--dir=${fixturesDir}`, 'mcp', 'ui-test'],
@@ -56,202 +64,339 @@ async function createClient(opts: {
   return client;
 }
 
+/**
+ * Start a PhotonServer SSE process and wait until the HTTP endpoint is ready
+ */
+async function startSSEServer(port: number): Promise<ChildProcess> {
+  const proc = spawn(
+    'node',
+    [
+      cliPath,
+      `--dir=${fixturesDir}`,
+      'mcp',
+      'ui-test',
+      '--transport',
+      'sse',
+      '--port',
+      String(port),
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] }
+  );
+
+  // Capture stderr for debugging
+  let stderr = '';
+  proc.stderr?.on('data', (data) => {
+    stderr += data.toString();
+  });
+
+  proc.on('exit', (code, signal) => {
+    if (code !== 0 && code !== null) {
+      console.error(`SSE server exited with code ${code}, signal ${signal}`);
+      if (stderr) console.error('SSE server stderr:', stderr.slice(-500));
+    }
+  });
+
+  // Wait for the server to be ready by polling the root endpoint
+  const startTime = Date.now();
+  const timeout = 15000;
+  while (Date.now() - startTime < timeout) {
+    try {
+      const res = await fetch(`http://localhost:${port}/`);
+      if (res.ok) return proc;
+    } catch {
+      // Not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  proc.kill();
+  throw new Error(
+    `SSE server did not start within ${timeout}ms on port ${port}. Stderr: ${stderr}`
+  );
+}
+
+/**
+ * Create a connected MCP client over SSE transport
+ */
+async function createSSEClient(port: number, opts: ClientOpts): Promise<Client> {
+  const url = new URL(`http://localhost:${port}/mcp`);
+  const transport = new SSEClientTransport(url);
+
+  const client = new Client(
+    { name: opts.name, version: opts.version ?? '1.0.0' },
+    { capabilities: opts.capabilities ?? {} }
+  );
+
+  await client.connect(transport);
+  return client;
+}
+
+// ─────────────────────────────────────────────────────────
+// Test assertions (shared between transports)
+// ─────────────────────────────────────────────────────────
+
+async function testBasicToolsList(createFn: (opts: ClientOpts) => Promise<Client>, label: string) {
+  console.log(`[${label}] Basic client: tools/list should NOT include _meta.ui`);
+  const client = await createFn({ name: 'unknown-client' });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = tools.find((t) => t.name === 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    ok(!(mainTool as any)._meta?.ui, 'No _meta.ui for basic client');
+  } finally {
+    await client.close();
+  }
+}
+
+async function testBasicToolsCall(createFn: (opts: ClientOpts) => Promise<Client>, label: string) {
+  console.log(
+    `[${label}] Basic client: tools/call should NOT include structuredContent or _meta.ui`
+  );
+  const client = await createFn({ name: 'unknown-client' });
+  try {
+    const result = await client.callTool({ name: 'main', arguments: {} });
+    ok(Array.isArray(result.content), 'Has content array');
+    ok(!(result as any).structuredContent, 'No structuredContent');
+    ok(!(result as any)._meta?.ui, 'No _meta.ui');
+  } finally {
+    await client.close();
+  }
+}
+
+async function testMCPAppsToolsList(
+  createFn: (opts: ClientOpts) => Promise<Client>,
+  label: string
+) {
+  console.log(`[${label}] MCP Apps client (capability): tools/list should include _meta.ui`);
+  const client = await createFn({
+    name: 'some-ui-client',
+    capabilities: { experimental: { 'io.modelcontextprotocol/ui': {} } },
+  });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = tools.find((t) => t.name === 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    const meta = (mainTool as any)._meta;
+    ok(!!meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri');
+    ok((meta.ui.resourceUri as string).startsWith('ui://'), `Starts with ui://`);
+  } finally {
+    await client.close();
+  }
+}
+
+async function testMCPAppsToolsCall(
+  createFn: (opts: ClientOpts) => Promise<Client>,
+  label: string
+) {
+  console.log(
+    `[${label}] MCP Apps client (capability): tools/call should include structuredContent + _meta.ui`
+  );
+  const client = await createFn({
+    name: 'some-ui-client',
+    capabilities: { experimental: { 'io.modelcontextprotocol/ui': {} } },
+  });
+  try {
+    const result = await client.callTool({ name: 'main', arguments: {} });
+    ok(Array.isArray(result.content), 'Has content array');
+    ok(!!(result as any).structuredContent, 'Has structuredContent');
+    ok(
+      (result as any).structuredContent?.message === 'Hello from UI test',
+      `structuredContent has correct value`
+    );
+    ok(!!(result as any)._meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri');
+  } finally {
+    await client.close();
+  }
+}
+
+async function testKnownClientFallback(
+  createFn: (opts: ClientOpts) => Promise<Client>,
+  label: string
+) {
+  console.log(`[${label}] Known client name fallback (chatgpt): should get _meta.ui`);
+  const client = await createFn({ name: 'chatgpt' });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = tools.find((t) => t.name === 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri (chatgpt fallback)');
+  } finally {
+    await client.close();
+  }
+}
+
+async function testBeamClient(createFn: (opts: ClientOpts) => Promise<Client>, label: string) {
+  console.log(`[${label}] Beam client: tools/list + tools/call should include full UI response`);
+  const client = await createFn({ name: 'beam' });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = tools.find((t) => t.name === 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
+
+    const result = await client.callTool({ name: 'main', arguments: {} });
+    ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
+    ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
+  } finally {
+    await client.close();
+  }
+}
+
+async function testClaudeDesktop(createFn: (opts: ClientOpts) => Promise<Client>, label: string) {
+  console.log(`[${label}] Claude Desktop (no UI capability): should be basic tier`);
+  const client = await createFn({
+    name: 'claude-ai',
+    capabilities: { elicitation: {} },
+  });
+  try {
+    const { tools } = await client.listTools();
+    const mainTool = tools.find((t) => t.name === 'main');
+    assert.ok(mainTool, 'Should have "main" tool');
+    ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (claude-ai without UI capability)');
+  } finally {
+    await client.close();
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Run all tests
+// ─────────────────────────────────────────────────────────
+
 async function runTests() {
   console.log('🧪 Client-Adaptive MCP Responses Tests\n');
 
-  // ─────────────────────────────────────────────────────────
-  // Tier: basic — unknown client, no UI capability
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log('[TEST 1] Basic client: tools/list should NOT include _meta.ui');
-    const client = await createClient({ name: 'unknown-client' });
-    try {
+  // ═══════════════════════════════════════════════════════
+  // Part 1: STDIO Transport
+  // ═══════════════════════════════════════════════════════
+  console.log('══════════════════════════════════════════');
+  console.log('  STDIO Transport');
+  console.log('══════════════════════════════════════════\n');
+
+  await testBasicToolsList(createStdioClient, 'STDIO');
+  await testBasicToolsCall(createStdioClient, 'STDIO');
+  await testMCPAppsToolsList(createStdioClient, 'STDIO');
+  await testMCPAppsToolsCall(createStdioClient, 'STDIO');
+  await testKnownClientFallback(createStdioClient, 'STDIO');
+  await testBeamClient(createStdioClient, 'STDIO');
+  await testClaudeDesktop(createStdioClient, 'STDIO');
+
+  // ═══════════════════════════════════════════════════════
+  // Part 2: SSE Transport (HTTP)
+  // Uses one client per tier to avoid reconnection issues
+  // ═══════════════════════════════════════════════════════
+  console.log('\n══════════════════════════════════════════');
+  console.log('  SSE Transport (HTTP)');
+  console.log('══════════════════════════════════════════\n');
+
+  const SSE_PORT = 3870 + Math.floor(Math.random() * 20);
+  let sseProc: ChildProcess | null = null;
+
+  try {
+    console.log(`Starting SSE server on port ${SSE_PORT}...`);
+    sseProc = await startSSEServer(SSE_PORT);
+    console.log(`SSE server ready on port ${SSE_PORT}\n`);
+
+    // NOTE: SSE clients are NOT closed between tests because the server
+    // crashes on client disconnect (pre-existing bug: recursive close in
+    // transport.onclose → sessionServer.close → transport.close → onclose).
+    // All sessions stay open; the server process is killed at the end.
+    const sseClients: Client[] = [];
+
+    // SSE: Basic tier (one session for list + call)
+    {
+      console.log('[SSE] Basic client: tools/list + tools/call should NOT include UI fields');
+      const client = await createSSEClient(SSE_PORT, { name: 'unknown-client' });
+      sseClients.push(client);
+
       const { tools } = await client.listTools();
       const mainTool = tools.find((t) => t.name === 'main');
       assert.ok(mainTool, 'Should have "main" tool');
+      ok(!(mainTool as any)._meta?.ui, 'tools/list: no _meta.ui');
 
-      const meta = (mainTool as any)._meta;
-      ok(!meta?.ui, 'Tool definition should NOT have _meta.ui');
-    } finally {
-      await client.close();
-    }
-  }
-
-  {
-    console.log(
-      '[TEST 2] Basic client: tools/call should NOT include structuredContent or _meta.ui'
-    );
-    const client = await createClient({ name: 'unknown-client' });
-    try {
       const result = await client.callTool({ name: 'main', arguments: {} });
-
-      // Should have content
-      ok(Array.isArray(result.content), 'Should have content array');
-
-      // Should NOT have structuredContent
-      ok(!(result as any).structuredContent, 'Should NOT have structuredContent');
-
-      // Should NOT have _meta.ui
-      ok(!(result as any)._meta?.ui, 'Should NOT have _meta.ui');
-    } finally {
-      await client.close();
+      ok(Array.isArray(result.content), 'tools/call: has content array');
+      ok(!(result as any).structuredContent, 'tools/call: no structuredContent');
+      ok(!(result as any)._meta?.ui, 'tools/call: no _meta.ui');
     }
-  }
 
-  // ─────────────────────────────────────────────────────────
-  // Tier: mcp-apps — client announces UI capability
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log('[TEST 3] MCP Apps client (capability): tools/list should include _meta.ui');
-    const client = await createClient({
-      name: 'some-ui-client',
-      capabilities: {
-        experimental: { 'io.modelcontextprotocol/ui': {} },
-      },
-    });
-    try {
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-
-      const meta = (mainTool as any)._meta;
-      ok(!!meta?.ui?.resourceUri, 'Tool definition should have _meta.ui.resourceUri');
-      ok(
-        (meta.ui.resourceUri as string).startsWith('ui://'),
-        `resourceUri should start with ui://. Got: ${meta.ui.resourceUri}`
+    // SSE: MCP Apps tier via capability (one session for list + call)
+    {
+      console.log(
+        '[SSE] MCP Apps client (capability): tools/list + tools/call should include UI fields'
       );
-    } finally {
-      await client.close();
-    }
-  }
+      const client = await createSSEClient(SSE_PORT, {
+        name: 'some-ui-client',
+        capabilities: { experimental: { 'io.modelcontextprotocol/ui': {} } },
+      });
+      sseClients.push(client);
 
-  {
-    console.log(
-      '[TEST 4] MCP Apps client (capability): tools/call should include structuredContent + _meta.ui'
-    );
-    const client = await createClient({
-      name: 'some-ui-client',
-      capabilities: {
-        experimental: { 'io.modelcontextprotocol/ui': {} },
-      },
-    });
-    try {
+      const { tools } = await client.listTools();
+      const mainTool = tools.find((t) => t.name === 'main');
+      assert.ok(mainTool, 'Should have "main" tool');
+      const meta = (mainTool as any)._meta;
+      ok(!!meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
+      ok((meta.ui.resourceUri as string).startsWith('ui://'), 'tools/list: starts with ui://');
+
       const result = await client.callTool({ name: 'main', arguments: {} });
-
-      // Should have content
-      ok(Array.isArray(result.content), 'Should have content array');
-
-      // Should have structuredContent with the actual return value
-      ok(!!(result as any).structuredContent, 'Should have structuredContent');
+      ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
       ok(
         (result as any).structuredContent?.message === 'Hello from UI test',
-        `structuredContent should contain return value. Got: ${JSON.stringify((result as any).structuredContent)}`
+        'tools/call: structuredContent has correct value'
       );
-
-      // Should have _meta.ui
-      ok(!!(result as any)._meta?.ui?.resourceUri, 'Should have _meta.ui.resourceUri');
-    } finally {
-      await client.close();
+      ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
     }
-  }
 
-  // ─────────────────────────────────────────────────────────
-  // Tier: mcp-apps — known client name fallback (chatgpt)
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log(
-      '[TEST 5] Known UI client (chatgpt): tools/list should include _meta.ui via name fallback'
-    );
-    const client = await createClient({ name: 'chatgpt' });
-    try {
+    // SSE: Known client name fallback
+    {
+      console.log('[SSE] Known client name fallback (chatgpt): should get _meta.ui');
+      const client = await createSSEClient(SSE_PORT, { name: 'chatgpt' });
+      sseClients.push(client);
+
       const { tools } = await client.listTools();
       const mainTool = tools.find((t) => t.name === 'main');
       assert.ok(mainTool, 'Should have "main" tool');
-
-      const meta = (mainTool as any)._meta;
-      ok(
-        !!meta?.ui?.resourceUri,
-        'Tool definition should have _meta.ui.resourceUri (name fallback)'
-      );
-    } finally {
-      await client.close();
+      ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri (chatgpt fallback)');
     }
-  }
 
-  // ─────────────────────────────────────────────────────────
-  // Tier: beam — our own client, always UI-capable
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log('[TEST 6] Beam client: tools/list should include _meta.ui');
-    const client = await createClient({ name: 'beam' });
-    try {
+    // SSE: Beam tier (one session for list + call)
+    {
+      console.log('[SSE] Beam client: tools/list + tools/call should include full UI response');
+      const client = await createSSEClient(SSE_PORT, { name: 'beam' });
+      sseClients.push(client);
+
       const { tools } = await client.listTools();
       const mainTool = tools.find((t) => t.name === 'main');
       assert.ok(mainTool, 'Should have "main" tool');
+      ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
 
-      const meta = (mainTool as any)._meta;
-      ok(!!meta?.ui?.resourceUri, 'Tool definition should have _meta.ui.resourceUri (beam)');
-    } finally {
-      await client.close();
-    }
-  }
-
-  {
-    console.log('[TEST 7] Beam client: tools/call should include structuredContent + _meta.ui');
-    const client = await createClient({ name: 'beam' });
-    try {
       const result = await client.callTool({ name: 'main', arguments: {} });
-
-      ok(!!(result as any).structuredContent, 'Should have structuredContent');
-      ok(!!(result as any)._meta?.ui?.resourceUri, 'Should have _meta.ui.resourceUri');
-    } finally {
-      await client.close();
+      ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
+      ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
     }
-  }
 
-  // ─────────────────────────────────────────────────────────
-  // Edge: known client name "mcp-inspector"
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log('[TEST 8] MCP Inspector client: tools/list should include _meta.ui');
-    const client = await createClient({ name: 'mcp-inspector' });
-    try {
+    // SSE: Claude Desktop (basic tier)
+    {
+      console.log('[SSE] Claude Desktop (no UI capability): should be basic tier');
+      const client = await createSSEClient(SSE_PORT, {
+        name: 'claude-ai',
+        capabilities: { elicitation: {} },
+      });
+      sseClients.push(client);
+
       const { tools } = await client.listTools();
       const mainTool = tools.find((t) => t.name === 'main');
       assert.ok(mainTool, 'Should have "main" tool');
-
-      const meta = (mainTool as any)._meta;
-      ok(
-        !!meta?.ui?.resourceUri,
-        'Tool definition should have _meta.ui.resourceUri (mcp-inspector)'
-      );
-    } finally {
-      await client.close();
+      ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (claude-ai without UI capability)');
     }
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // Edge: claude-ai client (NOT in known list, no capability)
-  // Should be basic tier
-  // ─────────────────────────────────────────────────────────
-  {
-    console.log('[TEST 9] Claude Desktop (no UI capability): should be basic tier');
-    const client = await createClient({
-      name: 'claude-ai',
-      capabilities: {
-        // Claude Desktop announces elicitation but not UI (as of early 2026)
-        elicitation: {},
-      },
-    });
-    try {
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-
-      const meta = (mainTool as any)._meta;
-      ok(!meta?.ui, 'Tool definition should NOT have _meta.ui (claude-ai without UI capability)');
-    } finally {
-      await client.close();
+  } finally {
+    if (sseProc) {
+      sseProc.kill();
+      // Wait for process to exit
+      await new Promise<void>((resolve) => {
+        if (sseProc!.killed) return resolve();
+        sseProc!.on('exit', () => resolve());
+        setTimeout(resolve, 2000);
+      });
     }
   }
 
