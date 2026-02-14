@@ -83,7 +83,7 @@ import type {
   ExternalMCPInfo,
   MCPServerConfig,
 } from './types.js';
-import { SDKMCPClientFactory, type MCPConfig } from '../mcp-client.js';
+import { SDKMCPClientFactory, type MCPConfig } from '@portel/photon-core';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
 // SDK imports for direct resource access (transport wrapper doesn't expose these yet)
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';

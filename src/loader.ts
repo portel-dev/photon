@@ -61,13 +61,10 @@ import {
   resolveEnvVars,
   type PhotonMCPConfig,
   type MCPServerConfig,
-  // Shared utilities (photon-core 2.4.0)
   isClass as sharedIsClass,
-  hasAsyncMethods as sharedHasAsyncMethods,
   findPhotonClass as sharedFindPhotonClass,
   parseEnvValue as sharedParseEnvValue,
   compilePhotonTS,
-  getMimeType as sharedGetMimeType,
   parseRuntimeRequirement,
   checkRuntimeCompatibility,
   discoverAssets as sharedDiscoverAssets,
@@ -87,11 +84,7 @@ import { PHOTON_VERSION, PHOTON_CORE_VERSION, getResolvedPhotonCoreVersion } fro
 
 // Timeout for external fetch requests (marketplace, GitHub)
 const FETCH_TIMEOUT_MS = 30 * 1000;
-import {
-  generateConfigErrorMessage,
-  summarizeConstructorParams,
-  toEnvVarName,
-} from './shared/config-docs.js';
+import { generateConfigErrorMessage, summarizeConstructorParams } from './shared/config-docs.js';
 import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
@@ -409,8 +402,6 @@ export class PhotonLoader {
     return Array.from(map.entries()).map(([name, version]) => ({ name, version }));
   }
 
-  // parseRuntimeRequirement and checkRuntimeCompatibility are now imported from photon-core
-
   /**
    * Load a single Photon MCP file
    */
@@ -716,14 +707,6 @@ export class PhotonLoader {
    */
   private isClass(fn: unknown): fn is new (...args: unknown[]) => unknown {
     return sharedIsClass(fn);
-  }
-
-  /**
-   * Check if a class has async methods
-   * Delegates to shared hasAsyncMethods from photon-core
-   */
-  private hasAsyncMethods(ClassConstructor: new (...args: unknown[]) => unknown): boolean {
-    return sharedHasAsyncMethods(ClassConstructor);
   }
 
   /**
@@ -1535,44 +1518,6 @@ export class PhotonLoader {
   }
 
   /**
-   * Resolve constructor arguments from environment variables
-   * @deprecated Use resolveAllInjections instead
-   */
-  private resolveConstructorArgs(
-    params: ConstructorParam[],
-    mcpName: string
-  ): { values: any[]; configError: string | null } {
-    const values: any[] = [];
-    const missing: Array<{ paramName: string; envVarName: string; type: string }> = [];
-
-    for (const param of params) {
-      const envVarName = toEnvVarName(mcpName, param.name);
-      const envValue = process.env[envVarName];
-
-      if (envValue !== undefined) {
-        // Environment variable provided - parse and use it
-        values.push(this.parseEnvValue(envValue, param.type));
-      } else if (param.hasDefault || param.isOptional) {
-        // Has default value or is optional - use undefined (constructor default will apply)
-        values.push(undefined);
-      } else {
-        // Required parameter missing!
-        missing.push({
-          paramName: param.name,
-          envVarName,
-          type: param.type,
-        });
-        // Push undefined anyway so constructor doesn't break
-        values.push(undefined);
-      }
-    }
-
-    const configError = missing.length > 0 ? generateConfigErrorMessage(mcpName, missing) : null;
-
-    return { values, configError };
-  }
-
-  /**
    * Parse environment variable value based on TypeScript type
    * Delegates to shared parseEnvValue from photon-core
    */
@@ -2161,27 +2106,5 @@ Run: photon mcp ${mcpName} --config
         this.log(`  🔗 UI ${uiId} → ${methodName}`);
       }
     }
-  }
-
-  // autoDiscoverAssets is now handled by sharedDiscoverAssets from photon-core
-
-  /**
-   * Check if a file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false; // file does not exist
-    }
-  }
-
-  /**
-   * Get MIME type from file extension
-   * Delegates to shared getMimeType from photon-core
-   */
-  private getMimeType(filename: string): string {
-    return sharedGetMimeType(filename);
   }
 }
