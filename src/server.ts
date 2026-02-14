@@ -115,6 +115,8 @@ export class PhotonServer {
   private daemonInstanceName?: string;
   /** Tracked instance names per SSE session for daemon drift recovery */
   private sseInstanceNames = new Map<string, string>();
+  /** Whether client capabilities have been logged (one-time on first tools/list) */
+  private clientCapabilitiesLogged = false;
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -264,6 +266,56 @@ export class PhotonServer {
 
     // Check for elicitation capability (MCP 2025-06 spec)
     return !!(capabilities as any).elicitation;
+  }
+
+  // Known clients that support MCP Apps UI (fallback when capability isn't announced)
+  private static readonly UI_CAPABLE_CLIENTS = new Set(['chatgpt', 'mcpjam', 'mcp-inspector']);
+
+  /**
+   * Check if client supports MCP Apps UI (structuredContent + _meta.ui)
+   *
+   * Detection order:
+   * 1. capabilities.experimental["io.modelcontextprotocol/ui"] — official MCP Apps negotiation
+   * 2. clientInfo.name — fallback for known UI-capable clients
+   *
+   * Basic/unknown clients get text-only responses (no structuredContent, no _meta.ui).
+   */
+  private clientSupportsUI(server?: Server): boolean {
+    const targetServer = server || this.server;
+
+    // 1. Check capabilities (official MCP Apps negotiation)
+    const capabilities = targetServer.getClientCapabilities();
+    if ((capabilities as any)?.experimental?.['io.modelcontextprotocol/ui']) {
+      return true;
+    }
+
+    // 2. Check clientInfo.name (fallback for known UI-capable clients)
+    const clientInfo = targetServer.getClientVersion();
+    if (clientInfo?.name) {
+      if (clientInfo.name === 'beam') return true;
+      if (PhotonServer.UI_CAPABLE_CLIENTS.has(clientInfo.name)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Log client identity and capabilities for debugging tier detection
+   */
+  private logClientCapabilities(server: Server): void {
+    const clientInfo = server.getClientVersion();
+    const capabilities = server.getClientCapabilities();
+    const supportsUI = this.clientSupportsUI(server);
+    const supportsElicitation = this.clientSupportsElicitation(server);
+
+    this.log('debug', 'Client connected', {
+      name: clientInfo?.name ?? 'unknown',
+      version: clientInfo?.version ?? 'unknown',
+      tier: supportsUI ? 'mcp-apps' : 'basic',
+      supportsUI,
+      supportsElicitation,
+      capabilities: JSON.stringify(capabilities),
+    });
   }
 
   /**
@@ -488,6 +540,12 @@ export class PhotonServer {
   private setupHandlers() {
     // Handle tools/list
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      // Log client identity + capabilities on first tools/list call
+      if (!this.clientCapabilitiesLogged) {
+        this.clientCapabilitiesLogged = true;
+        this.logClientCapabilities(this.server);
+      }
+
       // If photon is unresolved (conflict), return placeholder tools from manifest metadata
       if (!this.mcp && this.options.unresolvedPhoton) {
         return { tools: this.buildPlaceholderTools() };
@@ -504,9 +562,9 @@ export class PhotonServer {
           inputSchema: tool.inputSchema,
         };
 
-        // Add _meta with UI template reference (format depends on client capabilities)
+        // Add _meta with UI template reference only for UI-capable clients
         const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-        if (linkedUI) {
+        if (linkedUI && this.clientSupportsUI()) {
           toolDef._meta = this.buildUIToolMeta(linkedUI.id);
         }
 
@@ -741,9 +799,9 @@ export class PhotonServer {
         }
 
         // Enrich response with structuredContent + _meta for tools with linked UIs
-        // This enables ChatGPT, MCPJam Inspector, and other MCP Apps clients to render widgets
+        // Only for UI-capable clients (ChatGPT, MCPJam Inspector, Beam, etc.)
         const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
-        if (linkedUI) {
+        if (linkedUI && this.clientSupportsUI()) {
           const response: any = { content: [content] };
           if (actualResult !== undefined && actualResult !== null) {
             response.structuredContent =
@@ -1975,6 +2033,9 @@ export class PhotonServer {
    * This duplicates handlers from the main server to each session
    */
   private setupSessionHandlers(sessionServer: Server) {
+    // Log client capabilities on first SSE session handler setup
+    this.logClientCapabilities(sessionServer);
+
     // Handle tools/list
     sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
       if (!this.mcp) return { tools: [] };
@@ -1986,7 +2047,7 @@ export class PhotonServer {
         };
 
         const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-        if (linkedUI) {
+        if (linkedUI && this.clientSupportsUI(sessionServer)) {
           toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
         }
 
@@ -2161,9 +2222,9 @@ export class PhotonServer {
           response._meta = { runId: result.runId, status: result.status };
         }
 
-        // Enrich response with structuredContent + _meta for tools with linked UIs
+        // Enrich response with structuredContent + _meta for UI-capable clients only
         const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
-        if (linkedUI) {
+        if (linkedUI && this.clientSupportsUI(sessionServer)) {
           if (actualResult !== undefined && actualResult !== null) {
             response.structuredContent =
               typeof actualResult === 'string' ? { text: actualResult } : actualResult;
