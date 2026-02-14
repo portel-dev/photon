@@ -1966,10 +1966,19 @@ export class PhotonServer {
     // Store session
     this.sseSessions.set(sessionId, { server: sessionServer, transport });
 
-    // Clean up on close
+    // Clean up on close (guard against recursive close:
+    // onclose → sessionServer.close() → transport.close() → onclose)
+    let closing = false;
     transport.onclose = async () => {
+      if (closing) return;
+      closing = true;
       this.sseSessions.delete(sessionId);
-      await sessionServer.close();
+      this.log('info', 'SSE client disconnected', { sessionId });
+      try {
+        await sessionServer.close();
+      } catch {
+        // Ignore errors during cleanup (transport already closed)
+      }
     };
 
     transport.onerror = (error) => {

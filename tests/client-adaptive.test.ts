@@ -282,7 +282,7 @@ async function runTests() {
 
   // ═══════════════════════════════════════════════════════
   // Part 2: SSE Transport (HTTP)
-  // Uses one client per tier to avoid reconnection issues
+  // Each test creates and closes its own SSE session
   // ═══════════════════════════════════════════════════════
   console.log('\n══════════════════════════════════════════');
   console.log('  SSE Transport (HTTP)');
@@ -296,98 +296,15 @@ async function runTests() {
     sseProc = await startSSEServer(SSE_PORT);
     console.log(`SSE server ready on port ${SSE_PORT}\n`);
 
-    // NOTE: SSE clients are NOT closed between tests because the server
-    // crashes on client disconnect (pre-existing bug: recursive close in
-    // transport.onclose → sessionServer.close → transport.close → onclose).
-    // All sessions stay open; the server process is killed at the end.
-    const sseClients: Client[] = [];
+    const createSSE = (opts: ClientOpts) => createSSEClient(SSE_PORT, opts);
 
-    // SSE: Basic tier (one session for list + call)
-    {
-      console.log('[SSE] Basic client: tools/list + tools/call should NOT include UI fields');
-      const client = await createSSEClient(SSE_PORT, { name: 'unknown-client' });
-      sseClients.push(client);
-
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-      ok(!(mainTool as any)._meta?.ui, 'tools/list: no _meta.ui');
-
-      const result = await client.callTool({ name: 'main', arguments: {} });
-      ok(Array.isArray(result.content), 'tools/call: has content array');
-      ok(!(result as any).structuredContent, 'tools/call: no structuredContent');
-      ok(!(result as any)._meta?.ui, 'tools/call: no _meta.ui');
-    }
-
-    // SSE: MCP Apps tier via capability (one session for list + call)
-    {
-      console.log(
-        '[SSE] MCP Apps client (capability): tools/list + tools/call should include UI fields'
-      );
-      const client = await createSSEClient(SSE_PORT, {
-        name: 'some-ui-client',
-        capabilities: { experimental: { 'io.modelcontextprotocol/ui': {} } },
-      });
-      sseClients.push(client);
-
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-      const meta = (mainTool as any)._meta;
-      ok(!!meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
-      ok((meta.ui.resourceUri as string).startsWith('ui://'), 'tools/list: starts with ui://');
-
-      const result = await client.callTool({ name: 'main', arguments: {} });
-      ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
-      ok(
-        (result as any).structuredContent?.message === 'Hello from UI test',
-        'tools/call: structuredContent has correct value'
-      );
-      ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
-    }
-
-    // SSE: Known client name fallback
-    {
-      console.log('[SSE] Known client name fallback (chatgpt): should get _meta.ui');
-      const client = await createSSEClient(SSE_PORT, { name: 'chatgpt' });
-      sseClients.push(client);
-
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-      ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri (chatgpt fallback)');
-    }
-
-    // SSE: Beam tier (one session for list + call)
-    {
-      console.log('[SSE] Beam client: tools/list + tools/call should include full UI response');
-      const client = await createSSEClient(SSE_PORT, { name: 'beam' });
-      sseClients.push(client);
-
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-      ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'tools/list: has _meta.ui.resourceUri');
-
-      const result = await client.callTool({ name: 'main', arguments: {} });
-      ok(!!(result as any).structuredContent, 'tools/call: has structuredContent');
-      ok(!!(result as any)._meta?.ui?.resourceUri, 'tools/call: has _meta.ui.resourceUri');
-    }
-
-    // SSE: Claude Desktop (basic tier)
-    {
-      console.log('[SSE] Claude Desktop (no UI capability): should be basic tier');
-      const client = await createSSEClient(SSE_PORT, {
-        name: 'claude-ai',
-        capabilities: { elicitation: {} },
-      });
-      sseClients.push(client);
-
-      const { tools } = await client.listTools();
-      const mainTool = tools.find((t) => t.name === 'main');
-      assert.ok(mainTool, 'Should have "main" tool');
-      ok(!(mainTool as any)._meta?.ui, 'No _meta.ui (claude-ai without UI capability)');
-    }
+    await testBasicToolsList(createSSE, 'SSE');
+    await testBasicToolsCall(createSSE, 'SSE');
+    await testMCPAppsToolsList(createSSE, 'SSE');
+    await testMCPAppsToolsCall(createSSE, 'SSE');
+    await testKnownClientFallback(createSSE, 'SSE');
+    await testBeamClient(createSSE, 'SSE');
+    await testClaudeDesktop(createSSE, 'SSE');
   } finally {
     if (sseProc) {
       sseProc.kill();
