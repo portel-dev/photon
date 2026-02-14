@@ -1545,8 +1545,6 @@ export class BeamApp extends LitElement {
   @state() private _configMode: 'initial' | 'edit' = 'initial';
   private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
 
-  // ... (existing code)
-
   private _handleInstall(e: CustomEvent) {
     // Just log for now, the socket update 'photon_added' will handle the actual refresh
     this._log('info', `Installed ${e.detail.name}`);
@@ -2862,7 +2860,7 @@ export class BeamApp extends LitElement {
           `;
         }
 
-        // Phase 1: Welcome screen with two paths
+        // Welcome screen: choose between marketplace and local photon
         return html`
           <div
             style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; text-align:center;"

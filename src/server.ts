@@ -29,7 +29,7 @@ import {
 } from '@portel/photon-core';
 import type { ExtractedSchema } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
-import { createStandaloneMCPClientFactory, StandaloneMCPClientFactory } from './mcp-client.js';
+import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
 import { PHOTON_VERSION } from './version.js';
 import { createLogger, Logger, LoggerOptions, LogLevel } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
@@ -43,7 +43,7 @@ import {
 } from './shared/validation.js';
 import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 import { subscribeChannel, pingDaemon, publishToChannel } from './daemon/client.js';
-import { isDaemonRunning, startDaemon } from './daemon/manager.js';
+import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import {
   isLocalRequest,
@@ -97,7 +97,7 @@ export class PhotonServer {
   private mcp: PhotonMCPClassExtended | null = null;
   private server: Server;
   private options: PhotonServerOptions;
-  private mcpClientFactory: StandaloneMCPClientFactory | null = null;
+  private mcpClientFactory: SDKMCPClientFactory | null = null;
   private httpServer: ReturnType<typeof createServer> | null = null;
   private sseSessions: Map<string, SSESession> = new Map();
   private devMode: boolean;
@@ -700,7 +700,9 @@ export class PhotonServer {
         );
         // Track instance name after successful _use
         if (toolName === '_use') {
-          this.daemonInstanceName = String((args as any)?.name || '');
+          this.daemonInstanceName = String(
+            (args as Record<string, unknown> | undefined)?.name || ''
+          );
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -1223,7 +1225,6 @@ export class PhotonServer {
       selectedSource = unresolved.sources[0];
     } else if (this.clientSupportsElicitation()) {
       // Present choices via elicitation
-      const options: Record<string, any> = {};
       const sourceLabels: Array<{ const: string; title: string }> = [];
       for (const source of unresolved.sources) {
         const version = source.metadata?.version || 'unknown';
@@ -1394,7 +1395,9 @@ export class PhotonServer {
       const inputProvider = this.createMCPInputProvider();
       const outputHandler = (emit: any) => {
         if (this.daemonName && emit?.channel) {
-          publishToChannel(this.daemonName, emit.channel, emit).catch(() => {});
+          publishToChannel(this.daemonName, emit.channel, emit).catch((e) => {
+            this.log('debug', 'Publish to channel failed', { error: getErrorMessage(e) });
+          });
         }
       };
 
@@ -1431,7 +1434,7 @@ export class PhotonServer {
         // Initialize MCP client factory for enabling this.mcp() in Photons
         // This allows Photons to call external MCPs via protocol
         try {
-          this.mcpClientFactory = await createStandaloneMCPClientFactory(this.options.devMode);
+          this.mcpClientFactory = await createSDKMCPClientFactory(this.options.devMode);
           const servers = await this.mcpClientFactory.listServers();
           if (servers.length > 0) {
             this.log('info', `MCP access enabled: ${servers.join(', ')}`);
@@ -1452,9 +1455,9 @@ export class PhotonServer {
           this.daemonName = photonName; // Store for subscription
           this.log('info', `Stateful photon detected: ${photonName}`);
 
-          if (!isDaemonRunning(photonName)) {
+          if (!isGlobalDaemonRunning()) {
             this.log('info', `Starting daemon for ${photonName}...`);
-            await startDaemon(photonName, this.options.filePath, true);
+            await startGlobalDaemon(true);
 
             // Wait for daemon to be ready
             for (let i = 0; i < 10; i++) {
@@ -1556,16 +1559,16 @@ export class PhotonServer {
 
     try {
       await this.server.notification(payload);
-    } catch {
-      // ignore - client may not support notifications
+    } catch (e) {
+      this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
     }
 
     // Also send to SSE sessions
     for (const session of this.sseSessions.values()) {
       try {
         await session.server.notification(payload);
-      } catch {
-        // ignore session errors
+      } catch (e) {
+        this.log('debug', 'Session notification failed', { error: getErrorMessage(e) });
       }
     }
   }
@@ -1724,10 +1727,16 @@ export class PhotonServer {
           return;
         }
 
+        if (!this.mcp) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
+          return;
+        }
+
         try {
           const body = await readBody(req);
           const { tool, args } = JSON.parse(body);
-          const result = await this.loader.executeTool(this.mcp!, tool, args || {});
+          const result = await this.loader.executeTool(this.mcp, tool, args || {});
           const isStateful = result && typeof result === 'object' && result._stateful === true;
           res.writeHead(200);
           res.end(
@@ -1753,6 +1762,12 @@ export class PhotonServer {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+
+        if (!this.mcp) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
+          return;
+        }
 
         let body = '';
         req.on('data', (chunk) => (body += chunk));
@@ -2183,7 +2198,10 @@ export class PhotonServer {
         );
         // Track instance name after successful _use
         if (toolName === '_use') {
-          this.sseInstanceNames.set(sseSessionKey, String((args as any)?.name || ''));
+          this.sseInstanceNames.set(
+            sseSessionKey,
+            String((args as Record<string, unknown> | undefined)?.name || '')
+          );
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -2892,15 +2910,15 @@ export class PhotonServer {
 
     try {
       await this.server.notification(payload);
-    } catch {
-      // ignore
+    } catch (e) {
+      this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
     }
 
     for (const session of this.sseSessions.values()) {
       try {
         await session.server.notification(payload);
-      } catch {
-        // ignore session errors
+      } catch (e) {
+        this.log('debug', 'Session notification failed', { error: getErrorMessage(e) });
       }
     }
   }

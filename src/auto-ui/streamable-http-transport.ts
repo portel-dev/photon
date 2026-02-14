@@ -776,11 +776,11 @@ const handlers: Record<string, RequestHandler> = {
     if (photonInfo?.stateful && photonInfo.path) {
       try {
         const { sendCommand, pingDaemon } = await import('../daemon/client.js');
-        const { isDaemonRunning, startDaemon } = await import('../daemon/manager.js');
+        const { isGlobalDaemonRunning, startGlobalDaemon } = await import('../daemon/manager.js');
 
         // Ensure daemon is running
-        if (!isDaemonRunning(photonName)) {
-          await startDaemon(photonName, photonInfo.path, true);
+        if (!isGlobalDaemonRunning()) {
+          await startGlobalDaemon(true);
           // Wait for daemon readiness
           for (let i = 0; i < 10; i++) {
             await new Promise((r) => setTimeout(r, 500));

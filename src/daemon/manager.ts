@@ -41,14 +41,6 @@ export function getGlobalSocketPath(): string {
 }
 
 /**
- * Get socket path - now returns global socket regardless of photonName
- * @deprecated Use getGlobalSocketPath() directly. photonName parameter is ignored.
- */
-export function getSocketPath(_photonName?: string): string {
-  return getGlobalSocketPath();
-}
-
-/**
  * Ensure photon directory exists
  */
 function ensurePhotonDir(): void {
@@ -83,14 +75,6 @@ export function isGlobalDaemonRunning(): boolean {
 }
 
 /**
- * Check if daemon is running
- * @deprecated Use isGlobalDaemonRunning(). photonName parameter is ignored.
- */
-export function isDaemonRunning(_photonName?: string): boolean {
-  return isGlobalDaemonRunning();
-}
-
-/**
  * Get global daemon status
  */
 export function getGlobalDaemonStatus(): DaemonStatus {
@@ -108,14 +92,6 @@ export function getGlobalDaemonStatus(): DaemonStatus {
     pid,
     photonName: 'global',
   };
-}
-
-/**
- * Get daemon status
- * @deprecated Use getGlobalDaemonStatus(). photonName parameter is ignored.
- */
-export function getDaemonStatus(_photonName?: string): DaemonStatus {
-  return getGlobalDaemonStatus();
 }
 
 /**
@@ -166,18 +142,6 @@ export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
 }
 
 /**
- * Start daemon - ensures global daemon is running
- * @deprecated Use startGlobalDaemon(). photonName/photonPath parameters are ignored.
- */
-export async function startDaemon(
-  _photonName?: string,
-  _photonPath?: string,
-  quiet: boolean = false
-): Promise<void> {
-  return startGlobalDaemon(quiet);
-}
-
-/**
  * Ensure daemon is running, start if needed
  */
 export async function ensureDaemon(quiet: boolean = true): Promise<void> {
@@ -220,14 +184,6 @@ export function stopGlobalDaemon(): void {
   } catch (error) {
     logger.debug('Error stopping global daemon', { error: getErrorMessage(error) });
   }
-}
-
-/**
- * Stop daemon
- * @deprecated Use stopGlobalDaemon(). photonName parameter is ignored.
- */
-export function stopDaemon(_photonName?: string): void {
-  return stopGlobalDaemon();
 }
 
 /**
