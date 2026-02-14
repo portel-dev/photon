@@ -143,12 +143,29 @@ async *searchWithProgress(query: string) {
 
 ## MCP Integration
 
-### Tool Output Templates
+### Client Capability Detection
 
-Tools can specify UI templates using `_meta`. The format depends on the client:
+Photon uses **progressive enhancement** — it detects the client's capabilities during the MCP `initialize` handshake and adapts responses accordingly. Developer code is unchanged; the runtime handles everything.
+
+#### Detection Logic
+
+During initialization, the client sends `clientInfo` (who it is) and `capabilities` (what it supports). Photon checks both:
+
+1. **`capabilities.experimental["io.modelcontextprotocol/ui"]`** — official MCP Apps capability negotiation. If present, the client supports UI widgets.
+2. **`clientInfo.name`** — fallback for known UI-capable clients that may not yet announce the capability key (e.g. `"chatgpt"`, `"mcpjam"`, `"beam"`).
+
+#### Client Tiers
+
+| Tier | Detection | What we send |
+|------|-----------|-------------|
+| **basic** | Unknown client, no UI capability | `content` only. No `structuredContent`, no `_meta.ui` |
+| **mcp-apps** | Has `experimental["io.modelcontextprotocol/ui"]` OR known UI-capable `clientInfo.name` | `content` + `structuredContent` + `_meta.ui.resourceUri` |
+| **beam** | `clientInfo.name === 'beam'` | Same as mcp-apps (Beam's transport handles rendering via its own pipeline) |
+
+#### Example: Same Tool, Different Clients
 
 ```typescript
-// MCP Apps standard (Claude Desktop, MCPJam, ChatGPT, and all third-party clients)
+// UI-capable client (ChatGPT, MCPJam, Beam) — tool definition
 {
   name: "search",
   description: "Search repositories",
@@ -158,16 +175,20 @@ Tools can specify UI templates using `_meta`. The format depends on the client:
   }
 }
 
-// Beam format (Photon's own UI)
+// Basic client (Claude Desktop without MCP Apps, unknown clients) — tool definition
 {
   name: "search",
   description: "Search repositories",
-  inputSchema: {...},
-  _meta: {
-    outputTemplate: "photon://github/ui/search-results"
-  }
+  inputSchema: {...}
+  // No _meta — client wouldn't use it
 }
 ```
+
+Tool responses follow the same pattern: UI-capable clients receive `structuredContent` + `_meta.ui`, basic clients receive only `content[].text`.
+
+### Tool Output Templates
+
+UI-capable clients receive `_meta.ui.resourceUri` pointing to the tool's linked UI template. The `ui://` URI scheme follows the MCP Apps standard (SEP-1865).
 
 Photon detects the client at handshake and serves the right format automatically. Developer code stays unchanged — just use the `@ui` docblock tag.
 
