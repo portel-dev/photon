@@ -152,7 +152,7 @@ Photon uses **progressive enhancement** — it detects the client's capabilities
 During initialization, the client sends `clientInfo` (who it is) and `capabilities` (what it supports). Photon checks both:
 
 1. **`capabilities.experimental["io.modelcontextprotocol/ui"]`** — official MCP Apps capability negotiation. If present, the client supports UI widgets.
-2. **`clientInfo.name`** — fallback for known UI-capable clients that may not yet announce the capability key (e.g. `"chatgpt"`, `"mcpjam"`, `"beam"`).
+2. **`clientInfo.name`** — fallback for known UI-capable clients that may not yet announce the capability key. Currently: `"chatgpt"`, `"mcpjam"`, `"mcp-inspector"`, and `"beam"` (see `UI_CAPABLE_CLIENTS` in `server.ts`).
 
 #### Client Tiers
 

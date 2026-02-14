@@ -209,19 +209,26 @@ async function testMCPAppsToolsCall(
   }
 }
 
-async function testKnownClientFallback(
+async function testKnownClientFallbacks(
   createFn: (opts: ClientOpts) => Promise<Client>,
   label: string
 ) {
-  console.log(`[${label}] Known client name fallback (chatgpt): should get _meta.ui`);
-  const client = await createFn({ name: 'chatgpt' });
-  try {
-    const { tools } = await client.listTools();
-    const mainTool = tools.find((t) => t.name === 'main');
-    assert.ok(mainTool, 'Should have "main" tool');
-    ok(!!(mainTool as any)._meta?.ui?.resourceUri, 'Has _meta.ui.resourceUri (chatgpt fallback)');
-  } finally {
-    await client.close();
+  // Test ALL clients in UI_CAPABLE_CLIENTS to ensure the set stays in sync with tests
+  const knownClients = ['chatgpt', 'mcpjam', 'mcp-inspector'];
+  for (const clientName of knownClients) {
+    console.log(`[${label}] Known client name fallback (${clientName}): should get _meta.ui`);
+    const client = await createFn({ name: clientName });
+    try {
+      const { tools } = await client.listTools();
+      const mainTool = tools.find((t) => t.name === 'main');
+      assert.ok(mainTool, 'Should have "main" tool');
+      ok(
+        !!(mainTool as any)._meta?.ui?.resourceUri,
+        `Has _meta.ui.resourceUri (${clientName} fallback)`
+      );
+    } finally {
+      await client.close();
+    }
   }
 }
 
@@ -276,7 +283,7 @@ async function runTests() {
   await testBasicToolsCall(createStdioClient, 'STDIO');
   await testMCPAppsToolsList(createStdioClient, 'STDIO');
   await testMCPAppsToolsCall(createStdioClient, 'STDIO');
-  await testKnownClientFallback(createStdioClient, 'STDIO');
+  await testKnownClientFallbacks(createStdioClient, 'STDIO');
   await testBeamClient(createStdioClient, 'STDIO');
   await testClaudeDesktop(createStdioClient, 'STDIO');
 
@@ -302,7 +309,7 @@ async function runTests() {
     await testBasicToolsCall(createSSE, 'SSE');
     await testMCPAppsToolsList(createSSE, 'SSE');
     await testMCPAppsToolsCall(createSSE, 'SSE');
-    await testKnownClientFallback(createSSE, 'SSE');
+    await testKnownClientFallbacks(createSSE, 'SSE');
     await testBeamClient(createSSE, 'SSE');
     await testClaudeDesktop(createSSE, 'SSE');
   } finally {
