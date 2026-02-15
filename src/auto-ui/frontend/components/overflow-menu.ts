@@ -219,10 +219,21 @@ export class OverflowMenu extends LitElement {
         btn.appendChild(textSpan);
       }
 
+      // Capture toggle/knob refs for click handler (only exists for toggle items)
+      const toggleEl = item.toggle ? (btn.children[1] as HTMLElement) : null;
+      const knobEl = toggleEl?.children[0] as HTMLElement | null;
+
       btn.onclick = (e) => {
         e.stopPropagation();
         if (item.disabled) return;
-        if (!item.toggle) this._close();
+        if (item.toggle && toggleEl && knobEl) {
+          item.toggleActive = !item.toggleActive;
+          toggleEl.style.background = item.toggleActive ? accentPrimary : tMuted;
+          toggleEl.style.opacity = item.toggleActive ? '1' : '0.4';
+          knobEl.style.transform = item.toggleActive ? 'translateX(16px)' : '';
+        } else if (!item.toggle) {
+          this._close();
+        }
         this.dispatchEvent(
           new CustomEvent('menu-select', {
             detail: { id: item.id, item },
