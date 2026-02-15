@@ -5,9 +5,8 @@ import { theme } from '../styles/theme.js';
 /**
  * App-first layout for App photons.
  *
- * The app UI fills the viewport with a small floating fullscreen button.
- * Scrolling down reveals the standard photon interface (methods, prompts, resources).
- * Fullscreen button opens a full-screen overlay.
+ * The app UI fills the viewport. A labeled divider hints that methods
+ * are available below. Fullscreen button lives in the context bar (external).
  */
 @customElement('app-layout')
 export class AppLayout extends LitElement {
@@ -18,50 +17,40 @@ export class AppLayout extends LitElement {
         display: block;
       }
 
-      .app-toolbar {
-        display: flex;
-        justify-content: flex-end;
-        padding: var(--space-xs) var(--space-sm);
-      }
-
-      .fullscreen-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-muted);
-        cursor: pointer;
-        font-size: var(--text-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-      }
-
-      .fullscreen-btn:hover {
-        color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-color: var(--accent-primary);
-      }
-
       .app-viewport {
         min-height: calc(100vh - 140px);
         border-radius: var(--radius-md);
         overflow: hidden;
       }
 
-      .scroll-hint {
+      .scroll-divider {
+        position: relative;
         text-align: center;
-        padding: var(--space-lg) 0;
+        margin: var(--space-lg) 0;
+      }
+
+      .scroll-divider::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: var(--border-glass);
+      }
+
+      .scroll-divider span {
+        position: relative;
+        display: inline-block;
+        padding: 0 var(--space-md);
+        background: var(--bg-app, #0a0a12);
         color: var(--t-muted);
         font-size: var(--text-sm);
+        opacity: 0.6;
       }
 
       .below-fold {
         padding-top: var(--space-lg);
-        border-top: 1px solid var(--border-glass);
-        margin-top: var(--space-lg);
       }
 
       /* Pop-out overlay */
@@ -172,17 +161,13 @@ export class AppLayout extends LitElement {
     return html`
       ${this._poppedOut ? this._renderPopout() : ''}
 
-      <div class="app-toolbar">
-        <button class="fullscreen-btn" @click=${() => (this._poppedOut = true)} title="Full screen">
-          ⛶
-        </button>
-      </div>
-
       <div class="app-viewport">
         <slot name="app"></slot>
       </div>
 
-      <div class="scroll-hint">↓ scroll down for methods, prompts & resources</div>
+      <div class="scroll-divider">
+        <span>&darr; scroll down for methods, prompts &amp; resources</span>
+      </div>
 
       <div class="below-fold">
         <div class="anchor-nav" id="methods">
@@ -211,6 +196,10 @@ export class AppLayout extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  togglePopout() {
+    this._poppedOut = !this._poppedOut;
   }
 
   private _scrollTo(id: string) {

@@ -3161,14 +3161,16 @@ export class BeamApp extends LitElement {
 
         ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
           ? html`
-              <div
-                style="text-align: center; padding: var(--space-sm) 0; color: var(--t-muted); font-size: 0.8rem; opacity: 0.6;"
-              >
-                &darr; scroll down for methods, prompts &amp; resources
+              <div style="position: relative; text-align: center; margin: var(--space-lg) 0;">
+                <div
+                  style="position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border-glass);"
+                ></div>
+                <span
+                  style="position: relative; display: inline-block; padding: 0 var(--space-md); background: var(--bg-app, #0a0a12); color: var(--t-muted); font-size: 0.8rem; opacity: 0.6;"
+                  >&darr; scroll down for methods, prompts &amp; resources</span
+                >
               </div>
-              <div
-                style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
-              >
+              <div style="padding-top: var(--space-lg);">
                 <h4
                   style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);"
                 >
@@ -3245,7 +3247,27 @@ export class BeamApp extends LitElement {
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
             >
-              <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
+              <div slot="app" style="min-height: calc(100vh - 140px); position: relative;">
+                ${appRenderer}
+                <button
+                  style="position: absolute; top: var(--space-xs); right: var(--space-xs); width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
+                  @click=${() => {
+                    const layout = this.shadowRoot?.querySelector('app-layout') as any;
+                    layout?.togglePopout();
+                  }}
+                  @mouseenter=${(e: MouseEvent) => {
+                    (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                    (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                  }}
+                  @mouseleave=${(e: MouseEvent) => {
+                    (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                    (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                  }}
+                  title="Full screen"
+                >
+                  ⛶
+                </button>
+              </div>
               <div slot="popout" style="height: 100%;">
                 ${isExternalMCP
                   ? html`
@@ -4943,6 +4965,7 @@ export class BeamApp extends LitElement {
       showHelp?: boolean;
       showRunTests?: boolean;
       showRemove?: boolean;
+      showFullscreen?: boolean;
     } = {}
   ): import('./overflow-menu.js').OverflowMenuItem[] {
     const {
@@ -4953,10 +4976,14 @@ export class BeamApp extends LitElement {
       showHelp = true,
       showRunTests = this._getTestMethods().length > 0,
       showRemove = false,
+      showFullscreen = false,
     } = opts;
 
     const items: import('./overflow-menu.js').OverflowMenuItem[] = [];
 
+    if (showFullscreen) {
+      items.push({ id: 'fullscreen', label: 'Full Screen', icon: '⛶' });
+    }
     if (showRefresh) {
       items.push({ id: 'refresh', label: 'Refresh', icon: '🔄' });
     }
