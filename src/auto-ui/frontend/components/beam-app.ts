@@ -146,7 +146,9 @@ export class BeamApp extends LitElement {
         align-items: center;
         justify-content: center;
         transition: all 0.2s ease;
-        margin-bottom: -28px;
+        margin-top: calc(-1 * var(--space-lg));
+        margin-right: calc(-1 * var(--space-lg));
+        margin-bottom: calc(-28px + var(--space-lg));
       }
 
       .cards-grid {
