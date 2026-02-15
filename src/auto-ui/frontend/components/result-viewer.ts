@@ -99,6 +99,46 @@ export class ResultViewer extends LitElement {
         overflow: hidden;
       }
 
+      .container:fullscreen {
+        background: var(--bg-app, #0a0a12);
+        padding: var(--space-lg);
+        overflow: hidden;
+        border: none;
+        border-radius: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        box-sizing: border-box;
+      }
+
+      .container:fullscreen .header {
+        flex-shrink: 0;
+      }
+
+      .container:fullscreen .content {
+        flex: 1;
+        overflow: auto;
+        max-height: none;
+      }
+
+      .container:fullscreen .chart-container {
+        max-height: none;
+        height: 100%;
+      }
+
+      .container:fullscreen .mermaid-wrapper {
+        height: 100%;
+      }
+
+      .container:fullscreen .mermaid-wrapper .mermaid-container {
+        height: 100%;
+      }
+
+      .container:fullscreen .mermaid-wrapper .mermaid-container svg {
+        width: 100%;
+        height: 100%;
+      }
+
       .header {
         display: flex;
         justify-content: space-between;
@@ -990,14 +1030,14 @@ export class ResultViewer extends LitElement {
       }
 
       .tree-toggle {
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         color: var(--t-muted);
-        font-size: var(--text-xs);
+        font-size: 0.7rem;
         flex-shrink: 0;
       }
 
@@ -1924,7 +1964,7 @@ export class ResultViewer extends LitElement {
       }
 
       .accordion-chevron {
-        font-size: var(--text-xs);
+        font-size: 0.7rem;
         color: var(--t-muted);
         transition: transform 0.2s;
       }
@@ -2637,6 +2677,7 @@ export class ResultViewer extends LitElement {
               ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
               : ''}
             <button @click=${this._share} title="Share link to this result">🔗 Share</button>
+            <button @click=${this._fullscreen} title="Full screen result">⛶</button>
           </div>
         </div>
         <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
@@ -4228,13 +4269,19 @@ export class ResultViewer extends LitElement {
       return html`
         <div>
           <button
-            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
+            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;display:inline-flex;align-items:center;gap:4px;"
             @click=${(e: Event) => {
               e.stopPropagation();
               this._toggleNode(nodeKey);
             }}
           >
-            ${isExpanded ? '▾' : '▸'} ${value.length} items
+            <span
+              style="font-size:0.7rem;display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
+                ? '90deg'
+                : '0deg'});"
+              >▶</span
+            >
+            ${this._formatColumnName(key)} <span style="opacity:0.6;">(${value.length})</span>
           </button>
           ${isExpanded
             ? html`
@@ -4301,13 +4348,19 @@ export class ResultViewer extends LitElement {
       return html`
         <div>
           <button
-            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;"
+            style="background:none;border:none;color:var(--accent-secondary);cursor:pointer;font-size:0.8rem;padding:2px 0;font-family:inherit;display:inline-flex;align-items:center;gap:4px;"
             @click=${(e: Event) => {
               e.stopPropagation();
               this._toggleNode(nodeKey);
             }}
           >
-            ${isExpanded ? '▾' : '▸'} ${entries.length} fields
+            <span
+              style="font-size:0.7rem;display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
+                ? '90deg'
+                : '0deg'});"
+              >▶</span
+            >
+            ${this._formatColumnName(key)} <span style="opacity:0.6;">(${entries.length})</span>
           </button>
           ${isExpanded
             ? html`
@@ -4439,6 +4492,16 @@ export class ResultViewer extends LitElement {
         composed: true,
       })
     );
+  }
+
+  private _fullscreen() {
+    const container = this.shadowRoot?.querySelector('.container') as HTMLElement;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      container.requestFullscreen();
+    }
   }
 
   private _isTabularData(): boolean {
