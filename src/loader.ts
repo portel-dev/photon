@@ -643,7 +643,7 @@ export class PhotonLoader {
         injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
       };
       // Store class constructor for static method access
-      (result as any).classConstructor = MCPClass;
+      result.classConstructor = MCPClass;
       return result;
     } catch (error) {
       this.logger.error(`❌ Failed to load ${filePath}: ${getErrorMessage(error)}`);
@@ -1652,8 +1652,8 @@ Run: photon mcp ${mcpName} --config
       }
 
       // Check for static method on class constructor
-      if (typeof method !== 'function' && (mcp as any).classConstructor) {
-        method = (mcp as any).classConstructor[toolName];
+      if (typeof method !== 'function' && mcp.classConstructor) {
+        method = mcp.classConstructor[toolName];
         isStatic = true;
       }
 
@@ -1665,12 +1665,7 @@ Run: photon mcp ${mcpName} --config
       // Simple params need to be destructured from the params object into individual arguments
       const toolMeta = mcp.tools.find((t: any) => t.name === toolName);
       let args: any[];
-      if (
-        toolMeta &&
-        (toolMeta as any).simpleParams &&
-        parameters &&
-        typeof parameters === 'object'
-      ) {
+      if (toolMeta && toolMeta.simpleParams && parameters && typeof parameters === 'object') {
         // Get param names from schema to preserve order
         const paramNames = Object.keys(toolMeta.inputSchema?.properties || {});
         args = paramNames.map((name) => parameters[name]);
@@ -2084,8 +2079,8 @@ Run: photon mcp ${mcpName} --config
   private generateAssetURIs(photonName: string, assets: PhotonAssets): void {
     for (const ui of assets.ui) {
       // Add uri field for MCP Apps compatibility
-      (ui as any).uri = `ui://${photonName}/${ui.id}`;
-      this.log(`  🔗 URI: ${(ui as any).uri}`);
+      ui.uri = `ui://${photonName}/${ui.id}`;
+      this.log(`  🔗 URI: ${ui.uri}`);
     }
   }
 
