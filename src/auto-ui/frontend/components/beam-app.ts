@@ -2261,6 +2261,22 @@ export class BeamApp extends LitElement {
     }
   }
 
+  /**
+   * Filter methods for user-facing display: hide @internal methods,
+   * _use/_instances system methods, and methods with @internal in description.
+   */
+  private _getVisibleMethods(photon?: any): any[] {
+    const p = photon || this._selectedPhoton;
+    if (!p?.methods) return [];
+    return p.methods.filter((m: any) => {
+      // Hide runtime instance management methods
+      if (m.name === '_use' || m.name === '_instances') return false;
+      // Hide methods with @internal in their description
+      if (m.description && /@internal\b/i.test(m.description)) return false;
+      return true;
+    });
+  }
+
   private _getTestMethods(): string[] {
     if (!this._selectedPhoton?.methods) return [];
     return this._selectedPhoton.methods
@@ -3159,7 +3175,7 @@ export class BeamApp extends LitElement {
           ></mcp-app-renderer>
         </div>
 
-        ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
+        ${this._getVisibleMethods().length > 0
           ? html`
               <div style="position: relative; text-align: center; margin: var(--space-lg) 0;">
                 <div
@@ -3177,7 +3193,7 @@ export class BeamApp extends LitElement {
                   Available Tools
                 </h4>
                 <div class="cards-grid">
-                  ${this._selectedPhoton.methods.map(
+                  ${this._getVisibleMethods().map(
                     (method: any) => html`
                       <method-card
                         .method=${method}
@@ -3203,7 +3219,7 @@ export class BeamApp extends LitElement {
       if (this._selectedMethod.linkedUi) {
         const isAppMain = this._selectedPhoton.isApp && this._selectedMethod.name === 'main';
         const otherMethods = isAppMain
-          ? (this._selectedPhoton.methods || []).filter((m: any) => m.name !== 'main')
+          ? this._getVisibleMethods().filter((m: any) => m.name !== 'main')
           : [];
 
         // External MCPs use mcp-app-renderer (MCP Apps Extension protocol)
@@ -3398,10 +3414,10 @@ export class BeamApp extends LitElement {
 
       <div class="bento-methods">
         <h3 class="bento-section-title">Methods</h3>
-        ${(this._selectedPhoton.methods || []).length > 0
+        ${this._getVisibleMethods().length > 0
           ? html`
               <div class="cards-grid">
-                ${(this._selectedPhoton.methods || []).map(
+                ${this._getVisibleMethods().map(
                   (method: any) => html`
                     <method-card
                       .method=${method}

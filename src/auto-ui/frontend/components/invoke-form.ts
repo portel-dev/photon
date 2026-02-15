@@ -661,6 +661,15 @@ export class InvokeForm extends LitElement {
       return this._renderArrayOfObjects(key, schema, hasError);
     }
 
+    // Handle Object with Properties -> Nested Sub-Fields
+    if (
+      schema.type === 'object' &&
+      (schema as any).properties &&
+      Object.keys((schema as any).properties).length > 0
+    ) {
+      return this._renderObjectFields(key, schema, hasError);
+    }
+
     // Handle Enums -> Select Dropdown
     if ((schema as any).enum) {
       const currentValue = this._values[key] || '';
@@ -948,6 +957,100 @@ export class InvokeForm extends LitElement {
         }}
         placeholder="Enter JSON..."
       ></textarea>
+    `;
+  }
+
+  /** Render an object parameter with sub-fields for each property */
+  private _renderObjectFields(key: string, schema: any, _hasError: boolean) {
+    const properties = (schema as any).properties || {};
+    const requiredList = (schema as any).required || [];
+    const currentObj = (this._values[key] as Record<string, any>) || {};
+
+    const handleFieldChange = (propKey: string, newValue: any) => {
+      const updated = { ...currentObj, [propKey]: newValue };
+      this._values = { ...this._values, [key]: updated };
+      if (this.rememberValues) {
+        this._savePersistedValues();
+      }
+    };
+
+    return html`
+      <div class="array-container">
+        ${Object.entries(properties).map(([propKey, propSchema]: [string, any]) => {
+          const isRequired = requiredList.includes(propKey);
+          return html`
+            <div class="nested-field">
+              <label class="nested-label">
+                ${formatLabel(propKey)}
+                ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
+                ${propSchema.description
+                  ? html`<span class="nested-hint"
+                      >${this._cleanDescription(propSchema.description, propSchema)}</span
+                    >`
+                  : ''}
+              </label>
+              ${this._renderObjectSubInput(
+                propKey,
+                propSchema,
+                currentObj[propKey],
+                handleFieldChange
+              )}
+            </div>
+          `;
+        })}
+      </div>
+    `;
+  }
+
+  /** Render input for a sub-field within an object parameter */
+  private _renderObjectSubInput(
+    propKey: string,
+    schema: any,
+    value: any,
+    onChange: (key: string, val: any) => void
+  ) {
+    if (schema.enum) {
+      return html`
+        <select
+          .value=${value || ''}
+          @change=${(e: Event) => onChange(propKey, (e.target as HTMLSelectElement).value)}
+        >
+          <option value="">Select...</option>
+          ${schema.enum.map(
+            (opt: string) => html` <option value=${opt} ?selected=${opt === value}>${opt}</option> `
+          )}
+        </select>
+      `;
+    }
+    if (schema.type === 'boolean') {
+      return html`
+        <label class="switch">
+          <input
+            type="checkbox"
+            .checked=${!!value}
+            @change=${(e: Event) => onChange(propKey, (e.target as HTMLInputElement).checked)}
+          />
+          <span class="slider"></span>
+        </label>
+      `;
+    }
+    if (schema.type === 'number' || schema.type === 'integer') {
+      return html`
+        <input
+          type="number"
+          .value=${value !== undefined ? String(value) : ''}
+          @input=${(e: Event) => onChange(propKey, Number((e.target as HTMLInputElement).value))}
+        />
+      `;
+    }
+    // Default: text input
+    return html`
+      <input
+        type="text"
+        .value=${value || ''}
+        placeholder=${schema.default != null ? String(schema.default) : ''}
+        @input=${(e: Event) => onChange(propKey, (e.target as HTMLInputElement).value)}
+      />
     `;
   }
 
