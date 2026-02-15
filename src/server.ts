@@ -212,41 +212,31 @@ export class PhotonServer {
    *
    * All clients use the MCP Apps standard (SEP-1865) ui:// format.
    * Text-only clients have no UI support.
-   *
-   * @param server - Optional server instance (for SSE sessions), defaults to main server
    */
-  private getUIFormat(_server?: Server): UIFormat {
+  private getUIFormat(): UIFormat {
     return 'sep-1865';
   }
 
   /**
    * Build UI resource URI based on detected format
-   *
-   * @param uiId - UI template identifier
-   * @param server - Optional server instance (for SSE sessions)
    */
-  private buildUIResourceUri(uiId: string, _server?: Server): string {
+  private buildUIResourceUri(uiId: string): string {
     const photonName = this.mcp?.name || 'unknown';
     return `ui://${photonName}/${uiId}`;
   }
 
   /**
    * Build tool metadata for UI based on detected format
-   *
-   * @param uiId - UI template identifier
-   * @param server - Optional server instance (for SSE sessions)
    */
-  private buildUIToolMeta(uiId: string, server?: Server): Record<string, unknown> {
-    const uri = this.buildUIResourceUri(uiId, server);
+  private buildUIToolMeta(uiId: string): Record<string, unknown> {
+    const uri = this.buildUIResourceUri(uiId);
     return { ui: { resourceUri: uri } };
   }
 
   /**
    * Get UI mimeType based on detected format and client capabilities
-   *
-   * @param server - Optional server instance (for SSE sessions)
    */
-  private getUIMimeType(_server?: Server): string {
+  private getUIMimeType(): string {
     return 'text/html;profile=mcp-app';
   }
 
@@ -265,7 +255,7 @@ export class PhotonServer {
     }
 
     // Check for elicitation capability (MCP 2025-06 spec)
-    return !!(capabilities as any).elicitation;
+    return !!capabilities.elicitation;
   }
 
   // Known clients that support MCP Apps UI (fallback when capability isn't announced)
@@ -285,7 +275,7 @@ export class PhotonServer {
 
     // 1. Check capabilities (official MCP Apps negotiation)
     const capabilities = targetServer.getClientCapabilities();
-    if ((capabilities as any)?.experimental?.['io.modelcontextprotocol/ui']) {
+    if (capabilities?.experimental?.['io.modelcontextprotocol/ui']) {
       return true;
     }
 
@@ -909,7 +899,7 @@ export class PhotonServer {
         // Add UI assets (format depends on client capabilities)
         for (const ui of this.mcp.assets.ui) {
           // Use pre-generated URI from loader, or build one
-          const uiUri = (ui as any).uri || this.buildUIResourceUri(ui.id);
+          const uiUri = ui.uri || this.buildUIResourceUri(ui.id);
           resources.push({
             uri: uiUri,
             name: `ui:${ui.id}`,
@@ -2072,7 +2062,7 @@ export class PhotonServer {
 
         const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
         if (linkedUI && this.clientSupportsUI(sessionServer)) {
-          toolDef._meta = this.buildUIToolMeta(linkedUI.id, sessionServer);
+          toolDef._meta = this.buildUIToolMeta(linkedUI.id);
         }
 
         return toolDef;
@@ -2257,7 +2247,7 @@ export class PhotonServer {
               typeof actualResult === 'string' ? { text: actualResult } : actualResult;
           }
           // Merge UI meta (preserve existing _meta like runId/status)
-          const uiMeta = this.buildUIToolMeta(linkedUI.id, sessionServer);
+          const uiMeta = this.buildUIToolMeta(linkedUI.id);
           response._meta = { ...response._meta, ...uiMeta };
         }
 
@@ -2320,14 +2310,14 @@ export class PhotonServer {
       if (this.mcp.assets) {
         for (const ui of this.mcp.assets.ui) {
           // Use pre-generated URI from loader, or build one
-          const uiUri = (ui as any).uri || this.buildUIResourceUri(ui.id, sessionServer);
+          const uiUri = ui.uri || this.buildUIResourceUri(ui.id);
           resources.push({
             uri: uiUri,
             name: `ui:${ui.id}`,
             description: ui.linkedTool
               ? `UI template for ${ui.linkedTool} tool`
               : `UI template: ${ui.id}`,
-            mimeType: ui.mimeType || this.getUIMimeType(sessionServer),
+            mimeType: ui.mimeType || this.getUIMimeType(),
           });
         }
         for (const prompt of this.mcp.assets.prompts) {
