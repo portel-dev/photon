@@ -131,7 +131,7 @@ export class BeamApp extends LitElement {
 
       .beam-fullscreen-btn {
         position: sticky;
-        top: 0;
+        top: calc(-1 * var(--space-lg));
         float: right;
         z-index: 100;
         width: 28px;
@@ -147,7 +147,7 @@ export class BeamApp extends LitElement {
         justify-content: center;
         transition: all 0.2s ease;
         margin-top: calc(-1 * var(--space-lg));
-        margin-right: calc(-1 * var(--space-lg));
+        margin-right: calc(-1 * var(--space-lg) + 1px);
         margin-bottom: calc(-28px + var(--space-lg));
       }
 
