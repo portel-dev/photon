@@ -92,6 +92,16 @@ type SSESession = {
   transport: SSEServerTransport;
 };
 
+/**
+ * Context passed to shared handler methods to abstract STDIO vs SSE differences
+ */
+interface HandlerContext {
+  server: Server;
+  getInstanceName: () => string | undefined;
+  setInstanceName: (name: string) => void;
+  sessionId: string;
+}
+
 export class PhotonServer {
   private loader: PhotonLoader;
   private mcp: PhotonMCPClassExtended | null = null;
@@ -524,208 +534,394 @@ export class PhotonServer {
     }
   }
 
+  // ─── Shared handler implementations ─────────────────────────────────
+  // These methods contain the core logic shared between STDIO and SSE transports.
+  // Both setupHandlers() and setupSessionHandlers() delegate to these.
+
+  private handleListTools(ctx: HandlerContext): { tools: any[] } {
+    if (!this.mcp) {
+      return { tools: [] };
+    }
+
+    const tools = this.mcp.tools.map((tool) => {
+      const toolDef: any = {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      };
+
+      const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+      if (linkedUI && this.clientSupportsUI(ctx.server)) {
+        toolDef._meta = this.buildUIToolMeta(linkedUI.id);
+      }
+
+      return toolDef;
+    });
+
+    // Add runtime-injected instance tools for stateful photons
+    if (this.daemonName) {
+      tools.push({
+        name: '_use',
+        description: `Switch to a named instance. Pass empty name for default. Omit name to select interactively.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description:
+                'Instance name. Pass empty string "" for default. Omit entirely to select interactively.',
+            },
+          },
+        },
+      });
+      tools.push({
+        name: '_instances',
+        description: `List all available instances.`,
+        inputSchema: { type: 'object', properties: {} },
+      });
+    }
+
+    return { tools };
+  }
+
+  private async handleCallTool(ctx: HandlerContext, request: any): Promise<any> {
+    if (!this.mcp) {
+      throw new Error('MCP not loaded');
+    }
+
+    const { name: toolName, arguments: args } = request.params;
+
+    // Route _use and _instances through daemon for stateful photons
+    if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
+      const { sendCommand } = await import('./daemon/client.js');
+      const sendOpts = {
+        photonPath: this.options.filePath,
+        sessionId: ctx.sessionId,
+        instanceName: ctx.getInstanceName(),
+      };
+
+      // Elicitation-based instance selection when _use called without name
+      if (
+        toolName === '_use' &&
+        (!args || !('name' in args)) &&
+        this.clientSupportsElicitation(ctx.server)
+      ) {
+        const instancesResult = (await sendCommand(
+          this.daemonName,
+          '_instances',
+          {},
+          sendOpts
+        )) as { instances?: string[]; current?: string };
+        const instances = instancesResult?.instances || ['default'];
+
+        const options: Array<{ const: string; title: string }> = instances.map((inst: string) => ({
+          const: inst,
+          title: inst === 'default' ? '(default)' : inst,
+        }));
+        options.push({ const: '__create_new__', title: 'Create new...' });
+
+        const result = await ctx.server.elicitInput({
+          message: 'Select an instance',
+          requestedSchema: {
+            type: 'object' as const,
+            properties: {
+              instance: {
+                type: 'string',
+                title: 'Instance',
+                oneOf: options,
+                default: instancesResult?.current || 'default',
+              },
+            },
+            required: ['instance'],
+          },
+        });
+
+        if (result.action !== 'accept' || !result.content) {
+          return { content: [{ type: 'text', text: 'Cancelled' }] };
+        }
+
+        let selectedName = (result.content as Record<string, string>).instance;
+
+        // Handle "Create new..." selection
+        if (selectedName === '__create_new__') {
+          const nameResult = await ctx.server.elicitInput({
+            message: 'Enter a name for the new instance',
+            requestedSchema: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string', title: 'Instance name' },
+              },
+              required: ['name'],
+            },
+          });
+
+          if (nameResult.action !== 'accept' || !nameResult.content) {
+            return { content: [{ type: 'text', text: 'Cancelled' }] };
+          }
+          selectedName = (nameResult.content as Record<string, string>).name;
+        }
+
+        const useResult = await sendCommand(
+          this.daemonName,
+          '_use',
+          { name: selectedName },
+          sendOpts
+        );
+        ctx.setInstanceName(selectedName);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
+        };
+      }
+
+      const result = await sendCommand(
+        this.daemonName,
+        toolName,
+        (args || {}) as Record<string, any>,
+        sendOpts
+      );
+      // Track instance name after successful _use
+      if (toolName === '_use') {
+        ctx.setInstanceName(String((args as Record<string, unknown> | undefined)?.name || ''));
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    // Create MCP-aware input provider for elicitation support
+    const inputProvider = this.createMCPInputProvider(ctx.server);
+
+    // Handler for channel events - forward to daemon for cross-process pub/sub
+    const outputHandler = (emit: any) => {
+      if (this.daemonName && emit?.channel) {
+        publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+          // Ignore publish errors - daemon may not be running
+        });
+      }
+    };
+
+    const tool = this.mcp.tools.find((t) => t.name === toolName);
+    const outputFormat = tool?.outputFormat;
+
+    const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
+      inputProvider,
+      outputHandler,
+    });
+
+    const isStateful = result && typeof result === 'object' && result._stateful === true;
+    const actualResult = isStateful ? result.result : result;
+
+    // Build content with optional mimeType annotation
+    const content: any = {
+      type: 'text',
+      text: this.formatResult(actualResult),
+    };
+
+    if (outputFormat) {
+      const { formatToMimeType } = await import('./cli-formatter.js');
+      const mimeType = formatToMimeType(outputFormat);
+      if (mimeType) {
+        content.annotations = { mimeType };
+      }
+    }
+
+    const response: any = { content: [content] };
+
+    // Add stateful workflow metadata (machine-readable _meta)
+    if (isStateful && result.runId) {
+      response._meta = { ...response._meta, runId: result.runId, status: result.status };
+    }
+
+    // Enrich response with structuredContent + _meta for tools with linked UIs
+    const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
+    if (linkedUI && this.clientSupportsUI(ctx.server)) {
+      if (actualResult !== undefined && actualResult !== null) {
+        response.structuredContent =
+          typeof actualResult === 'string' ? { text: actualResult } : actualResult;
+      }
+      const uiMeta = this.buildUIToolMeta(linkedUI.id);
+      response._meta = { ...response._meta, ...uiMeta };
+    }
+
+    return response;
+  }
+
+  private handleListPrompts(): { prompts: any[] } {
+    if (!this.mcp) {
+      return { prompts: [] };
+    }
+
+    return {
+      prompts: this.mcp.templates.map((template) => ({
+        name: template.name,
+        description: template.description,
+        arguments: Object.entries(template.inputSchema.properties || {}).map(([name, schema]) => ({
+          name,
+          description:
+            (typeof schema === 'object' && schema && 'description' in schema
+              ? (schema.description as string)
+              : '') || '',
+          required: template.inputSchema.required?.includes(name) || false,
+        })),
+      })),
+    };
+  }
+
+  private async handleGetPrompt(request: any): Promise<any> {
+    if (!this.mcp) {
+      throw new Error('MCP not loaded');
+    }
+
+    const { name: promptName, arguments: args } = request.params;
+
+    const template = this.mcp.templates.find((t) => t.name === promptName);
+    if (!template) {
+      throw new Error(`Prompt not found: ${promptName}`);
+    }
+
+    const result = await this.loader.executeTool(this.mcp, promptName, args || {});
+    return this.formatTemplateResult(result);
+  }
+
+  private handleListResources(ctx: HandlerContext): { resources: any[] } {
+    if (!this.mcp) {
+      return { resources: [] };
+    }
+
+    const staticResources = this.mcp.statics.filter((s) => !this.isUriTemplate(s.uri));
+
+    const resources = staticResources.map((static_) => ({
+      uri: static_.uri,
+      name: static_.name,
+      description: static_.description,
+      mimeType: static_.mimeType || 'text/plain',
+    }));
+
+    if (this.mcp.assets) {
+      const photonName = this.mcp.name;
+
+      for (const ui of this.mcp.assets.ui) {
+        const uiUri = ui.uri || this.buildUIResourceUri(ui.id);
+        resources.push({
+          uri: uiUri,
+          name: `ui:${ui.id}`,
+          description: ui.linkedTool
+            ? `UI template for ${ui.linkedTool} tool`
+            : `UI template: ${ui.id}`,
+          mimeType: ui.mimeType || this.getUIMimeType(),
+        });
+      }
+
+      for (const prompt of this.mcp.assets.prompts) {
+        resources.push({
+          uri: `photon://${photonName}/prompts/${prompt.id}`,
+          name: `prompt:${prompt.id}`,
+          description: prompt.description || `Prompt template: ${prompt.id}`,
+          mimeType: 'text/markdown',
+        });
+      }
+
+      for (const resource of this.mcp.assets.resources) {
+        resources.push({
+          uri: `photon://${photonName}/resources/${resource.id}`,
+          name: `resource:${resource.id}`,
+          description: resource.description || `Static resource: ${resource.id}`,
+          mimeType: resource.mimeType || 'application/octet-stream',
+        });
+      }
+    }
+
+    return { resources };
+  }
+
+  private handleListResourceTemplates(): { resourceTemplates: any[] } {
+    if (!this.mcp) {
+      return { resourceTemplates: [] };
+    }
+
+    const templateResources = this.mcp.statics.filter((s) => this.isUriTemplate(s.uri));
+
+    return {
+      resourceTemplates: templateResources.map((static_) => ({
+        uriTemplate: static_.uri,
+        name: static_.name,
+        description: static_.description,
+        mimeType: static_.mimeType || 'text/plain',
+      })),
+    };
+  }
+
+  private async handleReadResource(request: any): Promise<any> {
+    if (!this.mcp) {
+      throw new Error('MCP not loaded');
+    }
+
+    const { uri } = request.params;
+
+    const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+    if (uiMatch && this.mcp.assets) {
+      const [, _photonName, assetId] = uiMatch;
+      return this.handleUIAssetRead(uri, assetId);
+    }
+
+    const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
+    if (assetMatch && this.mcp.assets) {
+      return this.handleAssetRead(uri, assetMatch);
+    }
+
+    return this.handleStaticRead(uri);
+  }
+
+  // ─── Transport-specific setup ─────────────────────────────────────
+
   /**
-   * Set up MCP protocol handlers
+   * Set up MCP protocol handlers (STDIO transport)
    */
   private setupHandlers() {
-    // Handle tools/list
+    const ctx: HandlerContext = {
+      server: this.server,
+      getInstanceName: () => this.daemonInstanceName,
+      setInstanceName: (name) => {
+        this.daemonInstanceName = name;
+      },
+      sessionId: `stdio-${this.daemonName}`,
+    };
+
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      // Log client identity + capabilities on first tools/list call
       if (!this.clientCapabilitiesLogged) {
         this.clientCapabilitiesLogged = true;
         this.logClientCapabilities(this.server);
       }
 
-      // If photon is unresolved (conflict), return placeholder tools from manifest metadata
+      // STDIO-only: deferred conflict resolution
       if (!this.mcp && this.options.unresolvedPhoton) {
         return { tools: this.buildPlaceholderTools() };
       }
 
-      if (!this.mcp) {
-        return { tools: [] };
-      }
-
-      const tools = this.mcp.tools.map((tool) => {
-        const toolDef: any = {
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        };
-
-        // Add _meta with UI template reference only for UI-capable clients
-        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-        if (linkedUI && this.clientSupportsUI()) {
-          toolDef._meta = this.buildUIToolMeta(linkedUI.id);
-        }
-
-        return toolDef;
-      });
-
-      // Add runtime-injected instance tools for stateful photons
-      if (this.daemonName) {
-        tools.push({
-          name: '_use',
-          description: `Switch to a named instance. Pass empty name for default. Omit name to select interactively.`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description:
-                  'Instance name. Pass empty string "" for default. Omit entirely to select interactively.',
-              },
-            },
-          },
-        });
-        tools.push({
-          name: '_instances',
-          description: `List all available instances.`,
-          inputSchema: { type: 'object', properties: {} },
-        });
-      }
-
-      return { tools };
+      return this.handleListTools(ctx);
     });
 
-    // Handle tools/call
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name: toolName, arguments: args } = request.params;
-
-      // Deferred conflict resolution: resolve photon on first tool call
+      // STDIO-only: deferred conflict resolution
       if (!this.mcp && this.options.unresolvedPhoton) {
         await this.resolveUnresolvedPhoton();
       }
 
-      if (!this.mcp) {
-        throw new Error('MCP not loaded');
-      }
-
-      // Route _use and _instances through daemon for stateful photons
-      if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
-        const { sendCommand } = await import('./daemon/client.js');
-        const sendOpts = {
-          photonPath: this.options.filePath,
-          sessionId: `stdio-${this.daemonName}`,
-          instanceName: this.daemonInstanceName,
-        };
-
-        // Elicitation-based instance selection when _use called without name
-        if (
-          toolName === '_use' &&
-          (!args || !('name' in args)) &&
-          this.clientSupportsElicitation()
-        ) {
-          const instancesResult = (await sendCommand(
-            this.daemonName,
-            '_instances',
-            {},
-            sendOpts
-          )) as { instances?: string[]; current?: string };
-          const instances = instancesResult?.instances || ['default'];
-
-          // Build oneOf options for elicitation
-          const options: Array<{ const: string; title: string }> = instances.map(
-            (inst: string) => ({ const: inst, title: inst === 'default' ? '(default)' : inst })
-          );
-          options.push({ const: '__create_new__', title: 'Create new...' });
-
-          const result = await this.server.elicitInput({
-            message: 'Select an instance',
-            requestedSchema: {
-              type: 'object' as const,
-              properties: {
-                instance: {
-                  type: 'string',
-                  title: 'Instance',
-                  oneOf: options,
-                  default: instancesResult?.current || 'default',
-                },
-              },
-              required: ['instance'],
-            },
-          });
-
-          if (result.action !== 'accept' || !result.content) {
-            return { content: [{ type: 'text', text: 'Cancelled' }] };
-          }
-
-          let selectedName = (result.content as Record<string, string>).instance;
-
-          // Handle "Create new..." selection
-          if (selectedName === '__create_new__') {
-            const nameResult = await this.server.elicitInput({
-              message: 'Enter a name for the new instance',
-              requestedSchema: {
-                type: 'object' as const,
-                properties: {
-                  name: { type: 'string', title: 'Instance name' },
-                },
-                required: ['name'],
-              },
-            });
-
-            if (nameResult.action !== 'accept' || !nameResult.content) {
-              return { content: [{ type: 'text', text: 'Cancelled' }] };
-            }
-            selectedName = (nameResult.content as Record<string, string>).name;
-          }
-
-          const useResult = await sendCommand(
-            this.daemonName,
-            '_use',
-            { name: selectedName },
-            sendOpts
-          );
-          this.daemonInstanceName = selectedName;
-          return {
-            content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
-          };
-        }
-
-        const result = await sendCommand(
-          this.daemonName,
-          toolName,
-          (args || {}) as Record<string, any>,
-          sendOpts
-        );
-        // Track instance name after successful _use
-        if (toolName === '_use') {
-          this.daemonInstanceName = String(
-            (args as Record<string, unknown> | undefined)?.name || ''
-          );
-        }
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      }
-
-      try {
-        // Create MCP-aware input provider for elicitation support
-        const inputProvider = this.createMCPInputProvider();
-
-        // Handler for channel events - forward to daemon for cross-process pub/sub
-        const outputHandler = (emit: any) => {
-          if (this.daemonName && emit?.channel) {
-            publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
-              // Ignore publish errors - daemon may not be running
-            });
-          }
-        };
-
-        // Find the tool to get its metadata
+      // STDIO-only: @async fire-and-forget execution
+      if (this.mcp) {
+        const { name: toolName, arguments: args } = request.params;
         const tool = this.mcp.tools.find((t) => t.name === toolName);
-        const outputFormat = tool?.outputFormat;
-
-        // Check for @async tag — fire-and-forget execution
         if ((tool as ExtractedSchema)?.isAsync) {
           const executionId = generateExecutionId();
+          const inputProvider = this.createMCPInputProvider();
+          const outputHandler = (emit: any) => {
+            if (this.daemonName && emit?.channel) {
+              publishToChannel(this.daemonName, emit.channel, emit).catch(() => {});
+            }
+          };
 
-          // Run in background — don't await
           this.loader
-            .executeTool(this.mcp, toolName, args || {}, {
-              inputProvider,
-              outputHandler,
-            })
+            .executeTool(this.mcp, toolName, args || {}, { inputProvider, outputHandler })
             .catch((error) => {
               this.log('error', `Async tool ${toolName} failed`, {
                 executionId,
@@ -752,230 +948,56 @@ export class PhotonServer {
             ],
           };
         }
+      }
 
-        const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
-          inputProvider,
-          outputHandler,
-        });
-
-        // Check if this was a stateful workflow execution
-        const isStateful = result && typeof result === 'object' && result._stateful === true;
-        const actualResult = isStateful ? result.result : result;
-
-        // Build content with optional mimeType annotation
-        const content: any = {
-          type: 'text',
-          text: this.formatResult(actualResult),
-        };
-
-        // Add mimeType annotation if outputFormat is a content type
-        if (outputFormat) {
-          const { formatToMimeType } = await import('./cli-formatter.js');
-          const mimeType = formatToMimeType(outputFormat);
-          if (mimeType) {
-            content.annotations = { mimeType };
-          }
-        }
-
-        // For stateful workflows, add run ID as a separate content block
-        // This allows the AI to inform the user about the workflow run
-        if (isStateful && result.runId) {
-          const workflowInfo = {
-            type: 'text',
-            text:
-              `\n\n---\n📋 **Workflow Run**: ${result.runId}\n` +
-              `Status: ${result.status}${result.resumed ? ' (resumed)' : ''}\n` +
-              `This is a stateful workflow. To resume if interrupted, use run ID: ${result.runId}`,
-          };
-          return { content: [content, workflowInfo] };
-        }
-
-        // Enrich response with structuredContent + _meta for tools with linked UIs
-        // Only for UI-capable clients (ChatGPT, MCPJam Inspector, Beam, etc.)
-        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
-        if (linkedUI && this.clientSupportsUI()) {
-          const response: any = { content: [content] };
-          if (actualResult !== undefined && actualResult !== null) {
-            response.structuredContent =
-              typeof actualResult === 'string' ? { text: actualResult } : actualResult;
-          }
-          response._meta = this.buildUIToolMeta(linkedUI.id);
-          return response;
-        }
-
-        return { content: [content] };
+      try {
+        return await this.handleCallTool(ctx, request);
       } catch (error) {
-        // Check for config error — attempt elicitation to resolve missing env vars
-        const errorMsg = getErrorMessage(error);
+        // STDIO-only: config elicitation retry
+        const { name: toolName, arguments: args } = request.params;
         if (this.mcp?.instance?._photonConfigError && this.clientSupportsElicitation()) {
           const retryResult = await this.attemptConfigElicitation(toolName, args || {});
           if (retryResult) return retryResult;
         }
 
-        // Log error with context for debugging
+        // STDIO-only: verbose error logging
         this.log('error', 'Tool execution failed', {
           tool: toolName,
-          error: errorMsg,
+          error: getErrorMessage(error),
           args: this.options.devMode ? args : undefined,
         });
-        // Format error for AI consumption
         return this.formatError(error, toolName, args);
       }
     });
 
-    // Handle prompts/list
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      if (!this.mcp) {
-        return { prompts: [] };
-      }
-
-      return {
-        prompts: this.mcp.templates.map((template) => ({
-          name: template.name,
-          description: template.description,
-          arguments: Object.entries(template.inputSchema.properties || {}).map(
-            ([name, schema]) => ({
-              name,
-              description:
-                (typeof schema === 'object' && schema && 'description' in schema
-                  ? (schema.description as string)
-                  : '') || '',
-              required: template.inputSchema.required?.includes(name) || false,
-            })
-          ),
-        })),
-      };
+      return this.handleListPrompts();
     });
 
-    // Handle prompts/get
     this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      if (!this.mcp) {
-        throw new Error('MCP not loaded');
-      }
-
-      const { name: promptName, arguments: args } = request.params;
-
-      // Find the template
-      const template = this.mcp.templates.find((t) => t.name === promptName);
-      if (!template) {
-        throw new Error(`Prompt not found: ${promptName}`);
-      }
-
       try {
-        // Execute the template method
-        const result = await this.loader.executeTool(this.mcp, promptName, args || {});
-
-        // Handle Template/TemplateResponse return types
-        return this.formatTemplateResult(result);
+        return await this.handleGetPrompt(request);
       } catch (error) {
+        // STDIO-only: verbose error logging for prompts
+        const { name: promptName } = request.params;
         this.log('error', 'Prompt execution failed', {
           prompt: promptName,
           error: getErrorMessage(error),
         });
-        throw new Error(`Failed to get prompt: ${getErrorMessage(error)}`);
+        throw error;
       }
     });
 
-    // Handle resources/list (static URIs only, no parameters)
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      if (!this.mcp) {
-        return { resources: [] };
-      }
-
-      // Only return resources with static URIs (no {parameters})
-      const staticResources = this.mcp.statics.filter((s) => !this.isUriTemplate(s.uri));
-
-      const resources = staticResources.map((static_) => ({
-        uri: static_.uri,
-        name: static_.name,
-        description: static_.description,
-        mimeType: static_.mimeType || 'text/plain',
-      }));
-
-      // Add assets from asset folder (UI, prompts, resources)
-      if (this.mcp.assets) {
-        const photonName = this.mcp.name;
-
-        // Add UI assets (format depends on client capabilities)
-        for (const ui of this.mcp.assets.ui) {
-          // Use pre-generated URI from loader, or build one
-          const uiUri = ui.uri || this.buildUIResourceUri(ui.id);
-          resources.push({
-            uri: uiUri,
-            name: `ui:${ui.id}`,
-            description: ui.linkedTool
-              ? `UI template for ${ui.linkedTool} tool`
-              : `UI template: ${ui.id}`,
-            mimeType: ui.mimeType || this.getUIMimeType(),
-          });
-        }
-
-        // Add prompt assets
-        for (const prompt of this.mcp.assets.prompts) {
-          resources.push({
-            uri: `photon://${photonName}/prompts/${prompt.id}`,
-            name: `prompt:${prompt.id}`,
-            description: prompt.description || `Prompt template: ${prompt.id}`,
-            mimeType: 'text/markdown',
-          });
-        }
-
-        // Add resource assets
-        for (const resource of this.mcp.assets.resources) {
-          resources.push({
-            uri: `photon://${photonName}/resources/${resource.id}`,
-            name: `resource:${resource.id}`,
-            description: resource.description || `Static resource: ${resource.id}`,
-            mimeType: resource.mimeType || 'application/octet-stream',
-          });
-        }
-      }
-
-      return { resources };
+      return this.handleListResources(ctx);
     });
 
-    // Handle resources/templates/list (parameterized URIs)
     this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-      if (!this.mcp) {
-        return { resourceTemplates: [] };
-      }
-
-      // Only return resources with URI templates (has {parameters})
-      const templateResources = this.mcp.statics.filter((s) => this.isUriTemplate(s.uri));
-
-      return {
-        resourceTemplates: templateResources.map((static_) => ({
-          uriTemplate: static_.uri,
-          name: static_.name,
-          description: static_.description,
-          mimeType: static_.mimeType || 'text/plain',
-        })),
-      };
+      return this.handleListResourceTemplates();
     });
 
-    // Handle resources/read
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      if (!this.mcp) {
-        throw new Error('MCP not loaded');
-      }
-
-      const { uri } = request.params;
-
-      // Check for SEP-1865 ui:// URI format
-      const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
-      if (uiMatch && this.mcp.assets) {
-        const [, _photonName, assetId] = uiMatch;
-        return this.handleUIAssetRead(uri, assetId);
-      }
-
-      // Check for photon:// asset URI format (used by Beam)
-      const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
-      if (assetMatch && this.mcp.assets) {
-        return this.handleAssetRead(uri, assetMatch);
-      }
-
-      // Handle static resources
-      return this.handleStaticRead(uri);
+      return this.handleReadResource(request);
     });
   }
 
@@ -2047,335 +2069,49 @@ export class PhotonServer {
    * This duplicates handlers from the main server to each session
    */
   private setupSessionHandlers(sessionServer: Server) {
-    // Log client capabilities on first SSE session handler setup
     this.logClientCapabilities(sessionServer);
 
-    // Handle tools/list
+    const sseSessionKey = `sse-${this.daemonName}`;
+    const ctx: HandlerContext = {
+      server: sessionServer,
+      getInstanceName: () => this.sseInstanceNames.get(sseSessionKey),
+      setInstanceName: (name) => {
+        this.sseInstanceNames.set(sseSessionKey, name);
+      },
+      sessionId: sseSessionKey,
+    };
+
     sessionServer.setRequestHandler(ListToolsRequestSchema, async () => {
-      if (!this.mcp) return { tools: [] };
-      const tools = this.mcp.tools.map((tool) => {
-        const toolDef: any = {
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        };
-
-        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-        if (linkedUI && this.clientSupportsUI(sessionServer)) {
-          toolDef._meta = this.buildUIToolMeta(linkedUI.id);
-        }
-
-        return toolDef;
-      });
-
-      // Add runtime-injected instance tools for stateful photons
-      if (this.daemonName) {
-        tools.push({
-          name: '_use',
-          description: `Switch to a named instance. Pass empty name for default. Omit name to select interactively.`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description:
-                  'Instance name. Pass empty string "" for default. Omit entirely to select interactively.',
-              },
-            },
-          },
-        });
-        tools.push({
-          name: '_instances',
-          description: `List all available instances.`,
-          inputSchema: { type: 'object', properties: {} },
-        });
-      }
-
-      return { tools };
+      return this.handleListTools(ctx);
     });
 
-    // Handle tools/call
     sessionServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (!this.mcp) throw new Error('MCP not loaded');
-      const { name: toolName, arguments: args } = request.params;
-
-      // Route _use and _instances through daemon for stateful photons
-      if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
-        const { sendCommand } = await import('./daemon/client.js');
-        const sseSessionKey = `sse-${this.daemonName}`;
-        const sendOpts = {
-          photonPath: this.options.filePath,
-          sessionId: sseSessionKey,
-          instanceName: this.sseInstanceNames.get(sseSessionKey),
-        };
-
-        // Elicitation-based instance selection when _use called without name
-        if (
-          toolName === '_use' &&
-          (!args || !('name' in args)) &&
-          this.clientSupportsElicitation(sessionServer)
-        ) {
-          const instancesResult = (await sendCommand(
-            this.daemonName,
-            '_instances',
-            {},
-            sendOpts
-          )) as { instances?: string[]; current?: string };
-          const instances = instancesResult?.instances || ['default'];
-
-          const options: Array<{ const: string; title: string }> = instances.map(
-            (inst: string) => ({ const: inst, title: inst === 'default' ? '(default)' : inst })
-          );
-          options.push({ const: '__create_new__', title: 'Create new...' });
-
-          const result = await sessionServer.elicitInput({
-            message: 'Select an instance',
-            requestedSchema: {
-              type: 'object' as const,
-              properties: {
-                instance: {
-                  type: 'string',
-                  title: 'Instance',
-                  oneOf: options,
-                  default: instancesResult?.current || 'default',
-                },
-              },
-              required: ['instance'],
-            },
-          });
-
-          if (result.action !== 'accept' || !result.content) {
-            return { content: [{ type: 'text', text: 'Cancelled' }] };
-          }
-
-          let selectedName = (result.content as Record<string, string>).instance;
-
-          if (selectedName === '__create_new__') {
-            const nameResult = await sessionServer.elicitInput({
-              message: 'Enter a name for the new instance',
-              requestedSchema: {
-                type: 'object' as const,
-                properties: {
-                  name: { type: 'string', title: 'Instance name' },
-                },
-                required: ['name'],
-              },
-            });
-
-            if (nameResult.action !== 'accept' || !nameResult.content) {
-              return { content: [{ type: 'text', text: 'Cancelled' }] };
-            }
-            selectedName = (nameResult.content as Record<string, string>).name;
-          }
-
-          const useResult = await sendCommand(
-            this.daemonName,
-            '_use',
-            { name: selectedName },
-            sendOpts
-          );
-          this.sseInstanceNames.set(sseSessionKey, selectedName);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(useResult, null, 2) }],
-          };
-        }
-
-        const result = await sendCommand(
-          this.daemonName,
-          toolName,
-          (args || {}) as Record<string, any>,
-          sendOpts
-        );
-        // Track instance name after successful _use
-        if (toolName === '_use') {
-          this.sseInstanceNames.set(
-            sseSessionKey,
-            String((args as Record<string, unknown> | undefined)?.name || '')
-          );
-        }
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      }
-
       try {
-        // Create MCP-aware input provider for elicitation support (use sessionServer for SSE)
-        const inputProvider = this.createMCPInputProvider(sessionServer);
-
-        // Handler for channel events - forward to daemon for cross-process pub/sub
-        const outputHandler = (emit: any) => {
-          if (this.daemonName && emit?.channel) {
-            publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
-              // Ignore publish errors - daemon may not be running
-            });
-          }
-        };
-
-        const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
-          inputProvider,
-          outputHandler,
-        });
-        const tool = this.mcp.tools.find((t) => t.name === toolName);
-        const outputFormat = tool?.outputFormat;
-
-        const isStateful = result && typeof result === 'object' && result._stateful === true;
-        const actualResult = isStateful ? result.result : result;
-
-        const content: any = {
-          type: 'text',
-          text: this.formatResult(actualResult),
-        };
-
-        if (outputFormat) {
-          const { formatToMimeType } = await import('./cli-formatter.js');
-          const mimeType = formatToMimeType(outputFormat);
-          if (mimeType) {
-            content.annotations = { mimeType };
-          }
-        }
-
-        const response: any = { content: [content] };
-        if (isStateful) {
-          response._meta = { runId: result.runId, status: result.status };
-        }
-
-        // Enrich response with structuredContent + _meta for UI-capable clients only
-        const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
-        if (linkedUI && this.clientSupportsUI(sessionServer)) {
-          if (actualResult !== undefined && actualResult !== null) {
-            response.structuredContent =
-              typeof actualResult === 'string' ? { text: actualResult } : actualResult;
-          }
-          // Merge UI meta (preserve existing _meta like runId/status)
-          const uiMeta = this.buildUIToolMeta(linkedUI.id);
-          response._meta = { ...response._meta, ...uiMeta };
-        }
-
-        return response;
+        return await this.handleCallTool(ctx, request);
       } catch (error) {
+        const { name: toolName, arguments: args } = request.params;
         return this.formatError(error, toolName, args);
       }
     });
 
-    // Handle prompts/list
     sessionServer.setRequestHandler(ListPromptsRequestSchema, async () => {
-      if (!this.mcp) return { prompts: [] };
-      return {
-        prompts: this.mcp.templates.map((template) => ({
-          name: template.name,
-          description: template.description,
-          arguments: template.inputSchema?.properties
-            ? Object.entries(template.inputSchema.properties).map(
-                ([name, schema]: [string, any]) => ({
-                  name,
-                  description: schema.description || '',
-                  required: template.inputSchema?.required?.includes(name) || false,
-                })
-              )
-            : [],
-        })),
-      };
+      return this.handleListPrompts();
     });
 
-    // Handle prompts/get
     sessionServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      if (!this.mcp) throw new Error('MCP not loaded');
-      const { name: promptName, arguments: args } = request.params;
-      try {
-        const result = await this.loader.executeTool(this.mcp, promptName, args || {});
-        return this.formatTemplateResult(result);
-      } catch (error) {
-        throw new Error(`Failed to get prompt: ${getErrorMessage(error)}`);
-      }
+      return this.handleGetPrompt(request);
     });
 
-    // Handle resources/list
     sessionServer.setRequestHandler(ListResourcesRequestSchema, async () => {
-      if (!this.mcp) return { resources: [] };
-      const resources: any[] = [];
-
-      // Add static resources
-      for (const static_ of this.mcp.statics) {
-        if (!this.isUriTemplate(static_.uri)) {
-          resources.push({
-            uri: static_.uri,
-            name: static_.name,
-            description: static_.description,
-            mimeType: static_.mimeType,
-          });
-        }
-      }
-
-      // Add asset resources (UI format depends on client capabilities)
-      if (this.mcp.assets) {
-        for (const ui of this.mcp.assets.ui) {
-          // Use pre-generated URI from loader, or build one
-          const uiUri = ui.uri || this.buildUIResourceUri(ui.id);
-          resources.push({
-            uri: uiUri,
-            name: `ui:${ui.id}`,
-            description: ui.linkedTool
-              ? `UI template for ${ui.linkedTool} tool`
-              : `UI template: ${ui.id}`,
-            mimeType: ui.mimeType || this.getUIMimeType(),
-          });
-        }
-        for (const prompt of this.mcp.assets.prompts) {
-          resources.push({
-            uri: `photon://${this.mcp.name}/prompts/${prompt.id}`,
-            name: `prompt:${prompt.id}`,
-            description: prompt.description || `Prompt template: ${prompt.id}`,
-            mimeType: 'text/markdown',
-          });
-        }
-        for (const resource of this.mcp.assets.resources) {
-          resources.push({
-            uri: `photon://${this.mcp.name}/resources/${resource.id}`,
-            name: `resource:${resource.id}`,
-            description: `Static resource: ${resource.id}`,
-            mimeType: resource.mimeType || 'application/json',
-          });
-        }
-      }
-
-      return { resources };
+      return this.handleListResources(ctx);
     });
 
-    // Handle resources/templates/list
     sessionServer.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-      if (!this.mcp) return { resourceTemplates: [] };
-      return {
-        resourceTemplates: this.mcp.statics
-          .filter((static_) => this.isUriTemplate(static_.uri))
-          .map((static_) => ({
-            uriTemplate: static_.uri,
-            name: static_.name,
-            description: static_.description,
-            mimeType: static_.mimeType,
-          })),
-      };
+      return this.handleListResourceTemplates();
     });
 
-    // Handle resources/read
     sessionServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      if (!this.mcp) throw new Error('MCP not loaded');
-      const { uri } = request.params;
-
-      // Check for SEP-1865 ui:// URI format
-      const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
-      if (uiMatch && this.mcp.assets) {
-        const [, _photonName, assetId] = uiMatch;
-        return this.handleUIAssetRead(uri, assetId);
-      }
-
-      // Check for photon:// asset URI format (used by Beam)
-      const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
-      if (assetMatch && this.mcp.assets) {
-        return this.handleAssetRead(uri, assetMatch);
-      }
-
-      // Handle static resources
-      return this.handleStaticRead(uri);
+      return this.handleReadResource(request);
     });
   }
 
