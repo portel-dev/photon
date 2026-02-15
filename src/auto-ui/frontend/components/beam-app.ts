@@ -3146,7 +3146,7 @@ export class BeamApp extends LitElement {
           : ''}
         <div
           class="glass-panel"
-          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); ${hasMultipleUIs
+          style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); position: relative; ${hasMultipleUIs
             ? 'border-radius: 0 0 var(--radius-md) var(--radius-md);'
             : ''}"
         >
@@ -3157,6 +3157,28 @@ export class BeamApp extends LitElement {
             .theme=${this._theme}
             style="height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});"
           ></mcp-app-renderer>
+          <button
+            style="position: absolute; top: var(--space-xs); right: var(--space-xs); width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
+            @click=${(e: Event) => {
+              const panel = (e.target as HTMLElement).closest('.glass-panel') as HTMLElement;
+              if (document.fullscreenElement) {
+                document.exitFullscreen();
+              } else {
+                panel?.requestFullscreen();
+              }
+            }}
+            @mouseenter=${(e: MouseEvent) => {
+              (e.target as HTMLElement).style.color = 'var(--t-primary)';
+              (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+            }}
+            @mouseleave=${(e: MouseEvent) => {
+              (e.target as HTMLElement).style.color = 'var(--t-muted)';
+              (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+            }}
+            title="Full screen"
+          >
+            ⛶
+          </button>
         </div>
 
         ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
