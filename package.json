@@ -88,7 +88,7 @@
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@portel/cli": "^1.0.2",
-    "@portel/photon-core": "^2.8.2",
+    "@portel/photon-core": "^2.8.3",
     "chart.js": "^4.5.1",
     "chokidar": "^4.0.3",
     "cli-highlight": "^2.1.11",
