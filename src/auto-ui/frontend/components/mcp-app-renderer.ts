@@ -15,7 +15,7 @@
  *
  * @see https://modelcontextprotocol.github.io/ext-apps/api/
  */
-import { LitElement, html, css, PropertyValueMap, nothing } from 'lit';
+import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
@@ -199,92 +199,7 @@ export class McpAppRenderer extends LitElement {
         opacity: 0.9;
       }
 
-      /* Fullscreen button */
       .app-container {
-        position: relative;
-        width: 100%;
-        height: 100%;
-      }
-
-      .fullscreen-btn {
-        position: absolute;
-        top: var(--space-sm);
-        right: var(--space-sm);
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-muted);
-        cursor: pointer;
-        font-size: var(--text-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-        z-index: 10;
-        opacity: 0.7;
-      }
-
-      .fullscreen-btn:hover {
-        color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-color: var(--accent-primary);
-        opacity: 1;
-      }
-
-      /* Fullscreen overlay */
-      .fullscreen-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: var(--bg-app, #0a0a12);
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-      }
-
-      .fullscreen-header {
-        display: flex;
-        align-items: center;
-        padding: var(--space-sm) var(--space-md);
-        border-bottom: 1px solid var(--border-glass);
-        background: var(--bg-glass);
-        flex-shrink: 0;
-      }
-
-      .fullscreen-header .app-name {
-        font-weight: 600;
-        font-size: var(--text-md);
-        color: var(--t-primary);
-        flex: 1;
-      }
-
-      .fullscreen-close {
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        color: var(--t-muted);
-        padding: 4px 12px;
-        border-radius: var(--radius-sm);
-        cursor: pointer;
-        font-size: var(--text-md);
-        transition: all 0.2s ease;
-      }
-
-      .fullscreen-close:hover {
-        color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-color: var(--accent-primary);
-      }
-
-      .fullscreen-body {
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .fullscreen-body iframe {
         width: 100%;
         height: 100%;
       }
@@ -306,27 +221,14 @@ export class McpAppRenderer extends LitElement {
   @state() private _srcDoc = '';
   @state() private _loading = true;
   @state() private _error = '';
-  @state() private _fullscreen = false;
   private _bridge: AppBridge | null = null;
   private _transport: PostMessageTransport | null = null;
 
-  connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener('keydown', this._handleKeydown);
-  }
-
   disconnectedCallback() {
     super.disconnectedCallback();
-    document.removeEventListener('keydown', this._handleKeydown);
     // Fire-and-forget teardown
     this.teardown().catch(() => {});
   }
-
-  private _handleKeydown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && this._fullscreen) {
-      this._fullscreen = false;
-    }
-  };
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     // Send theme change to the app via AppBridge — no iframe recreation needed
@@ -661,40 +563,12 @@ export class McpAppRenderer extends LitElement {
     }
 
     return html`
-      ${this._fullscreen ? this._renderFullscreen() : ''}
       <div class="app-container">
-        <button
-          class="fullscreen-btn"
-          @click=${() => (this._fullscreen = true)}
-          title="Full screen"
-        >
-          ⛶
-        </button>
         <iframe
           srcdoc=${this._srcDoc}
           sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
           @load=${this._handleIframeLoad}
         ></iframe>
-      </div>
-    `;
-  }
-
-  private _renderFullscreen() {
-    return html`
-      <div class="fullscreen-overlay">
-        <div class="fullscreen-header">
-          <span class="app-name">${this.mcpName}</span>
-          <button class="fullscreen-close" @click=${() => (this._fullscreen = false)}>
-            ✕ Close <kbd>Esc</kbd>
-          </button>
-        </div>
-        <div class="fullscreen-body">
-          <iframe
-            srcdoc=${this._srcDoc}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
-            @load=${this._handleIframeLoad}
-          ></iframe>
-        </div>
       </div>
     `;
   }
