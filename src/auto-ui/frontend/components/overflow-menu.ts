@@ -93,12 +93,37 @@ export class OverflowMenu extends LitElement {
     }
   }
 
+  /** Read a CSS variable from the nearest beam-app host element */
+  private _getVar(name: string, fallback: string): string {
+    // Walk up to find the beam-app host that defines theme variables
+    let el: HTMLElement | null = this;
+    while (el) {
+      const val = getComputedStyle(el).getPropertyValue(name).trim();
+      if (val) return val;
+      // Cross shadow boundary
+      el = ((el.getRootNode() as ShadowRoot)?.host as HTMLElement) || el.parentElement;
+      if (el === document.documentElement) break;
+    }
+    return fallback;
+  }
+
   private _openMenu() {
     const trigger = this.shadowRoot?.querySelector('.trigger') as HTMLElement;
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
     this._open = true;
+
+    // Read theme variables from host (portal is on document.body, outside shadow DOM)
+    const bgPanel = this._getVar('--bg-panel', '#1a1a2e');
+    const borderGlass = this._getVar('--border-glass', 'rgba(255,255,255,0.08)');
+    const tPrimary = this._getVar('--t-primary', '#e2e8f0');
+    const tMuted = this._getVar('--t-muted', '#94a3b8');
+    const bgGlass = this._getVar('--bg-glass', 'rgba(255,255,255,0.05)');
+    const accentPrimary = this._getVar('--accent-primary', '#7c3aed');
+    const colorError = this._getVar('--color-error', '#f87171');
+    const radiusMd = this._getVar('--radius-md', '12px');
+    const radiusSm = this._getVar('--radius-sm', '6px');
 
     // Create portal on document.body to escape all overflow/containment
     this._removePortal();
@@ -110,9 +135,9 @@ export class OverflowMenu extends LitElement {
       left: -9999px;
       z-index: 99999;
       min-width: 220px;
-      background: #1a1a2e;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: var(--radius-md);
+      background: ${bgPanel};
+      border: 1px solid ${borderGlass};
+      border-radius: ${radiusMd};
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       font-family: 'Inter', sans-serif;
       padding: 4px 0;
@@ -121,8 +146,7 @@ export class OverflowMenu extends LitElement {
     this.items.forEach((item) => {
       if (item.dividerBefore) {
         const divider = document.createElement('div');
-        divider.style.cssText =
-          'height: 1px; background: var(--border-glass, rgba(255,255,255,0.08)); margin: 4px 0;';
+        divider.style.cssText = `height: 1px; background: ${borderGlass}; margin: 4px 0;`;
         portal.appendChild(divider);
       }
 
@@ -133,7 +157,7 @@ export class OverflowMenu extends LitElement {
         gap: 10px;
         padding: 10px 14px;
         cursor: pointer;
-        color: ${item.danger ? 'var(--color-error)' : 'var(--t-primary, #e2e8f0)'};
+        color: ${item.danger ? colorError : tPrimary};
         font-size: 0.85rem;
         border: none;
         background: none;
@@ -144,9 +168,7 @@ export class OverflowMenu extends LitElement {
         ${item.toggle ? 'justify-content: space-between;' : ''}
       `;
       btn.onmouseenter = () => {
-        btn.style.background = item.danger
-          ? 'hsla(0, 80%, 60%, 0.1)'
-          : 'var(--bg-glass, rgba(255,255,255,0.05))';
+        btn.style.background = item.danger ? 'hsla(0, 80%, 60%, 0.1)' : bgGlass;
       };
       btn.onmouseleave = () => {
         btn.style.background = 'none';
@@ -167,17 +189,21 @@ export class OverflowMenu extends LitElement {
         btn.appendChild(labelSpan);
 
         const toggle = document.createElement('span');
+        const toggleBg = item.toggleActive ? accentPrimary : tMuted;
         toggle.style.cssText = `
-          width: 32px; height: 18px;
-          background: ${item.toggleActive ? 'var(--accent-primary, #7c3aed)' : 'var(--bg-glass, rgba(255,255,255,0.05))'};
-          border-radius: var(--radius-sm); position: relative; flex-shrink: 0;
+          width: 36px; height: 20px;
+          background: ${toggleBg};
+          border-radius: 10px; position: relative; flex-shrink: 0;
+          opacity: ${item.toggleActive ? '1' : '0.4'};
+          transition: all 0.2s ease;
         `;
         const knob = document.createElement('span');
         knob.style.cssText = `
-          position: absolute; top: 2px; left: 2px;
+          position: absolute; top: 3px; left: 3px;
           width: 14px; height: 14px; background: white;
           border-radius: 50%; transition: transform 0.2s ease;
-          ${item.toggleActive ? 'transform: translateX(14px);' : ''}
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          ${item.toggleActive ? 'transform: translateX(16px);' : ''}
         `;
         toggle.appendChild(knob);
         btn.appendChild(toggle);
