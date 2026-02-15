@@ -3162,6 +3162,11 @@ export class BeamApp extends LitElement {
         ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
           ? html`
               <div
+                style="text-align: center; padding: var(--space-sm) 0; color: var(--t-muted); font-size: 0.8rem; opacity: 0.6;"
+              >
+                &darr; scroll down for methods, prompts &amp; resources
+              </div>
+              <div
                 style="margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-glass);"
               >
                 <h4
