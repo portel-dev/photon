@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { formatLabel } from '../utils/format-label.js';
 
 /** Convert plural field names to singular for button labels */
 function singularize(word: string): string {
@@ -595,7 +596,8 @@ export class InvokeForm extends LitElement {
       return html`
         <div class="form-group">
           <label>
-            ${key} ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
+            ${formatLabel(key)}
+            ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
             ${schema.description
               ? html`<span class="hint"
                   >${this._cleanDescription(schema.description, schema)}</span
@@ -821,9 +823,13 @@ export class InvokeForm extends LitElement {
    */
   private _cleanDescription(desc: string, schema: any): string {
     if (!desc || !schema?.enum) return desc;
-    // Remove quoted-value union patterns: 'a' | 'b' | 'c'
-    let cleaned = desc.replace(/['"][\w-]+['"]\s*(?:\|\s*['"][\w-]+['"]\s*)+/g, '');
-    // Remove (default: 'value') or (default: value)
+    // Remove quoted-value union patterns with optional parenthetical descriptions:
+    // 'a' | 'b' | 'c'  OR  'a' (desc) | 'b' (desc) | 'c' (desc)
+    let cleaned = desc.replace(
+      /['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?(?:\|\s*['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?)+/g,
+      ''
+    );
+    // Remove standalone (default: 'value') or (default: value)
     cleaned = cleaned.replace(/\(default:\s*['"]?[\w-]+['"]?\)/gi, '');
     // Collapse leftover whitespace and trailing colon/punctuation
     cleaned = cleaned
@@ -968,7 +974,7 @@ export class InvokeForm extends LitElement {
                 return html`
                   <div class="nested-field">
                     <label class="nested-label">
-                      ${propKey}
+                      ${formatLabel(propKey)}
                       ${isRequired
                         ? html`<span style="color: var(--accent-secondary)">*</span>`
                         : ''}
