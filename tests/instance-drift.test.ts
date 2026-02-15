@@ -701,9 +701,10 @@ async function testAutoSwitchCodeExists() {
       serverSource.includes('daemonInstanceName'),
       'Expected daemonInstanceName field in PhotonServer'
     );
+    // After handler deduplication, STDIO context maps getInstanceName to daemonInstanceName
     assert.ok(
-      serverSource.includes('instanceName: this.daemonInstanceName'),
-      'Expected instanceName passed in STDIO sendOpts'
+      serverSource.includes('getInstanceName: () => this.daemonInstanceName'),
+      'Expected STDIO handler context to read daemonInstanceName'
     );
   });
 
