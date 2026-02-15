@@ -4973,7 +4973,19 @@ export class BeamApp extends LitElement {
   }
 
   private _shouldShowFullscreen(): boolean {
-    return !!this._selectedPhoton;
+    if (!this._selectedPhoton) return false;
+    // MCP app view (always has content)
+    if (
+      this._view === 'mcp-app' &&
+      this._selectedPhoton.isExternalMCP &&
+      this._selectedPhoton.hasMcpApp
+    )
+      return true;
+    // Native photon app view (always has content)
+    if (this._selectedPhoton.isApp && this._selectedMethod?.name === 'main') return true;
+    // Regular photon: only when a result is displayed
+    if (this._view === 'form' && this._selectedMethod && this._lastResult !== null) return true;
+    return false;
   }
 
   private _handleFullscreen = () => {
