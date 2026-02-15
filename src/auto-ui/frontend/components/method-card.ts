@@ -375,7 +375,10 @@ export class MethodCard extends LitElement {
   render() {
     const hasIcon = !!this.method.icon;
     const hasDescription =
-      this.method.description && this.method.description !== 'No description provided.';
+      this.method.description &&
+      this.method.description !== 'No description provided.' &&
+      this.method.description !== 'Add description...' &&
+      !/^add description/i.test(this.method.description.trim());
 
     const isAutorun = !!this.method.autorun;
     const isWebhook = !!this.method.webhook;
