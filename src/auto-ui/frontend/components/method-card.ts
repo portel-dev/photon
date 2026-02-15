@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
+import { formatLabel } from '../utils/format-label.js';
 
 interface MethodInfo {
   name: string;
@@ -414,7 +415,7 @@ export class MethodCard extends LitElement {
                   `
                 : ''}
               <span class="editable">
-                <h3 class="title">${this.method.name}</h3>
+                <h3 class="title">${formatLabel(this.method.name)}</h3>
                 <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method"
                   >✎</span
                 >
@@ -429,13 +430,13 @@ export class MethodCard extends LitElement {
                 const count = paramNames.length;
                 if (count <= 4) {
                   return html`<div class="param-tags">
-                    ${paramNames.map((n) => html`<span class="param-tag">${n}</span>`)}
+                    ${paramNames.map((n) => html`<span class="param-tag">${formatLabel(n)}</span>`)}
                   </div>`;
                 } else {
                   return html`<div class="param-tags">
                     ${paramNames
                       .slice(0, 3)
-                      .map((n) => html`<span class="param-tag">${n}</span>`)}<span
+                      .map((n) => html`<span class="param-tag">${formatLabel(n)}</span>`)}<span
                       class="param-count"
                       >+${count - 3}</span
                     >
@@ -598,10 +599,29 @@ export class MethodCard extends LitElement {
     // Strip markdown to plain text for card preview — line-clamp truncation
     // can break mid-HTML-tag and show rendering artifacts (dangling backticks).
     // Full markdown rendering happens in the detail view (beam-app.ts).
-    return description
+    let text = description
+      // Bold: **text** or __text__
       .replace(/\*\*(.+?)\*\*/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+      .replace(/__(.+?)__/g, '$1')
+      // Italic: *text* or _text_ (single)
+      .replace(/\*(.+?)\*/g, '$1')
+      // Inline code: `text`
+      .replace(/`([^`]*)`/g, '$1')
+      // Links: [text](url)
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Strip @internal tag
+      .replace(/@internal\b/gi, '')
+      // Remove stray markdown characters (unclosed ** or `)
+      .replace(/\*{1,2}/g, '')
+      .replace(/`/g, '')
+      // Headings: ## text
+      .replace(/^#{1,6}\s+/gm, '')
+      // Clean up double dashes used as em-dashes
+      .replace(/\s--\s/g, ' \u2014 ')
+      // Collapse multiple spaces and trim
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return text;
   }
 
   private _handleDescriptionEditClick(e: Event) {
