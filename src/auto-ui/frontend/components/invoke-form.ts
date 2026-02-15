@@ -596,7 +596,11 @@ export class InvokeForm extends LitElement {
         <div class="form-group">
           <label>
             ${key} ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
-            ${schema.description ? html`<span class="hint">${schema.description}</span>` : ''}
+            ${schema.description
+              ? html`<span class="hint"
+                  >${this._cleanDescription(schema.description, schema)}</span
+                >`
+              : ''}
           </label>
           ${this._renderInput(key, schema, !!error)}
           ${error ? html`<div class="error-text">${error}</div>` : ''}
@@ -808,6 +812,27 @@ export class InvokeForm extends LitElement {
     `;
   }
 
+  /**
+   * Strip enum values from description when they're already shown in a dropdown.
+   * Patterns removed:
+   *   'val1' | 'val2' | 'val3'
+   *   (default: 'val')
+   *   Trailing colon after removal
+   */
+  private _cleanDescription(desc: string, schema: any): string {
+    if (!desc || !schema?.enum) return desc;
+    // Remove quoted-value union patterns: 'a' | 'b' | 'c'
+    let cleaned = desc.replace(/['"][\w-]+['"]\s*(?:\|\s*['"][\w-]+['"]\s*)+/g, '');
+    // Remove (default: 'value') or (default: value)
+    cleaned = cleaned.replace(/\(default:\s*['"]?[\w-]+['"]?\)/gi, '');
+    // Collapse leftover whitespace and trailing colon/punctuation
+    cleaned = cleaned
+      .replace(/:\s*$/, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return cleaned;
+  }
+
   private _toggleMultiselect(key: string, value: string) {
     const currentValues = (this._values[key] as string[]) || [];
     let newValues: string[];
@@ -948,7 +973,9 @@ export class InvokeForm extends LitElement {
                         ? html`<span style="color: var(--accent-secondary)">*</span>`
                         : ''}
                       ${propSchema.description
-                        ? html`<span class="nested-hint">${propSchema.description}</span>`
+                        ? html`<span class="nested-hint"
+                            >${this._cleanDescription(propSchema.description, propSchema)}</span
+                          >`
                         : ''}
                     </label>
                     ${this._renderNestedInput(key, index, propKey, propSchema, item[propKey])}
