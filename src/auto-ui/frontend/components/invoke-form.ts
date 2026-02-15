@@ -809,6 +809,40 @@ export class InvokeForm extends LitElement {
       `;
     }
 
+    // Heuristic: Detect enum-like values from description pattern "(val1, val2, val3)"
+    // This catches cases where the photon author listed valid values in the description
+    // but didn't declare an enum in the schema.
+    if (schema.type === 'string' || !schema.type) {
+      const desc = (schema as any).description || '';
+      const enumMatch = desc.match(/\(([^)]+)\)\s*$/);
+      if (enumMatch) {
+        const candidates = enumMatch[1].split(',').map((s: string) => s.trim());
+        // Only use as dropdown if we have 2-10 short, simple values
+        if (
+          candidates.length >= 2 &&
+          candidates.length <= 10 &&
+          candidates.every((c: string) => /^[\w-]+$/.test(c) && c.length <= 30)
+        ) {
+          const currentValue = this._values[key] || '';
+          return html`
+            <select
+              class="${errorClass}"
+              .value=${currentValue}
+              @change=${(e: Event) =>
+                this._handleChange(key, (e.target as HTMLSelectElement).value)}
+            >
+              <option value="">Select...</option>
+              ${candidates.map(
+                (val: string) => html`
+                  <option value=${val} ?selected=${val === currentValue}>${val}</option>
+                `
+              )}
+            </select>
+          `;
+        }
+      }
+    }
+
     // Default -> Text Input
     const defaultVal = (schema as any).default;
     const placeholder = defaultVal != null ? String(defaultVal) : '';
