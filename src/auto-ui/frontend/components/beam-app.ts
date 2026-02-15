@@ -4973,20 +4973,14 @@ export class BeamApp extends LitElement {
   }
 
   private _shouldShowFullscreen(): boolean {
-    if (!this._selectedPhoton) return false;
-    // MCP app view
-    if (
-      this._view === 'mcp-app' &&
-      this._selectedPhoton.isExternalMCP &&
-      this._selectedPhoton.hasMcpApp
-    )
-      return true;
-    // Native photon app view
-    if (this._selectedPhoton.isApp && this._selectedMethod?.name === 'main') return true;
-    return false;
+    return !!this._selectedPhoton;
   }
 
   private _handleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
     // For native photon apps, use the popout overlay
     const layout = this.shadowRoot?.querySelector('app-layout') as any;
     if (layout?.togglePopout) {
@@ -4995,11 +4989,13 @@ export class BeamApp extends LitElement {
     }
     // For MCP apps, use browser fullscreen on the glass-panel
     const panel = this.shadowRoot?.querySelector('.glass-panel') as HTMLElement;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      panel?.requestFullscreen();
+    if (panel) {
+      panel.requestFullscreen();
+      return;
     }
+    // For regular photon views, fullscreen the main-area
+    const main = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
+    main?.requestFullscreen();
   };
 
   /**
