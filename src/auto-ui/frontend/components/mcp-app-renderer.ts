@@ -437,7 +437,7 @@ export class McpAppRenderer extends LitElement {
               hostContext: {
                 theme: this.theme,
                 styles: { variables: themeTokens },
-                containerDimensions: { maxHeight: 800 },
+                containerDimensions: { maxHeight: this.clientHeight || undefined },
               },
             },
           },
@@ -447,15 +447,9 @@ export class McpAppRenderer extends LitElement {
       }
 
       // Handle ui/notifications/size-changed from MCP Apps protocol
+      // The host element's height is controlled by the parent (beam-app sets calc(100vh - ...))
+      // so we don't override it here — just acknowledge the notification
       if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/size-changed') {
-        const { width, height } = msg.params || {};
-        if (height && iframe) {
-          // Apply size constraints (min 300px, max 800px for chat window fit)
-          const constrainedHeight = Math.min(Math.max(height, 300), 800);
-          iframe.style.height = `${constrainedHeight}px`;
-          this.style.height = `${constrainedHeight}px`;
-          this.style.minHeight = `${constrainedHeight}px`;
-        }
         return;
       }
 
