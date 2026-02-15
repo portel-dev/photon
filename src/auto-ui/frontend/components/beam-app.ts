@@ -3158,7 +3158,7 @@ export class BeamApp extends LitElement {
             style="height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});"
           ></mcp-app-renderer>
           <button
-            style="position: absolute; top: var(--space-xs); right: var(--space-xs); width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
+            style="position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
             @click=${(e: Event) => {
               const panel = (e.target as HTMLElement).closest('.glass-panel') as HTMLElement;
               if (document.fullscreenElement) {
@@ -3272,7 +3272,7 @@ export class BeamApp extends LitElement {
               <div slot="app" style="min-height: calc(100vh - 140px); position: relative;">
                 ${appRenderer}
                 <button
-                  style="position: absolute; top: var(--space-xs); right: var(--space-xs); width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
+                  style="position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
                   @click=${() => {
                     const layout = this.shadowRoot?.querySelector('app-layout') as any;
                     layout?.togglePopout();
