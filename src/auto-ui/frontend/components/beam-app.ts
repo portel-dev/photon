@@ -129,6 +129,26 @@ export class BeamApp extends LitElement {
         padding: var(--space-lg);
       }
 
+      .beam-fullscreen-btn {
+        position: sticky;
+        top: 0;
+        float: right;
+        z-index: 100;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        cursor: pointer;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        margin-bottom: -28px;
+      }
+
       .cards-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -2712,6 +2732,23 @@ export class BeamApp extends LitElement {
       </div>
 
       <main class="main-area" role="main" aria-label="Main content">
+        ${this._shouldShowFullscreen()
+          ? html`<button
+              class="beam-fullscreen-btn"
+              @click=${this._handleFullscreen}
+              @mouseenter=${(e: MouseEvent) => {
+                (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+              }}
+              @mouseleave=${(e: MouseEvent) => {
+                (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+              }}
+              title="Full screen"
+            >
+              ⛶
+            </button>`
+          : ''}
         ${this._renderContent()}
         <activity-log
           .items=${this._activityLog}
@@ -3157,28 +3194,6 @@ export class BeamApp extends LitElement {
             .theme=${this._theme}
             style="height: calc(100vh - ${hasMultipleUIs ? '120px' : '80px'});"
           ></mcp-app-renderer>
-          <button
-            style="position: absolute; top: 0; right: 0; width: 28px; height: 28px; border-radius: 0 var(--radius-md) 0 var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
-            @click=${(e: Event) => {
-              const panel = (e.target as HTMLElement).closest('.glass-panel') as HTMLElement;
-              if (document.fullscreenElement) {
-                document.exitFullscreen();
-              } else {
-                panel?.requestFullscreen();
-              }
-            }}
-            @mouseenter=${(e: MouseEvent) => {
-              (e.target as HTMLElement).style.color = 'var(--t-primary)';
-              (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-            }}
-            @mouseleave=${(e: MouseEvent) => {
-              (e.target as HTMLElement).style.color = 'var(--t-muted)';
-              (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-            }}
-            title="Full screen"
-          >
-            ⛶
-          </button>
         </div>
 
         ${this._selectedPhoton.methods && this._selectedPhoton.methods.length > 0
@@ -3269,27 +3284,7 @@ export class BeamApp extends LitElement {
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
             >
-              <div slot="app" style="min-height: calc(100vh - 140px); position: relative;">
-                ${appRenderer}
-                <button
-                  style="position: absolute; top: 0; right: 0; width: 28px; height: 28px; border-radius: 0 var(--radius-md) 0 var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s ease;"
-                  @click=${() => {
-                    const layout = this.shadowRoot?.querySelector('app-layout') as any;
-                    layout?.togglePopout();
-                  }}
-                  @mouseenter=${(e: MouseEvent) => {
-                    (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                    (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                  }}
-                  @mouseleave=${(e: MouseEvent) => {
-                    (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                    (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                  }}
-                  title="Full screen"
-                >
-                  ⛶
-                </button>
-              </div>
+              <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
               <div slot="popout" style="height: 100%;">
                 ${isExternalMCP
                   ? html`
@@ -4974,6 +4969,36 @@ export class BeamApp extends LitElement {
 
     return lines.join('\n');
   }
+
+  private _shouldShowFullscreen(): boolean {
+    if (!this._selectedPhoton) return false;
+    // MCP app view
+    if (
+      this._view === 'mcp-app' &&
+      this._selectedPhoton.isExternalMCP &&
+      this._selectedPhoton.hasMcpApp
+    )
+      return true;
+    // Native photon app view
+    if (this._selectedPhoton.isApp && this._selectedMethod?.name === 'main') return true;
+    return false;
+  }
+
+  private _handleFullscreen = () => {
+    // For native photon apps, use the popout overlay
+    const layout = this.shadowRoot?.querySelector('app-layout') as any;
+    if (layout?.togglePopout) {
+      layout.togglePopout();
+      return;
+    }
+    // For MCP apps, use browser fullscreen on the glass-panel
+    const panel = this.shadowRoot?.querySelector('.glass-panel') as HTMLElement;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      panel?.requestFullscreen();
+    }
+  };
 
   /**
    * Build overflow menu items for the context bar ⋯ menu
