@@ -2970,9 +2970,10 @@ program.on('command:*', async (operands) => {
 function preprocessArgs(): string[] {
   const args = process.argv.slice(2);
 
-  // No args - show help instead of silently launching a long-running server
+  // No args - launch Beam (the primary interface)
+  // Use `photon -h` or `photon --help` for help
   if (args.length === 0) {
-    return [...process.argv, '--help'];
+    return [...process.argv, 'beam'];
   }
 
   // Find the first non-flag argument (skip values of flags that take a parameter)
@@ -2989,8 +2990,8 @@ function preprocessArgs(): string[] {
     if (args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V')) {
       return process.argv;
     }
-    // Otherwise show help (e.g., photon --dir=.)
-    return [...process.argv, '--help'];
+    // Otherwise launch Beam (e.g., photon --dir=.)
+    return [...process.argv, 'beam'];
   }
 
   const firstArg = args[firstArgIndex];
