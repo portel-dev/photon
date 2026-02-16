@@ -186,6 +186,44 @@ function extractObjectProperties(
 function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   let hint = formatHint;
 
+  // Handle _photonType structured data (e.g., table, collection)
+  if (result && typeof result === 'object' && result._photonType) {
+    const photonType = result._photonType as string;
+    if (photonType === 'table' && result.rows && Array.isArray(result.rows)) {
+      // Convert structured table to array of objects for renderTable
+      const columns = result.columns || [];
+      const rows = result.rows.map((row: any) => {
+        if (Array.isArray(row)) {
+          // Row is an array of values, map to column names
+          const obj: Record<string, any> = {};
+          columns.forEach((col: any, i: number) => {
+            const key = typeof col === 'string' ? col : col.label || col.field || `col${i}`;
+            obj[key] = row[i] ?? '';
+          });
+          return obj;
+        }
+        // Row is already an object, extract display values using column fields
+        if (columns.length > 0) {
+          const obj: Record<string, any> = {};
+          for (const col of columns) {
+            const field = typeof col === 'string' ? col : col.field;
+            const label = typeof col === 'string' ? col : col.label || col.field;
+            if (field) {
+              obj[label] = row[field] ?? '';
+            }
+          }
+          return obj;
+        }
+        return row;
+      });
+      baseFormatOutput(rows, 'table');
+      return true;
+    }
+    // For other _photonType values, strip the marker and render normally
+    const { _photonType, ...rest } = result;
+    return formatOutput(rest, formatHint);
+  }
+
   // Handle error responses
   if (result && typeof result === 'object' && result.success === false) {
     const errorMsg = result.error || result.message || 'Unknown error';
@@ -1069,9 +1107,45 @@ function formatLabel(name: string): string {
 /**
  * Print help for a specific method
  */
+function printParamHelp(param: MethodInfo['params'][0]): void {
+  const displayLabel = param.label || formatLabel(param.name);
+
+  // Build type hint suffix
+  let typeHint = '';
+  if (param.enum && param.enum.length > 0) {
+    typeHint = ` [values: ${param.enum.join(', ')}]`;
+  } else if (param.type === 'boolean') {
+    typeHint = ' [--no-' + param.name + ' to disable]';
+  } else if (param.type === 'array') {
+    typeHint = ` (JSON array, e.g., '["a","b"]')`;
+  } else if (param.type === 'object') {
+    typeHint = ` (JSON object, e.g., '{"key":"value"}')`;
+  }
+
+  console.log(`    --${param.name} (${displayLabel})${typeHint}`);
+  if (param.description) {
+    console.log(`        ${param.description}`);
+  }
+  // Show example for complex types (JSON)
+  if (param.example) {
+    console.log(`        Example: ${param.example}`);
+  }
+}
+
 function printMethodHelp(photonName: string, method: MethodInfo): void {
+  // Truncate description at sentence boundary if too long
+  let description = method.description || 'No description';
+  if (description.length > 200) {
+    const sentenceEnd = description.substring(0, 200).lastIndexOf('.');
+    if (sentenceEnd > 80) {
+      description = description.substring(0, sentenceEnd + 1);
+    } else {
+      description = description.substring(0, 197) + '...';
+    }
+  }
+
   console.log(`\nNAME:`);
-  console.log(`    ${method.name} - ${method.description || 'No description'}\n`);
+  console.log(`    ${method.name} - ${description}\n`);
 
   console.log(`USAGE:`);
   const requiredParams = method.params.filter((p) => !p.optional);
@@ -1090,16 +1164,7 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
     if (requiredParams.length > 0) {
       console.log(`REQUIRED:`);
       for (const param of requiredParams) {
-        // Show custom label or formatted name
-        const displayLabel = param.label || formatLabel(param.name);
-        console.log(`    --${param.name} (${displayLabel})`);
-        if (param.description) {
-          console.log(`        ${param.description}`);
-        }
-        // Show example for complex types (JSON)
-        if (param.example) {
-          console.log(`        Example: ${param.example}`);
-        }
+        printParamHelp(param);
       }
       console.log('');
     }
@@ -1107,16 +1172,7 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
     if (optionalParams.length > 0) {
       console.log(`OPTIONS:`);
       for (const param of optionalParams) {
-        // Show custom label or formatted name
-        const displayLabel = param.label || formatLabel(param.name);
-        console.log(`    --${param.name} (${displayLabel})`);
-        if (param.description) {
-          console.log(`        ${param.description}`);
-        }
-        // Show example for complex types (JSON)
-        if (param.example) {
-          console.log(`        Example: ${param.example}`);
-        }
+        printParamHelp(param);
       }
       console.log('');
     }
@@ -1150,7 +1206,19 @@ export async function listMethods(photonName: string): Promise<void> {
       });
     }
 
-    const methods = await extractMethods(resolvedPath);
+    const allMethods = await extractMethods(resolvedPath);
+
+    // Filter out internal methods: scheduled*, handle*, reportError
+    const methods = allMethods.filter((m) => {
+      if (m.scheduled) return false;
+      if (m.webhook) return false;
+      if (m.name.startsWith('scheduled')) return false;
+      if (m.name.startsWith('handle')) return false;
+      if (m.name === 'reportError') return false;
+      return true;
+    });
+
+    const hiddenCount = allMethods.length - methods.length;
 
     // Print usage
     console.log(`\nUSAGE:`);
@@ -1161,11 +1229,32 @@ export async function listMethods(photonName: string): Promise<void> {
 
     // Find longest method name for alignment
     const maxLength = Math.max(...methods.map((m) => m.name.length));
+    const maxDescLength = 60;
 
     for (const method of methods) {
       const padding = ' '.repeat(maxLength - method.name.length + 4);
-      const description = method.description || 'No description';
+      let description = method.description || 'No description';
+      // Truncate long descriptions in listing, keeping first sentence
+      if (description.length > maxDescLength) {
+        const sentenceEnd = description.substring(0, maxDescLength).lastIndexOf('.');
+        if (sentenceEnd > 20) {
+          description = description.substring(0, sentenceEnd + 1);
+        } else {
+          description = description.substring(0, maxDescLength - 3) + '...';
+        }
+      }
+      // Show param signature for methods with no description
+      if (!method.description && method.params.length > 0) {
+        const sig = method.params
+          .map((p) => (p.optional ? `${p.name}?` : p.name) + `: ${p.type}`)
+          .join(', ');
+        description = `(${sig})`;
+      }
       console.log(`    ${method.name}${padding}${description}`);
+    }
+
+    if (hiddenCount > 0) {
+      console.log(`\n    (${hiddenCount} internal/scheduled methods hidden)`);
     }
 
     // Print footer

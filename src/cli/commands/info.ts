@@ -73,6 +73,7 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
     .command('info', { hidden: true })
     .argument('[name]', 'Photon name to show details for (shows all if omitted)')
     .option('--mcp', 'Output as MCP server configuration')
+    .option('--json', 'Output as JSON')
     .alias('list')
     .alias('ls')
     .description('Show installed and available Photons')
@@ -84,6 +85,7 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
         const parentOpts = command.parent?.opts() || {};
         const workingDir = parentOpts.dir || defaultWorkingDir;
         const asMcp = options.mcp || false;
+        const asJson = options.json || false;
 
         const mcps = await listPhotonMCPs(workingDir);
 
@@ -91,6 +93,47 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager();
         await manager.initialize();
+
+        // JSON output mode
+        if (asJson) {
+          if (name) {
+            const filePath = await resolvePhotonPath(name, workingDir);
+            if (!filePath) {
+              console.log(JSON.stringify({ error: `'${name}' not found` }));
+              process.exit(1);
+            }
+            const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
+            const extractor = new PhotonDocExtractor(filePath);
+            const photonMetadata = await extractor.extractFullMetadata();
+            const metadata = await manager.getPhotonInstallMetadata(`${name}.photon.ts`);
+            console.log(
+              JSON.stringify(
+                {
+                  ...photonMetadata,
+                  installed: true,
+                  path: filePath,
+                  source: metadata?.marketplace || 'local',
+                },
+                null,
+                2
+              )
+            );
+          } else {
+            const results = [];
+            for (const mcpName of mcps) {
+              const filePath = await resolvePhotonPath(mcpName, workingDir);
+              const metadata = await manager.getPhotonInstallMetadata(`${mcpName}.photon.ts`);
+              results.push({
+                name: mcpName,
+                version: metadata?.version || PHOTON_VERSION,
+                source: metadata?.marketplace || 'local',
+                path: filePath,
+              });
+            }
+            console.log(JSON.stringify(results, null, 2));
+          }
+          return;
+        }
 
         // Show single Photon details
         if (name) {

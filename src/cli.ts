@@ -900,6 +900,9 @@ program
   .configureHelp({
     sortSubcommands: false,
     sortOptions: false,
+    // Hide Commander's auto-generated "Commands:" section since we show
+    // a custom categorized section in addHelpText('after', ...)
+    visibleCommands: () => [],
   })
   .addHelpText(
     'after',
