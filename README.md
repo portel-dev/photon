@@ -377,7 +377,7 @@ photon maker new <name>           # Scaffold a new photon
 # Manage
 photon info                       # List all photons
 photon info <name> --mcp          # Get MCP client config (paste into Claude/Cursor)
-photon validate <name>            # Check for errors
+photon maker validate <name>      # Check for errors
 
 # Marketplace
 photon add <name>                 # Install photon
@@ -386,7 +386,6 @@ photon upgrade                    # Upgrade all
 
 # Ops
 photon doctor                     # Diagnose environment
-photon audit                      # Security audit
 photon test                       # Run tests
 ```
 
