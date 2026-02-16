@@ -2228,9 +2228,20 @@ export class PhotonServer {
         // Standard theme handling
         if (m.params && m.params.theme) {
           currentTheme = m.params.theme;
-          document.documentElement.classList.remove('light', 'dark');
+          document.documentElement.classList.remove('light', 'dark', 'light-theme');
           document.documentElement.classList.add(m.params.theme);
           document.documentElement.setAttribute('data-theme', m.params.theme);
+          // Apply background/text colors to match platform-compat bridge
+          if (m.params.theme === 'light') {
+            document.documentElement.classList.add('light-theme');
+            document.documentElement.style.colorScheme = 'light';
+            document.documentElement.style.backgroundColor = '#ffffff';
+            if (document.body) { document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#1a1a1a'; }
+          } else {
+            document.documentElement.style.colorScheme = 'dark';
+            document.documentElement.style.backgroundColor = '#0d0d0d';
+            if (document.body) { document.body.style.backgroundColor = '#0d0d0d'; document.body.style.color = '#e6e6e6'; }
+          }
           themeListeners.forEach(function(cb) { cb(currentTheme); });
         }
 
@@ -2444,10 +2455,22 @@ export class PhotonServer {
   var initId = generateCallId();
   pendingCalls[initId] = {
     resolve: function(result) {
-      // Apply theme from host context
+      // Apply theme from host context (matching platform-compat bridge)
       if (result.hostContext && result.hostContext.theme) {
+        currentTheme = result.hostContext.theme;
+        document.documentElement.classList.remove('light', 'dark', 'light-theme');
         document.documentElement.classList.add(result.hostContext.theme);
         document.documentElement.setAttribute('data-theme', result.hostContext.theme);
+        if (result.hostContext.theme === 'light') {
+          document.documentElement.classList.add('light-theme');
+          document.documentElement.style.colorScheme = 'light';
+          document.documentElement.style.backgroundColor = '#ffffff';
+          if (document.body) { document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#1a1a1a'; }
+        } else {
+          document.documentElement.style.colorScheme = 'dark';
+          document.documentElement.style.backgroundColor = '#0d0d0d';
+          if (document.body) { document.body.style.backgroundColor = '#0d0d0d'; document.body.style.color = '#e6e6e6'; }
+        }
       }
       // Complete handshake
       postToHost({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
