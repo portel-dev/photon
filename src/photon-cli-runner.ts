@@ -208,8 +208,8 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
         if (columns.length > 0) {
           const obj: Record<string, any> = {};
           for (const col of columns) {
-            const field = typeof col === 'string' ? col : col.field;
-            const label = typeof col === 'string' ? col : col.label || col.field;
+            const field = typeof col === 'string' ? col : col.field || col.key;
+            const label = typeof col === 'string' ? col : col.label || col.field || col.key;
             if (field) {
               obj[label] = row[field] ?? '';
             }
