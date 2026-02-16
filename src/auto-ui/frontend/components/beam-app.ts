@@ -45,6 +45,7 @@ export class BeamApp extends LitElement {
         --color-error-glow: rgba(248, 113, 113, 0.3);
         --color-error-bg: rgba(248, 113, 113, 0.1);
         --color-success: #4ade80;
+        --color-success-glow: rgba(74, 222, 128, 0.5);
         --color-success-bg: hsla(150, 50%, 40%, 0.2);
         --color-warning: #fbbf24;
         --color-warning-bg: rgba(251, 191, 36, 0.15);
@@ -89,7 +90,8 @@ export class BeamApp extends LitElement {
         --color-error: hsl(0, 55%, 48%);
         --color-error-glow: hsla(0, 55%, 48%, 0.2);
         --color-error-bg: hsla(0, 55%, 48%, 0.08);
-        --color-success: hsl(142, 45%, 35%);
+        --color-success: hsl(142, 55%, 40%);
+        --color-success-glow: hsla(142, 65%, 45%, 0.5);
         --color-success-bg: hsla(142, 45%, 35%, 0.12);
         --color-warning: hsl(35, 70%, 42%);
         --color-warning-bg: hsla(35, 70%, 42%, 0.12);
