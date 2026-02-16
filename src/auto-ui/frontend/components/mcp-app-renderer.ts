@@ -231,13 +231,41 @@ export class McpAppRenderer extends LitElement {
   }
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
-    // Send theme change to the app via AppBridge — no iframe recreation needed
-    if (changedProperties.has('theme') && this._bridge) {
+    // Send theme change to the app via AppBridge AND direct postMessage
+    if (changedProperties.has('theme')) {
       const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
-      this._bridge.setHostContext({
-        theme: this.theme,
-        styles: { variables: themeTokens },
-      });
+
+      // Try AppBridge first (MCP Apps protocol)
+      if (this._bridge) {
+        this._bridge.setHostContext({
+          theme: this.theme,
+          styles: { variables: themeTokens },
+        });
+      }
+
+      // Also send direct postMessage for platform bridge compatibility
+      if (this._iframeRef?.contentWindow) {
+        // Send both MCP Apps and Photon protocol messages
+        this._iframeRef.contentWindow.postMessage(
+          {
+            jsonrpc: '2.0',
+            method: 'ui/notifications/host-context-changed',
+            params: {
+              theme: this.theme,
+              styles: { variables: themeTokens },
+            },
+          },
+          '*'
+        );
+        this._iframeRef.contentWindow.postMessage(
+          {
+            type: 'photon:theme-change',
+            theme: this.theme,
+            themeTokens,
+          },
+          '*'
+        );
+      }
     }
   }
 
