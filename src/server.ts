@@ -725,7 +725,12 @@ export class PhotonServer {
       }
     }
 
-    const response: any = { content: [content] };
+    const response: any = { content: [content], isError: false };
+
+    // Add x-output-format for format-aware clients
+    if (outputFormat) {
+      response['x-output-format'] = outputFormat;
+    }
 
     // Add stateful workflow metadata (machine-readable _meta)
     if (isStateful && result.runId) {
