@@ -238,6 +238,18 @@ interface HandlerContext {
   };
 }
 
+/**
+ * Format a tool result for MCP content text.
+ * Mirrors server.ts formatResult(): strings returned as-is, objects/arrays JSON-stringified,
+ * other primitives converted via String().
+ */
+function formatResultText(result: any): string {
+  if (result === undefined || result === null) return 'Done';
+  if (typeof result === 'string') return result;
+  if (typeof result === 'object') return JSON.stringify(result, null, 2);
+  return String(result);
+}
+
 const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -266,6 +278,7 @@ const handlers: Record<string, RequestHandler> = {
         },
         capabilities: {
           tools: { listChanged: true },
+          prompts: { listChanged: true },
           resources: { listChanged: true },
         },
         // SEP-1596 inspired: configuration schema for unconfigured photons
@@ -740,7 +753,7 @@ const handlers: Record<string, RequestHandler> = {
           jsonrpc: '2.0',
           id: req.id,
           result: {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            content: [{ type: 'text', text: formatResultText(result) }],
             isError: false,
           },
         };
@@ -861,15 +874,11 @@ const handlers: Record<string, RequestHandler> = {
             method: '_use',
             data: { instance: selectedName },
           });
-          const useText =
-            useResult === undefined || useResult === null
-              ? 'Done'
-              : JSON.stringify(useResult, null, 2);
           return {
             jsonrpc: '2.0',
             id: req.id,
             result: {
-              content: [{ type: 'text', text: useText }],
+              content: [{ type: 'text', text: formatResultText(useResult) }],
               isError: false,
             },
           };
@@ -889,13 +898,11 @@ const handlers: Record<string, RequestHandler> = {
             method: '_use',
             data: { instance: args?.name || 'default' },
           });
-          const resultText =
-            result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
           return {
             jsonrpc: '2.0',
             id: req.id,
             result: {
-              content: [{ type: 'text', text: resultText }],
+              content: [{ type: 'text', text: formatResultText(result) }],
               isError: false,
             },
           };
@@ -908,8 +915,7 @@ const handlers: Record<string, RequestHandler> = {
           sendOpts
         );
 
-        const resultText =
-          result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
+        const resultText = formatResultText(result);
 
         return {
           jsonrpc: '2.0',
@@ -1162,10 +1168,7 @@ const handlers: Record<string, RequestHandler> = {
         // Use return value if no chunks were yielded, otherwise use chunks
         const finalResult =
           chunks.length > 0 ? (chunks.length === 1 ? chunks[0] : chunks) : returnValue;
-        const genResultText =
-          finalResult === undefined || finalResult === null
-            ? 'Done'
-            : JSON.stringify(finalResult, null, 2);
+        const genResultText = formatResultText(finalResult);
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
@@ -1193,8 +1196,7 @@ const handlers: Record<string, RequestHandler> = {
       }
 
       // For void methods, provide a success acknowledgment so the UI shows feedback
-      const resultText =
-        result === undefined || result === null ? 'Done' : JSON.stringify(result, null, 2);
+      const resultText = formatResultText(result);
 
       const toolResponse = {
         jsonrpc: '2.0' as const,
@@ -1289,6 +1291,90 @@ const handlers: Record<string, RequestHandler> = {
         contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: content }],
       },
     };
+  },
+
+  'prompts/list': async (req, _session, ctx) => {
+    const prompts: any[] = [];
+    for (const photon of ctx.photons) {
+      if (!photon.configured) continue;
+      const mcp = ctx.photonMCPs.get(photon.name);
+      if (!mcp?.templates) continue;
+      for (const template of mcp.templates) {
+        prompts.push({
+          name: `${photon.name}/${template.name}`,
+          description: template.description,
+          arguments: Object.entries(template.inputSchema?.properties || {}).map(
+            ([name, schema]) => ({
+              name,
+              description:
+                (typeof schema === 'object' && schema && 'description' in schema
+                  ? (schema as any).description
+                  : '') || '',
+              required: template.inputSchema?.required?.includes(name) || false,
+            })
+          ),
+        });
+      }
+    }
+    return { jsonrpc: '2.0', id: req.id, result: { prompts } };
+  },
+
+  'prompts/get': async (req, _session, ctx) => {
+    const { name } = req.params as { name: string; arguments?: Record<string, string> };
+    const args = (req.params as any).arguments || {};
+
+    const slashIndex = name.indexOf('/');
+    if (slashIndex === -1) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Invalid prompt name: ${name}` },
+      };
+    }
+
+    const photonName = name.slice(0, slashIndex);
+    const promptName = name.slice(slashIndex + 1);
+
+    const mcp = ctx.photonMCPs.get(photonName);
+    if (!mcp) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Photon not found: ${photonName}` },
+      };
+    }
+
+    const template = mcp.templates?.find((t: any) => t.name === promptName);
+    if (!template) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Prompt not found: ${promptName}` },
+      };
+    }
+
+    try {
+      const result = await ctx.loader!.executeTool(mcp, promptName, args);
+      // Format as prompt response
+      if (result && typeof result === 'object' && 'messages' in result) {
+        return { jsonrpc: '2.0', id: req.id, result: { messages: result.messages } };
+      }
+      const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          messages: [{ role: 'user', content: { type: 'text', text } }],
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32603, message: `Prompt execution failed: ${message}` },
+      };
+    }
   },
 };
 

@@ -252,6 +252,8 @@ export interface PhotonMCPInstance {
   schemas?: any[];
   /** Photon assets */
   assets?: PhotonAssets;
+  /** Prompt templates extracted from photon */
+  templates?: any[];
 }
 
 /**
