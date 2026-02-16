@@ -27,6 +27,8 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
 | `@icon` | Sets the photon icon (emoji). | `@icon 🔧` |
 | `@tags` | Comma-separated tags for categorization and search. | `@tags database, sql, postgresql` |
+| `@label` | Custom display name for the photon in BEAM sidebar. | `@label My Custom Tool` |
+| `@persist` | Enables settings UI persistence for the photon. | `@persist` |
 | `@internal` | Marks photon as internal (hidden from main UI). | `@internal` |
 
 ### Runtime Version Ranges
@@ -195,19 +197,23 @@ async batchUpdate(params: { taskIds: string[] }) {
 - Lock is held for the duration of method execution
 - Other processes/requests wait for lock release
 
-For programmatic locking with dynamic lock names, use `withLock()`:
+For programmatic locking with dynamic lock names, use `this.withLock()` (available on all `PhotonMCP` subclasses):
 
 ```typescript
-import { withLock } from '@portel/photon-core';
-
 async moveTask(params: { taskId: string; column: string }) {
-  return withLock(`task:${params.taskId}`, async () => {
+  return this.withLock(`task:${params.taskId}`, async () => {
     const task = await this.loadTask(params.taskId);
     task.column = params.column;
     await this.saveTask(task);
     return task;
   });
 }
+```
+
+Alternatively, `withLock` can be imported directly from `@portel/photon-core` for use outside class methods:
+
+```typescript
+import { withLock } from '@portel/photon-core';
 ```
 
 ## Inline Parameter Tags
@@ -224,6 +230,15 @@ These tags are placed within `@param` descriptions to add validation and UI hint
 | `{@choice a,b,c}` | Allowed values (renders as dropdown). | `@param status Status {@choice pending,approved,rejected}` |
 | `{@field type}` | Explicit HTML input type for Auto UI. | `@param bio Bio {@field textarea}` |
 | `{@label name}` | Custom display label for the parameter. | `@param firstName First Name {@label Your First Name}` |
+| `{@default value}` | Default value for the parameter. | `@param limit Max results {@default 10}` |
+| `{@placeholder text}` | Placeholder text for input fields. | `@param query Search term {@placeholder Enter search...}` |
+| `{@hint text}` | Help text shown below/beside the field. | `@param apiKey API Key {@hint Found in your dashboard}` |
+| `{@readOnly}` | Marks the parameter as read-only. | `@param id Record ID {@readOnly}` |
+| `{@writeOnly}` | Marks the parameter as write-only. | `@param password Password {@writeOnly}` |
+| `{@unique}` | Marks array items as unique (uniqueItems). | `@param tags Tags {@unique}` |
+| `{@multipleOf N}` | Number must be a multiple of N. | `@param quantity Qty {@multipleOf 5}` |
+| `{@deprecated message}` | Marks parameter as deprecated. | `@param oldField Old field {@deprecated Use newField instead}` |
+| `{@accept pattern}` | File type filter for file picker. | `@param file Upload {@accept .ts,.js}` |
 
 ## Return Value Tags
 
