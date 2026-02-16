@@ -188,11 +188,13 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 
   // Handle _photonType structured data (e.g., table, collection)
   if (result && typeof result === 'object' && result._photonType) {
-    const photonType = result._photonType as string;
-    if (photonType === 'table' && result.rows && Array.isArray(result.rows)) {
+    // If the object has toJSON(), call it to get the plain data (e.g., Table instances have private fields)
+    const data = typeof result.toJSON === 'function' ? result.toJSON() : result;
+    const photonType = data._photonType as string;
+    if (photonType === 'table' && data.rows && Array.isArray(data.rows)) {
       // Convert structured table to array of objects for renderTable
-      const columns = result.columns || [];
-      const rows = result.rows.map((row: any) => {
+      const columns = data.columns || [];
+      const rows = data.rows.map((row: any) => {
         if (Array.isArray(row)) {
           // Row is an array of values, map to column names
           const obj: Record<string, any> = {};
@@ -220,7 +222,7 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
       return true;
     }
     // For other _photonType values, strip the marker and render normally
-    const { _photonType, ...rest } = result;
+    const { _photonType, ...rest } = data;
     return formatOutput(rest, formatHint);
   }
 
@@ -366,7 +368,16 @@ function parseCliArgs(args: string[], params: MethodInfo['params']): Record<stri
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg.startsWith('--')) {
+    if (arg.startsWith('--no-') && !arg.includes('=')) {
+      // --no-<param> negation syntax for boolean params (e.g., --no-enabled → enabled=false)
+      const key = arg.substring(5);
+      if (paramTypes.has(key)) {
+        result[key] = false;
+      } else {
+        // Unknown param, store as-is (will be caught by validation later)
+        result[key] = false;
+      }
+    } else if (arg.startsWith('--')) {
       // Named argument: --key value or --key=value
       const eqIndex = arg.indexOf('=');
 
@@ -1133,7 +1144,7 @@ function printParamHelp(param: MethodInfo['params'][0]): void {
 }
 
 function printMethodHelp(photonName: string, method: MethodInfo): void {
-  // Truncate description at sentence boundary if too long
+  // Truncate description at sentence boundary if too long, or clean up mid-sentence truncation
   let description = method.description || 'No description';
   if (description.length > 200) {
     const sentenceEnd = description.substring(0, 200).lastIndexOf('.');
@@ -1141,6 +1152,16 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
       description = description.substring(0, sentenceEnd + 1);
     } else {
       description = description.substring(0, 197) + '...';
+    }
+  } else if (description.length > 0 && !/[.!?]$/.test(description.trim())) {
+    // Description appears truncated mid-sentence (no terminal punctuation)
+    // Truncate at the last complete sentence if possible
+    const lastSentence = description.lastIndexOf('.');
+    if (lastSentence > 40) {
+      description = description.substring(0, lastSentence + 1);
+    } else {
+      // No good sentence boundary — add ellipsis to signal truncation
+      description = description.trim() + '...';
     }
   }
 
