@@ -2231,6 +2231,12 @@ export class PhotonServer {
           document.documentElement.classList.remove('light', 'dark', 'light-theme');
           document.documentElement.classList.add(m.params.theme);
           document.documentElement.setAttribute('data-theme', m.params.theme);
+          // Apply theme token CSS variables (matching platform-compat applyThemeTokens)
+          if (m.params.styles && m.params.styles.variables) {
+            var root = document.documentElement;
+            var vars = m.params.styles.variables;
+            for (var key in vars) { root.style.setProperty(key, vars[key]); }
+          }
           // Apply background/text colors to match platform-compat bridge
           if (m.params.theme === 'light') {
             document.documentElement.classList.add('light-theme');
@@ -2461,15 +2467,17 @@ export class PhotonServer {
         document.documentElement.classList.remove('light', 'dark', 'light-theme');
         document.documentElement.classList.add(result.hostContext.theme);
         document.documentElement.setAttribute('data-theme', result.hostContext.theme);
+        // Apply theme token CSS variables from host context
+        if (result.hostContext.styles && result.hostContext.styles.variables) {
+          var root = document.documentElement;
+          var vars = result.hostContext.styles.variables;
+          for (var key in vars) { root.style.setProperty(key, vars[key]); }
+        }
         if (result.hostContext.theme === 'light') {
           document.documentElement.classList.add('light-theme');
           document.documentElement.style.colorScheme = 'light';
-          document.documentElement.style.backgroundColor = '#ffffff';
-          if (document.body) { document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#1a1a1a'; }
         } else {
           document.documentElement.style.colorScheme = 'dark';
-          document.documentElement.style.backgroundColor = '#0d0d0d';
-          if (document.body) { document.body.style.backgroundColor = '#0d0d0d'; document.body.style.color = '#e6e6e6'; }
         }
       }
       // Complete handshake

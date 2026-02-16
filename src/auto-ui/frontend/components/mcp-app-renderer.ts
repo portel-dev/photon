@@ -383,7 +383,9 @@ export class McpAppRenderer extends LitElement {
       // Handle ui/initialize REQUEST from MCP Apps protocol
       // This is sent by the bridge script when the iframe loads
       if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
-        const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
+        // Send full unfiltered tokens (including --bg-primary, --bg-secondary aliases)
+        // so the iframe gets the same theme as custom-ui-renderer iframes
+        const themeTokens = getThemeTokens(this.theme);
         iframe.contentWindow?.postMessage(
           {
             jsonrpc: '2.0',
