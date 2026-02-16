@@ -157,7 +157,9 @@ export class BeamSidebar extends LitElement {
 
       .status-indicator.connected {
         background: var(--color-success);
-        box-shadow: 0 0 6px var(--color-success);
+        box-shadow:
+          0 0 6px var(--color-success-glow),
+          0 0 2px var(--color-success);
       }
 
       .status-indicator.reconnecting {

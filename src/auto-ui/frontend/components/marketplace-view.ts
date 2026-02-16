@@ -807,7 +807,10 @@ export class MarketplaceView extends LitElement {
           <div class="card-meta">
             ${item.internal ? html`<span class="source-pill source-internal">System</span>` : ''}
             <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
-            <div class="tag" style="background: var(--accent-secondary); color: black;">
+            <div
+              class="tag"
+              style="background: var(--accent-secondary); color: white; font-weight: 600;"
+            >
               ${item.version}
             </div>
           </div>
