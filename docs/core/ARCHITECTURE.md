@@ -180,7 +180,7 @@ Photon comes **batteries included** with a daemon that provides infrastructure f
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         DAEMON                                  │
-│                  ~/.photon/daemons/*.sock                       │
+│                  ~/.photon/daemon.sock                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────┐│
@@ -204,12 +204,8 @@ Photon comes **batteries included** with a daemon that provides infrastructure f
 ### Pub/Sub: Real-Time Sync
 
 ```typescript
-// Photon emits an event
-this.emit({
-  channel: `${this.photonId}:board`,
-  event: 'task-moved',
-  data: { taskId, column }
-});
+// Photon emits an event (two-argument form)
+this.emit('task-moved', { taskId, column });
 
 // All subscribers receive it instantly
 // - Other browser tabs (via Beam SSE)

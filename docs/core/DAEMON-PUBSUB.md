@@ -24,7 +24,7 @@ Extend the existing `@stateful` daemon with pub/sub channels:
 ```
 ┌─────────────────┐     ┌───────────────────────────────────┐     ┌────────────────┐
 │  Photon Tool    │────▶│   Daemon                          │────▶│  BEAM UI       │
-│  (MCP/Claude)   │     │   ~/.photon/daemons/kanban.sock   │     │  (WebSocket)   │
+│  (MCP/Claude)   │     │   ~/.photon/daemon.sock            │     │  (SSE)         │
 └─────────────────┘     └───────────────────────────────────┘     └────────────────┘
         │                             ▲                                    │
         │                             │                                    │
