@@ -2967,9 +2967,9 @@ program.on('command:*', async (operands) => {
 function preprocessArgs(): string[] {
   const args = process.argv.slice(2);
 
-  // No args - default to beam with auto-open browser
+  // No args - show help instead of silently launching a long-running server
   if (args.length === 0) {
-    return [...process.argv, 'beam', '--open'];
+    return [...process.argv, '--help'];
   }
 
   // Find the first non-flag argument (skip values of flags that take a parameter)
@@ -2986,8 +2986,8 @@ function preprocessArgs(): string[] {
     if (args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V')) {
       return process.argv;
     }
-    // Otherwise default to beam (e.g., photon --dir=. → photon --dir=. beam --open)
-    return [...process.argv, 'beam', '--open'];
+    // Otherwise show help (e.g., photon --dir=.)
+    return [...process.argv, '--help'];
   }
 
   const firstArg = args[firstArgIndex];
