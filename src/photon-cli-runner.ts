@@ -62,10 +62,13 @@ interface MethodInfo {
     description?: string;
     label?: string; // Custom label from {@label} tag
     example?: string; // Example value from {@example} tag
+    enum?: string[]; // Valid enum values from JSON Schema
   }[];
   description?: string;
   format?: OutputFormat;
   buttonLabel?: string; // Custom button label from @returns {@label}
+  scheduled?: string; // Cron expression for scheduled methods
+  webhook?: boolean; // Whether this is a webhook handler
 }
 
 interface MarkdownBlock {
@@ -105,6 +108,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
           description: prop.description,
           ...(prop.title ? { label: prop.title } : {}),
           ...(prop.examples?.[0] !== undefined ? { example: String(prop.examples[0]) } : {}),
+          ...(prop.enum ? { enum: prop.enum.map(String) } : {}),
         });
       }
     }
@@ -115,6 +119,8 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
       description: tool.description !== 'No description' ? tool.description : undefined,
       ...(tool.outputFormat ? { format: tool.outputFormat } : {}),
       ...(tool.buttonLabel ? { buttonLabel: tool.buttonLabel } : {}),
+      ...((tool as any).scheduled ? { scheduled: (tool as any).scheduled } : {}),
+      ...((tool as any).webhook !== undefined ? { webhook: true } : {}),
     };
   });
 }
@@ -335,12 +341,16 @@ function parseCliArgs(args: string[], params: MethodInfo['params']): Record<stri
       } else {
         // --key value format (next arg is the value)
         const key = arg.substring(2);
-        i++;
-        if (i < args.length) {
-          const expectedType = paramTypes.get(key) || 'any';
+        const expectedType = paramTypes.get(key) || 'any';
+
+        // For boolean params, treat bare --flag as true (no value consumed)
+        if (expectedType === 'boolean' && (i + 1 >= args.length || args[i + 1].startsWith('--'))) {
+          result[key] = true;
+        } else if (i + 1 < args.length) {
+          i++;
           result[key] = coerceValue(args[i], expectedType);
         } else {
-          // Boolean flag
+          // No value and not boolean - treat as boolean flag
           result[key] = true;
         }
       }
@@ -1293,6 +1303,39 @@ export async function runMethod(
       exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
         exitCode: ExitCode.INVALID_ARGUMENT,
         suggestion: `Usage: photon cli ${photonName} ${methodName} ${usage}\n\nRequired:\n${details}`,
+      });
+    }
+
+    // Validate parameter types and enum values
+    const validationErrors: string[] = [];
+    for (const param of method.params) {
+      if (!(param.name in parsedArgs)) continue;
+      const value = parsedArgs[param.name];
+
+      // Validate number types
+      if (param.type === 'number' && typeof value !== 'number') {
+        // coerceToType returns the original string if NaN, so check for non-number
+        if (typeof value === 'string' && !(value.startsWith('+') || value.startsWith('-'))) {
+          validationErrors.push(`  --${param.name}: expected a number, got '${value}'`);
+        }
+      }
+
+      // Validate enum values
+      if (param.enum && param.enum.length > 0) {
+        const strValue = String(value).toLowerCase();
+        const validValues = param.enum.map((v) => v.toLowerCase());
+        if (!validValues.includes(strValue)) {
+          validationErrors.push(
+            `  --${param.name}: invalid value '${value}' (must be one of: ${param.enum.join(', ')})`
+          );
+        }
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      exitWithError(`Invalid parameter values`, {
+        exitCode: ExitCode.INVALID_ARGUMENT,
+        suggestion: validationErrors.join('\n'),
       });
     }
 
