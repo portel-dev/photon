@@ -2805,6 +2805,26 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             : `🔄 File change detected, reloading ${photonName}...`
         );
 
+        // Auto-scaffold empty photon files with a starter template
+        if (isNewPhoton) {
+          try {
+            const rawContent = await fs.readFile(photonPath, 'utf-8');
+            if (rawContent.trim().length === 0) {
+              const className = photonName
+                .split(/[-_]/)
+                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join('');
+              const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
+              await fs.writeFile(photonPath, scaffold, 'utf-8');
+              logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
+              // The write triggers another watcher event which will load the scaffolded photon
+              return;
+            }
+          } catch {
+            // File read failed, continue with normal load attempt
+          }
+        }
+
         // For new photons, check if configuration is needed first
         if (isNewPhoton) {
           const extractor = new SchemaExtractor();
