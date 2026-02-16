@@ -123,12 +123,31 @@ setWidgetState(state: any): void;
 callTool(name: string, args: Record<string, any>): Promise<any>;
 invoke(name: string, args: Record<string, any>): Promise<any>; // Alias
 
-// Generic event subscription (returns unsubscribe function)
-on(eventName: string, callback: (data: any) => void): () => void;
-
 // Follow-up message
 sendFollowUpMessage(message: string): void;
+
+// Event subscriptions (each returns an unsubscribe function)
+onProgress(cb: (event: { value: number; message?: string }) => void): () => void;
+onStatus(cb: (event: { message: string }) => void): () => void;
+onStream(cb: (event: { chunk: string }) => void): () => void;
+onEmit(cb: (event: { emit: string; data?: any }) => void): () => void;
+onResult(cb: (result: any) => void): () => void;
+onError(cb: (error: any) => void): () => void;
+onThemeChange(cb: (theme: 'light' | 'dark') => void): () => void;
+onToolInputPartial(cb: (partial: any) => void): () => void;
+onToolInput(cb: (input: any) => void): () => void;
+onElicitation(handler: (event: any) => Promise<any>): () => void;
+onTeardown(handler: () => void): () => void;
+
+// Model context update (MCP Apps Extension)
+updateModelContext(opts: { content?: string; structuredContent?: any }): Promise<void>;
+
+// Safe area insets (for mobile-aware layouts)
+readonly safeAreaInsets: { top: number; bottom: number; left: number; right: number };
 ```
+
+> **Note:** State restoration uses a DOM event, not the `window.photon` API:
+> `window.addEventListener('photon:state-restored', (event) => { /* event.detail contains state */ })`
 
 ### Direct Window API
 
@@ -176,18 +195,6 @@ kanban.onTaskCreate((data) => {
 
 // Call server methods
 await kanban.taskMove({ id: 'task-1', column: 'Done' });
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GENERIC EVENT SUBSCRIPTION
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Subscribe to any event by name
-const unsubscribe = photon.on('taskMove', (data) => {
-  console.log('Task moved:', data);
-});
-
-// Cleanup when done
-unsubscribe();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILT-IN EVENT TYPES
@@ -397,19 +404,14 @@ await kanban.taskMove({ id: 'task-1', column: 'Done' });
 
 ### Generic Event Subscription
 
-For dynamic event names or catching all events:
+For catching all events:
 
 ```typescript
-// Subscribe to any event by name
-photon.on('taskMove', (data) => {
-  handleTaskMove(data);
-});
-
 // Listen for ALL events
 photon.onEmit((event) => {
-  console.log(`Event: ${event.event}`, event.data);
+  console.log(`Event: ${event.emit}`, event.data);
 
-  switch (event.event) {
+  switch (event.emit) {
     case 'taskMove':
       moveTaskInUI(event.data.taskId, event.data.column);
       break;
@@ -504,9 +506,11 @@ declare global {
       widgetState: any;
       setWidgetState: (state: any) => void;
       callTool: (name: string, args: any) => Promise<any>;
-      on: (event: string, cb: (data: any) => void) => () => void;
       onProgress: (cb: (e: any) => void) => () => void;
+      onEmit: (cb: (e: { emit: string; data?: any }) => void) => () => void;
       onResult: (cb: (r: any) => void) => () => void;
+      onError: (cb: (err: any) => void) => () => void;
+      onThemeChange: (cb: (theme: 'light' | 'dark') => void) => () => void;
       theme: 'light' | 'dark';
     };
     // Direct window API (e.g., window.kanban)
@@ -527,12 +531,12 @@ export function usePhoton() {
   return { input, state, updateState, theme, callTool: window.photon.callTool };
 }
 
-// Hook for real-time event subscription
-export function usePhotonEvent(eventName: string, callback: (data: any) => void) {
+// Hook for real-time emit events
+export function usePhotonEmit(callback: (event: { emit: string; data?: any }) => void) {
   useEffect(() => {
-    const unsubscribe = window.photon.on(eventName, callback);
+    const unsubscribe = window.photon.onEmit(callback);
     return unsubscribe;
-  }, [eventName, callback]);
+  }, [callback]);
 }
 
 function KanbanApp() {
