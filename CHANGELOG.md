@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.1](https://github.com/portel-dev/photon/compare/v1.8.0...v1.8.1) (2026-02-16)
+
+### Bug Fixes
+
+* Moved esbuild from dev dependencies to dependencies in package.json ([2b57589](https://github.com/portel-dev/photon/commit/2b57589755455c566ffa5b36c4ac9f9d00b7a997))
+
 ## [1.8.0](https://github.com/portel-dev/photon/compare/v1.7.0...v1.8.0) (2026-02-16)
 
 ### Features
