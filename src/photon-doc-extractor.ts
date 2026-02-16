@@ -142,12 +142,26 @@ export class PhotonDocExtractor {
    * Extract main description from file-level JSDoc comment
    */
   private extractDescription(): string {
-    // Match first paragraph of file-level comment
-    const match = this.content.match(/\/\*\*\s*\n\s*\*\s*(.+?)\s*\*\s*\n/s);
-    if (match) {
-      return match[1].replace(/\s*\*\s*/g, ' ').trim();
-    }
-    return '';
+    // Extract the first JSDoc comment block
+    const jsdocMatch = this.content.match(/\/\*\*([\s\S]*?)\*\//);
+    if (!jsdocMatch) return '';
+
+    const jsdocContent = jsdocMatch[1];
+
+    // Get lines before any @tag, stripping leading * and whitespace
+    const lines = jsdocContent
+      .split('\n')
+      .map((line) => line.replace(/^\s*\*\s?/, '').trim())
+      .filter((line) => line.length > 0 && !line.startsWith('@'));
+
+    if (lines.length === 0) return '';
+
+    // Return the description text (before any tags), filtering out code
+    const description = lines
+      .filter((line) => !line.startsWith('export ') && !line.startsWith('class '))
+      .join(' ')
+      .trim();
+    return description;
   }
 
   /**
