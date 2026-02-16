@@ -19,6 +19,7 @@ import { LitElement, html, css, PropertyValueMap } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
+import { beamTypographyTokens } from '../styles/beam-tokens.js';
 import { mcpClient } from '../services/mcp-client.js';
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 
@@ -231,21 +232,20 @@ export class McpAppRenderer extends LitElement {
   }
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
-    // Send theme change to the app via AppBridge AND direct postMessage
+    // Send theme change to the app — matching custom-ui-renderer pattern
     if (changedProperties.has('theme')) {
-      const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
-
-      // Try AppBridge first (MCP Apps protocol)
+      // AppBridge (MCP Apps protocol) — uses filtered spec tokens
       if (this._bridge) {
+        const specTokens = filterSpecVariables(getThemeTokens(this.theme));
         this._bridge.setHostContext({
           theme: this.theme,
-          styles: { variables: themeTokens },
+          styles: { variables: specTokens },
         });
       }
 
-      // Also send direct postMessage for platform bridge compatibility
+      // Direct postMessage — uses full Beam tokens (matches custom-ui-renderer)
       if (this._iframeRef?.contentWindow) {
-        // Send both MCP Apps and Photon protocol messages
+        const themeTokens = getThemeTokens(this.theme);
         this._iframeRef.contentWindow.postMessage(
           {
             jsonrpc: '2.0',
@@ -261,7 +261,7 @@ export class McpAppRenderer extends LitElement {
           {
             type: 'photon:theme-change',
             theme: this.theme,
-            themeTokens,
+            themeTokens: { ...themeTokens, ...beamTypographyTokens },
           },
           '*'
         );
@@ -340,10 +340,35 @@ export class McpAppRenderer extends LitElement {
    */
   private _handleIframeLoad(e: Event) {
     const iframe = e.target as HTMLIFrameElement;
-    iframe.classList.add('ready');
     this._iframeRef = iframe;
 
     if (!iframe.contentWindow) return;
+
+    // Send initial theme to iframe after load (matching custom-ui-renderer pattern)
+    const themeTokens = getThemeTokens(this.theme);
+    iframe.contentWindow.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/host-context-changed',
+        params: {
+          theme: this.theme,
+          styles: { variables: themeTokens },
+        },
+      },
+      '*'
+    );
+    iframe.contentWindow.postMessage(
+      {
+        type: 'photon:theme-change',
+        theme: this.theme,
+        themeTokens: { ...themeTokens, ...beamTypographyTokens },
+      },
+      '*'
+    );
+    // Reveal iframe after theme is applied (next frame lets bridge script run)
+    requestAnimationFrame(() => {
+      iframe.classList.add('ready');
+    });
 
     // Remove previous message handler if any
     if (this._messageHandler) {
@@ -429,7 +454,7 @@ export class McpAppRenderer extends LitElement {
     window.addEventListener('message', this._messageHandler);
 
     // Create AppBridge for MCP Apps protocol (some external MCPs may use it)
-    const themeTokens = filterSpecVariables(getThemeTokens(this.theme));
+    const specTokens = filterSpecVariables(getThemeTokens(this.theme));
     this._bridge = new AppBridge(
       null,
       { name: 'Photon Beam', version: '1.0.0' },
@@ -437,7 +462,7 @@ export class McpAppRenderer extends LitElement {
       {
         hostContext: {
           theme: this.theme,
-          styles: { variables: themeTokens },
+          styles: { variables: specTokens },
         },
       }
     );
