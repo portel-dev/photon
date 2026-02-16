@@ -1192,10 +1192,10 @@ If your photon has a `@ui` template, the bridge API gives you a callback:
 
 ```javascript
 // Inside your @ui HTML template
-window.photon.onEmit((event, data) => {
-  if (event === 'board:updated') {
+window.photon.onEmit((event) => {
+  if (event.emit === 'board:updated') {
     // Re-render the board with new data
-    renderBoard(data);
+    renderBoard(event.data);
   }
 });
 ```
@@ -1519,7 +1519,7 @@ Dev mode features:
 
 **4. Validate:**
 ```bash
-photon validate my-tool
+photon maker validate my-tool
 ```
 
 Shows:
@@ -1598,7 +1598,7 @@ MY_TOOL_WORKDIR=/tmp/test photon my-tool --dev
 
 **Validate schemas:**
 ```bash
-photon validate my-tool
+photon maker validate my-tool
 ```
 
 ---
@@ -2262,7 +2262,7 @@ Or add to your MCP config:
 chmod +w ~/.photon/my-tool.photon.ts
 
 # Check for syntax errors
-photon validate my-tool
+photon maker validate my-tool
 ```
 
 **5. Schema extraction fails:**
@@ -2292,7 +2292,7 @@ async onInitialize() {
 
 **2. Validate schemas:**
 ```bash
-photon validate my-tool
+photon maker validate my-tool
 ```
 
 Shows:
@@ -2325,8 +2325,8 @@ MY_TOOL_DEBUG=true photon my-tool --dev
 
 1. **Check examples:** `examples/` directory has working MCPs
 2. **Read logs:** stderr output shows detailed error messages
-3. **Validate:** Use `photon validate my-tool`
-4. **GitHub Issues:** https://github.com/portel-dev/photon-mcp/issues
+3. **Validate:** Use `photon maker validate my-tool`
+4. **GitHub Issues:** https://github.com/portel-dev/photon/issues
 5. **MCP Docs:** https://modelcontextprotocol.io/
 
 ---
@@ -2418,6 +2418,6 @@ Compile with esbuild's bundling (automatic in Photon).
 1. Create your first MCP: `photon maker new my-tool`
 2. Study examples: `examples/` directory
 3. Test in dev mode: `photon mcp my-tool --dev`
-4. Deploy to Claude Desktop: `photon mcp my-tool --config`
+4. Deploy to Claude Desktop: `photon info my-tool --mcp`
 
 Happy building! 🚀
