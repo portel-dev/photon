@@ -14,6 +14,7 @@ import {
 } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
+import { formatLabel } from '../utils/format-label.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -2096,10 +2097,6 @@ export class BeamApp extends LitElement {
           !this._isExecuting &&
           !hasRequiredParams
         ) {
-          this._log(
-            'info',
-            `State changed externally (${data.method}), refreshing ${this._selectedMethod.name}...`
-          );
           this._silentRefresh();
         }
       });
@@ -3399,7 +3396,7 @@ export class BeamApp extends LitElement {
                     : this._selectedPhoton.name,
                 action: 'back',
               },
-              { label: this._selectedMethod.name },
+              { label: formatLabel(this._selectedMethod.name) },
             ]}
             .live=${this._currentCollectionName !== null}
             .showEdit=${false}
@@ -3431,7 +3428,7 @@ export class BeamApp extends LitElement {
                   : this._selectedPhoton.name,
               action: 'back',
             },
-            { label: this._selectedMethod.name },
+            { label: formatLabel(this._selectedMethod.name) },
           ]}
           .live=${this._currentCollectionName !== null}
           .showEdit=${false}
@@ -3732,12 +3729,18 @@ export class BeamApp extends LitElement {
    */
   private _renderDescription(description?: string) {
     if (!description) return html``;
+    // Strip docblock directive tags (@template, @internal, etc.) that may leak into descriptions
+    const cleaned = description
+      .replace(/@\w+\b/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (!cleaned) return html``;
     const marked = (window as any).marked;
     if (marked) {
-      const htmlContent = marked.parse(description) as string;
+      const htmlContent = marked.parse(cleaned) as string;
       return html`<div class="method-description">${unsafeHTML(htmlContent)}</div>`;
     }
-    return html`<p>${description}</p>`;
+    return html`<p>${cleaned}</p>`;
   }
 
   private _renderMethodContent() {
@@ -3763,7 +3766,7 @@ export class BeamApp extends LitElement {
     // Standard form mode
     return html`
       <div class="glass-panel method-detail">
-        <h2>${this._selectedMethod.name}</h2>
+        <h2>${formatLabel(this._selectedMethod.name)}</h2>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
@@ -5517,9 +5520,15 @@ export class BeamApp extends LitElement {
     if (!this._selectedPhoton) return '';
 
     const isApp = this._selectedPhoton.isApp;
-    const methodCount = this._selectedPhoton.methods?.length || 0;
+    const methods = this._selectedPhoton.methods || [];
+    const templateCount = methods.filter((m: any) => m.isTemplate).length;
+    const toolCount = methods.filter((m: any) => !m.isTemplate).length;
+    const methodCount = methods.length;
     const description = this._selectedPhoton.description || `${this._selectedPhoton.name} MCP`;
-    const isGenericDesc = description.endsWith(' MCP') || description === 'Photon tool';
+    const isGenericDesc =
+      description.endsWith(' MCP') ||
+      description === 'Photon tool' ||
+      /^add description/i.test(description.trim());
 
     // Get icon - check for custom icon first, then app icon, then initials
     const customIcon = this._selectedPhoton.icon;
@@ -5568,7 +5577,18 @@ export class BeamApp extends LitElement {
             ${isApp
               ? html`<span class="photon-badge app">App</span>`
               : html`<span class="photon-badge">MCP</span>`}
-            <span class="photon-badge">${methodCount} method${methodCount !== 1 ? 's' : ''}</span>
+            ${templateCount > 0 && toolCount === 0
+              ? html`<span class="photon-badge"
+                  >${templateCount} prompt${templateCount !== 1 ? 's' : ''}</span
+                >`
+              : templateCount > 0
+                ? html`<span class="photon-badge"
+                    >${toolCount} tool${toolCount !== 1 ? 's' : ''}, ${templateCount}
+                    prompt${templateCount !== 1 ? 's' : ''}</span
+                  >`
+                : html`<span class="photon-badge"
+                    >${methodCount} method${methodCount !== 1 ? 's' : ''}</span
+                  >`}
             ${this._selectedPhoton.version
               ? html`<span class="photon-badge">${this._selectedPhoton.version}</span>`
               : ''}
