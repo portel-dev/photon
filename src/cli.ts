@@ -518,6 +518,7 @@ async function performMarketplaceSync(
       license: metadata.license || 'MIT',
       repository: metadata.repository,
       homepage: metadata.homepage,
+      icon: metadata.icon || null,
       source: `../${file}`,
       hash,
       tools: metadata.tools?.map((t) => t.name),
