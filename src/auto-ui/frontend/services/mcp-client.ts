@@ -35,6 +35,7 @@ interface MCPTool {
   'x-webhook'?: string | boolean;
   'x-scheduled'?: string;
   'x-locked'?: string | boolean;
+  'x-is-template'?: boolean;
   _meta?: { ui?: { resourceUri?: string; visibility?: string[] } };
 }
 
@@ -824,6 +825,7 @@ class MCPClientService {
           webhook: tool['x-webhook'],
           scheduled: tool['x-scheduled'],
           locked: tool['x-locked'],
+          ...(tool['x-is-template'] ? { isTemplate: true } : {}),
         });
       }
     }

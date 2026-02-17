@@ -495,6 +495,9 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   if (method.locked) {
     extensions['x-locked'] = method.locked;
   }
+  if (method.isTemplate) {
+    extensions['x-is-template'] = true;
+  }
   return extensions;
 }
 
