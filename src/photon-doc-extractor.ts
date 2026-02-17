@@ -503,7 +503,13 @@ export class PhotonDocExtractor {
       ? descMatch[1]
           .split('\n')
           .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-          .join(' ')
+          .filter((line) => line.length > 0)
+          .reduce((acc, line, i) => {
+            if (i === 0) return line;
+            // If the previous segment didn't end in punctuation, add ". " separator
+            const needsPeriod = !/[.!?:,;]$/.test(acc.trimEnd());
+            return acc.trimEnd() + (needsPeriod ? '. ' : ' ') + line;
+          }, '')
           .trim()
       : '';
 
