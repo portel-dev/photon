@@ -1,8 +1,11 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { templates } from './studio-templates.js';
+
+declare const marked: { parse: (md: string) => string };
 
 interface MarketplaceItem {
   name: string;
@@ -72,6 +75,7 @@ export class MarketplaceView extends LitElement {
         padding: var(--space-md);
         display: flex;
         flex-direction: column;
+        cursor: pointer;
         transition:
           transform 0.2s,
           box-shadow 0.2s;
@@ -545,6 +549,96 @@ export class MarketplaceView extends LitElement {
         border-top: 1px solid var(--border-glass);
       }
 
+      /* Detail modal */
+      .detail-modal {
+        max-width: 600px;
+      }
+
+      .detail-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex: 1;
+        min-width: 0;
+      }
+
+      .detail-header .photon-icon {
+        font-size: 1.4em;
+      }
+
+      .detail-header .card-title {
+        margin-right: var(--space-sm);
+      }
+
+      .detail-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+        padding: 0 var(--space-md);
+        padding-bottom: var(--space-md);
+        border-bottom: 1px solid var(--border-glass);
+      }
+
+      .detail-description {
+        padding: var(--space-md);
+        color: var(--t-secondary);
+        line-height: 1.6;
+        overflow-y: auto;
+        max-height: 50vh;
+      }
+
+      .detail-description p {
+        margin: 0 0 1em 0;
+      }
+
+      .detail-description p:last-child {
+        margin-bottom: 0;
+      }
+
+      .detail-description code {
+        background: var(--bg-glass);
+        padding: 1px 4px;
+        border-radius: var(--radius-xs);
+        font-size: 0.9em;
+      }
+
+      .detail-description pre {
+        background: var(--bg-glass);
+        padding: var(--space-sm) var(--space-md);
+        border-radius: var(--radius-sm);
+        overflow-x: auto;
+        margin: 0 0 1em 0;
+      }
+
+      .detail-description pre code {
+        background: none;
+        padding: 0;
+      }
+
+      .detail-description ul,
+      .detail-description ol {
+        padding-left: 1.5em;
+        margin: 0 0 1em 0;
+      }
+
+      .detail-description h1,
+      .detail-description h2,
+      .detail-description h3,
+      .detail-description h4 {
+        margin: 0 0 0.5em 0;
+        color: var(--t-primary);
+      }
+
+      .detail-description a {
+        color: var(--accent-primary);
+        text-decoration: none;
+      }
+
+      .detail-description a:hover {
+        text-decoration: underline;
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .grid {
@@ -623,13 +717,6 @@ export class MarketplaceView extends LitElement {
         overflow-y: auto;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
         position: relative;
-      }
-
-      .template-modal-title {
-        font-size: var(--text-lg);
-        font-weight: 600;
-        color: var(--t-primary);
-        margin-bottom: 4px;
       }
 
       .template-modal-subtitle {
@@ -771,6 +858,9 @@ export class MarketplaceView extends LitElement {
   private _showTemplates = false;
 
   @state()
+  private _selectedItem: MarketplaceItem | null = null;
+
+  @state()
   private _repoInput = '';
 
   async connectedCallback() {
@@ -867,6 +957,7 @@ export class MarketplaceView extends LitElement {
         : html` <div class="grid">${this._items.map((item) => this._renderItem(item))}</div> `}
       ${this._showAddRepoModal ? this._renderAddRepoModal() : ''}
       ${this._showTemplates ? this._renderTemplateModal() : ''}
+      ${this._selectedItem ? this._renderDetailModal() : ''}
     `;
   }
 
@@ -879,8 +970,14 @@ export class MarketplaceView extends LitElement {
         }}
       >
         <div class="template-modal">
-          <button class="modal-close" @click=${() => (this._showTemplates = false)}>✕</button>
-          <div class="template-modal-title">Create New Photon</div>
+          <div class="modal-header" style="padding: 0; border: none; margin-bottom: 4px;">
+            <h3
+              style="margin: 0; font-size: var(--text-lg); font-weight: 600; color: var(--t-primary);"
+            >
+              Create New Photon
+            </h3>
+            <button class="modal-close" @click=${() => (this._showTemplates = false)}>✕</button>
+          </div>
           <div class="template-modal-subtitle">
             Start from a template or begin with a blank file
           </div>
@@ -904,6 +1001,90 @@ export class MarketplaceView extends LitElement {
                 </div>
               `
             )}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderDetailModal() {
+    const item = this._selectedItem!;
+    const sourceClass = this._getSourceClass(item.marketplace);
+    const isInstalling = this._installing === item.name;
+    const isUpdating = this._updating === item.name;
+    const isRemoving = this._removing === item.name;
+    const descriptionHtml = item.description
+      ? marked.parse(item.description)
+      : '<p style="color: var(--t-muted); font-style: italic;">No description available.</p>';
+
+    return html`
+      <div
+        class="modal-overlay"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._selectedItem = null;
+        }}
+      >
+        <div class="modal detail-modal">
+          <div class="modal-header">
+            <div class="detail-header">
+              ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''}
+              <span class="card-title">${item.name}</span>
+              <div
+                class="tag"
+                style="background: var(--accent-secondary); color: white; font-weight: 600;"
+              >
+                ${item.version}
+              </div>
+              <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
+            </div>
+            <button class="modal-close" @click=${() => (this._selectedItem = null)}>✕</button>
+          </div>
+          <div class="detail-meta">
+            ${item.author && item.author !== 'Unknown'
+              ? html`<span style="font-size: var(--text-sm); color: var(--t-muted);"
+                  >by ${item.author}</span
+                >`
+              : ''}
+            ${item.tags.length
+              ? html`<div class="tags" style="margin: 0;">
+                  ${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}
+                </div>`
+              : ''}
+          </div>
+          <div class="detail-description">${unsafeHTML(descriptionHtml)}</div>
+          <div class="modal-footer">
+            ${item.installed && item.hasUpdate
+              ? html`<button
+                    class="btn-update"
+                    ?disabled=${isUpdating}
+                    @click=${() => this._update(item)}
+                  >
+                    ${isUpdating
+                      ? 'Updating...'
+                      : `Update${item.latestVersion ? ` to ${item.latestVersion}` : ''}`}
+                  </button>
+                  <button
+                    class="btn-remove"
+                    ?disabled=${isRemoving}
+                    @click=${() => this._remove(item)}
+                  >
+                    ${isRemoving ? 'Removing...' : 'Remove'}
+                  </button>`
+              : item.installed
+                ? html`<button
+                    class="btn-remove"
+                    ?disabled=${isRemoving}
+                    @click=${() => this._remove(item)}
+                  >
+                    ${isRemoving ? 'Removing...' : 'Remove'}
+                  </button>`
+                : html`<button
+                    class="btn-install"
+                    ?disabled=${isInstalling}
+                    @click=${() => this._install(item)}
+                  >
+                    ${isInstalling ? 'Installing...' : 'Install'}
+                  </button>`}
           </div>
         </div>
       </div>
@@ -977,7 +1158,7 @@ export class MarketplaceView extends LitElement {
     const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''} ${item.hasUpdate ? 'has-update' : ''}`;
 
     return html`
-      <div class="${cardClasses}">
+      <div class="${cardClasses}" @click=${() => (this._selectedItem = item)}>
         <div class="card-header">
           <div>
             <div class="card-title">
@@ -1003,7 +1184,7 @@ export class MarketplaceView extends LitElement {
 
         <div class="tags">${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}</div>
 
-        <div class="actions">
+        <div class="actions" @click=${(e: Event) => e.stopPropagation()}>
           ${item.installed && item.hasUpdate
             ? html`<button
                   class="btn-update"
