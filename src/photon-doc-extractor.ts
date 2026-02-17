@@ -499,19 +499,33 @@ export class PhotonDocExtractor {
   ): Tool | null {
     // Extract method description (first line(s) before @param)
     const descMatch = jsdoc.match(/^\s*\*\s*(.+?)(?=\n\s*\*\s*@|\n\s*$)/s);
-    const description = descMatch
-      ? descMatch[1]
-          .split('\n')
-          .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-          .filter((line) => line.length > 0)
-          .reduce((acc, line, i) => {
-            if (i === 0) return line;
-            // If the previous segment didn't end in punctuation, add ". " separator
-            const needsPeriod = !/[.!?:,;]$/.test(acc.trimEnd());
-            return acc.trimEnd() + (needsPeriod ? '. ' : ' ') + line;
-          }, '')
-          .trim()
-      : '';
+    let description = '';
+    if (descMatch) {
+      const lines = descMatch[1].split('\n').map((line) => line.replace(/^\s*\*\s?/, '').trim());
+      // Join lines: blank lines mark paragraph boundaries (add period), non-blank are continuations (add space)
+      let prevWasBlank = false;
+      const parts: string[] = [];
+      for (const line of lines) {
+        if (line.length === 0) {
+          prevWasBlank = true;
+          continue;
+        }
+        if (parts.length === 0) {
+          parts.push(line);
+        } else if (prevWasBlank) {
+          // Paragraph break — add period if previous text doesn't end with punctuation
+          const prev = parts[parts.length - 1];
+          const needsPeriod = !/[.!?:,;]$/.test(prev);
+          parts[parts.length - 1] = prev + (needsPeriod ? '. ' : ' ');
+          parts.push(line);
+        } else {
+          // Continuation of same paragraph — just space
+          parts[parts.length - 1] += ' ' + line;
+        }
+        prevWasBlank = false;
+      }
+      description = parts.join('').trim();
+    }
 
     // Extract type map from method signature (e.g. "path: string, recursive?: boolean")
     const sigTypes: Record<string, { type: string; optional: boolean }> = {};
