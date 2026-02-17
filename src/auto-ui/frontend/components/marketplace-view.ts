@@ -269,9 +269,29 @@ export class MarketplaceView extends LitElement {
         font-size: var(--text-md);
       }
 
+      .btn-remove {
+        background: transparent;
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .btn-remove:hover {
+        border-color: #e74c3c;
+        color: #e74c3c;
+      }
+
+      .btn-remove:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
       .card.installed {
         border-color: var(--accent-secondary);
-        opacity: 0.85;
       }
 
       /* Actions Toolbar */
@@ -627,6 +647,9 @@ export class MarketplaceView extends LitElement {
   private _installing: string | null = null;
 
   @state()
+  private _removing: string | null = null;
+
+  @state()
   private _showAddRepoModal = false;
 
   @state()
@@ -822,7 +845,13 @@ export class MarketplaceView extends LitElement {
 
         <div class="actions">
           ${item.installed
-            ? html`<span class="btn-installed">✓ Installed</span>`
+            ? html`<button
+                class="btn-remove"
+                ?disabled=${this._removing === item.name}
+                @click=${() => this._remove(item)}
+              >
+                ${this._removing === item.name ? 'Removing...' : 'Remove'}
+              </button>`
             : html`<button
                 class="btn-install"
                 ?disabled=${isInstalling}
@@ -973,6 +1002,37 @@ export class MarketplaceView extends LitElement {
       showToast('Installation failed', 'error', 5000);
     } finally {
       this._installing = null;
+    }
+  }
+
+  private async _remove(item: MarketplaceItem) {
+    this._removing = item.name;
+    try {
+      const res = await fetch('/api/marketplace/remove', {
+        method: 'POST',
+        body: JSON.stringify({ name: item.name }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (res.ok) {
+        item.installed = false;
+        this.requestUpdate();
+        this.dispatchEvent(
+          new CustomEvent('install', {
+            detail: { name: item.name, removed: true },
+            bubbles: true,
+            composed: true,
+          })
+        );
+        showToast(`Removed ${item.name}`, 'success');
+      } else {
+        const err = await res.json();
+        showToast(`Failed to remove: ${err.error}`, 'error', 5000);
+      }
+    } catch (e) {
+      showToast('Remove failed', 'error', 5000);
+    } finally {
+      this._removing = null;
     }
   }
 

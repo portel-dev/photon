@@ -286,12 +286,9 @@ export class BeamSidebar extends LitElement {
         flex-shrink: 0;
       }
 
-      .photon-icon.app-icon,
       .photon-icon.emoji-icon {
-        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-        color: white;
-        border-radius: var(--radius-sm);
-        font-size: 16px;
+        background: transparent;
+        font-size: 20px;
       }
 
       .photon-item.internal {
