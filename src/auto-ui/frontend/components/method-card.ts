@@ -613,8 +613,8 @@ export class MethodCard extends LitElement {
       .replace(/`([^`]*)`/g, '$1')
       // Links: [text](url)
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Strip @internal tag
-      .replace(/@internal\b/gi, '')
+      // Strip docblock directive tags (@internal, @template, etc.)
+      .replace(/@\w+\b/g, '')
       // Remove stray markdown characters (unclosed ** or `)
       .replace(/\*{1,2}/g, '')
       .replace(/`/g, '')
