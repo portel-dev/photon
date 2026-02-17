@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { formatLabel } from '../utils/format-label.js';
 
 interface ConfigParam {
   name: string;
@@ -262,7 +263,7 @@ export class PhotonConfig extends LitElement {
     return html`
       <div class="form-group">
         <label>
-          ${param.name}${isRequired ? html`<span class="required">*</span>` : ''}
+          ${formatLabel(param.name)}${isRequired ? html`<span class="required">*</span>` : ''}
           <span class="hint">${param.envVar}</span>
         </label>
 
