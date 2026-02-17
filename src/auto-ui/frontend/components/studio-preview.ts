@@ -1,5 +1,5 @@
 /**
- * Studio preview panel showing parsed photon metadata.
+ * Studio Inspector panel showing parsed photon metadata.
  */
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
@@ -223,7 +223,7 @@ export class StudioPreview extends LitElement {
     }
 
     if (!this.parseResult) {
-      return html`<div class="empty-state">Press Parse or save to see schema preview</div>`;
+      return html`<div class="empty-state">Edit the source to see inspector results</div>`;
     }
 
     const r = this.parseResult;
