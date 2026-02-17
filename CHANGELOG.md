@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/portel-dev/photon/compare/v1.8.2...v1.8.3) (2026-02-17)
+
+### Bug Fixes
+
+* auto-fetch marketplace manifest in fetchMCP when cache is empty ([d6b2d78](https://github.com/portel-dev/photon/commit/d6b2d789bdfeb28052ecee9b80f587087295fa7f))
+* harden marketplace against corrupted config and missing cache ([04d11f1](https://github.com/portel-dev/photon/commit/04d11f18f051fb750ae2f7626dad0bf0dd3f8b01))
+
 ## [1.8.2](https://github.com/portel-dev/photon/compare/v1.8.1...v1.8.2) (2026-02-17)
 
 ### Bug Fixes
