@@ -24,9 +24,24 @@ echo ""
 
 # ─── 3. Yield pattern check ─────────────────────────
 echo "▶ Step 3: Yield pattern verification"
-BAD_YIELDS=$(grep -rn 'yield {' src/photons/ | grep -v 'emit:' | grep -v '//' || true)
+# Check multi-line yields: line with 'yield {' must be followed by emit:/ask:/checkpoint:
+# Uses awk to pair yield lines with their next line
+# Check that each 'yield {' has emit:/ask:/checkpoint: on same line or next line
+BAD_YIELDS=""
+for f in src/photons/*.photon.ts; do
+  while IFS= read -r line; do
+    linenum=$(echo "$line" | cut -d: -f1)
+    content=$(echo "$line" | cut -d: -f2-)
+    nextline=$(sed -n "$((linenum+1))p" "$f")
+    combined="$content $nextline"
+    if ! echo "$combined" | grep -q 'emit:\|ask:\|checkpoint:'; then
+      BAD_YIELDS="$BAD_YIELDS\n$f:$linenum: yield without emit/ask/checkpoint"
+    fi
+  done < <(grep -n 'yield {' "$f" | grep -v '//')
+done
+BAD_YIELDS=$(echo -e "$BAD_YIELDS" | sed '/^$/d')
 if [ -n "$BAD_YIELDS" ]; then
-  echo "  ✗ FAIL: Found yields without emit: pattern in src/photons/"
+  echo "  ✗ FAIL: Found yields without emit/ask/checkpoint pattern in src/photons/"
   echo "$BAD_YIELDS"
   exit 1
 fi
