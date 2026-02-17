@@ -808,6 +808,10 @@ function extractCspFromSource(source: string): Record<
 export async function startBeam(rawWorkingDir: string, port: number): Promise<void> {
   const workingDir = path.resolve(rawWorkingDir);
 
+  // Show version banner immediately
+  const { PHOTON_VERSION } = await import('../version.js');
+  console.log(`\n⚡ Photon Beam v${PHOTON_VERSION}\n`);
+
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
   await marketplace.initialize();
@@ -3103,15 +3107,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     });
   };
 
-  // Find an available port
+  // Find an available port (compact status line output)
+  const isTTY = process.stderr.isTTY;
   while (currentPort < port + maxPortAttempts) {
     const available = await isPortAvailable(currentPort);
-    if (available) break;
-    console.error(`⚠️  Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+    if (available) {
+      // Clear the status line if we printed any
+      if (currentPort > port && isTTY) {
+        process.stderr.write('\r\x1b[K');
+      }
+      break;
+    }
+    if (isTTY) {
+      process.stderr.write(`\r\x1b[K⚠️  Port ${currentPort} in use, trying ${currentPort + 1}...`);
+    } else {
+      console.error(`⚠️  Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+    }
     currentPort++;
   }
 
   if (currentPort >= port + maxPortAttempts) {
+    if (isTTY) process.stderr.write('\n');
     console.error(`\n❌ No available port found (tried ${port}-${currentPort - 1}). Exiting.\n`);
     process.exit(1);
   }
@@ -3121,7 +3137,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       server.once('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE' && currentPort < port + maxPortAttempts) {
           currentPort++;
-          console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
+          if (isTTY) {
+            process.stderr.write(
+              `\r\x1b[K⚠️  Port ${currentPort - 1} in use, trying ${currentPort}...`
+            );
+          } else {
+            console.error(`⚠️  Port ${currentPort - 1} is in use, trying ${currentPort}...`);
+          }
           tryListen();
         } else if (err.code === 'EADDRINUSE') {
           console.error(`\n❌ No available port found (tried ${port}-${currentPort}). Exiting.\n`);
@@ -3137,7 +3159,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       server.listen(currentPort, bindAddress, () => {
         process.env.BEAM_PORT = String(currentPort);
         const url = `http://localhost:${currentPort}`;
-        console.log(`\n⚡ Photon Beam → ${url} (loading photons...)\n`);
+        if (isTTY) process.stderr.write('\r\x1b[K'); // Clear any port status line
+        console.log(`⚡ Photon Beam → ${url} (loading photons...)\n`);
         resolve();
       });
 
