@@ -567,13 +567,17 @@ export class PhotonStudio extends LitElement {
           ${this._dirty ? html`<span class="dirty-dot" title="Unsaved changes"></span>` : ''}
         </span>
 
-        <button
-          class="toolbar-btn"
-          @click=${() => (this._showTemplates = true)}
-          title="Template Gallery"
-        >
-          Templates
-        </button>
+        ${this._originalSource.trim().length === 0
+          ? html`
+              <button
+                class="toolbar-btn"
+                @click=${() => (this._showTemplates = true)}
+                title="Template Gallery"
+              >
+                Templates
+              </button>
+            `
+          : ''}
 
         <button
           class="toolbar-btn"
