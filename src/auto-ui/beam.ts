@@ -617,7 +617,13 @@ async function loadConfig(): Promise<PhotonConfig> {
     }
 
     return migrated;
-  } catch {
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      // Normal on first run — config.json doesn't exist yet
+      return { photons: {}, mcpServers: {} };
+    }
+    // Real error: JSON parse failure, permission denied, etc.
+    console.error(`⚠️ Failed to load config.json: ${error?.message || error}`);
     return { photons: {}, mcpServers: {} };
   }
 }
@@ -805,8 +811,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
   await marketplace.initialize();
-  // Auto-update stale caches in background
-  marketplace.autoUpdateStaleCaches().catch(() => {});
+  // Auto-update stale caches (await to ensure first boot has data before UI opens)
+  try {
+    await marketplace.autoUpdateStaleCaches();
+  } catch (error) {
+    logger.warn(`Failed to update marketplace caches: ${getErrorMessage(error)}`);
+  }
 
   // Discover all photons (user photons + bundled photons)
   const userPhotonList = await listPhotonMCPs(workingDir);

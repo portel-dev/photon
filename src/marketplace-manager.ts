@@ -545,18 +545,27 @@ export class MarketplaceManager {
    * Get cached marketplace manifest
    */
   async getCachedManifest(marketplaceName: string): Promise<MarketplaceManifest | null> {
-    try {
-      const cacheFile = this.getCacheFile(marketplaceName);
+    const cacheFile = this.getCacheFile(marketplaceName);
 
-      if (existsSync(cacheFile)) {
-        const data = await fs.readFile(cacheFile, 'utf-8');
-        return JSON.parse(data);
-      }
-    } catch {
-      // Cache doesn't exist or is invalid
+    if (!existsSync(cacheFile)) {
+      return null;
     }
 
-    return null;
+    try {
+      const data = await fs.readFile(cacheFile, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      // Cache file exists but is corrupted — delete it so it gets re-fetched
+      this.logger.warn(
+        `Corrupted marketplace cache for ${marketplaceName}, removing: ${getErrorMessage(error)}`
+      );
+      try {
+        await fs.unlink(cacheFile);
+      } catch {
+        // Ignore unlink errors
+      }
+      return null;
+    }
   }
 
   /**
@@ -816,7 +825,16 @@ export class MarketplaceManager {
 
     for (const marketplace of enabled) {
       // First, try to search in cached manifest
-      const manifest = await this.getCachedManifest(marketplace.name);
+      let manifest = await this.getCachedManifest(marketplace.name);
+
+      // If cache is empty, try fetching it now (first boot scenario)
+      if (!manifest) {
+        this.logger.info(`No cached manifest for ${marketplace.name}, fetching...`);
+        const updated = await this.updateMarketplaceCache(marketplace.name);
+        if (updated) {
+          manifest = await this.getCachedManifest(marketplace.name);
+        }
+      }
 
       if (manifest) {
         // Search in manifest metadata
@@ -847,7 +865,8 @@ export class MarketplaceManager {
             results.set(query, existing);
           }
         } catch {
-          // Skip this marketplace
+          // Skip this marketplace — offline or unreachable
+          this.logger.warn(`Marketplace ${marketplace.name} unreachable during search`);
         }
       }
     }

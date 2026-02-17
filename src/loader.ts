@@ -2099,6 +2099,8 @@ Run: photon mcp ${mcpName} --config
       if (asset && !asset.linkedTool) {
         asset.linkedTool = methodName;
         this.log(`  🔗 UI ${uiId} → ${methodName}`);
+      } else if (!asset) {
+        this.log(`  ⚠️ @ui ${uiId} on ${methodName}: asset not found (check file exists)`);
       }
     }
   }

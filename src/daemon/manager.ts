@@ -137,8 +137,21 @@ export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
     logger.info('Started global Photon daemon', { pid: child.pid });
   }
 
-  // Wait a bit for daemon to initialize
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Wait for daemon to initialize and verify socket is ready
+  const maxWait = 3000;
+  const interval = 100;
+  let waited = 0;
+  while (waited < maxWait) {
+    await new Promise((resolve) => setTimeout(resolve, interval));
+    waited += interval;
+    if (fs.existsSync(socketPath)) {
+      return; // Socket is ready
+    }
+  }
+
+  if (!quiet) {
+    logger.warn('Daemon started but socket not ready within timeout');
+  }
 }
 
 /**
