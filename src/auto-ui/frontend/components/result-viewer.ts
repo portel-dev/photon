@@ -3308,9 +3308,9 @@ export class ResultViewer extends LitElement {
       case 'tree':
         return this._renderTree(filteredData);
       case 'markdown':
-        return this._renderMarkdown();
+        return this._renderMarkdown(filteredData);
       case 'html':
-        return this._renderHtml();
+        return this._renderHtml(filteredData);
       case 'text':
         return this._renderText(filteredData);
       case 'chart':
@@ -3740,8 +3740,9 @@ export class ResultViewer extends LitElement {
     return { body, table: tables.length ? tables.join('\n\n') + '\n\n' : '' };
   }
 
-  private _renderMarkdown(): TemplateResult {
-    const str = Array.isArray(this.result) ? this.result.join('\n\n---\n\n') : String(this.result);
+  private _renderMarkdown(filteredData?: any): TemplateResult {
+    const data = filteredData !== undefined ? filteredData : this.result;
+    const str = Array.isArray(data) ? data.join('\n\n---\n\n') : String(data);
 
     if ((window as any).marked) {
       // Convert YAML frontmatter to a table
@@ -3788,8 +3789,9 @@ export class ResultViewer extends LitElement {
     return html`<pre>${str}</pre>`;
   }
 
-  private _renderHtml(): TemplateResult {
-    const htmlContent = String(this.result);
+  private _renderHtml(filteredData?: any): TemplateResult {
+    const data = filteredData !== undefined ? filteredData : this.result;
+    const htmlContent = Array.isArray(data) ? data.join('\n') : String(data);
     return html` <div class="html-content">${unsafeHTML(htmlContent)}</div> `;
   }
 
