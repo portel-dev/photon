@@ -14,6 +14,8 @@ interface MarketplaceItem {
   icon?: string;
   internal?: boolean;
   installed?: boolean;
+  hasUpdate?: boolean;
+  latestVersion?: string;
 }
 
 interface MarketplaceSource {
@@ -289,6 +291,30 @@ export class MarketplaceView extends LitElement {
       .btn-remove:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+      }
+
+      .btn-update {
+        background: linear-gradient(135deg, hsl(35, 90%, 50%), hsl(25, 90%, 50%));
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-weight: 500;
+        transition: opacity 0.2s;
+      }
+
+      .btn-update:hover {
+        opacity: 0.9;
+      }
+
+      .btn-update:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .card.has-update {
+        border-color: hsl(35, 80%, 50%);
       }
 
       .card.installed {
@@ -732,6 +758,9 @@ export class MarketplaceView extends LitElement {
   private _removing: string | null = null;
 
   @state()
+  private _updating: string | null = null;
+
+  @state()
   private _showAddRepoModal = false;
 
   @state()
@@ -939,8 +968,9 @@ export class MarketplaceView extends LitElement {
 
   private _renderItem(item: MarketplaceItem) {
     const isInstalling = this._installing === item.name;
+    const isUpdating = this._updating === item.name;
     const sourceClass = this._getSourceClass(item.marketplace);
-    const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''}`;
+    const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''} ${item.hasUpdate ? 'has-update' : ''}`;
 
     return html`
       <div class="${cardClasses}">
@@ -970,21 +1000,39 @@ export class MarketplaceView extends LitElement {
         <div class="tags">${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}</div>
 
         <div class="actions">
-          ${item.installed
+          ${item.installed && item.hasUpdate
             ? html`<button
-                class="btn-remove"
-                ?disabled=${this._removing === item.name}
-                @click=${() => this._remove(item)}
-              >
-                ${this._removing === item.name ? 'Removing...' : 'Remove'}
-              </button>`
-            : html`<button
-                class="btn-install"
-                ?disabled=${isInstalling}
-                @click=${() => this._install(item)}
-              >
-                ${isInstalling ? 'Installing...' : 'Install'}
-              </button>`}
+                  class="btn-update"
+                  ?disabled=${isUpdating}
+                  @click=${() => this._update(item)}
+                >
+                  ${isUpdating
+                    ? 'Updating...'
+                    : `Update${item.latestVersion ? ` to ${item.latestVersion}` : ''}`}
+                </button>
+                <button
+                  class="btn-remove"
+                  style="margin-left: 8px;"
+                  ?disabled=${this._removing === item.name}
+                  @click=${() => this._remove(item)}
+                >
+                  ${this._removing === item.name ? 'Removing...' : 'Remove'}
+                </button>`
+            : item.installed
+              ? html`<button
+                  class="btn-remove"
+                  ?disabled=${this._removing === item.name}
+                  @click=${() => this._remove(item)}
+                >
+                  ${this._removing === item.name ? 'Removing...' : 'Remove'}
+                </button>`
+              : html`<button
+                  class="btn-install"
+                  ?disabled=${isInstalling}
+                  @click=${() => this._install(item)}
+                >
+                  ${isInstalling ? 'Installing...' : 'Install'}
+                </button>`}
         </div>
       </div>
     `;
@@ -1162,6 +1210,39 @@ export class MarketplaceView extends LitElement {
     }
   }
 
+  private async _update(item: MarketplaceItem) {
+    this._updating = item.name;
+    try {
+      // Re-install overwrites the existing file and updates metadata
+      const res = await fetch('/api/marketplace/add', {
+        method: 'POST',
+        body: JSON.stringify({ name: item.name }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (res.ok) {
+        item.hasUpdate = false;
+        item.latestVersion = undefined;
+        this.requestUpdate();
+        this.dispatchEvent(
+          new CustomEvent('install', {
+            detail: { name: item.name, updated: true },
+            bubbles: true,
+            composed: true,
+          })
+        );
+        showToast(`Successfully updated ${item.name}`, 'success');
+      } else {
+        const err = await res.json();
+        showToast(`Failed to update: ${err.error}`, 'error', 5000);
+      }
+    } catch (e) {
+      showToast('Update failed', 'error', 5000);
+    } finally {
+      this._updating = null;
+    }
+  }
+
   // Maker static method actions
   private _createNew() {
     this._showTemplates = true;
@@ -1178,7 +1259,7 @@ export class MarketplaceView extends LitElement {
     );
   }
 
-  private _syncPhotons() {
+  private async _syncPhotons() {
     this.dispatchEvent(
       new CustomEvent('maker-action', {
         detail: { action: 'sync' },
@@ -1186,6 +1267,8 @@ export class MarketplaceView extends LitElement {
         composed: true,
       })
     );
+    // Re-fetch items after sync to pick up update info from fresh manifests
+    setTimeout(() => this._fetchItems(), 2000);
   }
 
   private _validatePhotons() {

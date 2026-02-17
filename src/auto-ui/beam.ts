@@ -2298,10 +2298,30 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       res.setHeader('Content-Type', 'application/json');
 
       try {
+        const { readLocalMetadata } = await import('../marketplace-manager.js');
         const allPhotons = await marketplace.getAllPhotons();
+        const localMetadata = await readLocalMetadata();
         const photonList: any[] = [];
 
         for (const [name, { metadata, marketplace: mp }] of allPhotons) {
+          const installed = photonMCPs.has(name);
+          let hasUpdate = false;
+          let latestVersion = '';
+
+          if (installed) {
+            const installMeta = localMetadata.photons[`${name}.photon.ts`];
+            if (installMeta && metadata.hash) {
+              // Primary: hash comparison (catches code changes without version bump)
+              hasUpdate = installMeta.originalHash !== metadata.hash;
+            } else if (installMeta && metadata.version) {
+              // Fallback: version comparison
+              hasUpdate = installMeta.version !== metadata.version;
+            }
+            if (hasUpdate) {
+              latestVersion = metadata.version || '';
+            }
+          }
+
           photonList.push({
             name,
             description: metadata.description || '',
@@ -2311,7 +2331,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             marketplace: mp.name,
             icon: metadata.icon,
             internal: metadata.internal,
-            installed: photonMCPs.has(name),
+            installed,
+            hasUpdate,
+            latestVersion,
           });
         }
 
@@ -2628,19 +2650,26 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           marketplace: string;
         }> = [];
 
-        // Check each installed photon for updates
+        // Check each installed photon for updates (hash-based primary, version fallback)
         for (const [fileName, installMeta] of Object.entries(localMetadata.photons)) {
           const photonName = fileName.replace(/\.photon\.ts$/, '');
           const latestInfo = await marketplace.getPhotonMetadata(photonName);
 
-          if (latestInfo && latestInfo.metadata.version !== installMeta.version) {
-            updates.push({
-              name: photonName,
-              fileName,
-              currentVersion: installMeta.version,
-              latestVersion: latestInfo.metadata.version,
-              marketplace: latestInfo.marketplace.name,
-            });
+          if (latestInfo) {
+            const hashChanged = latestInfo.metadata.hash
+              ? installMeta.originalHash !== latestInfo.metadata.hash
+              : false;
+            const versionChanged = latestInfo.metadata.version !== installMeta.version;
+
+            if (hashChanged || versionChanged) {
+              updates.push({
+                name: photonName,
+                fileName,
+                currentVersion: installMeta.version,
+                latestVersion: latestInfo.metadata.version,
+                marketplace: latestInfo.marketplace.name,
+              });
+            }
           }
         }
 
