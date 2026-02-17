@@ -13,6 +13,83 @@ Comprehensive guide to diagnosing and fixing common Photon MCP issues.
 - [Performance Issues](#performance-issues)
 - [MCP Protocol Errors](#mcp-protocol-errors)
 - [Stale Cache After Upgrade](#stale-cache-after-upgrade)
+- [npx Quick Reset Guide](#npx-quick-reset-guide)
+
+---
+
+## npx Quick Reset Guide
+
+If you're using `npx @portel/photon` and things aren't working, here's a quick reference for resetting to a clean state.
+
+### Full Reset (Nuclear Option)
+
+```bash
+# 1. Remove all installed photons and caches
+rm -rf ~/.photon
+
+# 2. Clear npx cache to get the latest version
+npx clear-npx-cache 2>/dev/null; npm cache clean --force
+
+# 3. Start fresh
+npx @portel/photon@latest
+```
+
+### Repair a Single Photon
+
+If a specific photon isn't working (e.g., showing under PHOTONS instead of APPS, missing UI):
+
+```bash
+# Remove and reinstall it
+npx @portel/photon remove <name>
+npx @portel/photon add <name>
+```
+
+This re-downloads both the photon file and its UI assets.
+
+### Photon Shows in Wrong Sidebar Category
+
+**Symptom**: A photon like `kanban` or `git-box` appears under PHOTONS instead of APPS.
+
+**Cause**: The photon's UI assets (HTML files) weren't downloaded during the original install. Without the UI asset, Beam can't detect that the photon has an app interface.
+
+**Fix**:
+```bash
+# Option 1: Upgrade Photon (v1.8.4+ auto-repairs on startup)
+npx @portel/photon@latest beam
+
+# Option 2: Reinstall the affected photon
+npx @portel/photon remove git-box
+npx @portel/photon add git-box
+```
+
+### Verify Your Installation
+
+```bash
+# Check version
+npx @portel/photon --version
+
+# Check what's installed
+ls ~/.photon/*.photon.ts
+
+# Check if UI assets exist for a photon
+ls ~/.photon/<name>/ui/
+
+# Check marketplace cache
+ls ~/.photon/.cache/
+
+# Run Beam diagnostics (in browser)
+# Start Beam, then click the 🔍 Status button in the bottom-left
+npx @portel/photon beam
+```
+
+### Common npx Pitfalls
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Old version running | npx caches packages | `npm cache clean --force` then retry |
+| `~/.photon` doesn't exist | First run, no photons installed | Normal — `photon beam` creates it automatically |
+| Assets missing after install | Installed with older version that had a bug | Upgrade to latest and restart Beam (auto-repairs) |
+| "No photons found" in Beam | Empty `~/.photon` directory | Use marketplace in Beam sidebar or `npx @portel/photon add <name>` |
 
 ---
 
