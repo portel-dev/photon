@@ -1,7 +1,7 @@
 /**
  * Photon Studio — Inline code editor for Beam.
  * Uses CodeMirror 6 with syntax highlighting, JSDoc tag autocomplete,
- * live preview, and template gallery.
+ * and auto-parsing Inspector panel.
  */
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
@@ -37,12 +37,14 @@ export class PhotonStudio extends LitElement {
   @state() private _parseResult: ParseResult | null = null;
   @state() private _parsing = false;
   @state() private _saving = false;
-  @state() private _showPreview = false;
+  @state() private _showInspector = true;
   @state() private _loading = true;
   @state() private _filePath = '';
   @state() private _error = '';
 
   private _editorView: EditorView | null = null;
+  private _parseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly PARSE_DEBOUNCE_MS = 1500;
 
   static styles = css`
     :host {
@@ -154,7 +156,7 @@ export class PhotonStudio extends LitElement {
       line-height: 1.5;
     }
 
-    /* ─── Preview pane ─── */
+    /* ─── Inspector pane ─── */
     .preview-pane {
       width: 280px;
       border-left: 1px solid var(--border, rgba(255, 255, 255, 0.06));
@@ -236,6 +238,10 @@ export class PhotonStudio extends LitElement {
     super.disconnectedCallback();
     this._editorView?.destroy();
     this._editorView = null;
+    if (this._parseDebounceTimer) {
+      clearTimeout(this._parseDebounceTimer);
+      this._parseDebounceTimer = null;
+    }
   }
 
   updated(changed: Map<string, any>) {
@@ -263,6 +269,8 @@ export class PhotonStudio extends LitElement {
       this._loading = false;
       await this.updateComplete;
       this._initEditor();
+      // Auto-parse on load
+      this._parse();
     } catch (err: any) {
       this._error = err.message || 'Failed to load source';
       this._loading = false;
@@ -334,19 +342,12 @@ export class PhotonStudio extends LitElement {
               return true;
             },
           },
-          {
-            key: 'Mod-p',
-            run: () => {
-              this._parse();
-              return true;
-            },
-            preventDefault: true,
-          },
         ]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             this._source = update.state.doc.toString();
             this._dirty = this._source !== this._originalSource;
+            this._scheduleParse();
           }
         }),
       ],
@@ -356,6 +357,16 @@ export class PhotonStudio extends LitElement {
       state,
       parent: container as HTMLElement,
     });
+  }
+
+  private _scheduleParse() {
+    if (this._parseDebounceTimer) {
+      clearTimeout(this._parseDebounceTimer);
+    }
+    this._parseDebounceTimer = setTimeout(() => {
+      this._parseDebounceTimer = null;
+      this._parse();
+    }, PhotonStudio.PARSE_DEBOUNCE_MS);
   }
 
   private async _save() {
@@ -374,7 +385,6 @@ export class PhotonStudio extends LitElement {
           this._dirty = false;
           if (parsed.parseResult) {
             this._parseResult = parsed.parseResult;
-            this._showPreview = true;
           }
           showToast('Saved and reloaded', 'success');
           this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
@@ -392,7 +402,6 @@ export class PhotonStudio extends LitElement {
   private async _parse() {
     if (this._parsing) return;
     this._parsing = true;
-    this._showPreview = true;
     try {
       const result = await mcpClient.callTool('beam/studio-parse', { source: this._source });
       const text = result?.content?.[0]?.text;
@@ -461,17 +470,8 @@ export class PhotonStudio extends LitElement {
           ${this._dirty ? html`<span class="dirty-dot" title="Unsaved changes"></span>` : ''}
         </span>
 
-        <button
-          class="toolbar-btn"
-          @click=${this._parse}
-          ?disabled=${this._parsing}
-          title="Parse source (Cmd+P)"
-        >
-          ${this._parsing ? 'Parsing...' : 'Parse'}
-        </button>
-
-        <button class="toolbar-btn" @click=${() => (this._showPreview = !this._showPreview)}>
-          ${this._showPreview ? 'Hide Preview' : 'Preview'}
+        <button class="toolbar-btn" @click=${() => (this._showInspector = !this._showInspector)}>
+          ${this._showInspector ? 'Hide Inspector' : 'Inspector'}
         </button>
 
         <button
@@ -491,11 +491,11 @@ export class PhotonStudio extends LitElement {
           <div class="editor-container"></div>
         </div>
 
-        ${this._showPreview
+        ${this._showInspector
           ? html`
               <div class="preview-pane">
                 <div class="preview-header">
-                  <span class="preview-title">Schema Preview</span>
+                  <span class="preview-title">Inspector</span>
                 </div>
                 <studio-preview
                   .parseResult=${this._parseResult}
@@ -509,7 +509,6 @@ export class PhotonStudio extends LitElement {
       <div class="status-bar">
         <span class="status-path" title="${this._filePath}">${this._filePath}</span>
         <span><span class="kbd">Cmd+S</span> Save</span>
-        <span><span class="kbd">Cmd+P</span> Parse</span>
       </div>
     `;
   }
