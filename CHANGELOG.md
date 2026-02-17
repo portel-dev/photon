@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.2](https://github.com/portel-dev/photon/compare/v1.8.1...v1.8.2) (2026-02-17)
+
+### Bug Fixes
+
+* add automated pre-release verification to prevent broken releases ([7dcbd79](https://github.com/portel-dev/photon/commit/7dcbd79e70576f30d761b4fe796c5c00b1ae19ba))
+* convert step yields to emit pattern in internal photons ([73022fa](https://github.com/portel-dev/photon/commit/73022fa2a9c97d44b7533067529eed81612f97b9))
+* handle multi-line and single-line yields in pre-release check ([df62376](https://github.com/portel-dev/photon/commit/df62376b435c6a3aa0084c4fef387314b2e5940f))
+* improve fresh install robustness and error visibility ([a3a1cb7](https://github.com/portel-dev/photon/commit/a3a1cb7cbf69c7a1cada6ab12cec1e8a2dbf6c0b))
+
 ## [1.8.1](https://github.com/portel-dev/photon/compare/v1.8.0...v1.8.1) (2026-02-16)
 
 ### Bug Fixes
