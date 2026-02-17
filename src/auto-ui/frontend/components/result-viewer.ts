@@ -1331,6 +1331,38 @@ export class ResultViewer extends LitElement {
         border-color: var(--primary);
       }
 
+      /* Markdown items (array rendering with filter transitions) */
+      .markdown-items {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .markdown-item {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-glass);
+        transition:
+          opacity 0.25s ease,
+          max-height 0.3s ease,
+          padding 0.3s ease,
+          margin 0.3s ease;
+        max-height: 500px;
+        overflow: hidden;
+      }
+
+      .markdown-item:last-child {
+        border-bottom: none;
+      }
+
+      .markdown-item.filtered-out {
+        opacity: 0;
+        max-height: 0;
+        padding: 0 16px;
+        margin: 0;
+        border-bottom-width: 0;
+        pointer-events: none;
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .container {
@@ -3742,17 +3774,46 @@ export class ResultViewer extends LitElement {
 
   private _renderMarkdown(filteredData?: any): TemplateResult {
     const data = filteredData !== undefined ? filteredData : this.result;
-    const str = Array.isArray(data) ? data.join('\n\n---\n\n') : String(data);
+    const marked = (window as any).marked;
 
-    if ((window as any).marked) {
-      // Convert YAML frontmatter to a table
+    // Array of items: render each as a separate block with filter transitions
+    if (Array.isArray(this.result) && this.result.length > 1 && marked) {
+      const query = this._filterQuery?.trim().toLowerCase() || '';
+      const allMermaidBlocks: { id: string; code: string }[] = [];
+      const allCodeBlocks: { id: string; code: string; language: string }[] = [];
+
+      const items = this.result.map((item: any, index: number) => {
+        const text = String(item);
+        const matches = !query || text.toLowerCase().includes(query);
+        const htmlContent = this._parseMarkdownItem(text, allMermaidBlocks, allCodeBlocks);
+        return html`
+          <div class="markdown-item ${matches ? '' : 'filtered-out'}" data-index="${index}">
+            <div class="markdown-body">${unsafeHTML(htmlContent)}</div>
+          </div>
+        `;
+      });
+
+      this._pendingMermaidBlocks = allMermaidBlocks;
+      this._pendingCodeBlocks = allCodeBlocks;
+
+      return html`
+        <div class="markdown-body-wrapper markdown-items">
+          <button class="expand-btn" @click=${this._openMarkdownFullscreen} title="View fullscreen">
+            ⤢
+          </button>
+          ${items}
+        </div>
+      `;
+    }
+
+    // Single value: render as before
+    const str = Array.isArray(data) ? data.join('\n\n') : String(data);
+
+    if (marked) {
       const { body: strippedStr, table: fmTable } = this._stripFrontMatter(str);
-
-      // Extract mermaid blocks before parsing to handle them separately
       const mermaidBlocks: { id: string; code: string }[] = [];
       const codeBlocks: { id: string; code: string; language: string }[] = [];
 
-      // First extract mermaid blocks
       let processedStr = (fmTable + strippedStr).replace(
         /```mermaid\s*\n([\s\S]*?)```/g,
         (_match, code) => {
@@ -3762,7 +3823,6 @@ export class ResultViewer extends LitElement {
         }
       );
 
-      // Extract other code blocks for Prism highlighting
       processedStr = processedStr.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
         const id = `code-${Math.random().toString(36).substr(2, 9)}`;
         const language = lang || 'text';
@@ -3770,7 +3830,6 @@ export class ResultViewer extends LitElement {
         return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
       });
 
-      // Store blocks for rendering after DOM update (non-reactive)
       this._pendingMermaidBlocks = mermaidBlocks;
       this._pendingCodeBlocks = codeBlocks;
 
@@ -3787,6 +3846,27 @@ export class ResultViewer extends LitElement {
     }
 
     return html`<pre>${str}</pre>`;
+  }
+
+  /** Parse a single markdown item, extracting mermaid and code blocks */
+  private _parseMarkdownItem(
+    text: string,
+    mermaidBlocks: { id: string; code: string }[],
+    codeBlocks: { id: string; code: string; language: string }[]
+  ): string {
+    const { body, table } = this._stripFrontMatter(text);
+    let processed = (table + body).replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match, code) => {
+      const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+      mermaidBlocks.push({ id, code: code.trim() });
+      return `<div class="mermaid-placeholder" data-mermaid-id="${id}">Loading diagram...</div>`;
+    });
+    processed = processed.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
+      const id = `code-${Math.random().toString(36).substr(2, 9)}`;
+      const language = lang || 'text';
+      codeBlocks.push({ id, code: code.trimEnd(), language });
+      return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
+    });
+    return (window as any).marked.parse(processed);
   }
 
   private _renderHtml(filteredData?: any): TemplateResult {
