@@ -1568,6 +1568,7 @@ export class BeamApp extends LitElement {
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
   private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
+  private _pendingTemplateSource: string | undefined; // Template source to apply after Studio opens
 
   private _handleInstall(e: CustomEvent) {
     // Just log for now, the socket update 'photon_added' will handle the actual refresh
@@ -1599,6 +1600,7 @@ export class BeamApp extends LitElement {
     // Track if this is a creation action — open Studio after photon appears
     if (action === 'new' || action === 'wizard') {
       this._pendingStudioOpen = true;
+      this._pendingTemplateSource = e.detail.templateSource;
     }
     const method = target.methods?.find((m: any) => m.name === action);
     if (method) {
@@ -1936,6 +1938,23 @@ export class BeamApp extends LitElement {
               if (this._pendingStudioOpen) {
                 this._pendingStudioOpen = false;
                 this._view = 'studio';
+                // Apply template source after Studio opens
+                if (this._pendingTemplateSource) {
+                  const tpl = this._pendingTemplateSource;
+                  this._pendingTemplateSource = undefined;
+                  requestAnimationFrame(() => {
+                    const studio = this.shadowRoot?.querySelector('photon-studio') as any;
+                    if (studio?.applyTemplate) {
+                      studio.applyTemplate({
+                        source: tpl,
+                        id: 'custom',
+                        name: '',
+                        description: '',
+                        icon: '',
+                      });
+                    }
+                  });
+                }
               } else {
                 this._view = 'list';
               }

@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
+import { templates } from './studio-templates.js';
 
 interface MarketplaceItem {
   name: string;
@@ -580,6 +581,87 @@ export class MarketplaceView extends LitElement {
         }
       }
 
+      /* Template picker modal */
+      .template-modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-glass);
+        border-radius: 16px;
+        padding: 28px;
+        width: 90%;
+        max-width: 520px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        position: relative;
+      }
+
+      .template-modal-title {
+        font-size: var(--text-lg);
+        font-weight: 600;
+        color: var(--t-primary);
+        margin-bottom: 4px;
+      }
+
+      .template-modal-subtitle {
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        margin-bottom: 20px;
+      }
+
+      .template-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .template-card {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: 10px;
+        padding: 14px 16px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .template-card:hover {
+        border-color: var(--accent-primary);
+        background: var(--bg-glass-strong);
+        transform: translateX(2px);
+      }
+
+      .template-icon {
+        font-size: 24px;
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        flex-shrink: 0;
+      }
+
+      .template-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .template-name {
+        font-weight: 600;
+        font-size: var(--text-sm);
+        color: var(--t-primary);
+        margin-bottom: 2px;
+      }
+
+      .template-desc {
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        line-height: 1.4;
+      }
+
       @media (max-width: 480px) {
         :host {
           padding: var(--space-sm);
@@ -651,6 +733,9 @@ export class MarketplaceView extends LitElement {
 
   @state()
   private _showAddRepoModal = false;
+
+  @state()
+  private _showTemplates = false;
 
   @state()
   private _repoInput = '';
@@ -748,6 +833,47 @@ export class MarketplaceView extends LitElement {
           </div>`
         : html` <div class="grid">${this._items.map((item) => this._renderItem(item))}</div> `}
       ${this._showAddRepoModal ? this._renderAddRepoModal() : ''}
+      ${this._showTemplates ? this._renderTemplateModal() : ''}
+    `;
+  }
+
+  private _renderTemplateModal() {
+    return html`
+      <div
+        class="modal-overlay"
+        @click=${(e: Event) => {
+          if (e.target === e.currentTarget) this._showTemplates = false;
+        }}
+      >
+        <div class="template-modal">
+          <button class="modal-close" @click=${() => (this._showTemplates = false)}>✕</button>
+          <div class="template-modal-title">Create New Photon</div>
+          <div class="template-modal-subtitle">
+            Start from a template or begin with a blank file
+          </div>
+
+          <div class="template-list">
+            <div class="template-card" @click=${() => this._createFromTemplate()}>
+              <div class="template-icon">📄</div>
+              <div class="template-info">
+                <div class="template-name">Blank</div>
+                <div class="template-desc">Empty photon — start from scratch</div>
+              </div>
+            </div>
+            ${templates.map(
+              (t) => html`
+                <div class="template-card" @click=${() => this._createFromTemplate(t.source)}>
+                  <div class="template-icon">${t.icon}</div>
+                  <div class="template-info">
+                    <div class="template-name">${t.name}</div>
+                    <div class="template-desc">${t.description}</div>
+                  </div>
+                </div>
+              `
+            )}
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -1038,9 +1164,14 @@ export class MarketplaceView extends LitElement {
 
   // Maker static method actions
   private _createNew() {
+    this._showTemplates = true;
+  }
+
+  private _createFromTemplate(templateSource?: string) {
+    this._showTemplates = false;
     this.dispatchEvent(
       new CustomEvent('maker-action', {
-        detail: { action: 'new' },
+        detail: { action: 'new', templateSource },
         bubbles: true,
         composed: true,
       })
