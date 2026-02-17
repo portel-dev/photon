@@ -2384,6 +2384,61 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return;
     }
 
+    // Marketplace API: Remove/uninstall a photon
+    if (url.pathname === '/api/marketplace/remove' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      const body = await readBody(req);
+      try {
+        const { name } = JSON.parse(body);
+        if (!name) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing photon name' }));
+          return;
+        }
+
+        const filePath = path.join(workingDir, `${name}.photon.ts`);
+        if (!existsSync(filePath)) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: `Photon '${name}' not found` }));
+          return;
+        }
+
+        // Remove the .photon.ts file
+        await fs.unlink(filePath);
+
+        // Remove UI assets directory if it exists
+        const assetsDir = path.join(workingDir, name);
+        if (existsSync(assetsDir) && lstatSync(assetsDir).isDirectory()) {
+          await fs.rm(assetsDir, { recursive: true });
+        }
+
+        // Clear compiled cache
+        const cacheDir = path.join(os.homedir(), '.cache', 'photon-mcp', 'compiled');
+        for (const ext of ['.js', '.js.map']) {
+          try {
+            await fs.unlink(path.join(cacheDir, `${name}${ext}`));
+          } catch {
+            /* ignore */
+          }
+        }
+
+        // Remove from loaded photons
+        const idx = photons.findIndex((p) => p.name === name);
+        if (idx !== -1) photons.splice(idx, 1);
+        photonMCPs.delete(name);
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, name }));
+
+        broadcastPhotonChange();
+      } catch {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to remove photon' }));
+      }
+      return;
+    }
+
     // Marketplace API: Get all marketplace sources
     if (url.pathname === '/api/marketplace/sources') {
       res.setHeader('Content-Type', 'application/json');
