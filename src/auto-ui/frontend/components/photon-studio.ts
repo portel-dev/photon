@@ -183,68 +183,101 @@ export class PhotonStudio extends LitElement {
     .templates-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 100;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
     }
 
     .templates-modal {
       background: var(--bg-primary, #1a1a2e);
-      border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-      border-radius: var(--radius-full);
-      padding: 24px;
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+      border-radius: 16px;
+      padding: 28px;
       width: 90%;
-      max-width: 600px;
+      max-width: 560px;
       max-height: 80vh;
       overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
     }
 
     .templates-title {
       font-size: var(--text-lg);
       font-weight: 600;
       color: var(--t-primary, #e0e0e0);
-      margin-bottom: 16px;
+      margin-bottom: 6px;
+    }
+
+    .templates-subtitle {
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+      margin-bottom: 20px;
     }
 
     .template-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
     .template-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
       background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
       border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-      border-radius: var(--radius-sm);
-      padding: 14px;
+      border-radius: 10px;
+      padding: 14px 16px;
       cursor: pointer;
-      transition:
-        border-color 0.15s,
-        transform 0.1s;
+      transition: all 0.15s ease;
     }
 
     .template-card:hover {
       border-color: var(--accent-primary);
-      transform: translateY(-1px);
+      background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
+      transform: translateX(2px);
     }
 
     .template-icon {
-      font-size: var(--text-2xl);
-      margin-bottom: 6px;
+      font-size: 24px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      flex-shrink: 0;
+    }
+
+    .template-info {
+      flex: 1;
+      min-width: 0;
     }
 
     .template-name {
       font-weight: 600;
-      font-size: var(--text-md);
-      margin-bottom: 4px;
+      font-size: var(--text-sm);
       color: var(--t-primary, #e0e0e0);
+      margin-bottom: 2px;
     }
 
     .template-desc {
       font-size: var(--text-xs);
       color: var(--t-muted, #888);
+      line-height: 1.4;
     }
 
     /* ─── Status bar ─── */
@@ -605,13 +638,18 @@ export class PhotonStudio extends LitElement {
             >
               <div class="templates-modal">
                 <div class="templates-title">Choose a Template</div>
+                <div class="templates-subtitle">
+                  Start with a working example, then customize it
+                </div>
                 <div class="template-grid">
                   ${templates.map(
                     (t) => html`
                       <div class="template-card" @click=${() => this._applyTemplate(t)}>
                         <div class="template-icon">${t.icon}</div>
-                        <div class="template-name">${t.name}</div>
-                        <div class="template-desc">${t.description}</div>
+                        <div class="template-info">
+                          <div class="template-name">${t.name}</div>
+                          <div class="template-desc">${t.description}</div>
+                        </div>
                       </div>
                     `
                   )}
