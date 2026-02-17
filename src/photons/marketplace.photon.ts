@@ -82,8 +82,9 @@ export default class Marketplace {
    * @param name Name of the photon to install
    */
   static async *install({ name }: { name: string }): AsyncGenerator<{
-    step: string;
+    emit: string;
     message?: string;
+    value?: any;
     name?: string;
     path?: string;
     version?: string;
@@ -94,21 +95,29 @@ export default class Marketplace {
 
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
 
-    yield { step: 'searching', message: `Searching for ${name}...` };
+    yield { emit: 'status', value: { step: 'searching' }, message: `Searching for ${name}...` };
 
     const result = await manager.fetchMCP(name);
     if (!result) {
-      yield { step: 'error', message: `Photon '${name}' not found in marketplace` };
+      yield {
+        emit: 'status',
+        value: { step: 'error' },
+        message: `Photon '${name}' not found in marketplace`,
+      };
       return;
     }
 
-    yield { step: 'downloading', message: `Downloading ${name}...` };
+    yield { emit: 'status', value: { step: 'downloading' }, message: `Downloading ${name}...` };
 
     const targetPath = path.join(workingDir, `${name}.photon.ts`);
     await fs.writeFile(targetPath, result.content, 'utf-8');
 
     if (result.metadata) {
-      yield { step: 'saving-metadata', message: 'Saving installation metadata...' };
+      yield {
+        emit: 'status',
+        value: { step: 'saving-metadata' },
+        message: 'Saving installation metadata...',
+      };
       const { calculateHash } = await import('../marketplace-manager.js');
       const hash = calculateHash(result.content);
       await manager.savePhotonMetadata(
@@ -120,7 +129,8 @@ export default class Marketplace {
     }
 
     yield {
-      step: 'done',
+      emit: 'status',
+      value: { step: 'done' },
       message: `Installed ${name}`,
       name,
       path: targetPath,
@@ -133,8 +143,9 @@ export default class Marketplace {
    * @param name Name of the photon to upgrade
    */
   static async *upgrade({ name }: { name: string }): AsyncGenerator<{
-    step: string;
+    emit: string;
     message?: string;
+    value?: any;
     currentVersion?: string;
     newVersion?: string;
   }> {
@@ -142,25 +153,33 @@ export default class Marketplace {
     const manager = new MarketplaceManager();
     await manager.initialize();
 
-    yield { step: 'checking', message: `Checking current version of ${name}...` };
+    yield {
+      emit: 'status',
+      value: { step: 'checking' },
+      message: `Checking current version of ${name}...`,
+    };
 
     const localMeta = await readLocalMetadata();
     const fileName = `${name}.photon.ts`;
     const currentMeta = localMeta.photons[fileName];
     const currentVersion = currentMeta?.version || 'unknown';
 
-    yield { step: 'fetching', message: `Fetching latest version...` };
+    yield { emit: 'status', value: { step: 'fetching' }, message: `Fetching latest version...` };
 
     const result = await manager.fetchMCP(name);
     if (!result) {
-      yield { step: 'error', message: `Photon '${name}' not found in marketplace` };
+      yield {
+        emit: 'status',
+        value: { step: 'error' },
+        message: `Photon '${name}' not found in marketplace`,
+      };
       return;
     }
 
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const targetPath = path.join(workingDir, fileName);
 
-    yield { step: 'installing', message: `Upgrading ${name}...` };
+    yield { emit: 'status', value: { step: 'installing' }, message: `Upgrading ${name}...` };
 
     await fs.writeFile(targetPath, result.content, 'utf-8');
 
@@ -171,7 +190,8 @@ export default class Marketplace {
     }
 
     yield {
-      step: 'done',
+      emit: 'status',
+      value: { step: 'done' },
       message: `Upgraded ${name} from ${currentVersion} to ${result.metadata?.version || 'latest'}`,
       currentVersion,
       newVersion: result.metadata?.version,
@@ -302,46 +322,65 @@ export default class Marketplace {
    * Synchronize marketplace manifest and documentation
    */
   static async *sync(): AsyncGenerator<{
-    step: string;
+    emit: string;
     message?: string;
-    photon?: string;
-    photons?: number;
-    manifest?: string;
+    value?: any;
+    [key: string]: any;
   }> {
     const workingDir = process.env.PHOTON_DIR || process.cwd();
 
-    yield { step: 'scanning', message: 'Scanning for photons...' };
+    yield { emit: 'status', message: 'Scanning for photons...' };
 
     const files = await fs.readdir(workingDir);
     const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
 
     yield {
-      step: 'found',
+      emit: 'status',
       message: `Found ${photonFiles.length} photons`,
       photons: photonFiles.length,
     };
 
     for (const file of photonFiles) {
-      yield { step: 'processing', photon: file, message: `Processing ${file}...` };
+      yield {
+        emit: 'status',
+        value: { step: 'processing' },
+        photon: file,
+        message: `Processing ${file}...`,
+      };
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     const manifest = path.join(workingDir, '.marketplace', 'photons.json');
-    yield { step: 'done', message: 'Sync complete', photons: photonFiles.length, manifest };
+    yield {
+      emit: 'status',
+      value: { step: 'done' },
+      message: 'Sync complete',
+      photons: photonFiles.length,
+      manifest,
+    };
   }
 
   /**
    * Initialize current directory as a photon marketplace
    */
-  static async *init(): AsyncGenerator<{ step: string; message?: string; created?: string }> {
+  static async *init(): AsyncGenerator<{
+    emit: string;
+    message?: string;
+    value?: any;
+    created?: string;
+  }> {
     const workingDir = process.cwd();
 
-    yield { step: 'starting', message: 'Initializing photon marketplace...' };
+    yield {
+      emit: 'status',
+      value: { step: 'starting' },
+      message: 'Initializing photon marketplace...',
+    };
 
     const marketplaceDir = path.join(workingDir, '.marketplace');
     try {
       await fs.mkdir(marketplaceDir, { recursive: true });
-      yield { step: 'created', created: '.marketplace/' };
+      yield { emit: 'status', value: { step: 'created' }, created: '.marketplace/' };
     } catch {
       // Directory creation failed - continue anyway
     }
@@ -349,10 +388,14 @@ export default class Marketplace {
     const manifestPath = path.join(marketplaceDir, 'photons.json');
     try {
       await fs.access(manifestPath);
-      yield { step: 'exists', message: '.marketplace/photons.json already exists' };
+      yield {
+        emit: 'status',
+        value: { step: 'exists' },
+        message: '.marketplace/photons.json already exists',
+      };
     } catch {
       await fs.writeFile(manifestPath, JSON.stringify({ photons: [] }, null, 2));
-      yield { step: 'created', created: '.marketplace/photons.json' };
+      yield { emit: 'status', value: { step: 'created' }, created: '.marketplace/photons.json' };
     }
 
     const gitignorePath = path.join(workingDir, '.gitignore');
@@ -367,12 +410,12 @@ export default class Marketplace {
       if (!gitignore.includes('node_modules')) {
         gitignore += '\nnode_modules/\n';
         await fs.writeFile(gitignorePath, gitignore);
-        yield { step: 'created', created: '.gitignore (updated)' };
+        yield { emit: 'status', value: { step: 'created' }, created: '.gitignore (updated)' };
       }
     } catch {
       // gitignore update failed - non-critical
     }
 
-    yield { step: 'done', message: 'Marketplace initialized' };
+    yield { emit: 'status', value: { step: 'done' }, message: 'Marketplace initialized' };
   }
 }
