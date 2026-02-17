@@ -407,7 +407,10 @@ export class ContextBar extends LitElement {
     if (!this.photon) return '';
 
     const p = this.photon;
-    const methodCount = p.methods?.length || 0;
+    const methods = p.methods || [];
+    const methodCount = methods.length;
+    const templateCount = methods.filter((m: any) => m.isTemplate).length;
+    const toolCount = methods.filter((m: any) => !m.isTemplate).length;
     const displayIcon = p.icon || (p.isApp ? '📱' : p.name.substring(0, 2).toUpperCase());
     const hasCustomIcon = !!p.icon;
     const description = p.description || `${p.name} MCP`;
@@ -520,9 +523,18 @@ export class ContextBar extends LitElement {
                     ${p.isApp
                       ? html`<span class="meta-badge app">App</span>`
                       : html`<span class="meta-badge">MCP</span>`}
-                    <span class="meta-badge"
-                      >${methodCount} method${methodCount !== 1 ? 's' : ''}</span
-                    >
+                    ${templateCount > 0 && toolCount === 0
+                      ? html`<span class="meta-badge"
+                          >${templateCount} prompt${templateCount !== 1 ? 's' : ''}</span
+                        >`
+                      : templateCount > 0
+                        ? html`<span class="meta-badge"
+                            >${toolCount} tool${toolCount !== 1 ? 's' : ''}, ${templateCount}
+                            prompt${templateCount !== 1 ? 's' : ''}</span
+                          >`
+                        : html`<span class="meta-badge"
+                            >${methodCount} method${methodCount !== 1 ? 's' : ''}</span
+                          >`}
                     ${p.version ? html`<span class="meta-badge">${p.version}</span>` : ''}
                     ${p.hasUpdate
                       ? html`<span class="meta-badge update" @click=${() => this._emit('upgrade')}
