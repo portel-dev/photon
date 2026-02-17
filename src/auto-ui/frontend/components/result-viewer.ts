@@ -3147,9 +3147,19 @@ export class ResultViewer extends LitElement {
     if (Array.isArray(data)) {
       if (data.length === 0) return 'json';
 
-      // Array of strings → chips
+      // Array of strings → chips or markdown
       if (data.every((item) => typeof item === 'string')) {
-        return 'chips';
+        // Check if any string contains markdown indicators
+        const hasMarkdown = data.some(
+          (s: string) =>
+            s.includes('**') ||
+            s.includes('##') ||
+            s.includes('```') ||
+            s.includes('](') ||
+            /^\s*>\s/.test(s) ||
+            /^\s*---\s*$/.test(s)
+        );
+        return hasMarkdown ? 'markdown' : 'chips';
       }
 
       // Array of objects → check for chart/timeline/table/list
@@ -3731,7 +3741,7 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderMarkdown(): TemplateResult {
-    const str = String(this.result);
+    const str = Array.isArray(this.result) ? this.result.join('\n\n---\n\n') : String(this.result);
 
     if ((window as any).marked) {
       // Convert YAML frontmatter to a table
