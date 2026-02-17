@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.9.0](https://github.com/portel-dev/photon/compare/v1.8.4...v1.9.0) (2026-02-17)
+
+### Features
+
+* add marketplace card detail modal with full markdown descriptions ([abbc30c](https://github.com/portel-dev/photon/commit/abbc30c1cb1276eee80d01b0d1db7a0d70b8a667))
+* add marketplace Update button with hash-based update detection ([b89bab3](https://github.com/portel-dev/photon/commit/b89bab3965374e4d5d64ea6723f73c93ae1e5151))
+* animate search filter transitions in result viewer ([3539c56](https://github.com/portel-dev/photon/commit/3539c564a128018f6a260cc83464d7219d5a48d6))
+* marketplace uninstall button and cleaner sidebar icons ([2221c5b](https://github.com/portel-dev/photon/commit/2221c5b8c89a267f85f0ea6a2ed5234deda2879f))
+* rename Preview to Inspector, auto-parse on debounce ([b461dd2](https://github.com/portel-dev/photon/commit/b461dd22f771f4d3021166e0e2a7d06501d49f2d))
+
+### Bug Fixes
+
+* add period separator between summary and extended description in docblock parsing ([eb6ffc3](https://github.com/portel-dev/photon/commit/eb6ffc3388b9a93cdabb04ed10b074e06ddc6acd))
+* apply formatLabel to method detail title, breadcrumbs, and config form fields ([58abfe0](https://github.com/portel-dev/photon/commit/58abfe08d36e8250ac8d048533df05453d1a6363))
+* hide templates for existing photons and fix result filter rendering ([0385130](https://github.com/portel-dev/photon/commit/0385130d7dc0f9ffa61e870cc7783b3175568df0))
+* include icon field in marketplace manifest generation ([c1eef2c](https://github.com/portel-dev/photon/commit/c1eef2c062c51852eddd5f76ba2e75b6ff4d9b0a))
+* instant sidebar appearance after install and auto-refresh stale caches ([bf41944](https://github.com/portel-dev/photon/commit/bf41944151743ccbfd2f75f15963355713d3aad7))
+* move template picker from editor to New Photon creation flow ([5cee586](https://github.com/portel-dev/photon/commit/5cee586637fc2189c666cc3bf510051445749d31))
+* paragraph-aware description parsing in PhotonDocExtractor ([f1924d5](https://github.com/portel-dev/photon/commit/f1924d558c7b421dd36c73e7a258de824ed60477))
+* polish theme palette and sidebar initials icons ([ce3ee05](https://github.com/portel-dev/photon/commit/ce3ee05e163302c477a9caae953e762637ea019e))
+* redesign template gallery as a clean vertical list ([36103e0](https://github.com/portel-dev/photon/commit/36103e087817c0cae06d85df48ebb8cf20920515))
+* scheduled job template broken by */5 cron syntax inside JSDoc ([acac74f](https://github.com/portel-dev/photon/commit/acac74f433fd49b7b6cd12e2de5a1ea1580e8884))
+* show "prompts" instead of "methods" for template-only photons ([6624625](https://github.com/portel-dev/photon/commit/66246255a2b2ca36f109cb94a5d721c8687cf99b))
+* strip all docblock directive tags from card descriptions ([949a99b](https://github.com/portel-dev/photon/commit/949a99bd1a075d7f52acc7c0ad13bf4e1038380a))
+* sync context-bar isGenericDesc check with beam-app ([ff601e7](https://github.com/portel-dev/photon/commit/ff601e7b1308350b0a7c8c52dc0db4ffafd7cfe7))
+* truncate marketplace card descriptions to 3 lines with ellipsis ([16c4e08](https://github.com/portel-dev/photon/commit/16c4e08098f6a466418a8b2c31052b7cf974f943))
+
 ## [1.8.4](https://github.com/portel-dev/photon/compare/v1.8.3...v1.8.4) (2026-02-17)
 
 ### Features
