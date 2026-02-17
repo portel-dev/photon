@@ -9,7 +9,7 @@
 import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs/promises';
-import { existsSync, lstatSync, realpathSync, watch, type FSWatcher } from 'fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, watch, type FSWatcher } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
@@ -3320,6 +3320,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // ══════════════════════════════════════════════════════════════════════════════
   try {
     const configDir = path.dirname(CONFIG_FILE);
+    // Ensure directory exists before watching (fresh install may not have ~/.photon yet)
+    if (!existsSync(configDir)) {
+      mkdirSync(configDir, { recursive: true });
+    }
     let configDebounce: NodeJS.Timeout | null = null;
 
     const configWatcher = watch(configDir, (eventType, filename) => {
