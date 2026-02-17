@@ -697,8 +697,17 @@ export class MarketplaceManager {
         }
 
         if (content) {
-          // Try to fetch metadata from manifest
-          const manifest = await this.getCachedManifest(marketplace.name);
+          // Try to fetch metadata from manifest (auto-fetch if cache empty)
+          let manifest = await this.getCachedManifest(marketplace.name);
+          if (!manifest) {
+            this.logger.info(
+              `No cached manifest for ${marketplace.name}, fetching for metadata...`
+            );
+            const updated = await this.updateMarketplaceCache(marketplace.name);
+            if (updated) {
+              manifest = await this.getCachedManifest(marketplace.name);
+            }
+          }
           const metadata = manifest?.photons.find((p) => p.name === mcpName);
 
           // Security: verify content hash if metadata provides one
@@ -979,8 +988,14 @@ export class MarketplaceManager {
         }
 
         if (content) {
-          // Try to fetch metadata from manifest
-          const manifest = await this.getCachedManifest(marketplace.name);
+          // Try to fetch metadata from manifest (auto-fetch if cache empty)
+          let manifest = await this.getCachedManifest(marketplace.name);
+          if (!manifest) {
+            const updated = await this.updateMarketplaceCache(marketplace.name);
+            if (updated) {
+              manifest = await this.getCachedManifest(marketplace.name);
+            }
+          }
           const metadata = manifest?.photons.find((p) => p.name === mcpName);
 
           sources.push({
