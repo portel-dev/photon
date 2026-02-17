@@ -655,27 +655,29 @@ export class MarketplaceManager {
 
   /**
    * Check if marketplace cache is stale
+   * @param ttlMs Custom TTL in milliseconds (defaults to CACHE_TTL_MS = 24h)
    */
-  private isCacheStale(marketplace: Marketplace): boolean {
+  private isCacheStale(marketplace: Marketplace, ttlMs = CACHE_TTL_MS): boolean {
     if (!marketplace.lastUpdated) {
       return true;
     }
 
     const lastUpdate = new Date(marketplace.lastUpdated).getTime();
     const now = Date.now();
-    return now - lastUpdate > CACHE_TTL_MS;
+    return now - lastUpdate > ttlMs;
   }
 
   /**
    * Auto-update stale caches
+   * @param ttlMs Custom TTL — caches older than this are refreshed (defaults to 24h)
    * Returns true if any updates were performed
    */
-  async autoUpdateStaleCaches(): Promise<boolean> {
+  async autoUpdateStaleCaches(ttlMs?: number): Promise<boolean> {
     const enabled = this.getEnabled();
     let updated = false;
 
     for (const marketplace of enabled) {
-      if (this.isCacheStale(marketplace)) {
+      if (this.isCacheStale(marketplace, ttlMs)) {
         const success = await this.updateMarketplaceCache(marketplace.name);
         if (success) {
           updated = true;

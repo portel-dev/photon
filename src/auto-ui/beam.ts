@@ -2298,6 +2298,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       res.setHeader('Content-Type', 'application/json');
 
       try {
+        // Auto-refresh caches older than 5 minutes so updates are detected without manual Sync
+        await marketplace.autoUpdateStaleCaches(5 * 60 * 1000);
+
         const { readLocalMetadata } = await import('../marketplace-manager.js');
         const allPhotons = await marketplace.getAllPhotons();
         const localMetadata = await readLocalMetadata();
@@ -2386,6 +2389,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             );
           }
 
+          // Trigger immediate load so the photon appears in the sidebar right away
+          // (don't wait for the file watcher which has debounce delay)
+          handleFileChange(name);
+
           res.writeHead(200);
           res.end(
             JSON.stringify({
@@ -2395,9 +2402,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               version: result.metadata?.version,
             })
           );
-
-          // Broadcast to connected clients to reload photon list
-          broadcastPhotonChange();
         } catch {
           res.writeHead(500);
           res.end(JSON.stringify({ error: 'Failed to add photon' }));
