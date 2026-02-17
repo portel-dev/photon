@@ -208,7 +208,7 @@ function parseCron(cron: string): { isValid: boolean; nextRun: number } {
 
   if (minute === '*' && hour === '*') {
     nextDate.setMinutes(nextDate.getMinutes() + 1);
-  } else if (minute.startsWith('*/')) {
+  } else if (minute.startsWith('*/') || minute.startsWith('0/')) {
     const interval = parseInt(minute.slice(2));
     const currentMinute = nextDate.getMinutes();
     const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;

@@ -281,7 +281,7 @@ export default class TaskScheduler {
 
   /**
    * Health check every 5 minutes
-   * @scheduled */5 * * * *
+   * @cron 0/5 * * * *
    * @returns Health status
    * @icon 💚
    */
