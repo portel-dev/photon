@@ -14,7 +14,7 @@ import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
 import { createDocblockCompletions, photonFormatCompletions } from './docblock-completions.js';
-import { templates, type PhotonTemplate } from './studio-templates.js';
+import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
 import './studio-preview.js';
 
@@ -38,7 +38,6 @@ export class PhotonStudio extends LitElement {
   @state() private _parsing = false;
   @state() private _saving = false;
   @state() private _showPreview = false;
-  @state() private _showTemplates = false;
   @state() private _loading = true;
   @state() private _filePath = '';
   @state() private _error = '';
@@ -177,107 +176,6 @@ export class PhotonStudio extends LitElement {
       letter-spacing: 0.08em;
       color: var(--t-muted, #888);
       font-weight: 600;
-    }
-
-    /* ─── Template gallery overlay ─── */
-    .templates-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.5);
-      backdrop-filter: blur(4px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-      animation: fadeIn 0.15s ease-out;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
-    }
-
-    .templates-modal {
-      background: var(--bg-primary, #1a1a2e);
-      border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
-      border-radius: 16px;
-      padding: 28px;
-      width: 90%;
-      max-width: 560px;
-      max-height: 80vh;
-      overflow-y: auto;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-    }
-
-    .templates-title {
-      font-size: var(--text-lg);
-      font-weight: 600;
-      color: var(--t-primary, #e0e0e0);
-      margin-bottom: 6px;
-    }
-
-    .templates-subtitle {
-      font-size: var(--text-xs);
-      color: var(--t-muted, #888);
-      margin-bottom: 20px;
-    }
-
-    .template-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .template-card {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-      border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-      border-radius: 10px;
-      padding: 14px 16px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .template-card:hover {
-      border-color: var(--accent-primary);
-      background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
-      transform: translateX(2px);
-    }
-
-    .template-icon {
-      font-size: 24px;
-      width: 44px;
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.05);
-      flex-shrink: 0;
-    }
-
-    .template-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .template-name {
-      font-weight: 600;
-      font-size: var(--text-sm);
-      color: var(--t-primary, #e0e0e0);
-      margin-bottom: 2px;
-    }
-
-    .template-desc {
-      font-size: var(--text-xs);
-      color: var(--t-muted, #888);
-      line-height: 1.4;
     }
 
     /* ─── Status bar ─── */
@@ -508,13 +406,9 @@ export class PhotonStudio extends LitElement {
     }
   }
 
-  private _applyTemplate(template: PhotonTemplate) {
-    if (this._dirty) {
-      if (!confirm('You have unsaved changes. Apply template anyway?')) return;
-    }
+  applyTemplate(template: PhotonTemplate) {
     this._source = template.source;
     this._dirty = this._source !== this._originalSource;
-    this._showTemplates = false;
     this._parseResult = null;
 
     // Update editor content
@@ -567,18 +461,6 @@ export class PhotonStudio extends LitElement {
           ${this._dirty ? html`<span class="dirty-dot" title="Unsaved changes"></span>` : ''}
         </span>
 
-        ${this._originalSource.trim().length === 0
-          ? html`
-              <button
-                class="toolbar-btn"
-                @click=${() => (this._showTemplates = true)}
-                title="Template Gallery"
-              >
-                Templates
-              </button>
-            `
-          : ''}
-
         <button
           class="toolbar-btn"
           @click=${this._parse}
@@ -629,39 +511,6 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+S</span> Save</span>
         <span><span class="kbd">Cmd+P</span> Parse</span>
       </div>
-
-      ${this._showTemplates
-        ? html`
-            <div
-              class="templates-overlay"
-              @click=${(e: Event) => {
-                if ((e.target as HTMLElement).classList.contains('templates-overlay')) {
-                  this._showTemplates = false;
-                }
-              }}
-            >
-              <div class="templates-modal">
-                <div class="templates-title">Choose a Template</div>
-                <div class="templates-subtitle">
-                  Start with a working example, then customize it
-                </div>
-                <div class="template-grid">
-                  ${templates.map(
-                    (t) => html`
-                      <div class="template-card" @click=${() => this._applyTemplate(t)}>
-                        <div class="template-icon">${t.icon}</div>
-                        <div class="template-info">
-                          <div class="template-name">${t.name}</div>
-                          <div class="template-desc">${t.description}</div>
-                        </div>
-                      </div>
-                    `
-                  )}
-                </div>
-              </div>
-            </div>
-          `
-        : ''}
     `;
   }
 }
