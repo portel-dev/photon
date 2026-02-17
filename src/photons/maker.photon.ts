@@ -112,12 +112,22 @@ export default class Maker {
     prompts?: string[];
     /** Resource method names (optional) */
     resources?: string[];
-  }): AsyncGenerator<{ step: string; message?: string; path?: string; code?: string }> {
+  }): AsyncGenerator<{
+    emit: string;
+    message?: string;
+    value?: any;
+    path?: string;
+    code?: string;
+  }> {
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
-    yield { step: 'checking', message: `Checking if ${fileName} exists...` };
+    yield {
+      emit: 'status',
+      value: { step: 'checking' },
+      message: `Checking if ${fileName} exists...`,
+    };
 
     // Check if exists
     try {
@@ -127,7 +137,7 @@ export default class Maker {
       if (e.code !== 'ENOENT') throw e;
     }
 
-    yield { step: 'generating', message: 'Generating scaffold...' };
+    yield { emit: 'status', value: { step: 'generating' }, message: 'Generating scaffold...' };
 
     // Generate class name from kebab-case
     const className = name
@@ -180,18 +190,25 @@ ${allStubs.join('\n\n')}
 }
 `;
 
-    yield { step: 'writing', message: `Writing ${fileName}...` };
+    yield { emit: 'status', value: { step: 'writing' }, message: `Writing ${fileName}...` };
 
     await fs.writeFile(filePath, code, 'utf-8');
 
-    yield { step: 'done', message: `Created ${fileName}`, path: filePath, code };
+    yield {
+      emit: 'status',
+      value: { step: 'done' },
+      message: `Created ${fileName}`,
+      path: filePath,
+      code,
+    };
   }
 
   /**
    * Validate all photons in the current directory
    */
   static async *validate(): AsyncGenerator<{
-    step: string;
+    emit: string;
+    value?: any;
     photon?: string;
     status?: 'valid' | 'error';
     error?: string;
@@ -199,7 +216,7 @@ ${allStubs.join('\n\n')}
   }> {
     const workingDir = process.env.PHOTON_DIR || process.cwd();
 
-    yield { step: 'scanning', photon: undefined };
+    yield { emit: 'status', value: { step: 'scanning' }, photon: undefined };
 
     const files = await fs.readdir(workingDir);
     const photonFiles = files.filter((f) => f.endsWith('.photon.ts'));
@@ -212,11 +229,12 @@ ${allStubs.join('\n\n')}
         const content = await fs.readFile(path.join(workingDir, file), 'utf-8');
         if (content.includes('export default class')) {
           validCount++;
-          yield { step: 'validating', photon: file, status: 'valid' };
+          yield { emit: 'status', value: { step: 'validating' }, photon: file, status: 'valid' };
         } else {
           errorCount++;
           yield {
-            step: 'validating',
+            emit: 'status',
+            value: { step: 'validating' },
             photon: file,
             status: 'error',
             error: 'Missing default class export',
@@ -224,11 +242,21 @@ ${allStubs.join('\n\n')}
         }
       } catch (e: any) {
         errorCount++;
-        yield { step: 'validating', photon: file, status: 'error', error: e.message };
+        yield {
+          emit: 'status',
+          value: { step: 'validating' },
+          photon: file,
+          status: 'error',
+          error: e.message,
+        };
       }
     }
 
-    yield { step: 'done', summary: { valid: validCount, errors: errorCount } };
+    yield {
+      emit: 'status',
+      value: { step: 'done' },
+      summary: { valid: validCount, errors: errorCount },
+    };
   }
 
   /**

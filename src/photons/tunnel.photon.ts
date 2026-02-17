@@ -67,7 +67,7 @@ export default class Tunnel {
     /** Provider: localtunnel, ngrok, or cloudflared */
     provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
   } = {}): AsyncGenerator<
-    { step: string; message: string },
+    { emit: string; value?: any; message: string },
     {
       message: string;
       url: string;
@@ -94,7 +94,11 @@ export default class Tunnel {
       };
     }
 
-    yield { step: 'starting', message: `Starting ${provider} tunnel for Beam (port ${port})...` };
+    yield {
+      emit: 'status',
+      value: { step: 'starting' },
+      message: `Starting ${provider} tunnel for Beam (port ${port})...`,
+    };
 
     try {
       let url: string;
