@@ -414,7 +414,10 @@ export class ContextBar extends LitElement {
     const displayIcon = p.icon || (p.isApp ? '📱' : p.name.substring(0, 2).toUpperCase());
     const hasCustomIcon = !!p.icon;
     const description = p.description || `${p.name} MCP`;
-    const isGenericDesc = description.endsWith(' MCP') || description === 'Photon tool';
+    const isGenericDesc =
+      description.endsWith(' MCP') ||
+      description === 'Photon tool' ||
+      /^add description/i.test(description.trim());
 
     return html`
       <div class="context-bar">
