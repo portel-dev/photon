@@ -138,8 +138,9 @@ export async function readLocalMetadata(): Promise<LocalMetadata> {
       const data = await fs.readFile(METADATA_FILE, 'utf-8');
       return JSON.parse(data);
     }
-  } catch {
-    // File doesn't exist or is invalid
+  } catch (error) {
+    const logger = createLogger({ component: 'marketplace-manager', minimal: true });
+    logger.warn(`Failed to read metadata file, using empty defaults: ${getErrorMessage(error)}`);
   }
   return { photons: {} };
 }
@@ -166,7 +167,17 @@ export class MarketplaceManager {
 
     if (existsSync(CONFIG_FILE)) {
       const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-      this.config = JSON.parse(data);
+      try {
+        this.config = JSON.parse(data);
+      } catch (parseError) {
+        this.logger.warn(
+          `Corrupted marketplaces.json, resetting to defaults: ${getErrorMessage(parseError)}`
+        );
+        this.config = {
+          marketplaces: [getDefaultMarketplace()],
+        };
+        await this.save();
+      }
     } else {
       // Initialize with default marketplace
       this.config = {
@@ -577,7 +588,13 @@ export class MarketplaceManager {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
-      const manifest = await this.getCachedManifest(marketplace.name);
+      let manifest = await this.getCachedManifest(marketplace.name);
+      if (!manifest) {
+        const updated = await this.updateMarketplaceCache(marketplace.name);
+        if (updated) {
+          manifest = await this.getCachedManifest(marketplace.name);
+        }
+      }
 
       if (manifest) {
         const photon = manifest.photons.find((p) => p.name === photonName);
@@ -600,7 +617,13 @@ export class MarketplaceManager {
     const enabled = this.getEnabled();
 
     for (const marketplace of enabled) {
-      const manifest = await this.getCachedManifest(marketplace.name);
+      let manifest = await this.getCachedManifest(marketplace.name);
+      if (!manifest) {
+        const updated = await this.updateMarketplaceCache(marketplace.name);
+        if (updated) {
+          manifest = await this.getCachedManifest(marketplace.name);
+        }
+      }
 
       if (manifest) {
         for (const photon of manifest.photons) {
