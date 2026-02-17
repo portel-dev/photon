@@ -9,7 +9,7 @@ import { existsSync } from 'fs';
 import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
-import { verifyContentHash, validateAssetPath } from './shared/security.js';
+import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
@@ -796,6 +796,56 @@ export class MarketplaceManager {
     }
 
     return results;
+  }
+
+  /**
+   * Repair missing assets for installed photons.
+   * Detects photons installed before the asset-download fix and re-downloads their assets.
+   * Safe to call on every startup — only fetches when assets are actually missing.
+   */
+  async repairMissingAssets(workingDir: string): Promise<number> {
+    const localMetadata = await readLocalMetadata();
+    let repaired = 0;
+
+    for (const [fileName, installInfo] of Object.entries(localMetadata.photons)) {
+      const photonName = fileName.replace(/\.photon\.ts$/, '');
+
+      // Look up marketplace manifest to find declared assets
+      const marketplace = this.getAll().find((m) => m.name === installInfo.marketplace);
+      if (!marketplace) continue;
+
+      const manifest = await this.getCachedManifest(marketplace.name);
+      if (!manifest) continue;
+
+      const metadata = manifest.photons.find((p) => p.name === photonName);
+      if (!metadata?.assets || metadata.assets.length === 0) continue;
+
+      // Check which assets are missing on disk
+      const missingAssets = metadata.assets.filter((assetPath) => {
+        const fullPath = path.join(workingDir, assetPath);
+        return !existsSync(fullPath);
+      });
+
+      if (missingAssets.length === 0) continue;
+
+      // Download missing assets
+      this.logger.info(`Repairing ${missingAssets.length} missing asset(s) for ${photonName}...`);
+      const fetched = await this.fetchAssets(marketplace, missingAssets);
+      for (const [assetPath, content] of fetched) {
+        const safePath = validateAssetPath(assetPath);
+        const assetTarget = path.join(workingDir, safePath);
+        if (!isPathWithin(assetTarget, workingDir)) continue;
+        const assetDir = path.dirname(assetTarget);
+        await fs.mkdir(assetDir, { recursive: true });
+        await fs.writeFile(assetTarget, content, 'utf-8');
+      }
+      if (fetched.size > 0) {
+        repaired++;
+        this.logger.info(`  ✅ Repaired assets for ${photonName}`);
+      }
+    }
+
+    return repaired;
   }
 
   /**

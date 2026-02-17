@@ -818,6 +818,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     logger.warn(`Failed to update marketplace caches: ${getErrorMessage(error)}`);
   }
 
+  // Repair missing assets from photons installed before the asset-download fix
+  try {
+    const repaired = await marketplace.repairMissingAssets(workingDir);
+    if (repaired > 0) {
+      logger.info(`Repaired assets for ${repaired} photon(s)`);
+    }
+  } catch (error) {
+    logger.warn(`Asset repair check failed: ${getErrorMessage(error)}`);
+  }
+
   // Discover all photons (user photons + bundled photons)
   const userPhotonList = await listPhotonMCPs(workingDir);
 
