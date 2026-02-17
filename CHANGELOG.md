@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.8.4](https://github.com/portel-dev/photon/compare/v1.8.3...v1.8.4) (2026-02-17)
+
+### Features
+
+* show version at Beam startup and compact port-finding output ([ce4ce81](https://github.com/portel-dev/photon/commit/ce4ce81fbd230db6100dc78ee42bd1a350a5525e))
+
+### Bug Fixes
+
+* auto-repair missing assets for photons installed before v1.8.3 ([f3ad70a](https://github.com/portel-dev/photon/commit/f3ad70a55daa87ebefff04cdf915763af246e834))
+* render markdown arrays as formatted content instead of chips ([8eea720](https://github.com/portel-dev/photon/commit/8eea72078d1227ac0adaa0838862d533a07c0c9b))
+
 ## [1.8.3](https://github.com/portel-dev/photon/compare/v1.8.2...v1.8.3) (2026-02-17)
 
 ### Bug Fixes
