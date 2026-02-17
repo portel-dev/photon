@@ -215,24 +215,28 @@ export class ThemeSettings extends LitElement {
       }
 
       .preset-swatch {
-        width: 20px;
-        height: 20px;
+        width: 28px;
+        height: 28px;
         border-radius: 50%;
-        margin: 0 auto 4px;
-        border: 2px solid var(--border-glass);
+        margin: 0 auto 6px;
+        border: 2px solid transparent;
+        box-shadow: 0 0 0 1px var(--border-glass);
       }
 
       .preset-btn.active .preset-swatch {
         border-color: white;
+        box-shadow: 0 0 0 1px var(--accent-primary);
       }
 
       /* Preview strip */
       .preview-strip {
         display: flex;
-        gap: 3px;
-        border-radius: var(--radius-sm);
+        gap: 4px;
+        border-radius: var(--radius-md);
         overflow: hidden;
         margin-top: var(--space-sm);
+        background: var(--bg-glass);
+        padding: 6px;
       }
 
       .preview-swatch {
@@ -240,13 +244,19 @@ export class ThemeSettings extends LitElement {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 3px;
+        gap: 4px;
       }
 
       .swatch-color {
         width: 100%;
-        height: 24px;
-        border-radius: 3px;
+        height: 32px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: transform 0.15s;
+      }
+
+      .swatch-color:hover {
+        transform: scaleY(1.15);
       }
 
       .swatch-label {
@@ -254,6 +264,7 @@ export class ThemeSettings extends LitElement {
         color: var(--t-muted);
         text-align: center;
         line-height: 1;
+        letter-spacing: 0.02em;
       }
 
       /* Reset */

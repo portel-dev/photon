@@ -277,13 +277,15 @@ export class BeamSidebar extends LitElement {
         width: 28px;
         height: 28px;
         border-radius: var(--radius-sm);
-        background: var(--bg-glass);
+        background: var(--bg-glass-strong);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
-        color: var(--accent-secondary);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--t-primary);
         flex-shrink: 0;
+        letter-spacing: 0.5px;
       }
 
       .photon-icon.emoji-icon {
@@ -873,6 +875,21 @@ export class BeamSidebar extends LitElement {
     // Determine icon: use photon's icon if available, otherwise default
     const displayIcon = photon.icon || (isApp ? '📱' : photon.name.substring(0, 2).toUpperCase());
     const hasCustomIcon = !!photon.icon;
+    const isEmoji = isApp || hasCustomIcon;
+
+    // Generate a deterministic hue from photon name for initials icons
+    let initialsStyle = '';
+    if (!isEmoji) {
+      let hash = 0;
+      for (let i = 0; i < photon.name.length; i++) {
+        hash = photon.name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      const isLight = this.theme === 'light';
+      initialsStyle = isLight
+        ? `background: hsl(${hue}, 30%, 90%); color: hsl(${hue}, 50%, 35%);`
+        : `background: hsl(${hue}, 35%, 22%); color: hsl(${hue}, 60%, 75%);`;
+    }
 
     return html`
       <li
@@ -886,7 +903,11 @@ export class BeamSidebar extends LitElement {
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(photon)}
         title="${photon.description || photon.name}${photon.path ? `\n${photon.path}` : ''}"
       >
-        <div class="photon-icon ${isApp || hasCustomIcon ? 'emoji-icon' : ''}" aria-hidden="true">
+        <div
+          class="photon-icon ${isEmoji ? 'emoji-icon' : ''}"
+          style="${initialsStyle}"
+          aria-hidden="true"
+        >
           ${displayIcon}
         </div>
         <div class="photon-info">
