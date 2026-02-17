@@ -107,6 +107,10 @@ export class MarketplaceView extends LitElement {
         color: var(--t-muted);
         line-height: 1.4;
         margin-bottom: var(--space-md);
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
 
       .tags {
