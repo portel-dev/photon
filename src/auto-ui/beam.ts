@@ -2150,25 +2150,38 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
       try {
-        const stateDir = path.join(os.homedir(), '.photon', 'state', photonName);
+        const photonBase = path.join(os.homedir(), '.photon');
+        // Check both storage locations:
+        // 1. @stateful runtime state: ~/.photon/state/{photon}/*.json
+        // 2. Legacy board-based storage: ~/.photon/{photon}/boards/*.json (e.g. kanban)
+        const candidateDirs = [
+          path.join(photonBase, 'state', photonName),
+          path.join(photonBase, photonName, 'boards'),
+        ];
+
         let instances: string[] = [];
         let autoInstance = '';
-        try {
-          const files = await fs.readdir(stateDir);
-          const jsonFiles = files.filter((f) => f.endsWith('.json'));
-          // Sort by mtime descending to find most recently active
-          const withMtime = await Promise.all(
-            jsonFiles.map(async (f) => {
-              const stat = await fs.stat(path.join(stateDir, f));
-              return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
-            })
-          );
-          withMtime.sort((a, b) => b.mtime - a.mtime);
-          instances = withMtime.map((f) => f.name);
-          autoInstance = instances[0] || 'default';
-        } catch {
-          // No state dir yet — no instances
+
+        for (const dir of candidateDirs) {
+          try {
+            const files = await fs.readdir(dir);
+            const jsonFiles = files.filter((f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl'));
+            if (jsonFiles.length === 0) continue;
+            const withMtime = await Promise.all(
+              jsonFiles.map(async (f) => {
+                const stat = await fs.stat(path.join(dir, f));
+                return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
+              })
+            );
+            withMtime.sort((a, b) => b.mtime - a.mtime);
+            instances = withMtime.map((f) => f.name);
+            autoInstance = instances[0] || 'default';
+            break; // Use first directory that has instances
+          } catch {
+            // Dir doesn't exist, try next
+          }
         }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ instances, autoInstance }));
       } catch (err) {
