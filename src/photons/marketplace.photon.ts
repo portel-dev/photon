@@ -109,29 +109,16 @@ export default class Marketplace {
 
     yield { emit: 'status', value: { step: 'downloading' }, message: `Downloading ${name}...` };
 
-    const targetPath = path.join(workingDir, `${name}.photon.ts`);
-    await fs.writeFile(targetPath, result.content, 'utf-8');
-
-    if (result.metadata) {
-      yield {
-        emit: 'status',
-        value: { step: 'saving-metadata' },
-        message: 'Saving installation metadata...',
-      };
-      const { calculateHash } = await import('../marketplace-manager.js');
-      const hash = calculateHash(result.content);
-      await manager.savePhotonMetadata(
-        `${name}.photon.ts`,
-        result.marketplace,
-        result.metadata,
-        hash
-      );
-    }
+    const { photonPath: targetPath, assetsInstalled } = await manager.installPhoton(
+      result,
+      name,
+      workingDir
+    );
 
     yield {
       emit: 'status',
       value: { step: 'done' },
-      message: `Installed ${name}`,
+      message: `Installed ${name}${assetsInstalled.length ? ` (+ ${assetsInstalled.length} assets)` : ''}`,
       name,
       path: targetPath,
       version: result.metadata?.version,
@@ -177,22 +164,15 @@ export default class Marketplace {
     }
 
     const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
-    const targetPath = path.join(workingDir, fileName);
 
     yield { emit: 'status', value: { step: 'installing' }, message: `Upgrading ${name}...` };
 
-    await fs.writeFile(targetPath, result.content, 'utf-8');
-
-    if (result.metadata) {
-      const { calculateHash } = await import('../marketplace-manager.js');
-      const hash = calculateHash(result.content);
-      await manager.savePhotonMetadata(fileName, result.marketplace, result.metadata, hash);
-    }
+    const { assetsInstalled } = await manager.installPhoton(result, name, workingDir);
 
     yield {
       emit: 'status',
       value: { step: 'done' },
-      message: `Upgraded ${name} from ${currentVersion} to ${result.metadata?.version || 'latest'}`,
+      message: `Upgraded ${name} from ${currentVersion} to ${result.metadata?.version || 'latest'}${assetsInstalled.length ? ` (+ ${assetsInstalled.length} assets)` : ''}`,
       currentVersion,
       newVersion: result.metadata?.version,
     };
