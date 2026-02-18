@@ -35,11 +35,27 @@ export class CustomUiRenderer extends LitElement {
 
       .loading {
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: 12px;
         height: 100%;
         color: var(--t-muted);
+        font-size: 13px;
         background: var(--bg-panel);
+      }
+
+      .loading-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--border-glass);
+        border-top-color: var(--t-muted);
+        border-radius: 50%;
+        animation: spin 0.75s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
       }
 
       .error-container {
@@ -303,7 +319,7 @@ export class CustomUiRenderer extends LitElement {
     }
 
     if (this._loading) {
-      return html`<div class="loading">Loading interface...</div>`;
+      return html`<div class="loading"><div class="loading-spinner"></div><span>Loading interface…</span></div>`;
     }
 
     return html`
