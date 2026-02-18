@@ -184,6 +184,9 @@ export class AppLayout extends LitElement {
   @property({ type: String })
   currentInstance = '';
 
+  @property({ type: String })
+  selectorMode: 'auto' | 'manual' = 'auto';
+
   @state()
   private _poppedOut = false;
 
@@ -216,10 +219,10 @@ export class AppLayout extends LitElement {
       ${showInstanceBar ? html`
         <div class="instance-bar">
           <span class="instance-label">Board</span>
-          <select class="instance-select" .value=${this.currentInstance} @change=${this._handleInstanceChange}>
-            <option value="__auto__">Auto (most recent)</option>
+          <select class="instance-select" @change=${this._handleInstanceChange}>
+            <option value="__auto__" ?selected=${this.selectorMode === 'auto'}>Auto (most recent)</option>
             ${this.instances.map(name => html`
-              <option value=${name} ?selected=${name === this.currentInstance}>${name}</option>
+              <option value=${name} ?selected=${this.selectorMode === 'manual' && name === this.currentInstance}>${name}</option>
             `)}
           </select>
         </div>
