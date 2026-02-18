@@ -1090,13 +1090,13 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
 
           // On macOS, editors like sed -i and some IDEs replace the file (new inode),
           // which kills the watcher. Re-watch via original path (symlink) so we
-          // re-resolve to the new real path.
+          // re-resolve to the new real path. Don't return — fall through to reload,
+          // because the new watcher won't fire (file was already written before it was set up).
           if (eventType === 'rename') {
             unwatchPhotonFile(watchPath);
             if (fs.existsSync(photonPath)) {
               watchPhotonFile(photonName, photonPath);
             }
-            return;
           }
 
           if (!fs.existsSync(photonPath)) return;
@@ -1163,15 +1163,19 @@ async function reloadPhoton(
 
     for (const session of sessions) {
       try {
-        const newInstance = await sessionManager.loader.loadFile(newPhotonPath);
-        const oldInstance = session.instance;
+        const newMcp = await sessionManager.loader.loadFile(newPhotonPath);
+        const oldMcp = session.instance;
 
-        if (oldInstance && typeof oldInstance === 'object') {
-          for (const key of Object.keys(oldInstance)) {
-            const value = (oldInstance as any)[key];
+        // Copy state from old CLASS INSTANCE to new CLASS INSTANCE.
+        // session.instance is a PhotonMCPClassExtended = { instance, name, schemas, ... }
+        // We must copy state on the .instance (actual class obj), NOT the descriptor level —
+        // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
+        if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
+          for (const key of Object.keys(oldMcp.instance)) {
+            const value = (oldMcp.instance as any)[key];
             if (typeof value !== 'function' && key !== 'constructor') {
               try {
-                (newInstance as any)[key] = value;
+                (newMcp.instance as any)[key] = value;
               } catch {
                 // Some properties may be read-only
               }
@@ -1179,7 +1183,7 @@ async function reloadPhoton(
           }
         }
 
-        if (sessionManager.updateSessionInstance(session.id, newInstance)) {
+        if (sessionManager.updateSessionInstance(session.id, newMcp)) {
           updatedCount++;
         }
       } catch (err) {
