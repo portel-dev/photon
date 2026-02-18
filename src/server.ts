@@ -45,13 +45,7 @@ import { generatePlaygroundHTML } from './auto-ui/playground-html.js';
 import { subscribeChannel, pingDaemon, publishToChannel } from './daemon/client.js';
 import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
-import {
-  isLocalRequest,
-  readBody,
-  setSecurityHeaders,
-  isPathWithin,
-  validateAssetPath,
-} from './shared/security.js';
+import { isLocalRequest, readBody, setSecurityHeaders } from './shared/security.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -1293,7 +1287,7 @@ export class PhotonServer {
     workingDir: string,
     source: { marketplace: Marketplace; metadata?: PhotonMetadata }
   ): Promise<void> {
-    const { MarketplaceManager, calculateHash } = await import('./marketplace-manager.js');
+    const { MarketplaceManager } = await import('./marketplace-manager.js');
     const manager = new MarketplaceManager();
     await manager.initialize();
 
@@ -1302,37 +1296,7 @@ export class PhotonServer {
       throw new Error(`Failed to download photon: ${photonName}`);
     }
 
-    // Save photon file
-    const { default: fsPromises } = await import('fs/promises');
-    const filePath = (await import('path')).join(workingDir, `${photonName}.photon.ts`);
-    const fileName = `${photonName}.photon.ts`;
-
-    // Ensure working directory exists
-    await fsPromises.mkdir(workingDir, { recursive: true });
-    await fsPromises.writeFile(filePath, result.content, 'utf-8');
-
-    // Save metadata
-    if (source.metadata) {
-      const contentHash = calculateHash(result.content);
-      await manager.savePhotonMetadata(fileName, source.marketplace, source.metadata, contentHash);
-
-      // Download assets if present
-      if (source.metadata.assets && source.metadata.assets.length > 0) {
-        const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
-        for (const [assetPath, content] of assets) {
-          // Security: validate asset path to prevent traversal
-          const safePath = validateAssetPath(assetPath);
-          const targetPath = (await import('path')).join(workingDir, safePath);
-          if (!isPathWithin(targetPath, workingDir)) {
-            this.log('warn', `Skipping unsafe asset path: ${assetPath}`);
-            continue;
-          }
-          const targetDir = (await import('path')).dirname(targetPath);
-          await fsPromises.mkdir(targetDir, { recursive: true });
-          await fsPromises.writeFile(targetPath, content, 'utf-8');
-        }
-      }
-    }
+    const { photonPath: filePath } = await manager.installPhoton(result, photonName, workingDir);
 
     // Update options and load
     this.options.filePath = filePath;
