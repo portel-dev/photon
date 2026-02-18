@@ -13,6 +13,7 @@
 import * as net from 'net';
 import * as http from 'http';
 import * as fs from 'fs';
+import * as path from 'path';
 import { SessionManager } from './session-manager.js';
 import {
   DaemonRequest,
@@ -21,7 +22,7 @@ import {
   type ScheduledJob,
   type LockInfo,
 } from './protocol.js';
-import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
+import { setPromptHandler, type PromptHandler, DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
@@ -1063,26 +1064,39 @@ async function persistInstanceState(
 // ════════════════════════════════════════════════════════════════════════════════
 
 function watchPhotonFile(photonName: string, photonPath: string): void {
-  if (fileWatchers.has(photonPath)) return;
+  // Resolve symlink so fs.watch() fires when the real file changes.
+  // On macOS, fs.watch on a symlink only detects changes to the symlink inode itself —
+  // NOT to the symlink's target. Resolving to the real path fixes hot-reload for
+  // developer workflows where ~/.photon/*.photon.ts are symlinks to project directories.
+  let watchPath = photonPath;
+  try {
+    watchPath = fs.realpathSync(photonPath);
+  } catch {
+    // Symlink target doesn't exist yet or resolution failed — fall back to original path
+  }
+
+  if (fileWatchers.has(watchPath)) return;
 
   try {
-    const watcher = fs.watch(photonPath, (eventType) => {
+    const watcher = fs.watch(watchPath, (eventType) => {
       // Debounce: 100ms (same as Beam)
-      const existing = watchDebounce.get(photonPath);
+      const existing = watchDebounce.get(watchPath);
       if (existing) clearTimeout(existing);
 
       watchDebounce.set(
-        photonPath,
+        watchPath,
         setTimeout(async () => {
-          watchDebounce.delete(photonPath);
+          watchDebounce.delete(watchPath);
 
           // On macOS, editors like sed -i and some IDEs replace the file (new inode),
-          // which kills the watcher. Re-watch if file still exists.
+          // which kills the watcher. Re-watch via original path (symlink) so we
+          // re-resolve to the new real path.
           if (eventType === 'rename') {
-            unwatchPhotonFile(photonPath);
+            unwatchPhotonFile(watchPath);
             if (fs.existsSync(photonPath)) {
               watchPhotonFile(photonName, photonPath);
             }
+            return;
           }
 
           if (!fs.existsSync(photonPath)) return;
@@ -1099,26 +1113,27 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
 
     watcher.on('error', (err) => {
       logger.warn('File watcher error', { photonName, error: getErrorMessage(err) });
-      unwatchPhotonFile(photonPath);
+      unwatchPhotonFile(watchPath);
     });
 
-    fileWatchers.set(photonPath, watcher);
-    logger.info('Watching photon file', { photonName, path: photonPath });
+    fileWatchers.set(watchPath, watcher);
+    logger.info('Watching photon file', { photonName, path: watchPath });
   } catch (err) {
     logger.warn('Failed to watch photon file', { photonName, error: getErrorMessage(err) });
   }
 }
 
-function unwatchPhotonFile(photonPath: string): void {
-  const watcher = fileWatchers.get(photonPath);
+function unwatchPhotonFile(watchPath: string): void {
+  // watchPath must be the real path (key stored in fileWatchers)
+  const watcher = fileWatchers.get(watchPath);
   if (watcher) {
     watcher.close();
-    fileWatchers.delete(photonPath);
+    fileWatchers.delete(watchPath);
   }
-  const timer = watchDebounce.get(photonPath);
+  const timer = watchDebounce.get(watchPath);
   if (timer) {
     clearTimeout(timer);
-    watchDebounce.delete(photonPath);
+    watchDebounce.delete(watchPath);
   }
 }
 
@@ -1240,6 +1255,37 @@ function resetIdleTimer(): void {
 // SERVER
 // ════════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════════
+// STARTUP WATCH (Proactive — all installed photons watched from daemon start)
+// ════════════════════════════════════════════════════════════════════════════════
+
+function startupWatchPhotons(): void {
+  const photonDir = DEFAULT_PHOTON_DIR;
+  if (!fs.existsSync(photonDir)) return;
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(photonDir, { withFileTypes: true });
+  } catch (err) {
+    logger.warn('Failed to scan photon directory at startup', { error: getErrorMessage(err) });
+    return;
+  }
+
+  const extensions = ['.photon.ts', '.photon.js'];
+  for (const entry of entries) {
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    const ext = extensions.find((e) => entry.name.endsWith(e));
+    if (!ext) continue;
+
+    const photonName = entry.name.slice(0, -ext.length);
+    const photonPath = path.join(photonDir, entry.name);
+    photonPaths.set(photonName, photonPath);
+    watchPhotonFile(photonName, photonPath);
+  }
+
+  logger.info('Startup watch registered', { count: fileWatchers.size, dir: photonDir });
+}
+
 function startServer(): void {
   const server = net.createServer((socket) => {
     logger.info('Client connected');
@@ -1350,6 +1396,7 @@ function shutdown(): void {
 
 // Main execution
 (() => {
+  startupWatchPhotons();
   startServer();
   startWebhookServer(WEBHOOK_PORT);
   startIdleTimer();
