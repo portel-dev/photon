@@ -336,34 +336,13 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
           logger.error(`Failed to fetch MCP content`);
           process.exit(1);
         }
-        const content = result.content;
 
-        // Write file
-        await fs.writeFile(filePath, content, 'utf-8');
-
-        // Save installation metadata if we have it
-        if (selectedMetadata) {
-          const { calculateHash } = await import('../../marketplace-manager.js');
-          const contentHash = calculateHash(content);
-          await manager.savePhotonMetadata(
-            fileName,
-            selectedMarketplace,
-            selectedMetadata,
-            contentHash
-          );
-
-          // Download assets if present
-          if (selectedMetadata.assets && selectedMetadata.assets.length > 0) {
-            console.error(`\n📦 Downloading assets...`);
-            const assets = await manager.fetchAssets(selectedMarketplace, selectedMetadata.assets);
-
-            for (const [assetPath, content] of assets) {
-              const targetPath = path.join(workingDir, assetPath);
-              const targetDir = path.dirname(targetPath);
-              await fs.mkdir(targetDir, { recursive: true });
-              await fs.writeFile(targetPath, content, 'utf-8');
-              console.error(`   📄 ${assetPath}`);
-            }
+        // Write file + save metadata + download assets (canonical install path)
+        const { assetsInstalled } = await manager.installPhoton(result, name, workingDir);
+        if (assetsInstalled.length > 0) {
+          console.error(`\n📦 Downloaded assets:`);
+          for (const assetPath of assetsInstalled) {
+            console.error(`   📄 ${assetPath}`);
           }
         }
 
