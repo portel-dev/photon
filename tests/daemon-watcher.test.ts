@@ -417,7 +417,8 @@ async function testFileWatcher() {
     fs.writeFileSync(PHOTON_FILE, content + '\n// inode-replaced\n');
 
     // Wait for rename detection + re-watch + reload
-    await new Promise((r) => setTimeout(r, 800));
+    // macOS fs.watch rename events can be slow — give extra time
+    await new Promise((r) => setTimeout(r, 1500));
 
     const log = getDaemonLog().join('\n');
     assert.ok(
@@ -851,7 +852,269 @@ async function testWatcherSurvivesReloadCycle() {
 }
 
 // ============================================================================
-// Test 6: Source verification — code patterns exist
+// Test 7: Symlink watching — daemon watches real path, not symlink inode
+// ============================================================================
+
+const SYMLINK_REAL_DIR = path.join(TEST_DIR, 'real-project');
+const SYMLINK_PHOTON_DIR = path.join(TEST_DIR, 'photon-home');
+const REAL_PHOTON_FILE = path.join(SYMLINK_REAL_DIR, 'symtest.photon.ts');
+const SYMLINKED_PHOTON_FILE = path.join(SYMLINK_PHOTON_DIR, 'symtest.photon.ts');
+
+const SYMTEST_SOURCE_V1 = `
+export default class Symtest {
+  async version() {
+    return { version: 1 };
+  }
+}
+`;
+
+const SYMTEST_SOURCE_V2 = `
+export default class Symtest {
+  async version() {
+    return { version: 2 };
+  }
+}
+`;
+
+async function testSymlinkWatching() {
+  console.log('\nSymlink Watching (resolves real path):');
+
+  // Setup: create real file + symlink pointing to it
+  fs.mkdirSync(SYMLINK_REAL_DIR, { recursive: true });
+  fs.mkdirSync(SYMLINK_PHOTON_DIR, { recursive: true });
+  fs.writeFileSync(REAL_PHOTON_FILE, SYMTEST_SOURCE_V1);
+  fs.symlinkSync(REAL_PHOTON_FILE, SYMLINKED_PHOTON_FILE);
+
+  await test('daemon resolves symlink and watches real path', async () => {
+    clearDaemonLog();
+
+    // Initialize via the SYMLINK path
+    const response = await sendRequest({
+      type: 'command',
+      id: 'sym_init',
+      photonName: 'symtest',
+      photonPath: SYMLINKED_PHOTON_FILE,
+      sessionId: 'sym-session',
+      clientType: 'test',
+      method: 'version',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+    assert.equal((response.data as any).version, 1);
+
+    const log = getDaemonLog().join('\n');
+    // Watcher should log the REAL path (resolved), not the symlink
+    assert.ok(
+      log.includes('Watching photon file') && log.includes(SYMLINK_REAL_DIR),
+      `Expected watcher to use real path (${SYMLINK_REAL_DIR}), got log:\n${log}`
+    );
+  });
+
+  await test('editing the REAL file (symlink target) triggers reload', async () => {
+    clearDaemonLog();
+
+    // Edit the REAL file — NOT the symlink
+    fs.writeFileSync(REAL_PHOTON_FILE, SYMTEST_SOURCE_V2);
+
+    // Wait for debounce + reload
+    await new Promise((r) => setTimeout(r, 800));
+
+    const log = getDaemonLog().join('\n');
+    assert.ok(
+      log.includes('File changed, auto-reloading'),
+      `Expected auto-reload when editing real file. Log:\n${log}`
+    );
+    assert.ok(log.includes('Photon reloaded successfully'), 'Expected successful reload');
+  });
+
+  await test('reloaded code uses new version from real file', async () => {
+    const response = await sendRequest({
+      type: 'command',
+      id: 'sym_v2',
+      photonName: 'symtest',
+      photonPath: SYMLINKED_PHOTON_FILE,
+      sessionId: 'sym-session',
+      clientType: 'test',
+      method: 'version',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+    assert.equal(
+      (response.data as any).version,
+      2,
+      `Expected version 2 after reload, got ${JSON.stringify(response.data)}`
+    );
+  });
+
+  await test('file replacement via symlink target (sed -i) re-establishes watcher', async () => {
+    clearDaemonLog();
+
+    // Simulate sed -i on the REAL file: delete + recreate (new inode)
+    const content = fs.readFileSync(REAL_PHOTON_FILE, 'utf-8');
+    fs.unlinkSync(REAL_PHOTON_FILE);
+    fs.writeFileSync(REAL_PHOTON_FILE, content + '\n// inode-replaced-via-symlink\n');
+
+    // macOS fs.watch rename events can be slow — give extra time
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const log = getDaemonLog().join('\n');
+    assert.ok(
+      log.includes('File changed, auto-reloading'),
+      'Expected auto-reload after inode replacement of symlink target'
+    );
+  });
+}
+
+// ============================================================================
+// Test 8: Startup watch — daemon watches all photons from boot
+// ============================================================================
+
+async function testStartupWatch() {
+  console.log('\nStartup Watch (proactive scan at boot):');
+
+  // Kill current daemon and restart to test startup behavior
+  await killDaemon();
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {}
+
+  // Write a NEW photon file before starting daemon
+  const startupPhotonFile = path.join(TEST_DIR, 'startup-test.photon.ts');
+  fs.writeFileSync(
+    startupPhotonFile,
+    `
+export default class StartupTest {
+  async ping() { return { pong: true }; }
+}
+`
+  );
+
+  // We can't override DEFAULT_PHOTON_DIR, but we CAN verify:
+  // 1. The daemon source has startupWatchPhotons()
+  // 2. After starting, a tool call + file edit still works
+  // (The full startup scan is verified via the source pattern test)
+
+  await startDaemon();
+
+  await test('daemon starts successfully and accepts connections', async () => {
+    // Send a basic command to verify the daemon is responsive
+    const response = await sendRequest({
+      type: 'command',
+      id: 'startup_ping',
+      photonName: 'test-watcher',
+      photonPath: PHOTON_FILE,
+      sessionId: 'startup-session',
+      clientType: 'test',
+      method: 'get',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+  });
+
+  await test('file edit detected on daemon that was freshly started', async () => {
+    clearDaemonLog();
+
+    // Edit the test file — watcher was set up during the first command
+    fs.appendFileSync(PHOTON_FILE, '\n// startup-watcher-test\n');
+    await new Promise((r) => setTimeout(r, 600));
+
+    const log = getDaemonLog().join('\n');
+    assert.ok(
+      log.includes('File changed, auto-reloading'),
+      'Expected file change detection on fresh daemon'
+    );
+  });
+}
+
+// ============================================================================
+// Test 9: Content-addressed cache invalidation
+// ============================================================================
+
+async function testContentAddressedCache() {
+  console.log('\nContent-Addressed Cache (stale .mjs never used):');
+
+  const cacheTestFile = path.join(TEST_DIR, 'cache-test.photon.ts');
+
+  const SOURCE_A = `
+export default class CacheTest {
+  async value() { return { answer: 'alpha' }; }
+}
+`;
+
+  const SOURCE_B = `
+export default class CacheTest {
+  async value() { return { answer: 'bravo' }; }
+}
+`;
+
+  fs.writeFileSync(cacheTestFile, SOURCE_A);
+
+  await test('first load compiles and returns correct result', async () => {
+    const response = await sendRequest({
+      type: 'command',
+      id: 'cache_v1',
+      photonName: 'cache-test',
+      photonPath: cacheTestFile,
+      sessionId: 'cache-session',
+      clientType: 'test',
+      method: 'value',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+    assert.equal((response.data as any).answer, 'alpha');
+  });
+
+  await test('after source change + reload, new code is used (not stale cache)', async () => {
+    // Write new content
+    fs.writeFileSync(cacheTestFile, SOURCE_B);
+
+    // Wait for watcher to detect and reload
+    await new Promise((r) => setTimeout(r, 800));
+
+    const response = await sendRequest({
+      type: 'command',
+      id: 'cache_v2',
+      photonName: 'cache-test',
+      photonPath: cacheTestFile,
+      sessionId: 'cache-session',
+      clientType: 'test',
+      method: 'value',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+    assert.equal(
+      (response.data as any).answer,
+      'bravo',
+      `Expected "bravo" after source change, got "${(response.data as any).answer}" — stale cache!`
+    );
+  });
+
+  await test('reverting source back to original also picks up fresh compile', async () => {
+    // Write back original content
+    fs.writeFileSync(cacheTestFile, SOURCE_A);
+    await new Promise((r) => setTimeout(r, 800));
+
+    const response = await sendRequest({
+      type: 'command',
+      id: 'cache_v3',
+      photonName: 'cache-test',
+      photonPath: cacheTestFile,
+      sessionId: 'cache-session',
+      clientType: 'test',
+      method: 'value',
+      args: {},
+    });
+    assert.equal(response.type, 'result');
+    assert.equal(
+      (response.data as any).answer,
+      'alpha',
+      `Expected "alpha" after revert, got "${(response.data as any).answer}"`
+    );
+  });
+}
+
+// ============================================================================
+// Test 10: Source verification — code patterns exist
 // ============================================================================
 
 async function testSourcePatterns() {
@@ -957,6 +1220,63 @@ async function testSourcePatterns() {
       'Expected rename event handling for macOS file replacement'
     );
   });
+
+  await test('watchPhotonFile resolves symlinks via realpathSync', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      source.includes('fs.realpathSync(photonPath)'),
+      'Expected realpathSync in watchPhotonFile for symlink resolution'
+    );
+  });
+
+  await test('startupWatchPhotons scans photon directory at boot', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      source.includes('function startupWatchPhotons'),
+      'Expected startupWatchPhotons function'
+    );
+    assert.ok(
+      source.includes('DEFAULT_PHOTON_DIR'),
+      'Expected DEFAULT_PHOTON_DIR import for startup scan'
+    );
+    assert.ok(
+      source.includes('.photon.ts') && source.includes('.photon.js'),
+      'Expected both .photon.ts and .photon.js extensions in startup scan'
+    );
+  });
+
+  await test('startupWatchPhotons is called in daemon main IIFE', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), 'src/daemon/server.ts'),
+      'utf-8'
+    );
+    // Find the main IIFE and verify startupWatchPhotons is called before startServer
+    const iifeMatch = source.match(/\(\(\)\s*=>\s*\{[\s\S]*?startServer/);
+    assert.ok(iifeMatch, 'Expected main IIFE with startServer');
+    assert.ok(
+      iifeMatch![0].includes('startupWatchPhotons'),
+      'Expected startupWatchPhotons() called before startServer() in main IIFE'
+    );
+  });
+
+  await test('compiler uses content-addressed caching (hash in filename)', async () => {
+    const source = await fsPromises.readFile(
+      path.join(process.cwd(), '../photon-core/src/compiler.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      source.includes('createHash') && source.includes('.mjs'),
+      'Expected content hash used in .mjs filename'
+    );
+    // Verify cache-hit check exists
+    assert.ok(source.includes('fs.access(cachedJsPath)'), 'Expected cache-hit check via fs.access');
+  });
 }
 
 // ============================================================================
@@ -999,6 +1319,9 @@ async function teardown() {
     await testInstanceRoutingAfterRestart();
     await testSubscriptionRetryOnInitialFailure();
     await testWatcherSurvivesReloadCycle();
+    await testSymlinkWatching();
+    await testStartupWatch();
+    await testContentAddressedCache();
     await testSourcePatterns();
   } catch (err) {
     console.error('\nFATAL:', err);
