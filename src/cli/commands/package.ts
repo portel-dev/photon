@@ -362,7 +362,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
 
         // Setup MCP dependencies if present
         if (!options.skipMcpSetup) {
-          const { configured, skipped } = await setupMCPDependencies(content, name, {
+          const { configured, skipped } = await setupMCPDependencies(result.content, name, {
             skipPrompts: options.yes,
           });
 
