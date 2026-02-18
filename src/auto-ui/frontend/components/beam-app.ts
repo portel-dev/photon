@@ -1692,6 +1692,7 @@ export class BeamApp extends LitElement {
   @state() private _currentInstance = 'default';
   @state() private _instances: string[] = [];
   @state() private _autoInstance = '';
+  @state() private _instanceSelectorMode: 'auto' | 'manual' = 'auto';
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -2063,6 +2064,23 @@ export class BeamApp extends LitElement {
           method: 'photon/notifications/emit',
           params: { emit: 'board-update', ...data },
         });
+
+        // Auto mode: follow the board that just had activity
+        if (
+          this._instanceSelectorMode === 'auto' &&
+          data?.board &&
+          data?.photon === this._selectedPhoton?.name &&
+          data.board !== this._currentInstance
+        ) {
+          this._handleInstanceChange(
+            new CustomEvent('instance-change', { detail: { instance: data.board } })
+          );
+        }
+
+        // Keep instance list fresh when new boards appear
+        if (data?.photon === this._selectedPhoton?.name) {
+          this._fetchInstances(data.photon);
+        }
       });
 
       // Handle refresh-needed via unified JSON-RPC format
@@ -3326,6 +3344,7 @@ export class BeamApp extends LitElement {
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
               .instances=${this._instances}
               .currentInstance=${this._currentInstance}
+              .selectorMode=${this._instanceSelectorMode}
               @instance-change=${this._handleInstanceChange}
             >
               <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
@@ -3671,8 +3690,16 @@ export class BeamApp extends LitElement {
   private async _handleInstanceChange(e: CustomEvent) {
     if (!this._selectedPhoton) return;
     const photonName = this._selectedPhoton.name;
-    let target = e.detail.instance as string;
-    if (target === '__auto__') target = this._autoInstance || 'default';
+    const selected = e.detail.instance as string;
+
+    // Track whether user explicitly chose a board or left it on auto
+    if (selected === '__auto__') {
+      this._instanceSelectorMode = 'auto';
+    } else {
+      this._instanceSelectorMode = 'manual';
+    }
+
+    const target = selected === '__auto__' ? (this._autoInstance || 'default') : selected;
     if (target === this._currentInstance) return;
     try {
       await mcpClient.callTool(`${photonName}/_use`, { name: target });
