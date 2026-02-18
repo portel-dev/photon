@@ -3288,9 +3288,12 @@ export class BeamApp extends LitElement {
         const appRenderer = this._isExecuting
           ? html`
               <div
-                style="display: flex; align-items: center; justify-content: center; height: calc(100vh - 140px); opacity: 0.5;"
+                style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: calc(100vh - 140px);"
               >
                 <span class="spinner"></span>
+                <span style="color: var(--t-muted); font-size: 13px;">
+                  ${this._progress?.message || 'Starting up…'}
+                </span>
               </div>
             `
           : isExternalMCP
