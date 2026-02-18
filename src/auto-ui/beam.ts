@@ -2374,20 +2374,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             return;
           }
 
-          // Write to working directory
-          const targetPath = path.join(workingDir, `${name}.photon.ts`);
-          await fs.writeFile(targetPath, result.content, 'utf-8');
-
-          // Save metadata if available
-          if (result.metadata) {
-            const hash = (await import('../marketplace-manager.js')).calculateHash(result.content);
-            await marketplace.savePhotonMetadata(
-              `${name}.photon.ts`,
-              result.marketplace,
-              result.metadata,
-              hash
-            );
-          }
+          // Write file + save metadata + download assets (canonical install path)
+          const { photonPath: targetPath, assetsInstalled } = await marketplace.installPhoton(
+            result,
+            name,
+            workingDir
+          );
 
           // Trigger immediate load so the photon appears in the sidebar right away
           // (don't wait for the file watcher which has debounce delay)
@@ -2400,6 +2392,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               name,
               path: targetPath,
               version: result.metadata?.version,
+              assetsInstalled,
             })
           );
         } catch {

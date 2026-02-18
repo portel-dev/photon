@@ -49,7 +49,6 @@ import { registerMarketplaceCommands } from './cli/commands/marketplace.js';
 import { registerInfoCommand } from './cli/commands/info.js';
 import { registerPackageCommands } from './cli/commands/package.js';
 import { registerPackageAppCommand } from './cli/commands/package-app.js';
-import { validateAssetPath, isPathWithin } from './shared/security.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // BUNDLED PHOTONS
@@ -1034,7 +1033,7 @@ program
       let unresolvedPhoton: import('./server.js').UnresolvedPhoton | undefined;
 
       if (!filePath) {
-        const { MarketplaceManager, calculateHash } = await import('./marketplace-manager.js');
+        const { MarketplaceManager } = await import('./marketplace-manager.js');
         const manager = new MarketplaceManager();
         await manager.initialize();
 
@@ -1074,38 +1073,8 @@ program
             });
           }
 
-          // Ensure working directory exists and save
-          await ensureWorkingDir(workingDir);
-          const targetPath = path.join(workingDir, `${name}.photon.ts`);
-          await fs.writeFile(targetPath, result.content, 'utf-8');
-
-          // Save metadata
-          if (source.metadata) {
-            const contentHash = calculateHash(result.content);
-            await manager.savePhotonMetadata(
-              `${name}.photon.ts`,
-              source.marketplace,
-              source.metadata,
-              contentHash
-            );
-
-            // Download assets
-            if (source.metadata.assets && source.metadata.assets.length > 0) {
-              const assets = await manager.fetchAssets(source.marketplace, source.metadata.assets);
-              for (const [assetPath, content] of assets) {
-                // Security: validate asset path to prevent traversal
-                const safePath = validateAssetPath(assetPath);
-                const assetTarget = path.join(workingDir, safePath);
-                if (!isPathWithin(assetTarget, workingDir)) {
-                  console.error(`Skipping unsafe asset path: ${assetPath}`);
-                  continue;
-                }
-                const assetDir = path.dirname(assetTarget);
-                await fs.mkdir(assetDir, { recursive: true });
-                await fs.writeFile(assetTarget, content, 'utf-8');
-              }
-            }
-          }
+          // Write file + save metadata + download assets (canonical install path)
+          const { photonPath: targetPath } = await manager.installPhoton(result, name, workingDir);
 
           console.error(`Installed ${name}`);
           filePath = targetPath;

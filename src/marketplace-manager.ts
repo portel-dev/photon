@@ -983,6 +983,52 @@ export class MarketplaceManager {
   }
 
   /**
+   * Install a photon and its assets to the working directory.
+   *
+   * This is the canonical installation path — used by both CLI and Beam UI.
+   * Handles writing the .photon.ts file, saving metadata, and downloading
+   * all declared asset files (UI templates, etc.) with path-traversal protection.
+   *
+   * @param result - The result from fetchMCP()
+   * @param name - Photon name (used for filename)
+   * @param workingDir - Directory to install into (e.g., ~/.photon)
+   * @returns Installed file path and list of asset paths written
+   */
+  async installPhoton(
+    result: { content: string; marketplace: Marketplace; metadata?: PhotonMetadata },
+    name: string,
+    workingDir: string
+  ): Promise<{ photonPath: string; assetsInstalled: string[] }> {
+    // Write the .photon.ts file
+    await fs.mkdir(workingDir, { recursive: true });
+    const photonPath = path.join(workingDir, `${name}.photon.ts`);
+    await fs.writeFile(photonPath, result.content, 'utf-8');
+
+    const assetsInstalled: string[] = [];
+
+    if (result.metadata) {
+      // Save install metadata
+      const hash = calculateHash(result.content);
+      await this.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
+
+      // Download and save all declared assets
+      if (result.metadata.assets && result.metadata.assets.length > 0) {
+        const assets = await this.fetchAssets(result.marketplace, result.metadata.assets);
+        for (const [assetPath, content] of assets) {
+          const safePath = validateAssetPath(assetPath);
+          const assetTarget = path.join(workingDir, safePath);
+          if (!isPathWithin(assetTarget, workingDir)) continue;
+          await fs.mkdir(path.dirname(assetTarget), { recursive: true });
+          await fs.writeFile(assetTarget, content, 'utf-8');
+          assetsInstalled.push(assetPath);
+        }
+      }
+    }
+
+    return { photonPath, assetsInstalled };
+  }
+
+  /**
    * Save installation metadata for a Photon
    */
   async savePhotonMetadata(

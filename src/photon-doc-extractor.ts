@@ -293,7 +293,9 @@ export class PhotonDocExtractor {
     try {
       const stats = await fs.stat(assetFolder);
       if (stats.isDirectory()) {
-        // Recursively find all files in the asset folder
+        // Only scan recognized asset subdirectories, not runtime data folders
+        const ASSET_SUBDIRS = ['ui', 'prompts', 'resources'];
+
         const findFiles = async (currentDir: string, relativePath: string) => {
           const entries = await fs.readdir(currentDir, { withFileTypes: true });
           for (const entry of entries) {
@@ -310,7 +312,17 @@ export class PhotonDocExtractor {
           }
         };
 
-        await findFiles(assetFolder, '');
+        for (const subdir of ASSET_SUBDIRS) {
+          const subdirPath = path.join(assetFolder, subdir);
+          try {
+            const subdirStats = await fs.stat(subdirPath);
+            if (subdirStats.isDirectory()) {
+              await findFiles(subdirPath, subdir);
+            }
+          } catch {
+            // Subdir doesn't exist, skip
+          }
+        }
       }
     } catch {
       // Asset folder doesn't exist, ignore
