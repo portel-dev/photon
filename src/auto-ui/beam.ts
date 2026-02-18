@@ -2141,6 +2141,43 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return;
     }
 
+    // Instances API: list instances for a stateful photon + identify "auto" (most recently active)
+    if (url.pathname.startsWith('/api/instances/')) {
+      const photonName = url.pathname.slice('/api/instances/'.length);
+      if (!photonName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing photon name' }));
+        return;
+      }
+      try {
+        const stateDir = path.join(os.homedir(), '.photon', 'state', photonName);
+        let instances: string[] = [];
+        let autoInstance = '';
+        try {
+          const files = await fs.readdir(stateDir);
+          const jsonFiles = files.filter((f) => f.endsWith('.json'));
+          // Sort by mtime descending to find most recently active
+          const withMtime = await Promise.all(
+            jsonFiles.map(async (f) => {
+              const stat = await fs.stat(path.join(stateDir, f));
+              return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
+            })
+          );
+          withMtime.sort((a, b) => b.mtime - a.mtime);
+          instances = withMtime.map((f) => f.name);
+          autoInstance = instances[0] || 'default';
+        } catch {
+          // No state dir yet — no instances
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ instances, autoInstance }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: String(err) }));
+      }
+      return;
+    }
+
     // Platform Bridge API: Generate platform compatibility script
     // Uses the unified bridge architecture based on @modelcontextprotocol/ext-apps SDK
     if (url.pathname === '/api/platform-bridge') {

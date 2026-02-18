@@ -1690,6 +1690,8 @@ export class BeamApp extends LitElement {
     marketplace: string;
   }> = [];
   @state() private _currentInstance = 'default';
+  @state() private _instances: string[] = [];
+  @state() private _autoInstance = '';
   @state() private _selectedPrompt: any = null;
   @state() private _selectedResource: any = null;
   @state() private _promptArguments: Record<string, string> = {};
@@ -3322,6 +3324,9 @@ export class BeamApp extends LitElement {
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
+              .instances=${this._instances}
+              .currentInstance=${this._currentInstance}
+              @instance-change=${this._handleInstanceChange}
             >
               <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
               <div slot="popout" style="height: 100%;">
@@ -3633,6 +3638,11 @@ export class BeamApp extends LitElement {
       await this._restoreInstance(this._selectedPhoton.name);
     }
 
+    // Fetch available instances for stateful apps (populates board selector)
+    if (this._selectedPhoton.stateful && this._selectedPhoton.isApp) {
+      this._fetchInstances(this._selectedPhoton.name);
+    }
+
     // For Apps, automatically select the main method to show Custom UI
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
       this._selectedMethod = this._selectedPhoton.appEntry;
@@ -3641,6 +3651,40 @@ export class BeamApp extends LitElement {
       this._view = 'list';
     }
     this._updateHash();
+  }
+
+  /** Fetch available instances for a stateful photon from the server */
+  private async _fetchInstances(photonName: string) {
+    try {
+      const res = await fetch(`/api/instances/${photonName}`);
+      if (res.ok) {
+        const data = await res.json();
+        this._instances = data.instances || [];
+        this._autoInstance = data.autoInstance || '';
+      }
+    } catch {
+      // Non-critical — instance selector just won't show
+    }
+  }
+
+  /** Handle board/instance selection from app-layout dropdown */
+  private async _handleInstanceChange(e: CustomEvent) {
+    if (!this._selectedPhoton) return;
+    const photonName = this._selectedPhoton.name;
+    let target = e.detail.instance as string;
+    if (target === '__auto__') target = this._autoInstance || 'default';
+    if (target === this._currentInstance) return;
+    try {
+      await mcpClient.callTool(`${photonName}/_use`, { name: target });
+      this._currentInstance = target;
+      sessionStorage.setItem(`photon-instance:${photonName}`, target);
+      // Re-invoke main() to load the new board
+      if (this._selectedMethod) {
+        this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+      }
+    } catch {
+      showToast('Failed to switch board', 'error');
+    }
   }
 
   /**
