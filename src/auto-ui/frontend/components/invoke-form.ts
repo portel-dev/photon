@@ -748,8 +748,18 @@ export class InvokeForm extends LitElement {
     const schemaAccept = (schema as any).accept || '';
     const isFileBySchema = fmt === 'path' || fmt === 'file' || fmt === 'directory';
     const lk = key.toLowerCase();
+    // Heuristic: key must strongly suggest a single file/directory path, not just contain
+    // 'file' or 'dir' as part of a broader concept (e.g. fileTypes, profileName).
+    // Require 'path' anywhere, OR 'dir'/'folder' anywhere, OR 'file' only as a whole word
+    // or at the end of the key (e.g. file, configFile, inputFile — not fileTypes, fileSize).
     const isFileByHeuristic =
-      !fmt && (lk.includes('path') || lk.includes('file') || lk.includes('dir'));
+      !fmt &&
+      (lk.includes('path') ||
+        lk.includes('dir') ||
+        lk.includes('folder') ||
+        lk === 'file' ||
+        lk.endsWith('file') ||
+        lk.endsWith('_file'));
 
     if (isFileBySchema || isFileByHeuristic) {
       const isDir = fmt === 'directory' || (!fmt && (lk.includes('dir') || lk.includes('folder')));
@@ -861,6 +871,8 @@ export class InvokeForm extends LitElement {
    * Strip enum values from description when they're already shown in a dropdown.
    * Patterns removed:
    *   'val1' | 'val2' | 'val3'
+   *   'val1', 'val2', 'val3'
+   *   (val1, val2, val3)  — parenthetical enum list
    *   (default: 'val')
    *   Trailing colon after removal
    */
@@ -872,6 +884,19 @@ export class InvokeForm extends LitElement {
       /['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?(?:\|\s*['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?)+/g,
       ''
     );
+    // Remove quoted comma-separated value lists: 'a', 'b', 'c'
+    cleaned = cleaned.replace(/['"][\w-]+['"]\s*(?:,\s*['"][\w-]+['"]\s*)+/g, '');
+    // Remove parenthetical enum value lists: (val1, val2, val3)
+    // Only remove if the values inside match schema enum values
+    if (schema.enum && schema.enum.length >= 2) {
+      const enumSet = new Set(schema.enum.map((v: string) => String(v).toLowerCase()));
+      cleaned = cleaned.replace(/\(([^)]+)\)/g, (match, inner) => {
+        const parts = inner.split(',').map((s: string) => s.trim().replace(/^['"]|['"]$/g, ''));
+        const isEnumList =
+          parts.length >= 2 && parts.every((p: string) => enumSet.has(p.toLowerCase()));
+        return isEnumList ? '' : match;
+      });
+    }
     // Remove standalone (default: 'value') or (default: value)
     cleaned = cleaned.replace(/\(default:\s*['"]?[\w-]+['"]?\)/gi, '');
     // Collapse leftover whitespace and trailing colon/punctuation
