@@ -315,17 +315,22 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           const resourcesResult = await sdkClient.listResources();
           const resources = resourcesResult.resources || [];
 
-          const appResources = resources.filter(
+          const allUiResources = resources.filter(
             (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
           );
 
           // Count only non-UI resources (UI resources are internal implementation detail)
-          mcpInfo.resourceCount = resources.length - appResources.length;
+          mcpInfo.resourceCount = resources.length - allUiResources.length;
 
-          if (appResources.length > 0) {
+          // Only standalone UI resources make this an "app" — resources linked to
+          // specific tools are companion UIs (e.g. file-preview for read_file)
+          const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
+          const standaloneResources = allUiResources.filter((r: any) => !toolLinkedUris.has(r.uri));
+
+          if (standaloneResources.length > 0) {
             mcpInfo.hasApp = true;
-            mcpInfo.appResourceUri = appResources[0].uri;
-            mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
+            mcpInfo.appResourceUri = standaloneResources[0].uri;
+            mcpInfo.appResourceUris = standaloneResources.map((r: any) => r.uri);
             const uriList = mcpInfo.appResourceUris.join(', ');
             logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
           }
@@ -408,18 +413,23 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
             const resourcesResult = await sdkClient.listResources();
             const resources = resourcesResult.resources || [];
 
-            // Check for MCP App resources (ui:// scheme or application/vnd.mcp.ui+html mime)
-            const appResources = resources.filter(
+            const allUiResources = resources.filter(
               (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
             );
 
             // Count only non-UI resources (UI resources are internal implementation detail)
-            mcpInfo.resourceCount = resources.length - appResources.length;
+            mcpInfo.resourceCount = resources.length - allUiResources.length;
 
-            if (appResources.length > 0) {
+            // Only standalone UI resources make this an "app"
+            const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
+            const standaloneResources = allUiResources.filter(
+              (r: any) => !toolLinkedUris.has(r.uri)
+            );
+
+            if (standaloneResources.length > 0) {
               mcpInfo.hasApp = true;
-              mcpInfo.appResourceUri = appResources[0].uri; // Default to first
-              mcpInfo.appResourceUris = appResources.map((r: any) => r.uri);
+              mcpInfo.appResourceUri = standaloneResources[0].uri;
+              mcpInfo.appResourceUris = standaloneResources.map((r: any) => r.uri);
               const uriList = mcpInfo.appResourceUris.join(', ');
               logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
             }
@@ -526,17 +536,21 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
         const resourcesResult = await sdkClient.listResources();
         const resources = resourcesResult.resources || [];
 
-        const appResources = resources.filter(
+        const allUiResources = resources.filter(
           (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
         );
 
         // Count only non-UI resources (UI resources are internal implementation detail)
-        mcp.resourceCount = resources.length - appResources.length;
+        mcp.resourceCount = resources.length - allUiResources.length;
 
-        if (appResources.length > 0) {
+        // Only standalone UI resources make this an "app"
+        const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
+        const standaloneResources = allUiResources.filter((r: any) => !toolLinkedUris.has(r.uri));
+
+        if (standaloneResources.length > 0) {
           mcp.hasApp = true;
-          mcp.appResourceUri = appResources[0].uri;
-          mcp.appResourceUris = appResources.map((r: any) => r.uri);
+          mcp.appResourceUri = standaloneResources[0].uri;
+          mcp.appResourceUris = standaloneResources.map((r: any) => r.uri);
         }
       } catch {
         // Resources not supported
