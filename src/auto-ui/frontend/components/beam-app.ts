@@ -3866,7 +3866,9 @@ export class BeamApp extends LitElement {
   private _renderDescription(description?: string) {
     if (!description) return html``;
     // Strip docblock directive tags (@template, @internal, etc.) that may leak into descriptions
+    // Pre-pass: strip leading @ from code spans so `@lock` becomes `lock`, not empty
     const cleaned = description
+      .replace(/`@(\w[^`]*)`/g, '`$1`')
       .replace(/@\w+\b/g, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
