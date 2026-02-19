@@ -3373,6 +3373,7 @@ export class BeamApp extends LitElement {
                   .method=${this._selectedMethod.name}
                   .uiId=${this._selectedMethod.linkedUi}
                   .theme=${this._theme}
+                  .initialResult=${this._lastResult}
                   style="height: calc(100vh - 140px);"
                 ></custom-ui-renderer>
               `;
@@ -3406,6 +3407,7 @@ export class BeamApp extends LitElement {
                         .method=${this._selectedMethod.name}
                         .uiId=${this._selectedMethod.linkedUi}
                         .theme=${this._theme}
+                        .initialResult=${this._lastResult}
                         style="height: 100%;"
                       ></custom-ui-renderer>
                     `}
@@ -3726,8 +3728,16 @@ export class BeamApp extends LitElement {
 
     // For Apps, automatically select the main method to show Custom UI
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
+      // Set _isExecuting BEFORE setting method to prevent iframe rendering before data loads
+      if (this._willAutoInvoke(this._selectedPhoton.appEntry)) {
+        this._isExecuting = true;
+      }
       this._selectedMethod = this._selectedPhoton.appEntry;
       this._view = 'form';
+      this._updateHash();
+      // Auto-invoke to load initial data (e.g., kanban board)
+      this._maybeAutoInvoke(this._selectedPhoton.appEntry);
+      return;
     } else {
       this._view = 'list';
     }

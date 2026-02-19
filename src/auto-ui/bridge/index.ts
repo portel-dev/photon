@@ -150,6 +150,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       }
       else if (m.method === 'ui/notifications/tool-result') {
         toolOutput = extractData(m.params && m.params.result);
+        // Set __PHOTON_DATA__ and fire photon:data-ready for apps that rely on
+        // these patterns (e.g. kanban board.html reads initial data this way)
+        window.__PHOTON_DATA__ = toolOutput;
+        window.dispatchEvent(new CustomEvent('photon:data-ready', { detail: toolOutput }));
         listeners.result.forEach(function(cb) { cb(toolOutput); });
       }
       else if (m.method === 'ui/notifications/tool-input') {
