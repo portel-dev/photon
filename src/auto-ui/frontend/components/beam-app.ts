@@ -3384,10 +3384,6 @@ export class BeamApp extends LitElement {
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
-              .instances=${this._instances}
-              .currentInstance=${this._currentInstance}
-              .selectorMode=${this._instanceSelectorMode}
-              @instance-change=${this._handleInstanceChange}
             >
               <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
               <div slot="popout" style="height: 100%;">
