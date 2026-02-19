@@ -115,7 +115,12 @@ export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
   }
 
   // Spawn daemon process
-  const daemonScript = path.join(__dirname, 'server.js');
+  // When running via tsx from src/, __dirname points to src/daemon/ where server.js doesn't exist.
+  // Fall back to the compiled dist/daemon/server.js in that case.
+  const daemonScriptSrc = path.join(__dirname, 'server.js');
+  const daemonScript = fs.existsSync(daemonScriptSrc)
+    ? daemonScriptSrc
+    : daemonScriptSrc.replace(`${path.sep}src${path.sep}`, `${path.sep}dist${path.sep}`);
 
   // Log daemon output to file for debugging
   const logStream = fs.openSync(GLOBAL_LOG_FILE, 'a');
