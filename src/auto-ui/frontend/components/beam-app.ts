@@ -2246,6 +2246,7 @@ export class BeamApp extends LitElement {
 
       if (photon) {
         this._selectedPhoton = photon;
+        this._lastResult = null;
 
         // Restore saved instance for stateful photons (survives tab refresh)
         if (photon.stateful && photon.configured) {
