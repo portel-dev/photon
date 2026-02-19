@@ -2382,8 +2382,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 latestVersion = newVersion;
               } else if (metadata.hash) {
                 // Hash-only drift: append short hash suffix (git-style) so the change is visible
-                const rawHash = metadata.hash.replace(/^sha256:/, '');
-                latestVersion = `${newVersion || installedVersion}+${rawHash.slice(0, 7)}`;
+                const rawHash = metadata.hash.replace(/^sha256:/, '').slice(0, 7);
+                if (rawHash) {
+                  latestVersion = `${newVersion || installedVersion}+${rawHash}`;
+                }
               }
             }
           }
@@ -2727,8 +2729,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 latestVersion = latestInfo.metadata.version || '';
               } else if (latestInfo.metadata.hash) {
                 // Hash-only drift: append short hash suffix (git-style) so the change is visible
-                const rawHash = latestInfo.metadata.hash.replace(/^sha256:/, '');
-                latestVersion = `${latestInfo.metadata.version || installMeta.version}+${rawHash.slice(0, 7)}`;
+                const rawHash = latestInfo.metadata.hash.replace(/^sha256:/, '').slice(0, 7);
+                if (rawHash) {
+                  latestVersion = `${latestInfo.metadata.version || installMeta.version}+${rawHash}`;
+                }
               }
               updates.push({
                 name: photonName,
