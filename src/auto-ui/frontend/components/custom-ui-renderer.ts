@@ -55,7 +55,9 @@ export class CustomUiRenderer extends LitElement {
       }
 
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .error-container {
@@ -149,6 +151,10 @@ export class CustomUiRenderer extends LitElement {
   @property({ type: String }) templatePath = '';
   @property({ type: String }) uiId = '';
 
+  // Initial tool result to deliver to the iframe on load.
+  // Fixes timing race: SSE tool-result fires before iframe exists.
+  @property({ type: Object }) initialResult: any = null;
+
   @state() private _srcDoc = '';
   @state() private _loading = true;
   @state() private _error = '';
@@ -163,6 +169,22 @@ export class CustomUiRenderer extends LitElement {
       changedProperties.has('uiUri')
     ) {
       this._loadContent();
+    }
+
+    // Deliver result to iframe when initialResult changes after iframe is already loaded
+    if (
+      changedProperties.has('initialResult') &&
+      this.initialResult &&
+      this._iframeRef?.contentWindow
+    ) {
+      this._iframeRef.contentWindow.postMessage(
+        {
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params: { result: this.initialResult },
+        },
+        '*'
+      );
     }
 
     // Notify iframe of theme change without reloading
@@ -319,7 +341,10 @@ export class CustomUiRenderer extends LitElement {
     }
 
     if (this._loading) {
-      return html`<div class="loading"><div class="loading-spinner"></div><span>Loading interface…</span></div>`;
+      return html`<div class="loading">
+        <div class="loading-spinner"></div>
+        <span>Loading interface…</span>
+      </div>`;
     }
 
     return html`
@@ -389,6 +414,18 @@ export class CustomUiRenderer extends LitElement {
       },
       '*'
     );
+    // Deliver cached tool result if the SSE notification fired before this iframe existed
+    if (this.initialResult) {
+      this._iframeRef?.contentWindow?.postMessage(
+        {
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params: { result: this.initialResult },
+        },
+        '*'
+      );
+    }
+
     // Reveal iframe after theme is applied (next frame lets bridge script run)
     requestAnimationFrame(() => {
       this._iframeRef?.classList.add('ready');
