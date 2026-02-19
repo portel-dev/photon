@@ -108,46 +108,6 @@ export class AppLayout extends LitElement {
         overflow: auto;
       }
 
-      /* Instance selector bar */
-      .instance-bar {
-        display: flex;
-        align-items: center;
-        gap: var(--space-sm);
-        padding: 6px var(--space-md);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-md) var(--radius-md) 0 0;
-        border-bottom: none;
-      }
-
-      .instance-label {
-        font-size: var(--text-xs);
-        color: var(--t-muted);
-        white-space: nowrap;
-      }
-
-      .instance-select {
-        flex: 1;
-        max-width: 220px;
-        background: var(--bg-glass-strong);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-sm);
-        color: var(--t-primary);
-        font-size: var(--text-sm);
-        padding: 3px 8px;
-        cursor: pointer;
-        outline: none;
-      }
-
-      .instance-select:hover,
-      .instance-select:focus {
-        border-color: var(--accent-primary);
-      }
-
-      .instance-bar ~ .app-viewport {
-        border-radius: 0 0 var(--radius-md) var(--radius-md);
-      }
-
       /* Anchor navigation links */
       .anchor-nav {
         display: flex;
@@ -178,15 +138,6 @@ export class AppLayout extends LitElement {
   @property({ type: String })
   photonIcon = '';
 
-  @property({ type: Array })
-  instances: string[] = [];
-
-  @property({ type: String })
-  currentInstance = '';
-
-  @property({ type: String })
-  selectorMode: 'auto' | 'manual' = 'auto';
-
   @state()
   private _poppedOut = false;
 
@@ -206,27 +157,9 @@ export class AppLayout extends LitElement {
     }
   };
 
-  private _handleInstanceChange(e: Event) {
-    const value = (e.target as HTMLSelectElement).value;
-    this.dispatchEvent(new CustomEvent('instance-change', { detail: { instance: value }, bubbles: true, composed: true }));
-  }
-
   render() {
-    const showInstanceBar = this.instances.length > 0;
     return html`
       ${this._poppedOut ? this._renderPopout() : ''}
-
-      ${showInstanceBar ? html`
-        <div class="instance-bar">
-          <span class="instance-label">Board</span>
-          <select class="instance-select" @change=${this._handleInstanceChange}>
-            <option value="__auto__" ?selected=${this.selectorMode === 'auto'}>Auto (most recent)</option>
-            ${this.instances.map(name => html`
-              <option value=${name} ?selected=${this.selectorMode === 'manual' && name === this.currentInstance}>${name}</option>
-            `)}
-          </select>
-        </div>
-      ` : ''}
 
       <div class="app-viewport">
         <slot name="app"></slot>
