@@ -609,11 +609,14 @@ export class MethodCard extends LitElement {
       .replace(/__(.+?)__/g, '$1')
       // Italic: *text* or _text_ (single)
       .replace(/\*(.+?)\*/g, '$1')
+      // Strip leading @ from code spans before unwrapping: `@tag` → `tag`
+      // This prevents the @-tag stripper below from eating code span content like `@title`
+      .replace(/`@(\w[^`]*)`/g, '`$1`')
       // Inline code: `text`
       .replace(/`([^`]*)`/g, '$1')
       // Links: [text](url)
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Strip docblock directive tags (@internal, @template, etc.)
+      // Strip docblock directive tags (@internal, @template, etc.) — standalone @ annotations
       .replace(/@\w+\b/g, '')
       // Remove stray markdown characters (unclosed ** or `)
       .replace(/\*{1,2}/g, '')
