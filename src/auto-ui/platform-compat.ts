@@ -194,6 +194,10 @@ export function generatePlatformBridgeScript(context: PlatformContext): string {
       }
       else if (m.method === 'ui/notifications/tool-result') {
         toolOutput = m.params.result;
+        // Set __PHOTON_DATA__ and fire photon:data-ready for apps that rely on
+        // these patterns (e.g. kanban board.html reads initial data this way)
+        window.__PHOTON_DATA__ = m.params.result;
+        window.dispatchEvent(new CustomEvent('photon:data-ready', { detail: m.params.result }));
         listeners.result.forEach(function(cb) { cb(m.params.result); });
       }
       else if (m.method === 'ui/resource-teardown' && m.id != null) {
