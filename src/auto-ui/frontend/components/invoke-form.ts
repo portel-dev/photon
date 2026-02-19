@@ -695,7 +695,11 @@ export class InvokeForm extends LitElement {
         (schema as any).minimum !== undefined && (schema as any).maximum !== undefined;
       const min = (schema as any).minimum ?? 0;
       const max = (schema as any).maximum ?? 100;
-      const step = schema.type === 'integer' ? 1 : 0.1;
+      const step =
+        schema.type === 'integer' ||
+        (Number.isInteger(min) && Number.isInteger(max) && !(schema as any).multipleOf)
+          ? 1
+          : ((schema as any).multipleOf ?? 0.1);
       const currentValue = this._values[key] ?? (schema as any).default ?? min;
 
       if (hasRange) {
