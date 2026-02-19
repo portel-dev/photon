@@ -148,20 +148,23 @@ export class PhotonDocExtractor {
 
     const jsdocContent = jsdocMatch[1];
 
-    // Get lines before any @tag, stripping leading * and whitespace
-    const lines = jsdocContent
-      .split('\n')
-      .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-      .filter((line) => line.length > 0 && !line.startsWith('@'));
+    // Strip leading * from each line
+    const rawLines = jsdocContent.split('\n').map((line) => line.replace(/^\s*\*\s?/, ''));
 
-    if (lines.length === 0) return '';
+    // Collect all intro prose but stop at the first markdown section heading (##)
+    // or @tag. Extended content like Quick Reference sections belongs in the
+    // generated .md documentation, not the card description.
+    const descLines: string[] = [];
+    for (const raw of rawLines) {
+      const line = raw.trim();
+      if (line.startsWith('@') || line.startsWith('#')) break; // @tag or ## heading
+      if (line.length > 0) descLines.push(line);
+    }
 
-    // Return the description text (before any tags), filtering out code
-    const description = lines
+    return descLines
       .filter((line) => !line.startsWith('export ') && !line.startsWith('class '))
       .join(' ')
       .trim();
-    return description;
   }
 
   /**
