@@ -2377,9 +2377,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             if (hasUpdate) {
               const installedVersion = installMeta?.version || '';
               const newVersion = metadata.version || '';
-              // Only show the version if it actually changed; hash-only drift shows "Update" without version
-              if (newVersion && newVersion !== installedVersion) {
+              const versionChanged = newVersion && newVersion !== installedVersion;
+              if (versionChanged) {
                 latestVersion = newVersion;
+              } else if (metadata.hash) {
+                // Hash-only drift: append short hash suffix (git-style) so the change is visible
+                latestVersion = `${newVersion || installedVersion}+${metadata.hash.slice(0, 7)}`;
               }
             }
           }
@@ -2718,12 +2721,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             const versionChanged = latestInfo.metadata.version !== installMeta.version;
 
             if (hashChanged || versionChanged) {
+              let latestVersion = '';
+              if (versionChanged) {
+                latestVersion = latestInfo.metadata.version || '';
+              } else if (latestInfo.metadata.hash) {
+                // Hash-only drift: append short hash suffix (git-style) so the change is visible
+                latestVersion = `${latestInfo.metadata.version || installMeta.version}+${latestInfo.metadata.hash.slice(0, 7)}`;
+              }
               updates.push({
                 name: photonName,
                 fileName,
                 currentVersion: installMeta.version,
-                // Only show version if it actually changed; hash-only drift has no new version to show
-                latestVersion: versionChanged ? latestInfo.metadata.version || '' : '',
+                latestVersion,
                 marketplace: latestInfo.marketplace.name,
               });
             }
