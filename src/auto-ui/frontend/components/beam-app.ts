@@ -322,6 +322,36 @@ export class BeamApp extends LitElement {
         color: hsl(200, 60%, 65%);
       }
 
+      /* Button resets — elements converted from div/p/span to button */
+      button.photon-icon-large {
+        border: none;
+        padding: 0;
+      }
+
+      button.photon-header-desc {
+        background: transparent;
+        border: none;
+        padding: 0;
+        font: inherit;
+        text-align: left;
+      }
+
+      button.photon-header-path {
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+
+      button.photon-badge.update {
+        font: inherit;
+      }
+
+      button.asset-card {
+        width: 100%;
+        font: inherit;
+        text-align: left;
+      }
+
       .photon-header-actions {
         display: flex;
         gap: var(--space-sm);
@@ -2760,6 +2790,7 @@ export class BeamApp extends LitElement {
       <div
         class="sidebar-overlay ${this._sidebarVisible ? 'visible' : ''}"
         @click=${this._closeSidebar}
+        aria-hidden="true"
       ></div>
 
       <nav
@@ -3124,15 +3155,15 @@ export class BeamApp extends LitElement {
                 <div style="font-size: 0.85rem; color: var(--t-secondary);">
                   ${unconfiguredPhotons.map(
                     (p) =>
-                      html`<div
-                        style="padding: 2px 0; cursor: pointer;"
+                      html`<button
+                        style="display: block; width: 100%; padding: 2px 0; background: none; border: none; font: inherit; color: inherit; text-align: left; cursor: pointer;"
                         @click=${() => {
                           this._selectedPhoton = p;
                           this._view = 'config';
                         }}
                       >
                         ⚠️ ${p.name}
-                      </div>`
+                      </button>`
                   )}
                 </div>
               </div>
@@ -5645,13 +5676,15 @@ export class BeamApp extends LitElement {
 
     return html`
       <header class="photon-header">
-        <div
+        <button
+          type="button"
           class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
           @click=${this._startEditingIcon}
           title="Click to change icon"
+          aria-label="Change icon"
         >
           ${displayIcon}
-        </div>
+        </button>
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
         <div class="photon-header-info">
           <h1 class="photon-header-name">${this._selectedPhoton.name}</h1>
@@ -5672,13 +5705,15 @@ export class BeamApp extends LitElement {
                 </p>
               `
             : html`
-                <p
+                <button
+                  type="button"
                   class="photon-header-desc editable ${isGenericDesc ? 'placeholder' : ''}"
                   @click=${this._startEditingDescription}
                   title="Click to edit description"
+                  aria-label="Edit description"
                 >
                   ${isGenericDesc ? 'Click to add a description...' : description}
-                </p>
+                </button>
               `}
           <div class="photon-header-meta">
             ${isApp
@@ -5700,9 +5735,13 @@ export class BeamApp extends LitElement {
               ? html`<span class="photon-badge">${this._selectedPhoton.version}</span>`
               : ''}
             ${this._selectedPhoton.hasUpdate
-              ? html`<span class="photon-badge update" @click=${this._handleUpgrade}
-                  >Update available</span
-                >`
+              ? html`<button
+                  type="button"
+                  class="photon-badge update"
+                  @click=${this._handleUpgrade}
+                >
+                  Update available
+                </button>`
               : ''}
             ${this._selectedPhoton.author
               ? html`<span class="photon-badge">${this._selectedPhoton.author}</span>`
@@ -5714,16 +5753,18 @@ export class BeamApp extends LitElement {
               : ''}
           </div>
           ${this._selectedPhoton.path
-            ? html`<div
+            ? html`<button
+                type="button"
                 class="photon-header-path"
                 title="Click to copy: ${this._selectedPhoton.path}"
+                aria-label="Copy path to clipboard"
                 @click=${() => {
                   navigator.clipboard.writeText(this._selectedPhoton!.path);
                   showToast('Path copied to clipboard');
                 }}
               >
                 ${this._selectedPhoton.path.replace(/^\/Users\/[^/]+\/|^\/home\/[^/]+\//, '~/')}
-              </div>`
+              </button>`
             : ''}
           <div class="photon-header-actions">
             <button
@@ -5915,7 +5956,11 @@ export class BeamApp extends LitElement {
       <div class="cards-grid">
         ${prompts.map(
           (prompt: any) => html`
-            <div class="asset-card glass-panel" @click=${() => this._handlePromptSelect(prompt)}>
+            <button
+              type="button"
+              class="asset-card glass-panel"
+              @click=${() => this._handlePromptSelect(prompt)}
+            >
               <div class="asset-header">
                 <div class="asset-icon prompt">📝</div>
                 <span class="asset-name">${prompt.id}</span>
@@ -5924,7 +5969,7 @@ export class BeamApp extends LitElement {
                 ${prompt.description || 'Click to view and customize this prompt'}
               </div>
               <div class="asset-meta">${prompt.path}</div>
-            </div>
+            </button>
           `
         )}
       </div>
@@ -5943,7 +5988,8 @@ export class BeamApp extends LitElement {
       <div class="cards-grid">
         ${resources.map(
           (resource: any) => html`
-            <div
+            <button
+              type="button"
               class="asset-card glass-panel"
               @click=${() => this._handleResourceSelect(resource)}
             >
@@ -5953,7 +5999,7 @@ export class BeamApp extends LitElement {
               </div>
               <div class="asset-desc">${resource.description || 'Click to view this resource'}</div>
               <div class="asset-meta">${resource.mimeType || resource.path}</div>
-            </div>
+            </button>
           `
         )}
       </div>
@@ -6048,6 +6094,9 @@ export class BeamApp extends LitElement {
     return html`
       <div
         class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prompt-modal-title"
         @click=${(e: Event) => {
           if (e.target === e.currentTarget) this._closePromptModal();
         }}
@@ -6055,7 +6104,7 @@ export class BeamApp extends LitElement {
         <div class="asset-viewer-modal glass-panel">
           <button class="close-btn" @click=${this._closePromptModal}>&times;</button>
 
-          <h2>
+          <h2 id="prompt-modal-title">
             <span class="icon">📝</span>
             ${this._selectedPrompt.id}
           </h2>
@@ -6115,6 +6164,9 @@ export class BeamApp extends LitElement {
     return html`
       <div
         class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resource-modal-title"
         @click=${(e: Event) => {
           if (e.target === e.currentTarget) this._closeResourceModal();
         }}
@@ -6122,7 +6174,7 @@ export class BeamApp extends LitElement {
         <div class="asset-viewer-modal glass-panel">
           <button class="close-btn" @click=${this._closeResourceModal}>&times;</button>
 
-          <h2>
+          <h2 id="resource-modal-title">
             <span class="icon">📦</span>
             ${this._selectedResource.id}
           </h2>
