@@ -887,6 +887,24 @@ async function handleRequest(
         const instanceName = String((request.args as any)?.name ?? '');
         await sessionManager.switchInstance(session.id, instanceName);
         const label = instanceName || 'default';
+
+        // Ensure a state file exists so _instances can discover this instance
+        try {
+          const { getInstanceStatePath } = await import('../context-store.js');
+          const fsPromises = await import('fs/promises');
+          const pathMod = await import('path');
+          const statePath = getInstanceStatePath(photonName, label);
+          await fsPromises.mkdir(pathMod.dirname(statePath), { recursive: true });
+          try {
+            await fsPromises.access(statePath);
+          } catch {
+            // File doesn't exist — create empty state marker
+            await fsPromises.writeFile(statePath, '{}');
+          }
+        } catch (e) {
+          logger.debug('Could not ensure instance state file', { error: getErrorMessage(e) });
+        }
+
         return {
           type: 'result',
           id: request.id,
