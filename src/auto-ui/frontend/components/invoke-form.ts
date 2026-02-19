@@ -877,7 +877,7 @@ export class InvokeForm extends LitElement {
    *   Trailing colon after removal
    */
   private _cleanDescription(desc: string, schema: any): string {
-    if (!desc || !schema?.enum) return desc;
+    if (!desc) return desc;
     // Remove quoted-value union patterns with optional parenthetical descriptions:
     // 'a' | 'b' | 'c'  OR  'a' (desc) | 'b' (desc) | 'c' (desc)
     let cleaned = desc.replace(
@@ -887,14 +887,23 @@ export class InvokeForm extends LitElement {
     // Remove quoted comma-separated value lists: 'a', 'b', 'c'
     cleaned = cleaned.replace(/['"][\w-]+['"]\s*(?:,\s*['"][\w-]+['"]\s*)+/g, '');
     // Remove parenthetical enum value lists: (val1, val2, val3)
-    // Only remove if the values inside match schema enum values
-    if (schema.enum && schema.enum.length >= 2) {
+    if (schema?.enum && schema.enum.length >= 2) {
+      // Schema has enum: only strip if contents match declared enum values
       const enumSet = new Set(schema.enum.map((v: string) => String(v).toLowerCase()));
       cleaned = cleaned.replace(/\(([^)]+)\)/g, (match, inner) => {
         const parts = inner.split(',').map((s: string) => s.trim().replace(/^['"]|['"]$/g, ''));
         const isEnumList =
           parts.length >= 2 && parts.every((p: string) => enumSet.has(p.toLowerCase()));
         return isEnumList ? '' : match;
+      });
+    } else {
+      // No schema enum: strip parentheticals that look like enum lists —
+      // 3+ simple lowercase terms (no spaces/punctuation within each term)
+      cleaned = cleaned.replace(/\(([^)]+)\)/g, (match, inner) => {
+        const parts = inner.split(',').map((s: string) => s.trim());
+        const looksLikeEnumList =
+          parts.length >= 3 && parts.every((p: string) => /^[\w-]+$/.test(p));
+        return looksLikeEnumList ? '' : match;
       });
     }
     // Remove standalone (default: 'value') or (default: value)
