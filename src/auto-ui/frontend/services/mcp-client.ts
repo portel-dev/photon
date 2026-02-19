@@ -811,22 +811,25 @@ class MCPClientService {
           });
         }
 
-        photonMap.get(serverName).methods.push({
-          name: methodName,
-          description: tool.description || '',
-          params: tool.inputSchema || { type: 'object', properties: {} },
-          icon: tool['x-icon'],
-          autorun: tool['x-autorun'],
-          outputFormat: tool['x-output-format'],
-          layoutHints: tool['x-layout-hints'],
-          buttonLabel: tool['x-button-label'],
-          linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
-          visibility: tool._meta?.ui?.visibility,
-          webhook: tool['x-webhook'],
-          scheduled: tool['x-scheduled'],
-          locked: tool['x-locked'],
-          ...(tool['x-is-template'] ? { isTemplate: true } : {}),
-        });
+        // Skip internal runtime tools (_use, _instances) — they are not user-facing methods
+        if (!tool['x-photon-internal']) {
+          photonMap.get(serverName).methods.push({
+            name: methodName,
+            description: tool.description || '',
+            params: tool.inputSchema || { type: 'object', properties: {} },
+            icon: tool['x-icon'],
+            autorun: tool['x-autorun'],
+            outputFormat: tool['x-output-format'],
+            layoutHints: tool['x-layout-hints'],
+            buttonLabel: tool['x-button-label'],
+            linkedUi: tool._meta?.ui?.resourceUri?.match(/^ui:\/\/[^/]+\/(.+)$/)?.[1],
+            visibility: tool._meta?.ui?.visibility,
+            webhook: tool['x-webhook'],
+            scheduled: tool['x-scheduled'],
+            locked: tool['x-locked'],
+            ...(tool['x-is-template'] ? { isTemplate: true } : {}),
+          });
+        }
       }
     }
 
