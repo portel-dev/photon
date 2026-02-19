@@ -2712,7 +2712,11 @@ export class BeamApp extends LitElement {
     return html`
       ${!this._connected
         ? html`
-            <div class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}">
+            <div
+              class="connection-banner ${this._reconnecting ? 'reconnecting' : ''}"
+              role="alert"
+              aria-live="assertive"
+            >
               <div>
                 <span
                   >${this._reconnecting
@@ -2741,7 +2745,7 @@ export class BeamApp extends LitElement {
           `
         : ''}
 
-      <div class="background-glow"></div>
+      <div class="background-glow" aria-hidden="true"></div>
 
       <!-- Mobile Menu Button -->
       <button
@@ -2758,9 +2762,10 @@ export class BeamApp extends LitElement {
         @click=${this._closeSidebar}
       ></div>
 
-      <div
+      <nav
         class="sidebar-area glass-panel ${this._sidebarVisible ? 'visible' : ''}"
         style="margin: var(--space-sm); border-radius: var(--radius-md);"
+        aria-label="Photon navigation"
       >
         <beam-sidebar
           .photons=${this._photons}
@@ -2788,9 +2793,9 @@ export class BeamApp extends LitElement {
             }
           }}
         ></beam-sidebar>
-      </div>
+      </nav>
 
-      <main class="main-area" role="main" aria-label="Main content">
+      <main class="main-area" aria-label="Main content">
         ${this._shouldShowFullscreen()
           ? html`<button
               class="beam-fullscreen-btn"
@@ -5370,7 +5375,7 @@ export class BeamApp extends LitElement {
 
     return html`
       <!-- Desktop Action Toolbar -->
-      <div class="action-toolbar">
+      <div class="action-toolbar" role="toolbar" aria-label="Photon actions">
         ${showRefresh
           ? html`
               <button class="toolbar-btn" @click=${this._handleRefresh} title="Refresh photon">
@@ -5639,7 +5644,7 @@ export class BeamApp extends LitElement {
     const displayIcon = customIcon || defaultIcon;
 
     return html`
-      <div class="photon-header">
+      <header class="photon-header">
         <div
           class="photon-icon-large editable ${isApp ? '' : 'mcp-icon'}"
           @click=${this._startEditingIcon}
@@ -5735,7 +5740,7 @@ export class BeamApp extends LitElement {
               : ''}
           </div>
         </div>
-      </div>
+      </header>
     `;
   }
 
