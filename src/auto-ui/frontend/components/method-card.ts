@@ -616,8 +616,9 @@ export class MethodCard extends LitElement {
       .replace(/`([^`]*)`/g, '$1')
       // Links: [text](url)
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Strip docblock directive tags (@internal, @template, etc.) — standalone @ annotations
-      .replace(/@\w+\b/g, '')
+      // Strip docblock directive tags (@internal, @template, etc.) — only line-starting @tags,
+      // not inline references like "Unlike @locked which..." in prose
+      .replace(/^\s*@\w+[^\n]*/gm, '')
       // Remove stray markdown characters (unclosed ** or `)
       .replace(/\*{1,2}/g, '')
       .replace(/`/g, '')
