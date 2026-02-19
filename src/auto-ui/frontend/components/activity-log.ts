@@ -177,6 +177,19 @@ export class ActivityLog extends LitElement {
 
   @state() private _filterActive = false;
 
+  private _lastFilter: string | undefined = undefined;
+
+  updated(changedProperties: Map<string, unknown>) {
+    super.updated(changedProperties);
+    // Auto-enable filter when the photon context changes and has filterable entries
+    if (changedProperties.has('filter') && this.filter !== this._lastFilter) {
+      this._lastFilter = this.filter;
+      if (this.filter && this.items.some((i) => i.photonName === this.filter)) {
+        this._filterActive = true;
+      }
+    }
+  }
+
   render() {
     const visible =
       this._filterActive && this.filter
