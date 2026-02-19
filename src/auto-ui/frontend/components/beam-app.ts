@@ -2159,6 +2159,8 @@ export class BeamApp extends LitElement {
       // Handle errors
       mcpClient.on('error', (data: any) => {
         if (data?.message) {
+          // Elicitation cancellation is already handled by the cancel event handler
+          if (data.message === 'Elicitation cancelled by user') return;
           this._isExecuting = false;
           this._log('error', data.message);
           showToast(data.message, 'error', 5000);
@@ -2700,6 +2702,7 @@ export class BeamApp extends LitElement {
         message,
         timestamp: new Date().toISOString(),
         count: 1,
+        photonName: this._selectedPhoton?.name,
       },
       ...this._activityLog,
     ];
@@ -2808,6 +2811,7 @@ export class BeamApp extends LitElement {
         ${this._renderContent()}
         <activity-log
           .items=${this._activityLog}
+          .filter=${this._selectedPhoton?.name}
           @clear=${() => (this._activityLog = [])}
         ></activity-log>
       </main>
@@ -3387,7 +3391,17 @@ export class BeamApp extends LitElement {
                         @context-action=${this._handleContextAction}
                       ></context-bar>
                       <div class="bento-methods">
-                        <h3 class="bento-section-title">Methods</h3>
+                        <h3 class="bento-section-title">
+                          ${(() => {
+                            const hasTools = otherMethods.some((m: any) => !m.isTemplate);
+                            const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
+                            return hasTools && hasPrompts
+                              ? 'Methods & Prompts'
+                              : hasPrompts
+                                ? 'Prompts'
+                                : 'Methods';
+                          })()}
+                        </h3>
                         <div class="cards-grid">
                           ${otherMethods.map(
                             (method: any) => html`
@@ -3497,7 +3511,18 @@ export class BeamApp extends LitElement {
       ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
       <div class="bento-methods">
-        <h3 class="bento-section-title">Methods</h3>
+        <h3 class="bento-section-title">
+          ${(() => {
+            const visible = this._getVisibleMethods();
+            const hasTools = visible.some((m: any) => !m.isTemplate);
+            const hasPrompts = visible.some((m: any) => m.isTemplate);
+            return hasTools && hasPrompts
+              ? 'Methods & Prompts'
+              : hasPrompts
+                ? 'Prompts'
+                : 'Methods';
+          })()}
+        </h3>
         ${this._getVisibleMethods().length > 0
           ? html`
               <div class="cards-grid">
@@ -3699,7 +3724,7 @@ export class BeamApp extends LitElement {
       this._instanceSelectorMode = 'manual';
     }
 
-    const target = selected === '__auto__' ? (this._autoInstance || 'default') : selected;
+    const target = selected === '__auto__' ? this._autoInstance || 'default' : selected;
     if (target === this._currentInstance) return;
     try {
       await mcpClient.callTool(`${photonName}/_use`, { name: target });

@@ -2165,7 +2165,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         for (const dir of candidateDirs) {
           try {
             const files = await fs.readdir(dir);
-            const jsonFiles = files.filter((f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl'));
+            const jsonFiles = files.filter(
+              (f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl')
+            );
             if (jsonFiles.length === 0) continue;
             const withMtime = await Promise.all(
               jsonFiles.map(async (f) => {
@@ -2231,7 +2233,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const photonStatus = photons.map((p) => ({
           name: p.name,
           status: p.configured ? 'loaded' : 'unconfigured',
-          methods: p.configured ? (p as PhotonInfo).methods.length : 0,
+          methods: p.configured
+            ? Math.max(0, (p as PhotonInfo).methods.length - ((p as PhotonInfo).promptCount || 0))
+            : 0,
           error: !p.configured ? (p as UnconfiguredPhotonInfo).errorMessage : undefined,
           internal: (p as any).internal || undefined,
           path: p.path || undefined,
@@ -2371,7 +2375,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               hasUpdate = installMeta.version !== metadata.version;
             }
             if (hasUpdate) {
-              latestVersion = metadata.version || '';
+              const installedVersion = installMeta?.version || '';
+              const newVersion = metadata.version || '';
+              // Only show the version if it actually changed; hash-only drift shows "Update" without version
+              if (newVersion && newVersion !== installedVersion) {
+                latestVersion = newVersion;
+              }
             }
           }
 

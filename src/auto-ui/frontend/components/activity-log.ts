@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 
 interface ActivityItem {
@@ -8,6 +8,7 @@ interface ActivityItem {
   message: string;
   timestamp: string;
   count?: number; // For collapsed repeated messages
+  photonName?: string; // For per-photon filtering
 }
 
 @customElement('activity-log')
@@ -28,6 +29,12 @@ export class ActivityLog extends LitElement {
         align-items: center;
         margin-bottom: var(--space-md);
         padding: 0 var(--space-xs);
+      }
+
+      .log-header-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
       }
 
       h3 {
@@ -52,6 +59,31 @@ export class ActivityLog extends LitElement {
       .clear-btn:hover {
         background: hsla(220, 10%, 80%, 0.1);
         color: var(--t-primary);
+      }
+
+      .filter-btn {
+        background: none;
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        font-size: var(--text-sm);
+        cursor: pointer;
+        padding: 2px 8px;
+        border-radius: var(--radius-full);
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .filter-btn:hover {
+        background: hsla(220, 10%, 80%, 0.1);
+        color: var(--t-primary);
+      }
+
+      .filter-btn.active {
+        border-color: var(--accent-secondary);
+        color: var(--accent-secondary);
+        background: hsla(210, 80%, 65%, 0.08);
       }
 
       .log-list {
@@ -139,17 +171,42 @@ export class ActivityLog extends LitElement {
   @property({ type: Array })
   items: ActivityItem[] = [];
 
+  /** When set, shows a filter toggle button to scope the log to this photon name. */
+  @property({ type: String })
+  filter: string | undefined;
+
+  @state() private _filterActive = false;
+
   render() {
+    const visible =
+      this._filterActive && this.filter
+        ? this.items.filter((i) => i.photonName === this.filter)
+        : this.items;
+
     if (this.items.length === 0) return html``;
+
+    const hasFilterableEntries =
+      this.filter && this.items.some((i) => i.photonName === this.filter);
 
     return html`
       <div class="log-header">
         <h3>Activity Log</h3>
-        <button class="clear-btn" @click=${this._clear}>Clear</button>
+        <div class="log-header-actions">
+          ${hasFilterableEntries
+            ? html`<button
+                class="filter-btn ${this._filterActive ? 'active' : ''}"
+                @click=${() => (this._filterActive = !this._filterActive)}
+                title="${this._filterActive ? 'Show all photons' : `Filter to ${this.filter}`}"
+              >
+                ${this.filter}
+              </button>`
+            : ''}
+          <button class="clear-btn" @click=${this._clear}>Clear</button>
+        </div>
       </div>
 
       <div class="log-list">
-        ${this.items.map(
+        ${visible.map(
           (item) => html`
             <div class="log-item type-${item.type}">
               <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>

@@ -281,6 +281,26 @@ export class ElicitationModal extends LitElement {
   @state() private _formValues: Record<string, any> = {};
 
   private _oauthPopup: Window | null = null;
+  private _boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._boundGlobalKeydown = (e: KeyboardEvent) => {
+      if (this.open && e.key === 'Escape') {
+        e.preventDefault();
+        this._cancel();
+      }
+    };
+    document.addEventListener('keydown', this._boundGlobalKeydown);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._boundGlobalKeydown) {
+      document.removeEventListener('keydown', this._boundGlobalKeydown);
+      this._boundGlobalKeydown = null;
+    }
+  }
 
   updated(changedProperties: Map<string, any>) {
     if (changedProperties.has('data') && this.data) {
