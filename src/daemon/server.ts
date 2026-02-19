@@ -900,11 +900,15 @@ async function handleRequest(
         const store = new InstanceStore();
         const instances = store.listInstances(photonName);
         const current = session.instanceName || 'default';
-        // Ensure current instance is always in the list (may not have a state file yet)
+        // Ensure "default" and current instance are always in the list
+        // (they may not have state files yet)
+        if (!instances.includes('default')) {
+          instances.push('default');
+        }
         if (!instances.includes(current)) {
           instances.push(current);
-          instances.sort();
         }
+        instances.sort();
         return {
           type: 'result',
           id: request.id,
