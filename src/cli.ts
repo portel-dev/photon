@@ -910,6 +910,7 @@ program
 Runtime Commands:
   mcp <name>              Run a photon as MCP server (for AI assistants)
   cli <photon> [method]   Run photon methods from command line
+                          Example: photon cli kanban stats
   sse <name>              Run Photon as HTTP server with SSE transport
   beam                    Launch Photon Beam (interactive control panel)
   serve                   Start local multi-tenant MCP hosting for development

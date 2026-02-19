@@ -374,6 +374,11 @@ export class BeamSidebar extends LitElement {
       .count-resources {
         color: hsl(30, 80%, 60%);
       }
+      .count-sep {
+        color: var(--t-muted);
+        opacity: 0.5;
+        font-size: 0.7em;
+      }
 
       .version-badge {
         font-size: var(--text-2xs);
@@ -997,21 +1002,24 @@ export class BeamSidebar extends LitElement {
 
     if (!hasAnyCounts) return '';
 
+    const tooltipParts = [
+      actualToolCount > 0 ? `${actualToolCount} tools` : '',
+      promptCount > 0 ? `${promptCount} prompts` : '',
+      resourceCount > 0 ? `${resourceCount} resources` : '',
+    ].filter(Boolean);
+
     return html`<span
       class="counts-pill"
-      aria-label="${actualToolCount} tools, ${promptCount} prompts, ${resourceCount} resources"
+      aria-label="${tooltipParts.join(', ')}"
+      title="${tooltipParts.join(', ')}"
     >
-      ${actualToolCount > 0
-        ? html`<span class="count-tools" title="${actualToolCount} tools">${actualToolCount}</span>`
+      ${actualToolCount > 0 ? html`<span class="count-tools">${actualToolCount}</span>` : ''}
+      ${promptCount > 0 && actualToolCount > 0 ? html`<span class="count-sep">·</span>` : ''}
+      ${promptCount > 0 ? html`<span class="count-prompts">${promptCount}</span>` : ''}
+      ${resourceCount > 0 && (actualToolCount > 0 || promptCount > 0)
+        ? html`<span class="count-sep">·</span>`
         : ''}
-      ${promptCount > 0
-        ? html`<span class="count-prompts" title="${promptCount} prompts">${promptCount}</span>`
-        : ''}
-      ${resourceCount > 0
-        ? html`<span class="count-resources" title="${resourceCount} resources"
-            >${resourceCount}</span
-          >`
-        : ''}
+      ${resourceCount > 0 ? html`<span class="count-resources">${resourceCount}</span>` : ''}
     </span>`;
   }
 
