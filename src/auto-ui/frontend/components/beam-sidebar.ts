@@ -1003,9 +1003,9 @@ export class BeamSidebar extends LitElement {
     if (!hasAnyCounts) return '';
 
     const tooltipParts = [
-      actualToolCount > 0 ? `${actualToolCount} tools` : '',
-      promptCount > 0 ? `${promptCount} prompts` : '',
-      resourceCount > 0 ? `${resourceCount} resources` : '',
+      actualToolCount > 0 ? `${actualToolCount} ${actualToolCount === 1 ? 'tool' : 'tools'}` : '',
+      promptCount > 0 ? `${promptCount} ${promptCount === 1 ? 'prompt' : 'prompts'}` : '',
+      resourceCount > 0 ? `${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}` : '',
     ].filter(Boolean);
 
     return html`<span

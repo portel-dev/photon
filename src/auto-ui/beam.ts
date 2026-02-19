@@ -2722,7 +2722,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 name: photonName,
                 fileName,
                 currentVersion: installMeta.version,
-                latestVersion: latestInfo.metadata.version,
+                // Only show version if it actually changed; hash-only drift has no new version to show
+                latestVersion: versionChanged ? latestInfo.metadata.version || '' : '',
                 marketplace: latestInfo.marketplace.name,
               });
             }
