@@ -4243,8 +4243,11 @@ export class BeamApp extends LitElement {
 
         if (result.isError) {
           const errorText = result.content.find((c) => c.type === 'text')?.text || 'Unknown error';
-          this._log('error', errorText);
-          showToast(errorText, 'error', 5000);
+          // Elicitation cancellation is already handled by the cancel event handler
+          if (errorText !== 'Elicitation cancelled by user') {
+            this._log('error', errorText);
+            showToast(errorText, 'error', 5000);
+          }
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
           this._log('success', 'Execution completed');
