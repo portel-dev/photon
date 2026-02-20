@@ -2053,15 +2053,17 @@ Run: photon mcp ${mcpName} --config
 
       // Check built-in validators
       let valid = false;
+      let builtInMatched = false;
       for (const [pattern, validator] of Object.entries(BUILT_IN_VALIDATORS)) {
         if (ruleLower.includes(pattern)) {
           valid = validator(value);
+          builtInMatched = true;
           break;
         }
       }
 
       // If no built-in matched, check "must be" pattern for truthy check
-      if (!valid && ruleLower.startsWith('must be ')) {
+      if (!builtInMatched && ruleLower.startsWith('must be ')) {
         // Generic truthy check as fallback
         valid = value !== null && value !== undefined && value !== '';
       }
@@ -2239,11 +2241,15 @@ Run: photon mcp ${mcpName} --config
 
       // If there was an error, throw it
       if (execResult.error) {
-        const error = new Error(execResult.error) as Error & { runId?: string };
+        // Preserve the original error if it's an Error instance (keeps .name like PhotonTimeoutError)
+        const error =
+          execResult.originalError instanceof Error
+            ? (execResult.originalError as Error & { runId?: string })
+            : (new Error(execResult.error) as Error & { runId?: string });
         if (execResult.runId) {
           error.runId = execResult.runId;
         }
-        auditFinish(null, execResult.error);
+        auditFinish(null, error);
         throw error;
       }
 
