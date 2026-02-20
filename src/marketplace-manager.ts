@@ -1025,10 +1025,18 @@ export class MarketplaceManager {
     name: string,
     workingDir: string
   ): Promise<{ photonPath: string; assetsInstalled: string[] }> {
+    // Inject @forkedFrom tag if not already present
+    let content = result.content;
+    if (!content.includes('@forkedFrom')) {
+      const origin = `${result.marketplace.repo}#${name}`;
+      // Insert before the first closing */ of the file-level docblock
+      content = content.replace(/(\s*\*\/)/, `\n * @forkedFrom ${origin}$1`);
+    }
+
     // Write the .photon.ts file
     await fs.mkdir(workingDir, { recursive: true });
     const photonPath = path.join(workingDir, `${name}.photon.ts`);
-    await fs.writeFile(photonPath, result.content, 'utf-8');
+    await fs.writeFile(photonPath, content, 'utf-8');
 
     const assetsInstalled: string[] = [];
 
@@ -1046,8 +1054,8 @@ export class MarketplaceManager {
         }
       }
 
-      // Save install metadata — combined hash (source + assets) matches manifest
-      const hash = await calculatePhotonHash(photonPath, result.metadata.assets, workingDir);
+      // Save install metadata — use manifest hash (source-only, matches download verification)
+      const hash = result.metadata.hash || calculateHash(result.content);
       await this.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
     }
 
@@ -1094,13 +1102,13 @@ export class MarketplaceManager {
     }
 
     try {
-      // Get declared assets from marketplace to compute combined hash
-      const photonName = fileName.replace(/\.photon\.ts$/, '');
-      const remoteMeta = await this.getPhotonMetadata(photonName);
-      const assets = remoteMeta?.metadata?.assets;
-      const workingDir = path.dirname(filePath);
-      const currentHash = await calculatePhotonHash(filePath, assets, workingDir);
-      return currentHash !== metadata.originalHash;
+      // Read source and strip @forkedFrom (injected during install, not in manifest)
+      const content = (await fs.readFile(filePath, 'utf-8')).replace(
+        /\n\s*\*\s*@forkedFrom\s+[^\n]+/,
+        ''
+      );
+      const hash = `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
+      return hash !== metadata.originalHash;
     } catch {
       return false; // file unreadable → not modified
     }

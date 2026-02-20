@@ -200,6 +200,7 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
                 metadata ? `Source: ${metadata.marketplace}` : 'Source: local',
                 metadata ? `Installed: ${new Date(metadata.installedAt).toLocaleString()}` : null,
                 isModified ? 'Status: modified locally' : 'Status: clean',
+                photonMetadata.forkedFrom ? `Forked from: ${photonMetadata.forkedFrom}` : null,
               ].filter(Boolean) as string[];
               renderSection('Installation', installDetails);
 

@@ -65,6 +65,7 @@ export interface PhotonMetadata {
   stateful?: boolean;
   idleTimeout?: number;
   assets?: string[]; // Relative paths to asset files
+  forkedFrom?: string; // Origin reference: marketplace/repo#photon-name
   photonType: PhotonType;
   features: string[];
   externalDeps: { mcps: string[]; photons: string[]; npm: string[] };
@@ -121,6 +122,7 @@ export class PhotonDocExtractor {
       stateful: statefulTag !== undefined,
       idleTimeout: idleTimeoutTag ? parseInt(idleTimeoutTag, 10) : undefined,
       assets: await this.extractAssets(),
+      forkedFrom: this.extractTag('forkedFrom'),
       photonType,
       features,
       externalDeps,

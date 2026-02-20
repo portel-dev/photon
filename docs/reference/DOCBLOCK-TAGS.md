@@ -30,6 +30,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@label` | Custom display name for the photon in BEAM sidebar. | `@label My Custom Tool` |
 | `@persist` | Enables settings UI persistence for the photon. | `@persist` |
 | `@internal` | Marks photon as internal (hidden from main UI). | `@internal` |
+| `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
 
 ### Runtime Version Ranges
 
