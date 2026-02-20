@@ -3372,8 +3372,6 @@ export class BeamApp extends LitElement {
         // External MCPs use mcp-app-renderer (MCP Apps Extension protocol)
         // Internal photons use custom-ui-renderer (photon bridge protocol)
         const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
-        const hasPath = !!this._selectedPhoton?.path;
-        const hasInstallSource = !!this._selectedPhoton?.installSource;
 
         // Don't render the iframe until main() completes — this prevents the
         // iframe from loading data independently while an elicitation is pending
@@ -3442,24 +3440,7 @@ export class BeamApp extends LitElement {
               <div slot="below-fold">
                 ${otherMethods.length > 0
                   ? html`
-                      <context-bar
-                        .photon=${this._selectedPhoton}
-                        .showEdit=${false}
-                        .showConfigure=${false}
-                        .showCopyConfig=${false}
-                        .overflowItems=${this._buildOverflowItems({
-                          showRefresh: !isExternalMCP,
-                          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
-                          showUpgrade: !!this._selectedPhoton?.hasUpdate,
-                          showRename: !isExternalMCP,
-                          showViewSource: !isExternalMCP,
-                          showFork: hasInstallSource && !isExternalMCP,
-                          showContribute: hasInstallSource && !isExternalMCP,
-                          showDelete: !isExternalMCP,
-                          showHelp: !isExternalMCP,
-                        })}
-                        @context-action=${this._handleContextAction}
-                      ></context-bar>
+                      ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
                       <div class="bento-methods">
                         <h3 class="bento-section-title">
                           ${(() => {
@@ -3559,32 +3540,8 @@ export class BeamApp extends LitElement {
     }
 
     // For external MCPs, hide photon-specific toolbar actions in list view
-    const isExternalMCP = this._selectedPhoton?.isExternalMCP;
-    const hasPath = !!this._selectedPhoton?.path;
-
-    const hasInstallSource = !!this._selectedPhoton?.installSource;
-
     return html`
-      <context-bar
-        .photon=${this._selectedPhoton}
-        .showEdit=${false}
-        .showConfigure=${!isExternalMCP}
-        .showCopyConfig=${true}
-        .overflowItems=${this._buildOverflowItems({
-          showRefresh: !isExternalMCP,
-          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
-          showUpgrade: !!this._selectedPhoton?.hasUpdate,
-          showRename: !isExternalMCP,
-          showViewSource: !isExternalMCP,
-          showFork: hasInstallSource && !isExternalMCP,
-          showContribute: hasInstallSource && !isExternalMCP,
-          showDelete: !isExternalMCP,
-          showHelp: !isExternalMCP,
-        })}
-        @context-action=${this._handleContextAction}
-      ></context-bar>
-
-      ${this._editingIcon ? this._renderEmojiPicker() : ''}
+      ${this._renderPhotonToolbar()} ${this._editingIcon ? this._renderEmojiPicker() : ''}
 
       <div class="bento-methods">
         <h3 class="bento-section-title">
@@ -5345,6 +5302,36 @@ export class BeamApp extends LitElement {
     const main = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
     main?.requestFullscreen();
   };
+
+  /**
+   * Render the photon toolbar (context-bar) used in both list view and app below-fold.
+   * Single source of truth for overflow items and toolbar props.
+   */
+  private _renderPhotonToolbar(options?: { showConfigure?: boolean; showCopyConfig?: boolean }) {
+    const isExternalMCP = this._selectedPhoton?.isExternalMCP;
+    const hasPath = !!this._selectedPhoton?.path;
+    const hasInstallSource = !!this._selectedPhoton?.installSource;
+    return html`
+      <context-bar
+        .photon=${this._selectedPhoton}
+        .showEdit=${false}
+        .showConfigure=${options?.showConfigure ?? !isExternalMCP}
+        .showCopyConfig=${options?.showCopyConfig ?? true}
+        .overflowItems=${this._buildOverflowItems({
+          showRefresh: !isExternalMCP,
+          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
+          showUpgrade: !!this._selectedPhoton?.hasUpdate,
+          showRename: !isExternalMCP,
+          showViewSource: !isExternalMCP,
+          showFork: hasInstallSource && !isExternalMCP,
+          showContribute: hasInstallSource && !isExternalMCP,
+          showDelete: !isExternalMCP,
+          showHelp: !isExternalMCP,
+        })}
+        @context-action=${this._handleContextAction}
+      ></context-bar>
+    `;
+  }
 
   /**
    * Build overflow menu items for the context bar ⋯ menu
