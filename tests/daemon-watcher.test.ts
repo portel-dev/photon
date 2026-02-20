@@ -18,6 +18,13 @@ import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+
+// Suppress ECONNRESET during daemon kill/restart cycles — expected in integration tests
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'ECONNRESET') return;
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
 import { spawn, type ChildProcess } from 'child_process';
 import type { DaemonRequest, DaemonResponse } from '../dist/daemon/protocol.js';
 
