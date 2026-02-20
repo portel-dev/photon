@@ -56,6 +56,14 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
 | `@async` | Run in background, return execution ID immediately. | `@async` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
+| `@cached` | **Functional.** Memoize results with TTL. | `@cached 5m` |
+| `@timeout` | **Functional.** Execution time limit. | `@timeout 30s` |
+| `@retryable` | **Functional.** Auto-retry on failure. | `@retryable 3 1s` |
+| `@throttled` | **Functional.** Rate limit per method. | `@throttled 10/min` |
+| `@debounced` | **Functional.** Collapse rapid repeated calls. | `@debounced 500ms` |
+| `@queued` | **Functional.** Sequential execution queue. | `@queued 1` |
+| `@validate` | **Functional.** Runtime input validation rules. | `@validate params.email must be a valid email` |
+| `@deprecated` | **Functional.** Mark tool as deprecated. | `@deprecated Use v2 instead` |
 
 ### Async Execution
 
@@ -196,6 +204,8 @@ async batchUpdate(params: { taskIds: string[] }) {
 - `@locked <name>` - Uses custom lock name
 - Lock is held for the duration of method execution
 - Other processes/requests wait for lock release
+
+**Now auto-enforced:** Since v1.9.0, `@locked` is automatically enforced by the runtime. You no longer need to manually call `this.withLock()` — just add the tag and the runtime wraps execution with the lock.
 
 For programmatic locking with dynamic lock names, use `this.withLock()` (available on all `PhotonMCP` subclasses):
 
@@ -829,6 +839,211 @@ export default class OrderProcessor extends PhotonMCP {
 | **Use case** | Tightly coupled helpers | Loosely coupled services |
 
 Both approaches benefit from `@photon` ensuring the dependency is installed and available. The `@photon` tag is what triggers auto-installation — without it, `this.call()` would fail if the target photon isn't loaded.
+
+## Functional Tags (Runtime-Enforced)
+
+These method-level tags are **automatically enforced by the runtime** — no manual code needed. They compose as middleware in the execution pipeline.
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `@cached` | Memoize results with TTL. | `@cached 5m` |
+| `@timeout` | Execution time limit. | `@timeout 30s` |
+| `@retryable` | Auto-retry on failure. | `@retryable 3 1s` |
+| `@throttled` | Rate limit per method. | `@throttled 10/min` |
+| `@debounced` | Collapse rapid calls. | `@debounced 500ms` |
+| `@queued` | Sequential execution queue. | `@queued 1` |
+| `@validate` | Runtime input validation. | `@validate params.email must be a valid email` |
+| `@deprecated` | Mark tool as deprecated. | `@deprecated Use addV2 instead` |
+
+### Duration Format
+
+Tags that accept durations support these units: `ms`, `s`/`sec`, `m`/`min`, `h`/`hr`, `d`/`day`. Examples: `30s`, `5m`, `1h`, `500ms`.
+
+Rate expressions use `count/unit`: `10/min`, `100/h`, `5/s`.
+
+### `@cached` — Memoize Results
+
+Cache return values. Subsequent calls with identical parameters within TTL return the cached result without re-executing.
+
+```typescript
+/** @cached 5m */
+async getExchangeRates() {
+  return await fetch('https://api.exchange.com/rates').then(r => r.json());
+}
+
+/** @cached 1h */
+async getUser(params: { id: string }) {
+  return await this.db.findUser(params.id);
+}
+```
+
+- **Default TTL:** 5 minutes (if no duration specified)
+- **Cache key:** `photon:instance:method:sha256(params)`
+- **Storage:** In-memory per process (shared across sessions in daemon mode)
+
+### `@timeout` — Execution Time Limit
+
+Reject with `TimeoutError` if the method doesn't resolve within the specified duration.
+
+```typescript
+/** @timeout 30s */
+async fetchRemoteData(params: { url: string }) {
+  return await fetch(params.url).then(r => r.json());
+}
+```
+
+- Prevents hung tool calls from blocking MCP clients
+- Pairs well with `@retryable` — timeout applies per attempt
+
+### `@retryable` — Auto-Retry on Failure
+
+Retry the method on error with configurable count and delay.
+
+```typescript
+/** @retryable 3 1s */
+async callExternalAPI(params: { query: string }) {
+  return await this.api.search(params.query);
+}
+
+/** @retryable 5 2s */
+async sendWebhook(params: { url: string; payload: any }) {
+  const res = await fetch(params.url, { method: 'POST', body: JSON.stringify(params.payload) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return { status: res.status };
+}
+```
+
+- **Default:** 3 retries, 1 second delay
+- Only retries on thrown errors, not on successful returns
+- Delay is fixed (not exponential) between attempts
+
+### `@throttled` — Rate Limiting
+
+Allow at most N calls per time window. Excess calls are rejected.
+
+```typescript
+/** @throttled 10/min */
+async sendNotification(params: { message: string }) {
+  await this.mailer.send(params.message);
+}
+
+/** @throttled 100/h */
+async apiCall(params: { endpoint: string }) {
+  return await fetch(params.endpoint).then(r => r.json());
+}
+```
+
+- Rate is tracked per method across all sessions (daemon mode)
+- Window is rolling — oldest calls expire as time passes
+- Rejects with a rate limit error when exceeded
+
+### `@debounced` — Collapse Rapid Calls
+
+If called again within the delay window, the previous pending call is cancelled and only the latest executes.
+
+```typescript
+/** @debounced 500ms */
+async savePreferences(params: { prefs: Record<string, any> }) {
+  await this.storage.write('prefs', params.prefs);
+}
+```
+
+- Useful for auto-save, search-as-you-type
+- Returns a promise that resolves when the debounced call finally executes
+- Key is per-method (all calls to the same method share one debounce timer)
+
+### `@queued` — Sequential Execution Queue
+
+At most N concurrent executions. Additional calls wait in a FIFO queue.
+
+```typescript
+/** @queued 1 */
+async processPayment(params: { orderId: string }) {
+  return await this.stripe.charge(params.orderId);
+}
+
+/** @queued 3 */
+async processImage(params: { url: string }) {
+  return await this.imageService.resize(params.url);
+}
+```
+
+- **Default concurrency:** 1 (strict sequential)
+- Different from `@locked` — queue is ordered and never fails; lock is binary hold/wait
+- Queue lives in the daemon (shared across sessions)
+
+### `@validate` — Runtime Input Validation
+
+Custom validation rules beyond JSON Schema. Runs before method execution.
+
+```typescript
+/**
+ * @validate params.email must be a valid email
+ * @validate params.amount must be positive
+ */
+async charge(params: { email: string; amount: number }) {
+  // Only reached if email is valid and amount > 0
+}
+```
+
+**Built-in validators:**
+
+| Rule | Matches |
+|------|---------|
+| `email` | Valid email format |
+| `url` | Valid URL |
+| `positive` | Number > 0 |
+| `non-negative` | Number >= 0 |
+| `non-empty` | Non-empty string |
+| `uuid` | UUID format |
+| `integer` | Whole number |
+
+### `@deprecated` — Mark Tool as Deprecated
+
+Tool still works but surfaces deprecation notices across all interfaces.
+
+```typescript
+/** @deprecated Use addV2 instead */
+async add(params: { title: string }) {
+  return this.addV2({ title: params.title, priority: 'medium' });
+}
+```
+
+- **MCP tools/list:** Description prefixed with `[DEPRECATED: message]`
+- **Beam UI:** Gray badge with strikethrough styling
+- **CLI:** Warning logged before execution
+- **LLM context:** Deprecation notice in tool description guides model to prefer alternatives
+
+### Execution Pipeline Order
+
+When multiple functional tags are present on the same method, they compose as middleware in this order (cheapest checks first):
+
+```
+@throttled  → reject if over rate limit
+@debounced  → cancel previous, delay execution
+@cached     → return cached result if TTL valid (skips everything below)
+@validate   → reject if custom rules fail
+@queued     → wait for concurrency slot
+@locked     → acquire distributed lock
+@timeout    → start race timer
+@retryable  → retry loop on failure
+  → actual method execution
+```
+
+Example combining tags:
+
+```typescript
+/**
+ * Fetch and cache weather data with rate limiting
+ * @cached 15m
+ * @timeout 10s
+ * @retryable 2 500ms
+ * @throttled 30/min
+ */
+async getWeather(params: { city: string }) {
+  return await fetch(`https://api.weather.com/${params.city}`).then(r => r.json());
+}
+```
 
 ## Notes
 

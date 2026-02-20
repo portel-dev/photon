@@ -415,9 +415,32 @@ function startWebhookServer(port: number): void {
       return;
     }
 
+    // Resolve method from webhook route map (if routes are registered)
+    let resolvedMethod = method;
+    const routes = webhookRoutes.get(photonName);
+    if (routes && routes.size > 0) {
+      // Only allow methods that have @webhook tag
+      const mapped = routes.get(method);
+      if (!mapped) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: `No webhook route '${method}' on photon '${photonName}'`,
+            availableRoutes: [...routes.keys()],
+          })
+        );
+        return;
+      }
+      resolvedMethod = mapped;
+    }
+
     try {
       const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
-      const result = await sessionManager.loader.executeTool(session.instance, method, args);
+      const result = await sessionManager.loader.executeTool(
+        session.instance,
+        resolvedMethod,
+        args
+      );
 
       logger.info('Webhook executed', { photon: photonName, method });
 
@@ -561,6 +584,11 @@ async function getOrCreateSessionManager(
     watchPhotonFile(photonName, pathToUse);
 
     logger.info('Session manager initialized', { photonName });
+
+    // Auto-register scheduled jobs and webhook routes from tool metadata
+    // Do this lazily on first session creation
+    autoRegisterFromMetadata(photonName, manager);
+
     return manager;
   } catch (error) {
     logger.error('Failed to initialize session manager', {
@@ -568,6 +596,82 @@ async function getOrCreateSessionManager(
       error: getErrorMessage(error),
     });
     return null;
+  }
+}
+
+// Track which photons have had their metadata auto-registered
+const autoRegistered = new Set<string>();
+// Webhook route map: photonName → Set<allowed method names>
+const webhookRoutes = new Map<string, Map<string, string>>();
+
+/**
+ * Auto-register scheduled jobs and webhook routes from tool metadata.
+ * Called once per photon on first session manager creation.
+ */
+async function autoRegisterFromMetadata(
+  photonName: string,
+  manager: SessionManager
+): Promise<void> {
+  if (autoRegistered.has(photonName)) return;
+  autoRegistered.add(photonName);
+
+  try {
+    // Get a session to access the loaded photon's tools
+    const session = await manager.getOrCreateSession('__autoregister', 'system');
+    const tools: any[] = session.instance?.tools || [];
+
+    // Auto-register @scheduled jobs
+    for (const tool of tools) {
+      if (tool.scheduled) {
+        const jobId = `${photonName}:${tool.name}`;
+        if (!scheduledJobs.has(jobId)) {
+          const job = {
+            id: jobId,
+            method: tool.name,
+            args: {},
+            cron: tool.scheduled,
+            runCount: 0,
+            createdAt: Date.now(),
+            createdBy: 'auto',
+            photonName,
+          };
+          const ok = scheduleJob(job);
+          if (ok) {
+            logger.info('Auto-registered scheduled job from @scheduled tag', {
+              jobId,
+              method: tool.name,
+              cron: tool.scheduled,
+              photon: photonName,
+            });
+          }
+        }
+      }
+
+      // Build webhook route map
+      if (tool.webhook !== undefined) {
+        let routes = webhookRoutes.get(photonName);
+        if (!routes) {
+          routes = new Map();
+          webhookRoutes.set(photonName, routes);
+        }
+        // Custom path from @webhook <path>, or method name
+        const routePath = typeof tool.webhook === 'string' ? tool.webhook : tool.name;
+        routes.set(routePath, tool.name);
+      }
+    }
+
+    if (webhookRoutes.has(photonName)) {
+      const routes = webhookRoutes.get(photonName)!;
+      logger.info('Auto-registered webhook routes from @webhook tags', {
+        photon: photonName,
+        routes: [...routes.keys()],
+      });
+    }
+  } catch (error) {
+    logger.warn('Failed to auto-register metadata', {
+      photon: photonName,
+      error: getErrorMessage(error),
+    });
   }
 }
 

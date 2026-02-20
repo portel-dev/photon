@@ -538,9 +538,17 @@ export class PhotonServer {
     }
 
     const tools = this.mcp.tools.map((tool) => {
+      // Append deprecation notice to tool description if tagged
+      let description = tool.description;
+      const deprecated = (tool as any).deprecated;
+      if (deprecated) {
+        const notice = typeof deprecated === 'string' ? deprecated : 'This tool is deprecated.';
+        description = `[DEPRECATED: ${notice}] ${description}`;
+      }
+
       const toolDef: any = {
         name: tool.name,
-        description: tool.description,
+        description,
         inputSchema: tool.inputSchema,
       };
 
