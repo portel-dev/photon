@@ -13,6 +13,13 @@ interface MethodInfo {
   webhook?: string | boolean;
   scheduled?: string;
   locked?: string | boolean;
+  cached?: { ttl: number };
+  timeout?: { ms: number };
+  retryable?: { count: number; delay: number };
+  throttled?: { count: number; windowMs: number };
+  debounced?: { delay: number };
+  queued?: { concurrency: number };
+  deprecated?: string | true;
 }
 
 @customElement('method-card')
@@ -385,18 +392,27 @@ export class MethodCard extends LitElement {
     const isWebhook = !!this.method.webhook;
     const isCron = !!this.method.scheduled;
     const isLocked = !!this.method.locked;
-    const isTyped = isAutorun || isWebhook || isCron || isLocked;
+    const isDeprecated = !!this.method.deprecated;
+    const isCached = !!this.method.cached;
+    const hasTimeout = !!this.method.timeout;
+    const isRetryable = !!this.method.retryable;
+    const isThrottled = !!this.method.throttled;
+    const isDebounced = !!this.method.debounced;
+    const isQueued = !!this.method.queued;
+    const isTyped = isAutorun || isWebhook || isCron || isLocked || isDeprecated;
 
     // Determine accent color for typed methods
-    const typeAccent = isWebhook
-      ? 'hsl(45, 80%, 50%)'
-      : isCron
-        ? 'hsl(215, 80%, 60%)'
-        : isLocked
-          ? 'hsl(0, 65%, 55%)'
-          : isAutorun
-            ? 'hsl(160, 60%, 45%)'
-            : '';
+    const typeAccent = isDeprecated
+      ? 'hsl(0, 0%, 50%)'
+      : isWebhook
+        ? 'hsl(45, 80%, 50%)'
+        : isCron
+          ? 'hsl(215, 80%, 60%)'
+          : isLocked
+            ? 'hsl(0, 65%, 55%)'
+            : isAutorun
+              ? 'hsl(160, 60%, 45%)'
+              : '';
 
     return html`
       <div
@@ -426,6 +442,34 @@ export class MethodCard extends LitElement {
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
+            ${isDeprecated
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(0,0%,50%,0.15);color:hsl(0,0%,60%);text-decoration:line-through"
+                  >Deprecated</span
+                >`
+              : ''}
+            ${isCached
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(280,60%,50%,0.15);color:hsl(280,60%,65%)"
+                  >Cached</span
+                >`
+              : ''}
+            ${isThrottled
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(30,80%,50%,0.15);color:hsl(30,80%,60%)"
+                  >Throttled</span
+                >`
+              : ''}
+            ${isQueued
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(200,70%,50%,0.15);color:hsl(200,70%,60%)"
+                  >Queued</span
+                >`
+              : ''}
           </div>
           ${!this.method.isTemplate
             ? (() => {
