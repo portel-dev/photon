@@ -81,6 +81,16 @@ import {
   withLock as withLockHelper,
   // Duration parsing for functional tags
   parseDuration,
+  // Middleware system
+  builtinRegistry,
+  MiddlewareRegistry,
+  buildMiddlewareChain,
+  createStateStore,
+  type MiddlewareDefinition,
+  type MiddlewareState,
+  type MiddlewareContext,
+  type MiddlewareDeclaration,
+  type MiddlewareHandler,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -105,49 +115,7 @@ import { warnIfDangerous } from './shared/security.js';
 // ════════════════════════════════════════════════════════════════════════════════
 
 /** Cache entry for @cached tag */
-interface CacheEntry {
-  result: any;
-  timestamp: number;
-}
-
-/** Debounce pending call for @debounced tag */
-interface DebouncePending {
-  timer: NodeJS.Timeout;
-  resolve: (value: any) => void;
-  reject: (error: any) => void;
-}
-
-/** Queue entry for @queued tag */
-interface QueueEntry {
-  fn: () => Promise<any>;
-  resolve: (value: any) => void;
-  reject: (error: any) => void;
-}
-
-/** Queue state for @queued tag */
-interface QueueState {
-  running: number;
-  queue: QueueEntry[];
-}
-
-/** Rate limiter state for @throttled tag */
-interface ThrottleState {
-  timestamps: number[];
-}
-
-// Built-in validators for @validate tag
-const BUILT_IN_VALIDATORS: Record<string, (value: any) => boolean> = {
-  'a valid email': (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
-  'a valid url': (v) => typeof v === 'string' && /^https?:\/\/.+/.test(v),
-  positive: (v) => typeof v === 'number' && v > 0,
-  'non-negative': (v) => typeof v === 'number' && v >= 0,
-  'non-empty': (v) =>
-    v !== null && v !== undefined && v !== '' && (!Array.isArray(v) || v.length > 0),
-  'a valid uuid': (v) =>
-    typeof v === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
-  'an integer': (v) => typeof v === 'number' && Number.isInteger(v),
-};
+// Old middleware interfaces removed — now in photon-core/src/middleware.ts
 
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
@@ -169,17 +137,13 @@ export class PhotonLoader {
   private logger: Logger;
 
   // ════════════════════════════════════════════════════════════════════════════
-  // FUNCTIONAL TAG STATE
+  // MIDDLEWARE STATE
   // ════════════════════════════════════════════════════════════════════════════
 
-  /** @cached result store: cacheKey → { result, timestamp } */
-  private cache = new Map<string, CacheEntry>();
-  /** @debounced pending calls: debounceKey → pending */
-  private debouncePending = new Map<string, DebouncePending>();
-  /** @queued execution queues: queueKey → state */
-  private queues = new Map<string, QueueState>();
-  /** @throttled rate limiter state: throttleKey → timestamps */
-  private throttleState = new Map<string, ThrottleState>();
+  /** Per-middleware-name state stores (caches, throttle windows, queues, etc.) */
+  private middlewareStates = new Map<string, MiddlewareState>();
+  /** Per-photon custom middleware definitions discovered from module exports */
+  private photonMiddleware = new Map<string, MiddlewareDefinition[]>();
 
   constructor(verbose: boolean = false, logger?: Logger) {
     this.dependencyManager = new DependencyManager();
@@ -593,6 +557,13 @@ export class PhotonLoader {
 
       // Get MCP name
       const name = this.getMCPName(MCPClass);
+
+      // Discover custom middleware exports (export const middleware = [...])
+      // Must come after getMCPName since we key by the resolved photon name
+      if (module.middleware && Array.isArray(module.middleware)) {
+        this.photonMiddleware.set(name, module.middleware);
+        this.log(`🔧 Discovered ${module.middleware.length} custom middleware for ${name}`);
+      }
 
       // Resolve all constructor injections using type-based detection
       const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
@@ -1817,8 +1788,8 @@ Run: photon mcp ${mcpName} --config
 
   /**
    * Apply functional tag middleware to an execution function.
-   * Tags become composable wrappers applied in the correct order:
-   *   throttled → debounced → cached → validate → queued → locked → timeout → retryable → execute
+   * Tags become composable wrappers applied in the correct order via phase-sorted middleware.
+   * All middleware (built-in and custom) follows the same code path — no if-chain.
    */
   private applyMiddleware(
     execute: () => Promise<any>,
@@ -1828,260 +1799,54 @@ Run: photon mcp ${mcpName} --config
     parameters: any,
     instanceName?: string
   ): () => Promise<any> {
-    let fn = execute;
-
-    // Innermost → outermost wrapping order
-    // retryable wraps the actual execution
-    if (toolMeta.retryable) {
-      const inner = fn;
-      const { count, delay } = toolMeta.retryable;
-      fn = async () => {
-        let lastError: Error | undefined;
-        for (let attempt = 0; attempt <= count; attempt++) {
-          try {
-            return await inner();
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-            if (attempt < count) {
-              // Exponential backoff: delay * 2^attempt
-              const backoffMs = delay * Math.pow(2, attempt);
-              await new Promise((r) => setTimeout(r, backoffMs));
-            }
-          }
-        }
-        throw lastError;
-      };
-    }
-
-    // timeout wraps retryable (each attempt gets the full timeout)
-    if (toolMeta.timeout) {
-      const inner = fn;
-      const { ms } = toolMeta.timeout;
-      fn = async () => {
-        return Promise.race([
-          inner(),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => {
-              const error = new Error(
-                `Timeout: ${photonName}.${toolName} did not complete within ${ms}ms`
-              );
-              error.name = 'PhotonTimeoutError';
-              reject(error);
-            }, ms);
-          }),
-        ]);
-      };
-    }
-
-    // locked wraps timeout
-    if (toolMeta.locked) {
-      const inner = fn;
-      const lockName =
-        typeof toolMeta.locked === 'string' ? toolMeta.locked : `${photonName}:${toolName}`;
-      fn = async () => withLockHelper(lockName, inner);
-    }
-
-    // queued wraps locked
-    if (toolMeta.queued) {
-      const inner = fn;
-      const queueKey = `${photonName}:${instanceName || 'default'}:${toolName}`;
-      const concurrency = toolMeta.queued.concurrency;
-      fn = () => this.withQueue(queueKey, concurrency, inner);
-    }
-
-    // validate wraps queued
-    if (toolMeta.validations && toolMeta.validations.length > 0) {
-      const inner = fn;
-      const validations = toolMeta.validations as Array<{ field: string; rule: string }>;
-      fn = async () => {
-        this.runValidations(validations, parameters, photonName, toolName);
-        return inner();
-      };
-    }
-
-    // cached wraps validate (returns cached result skipping everything below)
-    if (toolMeta.cached) {
-      const inner = fn;
-      const { ttl } = toolMeta.cached;
-      const cacheKey = `${photonName}:${instanceName || 'default'}:${toolName}:${this.hashParams(parameters)}`;
-      fn = async () => {
-        const cached = this.cache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < ttl) {
-          return cached.result;
-        }
-        const result = await inner();
-        this.cache.set(cacheKey, { result, timestamp: Date.now() });
-        return result;
-      };
-    }
-
-    // debounced wraps cached
-    if (toolMeta.debounced) {
-      const inner = fn;
-      const { delay } = toolMeta.debounced;
-      const debounceKey = `${photonName}:${instanceName || 'default'}:${toolName}`;
-      fn = () => this.withDebounce(debounceKey, delay, inner);
-    }
-
-    // throttled is the outermost check (cheapest — just reject if over limit)
-    if (toolMeta.throttled) {
-      const inner = fn;
-      const throttleKey = `${photonName}:${instanceName || 'default'}:${toolName}`;
-      const { count, windowMs } = toolMeta.throttled;
-      fn = async () => {
-        if (!this.checkThrottle(throttleKey, count, windowMs)) {
-          const error = new Error(
-            `Rate limited: ${photonName}.${toolName} exceeds ${count} calls per ${windowMs}ms`
-          );
-          error.name = 'PhotonRateLimitError';
-          throw error;
-        }
-        return inner();
-      };
-    }
-
-    return fn;
-  }
-
-  /** Hash parameters for cache key */
-  private hashParams(params: any): string {
-    try {
-      return crypto
-        .createHash('sha256')
-        .update(JSON.stringify(params || {}))
-        .digest('hex')
-        .slice(0, 12);
-    } catch {
-      return 'nohash';
-    }
-  }
-
-  /** @throttled: sliding window rate check */
-  private checkThrottle(key: string, maxCount: number, windowMs: number): boolean {
-    const now = Date.now();
-    let state = this.throttleState.get(key);
-    if (!state) {
-      state = { timestamps: [] };
-      this.throttleState.set(key, state);
-    }
-    // Prune old timestamps
-    state.timestamps = state.timestamps.filter((t) => now - t < windowMs);
-    if (state.timestamps.length >= maxCount) {
-      return false;
-    }
-    state.timestamps.push(now);
-    return true;
-  }
-
-  /** @debounced: cancel previous, delay execution */
-  private withDebounce(key: string, delay: number, fn: () => Promise<any>): Promise<any> {
-    const existing = this.debouncePending.get(key);
-    if (existing) {
-      clearTimeout(existing.timer);
-      existing.reject(new Error('Debounced: superseded by newer call'));
-    }
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(async () => {
-        this.debouncePending.delete(key);
-        try {
-          resolve(await fn());
-        } catch (error) {
-          reject(error);
-        }
-      }, delay);
-
-      this.debouncePending.set(key, { timer, resolve, reject });
-    });
-  }
-
-  /** @queued: concurrency-limited execution queue */
-  private withQueue(key: string, concurrency: number, fn: () => Promise<any>): Promise<any> {
-    let state = this.queues.get(key);
-    if (!state) {
-      state = { running: 0, queue: [] };
-      this.queues.set(key, state);
-    }
-
-    const tryDequeue = () => {
-      const s = this.queues.get(key);
-      if (!s) return;
-      while (s.running < concurrency && s.queue.length > 0) {
-        const next = s.queue.shift()!;
-        s.running++;
-        next.fn().then(
-          (result) => {
-            s.running--;
-            next.resolve(result);
-            tryDequeue();
-          },
-          (error) => {
-            s.running--;
-            next.reject(error);
-            tryDequeue();
-          }
-        );
-      }
+    // Build middleware context
+    const ctx: MiddlewareContext = {
+      photon: photonName,
+      tool: toolName,
+      instance: instanceName || 'default',
+      params: parameters,
     };
 
-    if (state.running < concurrency) {
-      state.running++;
-      return fn().finally(() => {
-        const s = this.queues.get(key);
-        if (s) {
-          s.running--;
-          tryDequeue();
-        }
-      });
+    // Get declarations from the new middleware[] field
+    const declarations: MiddlewareDeclaration[] = toolMeta.middleware || [];
+    if (declarations.length === 0) {
+      return execute;
     }
 
-    return new Promise((resolve, reject) => {
-      state!.queue.push({ fn, resolve, reject });
+    // Build a combined registry: photon-specific middleware + builtins
+    const combinedRegistry = new MiddlewareRegistry();
+    // Register builtins first
+    for (const name of builtinRegistry.names()) {
+      combinedRegistry.register(builtinRegistry.get(name)!);
+    }
+    // Register photon-specific custom middleware (overrides builtins if same name)
+    const photonDefs = this.photonMiddleware.get(photonName);
+    if (photonDefs) {
+      for (const def of photonDefs) {
+        combinedRegistry.register(def);
+      }
+    }
+
+    // Handler override for locked middleware — inject real lock manager
+    const handlerOverrides = new Map<
+      string,
+      (config: any, state: MiddlewareState) => MiddlewareHandler
+    >();
+    handlerOverrides.set('locked', (config: { name: string }) => {
+      return async (_ctx: MiddlewareContext, next: () => Promise<any>) => {
+        const lockName = config.name || `${photonName}:${toolName}`;
+        return withLockHelper(lockName, next);
+      };
     });
-  }
 
-  /** @validate: run custom validation rules */
-  private runValidations(
-    validations: Array<{ field: string; rule: string }>,
-    params: any,
-    photonName: string,
-    toolName: string
-  ): void {
-    for (const { field, rule } of validations) {
-      const value = this.getNestedValue(params, field);
-      const ruleLower = rule.toLowerCase();
-
-      // Check built-in validators
-      let valid = false;
-      let builtInMatched = false;
-      for (const [pattern, validator] of Object.entries(BUILT_IN_VALIDATORS)) {
-        if (ruleLower.includes(pattern)) {
-          valid = validator(value);
-          builtInMatched = true;
-          break;
-        }
-      }
-
-      // If no built-in matched, check "must be" pattern for truthy check
-      if (!builtInMatched && ruleLower.startsWith('must be ')) {
-        // Generic truthy check as fallback
-        valid = value !== null && value !== undefined && value !== '';
-      }
-
-      if (!valid) {
-        const error = new Error(
-          `Validation failed: ${field} ${rule} (got ${JSON.stringify(value)}) in ${photonName}.${toolName}`
-        );
-        error.name = 'PhotonValidationError';
-        throw error;
-      }
-    }
-  }
-
-  /** Get nested value from object by dot path */
-  private getNestedValue(obj: any, path: string): any {
-    if (!obj || typeof obj !== 'object') return undefined;
-    return path.split('.').reduce((o, key) => o?.[key], obj);
+    return buildMiddlewareChain(
+      execute,
+      declarations,
+      combinedRegistry,
+      this.middlewareStates,
+      ctx,
+      handlerOverrides
+    );
   }
 
   /**
@@ -2115,15 +1880,7 @@ Run: photon mcp ${mcpName} --config
 
       // Get tool metadata for functional tags
       const toolMeta: any = mcp.tools.find((t: any) => t.name === toolName) || {};
-      const hasFunctionalTags =
-        toolMeta.cached ||
-        toolMeta.timeout ||
-        toolMeta.retryable ||
-        toolMeta.throttled ||
-        toolMeta.debounced ||
-        toolMeta.queued ||
-        toolMeta.validations ||
-        toolMeta.locked;
+      const hasFunctionalTags = toolMeta.middleware?.length > 0;
 
       // Log deprecation warning if tool is deprecated
       if (toolMeta.deprecated) {

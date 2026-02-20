@@ -64,6 +64,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@queued` | **Functional.** Sequential execution queue. | `@queued 1` |
 | `@validate` | **Functional.** Runtime input validation rules. | `@validate params.email must be a valid email` |
 | `@deprecated` | **Functional.** Mark tool as deprecated. | `@deprecated Use v2 instead` |
+| `@use` | **Functional.** Apply custom or built-in middleware with inline config. | `@use audit {@level info}` |
 
 ### Async Execution
 
@@ -225,6 +226,95 @@ Alternatively, `withLock` can be imported directly from `@portel/photon-core` fo
 ```typescript
 import { withLock } from '@portel/photon-core';
 ```
+
+## Custom Middleware (`@use` Tag)
+
+The `@use` tag applies middleware to a method. All built-in functional tags (`@cached`, `@timeout`, etc.) are middleware — `@use` lets you apply custom middleware with the same API.
+
+### Syntax
+
+```typescript
+/** @use middlewareName {@prop value} {@prop2 value2} */
+```
+
+### Sugar Equivalence
+
+Every built-in shorthand has an equivalent `@use` form:
+
+| Shorthand | `@use` equivalent |
+|-----------|-------------------|
+| `@cached 5m` | `@use cached {@ttl 5m}` |
+| `@timeout 30s` | `@use timeout {@ms 30s}` |
+| `@retryable 3 1s` | `@use retryable {@count 3} {@delay 1s}` |
+| `@throttled 10/min` | `@use throttled {@rate 10/min}` |
+| `@debounced 500ms` | `@use debounced {@delay 500ms}` |
+| `@queued 3` | `@use queued {@concurrency 3}` |
+| `@locked board:write` | `@use locked {@name board:write}` |
+
+### Defining Custom Middleware
+
+Export a `middleware` array from your `.photon.ts` file:
+
+```typescript
+import { defineMiddleware } from '@portel/photon-core';
+
+export const middleware = [
+  defineMiddleware({
+    name: 'audit',
+    phase: 5,  // lower = runs first (outermost wrapper)
+    create(config, state) {
+      return async (ctx, next) => {
+        const start = Date.now();
+        const result = await next();
+        console.log(`[${config.level}] ${ctx.tool} ${Date.now() - start}ms`);
+        return result;
+      };
+    }
+  })
+];
+
+export default class MyPhoton {
+  /** @use audit {@level debug} */
+  async charge(params: { amount: number }) {
+    return { charged: params.amount };
+  }
+}
+```
+
+### Phase Ordering
+
+Middleware runs in phase order (lower = outer wrapper, executes first):
+
+| Phase | Middleware | Role |
+|-------|-----------|------|
+| 10 | `throttled` | Cheapest rejection — outermost |
+| 20 | `debounced` | Collapse rapid calls |
+| 30 | `cached` | Skip everything on cache hit |
+| 40 | `validate` | Reject bad input |
+| **45** | **custom (default)** | **Custom middleware default phase** |
+| 50 | `queued` | Concurrency control |
+| 60 | `locked` | Distributed lock |
+| 70 | `timeout` | Race timer |
+| 80 | `retryable` | Retry loop — innermost |
+
+### MiddlewareDefinition API
+
+```typescript
+interface MiddlewareDefinition<C = Record<string, any>> {
+  name: string;
+  phase?: number;                         // default: 45
+  parseShorthand?(value: string): C;      // for sugar tags
+  parseConfig?(raw: Record<string, string>): C;  // for {@prop value} syntax
+  create(config: C, state: MiddlewareState): MiddlewareHandler;
+}
+```
+
+- **`name`** — unique identifier, used in `@use name`
+- **`phase`** — determines execution order (lower = outer)
+- **`parseShorthand`** — optional, parses sugar like `@cached 5m`
+- **`parseConfig`** — optional, parses inline `{@prop value}` configs
+- **`create`** — returns a handler function `(ctx, next) => Promise<any>`
+- **`state`** — per-middleware persistent state (survives across calls)
 
 ## Inline Parameter Tags
 
