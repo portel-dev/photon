@@ -68,9 +68,9 @@ Four lines of declarations replace fifty lines of infrastructure. The method bod
 
 This isn't configuration. It's **behavior composition**. Each tag is a middleware that wraps the method execution at a specific phase in the pipeline.
 
-## Five Real-World Patterns
+## Six Real-World Patterns
 
-Every middleware tag addresses one of five gaps between ideal code and production reality:
+Every middleware tag addresses one of six gaps between ideal code and production reality:
 
 ### 1. "The world is unreliable" — `@timeout` + `@retryable`
 
@@ -143,6 +143,24 @@ async charge(params: { email: string; amount: number }) {
 }
 ```
 
+### 6. "Fail gracefully" — `@fallback`
+
+Methods that read config files, query external services, or load state often fail — the file doesn't exist yet, the service is down, the data is corrupt. Ideal code assumes success. Reality needs a safe default when things break.
+
+```typescript
+/** @fallback [] */
+async loadHistory(params: { path: string }) {
+  return JSON.parse(await fs.readFile(params.path, 'utf-8'));
+}
+
+/** @fallback null */
+async findUser(params: { id: string }) {
+  return await this.db.findOne({ id: params.id });
+}
+```
+
+The `@fallback` tag wraps the entire pipeline — if retries are exhausted, if a timeout fires, if rate limiting rejects, the fallback catches everything and returns the default value. No try/catch, no silent swallowing of errors, just a declaration of what the caller should get when the world doesn't cooperate.
+
 ## How It Works
 
 ### The Pipeline
@@ -151,6 +169,7 @@ When a method has middleware tags, the runtime wraps execution in a chain. Each 
 
 ```
 Request arrives
+  → @fallback    catch any error below, return default value (outermost safety net)
   → @throttled   reject if over rate limit (cheapest check first)
   → @debounced   cancel previous, delay execution
   → @cached      return cached result if valid (skip everything below)
@@ -170,6 +189,7 @@ Each middleware has a **phase number** that determines its position in the pipel
 
 | Phase | Middleware | Why this position |
 |-------|-----------|-------------------|
+| 3 | `@fallback` | Outermost safety net — catches everything, returns default |
 | 10 | `@throttled` | Reject immediately — don't waste any resources |
 | 20 | `@debounced` | Collapse rapid calls before doing real work |
 | 30 | `@cached` | Cache hit skips everything — biggest savings |
