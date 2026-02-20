@@ -96,6 +96,7 @@ export class OverflowMenu extends LitElement {
   /** Read a CSS variable from the nearest beam-app host element */
   private _getVar(name: string, fallback: string): string {
     // Walk up to find the beam-app host that defines theme variables
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     let el: HTMLElement | null = this;
     while (el) {
       const val = getComputedStyle(el).getPropertyValue(name).trim();

@@ -698,7 +698,11 @@ export class PhotonLoader {
             if (!instance._callHandler) {
               throw new Error(`Cross-photon calls not available for ${name}.`);
             }
-            return (instance._callHandler as Function)(photonName, methodName, params);
+            return (instance._callHandler as (...args: unknown[]) => unknown)(
+              photonName,
+              methodName,
+              params
+            );
           };
         }
 
