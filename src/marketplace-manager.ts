@@ -130,6 +130,32 @@ export function calculateHash(content: string): string {
 }
 
 /**
+ * Calculate combined hash of a photon source file + its declared assets.
+ * This ensures asset-only changes (e.g. board.html update) are detected.
+ */
+export async function calculatePhotonHash(
+  sourceFilePath: string,
+  assets?: string[],
+  baseDir?: string
+): Promise<string> {
+  const hasher = crypto.createHash('sha256');
+  // Always include the source file
+  hasher.update(await fs.readFile(sourceFilePath, 'utf-8'));
+  // Include each asset file in sorted order for determinism
+  if (assets && assets.length > 0 && baseDir) {
+    for (const asset of [...assets].sort()) {
+      const assetPath = path.join(baseDir, asset);
+      try {
+        hasher.update(await fs.readFile(assetPath));
+      } catch {
+        // Asset missing — skip (will be caught by validation)
+      }
+    }
+  }
+  return `sha256:${hasher.digest('hex')}`;
+}
+
+/**
  * Read local installation metadata
  */
 export async function readLocalMetadata(): Promise<LocalMetadata> {
