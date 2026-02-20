@@ -198,7 +198,7 @@ async function setupMCPDependencies(
 export function registerPackageCommands(program: Command, defaultWorkingDir: string): void {
   // Add command: add an MCP from a marketplace
   program
-    .command('add', { hidden: true })
+    .command('add')
     .argument('<name>', 'MCP name to add')
     .option('--marketplace <name>', 'Specific marketplace to use')
     .option('-y, --yes', 'Automatically select first suggestion without prompting')
@@ -383,7 +383,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
 
   // Remove command: remove an installed photon
   program
-    .command('remove', { hidden: true })
+    .command('remove')
     .argument('<name>', 'MCP name to remove')
     .alias('rm')
     .option('--keep-cache', 'Keep compiled cache for this photon')
@@ -447,7 +447,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
 
   // Upgrade command: update MCPs from marketplace
   program
-    .command('upgrade', { hidden: true })
+    .command('upgrade')
     .argument('[name]', 'MCP name to upgrade (upgrades all if omitted)')
     .option('--check', 'Check for updates without upgrading')
     .alias('up')
