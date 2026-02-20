@@ -2198,6 +2198,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }
         }
 
+        // Always include "default" — matches daemon's _instances behavior
+        if (!instances.includes('default')) {
+          instances.push('default');
+          instances.sort();
+        }
+        if (!autoInstance) autoInstance = 'default';
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ instances, autoInstance }));
       } catch (err) {
