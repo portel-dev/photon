@@ -144,6 +144,8 @@ export class PhotonStudio extends LitElement {
     .editor-container {
       flex: 1;
       overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-glass, rgba(255, 255, 255, 0.08)) transparent;
     }
 
     .editor-container .cm-editor {
@@ -154,6 +156,43 @@ export class PhotonStudio extends LitElement {
       font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
       font-size: 13px;
       line-height: 1.5;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-glass, rgba(255, 255, 255, 0.08)) transparent;
+    }
+
+    .editor-container .cm-scroller::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .editor-container .cm-scroller::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .editor-container .cm-scroller::-webkit-scrollbar-thumb {
+      background: var(--border-glass, rgba(255, 255, 255, 0.08));
+      border-radius: 4px;
+    }
+    .editor-container .cm-scroller::-webkit-scrollbar-thumb:hover {
+      background: var(--t-muted, #888);
+    }
+
+    /* ─── Custom scrollbar ─── */
+    .editor-container ::-webkit-scrollbar,
+    .preview-pane::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .editor-container ::-webkit-scrollbar-track,
+    .preview-pane::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .editor-container ::-webkit-scrollbar-thumb,
+    .preview-pane::-webkit-scrollbar-thumb {
+      background: var(--border-glass, rgba(255, 255, 255, 0.08));
+      border-radius: 4px;
+    }
+    .editor-container ::-webkit-scrollbar-thumb:hover,
+    .preview-pane::-webkit-scrollbar-thumb:hover {
+      background: var(--t-muted, #888);
     }
 
     /* ─── Inspector pane ─── */
@@ -163,6 +202,8 @@ export class PhotonStudio extends LitElement {
       overflow-y: auto;
       padding: 12px;
       flex-shrink: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-glass, rgba(255, 255, 255, 0.08)) transparent;
     }
 
     .preview-header {
