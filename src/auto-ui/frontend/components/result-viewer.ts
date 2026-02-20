@@ -4493,6 +4493,15 @@ export class ResultViewer extends LitElement {
       </div>`;
     }
 
+    // Multiline strings → monospace pre-formatted block (ASCII art, boards, etc.)
+    if (str.includes('\n')) {
+      return html`<pre
+        style="margin:0;font-family:var(--font-mono);font-size:0.8rem;white-space:pre;overflow-x:auto;line-height:1.4;"
+      >
+${str}</pre
+      >`;
+    }
+
     return highlight ? this._highlightText(str) : str;
   }
 
