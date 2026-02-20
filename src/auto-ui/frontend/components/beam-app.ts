@@ -3440,7 +3440,7 @@ export class BeamApp extends LitElement {
               <div slot="below-fold">
                 ${otherMethods.length > 0
                   ? html`
-                      ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
+                      ${this._renderPhotonToolbar()}
                       <div class="bento-methods">
                         <h3 class="bento-section-title">
                           ${(() => {
