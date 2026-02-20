@@ -395,6 +395,12 @@ export class PhotonDocExtractor {
       }
 
       const jsdoc = jsdocMatch[1];
+
+      // Skip @internal methods — hidden from LLM and sidebar
+      if (/@internal/.test(jsdoc)) {
+        continue;
+      }
+
       const tool = this.parseToolMethodFromJSDoc(jsdoc, methodName, methodSignatureParams);
       if (tool) {
         tool.isGenerator = isGenerator;
