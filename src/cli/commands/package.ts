@@ -9,7 +9,6 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as os from 'os';
-import { execSync } from 'child_process';
 import {
   SchemaExtractor,
   loadPhotonMCPConfig,
@@ -691,148 +690,29 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .description('Create a PR to contribute improvements back upstream')
     .action(async (name: string, options: any, command: Command) => {
       try {
-        const { printInfo, printSuccess, printWarning, printError } =
-          await import('../../cli-formatter.js');
+        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
         const workingDir = command.parent?.opts().dir || defaultWorkingDir;
 
-        // Check gh CLI is available
-        try {
-          execSync('gh --version', { stdio: 'pipe' });
-        } catch {
-          printError('GitHub CLI (gh) is required but not installed');
-          printInfo('Install: https://cli.github.com/');
-          process.exit(1);
-        }
-
-        // Check gh is authenticated
-        try {
-          execSync('gh auth status', { stdio: 'pipe' });
-        } catch {
-          printError('GitHub CLI is not authenticated');
-          printInfo('Run: gh auth login');
-          process.exit(1);
-        }
-
-        // Find the photon file
-        const filePath = await resolvePhotonPath(name, workingDir);
-        if (!filePath) {
-          printError(`Photon not found: ${name}`);
-          process.exit(1);
-        }
-
-        const fileName = `${name}.photon.ts`;
-
-        // Read install metadata
-        const { MarketplaceManager, readLocalMetadata } =
-          await import('../../marketplace-manager.js');
-        const localMetadata = await readLocalMetadata();
-        const installMeta = localMetadata.photons[fileName];
-
-        if (!installMeta) {
-          printError(`${name} was not installed from a marketplace`);
-          printInfo('Only marketplace-installed photons can be contributed back');
-          process.exit(1);
-        }
-
-        if (!installMeta.marketplaceRepo) {
-          printError(`No upstream repository found for ${name}`);
-          process.exit(1);
-        }
-
-        // Check if actually modified
+        const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager();
         await manager.initialize();
-        const modified = await manager.isPhotonModified(filePath, fileName);
 
-        if (!modified) {
-          printInfo(`${name} has not been modified — nothing to contribute`);
-          process.exit(0);
-        }
+        const result = await manager.contributePhoton(name, workingDir, {
+          dryRun: options.dryRun,
+          branch: options.branch,
+        });
 
-        const repo = installMeta.marketplaceRepo;
-        const branchName = options.branch || `contribute/${name}-${Date.now()}`;
-
-        printInfo(`Contributing ${name} back to ${repo}`);
-        printInfo(`Branch: ${branchName}`);
-
-        if (options.dryRun) {
-          printInfo('\n[dry-run] Would:');
-          printInfo(`  1. Fork ${repo}`);
-          printInfo(`  2. Clone fork to temp directory`);
-          printInfo(`  3. Copy modified ${fileName} (and assets)`);
-          printInfo(`  4. Create branch ${branchName}`);
-          printInfo(`  5. Commit and push`);
-          printInfo(`  6. Create PR to ${repo}`);
-          return;
-        }
-
-        // Fork the repo (idempotent — gh handles existing forks)
-        printInfo(`Forking ${repo}...`);
-        try {
-          execSync(`gh repo fork ${repo} --clone=false`, { stdio: 'pipe' });
-        } catch {
-          // Fork may already exist, which is fine
-        }
-
-        // Get fork name
-        const forkJson = execSync(`gh api user`, { encoding: 'utf-8' });
-        const ghUser = JSON.parse(forkJson).login;
-        const repoName = repo.split('/')[1];
-        const forkRepo = `${ghUser}/${repoName}`;
-
-        // Clone to temp dir
-        const tmpDir = path.join(os.tmpdir(), `photon-contribute-${Date.now()}`);
-        printInfo(`Cloning fork to ${tmpDir}...`);
-        execSync(`gh repo clone ${forkRepo} "${tmpDir}" -- --depth=1`, { stdio: 'pipe' });
-
-        // Copy modified photon file
-        const targetFile = path.join(tmpDir, fileName);
-        await fs.copyFile(filePath, targetFile);
-
-        // Copy assets if they exist
-        const photonMeta = await manager.getPhotonMetadata(name);
-        if (photonMeta?.metadata.assets) {
-          for (const asset of photonMeta.metadata.assets) {
-            const srcAsset = path.join(workingDir, asset);
-            const dstAsset = path.join(tmpDir, asset);
-            if (existsSync(srcAsset)) {
-              await fs.mkdir(path.dirname(dstAsset), { recursive: true });
-              await fs.copyFile(srcAsset, dstAsset);
-            }
+        if (result.success) {
+          if (result.prUrl) {
+            printSuccess('Pull request created!');
+            console.error(`\n  ${result.prUrl}`);
+          } else {
+            printInfo(result.message);
           }
+        } else {
+          printError(result.message);
+          process.exit(1);
         }
-
-        // Create branch, commit, push
-        printInfo('Creating branch and committing...');
-        execSync(
-          `cd "${tmpDir}" && git checkout -b "${branchName}" && git add -A && git commit -m "improve: update ${name} photon" && git push origin "${branchName}"`,
-          { stdio: 'pipe' }
-        );
-
-        // Create PR
-        printInfo('Creating pull request...');
-        const prOutput = execSync(
-          `cd "${tmpDir}" && gh pr create --repo "${repo}" --title "Improve ${name} photon" --body "$(cat <<'PREOF'
-## Contributed improvements to ${name}
-
-This PR contains local improvements made to the ${name} photon after installing it from the marketplace.
-
-Contributed via \`photon contribute ${name}\`.
-PREOF
-)"`,
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-        );
-
-        // Cleanup temp dir
-        try {
-          await fs.rm(tmpDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort cleanup
-        }
-
-        const prUrl = prOutput.trim();
-        printSuccess(`Pull request created!`);
-        console.error(`\n  ${prUrl}`);
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(getErrorMessage(error));
@@ -847,48 +727,69 @@ PREOF
     .description('Take ownership of an installed photon (removes marketplace tracking)')
     .action(async (name: string, _options: any, command: Command) => {
       try {
-        const { printInfo, printSuccess, printWarning, printError } =
-          await import('../../cli-formatter.js');
+        const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
         const workingDir = command.parent?.opts().dir || defaultWorkingDir;
 
-        // Find the photon file
-        const filePath = await resolvePhotonPath(name, workingDir);
-        if (!filePath) {
-          printError(`Photon not found: ${name}`);
+        const { MarketplaceManager } = await import('../../marketplace-manager.js');
+        const manager = new MarketplaceManager();
+        await manager.initialize();
+
+        // Get fork targets for interactive selection
+        const targets = await manager.getForkTargets();
+        const choices: string[] = [];
+
+        if (targets.length > 0) {
+          for (const t of targets) {
+            choices.push(`${t.name} (${t.repo})`);
+          }
+        }
+        choices.push('Create new GitHub repository');
+        choices.push('Local only (remove marketplace tracking)');
+
+        const rl = createReadline();
+        console.error(`\nWhere do you want to fork ${name}?\n`);
+        choices.forEach((c, i) => console.error(`  [${i + 1}] ${c}`));
+        console.error('');
+
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(`Choice [1-${choices.length}]: `, resolve);
+        });
+        rl.close();
+
+        const choiceIdx = parseInt(answer, 10) - 1;
+        if (isNaN(choiceIdx) || choiceIdx < 0 || choiceIdx >= choices.length) {
+          printError('Invalid choice');
           process.exit(1);
         }
 
-        const fileName = `${name}.photon.ts`;
+        let forkOptions: { targetRepo?: string; createRepo?: string } | undefined;
 
-        // Read install metadata
-        const { readLocalMetadata, writeLocalMetadata } =
-          await import('../../marketplace-manager.js');
-        const localMetadata = await readLocalMetadata();
-        const installMeta = localMetadata.photons[fileName];
-
-        if (!installMeta) {
-          printInfo(`${name} is already a local photon (no marketplace tracking)`);
-          process.exit(0);
+        if (choiceIdx < targets.length) {
+          // Push to existing marketplace repo
+          forkOptions = { targetRepo: targets[choiceIdx].repo };
+        } else if (choiceIdx === choices.length - 2) {
+          // Create new repo
+          const rl2 = createReadline();
+          const repoName = await new Promise<string>((resolve) => {
+            rl2.question('Repository name (owner/name): ', resolve);
+          });
+          rl2.close();
+          if (!repoName.trim()) {
+            printError('Repository name is required');
+            process.exit(1);
+          }
+          forkOptions = { createRepo: repoName.trim() };
         }
+        // else: local only, no options
 
-        // Verify @forkedFrom tag exists in the file
-        const content = await fs.readFile(filePath, 'utf-8');
-        const hasForkedFrom = content.includes('@forkedFrom');
+        const result = await manager.forkPhoton(name, workingDir, forkOptions);
 
-        if (!hasForkedFrom) {
-          printWarning(`${name} has no @forkedFrom lineage tag — origin will not be preserved`);
+        if (result.success) {
+          printSuccess(result.message);
+        } else {
+          printError(result.message);
+          process.exit(1);
         }
-
-        // Remove from metadata
-        delete localMetadata.photons[fileName];
-        await writeLocalMetadata(localMetadata);
-
-        printSuccess(`${name} is now your own`);
-        if (hasForkedFrom) {
-          printInfo('Origin preserved as @forkedFrom tag in the file');
-        }
-        printInfo('Marketplace update tracking has been removed');
-        printInfo(`You can freely modify ${fileName} without upgrade warnings`);
       } catch (error) {
         const { printError } = await import('../../cli-formatter.js');
         printError(getErrorMessage(error));

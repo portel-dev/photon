@@ -321,6 +321,22 @@ export class MarketplaceView extends LitElement {
         cursor: not-allowed;
       }
 
+      .btn-fork {
+        background: transparent;
+        color: var(--t-muted);
+        border: 1px solid var(--border-glass);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .btn-fork:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+
       .card.has-update {
         border-color: hsl(35, 80%, 50%);
       }
@@ -1195,6 +1211,9 @@ export class MarketplaceView extends LitElement {
                     ? 'Updating...'
                     : `Update${item.latestVersion ? ` to ${item.latestVersion}` : ''}`}
                 </button>
+                <button class="btn-fork" style="margin-left: 8px;" @click=${() => this._fork(item)}>
+                  Fork
+                </button>
                 <button
                   class="btn-remove"
                   style="margin-left: 8px;"
@@ -1204,13 +1223,15 @@ export class MarketplaceView extends LitElement {
                   ${this._removing === item.name ? 'Removing...' : 'Remove'}
                 </button>`
             : item.installed
-              ? html`<button
-                  class="btn-remove"
-                  ?disabled=${this._removing === item.name}
-                  @click=${() => this._remove(item)}
-                >
-                  ${this._removing === item.name ? 'Removing...' : 'Remove'}
-                </button>`
+              ? html`<button class="btn-fork" @click=${() => this._fork(item)}>Fork</button>
+                  <button
+                    class="btn-remove"
+                    style="margin-left: 8px;"
+                    ?disabled=${this._removing === item.name}
+                    @click=${() => this._remove(item)}
+                  >
+                    ${this._removing === item.name ? 'Removing...' : 'Remove'}
+                  </button>`
               : html`<button
                   class="btn-install"
                   ?disabled=${isInstalling}
@@ -1426,6 +1447,16 @@ export class MarketplaceView extends LitElement {
     } finally {
       this._updating = null;
     }
+  }
+
+  private _fork(item: MarketplaceItem) {
+    this.dispatchEvent(
+      new CustomEvent('fork-photon', {
+        detail: { name: item.name },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   // Maker static method actions

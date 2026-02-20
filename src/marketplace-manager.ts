@@ -1309,6 +1309,302 @@ export class MarketplaceManager {
   }
 
   /**
+   * Get marketplace sources suitable as fork targets
+   */
+  async getForkTargets(): Promise<Array<{ name: string; repo: string; sourceType: string }>> {
+    const all = this.getAll();
+    return all
+      .filter((m) => m.sourceType === 'github' && m.repo)
+      .map((m) => ({ name: m.name, repo: m.repo, sourceType: m.sourceType }));
+  }
+
+  /**
+   * Fork a photon — remove marketplace tracking, optionally push to a target repo.
+   * Shared logic used by both CLI and Beam.
+   */
+  async forkPhoton(
+    name: string,
+    workingDir: string,
+    options?: {
+      targetRepo?: string; // e.g. "arul/my-photons" — push file there
+      createRepo?: string; // create new GitHub repo with this name
+    }
+  ): Promise<{ success: boolean; message: string }> {
+    const fileName = `${name}.photon.ts`;
+    const filePath = path.join(workingDir, fileName);
+
+    // Check file exists
+    if (!existsSync(filePath)) {
+      return { success: false, message: `Photon not found: ${name}` };
+    }
+
+    // Read install metadata
+    const localMetadata = await readLocalMetadata();
+    const installMeta = localMetadata.photons[fileName];
+
+    if (!installMeta) {
+      return {
+        success: true,
+        message: `${name} is already a local photon (no marketplace tracking)`,
+      };
+    }
+
+    // Check @forkedFrom tag
+    const content = await fs.readFile(filePath, 'utf-8');
+    const hasForkedFrom = content.includes('@forkedFrom');
+
+    // Handle target repo push if specified
+    if (options?.targetRepo || options?.createRepo) {
+      const { execSync } = await import('child_process');
+
+      // Check gh CLI
+      try {
+        execSync('gh --version', { stdio: 'pipe' });
+      } catch {
+        return {
+          success: false,
+          message: 'GitHub CLI (gh) is required but not installed',
+        };
+      }
+
+      if (options.createRepo) {
+        // Create new repo and push
+        try {
+          execSync(`gh repo create ${options.createRepo} --public --confirm`, { stdio: 'pipe' });
+        } catch {
+          // Repo may already exist
+        }
+        const targetRepo = options.createRepo;
+        const tmpDir = path.join(os.tmpdir(), `photon-fork-${Date.now()}`);
+        try {
+          execSync(`gh repo clone ${targetRepo} "${tmpDir}" -- --depth=1`, {
+            stdio: 'pipe',
+          });
+          await fs.copyFile(filePath, path.join(tmpDir, fileName));
+          // Copy assets
+          const photonMeta = await this.getPhotonMetadata(name);
+          if (photonMeta?.metadata.assets) {
+            for (const asset of photonMeta.metadata.assets) {
+              const srcAsset = path.join(workingDir, asset);
+              if (existsSync(srcAsset)) {
+                const dstAsset = path.join(tmpDir, asset);
+                await fs.mkdir(path.dirname(dstAsset), { recursive: true });
+                await fs.copyFile(srcAsset, dstAsset);
+              }
+            }
+          }
+          execSync(
+            `cd "${tmpDir}" && git add -A && git commit -m "fork: ${name} photon" && git push origin`,
+            { stdio: 'pipe' }
+          );
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        } catch (e) {
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          return {
+            success: false,
+            message: `Failed to push to new repo: ${(e as Error).message}`,
+          };
+        }
+      } else if (options.targetRepo) {
+        // Push to existing repo
+        const tmpDir = path.join(os.tmpdir(), `photon-fork-${Date.now()}`);
+        try {
+          execSync(`gh repo clone ${options.targetRepo} "${tmpDir}" -- --depth=1`, {
+            stdio: 'pipe',
+          });
+          await fs.copyFile(filePath, path.join(tmpDir, fileName));
+          // Copy assets
+          const photonMeta = await this.getPhotonMetadata(name);
+          if (photonMeta?.metadata.assets) {
+            for (const asset of photonMeta.metadata.assets) {
+              const srcAsset = path.join(workingDir, asset);
+              if (existsSync(srcAsset)) {
+                const dstAsset = path.join(tmpDir, asset);
+                await fs.mkdir(path.dirname(dstAsset), { recursive: true });
+                await fs.copyFile(srcAsset, dstAsset);
+              }
+            }
+          }
+          execSync(
+            `cd "${tmpDir}" && git add -A && git commit -m "fork: ${name} photon" && git push origin`,
+            { stdio: 'pipe' }
+          );
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        } catch (e) {
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          return {
+            success: false,
+            message: `Failed to push to ${options.targetRepo}: ${(e as Error).message}`,
+          };
+        }
+      }
+    }
+
+    // Remove marketplace tracking
+    delete localMetadata.photons[fileName];
+    await writeLocalMetadata(localMetadata);
+
+    const parts = [];
+    parts.push(`${name} is now your own`);
+    if (hasForkedFrom) {
+      parts.push('Origin preserved as @forkedFrom tag');
+    }
+    parts.push('Marketplace update tracking removed');
+
+    return { success: true, message: parts.join('. ') };
+  }
+
+  /**
+   * Contribute a photon back upstream via PR.
+   * Shared logic used by both CLI and Beam.
+   */
+  async contributePhoton(
+    name: string,
+    workingDir: string,
+    options?: { dryRun?: boolean; branch?: string }
+  ): Promise<{ success: boolean; prUrl?: string; message: string }> {
+    const { execSync } = await import('child_process');
+    const fileName = `${name}.photon.ts`;
+    const filePath = path.join(workingDir, fileName);
+
+    // Check file exists
+    if (!existsSync(filePath)) {
+      return { success: false, message: `Photon not found: ${name}` };
+    }
+
+    // Check gh CLI
+    try {
+      execSync('gh --version', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: 'GitHub CLI (gh) is required. Install: https://cli.github.com/',
+      };
+    }
+
+    // Check gh auth
+    try {
+      execSync('gh auth status', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: 'GitHub CLI is not authenticated. Run: gh auth login',
+      };
+    }
+
+    // Read install metadata
+    const localMetadata = await readLocalMetadata();
+    const installMeta = localMetadata.photons[fileName];
+
+    if (!installMeta) {
+      return {
+        success: false,
+        message: `${name} was not installed from a marketplace`,
+      };
+    }
+
+    if (!installMeta.marketplaceRepo) {
+      return {
+        success: false,
+        message: `No upstream repository found for ${name}`,
+      };
+    }
+
+    // Check if actually modified
+    const modified = await this.isPhotonModified(filePath, fileName);
+    if (!modified) {
+      return {
+        success: true,
+        message: `${name} has not been modified — nothing to contribute`,
+      };
+    }
+
+    const repo = installMeta.marketplaceRepo;
+    const branchName = options?.branch || `contribute/${name}-${Date.now()}`;
+
+    if (options?.dryRun) {
+      return {
+        success: true,
+        message: [
+          `[dry-run] Would:`,
+          `  1. Fork ${repo}`,
+          `  2. Clone fork to temp directory`,
+          `  3. Copy modified ${fileName} (and assets)`,
+          `  4. Create branch ${branchName}`,
+          `  5. Commit and push`,
+          `  6. Create PR to ${repo}`,
+        ].join('\n'),
+      };
+    }
+
+    // Fork the repo
+    try {
+      execSync(`gh repo fork ${repo} --clone=false`, { stdio: 'pipe' });
+    } catch {
+      // Fork may already exist
+    }
+
+    // Get fork name
+    const forkJson = execSync('gh api user', { encoding: 'utf-8' });
+    const ghUser = JSON.parse(forkJson).login;
+    const repoName = repo.split('/')[1];
+    const forkRepo = `${ghUser}/${repoName}`;
+
+    // Clone to temp dir
+    const tmpDir = path.join(os.tmpdir(), `photon-contribute-${Date.now()}`);
+
+    try {
+      execSync(`gh repo clone ${forkRepo} "${tmpDir}" -- --depth=1`, {
+        stdio: 'pipe',
+      });
+
+      // Copy modified photon file
+      await fs.copyFile(filePath, path.join(tmpDir, fileName));
+
+      // Copy assets
+      const photonMeta = await this.getPhotonMetadata(name);
+      if (photonMeta?.metadata.assets) {
+        for (const asset of photonMeta.metadata.assets) {
+          const srcAsset = path.join(workingDir, asset);
+          if (existsSync(srcAsset)) {
+            const dstAsset = path.join(tmpDir, asset);
+            await fs.mkdir(path.dirname(dstAsset), { recursive: true });
+            await fs.copyFile(srcAsset, dstAsset);
+          }
+        }
+      }
+
+      // Create branch, commit, push
+      execSync(
+        `cd "${tmpDir}" && git checkout -b "${branchName}" && git add -A && git commit -m "improve: update ${name} photon" && git push origin "${branchName}"`,
+        { stdio: 'pipe' }
+      );
+
+      // Create PR
+      const prOutput = execSync(
+        `cd "${tmpDir}" && gh pr create --repo "${repo}" --title "Improve ${name} photon" --body "Contributed improvements to ${name} photon via Photon marketplace."`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+
+      // Cleanup temp dir
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+
+      const prUrl = prOutput.trim();
+      return {
+        success: true,
+        prUrl,
+        message: `Pull request created: ${prUrl}`,
+      };
+    } catch (e) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      return {
+        success: false,
+        message: `Contribute failed: ${(e as Error).message}`,
+      };
+    }
+  }
+
+  /**
    * Compare two semver versions
    * Returns: positive if v1 > v2, negative if v1 < v2, 0 if equal
    */
