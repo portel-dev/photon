@@ -1033,11 +1033,7 @@ export class MarketplaceManager {
     const assetsInstalled: string[] = [];
 
     if (result.metadata) {
-      // Save install metadata
-      const hash = calculateHash(result.content);
-      await this.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
-
-      // Download and save all declared assets
+      // Download and save all declared assets first (before hashing)
       if (result.metadata.assets && result.metadata.assets.length > 0) {
         const assets = await this.fetchAssets(result.marketplace, result.metadata.assets);
         for (const [assetPath, content] of assets) {
@@ -1049,6 +1045,10 @@ export class MarketplaceManager {
           assetsInstalled.push(assetPath);
         }
       }
+
+      // Save install metadata — combined hash (source + assets) matches manifest
+      const hash = await calculatePhotonHash(photonPath, result.metadata.assets, workingDir);
+      await this.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
     }
 
     return { photonPath, assetsInstalled };
@@ -1094,7 +1094,12 @@ export class MarketplaceManager {
     }
 
     try {
-      const currentHash = await calculateFileHash(filePath);
+      // Get declared assets from marketplace to compute combined hash
+      const photonName = fileName.replace(/\.photon\.ts$/, '');
+      const remoteMeta = await this.getPhotonMetadata(photonName);
+      const assets = remoteMeta?.metadata?.assets;
+      const workingDir = path.dirname(filePath);
+      const currentHash = await calculatePhotonHash(filePath, assets, workingDir);
       return currentHash !== metadata.originalHash;
     } catch {
       return false; // file unreadable → not modified
