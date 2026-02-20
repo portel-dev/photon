@@ -68,9 +68,9 @@ Four lines of declarations replace fifty lines of infrastructure. The method bod
 
 This isn't configuration. It's **behavior composition**. Each tag is a middleware that wraps the method execution at a specific phase in the pipeline.
 
-## Seven Real-World Patterns
+## Eight Real-World Patterns
 
-Every middleware tag addresses one of seven gaps between ideal code and production reality:
+Every middleware tag addresses one of eight gaps between ideal code and production reality:
 
 ### 1. "The world is unreliable" — `@timeout` + `@retryable`
 
@@ -181,6 +181,19 @@ async syncInventory(params: { sku: string }) {
 
 The `@logged` tag sits at phase 5 — after `@fallback` but before everything else. This means it observes the full lifecycle including fallback-caught errors, but doesn't log noise from throttled or debounced rejections. Logs go to stderr so they never interfere with MCP protocol output on stdout.
 
+### 8. "Stop hitting a dead service" — `@circuitBreaker`
+
+External services go down for extended periods. Ideal code calls the endpoint and lets retries handle it. Reality wastes time, resources, and retry budgets hammering a service that's been down for five minutes. After enough consecutive failures, the sensible response is to stop trying.
+
+```typescript
+/** @circuitBreaker 5 30s */
+async fetchPrices(params: { symbol: string }) {
+  return await fetch(`https://api.prices.com/${params.symbol}`).then(r => r.json());
+}
+```
+
+The `@circuitBreaker` tag tracks consecutive failures per method. After 5 failures the circuit "opens" — subsequent calls are immediately rejected without executing. After 30 seconds, one probe call is allowed through. If the probe succeeds, normal operation resumes. If it fails, the circuit re-opens. Combined with `@fallback`, a broken service returns a safe default instantly instead of waiting for timeouts.
+
 ## How It Works
 
 ### The Pipeline
@@ -191,6 +204,7 @@ When a method has middleware tags, the runtime wraps execution in a chain. Each 
 Request arrives
   → @fallback    catch any error below, return default value (outermost safety net)
   → @logged      observe execution timing and success/failure
+  → @circuitBreaker  fast-reject if service is known-down
   → @throttled   reject if over rate limit (cheapest check first)
   → @debounced   cancel previous, delay execution
   → @cached      return cached result if valid (skip everything below)
@@ -212,6 +226,7 @@ Each middleware has a **phase number** that determines its position in the pipel
 |-------|-----------|-------------------|
 | 3 | `@fallback` | Outermost safety net — catches everything, returns default |
 | 5 | `@logged` | Observe execution timing and errors |
+| 8 | `@circuitBreaker` | Fast-reject if service is known-down |
 | 10 | `@throttled` | Reject immediately — don't waste any resources |
 | 20 | `@debounced` | Collapse rapid calls before doing real work |
 | 30 | `@cached` | Cache hit skips everything — biggest savings |
