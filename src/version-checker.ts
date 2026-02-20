@@ -146,7 +146,7 @@ export class VersionChecker {
   }
 
   /**
-   * Download and update MCP from marketplace
+   * Download and update MCP from marketplace (includes assets + metadata)
    */
   async updateMCP(mcpName: string, targetPath: string): Promise<boolean> {
     try {
@@ -156,7 +156,8 @@ export class VersionChecker {
         return false;
       }
 
-      await fs.writeFile(targetPath, result.content, 'utf-8');
+      const workingDir = path.dirname(targetPath);
+      await this.marketplaceManager.installPhoton(result, mcpName, workingDir);
       return true;
     } catch {
       return false; // update failed
