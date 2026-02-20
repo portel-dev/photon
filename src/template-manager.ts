@@ -27,7 +27,7 @@ export class TemplateManager {
   private hashFile: string;
 
   // Current template version - increment when templates are updated
-  private static readonly TEMPLATE_VERSION = '2.0.0';
+  private static readonly TEMPLATE_VERSION = '2.1.0';
 
   constructor(private workingDir: string) {
     this.marketplaceDir = path.join(workingDir, '.marketplace');
@@ -104,6 +104,11 @@ export class TemplateManager {
       },
       cleanDesc: (desc: string): string => {
         return desc.includes(' - ') ? desc.split(' - ').slice(1).join(' - ') : desc;
+      },
+      brief: (desc: string): string => {
+        if (!desc) return '-';
+        // First sentence only — natural summary
+        return desc.split(/(?<=[.!?])\s/)[0];
       },
     };
 
@@ -641,6 +646,12 @@ Made with ⚛️ by [Portel](https://github.com/portel-dev)
 \${setupInstructions}
 \`)}
 
+\${$if(tools && tools.length > 5, \`## 📋 Quick Reference
+
+| Method | Description |
+|--------|-------------|
+\${each(tools, (tool) => \`| \\\`\${tool.name}\\\`\${tool.isGenerator ? ' ⚡' : ''} | \${brief(tool.description)} |\\n\`)}
+\`)}
 ## 🔧 Tools
 
 \${each(tools || [], (tool) => \`
