@@ -539,14 +539,36 @@ async function performMarketplaceSync(
   await fs.mkdir(marketplaceDir, { recursive: true });
   const manifestPath = path.join(marketplaceDir, 'photons.json');
 
-  // Read existing manifest to preserve owner if not explicitly provided
+  // Read existing manifest to preserve owner and detect unbumped versions
   let existingOwner: { name: string; email?: string; url?: string } | undefined;
-  if (existsSync(manifestPath) && !options.owner) {
+  let existingPhotons: any[] = [];
+  if (existsSync(manifestPath)) {
     try {
       const existingManifest = JSON.parse(await fs.readFile(manifestPath, 'utf-8'));
-      existingOwner = existingManifest.owner;
+      if (!options.owner) {
+        existingOwner = existingManifest.owner;
+      }
+      existingPhotons = existingManifest.photons || [];
     } catch {
       // Ignore parse errors
+    }
+  }
+
+  // Warn about content changes without version bumps
+  if (existingPhotons.length > 0) {
+    const existingByName = new Map(existingPhotons.map((p: any) => [p.name, p]));
+    let hasWarnings = false;
+    for (const p of photons) {
+      const prev = existingByName.get(p.name);
+      if (prev && prev.hash && p.hash && prev.hash !== p.hash && prev.version === p.version) {
+        if (!hasWarnings) {
+          console.error('');
+          hasWarnings = true;
+        }
+        console.error(
+          `⚠ ${p.name}: content changed but version is still ${p.version} — consider bumping`
+        );
+      }
     }
   }
 
