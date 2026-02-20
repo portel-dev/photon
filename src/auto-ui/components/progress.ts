@@ -4,10 +4,10 @@
  */
 
 import { UIComponent, ComponentProps, ProgressState } from '../types';
-import ora from 'ora';
+import ora, { type Ora } from 'ora';
 
 export class ProgressIndicator implements UIComponent {
-  private spinner?: ora.Ora;
+  private spinner?: Ora;
   private lastMessage?: string;
 
   supportsFormat(format: 'cli' | 'mcp' | 'web'): boolean {
