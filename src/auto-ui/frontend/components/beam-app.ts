@@ -1954,7 +1954,14 @@ export class BeamApp extends LitElement {
       mcpClient.on('photons', (data: any) => {
         if (data?.photons) {
           const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
-          this._photons = data.photons;
+          // Preserve frontend-only flags (hasUpdate) across SSE refreshes
+          const updateFlags = new Map<string, boolean>();
+          for (const p of this._photons) {
+            if (p.hasUpdate) updateFlags.set(p.name, true);
+          }
+          this._photons = data.photons.map((p: any) =>
+            updateFlags.has(p.name) ? { ...p, hasUpdate: true } : p
+          );
           // Update selected photon if it was in the list
           if (this._selectedPhoton) {
             const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
@@ -2703,6 +2710,15 @@ export class BeamApp extends LitElement {
           const update = this._updatesAvailable.find((u) => u.name === p.name);
           return update ? { ...p, hasUpdate: true } : p;
         });
+        // Also update selected photon if it has an update
+        if (this._selectedPhoton) {
+          const selUpdate = this._updatesAvailable.find(
+            (u) => u.name === this._selectedPhoton?.name
+          );
+          if (selUpdate) {
+            this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: true };
+          }
+        }
       }
     } catch (error) {
       console.debug('Update check failed:', error);

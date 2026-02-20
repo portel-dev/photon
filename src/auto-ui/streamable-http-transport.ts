@@ -372,6 +372,7 @@ const handlers: Record<string, RequestHandler> = {
           'x-photon-icon': photon.icon,
           'x-photon-internal': photon.internal,
           'x-photon-stateful': photon.stateful || false,
+          'x-photon-install-source': photon.installSource,
           'x-photon-prompt-count': photon.promptCount ?? 0,
           'x-photon-resource-count': photon.resourceCount ?? 0,
           ...buildToolMetadataExtensions(method),
