@@ -56,6 +56,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
 | `@async` | Run in background, return execution ID immediately. | `@async` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
+| `@fallback` | **Functional.** Return default value on error. | `@fallback []` |
 | `@cached` | **Functional.** Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | **Functional.** Execution time limit. | `@timeout 30s` |
 | `@retryable` | **Functional.** Auto-retry on failure. | `@retryable 3 1s` |
@@ -243,6 +244,7 @@ Every built-in shorthand has an equivalent `@use` form:
 
 | Shorthand | `@use` equivalent |
 |-----------|-------------------|
+| `@fallback []` | `@use fallback {@value []}` |
 | `@cached 5m` | `@use cached {@ttl 5m}` |
 | `@timeout 30s` | `@use timeout {@ms 30s}` |
 | `@retryable 3 1s` | `@use retryable {@count 3} {@delay 1s}` |
@@ -287,7 +289,8 @@ Middleware runs in phase order (lower = outer wrapper, executes first):
 
 | Phase | Middleware | Role |
 |-------|-----------|------|
-| 10 | `throttled` | Cheapest rejection — outermost |
+| 3 | `fallback` | Catch-all — return default on any error |
+| 10 | `throttled` | Cheapest rejection |
 | 20 | `debounced` | Collapse rapid calls |
 | 30 | `cached` | Skip everything on cache hit |
 | 40 | `validate` | Reject bad input |
@@ -936,6 +939,7 @@ These method-level tags are **automatically enforced by the runtime** — no man
 
 | Tag | Description | Example |
 |-----|-------------|---------|
+| `@fallback` | Return default value on error. | `@fallback []` |
 | `@cached` | Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | Execution time limit. | `@timeout 30s` |
 | `@retryable` | Auto-retry on failure. | `@retryable 3 1s` |
@@ -950,6 +954,36 @@ These method-level tags are **automatically enforced by the runtime** — no man
 Tags that accept durations support these units: `ms`, `s`/`sec`, `m`/`min`, `h`/`hr`, `d`/`day`. Examples: `30s`, `5m`, `1h`, `500ms`.
 
 Rate expressions use `count/unit`: `10/min`, `100/h`, `5/s`.
+
+### `@fallback` — Graceful Degradation
+
+Return a default value instead of throwing when the method fails. Wraps the entire pipeline — catches errors from timeouts, rate limits, retries exhausted, or the method itself.
+
+```typescript
+/** @fallback [] */
+async loadHistory(params: { path: string }) {
+  return JSON.parse(await fs.readFile(params.path, 'utf-8'));
+}
+
+/** @fallback null */
+async findUser(params: { id: string }) {
+  return await this.db.findOne({ id: params.id });
+}
+
+/** @fallback 0 */
+async getCount(params: { collection: string }) {
+  return await this.db.count(params.collection);
+}
+```
+
+**Supported values:** Any JSON-parseable value — `[]`, `{}`, `null`, `0`, `false`, `"default"`. Non-JSON strings are returned as-is.
+
+**Pipeline position:** Phase 3 — outermost wrapper. If `@retryable` exhausts all attempts, `@fallback` catches the final error. If `@throttled` rejects, `@fallback` returns the default instead of throwing a rate limit error.
+
+**When to use:**
+- Reading config/state files that may not exist yet
+- Querying external services where partial failure is acceptable
+- Methods where callers expect data, not errors
 
 ### `@cached` — Memoize Results
 
@@ -1109,6 +1143,7 @@ async add(params: { title: string }) {
 When multiple functional tags are present on the same method, they compose as middleware in this order (cheapest checks first):
 
 ```
+@fallback   → catch any error below, return default value
 @throttled  → reject if over rate limit
 @debounced  → cancel previous, delay execution
 @cached     → return cached result if TTL valid (skips everything below)
