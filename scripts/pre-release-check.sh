@@ -9,21 +9,44 @@ echo "  Pre-Release Verification"
 echo "═══════════════════════════════════════════════════"
 echo ""
 
-# ─── 1. Build verification ───────────────────────────
-echo "▶ Step 1: Full build"
+# ─── 1. Replace npm-linked packages with registry versions ──
+echo "▶ Step 1: Resolve npm links"
+LINKED=""
+for dep in $(node -e "const p=require('./package.json'); console.log([...Object.keys(p.dependencies||{}), ...Object.keys(p.devDependencies||{})].join(' '))"); do
+  target="node_modules/$dep"
+  if [ -L "$target" ]; then
+    version=$(node -e "const p=require('./package.json'); console.log((p.dependencies||{})['$dep'] || (p.devDependencies||{})['$dep'] || 'latest')")
+    echo "  ⚠ $dep is npm-linked → reinstalling $version from registry"
+    npm unlink "$dep" 2>/dev/null || true
+    npm install "$dep@$version" --save 2>/dev/null
+    LINKED="$LINKED $dep"
+  fi
+done
+if [ -z "$LINKED" ]; then
+  echo "  ✓ No npm-linked packages"
+else
+  echo "  ✓ Resolved:$LINKED"
+  # Ensure lock file is clean for the release commit
+  git checkout -- package-lock.json 2>/dev/null || true
+  npm install
+fi
+echo ""
+
+# ─── 2. Build verification ───────────────────────────
+echo "▶ Step 2: Full build"
 npm run build
 npm run build:beam
 echo "  ✓ Build passes"
 echo ""
 
-# ─── 2. Test suite ───────────────────────────────────
-echo "▶ Step 2: Test suite"
+# ─── 3. Test suite ───────────────────────────────────
+echo "▶ Step 3: Test suite"
 npm test
 echo "  ✓ Tests pass"
 echo ""
 
-# ─── 3. Yield pattern check ─────────────────────────
-echo "▶ Step 3: Yield pattern verification"
+# ─── 4. Yield pattern check ─────────────────────────
+echo "▶ Step 4: Yield pattern verification"
 # Check multi-line yields: line with 'yield {' must be followed by emit:/ask:/checkpoint:
 # Uses awk to pair yield lines with their next line
 # Check that each 'yield {' has emit:/ask:/checkpoint: on same line or next line
@@ -48,8 +71,8 @@ fi
 echo "  ✓ All generator yields use emit pattern"
 echo ""
 
-# ─── 4. Dependency audit ────────────────────────────
-echo "▶ Step 4: Runtime dependency check"
+# ─── 5. Dependency audit ────────────────────────────
+echo "▶ Step 5: Runtime dependency check"
 # Check that key runtime imports are in dependencies, not devDependencies
 DEPS=$(node -e "const p=require('./package.json'); console.log(Object.keys(p.dependencies||{}).join(' '))")
 MISSING=""
@@ -65,8 +88,8 @@ fi
 echo "  ✓ Runtime dependencies present"
 echo ""
 
-# ─── 5. Fresh install simulation ────────────────────
-echo "▶ Step 5: Fresh install simulation"
+# ─── 6. Fresh install simulation ────────────────────
+echo "▶ Step 6: Fresh install simulation"
 BACKUP_DIR="$HOME/.photon-prerelease-backup-$$"
 SIMULATED=false
 
