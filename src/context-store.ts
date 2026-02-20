@@ -75,6 +75,48 @@ export class InstanceStore {
       return [];
     }
   }
+
+  /**
+   * List instances sorted by modification time (most recent first).
+   * Also checks the legacy boards directory for photons like kanban.
+   */
+  listInstancesByMtime(photonName: string): {
+    instances: string[];
+    autoInstance: string;
+    metadata: Record<string, { createdAt: string; modifiedAt: string }>;
+  } {
+    const candidateDirs = [
+      path.join(this.baseDir, 'state', photonName),
+      path.join(this.baseDir, photonName, 'boards'),
+    ];
+
+    for (const dir of candidateDirs) {
+      try {
+        const files = fs.readdirSync(dir);
+        const jsonFiles = files.filter((f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl'));
+        if (jsonFiles.length === 0) continue;
+        const withStat = jsonFiles.map((f) => {
+          const stat = fs.statSync(path.join(dir, f));
+          return {
+            name: f.replace('.json', ''),
+            mtime: stat.mtimeMs,
+            createdAt: stat.birthtime.toISOString(),
+            modifiedAt: stat.mtime.toISOString(),
+          };
+        });
+        withStat.sort((a, b) => b.mtime - a.mtime);
+        const instances = withStat.map((f) => f.name);
+        const metadata: Record<string, { createdAt: string; modifiedAt: string }> = {};
+        for (const entry of withStat) {
+          metadata[entry.name] = { createdAt: entry.createdAt, modifiedAt: entry.modifiedAt };
+        }
+        return { instances, autoInstance: instances[0] || 'default', metadata };
+      } catch {
+        // Dir doesn't exist, try next
+      }
+    }
+    return { instances: [], autoInstance: 'default', metadata: {} };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
