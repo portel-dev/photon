@@ -58,6 +58,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
 | `@fallback` | **Functional.** Return default value on error. | `@fallback []` |
 | `@logged` | **Functional.** Auto-log execution with timing. | `@logged` or `@logged debug` |
+| `@circuitBreaker` | **Functional.** Fast-reject after consecutive failures. | `@circuitBreaker 5 30s` |
 | `@cached` | **Functional.** Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | **Functional.** Execution time limit. | `@timeout 30s` |
 | `@retryable` | **Functional.** Auto-retry on failure. | `@retryable 3 1s` |
@@ -247,6 +248,7 @@ Every built-in shorthand has an equivalent `@use` form:
 |-----------|-------------------|
 | `@fallback []` | `@use fallback {@value []}` |
 | `@logged debug` | `@use logged {@level debug}` |
+| `@circuitBreaker 5 30s` | `@use circuitBreaker {@threshold 5} {@resetAfter 30s}` |
 | `@cached 5m` | `@use cached {@ttl 5m}` |
 | `@timeout 30s` | `@use timeout {@ms 30s}` |
 | `@retryable 3 1s` | `@use retryable {@count 3} {@delay 1s}` |
@@ -293,6 +295,7 @@ Middleware runs in phase order (lower = outer wrapper, executes first):
 |-------|-----------|------|
 | 3 | `fallback` | Catch-all — return default on any error |
 | 5 | `logged` | Observe execution timing and errors |
+| 8 | `circuitBreaker` | Fast-reject after consecutive failures |
 | 10 | `throttled` | Cheapest rejection |
 | 20 | `debounced` | Collapse rapid calls |
 | 30 | `cached` | Skip everything on cache hit |
@@ -944,6 +947,7 @@ These method-level tags are **automatically enforced by the runtime** — no man
 |-----|-------------|---------|
 | `@fallback` | Return default value on error. | `@fallback []` |
 | `@logged` | Auto-log execution with timing. | `@logged` or `@logged debug` |
+| `@circuitBreaker` | Fast-reject after consecutive failures. | `@circuitBreaker 5 30s` |
 | `@cached` | Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | Execution time limit. | `@timeout 30s` |
 | `@retryable` | Auto-retry on failure. | `@retryable 3 1s` |
@@ -1015,6 +1019,30 @@ async syncData(params: { source: string }) {
 **Inline config:** `@logged {@level debug} {@tags api,billing}` — adds tags to log output: `[debug] billing.charge [api,billing] 142ms`
 
 **Pipeline position:** Phase 5 — after `@fallback` (so failures are logged even when fallback catches them), before `@throttled` (so rate-limited calls aren't logged as attempts).
+
+### `@circuitBreaker` — Fail Fast on Repeated Failures
+
+Stop calling a method that keeps failing. After N consecutive failures, the circuit "opens" and immediately rejects subsequent calls without executing the method. After a reset period, one probe call is allowed through — if it succeeds, the circuit closes and normal execution resumes.
+
+```typescript
+/** @circuitBreaker 5 30s */
+async fetchPrices(params: { symbol: string }) {
+  return await fetch(`https://api.prices.com/${params.symbol}`).then(r => r.json());
+}
+```
+
+The shorthand format is `@circuitBreaker <threshold> <resetAfter>`:
+- `@circuitBreaker 5 30s` — open after 5 failures, probe after 30 seconds
+- `@circuitBreaker 3 1m` — open after 3 failures, probe after 1 minute
+
+**States:**
+- **Closed** (normal) — all calls pass through. Failures increment the counter. Counter resets on success.
+- **Open** — calls are immediately rejected with `PhotonCircuitOpenError`. No execution happens.
+- **Half-open** — after the reset period, one probe call is allowed. Success → closed. Failure → open again.
+
+**Inline config:** `@circuitBreaker {@threshold 5} {@resetAfter 30s}`
+
+**Pipeline position:** Phase 8 — after `@logged` (so circuit rejections are observable), before `@throttled` (so rate limiting doesn't count as circuit failures).
 
 ### `@cached` — Memoize Results
 
