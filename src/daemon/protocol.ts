@@ -4,7 +4,7 @@
  * Defines message types for IPC communication between CLI client and daemon server
  */
 
-import type { PhotonMCPClass } from '@portel/photon-core';
+import type { PhotonClass } from '@portel/photon-core';
 
 /**
  * Message from CLI client to daemon server
@@ -98,7 +98,7 @@ export interface DaemonStatus {
  */
 export interface PhotonSession {
   id: string;
-  instance: PhotonMCPClass;
+  instance: PhotonClass;
   instanceName: string; // Named instance ("" for default)
   createdAt: number;
   lastActivity: number;

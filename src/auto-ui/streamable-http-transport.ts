@@ -31,7 +31,7 @@ import type {
   PhotonInfo,
   UnconfiguredPhotonInfo,
   AnyPhotonInfo,
-  PhotonMCPInstance,
+  PhotonInstance,
   ExternalMCPInfo,
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
@@ -205,7 +205,7 @@ type RequestHandler = (
 
 interface HandlerContext {
   photons: AnyPhotonInfo[];
-  photonMCPs: Map<string, PhotonMCPInstance>;
+  photonMCPs: Map<string, PhotonInstance>;
   externalMCPs?: ExternalMCPInfo[];
   externalMCPClients?: Map<string, any>;
   externalMCPSDKClients?: Map<string, any>; // SDK clients with full CallToolResult support
@@ -2208,7 +2208,7 @@ async function handleBeamStudioParse(
 
 export interface StreamableHTTPOptions {
   photons: AnyPhotonInfo[];
-  photonMCPs: Map<string, PhotonMCPInstance>;
+  photonMCPs: Map<string, PhotonInstance>;
   externalMCPs?: ExternalMCPInfo[];
   externalMCPClients?: Map<string, any>;
   externalMCPSDKClients?: Map<string, any>; // SDK clients for full CallToolResult support

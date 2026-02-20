@@ -241,9 +241,9 @@ export function isPhoton(item: AnyBeamItem): item is AnyPhotonInfo {
 // ════════════════════════════════════════════════════════════════════════════════
 
 /**
- * Loaded photon MCP instance
+ * Loaded photon instance
  */
-export interface PhotonMCPInstance {
+export interface PhotonInstance {
   /** Instantiated photon class (any to allow method indexing) */
   instance: any;
   /** Class constructor for accessing static methods */

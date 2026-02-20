@@ -1048,7 +1048,7 @@ async function persistInstanceState(
     const keys = await getStateKeys(photonName, photonPath);
     if (keys.length === 0) return;
 
-    // instance is PhotonMCPClass wrapper — actual user class is instance.instance
+    // instance is PhotonClass wrapper — actual user class is instance.instance
     const target = instance?.instance ?? instance;
     const snapshot: Record<string, any> = {};
     for (const key of keys) {
@@ -1189,7 +1189,7 @@ async function reloadPhoton(
         const oldMcp = session.instance;
 
         // Copy state from old CLASS INSTANCE to new CLASS INSTANCE.
-        // session.instance is a PhotonMCPClassExtended = { instance, name, schemas, ... }
+        // session.instance is a PhotonClassExtended = { instance, name, schemas, ... }
         // We must copy state on the .instance (actual class obj), NOT the descriptor level —
         // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
         if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
