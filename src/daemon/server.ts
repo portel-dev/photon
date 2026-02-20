@@ -1020,7 +1020,7 @@ async function handleRequest(
       if (request.method === '_instances') {
         const { InstanceStore } = await import('../context-store.js');
         const store = new InstanceStore();
-        const instances = store.listInstances(photonName);
+        const { instances, autoInstance, metadata } = store.listInstancesByMtime(photonName);
         const current = session.instanceName || 'default';
         // Ensure "default" and current instance are always in the list
         // (they may not have state files yet)
@@ -1035,7 +1035,7 @@ async function handleRequest(
           type: 'result',
           id: request.id,
           success: true,
-          data: { instances, current },
+          data: { instances, current, autoInstance, metadata },
         };
       }
       // ─────────────────────────────────────────────────────────────
