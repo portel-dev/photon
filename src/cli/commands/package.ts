@@ -491,7 +491,9 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
               {
                 name,
                 local: versionInfo.local,
-                remote: versionInfo.remote,
+                remote: versionInfo.hashDrift
+                  ? `${versionInfo.remote} (content changed)`
+                  : versionInfo.remote,
                 status: versionInfo.needsUpdate ? STATUS.UPDATE : STATUS.OK,
               },
             ];
@@ -504,7 +506,11 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
             return;
           }
 
-          printInfo(`Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
+          if (versionInfo.hashDrift) {
+            printWarning(`Content changed (same version ${versionInfo.local}). Upgrading...`);
+          } else {
+            printInfo(`Upgrading ${name}: ${versionInfo.local} → ${versionInfo.remote}`);
+          }
 
           const success = await checker.updateMCP(name, filePath);
 
@@ -536,7 +542,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
               tableData.push({
                 name: mcpName,
                 local: info.local || '-',
-                remote: info.remote || '-',
+                remote: info.hashDrift ? `${info.remote} (content changed)` : info.remote || '-',
                 status: STATUS.UPDATE,
               });
             } else if (info.local && info.remote) {

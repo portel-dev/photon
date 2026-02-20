@@ -4,12 +4,13 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { MarketplaceManager, Marketplace } from './marketplace-manager.js';
+import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
 
-interface VersionInfo {
+export interface VersionInfo {
   local?: string;
   remote?: string;
   needsUpdate: boolean;
+  hashDrift?: boolean;
   marketplace?: Marketplace;
 }
 
@@ -77,12 +78,42 @@ export class VersionChecker {
       };
     }
 
-    const needsUpdate = this.compareVersions(remoteInfo.version, local) > 0;
+    const versionCmp = this.compareVersions(remoteInfo.version, local);
+
+    if (versionCmp > 0) {
+      return {
+        local,
+        remote: remoteInfo.version,
+        needsUpdate: true,
+        marketplace: remoteInfo.marketplace,
+      };
+    }
+
+    // Versions match — check for hash drift (content changed without version bump)
+    if (versionCmp === 0) {
+      const fileName = path.basename(localPath);
+      const installMeta = await this.marketplaceManager.getPhotonInstallMetadata(fileName);
+      const remoteMeta = await this.marketplaceManager.getPhotonMetadata(
+        fileName.replace('.photon.ts', '')
+      );
+
+      if (installMeta?.originalHash && remoteMeta?.metadata.hash) {
+        if (installMeta.originalHash !== remoteMeta.metadata.hash) {
+          return {
+            local,
+            remote: remoteInfo.version,
+            needsUpdate: true,
+            hashDrift: true,
+            marketplace: remoteInfo.marketplace,
+          };
+        }
+      }
+    }
 
     return {
       local,
       remote: remoteInfo.version,
-      needsUpdate,
+      needsUpdate: false,
       marketplace: remoteInfo.marketplace,
     };
   }
@@ -146,6 +177,10 @@ export class VersionChecker {
 
     if (!info.remote) {
       return `local: ${info.local}`;
+    }
+
+    if (info.needsUpdate && info.hashDrift) {
+      return `${info.local} (content changed)`;
     }
 
     if (info.needsUpdate) {
