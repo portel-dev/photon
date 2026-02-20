@@ -3798,6 +3798,8 @@ export class BeamApp extends LitElement {
     // Track whether user explicitly chose a board or left it on auto
     if (selected === '__auto__') {
       this._instanceSelectorMode = 'auto';
+      // Re-fetch to get the most recently updated instance
+      await this._fetchInstances(photonName);
     } else {
       this._instanceSelectorMode = 'manual';
     }
