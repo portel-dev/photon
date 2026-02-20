@@ -29,7 +29,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@tags` | Comma-separated tags for categorization and search. | `@tags database, sql, postgresql` |
 | `@label` | Custom display name for the photon in BEAM sidebar. | `@label My Custom Tool` |
 | `@persist` | Enables settings UI persistence for the photon. | `@persist` |
-| `@internal` | Marks photon as internal (hidden from main UI). | `@internal` |
+| `@internal` | Marks entire photon as internal (hidden from sidebar). | `@internal` |
 | `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
 
 ### Runtime Version Ranges
@@ -68,6 +68,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@queued` | **Functional.** Sequential execution queue. | `@queued 1` |
 | `@validate` | **Functional.** Runtime input validation rules. | `@validate params.email must be a valid email` |
 | `@deprecated` | **Functional.** Mark tool as deprecated. | `@deprecated Use v2 instead` |
+| `@internal` | Hide method from LLM and sidebar. Still callable by the runtime (e.g. scheduled jobs, system callbacks). | `@internal` |
 | `@use` | **Functional.** Apply custom or built-in middleware with inline config. | `@use audit {@level info}` |
 
 ### Async Execution
