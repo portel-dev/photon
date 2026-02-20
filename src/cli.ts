@@ -491,7 +491,7 @@ async function performMarketplaceSync(
 
   // Extract metadata from each Photon
   console.error('📄 Extracting documentation...');
-  const { calculatePhotonHash } = await import('./marketplace-manager.js');
+  const { calculateFileHash } = await import('./marketplace-manager.js');
   const { PhotonDocExtractor } = await import('./photon-doc-extractor.js');
 
   const photons: any[] = [];
@@ -503,8 +503,8 @@ async function performMarketplaceSync(
     const extractor = new PhotonDocExtractor(filePath);
     const metadata = await extractor.extractFullMetadata();
 
-    // Calculate hash (includes source + assets for complete change detection)
-    const hash = await calculatePhotonHash(filePath, metadata.assets, resolvedPath);
+    // Calculate hash (source-only — used for download integrity verification)
+    const hash = await calculateFileHash(filePath);
 
     console.error(`   ✓ ${metadata.name} (${metadata.tools?.length || 0} tools)`);
 
