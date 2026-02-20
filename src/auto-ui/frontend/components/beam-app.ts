@@ -2877,6 +2877,17 @@ export class BeamApp extends LitElement {
       ${this._showSourceModal ? this._renderSourceModal() : ''}
       ${this._selectedPrompt?.content ? this._renderPromptModal() : ''}
       ${this._selectedResource?.content ? this._renderResourceModal() : ''}
+      ${this._showForkDialog
+        ? html`<fork-dialog
+            .photonName=${this._forkPhotonName}
+            .originRepo=${this._forkOriginRepo}
+            .targets=${this._forkTargets}
+            @fork-confirm=${this._handleForkConfirm}
+            @fork-cancel=${() => {
+              this._showForkDialog = false;
+            }}
+          ></fork-dialog>`
+        : ''}
 
       <elicitation-modal
         ?open=${this._showElicitation}
@@ -2962,6 +2973,7 @@ export class BeamApp extends LitElement {
         <marketplace-view
           @install=${this._handleInstall}
           @maker-action=${this._handleMakerAction}
+          @fork-photon=${this._handleForkFromMarketplace}
         ></marketplace-view>
       `;
     }
@@ -2990,6 +3002,7 @@ export class BeamApp extends LitElement {
             <marketplace-view
               @install=${this._handleInstall}
               @maker-action=${this._handleMakerAction}
+              @fork-photon=${this._handleForkFromMarketplace}
             ></marketplace-view>
           `;
         }
@@ -3527,16 +3540,22 @@ export class BeamApp extends LitElement {
     const isExternalMCP = this._selectedPhoton?.isExternalMCP;
     const hasPath = !!this._selectedPhoton?.path;
 
+    const hasInstallSource = !!this._selectedPhoton?.installSource;
+
     return html`
       <context-bar
         .photon=${this._selectedPhoton}
-        .showEdit=${hasPath && !isExternalMCP && !this._selectedPhoton?.internal}
+        .showEdit=${false}
         .showConfigure=${!isExternalMCP}
         .showCopyConfig=${true}
         .overflowItems=${this._buildOverflowItems({
           showRefresh: !isExternalMCP,
+          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
+          showUpgrade: !!this._selectedPhoton?.hasUpdate,
           showRename: !isExternalMCP,
           showViewSource: !isExternalMCP,
+          showFork: hasInstallSource && !isExternalMCP,
+          showContribute: hasInstallSource && !isExternalMCP,
           showDelete: !isExternalMCP,
           showHelp: !isExternalMCP,
         })}
@@ -4114,6 +4133,112 @@ export class BeamApp extends LitElement {
         `Failed to upgrade ${name}. Check marketplace connectivity and try again.`,
         'error'
       );
+    }
+  };
+
+  @state() private _showForkDialog = false;
+  @state() private _forkPhotonName = '';
+  @state() private _forkOriginRepo = '';
+  @state() private _forkTargets: Array<{ name: string; repo: string; sourceType: string }> = [];
+
+  private _handleFork = async () => {
+    if (!this._selectedPhoton) return;
+    this._forkPhotonName = this._selectedPhoton.name;
+    this._forkOriginRepo = this._selectedPhoton.installSource?.marketplace || '';
+    await this._openForkDialog();
+  };
+
+  private async _openForkDialog() {
+    try {
+      const res = await fetch('/api/marketplace/fork-targets', {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this._forkTargets = data.targets || [];
+      }
+    } catch {
+      this._forkTargets = [];
+    }
+    this._showForkDialog = true;
+  }
+
+  private _handleForkConfirm = async (e: CustomEvent) => {
+    const { target } = e.detail;
+    const name = this._forkPhotonName;
+    if (!name) return;
+
+    this._showForkDialog = false;
+    showToast(`Forking ${name}...`, 'info');
+
+    try {
+      const res = await fetch('/api/marketplace/fork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, target }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        showToast(result.message, 'success');
+        // Clear install source and update flag
+        this._photons = this._photons.map((p) =>
+          p.name === name ? { ...p, installSource: undefined, hasUpdate: false } : p
+        );
+        if (this._selectedPhoton?.name === name) {
+          this._selectedPhoton = {
+            ...this._selectedPhoton,
+            installSource: undefined,
+            hasUpdate: false,
+          };
+        }
+      } else {
+        showToast(result.message || 'Fork failed', 'error', 5000);
+      }
+    } catch {
+      showToast('Fork failed', 'error', 5000);
+    }
+  };
+
+  private _handleForkFromMarketplace = async (e: CustomEvent) => {
+    const { name } = e.detail;
+    this._forkPhotonName = name;
+    this._forkOriginRepo = '';
+    await this._openForkDialog();
+  };
+
+  private _handleContribute = async () => {
+    if (!this._selectedPhoton) return;
+    const name = this._selectedPhoton.name;
+
+    showToast(`Contributing ${name} upstream...`, 'info');
+
+    try {
+      const res = await fetch('/api/marketplace/contribute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        if (result.prUrl) {
+          showToast(`PR created: ${result.prUrl}`, 'success', 8000);
+        } else {
+          showToast(result.message, 'info');
+        }
+      } else {
+        // Graceful fallback — suggest CLI if gh is unavailable
+        if (result.message?.includes('GitHub CLI')) {
+          showToast(`Run in terminal: photon contribute ${name}`, 'info', 8000);
+        } else {
+          showToast(result.message || 'Contribute failed', 'error', 5000);
+        }
+      }
+    } catch {
+      showToast('Contribute failed', 'error', 5000);
     }
   };
 
@@ -5203,8 +5328,12 @@ export class BeamApp extends LitElement {
   private _buildOverflowItems(
     opts: {
       showRefresh?: boolean;
+      showEdit?: boolean;
+      showUpgrade?: boolean;
       showRename?: boolean;
       showViewSource?: boolean;
+      showFork?: boolean;
+      showContribute?: boolean;
       showDelete?: boolean;
       showHelp?: boolean;
       showRunTests?: boolean;
@@ -5214,8 +5343,12 @@ export class BeamApp extends LitElement {
   ): import('./overflow-menu.js').OverflowMenuItem[] {
     const {
       showRefresh = true,
+      showEdit = false,
+      showUpgrade = false,
       showRename = this._selectedPhoton?.name !== 'maker',
       showViewSource = this._selectedPhoton?.name !== 'maker',
+      showFork = false,
+      showContribute = false,
       showDelete = this._selectedPhoton?.name !== 'maker',
       showHelp = true,
       showRunTests = this._getTestMethods().length > 0,
@@ -5238,6 +5371,12 @@ export class BeamApp extends LitElement {
         disabled: this._runningTests,
       });
     }
+    if (showEdit) {
+      items.push({ id: 'edit', label: 'Edit', icon: '✎' });
+    }
+    if (showUpgrade) {
+      items.push({ id: 'upgrade', label: 'Upgrade', icon: '⬆' });
+    }
     items.push({
       id: 'remember-values',
       label: 'Remember Values',
@@ -5252,8 +5391,15 @@ export class BeamApp extends LitElement {
       toggle: true,
       toggleActive: this._verboseLogging,
     });
-    if (showRename || showViewSource || showDelete || showRemove) {
-      const first = [showRename, showViewSource, showDelete, showRemove].findIndex(Boolean);
+    if (showRename || showViewSource || showFork || showContribute || showDelete || showRemove) {
+      const first = [
+        showRename,
+        showViewSource,
+        showFork,
+        showContribute,
+        showDelete,
+        showRemove,
+      ].findIndex(Boolean);
       if (showRename)
         items.push({ id: 'rename', label: 'Rename', icon: '✏️', dividerBefore: first === 0 });
       if (showViewSource)
@@ -5263,13 +5409,28 @@ export class BeamApp extends LitElement {
           icon: '📄',
           dividerBefore: !showRename && first === 1,
         });
+      if (showFork)
+        items.push({
+          id: 'fork',
+          label: 'Fork',
+          icon: '🍴',
+          dividerBefore: !showRename && !showViewSource && first === 2,
+        });
+      if (showContribute)
+        items.push({
+          id: 'contribute',
+          label: 'Contribute',
+          icon: '🤝',
+          dividerBefore: !showRename && !showViewSource && !showFork && first === 3,
+        });
       if (showDelete)
         items.push({
           id: 'delete',
           label: 'Delete',
           icon: '🗑️',
           danger: true,
-          dividerBefore: !showRename && !showViewSource && first === 2,
+          dividerBefore:
+            !showRename && !showViewSource && !showFork && !showContribute && first === 4,
         });
       if (showRemove)
         items.push({
@@ -5277,7 +5438,13 @@ export class BeamApp extends LitElement {
           label: 'Remove',
           icon: '🗑️',
           danger: true,
-          dividerBefore: !showRename && !showViewSource && !showDelete && first === 3,
+          dividerBefore:
+            !showRename &&
+            !showViewSource &&
+            !showFork &&
+            !showContribute &&
+            !showDelete &&
+            first === 5,
         });
     }
     // Add "Switch Instance" for stateful photons
@@ -5359,6 +5526,18 @@ export class BeamApp extends LitElement {
             break;
           case 'view-source':
             this._handleViewSource();
+            break;
+          case 'edit':
+            if (this._selectedPhoton) this._view = 'studio';
+            break;
+          case 'upgrade':
+            this._handleUpgrade();
+            break;
+          case 'fork':
+            this._handleFork();
+            break;
+          case 'contribute':
+            this._handleContribute();
             break;
           case 'delete':
             this._handleDeletePhoton();

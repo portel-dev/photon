@@ -565,11 +565,6 @@ export class ContextBar extends LitElement {
                 📋 MCP Config
               </button>`
             : ''}
-          ${p.hasUpdate
-            ? html`<button class="action-btn primary" @click=${() => this._emit('upgrade')}>
-                ⬆ Upgrade
-              </button>`
-            : ''}
           ${this.overflowItems.length > 0
             ? html`<overflow-menu
                 .items=${this.overflowItems}

@@ -2544,6 +2544,91 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       return;
     }
 
+    // Marketplace API: Fork a photon
+    if (url.pathname === '/api/marketplace/fork' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      const body = await readBody(req);
+      try {
+        const { name, target } = JSON.parse(body);
+        if (!name) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing photon name' }));
+          return;
+        }
+
+        let forkOptions: { targetRepo?: string; createRepo?: string } | undefined;
+        if (target && target !== 'local') {
+          if (target.startsWith('create:')) {
+            forkOptions = { createRepo: target.slice(7) };
+          } else {
+            forkOptions = { targetRepo: target };
+          }
+        }
+
+        const result = await marketplace.forkPhoton(name, workingDir, forkOptions);
+
+        if (result.success) {
+          // Refresh photon list since metadata changed
+          const idx = photons.findIndex((p) => p.name === name);
+          if (idx !== -1) {
+            const p = photons[idx] as any;
+            p.installSource = undefined;
+            p.hasUpdate = false;
+          }
+          broadcastPhotonChange();
+        }
+
+        res.writeHead(result.success ? 200 : 400);
+        res.end(JSON.stringify(result));
+      } catch {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Fork failed' }));
+      }
+      return;
+    }
+
+    // Marketplace API: Contribute a photon back upstream
+    if (url.pathname === '/api/marketplace/contribute' && req.method === 'POST') {
+      res.setHeader('Content-Type', 'application/json');
+
+      const body = await readBody(req);
+      try {
+        const { name, dryRun } = JSON.parse(body);
+        if (!name) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing photon name' }));
+          return;
+        }
+
+        const result = await marketplace.contributePhoton(name, workingDir, {
+          dryRun,
+        });
+
+        res.writeHead(result.success ? 200 : 400);
+        res.end(JSON.stringify(result));
+      } catch {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Contribute failed' }));
+      }
+      return;
+    }
+
+    // Marketplace API: Get fork targets
+    if (url.pathname === '/api/marketplace/fork-targets') {
+      res.setHeader('Content-Type', 'application/json');
+
+      try {
+        const targets = await marketplace.getForkTargets();
+        res.writeHead(200);
+        res.end(JSON.stringify({ targets }));
+      } catch {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Failed to get fork targets' }));
+      }
+      return;
+    }
+
     // Marketplace API: Get all marketplace sources
     if (url.pathname === '/api/marketplace/sources') {
       res.setHeader('Content-Type', 'application/json');

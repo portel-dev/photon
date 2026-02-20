@@ -15,6 +15,7 @@ import './components/photon-config.js';
 import './components/elicitation-modal.js';
 import './components/overflow-menu.js';
 import './components/context-bar.js';
+import './components/fork-dialog.js';
 import './components/app-layout.js';
 
 console.log('✨ Beam UI Initialized');
