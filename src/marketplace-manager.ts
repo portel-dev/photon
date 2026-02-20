@@ -46,7 +46,8 @@ export interface PhotonMetadata {
   tags?: string[];
   category?: string;
   source: string;
-  hash?: string; // SHA-256 hash of the file content
+  hash?: string; // SHA-256 hash of source + assets (for update detection)
+  contentHash?: string; // SHA-256 hash of source only (for download integrity)
   tools?: string[];
   assets?: string[]; // Relative paths to asset files
 }
@@ -762,8 +763,10 @@ export class MarketplaceManager {
           const metadata = manifest?.photons.find((p) => p.name === mcpName);
 
           // Security: verify content hash if metadata provides one
-          if (metadata?.hash && marketplace.sourceType !== 'local') {
-            const expectedHash = metadata.hash.replace(/^sha256:/, '');
+          // Prefer contentHash (source-only) for download verification; fall back to hash
+          const verifyHash = metadata?.contentHash || metadata?.hash;
+          if (verifyHash && marketplace.sourceType !== 'local') {
+            const expectedHash = verifyHash.replace(/^sha256:/, '');
             if (!verifyContentHash(content, expectedHash)) {
               this.logger.warn(`Content hash mismatch for ${mcpName} — skipping`);
               continue;
@@ -1054,9 +1057,15 @@ export class MarketplaceManager {
         }
       }
 
-      // Save install metadata — use manifest hash (source-only, matches download verification)
-      const hash = result.metadata.hash || calculateHash(result.content);
-      await this.savePhotonMetadata(`${name}.photon.ts`, result.marketplace, result.metadata, hash);
+      // Save install metadata — use combined hash (source+assets) for update detection
+      // The manifest's `hash` field is the combined hash; fall back to content-only hash
+      const combinedHash = result.metadata.hash || calculateHash(result.content);
+      await this.savePhotonMetadata(
+        `${name}.photon.ts`,
+        result.marketplace,
+        result.metadata,
+        combinedHash
+      );
     }
 
     return { photonPath, assetsInstalled };
@@ -1069,7 +1078,7 @@ export class MarketplaceManager {
     fileName: string,
     marketplace: Marketplace,
     metadata: PhotonMetadata,
-    contentHash: string
+    combinedHash: string
   ): Promise<void> {
     const localMetadata = await readLocalMetadata();
 
@@ -1077,7 +1086,7 @@ export class MarketplaceManager {
       marketplace: marketplace.name,
       marketplaceRepo: marketplace.repo,
       version: metadata.version,
-      originalHash: metadata.hash || contentHash,
+      originalHash: combinedHash,
       installedAt: new Date().toISOString(),
     };
 
@@ -1094,6 +1103,7 @@ export class MarketplaceManager {
 
   /**
    * Check if a Photon file has been modified since installation
+   * Compares combined hash (source + assets) against stored originalHash
    */
   async isPhotonModified(filePath: string, fileName: string): Promise<boolean> {
     const metadata = await this.getPhotonInstallMetadata(fileName);
@@ -1102,12 +1112,32 @@ export class MarketplaceManager {
     }
 
     try {
-      // Read source and strip @forkedFrom (injected during install, not in manifest)
-      const content = (await fs.readFile(filePath, 'utf-8')).replace(
-        /\n\s*\*\s*@forkedFrom\s+[^\n]+/,
-        ''
-      );
-      const hash = `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
+      // Strip @forkedFrom from source (injected during install, not in manifest)
+      const rawContent = await fs.readFile(filePath, 'utf-8');
+      const strippedContent = rawContent.replace(/\n\s*\*\s*@forkedFrom\s+[^\n]+/, '');
+
+      // Write stripped content to temp for hashing, then compute combined hash
+      // For efficiency, hash inline: source (stripped) + assets
+      const workingDir = path.dirname(filePath);
+      const photonName = fileName.replace(/\.photon\.ts$/, '');
+
+      // Look up assets from manifest
+      const photonMeta = await this.getPhotonMetadata(photonName);
+      const assets = photonMeta?.metadata.assets;
+
+      const hasher = crypto.createHash('sha256');
+      hasher.update(strippedContent);
+      if (assets && assets.length > 0) {
+        for (const asset of [...assets].sort()) {
+          const assetPath = path.join(workingDir, asset);
+          try {
+            hasher.update(await fs.readFile(assetPath));
+          } catch {
+            // Asset missing — skip
+          }
+        }
+      }
+      const hash = `sha256:${hasher.digest('hex')}`;
       return hash !== metadata.originalHash;
     } catch {
       return false; // file unreadable → not modified
