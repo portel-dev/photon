@@ -22,7 +22,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
 import {
-  PhotonMCPClassExtended,
+  PhotonClassExtended,
   ConstructorParam,
   getAuditTrail,
   generateExecutionId,
@@ -98,7 +98,7 @@ interface HandlerContext {
 
 export class PhotonServer {
   private loader: PhotonLoader;
-  private mcp: PhotonMCPClassExtended | null = null;
+  private mcp: PhotonClassExtended | null = null;
   private server: Server;
   private options: PhotonServerOptions;
   private mcpClientFactory: SDKMCPClientFactory | null = null;

@@ -92,13 +92,16 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   const photonCode = await fs.readFile(absolutePath, 'utf-8');
 
   // Transform photon code for Workers compatibility
-  // 1. Remove @portel/photon-core import and PhotonMCP extension
+  // 1. Remove @portel/photon-core import and Photon/PhotonMCP extension
   // 2. Remove Node.js-specific imports
   let transformedPhoton = photonCode
-    // Remove photon-core import
-    .replace(/import\s+{\s*PhotonMCP\s*}\s+from\s+['"]@portel\/photon-core['"];?\n?/g, '')
-    // Remove extends PhotonMCP
-    .replace(/extends\s+PhotonMCP\s*{/g, '{')
+    // Remove photon-core import (both Photon and PhotonMCP)
+    .replace(
+      /import\s+{\s*(?:Photon|PhotonMCP)\s*}\s+from\s+['"]@portel\/photon-core['"];?\n?/g,
+      ''
+    )
+    // Remove extends Photon or extends PhotonMCP
+    .replace(/extends\s+(?:Photon|PhotonMCP)\s*{/g, '{')
     // Remove Node.js imports
     .replace(/import\s+\*\s+as\s+fs\s+from\s+['"]fs['"]/g, '// fs not available in Workers')
     .replace(/import\s+\*\s+as\s+path\s+from\s+['"]path['"]/g, '// path not available in Workers')

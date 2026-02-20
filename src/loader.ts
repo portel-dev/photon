@@ -11,12 +11,12 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { spawn } from 'child_process';
 import {
-  PhotonMCP,
+  Photon,
   SchemaExtractor,
   DependencyManager,
   ConstructorParam,
-  PhotonMCPClass,
-  PhotonMCPClassExtended,
+  PhotonClass,
+  PhotonClassExtended,
   PhotonTool,
   TemplateInfo,
   StaticInfo,
@@ -71,6 +71,14 @@ import {
   autoDiscoverAssets as sharedAutoDiscoverAssets,
   // Execution audit trail
   getAuditTrail,
+  // Capability detection for auto-injection
+  detectCapabilities,
+  // Memory provider for plain class injection
+  MemoryProvider,
+  // Execution context for unified method wrapping
+  executionContext,
+  // Lock helper
+  withLock as withLockHelper,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -95,7 +103,7 @@ export class PhotonLoader {
   private verbose: boolean;
   private mcpClientFactory?: MCPClientFactory;
   /** Cache of loaded Photon instances by source path */
-  private loadedPhotons: Map<string, PhotonMCPClassExtended> = new Map();
+  private loadedPhotons: Map<string, PhotonClassExtended> = new Map();
   /** MCP clients cache - reuse connections */
   private mcpClients: Map<string, any> = new Map();
   /** SDK factory for MCP connections */
@@ -408,7 +416,7 @@ export class PhotonLoader {
   async loadFile(
     filePath: string,
     options?: { instanceName?: string }
-  ): Promise<PhotonMCPClassExtended> {
+  ): Promise<PhotonClassExtended> {
     // Validate input
     assertString(filePath, 'filePath');
     validateOrThrow(filePath, [
@@ -589,6 +597,159 @@ export class PhotonLoader {
         this.log(`Injected call handler into ${name}`);
       }
 
+      // Auto-detect and inject capabilities for plain classes
+      // Photon base class already has these built-in, so only inject for plain classes
+      if (tsContent && typeof instance.executeTool !== 'function') {
+        const caps = detectCapabilities(tsContent);
+        if (caps.size > 0) {
+          this.log(`🔍 Detected capabilities for ${name}: ${[...caps].join(', ')}`);
+        }
+
+        if (caps.has('emit')) {
+          // Inject emit() that reads from executionContext (set during executeTool)
+          instance.emit = (data: any) => {
+            const store = executionContext.getStore();
+            const emitData =
+              instance._photonName && typeof data === 'object' && data !== null
+                ? { ...data, _source: instance._photonName }
+                : data;
+            if (store?.outputHandler) {
+              store.outputHandler(emitData);
+            }
+            // Also publish to channel broker if channel is specified
+            if (data && typeof data.channel === 'string') {
+              import('@portel/photon-core')
+                .then(({ getBroker }) => {
+                  const broker = getBroker();
+                  broker
+                    .publish({
+                      channel: data.channel,
+                      event: data.event || 'message',
+                      data: data.data !== undefined ? data.data : data,
+                      timestamp: Date.now(),
+                      source: name,
+                    })
+                    .catch(() => {}); // Best-effort
+                })
+                .catch(() => {});
+            }
+          };
+        }
+
+        if (caps.has('memory')) {
+          // Inject lazy memory provider
+          Object.defineProperty(instance, 'memory', {
+            get() {
+              if (!this._memory) {
+                this._memory = new MemoryProvider(name, this._sessionId);
+              }
+              return this._memory;
+            },
+            configurable: true,
+          });
+        }
+
+        if (caps.has('call') && !instance.call) {
+          // Inject call() for cross-photon communication
+          instance.call = async (target: string, params: Record<string, any> = {}) => {
+            const dotIndex = target.indexOf('.');
+            if (dotIndex === -1) {
+              throw new Error(
+                `Invalid call target: '${target}'. Expected format: 'photonName.methodName'`
+              );
+            }
+            const photonName = target.slice(0, dotIndex);
+            const methodName = target.slice(dotIndex + 1);
+            if (!instance._callHandler) {
+              throw new Error(`Cross-photon calls not available for ${name}.`);
+            }
+            return (instance._callHandler as Function)(photonName, methodName, params);
+          };
+        }
+
+        if (caps.has('mcp') && !instance.mcp) {
+          // Inject mcp() accessor for external MCP server access
+          const mcpClients = new Map<string, any>();
+          instance.mcp = (mcpName: string) => {
+            if (!this.mcpClientFactory) {
+              throw new Error(`MCP access not available for ${name}.`);
+            }
+            let client = mcpClients.get(mcpName);
+            if (!client) {
+              const rawClient = this.mcpClientFactory.create(mcpName);
+              client = createMCPProxy(rawClient);
+              mcpClients.set(mcpName, client);
+            }
+            return client;
+          };
+        }
+
+        if (caps.has('lock') && !instance.withLock) {
+          // Inject withLock() helper
+          instance.withLock = async <T>(
+            lockName: string,
+            fn: () => Promise<T>,
+            timeout?: number
+          ): Promise<T> => {
+            return withLockHelper(lockName, fn, timeout);
+          };
+        }
+
+        if (caps.has('instanceMeta')) {
+          // Inject instance metadata (file-stat-based timestamps)
+          const instanceName = options?.instanceName || 'default';
+          const stateDir = path.join(os.homedir(), '.photon', 'state', name);
+          const stateFile = path.join(stateDir, `${instanceName}.json`);
+          try {
+            const stat = await fs.stat(stateFile);
+            instance.instanceMeta = {
+              name: instanceName,
+              createdAt: stat.birthtime.toISOString(),
+              updatedAt: stat.mtime.toISOString(),
+            };
+          } catch {
+            // State file doesn't exist yet — provide defaults
+            instance.instanceMeta = {
+              name: instanceName,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+        }
+
+        if (caps.has('allInstances')) {
+          // Inject cross-instance iterator
+          const photonName = name;
+          instance.allInstances = async function* () {
+            const stateDir = path.join(os.homedir(), '.photon', 'state', photonName);
+            try {
+              const files = await fs.readdir(stateDir);
+              for (const file of files.filter((f: string) => f.endsWith('.json'))) {
+                const instName = file.replace('.json', '');
+                const statePath = path.join(stateDir, file);
+                try {
+                  const snapshot = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+                  const stat = await fs.stat(statePath);
+                  yield {
+                    name: instName,
+                    meta: {
+                      name: instName,
+                      createdAt: stat.birthtime.toISOString(),
+                      updatedAt: stat.mtime.toISOString(),
+                    },
+                    state: snapshot,
+                  };
+                } catch {
+                  // Skip corrupted state files
+                }
+              }
+            } catch {
+              // State dir doesn't exist yet — no instances
+            }
+          };
+        }
+      }
+
       // Check @cli dependencies (required system CLI tools)
       if (tsContent) {
         await this.checkCLIDependencies(tsContent, name);
@@ -632,7 +793,7 @@ export class PhotonLoader {
 
       this.log(`✅ Loaded: ${name} (${counts})`);
 
-      const result: PhotonMCPClassExtended & { classConstructor?: any } = {
+      const result: PhotonClassExtended & { classConstructor?: any } = {
         name,
         description: `${name} MCP`,
         tools,
@@ -654,7 +815,7 @@ export class PhotonLoader {
   /**
    * Reload a Photon MCP file (for hot reload)
    */
-  async reloadFile(filePath: string): Promise<PhotonMCPClassExtended> {
+  async reloadFile(filePath: string): Promise<PhotonClassExtended> {
     // Invalidate the cache for this file
     const absolutePath = path.resolve(filePath);
 
@@ -713,7 +874,7 @@ export class PhotonLoader {
    * Get MCP name from class
    */
   private getMCPName(mcpClass: new (...args: unknown[]) => unknown): string {
-    // Try to use PhotonMCP's method if available
+    // Try to use Photon base class's method if available
     const classWithStatic = mcpClass as { getMCPName?: () => string; name: string };
     if (typeof classWithStatic.getMCPName === 'function') {
       return classWithStatic.getMCPName();
@@ -732,7 +893,7 @@ export class PhotonLoader {
    * Get tool methods from class
    */
   private getToolMethods(mcpClass: new (...args: unknown[]) => unknown): string[] {
-    // Try to use PhotonMCP's method if available
+    // Try to use Photon base class's method if available
     const classWithStatic = mcpClass as {
       getToolMethods?: () => string[];
       prototype: Record<string, unknown>;
@@ -1600,7 +1761,7 @@ Run: photon mcp ${mcpName} --config
    * @returns Tool result, or wrapped result with runId for stateful workflows
    */
   async executeTool(
-    mcp: PhotonMCPClass,
+    mcp: PhotonClass,
     toolName: string,
     parameters: any,
     options?: { resumeRunId?: string; outputHandler?: OutputHandler; inputProvider?: InputProvider }
@@ -1615,9 +1776,9 @@ Run: photon mcp ${mcpName} --config
         throw new Error(mcp.instance._photonConfigError);
       }
 
-      // Check if instance has PhotonMCP's executeTool method
+      // Check if instance has Photon base class's executeTool method
       if (typeof mcp.instance.executeTool === 'function') {
-        // PhotonMCP base class handles execution
+        // Photon base class handles execution
         const outputHandler = options?.outputHandler || this.createOutputHandler();
         const inputProvider = options?.inputProvider || this.createInputProvider();
         const result = await mcp.instance.executeTool(toolName, parameters, { outputHandler });
@@ -1676,9 +1837,14 @@ Run: photon mcp ${mcpName} --config
       // Create a generator factory for maybeStatefulExecute
       // This allows re-execution on resume
       // For static methods, call on the class itself; for instance methods, bind to instance
+      const outputHandler = options?.outputHandler || this.createOutputHandler();
+      const inputProvider = options?.inputProvider || this.createInputProvider();
+
+      // Wrap ALL plain class execution in executionContext for unified observability
+      // This enables this.emit() to read outputHandler from context
       const generatorFn = isStatic
         ? () => method.call(null, ...args)
-        : () => method.call(mcp.instance, ...args);
+        : () => executionContext.run({ outputHandler }, () => method.call(mcp.instance, ...args));
 
       // Use maybeStatefulExecute for all executions
       // It handles both regular async and generators, detecting checkpoint yields
@@ -1686,8 +1852,8 @@ Run: photon mcp ${mcpName} --config
         photon: mcp.name,
         tool: toolName,
         params: parameters,
-        inputProvider: options?.inputProvider || this.createInputProvider(),
-        outputHandler: options?.outputHandler || this.createOutputHandler(),
+        inputProvider,
+        outputHandler,
         resumeRunId: options?.resumeRunId,
       });
 
@@ -1916,7 +2082,7 @@ Run: photon mcp ${mcpName} --config
    * /**
    *  * @mcp github anthropics/mcp-server-github
    *  *\/
-   * export default class MyPhoton extends PhotonMCP {
+   * export default class MyPhoton extends Photon {
    *   async doSomething() {
    *     const issues = await this.github.list_issues({ repo: 'owner/repo' });
    *   }
