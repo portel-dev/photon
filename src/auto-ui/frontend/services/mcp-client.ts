@@ -804,6 +804,7 @@ class MCPClientService {
             icon: tool['x-photon-icon'],
             internal: tool['x-photon-internal'],
             stateful: tool['x-photon-stateful'] || false,
+            installSource: tool['x-photon-install-source'],
             promptCount: tool['x-photon-prompt-count'] || 0,
             resourceCount: tool['x-photon-resource-count'] || 0,
             configured: true,
