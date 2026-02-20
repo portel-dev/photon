@@ -85,9 +85,12 @@ export class InstanceStore {
     autoInstance: string;
     metadata: Record<string, { createdAt: string; modifiedAt: string }>;
   } {
+    // Check content dirs first (actual data), then state dir (selection tracking).
+    // The state dir is updated by _use (instance switching), so its mtime reflects
+    // when an instance was last selected, not when content was last modified.
     const candidateDirs = [
-      path.join(this.baseDir, 'state', photonName),
       path.join(this.baseDir, photonName, 'boards'),
+      path.join(this.baseDir, 'state', photonName),
     ];
 
     for (const dir of candidateDirs) {
