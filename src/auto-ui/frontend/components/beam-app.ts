@@ -3372,6 +3372,8 @@ export class BeamApp extends LitElement {
         // External MCPs use mcp-app-renderer (MCP Apps Extension protocol)
         // Internal photons use custom-ui-renderer (photon bridge protocol)
         const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
+        const hasPath = !!this._selectedPhoton?.path;
+        const hasInstallSource = !!this._selectedPhoton?.installSource;
 
         // Don't render the iframe until main() completes — this prevents the
         // iframe from loading data independently while an elicitation is pending
@@ -3442,15 +3444,19 @@ export class BeamApp extends LitElement {
                   ? html`
                       <context-bar
                         .photon=${this._selectedPhoton}
-                        .showEdit=${!!this._selectedPhoton.path && !isExternalMCP}
+                        .showEdit=${false}
                         .showConfigure=${false}
                         .showCopyConfig=${false}
                         .overflowItems=${this._buildOverflowItems({
-                          showRename: false,
-                          showViewSource: false,
-                          showDelete: false,
-                          showHelp: false,
-                          showRunTests: false,
+                          showRefresh: !isExternalMCP,
+                          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
+                          showUpgrade: !!this._selectedPhoton?.hasUpdate,
+                          showRename: !isExternalMCP,
+                          showViewSource: !isExternalMCP,
+                          showFork: hasInstallSource && !isExternalMCP,
+                          showContribute: hasInstallSource && !isExternalMCP,
+                          showDelete: !isExternalMCP,
+                          showHelp: !isExternalMCP,
                         })}
                         @context-action=${this._handleContextAction}
                       ></context-bar>
