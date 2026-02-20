@@ -42,7 +42,7 @@ async function testDependencies() {
   // Load a photon that uses @dependencies (uuid package)
   const photon = await loader.loadFile('./tests/fixtures/with-deps.photon.ts');
   console.log('✅ Loaded photon with npm dependencies:', photon.name);
-  console.log('   Tools:', photon.tools.map(t => t.name).join(', '));
+  console.log('   Tools:', photon.tools.map((t) => t.name).join(', '));
 
   // Actually call the method that uses the dependency
   const result = await loader.executeTool(photon, 'generateId', {});
@@ -66,12 +66,12 @@ async function testWorkflows() {
   const demo = await loader.loadFile('./tests/fixtures/demo.photon.ts');
 
   // Check if generator methods are detected
-  const metadata = demo.tools.find(t => t.name === 'askName');
+  const metadata = demo.tools.find((t) => t.name === 'askName');
   console.log('✅ Generator method detected:', metadata?.name);
 
   // The askName method is an async generator that yields io.ask
   // We can test it works by checking the metadata
-  const multiStep = demo.tools.find(t => t.name === 'multiStepForm');
+  const multiStep = demo.tools.find((t) => t.name === 'multiStepForm');
   console.log('✅ Multi-step workflow method:', multiStep?.name);
   console.log('   Description:', multiStep?.description);
 }
@@ -80,7 +80,7 @@ async function testMCPConfig() {
   console.log('\n=== TEST 4: MCP Interoperability Config ===\n');
 
   // Test that MCP config resolution works
-  const { resolveMCPSource } = await import('../src/mcp-client.js');
+  const { resolveMCPSource } = await import('@portel/photon-core');
 
   // Test GitHub shorthand resolution
   const githubConfig = resolveMCPSource('github', 'anthropics/mcp-server-github', 'github');
