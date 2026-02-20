@@ -68,9 +68,9 @@ Four lines of declarations replace fifty lines of infrastructure. The method bod
 
 This isn't configuration. It's **behavior composition**. Each tag is a middleware that wraps the method execution at a specific phase in the pipeline.
 
-## Six Real-World Patterns
+## Seven Real-World Patterns
 
-Every middleware tag addresses one of six gaps between ideal code and production reality:
+Every middleware tag addresses one of seven gaps between ideal code and production reality:
 
 ### 1. "The world is unreliable" — `@timeout` + `@retryable`
 
@@ -161,6 +161,26 @@ async findUser(params: { id: string }) {
 
 The `@fallback` tag wraps the entire pipeline — if retries are exhausted, if a timeout fires, if rate limiting rejects, the fallback catches everything and returns the default value. No try/catch, no silent swallowing of errors, just a declaration of what the caller should get when the world doesn't cooperate.
 
+### 7. "Know what happened" — `@logged`
+
+Production methods execute silently. When something is slow, you don't know which method. When something fails, you piece together the timeline from scattered logs. Ideal code doesn't need observability. Reality needs to know what ran, how long it took, and whether it succeeded.
+
+```typescript
+/** @logged */
+async processOrder(params: { orderId: string }) {
+  return await this.stripe.charge(params.orderId);
+}
+// stderr: [info] billing.processOrder 142ms
+
+/** @logged debug */
+async syncInventory(params: { sku: string }) {
+  return await this.warehouse.check(params.sku);
+}
+// stderr: [debug] inventory.syncInventory 3402ms
+```
+
+The `@logged` tag sits at phase 5 — after `@fallback` but before everything else. This means it observes the full lifecycle including fallback-caught errors, but doesn't log noise from throttled or debounced rejections. Logs go to stderr so they never interfere with MCP protocol output on stdout.
+
 ## How It Works
 
 ### The Pipeline
@@ -170,6 +190,7 @@ When a method has middleware tags, the runtime wraps execution in a chain. Each 
 ```
 Request arrives
   → @fallback    catch any error below, return default value (outermost safety net)
+  → @logged      observe execution timing and success/failure
   → @throttled   reject if over rate limit (cheapest check first)
   → @debounced   cancel previous, delay execution
   → @cached      return cached result if valid (skip everything below)
@@ -190,6 +211,7 @@ Each middleware has a **phase number** that determines its position in the pipel
 | Phase | Middleware | Why this position |
 |-------|-----------|-------------------|
 | 3 | `@fallback` | Outermost safety net — catches everything, returns default |
+| 5 | `@logged` | Observe execution timing and errors |
 | 10 | `@throttled` | Reject immediately — don't waste any resources |
 | 20 | `@debounced` | Collapse rapid calls before doing real work |
 | 30 | `@cached` | Cache hit skips everything — biggest savings |

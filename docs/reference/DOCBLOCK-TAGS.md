@@ -57,6 +57,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@async` | Run in background, return execution ID immediately. | `@async` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
 | `@fallback` | **Functional.** Return default value on error. | `@fallback []` |
+| `@logged` | **Functional.** Auto-log execution with timing. | `@logged` or `@logged debug` |
 | `@cached` | **Functional.** Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | **Functional.** Execution time limit. | `@timeout 30s` |
 | `@retryable` | **Functional.** Auto-retry on failure. | `@retryable 3 1s` |
@@ -245,6 +246,7 @@ Every built-in shorthand has an equivalent `@use` form:
 | Shorthand | `@use` equivalent |
 |-----------|-------------------|
 | `@fallback []` | `@use fallback {@value []}` |
+| `@logged debug` | `@use logged {@level debug}` |
 | `@cached 5m` | `@use cached {@ttl 5m}` |
 | `@timeout 30s` | `@use timeout {@ms 30s}` |
 | `@retryable 3 1s` | `@use retryable {@count 3} {@delay 1s}` |
@@ -290,6 +292,7 @@ Middleware runs in phase order (lower = outer wrapper, executes first):
 | Phase | Middleware | Role |
 |-------|-----------|------|
 | 3 | `fallback` | Catch-all — return default on any error |
+| 5 | `logged` | Observe execution timing and errors |
 | 10 | `throttled` | Cheapest rejection |
 | 20 | `debounced` | Collapse rapid calls |
 | 30 | `cached` | Skip everything on cache hit |
@@ -940,6 +943,7 @@ These method-level tags are **automatically enforced by the runtime** — no man
 | Tag | Description | Example |
 |-----|-------------|---------|
 | `@fallback` | Return default value on error. | `@fallback []` |
+| `@logged` | Auto-log execution with timing. | `@logged` or `@logged debug` |
 | `@cached` | Memoize results with TTL. | `@cached 5m` |
 | `@timeout` | Execution time limit. | `@timeout 30s` |
 | `@retryable` | Auto-retry on failure. | `@retryable 3 1s` |
@@ -984,6 +988,33 @@ async getCount(params: { collection: string }) {
 - Reading config/state files that may not exist yet
 - Querying external services where partial failure is acceptable
 - Methods where callers expect data, not errors
+
+### `@logged` — Observability
+
+Auto-log method execution with timing, without manual instrumentation. Logs to `stderr` so it doesn't interfere with MCP output.
+
+```typescript
+/** @logged */
+async charge(params: { amount: number }) {
+  return await this.stripe.charge(params.amount);
+}
+// stderr: [info] billing.charge 142ms
+
+/** @logged debug */
+async syncData(params: { source: string }) {
+  return await this.sync(params.source);
+}
+// stderr: [debug] data-sync.syncData 3402ms
+
+/** On failure: */
+// stderr: [info] billing.charge FAILED 52ms — card declined
+```
+
+**Default level:** `info` (if no level specified)
+
+**Inline config:** `@logged {@level debug} {@tags api,billing}` — adds tags to log output: `[debug] billing.charge [api,billing] 142ms`
+
+**Pipeline position:** Phase 5 — after `@fallback` (so failures are logged even when fallback catches them), before `@throttled` (so rate-limited calls aren't logged as attempts).
 
 ### `@cached` — Memoize Results
 
