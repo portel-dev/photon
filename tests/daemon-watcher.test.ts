@@ -1273,10 +1273,21 @@ async function testSourcePatterns() {
   });
 
   await test('compiler uses content-addressed caching (hash in filename)', async () => {
-    const source = await fsPromises.readFile(
+    // Try sibling repo first (dev), fall back to installed package (CI)
+    const candidates = [
       path.join(process.cwd(), '../photon-core/src/compiler.ts'),
-      'utf-8'
-    );
+      path.join(process.cwd(), 'node_modules/@portel/photon-core/src/compiler.ts'),
+    ];
+    let compilerPath = '';
+    for (const p of candidates) {
+      try {
+        await fsPromises.access(p);
+        compilerPath = p;
+        break;
+      } catch {}
+    }
+    assert.ok(compilerPath, 'compiler.ts not found in sibling repo or node_modules');
+    const source = await fsPromises.readFile(compilerPath, 'utf-8');
     assert.ok(
       source.includes('createHash') && source.includes('.mjs'),
       'Expected content hash used in .mjs filename'
