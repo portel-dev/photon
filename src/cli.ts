@@ -2156,11 +2156,11 @@ program
     }
   });
 
-// Shell command group: shell integration utilities
-const shell = program.command('shell').description('Shell integration utilities');
+// Init command group: setup and shell integration
+const initCmd = program.command('init').description('Setup and shell integration');
 
-shell
-  .command('init')
+initCmd
+  .command('cli')
   .option('--hook', 'Output the shell hook script (used internally by eval/Invoke-Expression)')
   .description('Set up shell integration for direct photon commands and tab completion')
   .action(async (options: { hook?: boolean }) => {
@@ -2187,7 +2187,7 @@ shell
       console.log('    PowerShell  $PROFILE           (Windows default, cross-platform)');
       console.log('');
       console.log('  To use a specific shell, set $SHELL and retry:');
-      console.log('    SHELL=/bin/zsh photon shell init');
+      console.log('    SHELL=/bin/zsh photon init cli');
       process.exit(1);
     }
 
@@ -2202,10 +2202,10 @@ shell
         process.platform === 'win32'
           ? path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
           : path.join(os.homedir(), '.config', 'powershell', 'Microsoft.PowerShell_profile.ps1');
-      evalLine = 'Invoke-Expression (& photon shell init --hook)';
+      evalLine = 'Invoke-Expression (& photon init cli --hook)';
     } else {
       rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
-      evalLine = 'eval "$(photon shell init --hook)"';
+      evalLine = 'eval "$(photon init cli --hook)"';
     }
 
     // --hook flag: output the hook script
@@ -2293,7 +2293,8 @@ _photon() {
         'remove:Uninstall a photon'
         'search:Search for photons'
         'info:Show photon details'
-        'shell:Shell integration'
+        'init:Setup and shell integration'
+        'uninit:Remove integrations'
         'test:Run photon tests'
         'doctor:Check system health'
       )
@@ -2338,9 +2339,14 @@ _photon() {
             esac
           fi
           ;;
-        shell)
+        init)
           local -a subcmds
-          subcmds=('init:Set up shell integration' 'completions:Manage completion cache')
+          subcmds=('cli:Set up shell integration' 'completions:Manage completion cache')
+          _describe 'subcommand' subcmds
+          ;;
+        uninit)
+          local -a subcmds
+          subcmds=('cli:Remove shell integration')
           _describe 'subcommand' subcmds
           ;;
       esac
@@ -2401,7 +2407,7 @@ _photon_complete() {
   if [[ ! -f "\$_photon_cache" ]]; then return; fi
 
   if [[ \$COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "cli use instances set beam serve list add remove search info shell test doctor" -- "\$cur"))
+    COMPREPLY=($(compgen -W "cli use instances set beam serve list add remove search info init uninit test doctor" -- "\$cur"))
   elif [[ \$COMP_CWORD -eq 2 ]]; then
     case "\${COMP_WORDS[1]}" in
       cli|use|instances|set|info|serve)
@@ -2409,8 +2415,11 @@ _photon_complete() {
         photons="$(grep "^photon:" "\$_photon_cache" | cut -d: -f2)"
         COMPREPLY=($(compgen -W "\$photons" -- "\$cur"))
         ;;
-      shell)
-        COMPREPLY=($(compgen -W "init completions" -- "\$cur"))
+      init)
+        COMPREPLY=($(compgen -W "cli completions" -- "\$cur"))
+        ;;
+      uninit)
+        COMPREPLY=($(compgen -W "cli" -- "\$cur"))
         ;;
     esac
   elif [[ \$COMP_CWORD -eq 3 ]]; then
@@ -2496,7 +2505,7 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
   param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
   $pos = $commandAst.CommandElements.Count
   if ($pos -le 1) {
-    @('cli','use','instances','set','beam','serve','list','add','remove','search','info','shell','test','doctor') |
+    @('cli','use','instances','set','beam','serve','list','add','remove','search','info','init','uninit','test','doctor') |
       Where-Object { $_ -like "$wordToComplete*" } |
       ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
   } elseif ($pos -le 2) {
@@ -2510,8 +2519,12 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
           } | Where-Object { $_.CompletionText -like "$wordToComplete*" }
         }
       }
-      'shell' {
-        @('init','completions') | Where-Object { $_ -like "$wordToComplete*" } |
+      'init' {
+        @('cli','completions') | Where-Object { $_ -like "$wordToComplete*" } |
+          ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+      }
+      'uninit' {
+        @('cli') | Where-Object { $_ -like "$wordToComplete*" } |
           ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
       }
     }
@@ -2564,9 +2577,25 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
         if (shellType === 'powershell') {
           console.log(`  Restart PowerShell or run: . $PROFILE`);
         } else {
-          console.log(`  Restart your shell or run: source ${rcFile}`);
+          console.log(`  Activate now:  source ${rcFile}`);
         }
         return;
+      }
+
+      // Remove old eval line if migrating from `photon shell init`
+      const oldEvalLines = [
+        'eval "$(photon shell init --hook)"',
+        'Invoke-Expression (& photon shell init --hook)',
+      ];
+      let cleaned = rcContent;
+      for (const old of oldEvalLines) {
+        cleaned = cleaned
+          .split('\n')
+          .filter((l) => !l.includes(old))
+          .join('\n');
+      }
+      if (cleaned !== rcContent) {
+        await fs.writeFile(rcFile, cleaned, 'utf-8');
       }
 
       const block = `\n${marker}\n${evalLine}\n`;
@@ -2577,10 +2606,11 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
       await generateCompletionCache();
 
       printSuccess(`Installed shell integration into ${rcFile}`);
+      console.log('');
       if (shellType === 'powershell') {
-        console.log(`  Restart PowerShell or run: . $PROFILE`);
+        console.log(`  Activate now:  . $PROFILE`);
       } else {
-        console.log(`  Restart your shell or run: source ${rcFile}`);
+        console.log(`  Activate now:  source ${rcFile}`);
       }
       console.log('');
       console.log(`  Then type any photon name directly:`);
@@ -2597,7 +2627,7 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
     }
   });
 
-shell
+initCmd
   .command('completions')
   .option('--generate', 'Regenerate the completions cache')
   .description('Manage shell completion cache')
@@ -2622,10 +2652,72 @@ shell
             : `${Math.floor(age / 3_600_000)}h ago`;
       printInfo(`Cache: ${CACHE_FILE}`);
       console.log(`  Last updated: ${ageStr}`);
-      console.log(`  Run \`photon shell completions --generate\` to refresh`);
+      console.log(`  Run \`photon init completions --generate\` to refresh`);
     } catch {
       printInfo('No completions cache found.');
-      console.log('  Run `photon shell completions --generate` to create one.');
+      console.log('  Run `photon init completions --generate` to create one.');
+    }
+  });
+
+// Uninit command group: remove integrations
+const uninitCmd = program.command('uninit').description('Remove integrations');
+
+uninitCmd
+  .command('cli')
+  .description('Remove shell integration')
+  .action(async () => {
+    // Detect shell type
+    const userShell = process.env.SHELL || '';
+    const isPowerShell = !!process.env.PSModulePath;
+    const isZsh = !isPowerShell && userShell.includes('zsh');
+    const isBash = !isPowerShell && userShell.includes('bash');
+
+    let rcFile: string;
+    if (isPowerShell || process.platform === 'win32') {
+      rcFile =
+        process.platform === 'win32'
+          ? path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
+          : path.join(os.homedir(), '.config', 'powershell', 'Microsoft.PowerShell_profile.ps1');
+    } else if (isZsh) {
+      rcFile = path.join(os.homedir(), '.zshrc');
+    } else if (isBash) {
+      rcFile = path.join(os.homedir(), '.bashrc');
+    } else {
+      const detected = userShell ? path.basename(userShell) : 'unknown';
+      printError(`Unsupported shell: ${detected}`);
+      process.exit(1);
+      return; // unreachable but satisfies TS
+    }
+
+    let rcContent: string;
+    try {
+      rcContent = await fs.readFile(rcFile, 'utf-8');
+    } catch {
+      printInfo(`No rc file found at ${rcFile}`);
+      return;
+    }
+
+    const marker = '# photon shell integration';
+    const removePats = [marker, 'photon shell init --hook', 'photon init cli --hook'];
+
+    const lines = rcContent.split('\n');
+    const filtered = lines.filter((line) => !removePats.some((pat) => line.includes(pat)));
+
+    if (filtered.length === lines.length) {
+      printInfo('No shell integration found to remove.');
+      return;
+    }
+
+    // Clean up trailing blank lines left by removal
+    let result = filtered.join('\n');
+    result = result.replace(/\n{3,}/g, '\n\n');
+
+    await fs.writeFile(rcFile, result, 'utf-8');
+    printSuccess(`Removed shell integration from ${rcFile}`);
+    if (isPowerShell || process.platform === 'win32') {
+      console.log('  Run: . $PROFILE  (or restart PowerShell)');
+    } else {
+      console.log(`  Run: exec $SHELL  (or restart your terminal)`);
     }
   });
 

@@ -5,7 +5,7 @@
  */
 
 import * as fs from 'fs/promises';
-import type { Dirent } from 'fs';
+import { realpathSync, type Dirent } from 'fs';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
@@ -202,7 +202,12 @@ export class PhotonLoader {
    * Generate deterministic cache key for an MCP + photon path
    */
   private getCacheKey(mcpName: string, photonPath: string): string {
-    const normalized = path.resolve(photonPath);
+    let normalized = path.resolve(photonPath);
+    try {
+      normalized = realpathSync(normalized);
+    } catch {
+      /* keep resolved */
+    }
     const hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
     return `${mcpName}-${hash}`;
   }
@@ -872,6 +877,14 @@ export class PhotonLoader {
         await fs.unlink(cachedJsPath);
       } catch {
         // Ignore if file doesn't exist
+      }
+
+      // Clean stale cache files (old content hashes)
+      const files = await fs.readdir(buildDir).catch(() => [] as string[]);
+      for (const f of files) {
+        if (f.startsWith(fileName) && f.endsWith('.mjs')) {
+          await fs.unlink(path.join(buildDir, f)).catch(() => {});
+        }
       }
     }
 
