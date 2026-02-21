@@ -824,7 +824,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Show version banner immediately
   const { PHOTON_VERSION } = await import('../version.js');
-  console.log(`\n⚡ Photon Beam v${PHOTON_VERSION}\n`);
+  console.log(`\n⚡ Photon Beam v${PHOTON_VERSION} • Scanning ${workingDir}\n`);
 
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
@@ -3422,7 +3422,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         process.env.BEAM_PORT = String(currentPort);
         const url = `http://localhost:${currentPort}`;
         if (isTTY) process.stderr.write('\r\x1b[K'); // Clear any port status line
-        console.log(`⚡ Photon Beam → ${url} (loading photons...)\n`);
+        console.log(`⚡ Photon Beam starting • ${url} • ${workingDir} (loading photons...)\n`);
         resolve();
       });
 
@@ -3467,7 +3467,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       : `${configuredCount} photon${configuredCount !== 1 ? 's' : ''} ready`;
   const mcpStatus =
     externalMCPList.length > 0 ? `, ${connectedMCPs}/${externalMCPList.length} MCPs` : '';
-  console.log(`⚡ Photon Beam ready (${photonStatus}${mcpStatus})`);
+  const url = `http://localhost:${process.env.BEAM_PORT || port}`;
+  console.log(`⚡ Photon Beam ready • ${url} • ${workingDir} • ${photonStatus}${mcpStatus}`);
 
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();
