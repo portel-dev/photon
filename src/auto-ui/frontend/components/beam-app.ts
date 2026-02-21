@@ -2708,7 +2708,7 @@ export class BeamApp extends LitElement {
       if (this._updatesAvailable.length > 0) {
         this._photons = this._photons.map((p) => {
           const update = this._updatesAvailable.find((u) => u.name === p.name);
-          return update ? { ...p, hasUpdate: true } : p;
+          return update ? { ...p, hasUpdate: true, updateVersion: update.latestVersion } : p;
         });
         // Also update selected photon if it has an update
         if (this._selectedPhoton) {
@@ -2716,7 +2716,11 @@ export class BeamApp extends LitElement {
             (u) => u.name === this._selectedPhoton?.name
           );
           if (selUpdate) {
-            this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: true };
+            this._selectedPhoton = {
+              ...this._selectedPhoton,
+              hasUpdate: true,
+              updateVersion: selUpdate.latestVersion,
+            };
           }
         }
       }
@@ -4103,10 +4107,16 @@ export class BeamApp extends LitElement {
       showToast(`${name} upgraded${result.version ? ` to ${result.version}` : ''}`, 'success');
 
       // Clear hasUpdate flag
-      this._photons = this._photons.map((p) => (p.name === name ? { ...p, hasUpdate: false } : p));
+      this._photons = this._photons.map((p) =>
+        p.name === name ? { ...p, hasUpdate: false, updateVersion: undefined } : p
+      );
       this._updatesAvailable = this._updatesAvailable.filter((u) => u.name !== name);
       if (this._selectedPhoton?.name === name) {
-        this._selectedPhoton = { ...this._selectedPhoton, hasUpdate: false };
+        this._selectedPhoton = {
+          ...this._selectedPhoton,
+          hasUpdate: false,
+          updateVersion: undefined,
+        };
       }
     } catch (error) {
       console.warn('Upgrade failed:', error);
@@ -5386,7 +5396,12 @@ export class BeamApp extends LitElement {
       items.push({ id: 'edit', label: 'Edit', icon: '✎' });
     }
     if (showUpgrade) {
-      items.push({ id: 'upgrade', label: 'Update', icon: '⬆' });
+      const updateVersion = this._selectedPhoton?.updateVersion;
+      items.push({
+        id: 'upgrade',
+        label: updateVersion ? `Update → ${updateVersion}` : 'Update',
+        icon: '⬆',
+      });
     }
     items.push({
       id: 'remember-values',
@@ -5939,7 +5954,10 @@ export class BeamApp extends LitElement {
                   class="photon-badge update"
                   @click=${this._handleUpgrade}
                 >
-                  Update available
+                  Update
+                  available${this._selectedPhoton.updateVersion
+                    ? ` → ${this._selectedPhoton.updateVersion}`
+                    : ''}
                 </button>`
               : ''}
             ${this._selectedPhoton.author
