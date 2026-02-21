@@ -83,17 +83,17 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
 
   // --dir must come after 'beam' to avoid preprocessArgs() treating the path as a photon name
   const emptyConfigPath = path.join(dir, 'config.json');
+
+  // Build env for subprocess: start with parent env but explicitly unset test photon config vars
+  const subprocessEnv = { ...process.env };
+  delete subprocessEnv.CONFIG_TEST_MCP_API_KEY;
+  delete subprocessEnv.CONFIG_TEST_MCP_SOCKET_PATH;
+  subprocessEnv.NODE_ENV = 'test';
+  subprocessEnv.PHOTON_CONFIG_FILE = emptyConfigPath;
+
   const proc = spawn('node', [cliPath, 'beam', '--port', String(port), '--dir', dir], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      NODE_ENV: 'test',
-      // Use empty config so test doesn't load user's external MCPs
-      PHOTON_CONFIG_FILE: emptyConfigPath,
-      // Ensure the test photon's env vars are NOT set so it stays unconfigured
-      CONFIG_TEST_MCP_API_KEY: undefined as any,
-      CONFIG_TEST_MCP_SOCKET_PATH: undefined as any,
-    },
+    env: subprocessEnv,
   });
 
   // Wait for server to be fully ready (photons loaded)
@@ -101,12 +101,18 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
     const timeout = setTimeout(() => reject(new Error('Server start timeout')), 30000);
     let allOutput = '';
 
+    let beamReady = false;
     const checkReady = (data: Buffer) => {
-      allOutput += data.toString();
-      // Wait for "Photon Beam ready" which means photons are loaded
-      if (allOutput.includes('Photon Beam ready')) {
+      const chunk = data.toString();
+      allOutput += chunk;
+      // Log all output except 'Loading' lines for debugging
+      if (!chunk.includes('Loading')) process.stderr.write(chunk);
+      // Wait for "⚡ Photon Beam" which indicates server is ready
+      if (allOutput.includes('⚡ Photon Beam') && !beamReady) {
+        beamReady = true;
         clearTimeout(timeout);
-        resolve();
+        // Wait a moment for photons to be fully indexed
+        setTimeout(resolve, 200);
       }
     };
 
