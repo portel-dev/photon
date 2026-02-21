@@ -869,6 +869,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Final output: new line with newlines around it
       if (!showedMainLine) {
         originalLog(`\n${status}\n`);
+      } else if (isTTY) {
+        // Status line was already shown on same line (TTY), add newline before restoring output
+        originalStderrWrite('\n');
       }
       showedMainLine = true;
       suppressOutput = false; // Allow output now
