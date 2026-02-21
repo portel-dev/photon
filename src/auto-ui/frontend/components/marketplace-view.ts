@@ -178,6 +178,7 @@ export class MarketplaceView extends LitElement {
         flex-wrap: wrap;
         margin-bottom: var(--space-lg);
         padding: 2px; /* Add padding to prevent focus ring clipping */
+        overflow: visible; /* Ensure outline indicator displays */
       }
 
       .filter-pill {
@@ -188,10 +189,15 @@ export class MarketplaceView extends LitElement {
         font-size: var(--text-md);
         color: var(--t-secondary);
         cursor: pointer;
-        transition: all 0.2s;
+        transition:
+          color 0.2s,
+          background 0.2s,
+          border-color 0.2s;
         display: flex;
         align-items: center;
         gap: 6px;
+        position: relative;
+        z-index: 1;
       }
 
       .filter-pill:hover {
