@@ -1035,6 +1035,15 @@ program
     }
   });
 
+// Set PHOTON_DIR env var from --dir flag so photons doing their own path
+// resolution can read the working directory (e.g. for cross-instance state access)
+program.hook('preAction', () => {
+  const dir = program.opts().dir;
+  if (dir) {
+    process.env.PHOTON_DIR = dir;
+  }
+});
+
 // MCP Runtime: run a .photon.ts file as MCP server
 program
   .command('mcp', { hidden: true })
