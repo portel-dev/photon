@@ -5320,7 +5320,7 @@ export class BeamApp extends LitElement {
         .overflowItems=${this._buildOverflowItems({
           showRefresh: !isExternalMCP,
           showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
-          showUpgrade: !!this._selectedPhoton?.hasUpdate,
+          showUpgrade: hasInstallSource && !isExternalMCP,
           showRename: !isExternalMCP,
           showViewSource: !isExternalMCP,
           showFork: hasInstallSource && !isExternalMCP,
@@ -5386,7 +5386,11 @@ export class BeamApp extends LitElement {
       items.push({ id: 'edit', label: 'Edit', icon: '✎' });
     }
     if (showUpgrade) {
-      items.push({ id: 'upgrade', label: 'Upgrade', icon: '⬆' });
+      items.push({
+        id: 'upgrade',
+        label: this._selectedPhoton?.hasUpdate ? 'Update ●' : 'Update',
+        icon: '⬆',
+      });
     }
     items.push({
       id: 'remember-values',
