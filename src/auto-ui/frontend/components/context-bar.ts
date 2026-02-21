@@ -557,12 +557,12 @@ export class ContextBar extends LitElement {
             : ''}
           ${this.showConfigure && !p.isExternalMCP
             ? html`<button class="action-btn" @click=${() => this._emit('configure')}>
-                Configure
+                Reconfigure
               </button>`
             : ''}
           ${this.showCopyConfig
             ? html`<button class="action-btn" @click=${() => this._emit('copy-config')}>
-                📋 MCP Config
+                📋 Copy MCP Config
               </button>`
             : ''}
           ${this.overflowItems.length > 0
