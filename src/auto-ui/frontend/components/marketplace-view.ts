@@ -177,6 +177,7 @@ export class MarketplaceView extends LitElement {
         gap: 8px;
         flex-wrap: wrap;
         margin-bottom: var(--space-lg);
+        padding: 2px; /* Add padding to prevent focus ring clipping */
       }
 
       .filter-pill {
@@ -196,6 +197,13 @@ export class MarketplaceView extends LitElement {
       .filter-pill:hover {
         border-color: var(--accent-primary);
         color: var(--t-primary);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      }
+
+      .filter-pill:focus-visible {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
       }
 
       .filter-pill.active {
@@ -803,6 +811,8 @@ export class MarketplaceView extends LitElement {
         .source-filters {
           flex-wrap: nowrap;
           overflow-x: auto;
+          overflow-y: visible; /* Prevent focus ring clipping */
+          padding: 2px var(--space-sm); /* Support focus ring on vertical edges */
           padding-bottom: var(--space-sm);
           -webkit-overflow-scrolling: touch;
         }
