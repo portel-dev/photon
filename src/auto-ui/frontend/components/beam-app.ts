@@ -71,7 +71,7 @@ export class BeamApp extends LitElement {
         background: var(--bg-app);
         color: var(--t-primary);
         font-family: var(--font-sans);
-        overflow: hidden;
+        overflow: clip; /* Allow focus rings to display without scrollbars */
       }
 
       /* ===== Light Theme - "Warm, Soft, Professional" ===== */
