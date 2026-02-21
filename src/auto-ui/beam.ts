@@ -823,17 +823,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
-  // Queue console output to show after main status line
+  // Queue all output to show after main status line
   const outputQueue: string[] = [];
   const originalLog = console.log;
   const originalWarn = console.warn;
   const originalError = console.error;
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
   const isTTY = process.stderr.isTTY;
 
-  let statusLine = '';
   let showedMainLine = false;
+  let suppressOutput = true; // Suppress until main line shown
 
-  // Queue all output temporarily
+  // Queue all console output
   const queuedLog = (...args: any[]) => {
     if (showedMainLine) {
       originalLog(...args); // Show immediately after main line
@@ -842,19 +843,28 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
   };
 
+  // Suppress console and stderr output during startup
   console.log = queuedLog;
   console.warn = queuedLog;
   console.error = queuedLog;
+  process.stderr.write = ((chunk: any, ...args: any[]) => {
+    // Allow our status line updates through, suppress logger output
+    const str = typeof chunk === 'string' ? chunk : chunk.toString();
+    if (suppressOutput && !str.includes('⚡ Photon Beam')) {
+      return true; // Suppress logger output
+    }
+    return originalStderrWrite(chunk, ...args);
+  }) as any;
 
   const updateStatus = (url?: string, isReady = false) => {
     const status = `⚡ Photon Beam v${PHOTON_VERSION} (${workingDir})${url ? ` → ${url}` : ''}`;
     if (isTTY && !isReady) {
-      process.stderr.write(`\r${status.padEnd(120)}`);
+      originalStderrWrite(`\r${status.padEnd(120)}`);
     } else if (isReady && !showedMainLine) {
       originalLog(`\n${status}\n`);
       showedMainLine = true;
+      suppressOutput = false; // Allow output now
     }
-    statusLine = status;
   };
 
   // Show initial status
@@ -3502,11 +3512,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     externalMCPList.length > 0 ? `, ${connectedMCPs}/${externalMCPList.length} MCPs` : '';
   const url = `http://localhost:${process.env.BEAM_PORT || port}`;
 
-  // Show final status line and restore console functions
+  // Show final status line and restore console + stderr
   updateStatus(url, true);
   console.log = originalLog;
   console.warn = originalWarn;
   console.error = originalError;
+  process.stderr.write = originalStderrWrite; // Restore stderr
 
   // Flush queued output
   for (const line of outputQueue) {
