@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Activity</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --card: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --green: #22c55e;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .header {
+      margin-bottom: 24px;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .timeline {
+      position: relative;
+      padding-left: 32px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 11px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--accent), var(--border));
+      border-radius: 1px;
+    }
+
+    .activity-item {
+      position: relative;
+      padding: 16px 0;
+    }
+
+    .activity-item::before {
+      content: '';
+      position: absolute;
+      left: -25px;
+      top: 22px;
+      width: 12px;
+      height: 12px;
+      background: var(--accent);
+      border-radius: 50%;
+      border: 3px solid var(--bg);
+      box-shadow: 0 0 0 2px var(--border);
+    }
+
+    .activity-item:first-child::before {
+      background: var(--green);
+      box-shadow: 0 0 0 2px var(--green), 0 0 12px rgba(34, 197, 94, 0.4);
+    }
+
+    .activity-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+
+    .activity-item:first-child .activity-card {
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .activity-card:hover {
+      border-color: var(--accent);
+      transform: translateX(4px);
+    }
+
+    .activity-action {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .activity-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .activity-user {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .activity-avatar {
+      width: 20px;
+      height: 20px;
+      background: linear-gradient(135deg, var(--accent), #818cf8);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: white;
+      text-transform: uppercase;
+    }
+
+    .activity-time {
+      color: var(--muted);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Activity</h1>
+    <p>Recent actions and updates</p>
+  </div>
+
+  <div class="timeline" id="timeline">
+    <!-- Activity items will be injected here -->
+  </div>
+
+  <script>
+    // Data will be injected by MCP client
+    const activities = window.__MCP_DATA__ || [
+      { id: '1', action: 'Merged PR #42', timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), user: 'alice' },
+      { id: '2', action: 'Created issue #15', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), user: 'bob' },
+      { id: '3', action: 'Deployed v2.1.0', timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(), user: 'charlie' },
+    ];
+
+    function timeAgo(dateStr) {
+      const seconds = Math.floor((new Date() - new Date(dateStr)) / 1000);
+
+      if (seconds < 60) return 'just now';
+      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+      return Math.floor(seconds / 86400) + 'd ago';
+    }
+
+    function render() {
+      const timelineEl = document.getElementById('timeline');
+
+      if (activities.length === 0) {
+        timelineEl.innerHTML = `
+          <div class="empty-state">
+            <p>No recent activity</p>
+          </div>
+        `;
+        return;
+      }
+
+      timelineEl.innerHTML = activities.map(activity => `
+        <div class="activity-item">
+          <div class="activity-card">
+            <div class="activity-action">${activity.action}</div>
+            <div class="activity-meta">
+              <div class="activity-user">
+                <div class="activity-avatar">${activity.user.charAt(0)}</div>
+                <span>${activity.user}</span>
+              </div>
+              <span class="activity-time">${timeAgo(activity.timestamp)}</span>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    render();
+  </script>
+</body>
+</html>

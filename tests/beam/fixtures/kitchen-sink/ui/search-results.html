@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search Results</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-base, #0f172a);
+      color: var(--t-primary, #f1f5f9);
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border-glass, #334155);
+      background: var(--bg-panel, #1e293b);
+      color: var(--t-primary, #f1f5f9);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--accent-primary, #60a5fa);
+    }
+    .search-input::placeholder {
+      color: var(--t-muted, #94a3b8);
+    }
+    .search-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent-primary, #60a5fa);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .search-btn:hover { opacity: 0.9; }
+    .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .count {
+      font-size: 14px;
+      color: var(--t-muted, #94a3b8);
+      margin-bottom: 16px;
+    }
+    .results {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .result {
+      background: var(--bg-panel, #1e293b);
+      border: 1px solid var(--border-glass, #334155);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .result-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent-primary, #60a5fa);
+      text-decoration: none;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .result-title:hover {
+      color: var(--accent-secondary, #93c5fd);
+      text-decoration: underline;
+    }
+    .result-url {
+      font-size: 13px;
+      color: #22c55e;
+      margin-bottom: 8px;
+    }
+    .result-snippet {
+      font-size: 14px;
+      color: var(--t-muted, #94a3b8);
+      line-height: 1.5;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--t-muted, #94a3b8);
+    }
+    .loading {
+      text-align: center;
+      padding: 32px;
+      color: var(--t-muted, #94a3b8);
+    }
+  </style>
+</head>
+<body>
+  <form class="search-bar" id="search-form">
+    <input class="search-input" id="query" type="text" placeholder="Search..." autofocus>
+    <button class="search-btn" type="submit" id="btn">Search</button>
+  </form>
+  <div class="count" id="count"></div>
+  <div class="results" id="results">
+    <div class="empty-state">Enter a query to search</div>
+  </div>
+
+  <script>
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('query');
+    const btn = document.getElementById('btn');
+    const countEl = document.getElementById('count');
+    const resultsEl = document.getElementById('results');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = input.value.trim();
+      if (!query) return;
+
+      btn.disabled = true;
+      countEl.textContent = '';
+      resultsEl.innerHTML = '<div class="loading">Searching...</div>';
+
+      try {
+        const data = await window.photon.callTool('uiSearch', { query });
+        const results = Array.isArray(data) ? data : [];
+
+        countEl.textContent = `${results.length} result${results.length !== 1 ? 's' : ''} found`;
+
+        if (results.length === 0) {
+          resultsEl.innerHTML = '<div class="empty-state">No results found</div>';
+        } else {
+          resultsEl.innerHTML = results.map(r => `
+            <div class="result">
+              <a class="result-title" href="${r.url}" target="_blank">${r.title}</a>
+              <div class="result-url">${r.url}</div>
+              <div class="result-snippet">${r.snippet}</div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        countEl.textContent = '';
+        resultsEl.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

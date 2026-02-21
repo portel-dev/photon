@@ -1,0 +1,60 @@
+{
+  "preferences": {
+    "theme": "system",
+    "fontSize": "medium",
+    "notifications": true,
+    "language": "en",
+    "autoSave": true
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Default user preferences configuration",
+    "lastUpdated": "2025-01-03"
+  },
+  "themes": {
+    "light": {
+      "name": "Light",
+      "colors": {
+        "background": "#ffffff",
+        "foreground": "#1a1a1a",
+        "accent": "#0066cc"
+      }
+    },
+    "dark": {
+      "name": "Dark",
+      "colors": {
+        "background": "#1a1a1a",
+        "foreground": "#ffffff",
+        "accent": "#4da6ff"
+      }
+    },
+    "system": {
+      "name": "System Default",
+      "description": "Follows your system preferences"
+    }
+  },
+  "fontSizes": {
+    "small": {
+      "base": 14,
+      "heading": 20
+    },
+    "medium": {
+      "base": 16,
+      "heading": 24
+    },
+    "large": {
+      "base": 18,
+      "heading": 28
+    }
+  },
+  "languages": [
+    { "code": "en", "name": "English" },
+    { "code": "es", "name": "Spanish" },
+    { "code": "fr", "name": "French" },
+    { "code": "de", "name": "German" },
+    { "code": "ja", "name": "Japanese" },
+    { "code": "zh", "name": "Chinese" },
+    { "code": "ko", "name": "Korean" },
+    { "code": "pt", "name": "Portuguese" }
+  ]
+}
