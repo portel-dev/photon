@@ -1166,6 +1166,7 @@ program
         port: parseInt(options.port, 10),
         logOptions: { ...logOptions, scope: transport },
         unresolvedPhoton,
+        workingDir,
       });
 
       // Handle shutdown signals
@@ -1239,6 +1240,7 @@ program
         transport: 'sse',
         port,
         logOptions: { ...logOptions, scope: 'sse' },
+        workingDir,
       });
 
       // Handle shutdown signals
@@ -2087,12 +2089,13 @@ SEE ALSO:
 
     const { listMethods, runMethod } = await import('./photon-cli-runner.js');
 
+    const cliWorkingDir = program.opts().dir || DEFAULT_WORKING_DIR;
     if (!method) {
       // List all methods
       await listMethods(photon);
     } else {
       // Run specific method
-      await runMethod(photon, method, args);
+      await runMethod(photon, method, args, cliWorkingDir);
     }
   });
 

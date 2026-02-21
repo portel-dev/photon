@@ -943,7 +943,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Use PhotonLoader with error-only logger to reduce verbosity
   // Beam handles config errors gracefully via UI forms, but we still want to see actual errors
   const errorOnlyLogger = createLogger({ level: 'error' });
-  const loader = new PhotonLoader(false, errorOnlyLogger);
+  const loader = new PhotonLoader(false, errorOnlyLogger, workingDir);
 
   // Counts updated after photon loading
   let configuredCount = 0;
@@ -1351,20 +1351,25 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const isRunning = await pingDaemon(photonName);
 
       if (isRunning) {
-        const unsubscribe = await subscribeChannel(photonName, daemonChannel, (message: any) => {
-          // Forward channel messages as events with delta
-          // Include both photonId (for client) and photonName (for display)
-          const params = {
-            photonId,
-            photon: photonName,
-            channel: daemonChannel,
-            event: message?.event,
-            data: message?.data || message,
-          };
-          // Buffer event for replay on reconnect
-          const eventId = bufferEvent(channel, 'photon/channel-event', params);
-          broadcastToBeam('photon/channel-event', { ...params, _eventId: eventId });
-        });
+        const unsubscribe = await subscribeChannel(
+          photonName,
+          daemonChannel,
+          (message: any) => {
+            // Forward channel messages as events with delta
+            // Include both photonId (for client) and photonName (for display)
+            const params = {
+              photonId,
+              photon: photonName,
+              channel: daemonChannel,
+              event: message?.event,
+              data: message?.data || message,
+            };
+            // Buffer event for replay on reconnect
+            const eventId = bufferEvent(channel, 'photon/channel-event', params);
+            broadcastToBeam('photon/channel-event', { ...params, _eventId: eventId });
+          },
+          { workingDir }
+        );
         subscription.unsubscribe = unsubscribe;
         logger.info(`📡 Subscribed to ${daemonChannel} (id: ${photonId}, ref: 1)`);
       }
@@ -1483,6 +1488,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         externalMCPSDKClients, // SDK clients for tool calls with structuredContent
         reconnectExternalMCP,
         loadUIAsset,
+        workingDir,
         configurePhoton: async (photonName: string, config: Record<string, any>) => {
           return configurePhotonViaMCP(
             photonName,
@@ -2229,7 +2235,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
       try {
-        const photonBase = path.join(os.homedir(), '.photon');
+        const photonBase = workingDir;
         // Check both storage locations:
         // 1. @stateful runtime state: ~/.photon/state/{photon}/*.json
         // 2. Legacy board-based storage: ~/.photon/{photon}/boards/*.json (e.g. kanban)
@@ -3569,6 +3575,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           },
           {
             reconnect: true,
+            workingDir,
             onReconnect: () => logger.info(`📡 Reconnected ${channel} subscription`),
             onRefreshNeeded: () => {
               logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);

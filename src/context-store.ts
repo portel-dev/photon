@@ -248,9 +248,14 @@ export class EnvStore {
  * Path: ~/.photon/state/{photon}/{instance}.json
  * Default instance: ~/.photon/state/{photon}/default.json
  */
-export function getInstanceStatePath(photonName: string, instance: string): string {
+export function getInstanceStatePath(
+  photonName: string,
+  instance: string,
+  baseDir?: string
+): string {
   const name = instance || 'default';
-  return path.join(os.homedir(), '.photon', 'state', photonName, `${name}.json`);
+  const dir = baseDir || path.join(os.homedir(), '.photon');
+  return path.join(dir, 'state', photonName, `${name}.json`);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

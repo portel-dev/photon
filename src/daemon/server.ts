@@ -14,6 +14,7 @@ import * as net from 'net';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { SessionManager } from './session-manager.js';
 import {
   DaemonRequest,
@@ -41,11 +42,23 @@ if (!socketPath) {
   process.exit(1);
 }
 
-// Map of photonName -> SessionManager (lazy initialized)
+// Map of compositeKey -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
-const photonPaths = new Map<string, string>(); // photonName -> photonPath
+const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
+const workingDirs = new Map<string, string>(); // compositeKey -> workingDir
 const fileWatchers = new Map<string, fs.FSWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Create a composite key from photonName + workingDir for map lookups.
+ * When workingDir is the default (~/.photon), returns just the photonName
+ * for backwards compatibility.
+ */
+function compositeKey(photonName: string, workingDir?: string): string {
+  if (!workingDir || workingDir === DEFAULT_PHOTON_DIR) return photonName;
+  const dirHash = crypto.createHash('sha256').update(workingDir).digest('hex').slice(0, 8);
+  return `${photonName}:${dirHash}`;
+}
 
 let idleTimeout = 0; // Daemon stays alive — it manages persistent stateful data
 let idleTimer: NodeJS.Timeout | null = null;
@@ -192,7 +205,7 @@ setInterval(cleanupExpiredLocks, 10000);
 // SCHEDULED JOBS
 // ════════════════════════════════════════════════════════════════════════════════
 
-const scheduledJobs = new Map<string, ScheduledJob & { photonName: string }>();
+const scheduledJobs = new Map<string, ScheduledJob & { photonName: string; workingDir?: string }>();
 const jobTimers = new Map<string, NodeJS.Timeout>();
 
 function parseCron(cron: string): { isValid: boolean; nextRun: number } {
@@ -233,7 +246,7 @@ function parseCron(cron: string): { isValid: boolean; nextRun: number } {
   return { isValid: true, nextRun: nextDate.getTime() };
 }
 
-function scheduleJob(job: ScheduledJob & { photonName: string }): boolean {
+function scheduleJob(job: ScheduledJob & { photonName: string; workingDir?: string }): boolean {
   const { isValid, nextRun } = parseCron(job.cron);
   if (!isValid) {
     logger.error('Invalid cron expression', { jobId: job.id, cron: job.cron });
@@ -265,7 +278,8 @@ async function runJob(jobId: string): Promise<void> {
   const job = scheduledJobs.get(jobId);
   if (!job) return;
 
-  const sessionManager = sessionManagers.get(job.photonName);
+  const key = compositeKey(job.photonName, job.workingDir);
+  const sessionManager = sessionManagers.get(key);
   if (!sessionManager) {
     logger.warn('Cannot run job - photon not initialized', { jobId, photon: job.photonName });
     scheduleJob(job); // Reschedule anyway
@@ -552,42 +566,51 @@ function publishToChannel(channel: string, message: unknown, excludeSocket?: net
 
 async function getOrCreateSessionManager(
   photonName: string,
-  photonPath?: string
+  photonPath?: string,
+  workingDir?: string
 ): Promise<SessionManager | null> {
-  let manager = sessionManagers.get(photonName);
+  const key = compositeKey(photonName, workingDir);
+  let manager = sessionManagers.get(key);
 
   if (manager) {
     return manager;
   }
 
   // Need photonPath to initialize
-  const storedPath = photonPaths.get(photonName);
+  const storedPath = photonPaths.get(key);
   const pathToUse = photonPath || storedPath;
 
   if (!pathToUse) {
-    logger.warn('Cannot initialize photon - no path provided', { photonName });
+    logger.warn('Cannot initialize photon - no path provided', { photonName, key });
     return null;
   }
 
   try {
-    logger.info('Initializing session manager', { photonName, photonPath: pathToUse });
+    logger.info('Initializing session manager', {
+      photonName,
+      key,
+      photonPath: pathToUse,
+      workingDir,
+    });
 
     manager = new SessionManager(
       pathToUse,
       photonName,
       idleTimeout,
-      logger.child({ scope: photonName })
+      logger.child({ scope: photonName }),
+      workingDir
     );
 
-    sessionManagers.set(photonName, manager);
-    photonPaths.set(photonName, pathToUse);
+    sessionManagers.set(key, manager);
+    photonPaths.set(key, pathToUse);
+    if (workingDir) workingDirs.set(key, workingDir);
     watchPhotonFile(photonName, pathToUse);
 
-    logger.info('Session manager initialized', { photonName });
+    logger.info('Session manager initialized', { photonName, key });
 
     // Auto-register scheduled jobs and webhook routes from tool metadata
     // Do this lazily on first session creation
-    autoRegisterFromMetadata(photonName, manager);
+    autoRegisterFromMetadata(key, manager);
 
     return manager;
   } catch (error) {
@@ -734,7 +757,7 @@ async function handleRequest(
       };
     }
 
-    const result = await reloadPhoton(photonName, photonPath);
+    const result = await reloadPhoton(photonName, photonPath, request.workingDir);
     return {
       type: 'result',
       id: request.id,
@@ -902,7 +925,7 @@ async function handleRequest(
       };
     }
 
-    const job: ScheduledJob & { photonName: string } = {
+    const job: ScheduledJob & { photonName: string; workingDir?: string } = {
       id: request.jobId!,
       method: request.method!,
       args: request.args,
@@ -911,6 +934,7 @@ async function handleRequest(
       createdAt: Date.now(),
       createdBy: request.sessionId,
       photonName,
+      workingDir: request.workingDir,
     };
 
     const scheduled = scheduleJob(job);
@@ -958,7 +982,11 @@ async function handleRequest(
       };
     }
 
-    const sessionManager = await getOrCreateSessionManager(photonName, request.photonPath);
+    const sessionManager = await getOrCreateSessionManager(
+      photonName,
+      request.photonPath,
+      request.workingDir
+    );
     if (!sessionManager) {
       return {
         type: 'error',
@@ -997,7 +1025,7 @@ async function handleRequest(
           const { getInstanceStatePath } = await import('../context-store.js');
           const fsPromises = await import('fs/promises');
           const pathMod = await import('path');
-          const statePath = getInstanceStatePath(photonName, label);
+          const statePath = getInstanceStatePath(photonName, label, request.workingDir);
           await fsPromises.mkdir(pathMod.dirname(statePath), { recursive: true });
           try {
             await fsPromises.access(statePath);
@@ -1019,7 +1047,7 @@ async function handleRequest(
 
       if (request.method === '_instances') {
         const { InstanceStore } = await import('../context-store.js');
-        const store = new InstanceStore();
+        const store = new InstanceStore(request.workingDir);
         const { instances, autoInstance, metadata } = store.listInstancesByMtime(photonName);
         const current = session.instanceName || 'default';
         // Ensure "default" and current instance are always in the list
@@ -1066,7 +1094,12 @@ async function handleRequest(
       setPromptHandler(null);
 
       // Persist reactive state after each tool call
-      await persistInstanceState(session.instance, photonName, session.instanceName);
+      await persistInstanceState(
+        session.instance,
+        photonName,
+        session.instanceName,
+        request.workingDir
+      );
 
       // Notify subscribers that state may have changed
       publishToChannel(
@@ -1143,7 +1176,8 @@ async function getStateKeys(photonName: string, photonPath: string): Promise<str
 async function persistInstanceState(
   instance: any,
   photonName: string,
-  instanceName: string
+  instanceName: string,
+  workingDir?: string
 ): Promise<void> {
   try {
     const photonPath = photonPaths.get(photonName);
@@ -1170,7 +1204,7 @@ async function persistInstanceState(
 
     if (Object.keys(snapshot).length > 0) {
       const { getInstanceStatePath } = await import('../context-store.js');
-      const statePath = getInstanceStatePath(photonName, instanceName);
+      const statePath = getInstanceStatePath(photonName, instanceName, workingDir);
       const fsPromises = await import('fs/promises');
       const path = await import('path');
       await fsPromises.mkdir(path.dirname(statePath), { recursive: true });
@@ -1269,15 +1303,17 @@ function unwatchPhotonFile(watchPath: string): void {
 
 async function reloadPhoton(
   photonName: string,
-  newPhotonPath: string
+  newPhotonPath: string,
+  workingDir?: string
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
   try {
-    logger.info('Hot-reloading photon', { photonName, path: newPhotonPath });
+    const key = compositeKey(photonName, workingDir);
+    logger.info('Hot-reloading photon', { photonName, key, path: newPhotonPath });
 
-    const sessionManager = sessionManagers.get(photonName);
+    const sessionManager = sessionManagers.get(key);
     if (!sessionManager) {
       // First time - just register the path and start watching
-      photonPaths.set(photonName, newPhotonPath);
+      photonPaths.set(key, newPhotonPath);
       watchPhotonFile(photonName, newPhotonPath);
       return { success: true, sessionsUpdated: 0 };
     }
