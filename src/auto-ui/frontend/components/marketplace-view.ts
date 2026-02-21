@@ -197,13 +197,13 @@ export class MarketplaceView extends LitElement {
       .filter-pill:hover {
         border-color: var(--accent-primary);
         color: var(--t-primary);
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        background: rgba(59, 130, 246, 0.1);
       }
 
       .filter-pill:focus-visible {
-        outline: none;
+        outline: 2px solid rgba(59, 130, 246, 0.6);
+        outline-offset: 2px;
         border-color: var(--accent-primary);
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
       }
 
       .filter-pill.active {
