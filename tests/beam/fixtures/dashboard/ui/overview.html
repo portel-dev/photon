@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Overview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --card: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .header {
+      margin-bottom: 32px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .metric-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.1);
+    }
+
+    .metric-label {
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .metric-change {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+    }
+
+    .metric-change.up { color: var(--green); }
+    .metric-change.down { color: var(--red); }
+    .metric-change.stable { color: var(--muted); }
+
+    .metric-change svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .progress-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .progress-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .progress-percent {
+      font-size: 14px;
+      color: var(--accent);
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #818cf8);
+      border-radius: 4px;
+      transition: width 0.5s ease;
+    }
+
+    .progress-legend {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .legend-dot.completed { background: var(--green); }
+    .legend-dot.pending { background: var(--yellow); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Dashboard</h1>
+    <p>Overview of your project metrics</p>
+  </div>
+
+  <div class="metrics-grid" id="metrics">
+    <!-- Metrics will be injected here -->
+  </div>
+
+  <div class="progress-section">
+    <div class="progress-header">
+      <span class="progress-title">Task Completion</span>
+      <span class="progress-percent" id="progress-percent">0%</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+    </div>
+    <div class="progress-legend">
+      <div class="legend-item">
+        <div class="legend-dot completed"></div>
+        <span id="completed-count">0 Completed</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot pending"></div>
+        <span id="pending-count">0 Pending</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Data will be injected by MCP client
+    const data = window.__MCP_DATA__ || {
+      metrics: [
+        { label: 'Total Tasks', value: 4, change: 12, trend: 'up' },
+        { label: 'Completed', value: 1, change: 8, trend: 'up' },
+        { label: 'In Progress', value: 1, change: 0, trend: 'stable' },
+        { label: 'Pending', value: 2, change: -3, trend: 'down' },
+      ],
+      summary: { total: 4, completed: 1, pending: 2 }
+    };
+
+    function getTrendIcon(trend) {
+      if (trend === 'up') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l5-5 5 5M7 7l5 5 5-5"/></svg>';
+      if (trend === 'down') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7l5 5 5-5M7 17l5-5 5 5"/></svg>';
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>';
+    }
+
+    function render() {
+      const metricsEl = document.getElementById('metrics');
+      metricsEl.innerHTML = data.metrics.map(m => `
+        <div class="metric-card">
+          <div class="metric-label">${m.label}</div>
+          <div class="metric-value">${m.value}</div>
+          <div class="metric-change ${m.trend}">
+            ${getTrendIcon(m.trend)}
+            <span>${m.change > 0 ? '+' : ''}${m.change}% from last week</span>
+          </div>
+        </div>
+      `).join('');
+
+      const percent = data.summary.total > 0
+        ? Math.round((data.summary.completed / data.summary.total) * 100)
+        : 0;
+
+      document.getElementById('progress-percent').textContent = percent + '%';
+      document.getElementById('progress-fill').style.width = percent + '%';
+      document.getElementById('completed-count').textContent = data.summary.completed + ' Completed';
+      document.getElementById('pending-count').textContent = data.summary.pending + ' Pending';
+    }
+
+    render();
+  </script>
+</body>
+</html>

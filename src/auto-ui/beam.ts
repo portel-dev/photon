@@ -144,9 +144,10 @@ type ClientMessage =
   | GetPromptMessage
   | ReadResourceMessage;
 
-// Config file path
-const CONFIG_FILE =
-  process.env.PHOTON_CONFIG_FILE || path.join(os.homedir(), '.photon', 'config.json');
+// Helper to get config file path based on working directory
+function getConfigFilePath(workingDir: string): string {
+  return process.env.PHOTON_CONFIG_FILE || path.join(workingDir, 'config.json');
+}
 
 // Unified config structure (MCPServerConfig imported from types.ts)
 interface PhotonConfig {
@@ -618,15 +619,16 @@ function migrateConfig(config: any): PhotonConfig {
   };
 }
 
-async function loadConfig(): Promise<PhotonConfig> {
+async function loadConfig(workingDir: string): Promise<PhotonConfig> {
+  const configFile = getConfigFilePath(workingDir);
   try {
-    const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+    const data = await fs.readFile(configFile, 'utf-8');
     const raw = JSON.parse(data);
     const migrated = migrateConfig(raw);
 
     // Save back if migration occurred (structure changed)
     if (!raw.photons && Object.keys(raw).length > 0) {
-      await saveConfig(migrated);
+      await saveConfig(migrated, workingDir);
       console.error('✅ Config migrated successfully');
     }
 
@@ -642,10 +644,11 @@ async function loadConfig(): Promise<PhotonConfig> {
   }
 }
 
-async function saveConfig(config: PhotonConfig): Promise<void> {
-  const dir = path.dirname(CONFIG_FILE);
+async function saveConfig(config: PhotonConfig, workingDir: string): Promise<void> {
+  const configFile = getConfigFilePath(workingDir);
+  const dir = path.dirname(configFile);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+  await fs.writeFile(configFile, JSON.stringify(config, null, 2));
 }
 
 /**
@@ -931,7 +934,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   }
 
   // Load saved config and apply to env
-  const savedConfig = await loadConfig();
+  const savedConfig = await loadConfig(workingDir);
 
   // Extract metadata for all photons
   const photons: AnyPhotonInfo[] = [];
@@ -1487,7 +1490,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             photons,
             photonMCPs,
             loader,
-            savedConfig
+            savedConfig,
+            workingDir
           );
         },
         reloadPhoton: async (photonName: string) => {
@@ -1506,7 +1510,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             photons,
             photonMCPs,
             savedConfig,
-            broadcastPhotonChange
+            broadcastPhotonChange,
+            workingDir
           );
         },
         updateMetadata: async (
@@ -3138,7 +3143,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           // Also remove from saved config
           if (savedConfig.photons[photonName]) {
             delete savedConfig.photons[photonName];
-            await saveConfig(savedConfig);
+            await saveConfig(savedConfig, workingDir);
           }
           broadcastPhotonChange();
           broadcastToBeam('beam/photon-removed', { name: photonName });
@@ -3685,8 +3690,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Watch the parent directory (atomic writes via rename can miss single-file watches)
   // ══════════════════════════════════════════════════════════════════════════════
   try {
-    const configDir = path.dirname(CONFIG_FILE);
-    // Ensure directory exists before watching (fresh install may not have ~/.photon yet)
+    const configFile = getConfigFilePath(workingDir);
+    const configDir = path.dirname(configFile);
+    // Ensure directory exists before watching (fresh install may not have config.json yet)
     if (!existsSync(configDir)) {
       mkdirSync(configDir, { recursive: true });
     }
@@ -3701,7 +3707,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
         let newConfig: PhotonConfig;
         try {
-          const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+          const data = await fs.readFile(configFile, 'utf-8');
           newConfig = migrateConfig(JSON.parse(data));
         } catch (err) {
           logger.warn(
@@ -3808,7 +3814,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     });
     watchers.push(configWatcher);
     // Only log if config.json actually exists
-    if (existsSync(CONFIG_FILE)) {
+    if (existsSync(configFile)) {
       logger.info(`👀 Watching config.json for external MCP changes`);
     }
   } catch (error) {
@@ -3825,7 +3831,8 @@ async function configurePhotonViaMCP(
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
-  savedConfig: PhotonConfig
+  savedConfig: PhotonConfig,
+  workingDir: string
 ): Promise<{ success: boolean; error?: string }> {
   // Find the photon (configured or unconfigured)
   const photonIndex = photons.findIndex((p) => p.name === photonName);
@@ -3840,7 +3847,7 @@ async function configurePhotonViaMCP(
 
   // Save config to file (merge with existing config for edit mode)
   savedConfig.photons[photonName] = { ...(savedConfig.photons[photonName] || {}), ...config };
-  await saveConfig(savedConfig);
+  await saveConfig(savedConfig, workingDir);
 
   const targetPhoton = photons[photonIndex];
   const isReconfigure = targetPhoton.configured === true;
@@ -4066,7 +4073,8 @@ async function removePhotonViaMCP(
   photons: AnyPhotonInfo[],
   photonMCPs: Map<string, any>,
   savedConfig: PhotonConfig,
-  broadcastChange: () => void
+  broadcastChange: () => void,
+  workingDir: string
 ): Promise<{ success: boolean; error?: string }> {
   // Find and remove the photon
   const photonIndex = photons.findIndex((p) => p.name === photonName);
@@ -4081,7 +4089,7 @@ async function removePhotonViaMCP(
   // Remove saved config
   if (savedConfig.photons[photonName]) {
     delete savedConfig.photons[photonName];
-    await saveConfig(savedConfig);
+    await saveConfig(savedConfig, workingDir);
   }
 
   logger.info(`🗑️ ${photonName} removed via MCP`);

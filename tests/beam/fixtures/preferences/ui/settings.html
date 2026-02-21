@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #1a1a1a;
+      --text-secondary: #666666;
+      --accent: #0066cc;
+      --border: #e0e0e0;
+      --radius: 8px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #2a2a2a;
+        --text-primary: #ffffff;
+        --text-secondary: #999999;
+        --accent: #4da6ff;
+        --border: #404040;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    .settings-header {
+      margin-bottom: 24px;
+    }
+
+    .settings-header h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .settings-header p {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .settings-section {
+      background: var(--bg-secondary);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .settings-section h2 {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .setting-row:last-child {
+      border-bottom: none;
+    }
+
+    .setting-label {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .setting-label span {
+      font-weight: 500;
+    }
+
+    .setting-label small {
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .setting-control select,
+    .setting-control input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    select {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 14px;
+      min-width: 150px;
+    }
+
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+
+    .theme-preview {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .theme-option {
+      width: 60px;
+      height: 40px;
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .theme-option.light {
+      background: #ffffff;
+      color: #1a1a1a;
+    }
+
+    .theme-option.dark {
+      background: #1a1a1a;
+      color: #ffffff;
+    }
+
+    .theme-option.system {
+      background: linear-gradient(135deg, #ffffff 50%, #1a1a1a 50%);
+    }
+
+    .theme-option.selected {
+      border-color: var(--accent);
+    }
+
+    .current-value {
+      background: var(--accent);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-header">
+    <h1>Settings</h1>
+    <p>Customize your experience</p>
+  </div>
+
+  <div class="settings-section">
+    <h2>Appearance</h2>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <span>Theme</span>
+        <small>Choose your preferred color scheme</small>
+      </div>
+      <div class="setting-control">
+        <select id="theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="system">System Default</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <span>Font Size</span>
+        <small>Adjust text size for readability</small>
+      </div>
+      <div class="setting-control">
+        <select id="fontSize">
+          <option value="small">Small</option>
+          <option value="medium">Medium</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Notifications</h2>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <span>Enable Notifications</span>
+        <small>Receive alerts for important events</small>
+      </div>
+      <div class="setting-control">
+        <input type="checkbox" id="notifications" checked>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Editing</h2>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <span>Auto-save</span>
+        <small>Automatically save changes</small>
+      </div>
+      <div class="setting-control">
+        <input type="checkbox" id="autoSave" checked>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Data from Photon is available as window.__photon_data__
+    const data = window.__photon_data__ || {
+      current: {
+        theme: 'system',
+        fontSize: 'medium',
+        notifications: true,
+        autoSave: true
+      }
+    };
+
+    // Initialize form with current values
+    document.getElementById('theme').value = data.current.theme;
+    document.getElementById('fontSize').value = data.current.fontSize;
+    document.getElementById('notifications').checked = data.current.notifications;
+    document.getElementById('autoSave').checked = data.current.autoSave;
+  </script>
+</body>
+</html>

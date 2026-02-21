@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasks</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --card: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --blue: #3b82f6;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+    }
+
+    .filter-btn {
+      padding: 6px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover, .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+
+    .task-item:hover {
+      border-color: var(--accent);
+      transform: translateX(4px);
+    }
+
+    .task-checkbox {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .task-checkbox.completed {
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .task-checkbox.completed::after {
+      content: '';
+      width: 6px;
+      height: 10px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      margin-bottom: 2px;
+    }
+
+    .task-checkbox.in_progress {
+      border-color: var(--blue);
+      background: rgba(59, 130, 246, 0.2);
+    }
+
+    .task-content {
+      flex: 1;
+    }
+
+    .task-title {
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .task-item.completed .task-title {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+
+    .task-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .priority-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .priority-high {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--red);
+    }
+
+    .priority-medium {
+      background: rgba(234, 179, 8, 0.15);
+      color: var(--yellow);
+    }
+
+    .priority-low {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+    }
+
+    .status-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .status-pending {
+      background: rgba(234, 179, 8, 0.15);
+      color: var(--yellow);
+    }
+
+    .status-in_progress {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--blue);
+    }
+
+    .status-completed {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--muted);
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Tasks</h1>
+    <div class="filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="pending">Pending</button>
+      <button class="filter-btn" data-filter="in_progress">In Progress</button>
+      <button class="filter-btn" data-filter="completed">Completed</button>
+    </div>
+  </div>
+
+  <div class="task-list" id="tasks">
+    <!-- Tasks will be injected here -->
+  </div>
+
+  <script>
+    // Data will be injected by MCP client
+    const tasks = window.__MCP_DATA__ || [
+      { id: '1', title: 'Review pull requests', status: 'in_progress', priority: 'high', createdAt: new Date().toISOString() },
+      { id: '2', title: 'Update documentation', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      { id: '3', title: 'Fix login bug', status: 'completed', priority: 'high', createdAt: new Date().toISOString() },
+      { id: '4', title: 'Deploy to staging', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
+    ];
+
+    let currentFilter = 'all';
+
+    function formatDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function render() {
+      const filtered = currentFilter === 'all'
+        ? tasks
+        : tasks.filter(t => t.status === currentFilter);
+
+      const tasksEl = document.getElementById('tasks');
+
+      if (filtered.length === 0) {
+        tasksEl.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            <p>No tasks found</p>
+          </div>
+        `;
+        return;
+      }
+
+      tasksEl.innerHTML = filtered.map(task => `
+        <div class="task-item ${task.status}">
+          <div class="task-checkbox ${task.status}"></div>
+          <div class="task-content">
+            <div class="task-title">${task.title}</div>
+            <div class="task-meta">
+              <span class="priority-badge priority-${task.priority}">${task.priority}</span>
+              <span class="status-badge status-${task.status}">${task.status.replace('_', ' ')}</span>
+              <span>${formatDate(task.createdAt)}</span>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>
