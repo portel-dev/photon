@@ -131,7 +131,10 @@ async function testJwtService() {
   });
 
   await test('decode returns payload without verification', () => {
-    const otherJwt = new JwtService({ secret: 'another-secret-key-at-least-32-chars!!', issuer: 'other' });
+    const otherJwt = new JwtService({
+      secret: 'another-secret-key-at-least-32-chars!!',
+      issuer: 'other',
+    });
     const token = otherJwt.generateSessionToken(session, tenant);
     // decode() should work even though signature doesn't match our secret
     const decoded = jwt.decode(token);
@@ -440,10 +443,7 @@ async function testLocalTokenVault() {
   await test('wrong tenant cannot decrypt', async () => {
     const vault = new LocalTokenVault({ masterKey });
     const encrypted = await vault.encrypt('tenant-a', 'secret');
-    await assert.rejects(
-      () => vault.decrypt('tenant-b', encrypted),
-      /Unsupported state/
-    );
+    await assert.rejects(() => vault.decrypt('tenant-b', encrypted), /Unsupported state/);
   });
 }
 
@@ -532,6 +532,341 @@ async function testOAuthElicitationRequired() {
 }
 
 // ============================================================================
+// OAuthFlowHandler
+// ============================================================================
+
+async function testOAuthFlowHandler() {
+  console.log('\nOAuthFlowHandler:');
+
+  const masterKey = 'test-master-key-for-vault-32-chars!!';
+  const registry = new OAuthProviderRegistry();
+  registry.register('github', 'test-client-id', 'test-client-secret');
+
+  const OAuthFlowHandler = (await import('../src/serv/auth/oauth.js')).OAuthFlowHandler;
+
+  const createFlow = () =>
+    new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore: new MemoryElicitationStore(),
+      grantStore: new MemoryGrantStore(),
+      tokenVault: new LocalTokenVault({ masterKey }),
+    });
+
+  await test('startElicitation creates pending request with auth URL', async () => {
+    const flow = createFlow();
+    const session = makeSession();
+
+    const { url, elicitationId } = await flow.startElicitation(session, 'my-photon', 'github', [
+      'repo',
+      'read:org',
+    ]);
+
+    assert.ok(
+      url.includes('github.com/login/oauth/authorize'),
+      'URL should be GitHub auth endpoint'
+    );
+    assert.ok(url.includes('code_challenge='), 'Should include PKCE challenge');
+    assert.ok(url.includes('code_challenge_method=S256'), 'Should use S256 method');
+    assert.ok(
+      url.includes('scope=') && (url.includes('repo') || url.includes('read%3Aorg')),
+      'Should include requested scopes'
+    );
+    assert.ok(elicitationId, 'Should have elicitation ID');
+  });
+
+  await test('startElicitation throws for unknown provider', async () => {
+    const flow = createFlow();
+    const session = makeSession();
+
+    try {
+      await flow.startElicitation(session, 'my-photon', 'unknown-provider', []);
+      assert.fail('Should throw for unknown provider');
+    } catch (err: any) {
+      assert.ok(err.message.includes('Unknown OAuth provider'));
+    }
+  });
+
+  await test('checkGrant returns invalid when no grant exists', async () => {
+    const flow = createFlow();
+
+    const check = await flow.checkGrant('tenant-1', 'my-photon', 'github', ['repo']);
+
+    assert.equal(check.valid, false);
+    assert.equal(check.token, undefined);
+  });
+
+  await test('checkGrant returns valid with token for unexpired grant', async () => {
+    const vault = new LocalTokenVault({ masterKey });
+
+    const testToken = 'ghs_test_token_xyz789';
+    const encrypted = await vault.encrypt('tenant-1', testToken);
+
+    const grantStore = new MemoryGrantStore();
+    await grantStore.create({
+      tenantId: 'tenant-1',
+      photonId: 'my-photon',
+      provider: 'github',
+      scopes: ['repo'],
+      accessTokenEncrypted: encrypted,
+      tokenExpiresAt: new Date(Date.now() + 3600 * 1000), // 1 hour from now
+    });
+
+    // Create flow with the pre-populated grant store
+    const flowWithGrant = new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore: new MemoryElicitationStore(),
+      grantStore,
+      tokenVault: vault,
+    });
+
+    const check = await flowWithGrant.checkGrant('tenant-1', 'my-photon', 'github', ['repo']);
+
+    assert.equal(check.valid, true);
+    assert.equal(check.token, testToken);
+  });
+
+  await test('checkGrant returns invalid for expired grant without refresh token', async () => {
+    const vault = new LocalTokenVault({ masterKey });
+
+    const encrypted = await vault.encrypt('tenant-1', 'expired-token');
+
+    const grantStore = new MemoryGrantStore();
+    await grantStore.create({
+      tenantId: 'tenant-1',
+      photonId: 'my-photon',
+      provider: 'github',
+      scopes: ['repo'],
+      accessTokenEncrypted: encrypted,
+      tokenExpiresAt: new Date(Date.now() - 1000), // Already expired
+    });
+
+    const flowWithGrant = new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore: new MemoryElicitationStore(),
+      grantStore,
+      tokenVault: vault,
+    });
+
+    const check = await flowWithGrant.checkGrant('tenant-1', 'my-photon', 'github', ['repo']);
+
+    assert.equal(check.valid, false, 'Should be invalid when expired without refresh');
+  });
+
+  await test('handleCallback rejects invalid state', async () => {
+    const flow = createFlow();
+
+    const result = await flow.handleCallback('auth-code-123', 'invalid-state', 'tenant-1');
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes('Invalid or expired state'));
+  });
+
+  await test('handleCallback rejects expired elicitation', async () => {
+    const flow = createFlow();
+    const elicitationStore = new MemoryElicitationStore();
+
+    // Create an expired elicitation
+    const elicitation = await elicitationStore.create({
+      sessionId: 's1',
+      photonId: 'p1',
+      provider: 'github',
+      requiredScopes: ['repo'],
+      status: 'pending',
+      redirectUri: 'http://localhost:3000/callback',
+      expiresAt: new Date(Date.now() - 1000), // Already expired
+    });
+
+    // Try to use it
+    const result = await flow.handleCallback('code', 'state', 'tenant-1');
+
+    assert.equal(result.success, false);
+    assert.ok(result.error, 'Should have error message');
+  });
+}
+
+// ============================================================================
+// OAuthContext
+// ============================================================================
+
+async function testOAuthContext() {
+  console.log('\nOAuthContext:');
+
+  const masterKey = 'test-master-key-for-vault-32-chars!!';
+  const registry = new OAuthProviderRegistry();
+  registry.register('google', 'test-client-id', 'test-client-secret');
+
+  const OAuthContext = (await import('../src/serv/runtime/oauth-context.js')).OAuthContext;
+
+  const OAuthFlowHandler = (await import('../src/serv/auth/oauth.js')).OAuthFlowHandler;
+
+  const createContext = async () => {
+    const session = makeSession();
+    const vault = new LocalTokenVault({ masterKey });
+    const flow = new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore: new MemoryElicitationStore(),
+      grantStore: new MemoryGrantStore(),
+      tokenVault: vault,
+    });
+
+    return {
+      session,
+      vault,
+      flow,
+      context: new OAuthContext({
+        session,
+        photonId: 'test-photon',
+        tenantId: 'tenant-1',
+        oauthFlow: flow,
+        tokenVault: vault,
+      }),
+    };
+  };
+
+  await test('handleOAuthAsk returns elicitation when no grant exists', async () => {
+    const { context } = await createContext();
+
+    const response = await context.handleOAuthAsk({
+      ask: 'oauth',
+      provider: 'google',
+      scopes: ['email'],
+      message: 'Reading your email',
+    });
+
+    assert.equal(response.success, false);
+    assert.ok(response.elicitationUrl);
+    assert.ok(response.elicitationId);
+  });
+
+  await test('handleOAuthAsk returns token when valid grant exists', async () => {
+    const { vault } = await createContext();
+    const testToken = 'ya29.test-token-abc123';
+    const encrypted = await vault.encrypt('tenant-1', testToken);
+
+    const grantStore = new MemoryGrantStore();
+    await grantStore.create({
+      tenantId: 'tenant-1',
+      photonId: 'test-photon',
+      provider: 'google',
+      scopes: ['email'],
+      accessTokenEncrypted: encrypted,
+      tokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+    });
+
+    const flow = new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore: new MemoryElicitationStore(),
+      grantStore,
+      tokenVault: vault,
+    });
+
+    const session = makeSession();
+    const contextWithGrant = new OAuthContext({
+      session,
+      photonId: 'test-photon',
+      tenantId: 'tenant-1',
+      oauthFlow: flow,
+      tokenVault: vault,
+    });
+
+    const response = await contextWithGrant.handleOAuthAsk({
+      ask: 'oauth',
+      provider: 'google',
+      scopes: ['email'],
+    });
+
+    assert.equal(response.success, true);
+    assert.equal(response.token, testToken);
+  });
+}
+
+// ============================================================================
+// End-to-End OAuth Flow
+// ============================================================================
+
+async function testEndToEndFlow() {
+  console.log('\nEnd-to-End OAuth Flow:');
+
+  const masterKey = 'test-master-key-for-vault-32-chars!!';
+  const registry = new OAuthProviderRegistry();
+  registry.register('github', 'test-client-id', 'test-client-secret');
+
+  const OAuthContext = (await import('../src/serv/runtime/oauth-context.js')).OAuthContext;
+
+  const OAuthFlowHandler = (await import('../src/serv/auth/oauth.js')).OAuthFlowHandler;
+
+  await test('complete flow: elicit → grant → token', async () => {
+    const vault = new LocalTokenVault({ masterKey });
+    const elicitationStore = new MemoryElicitationStore();
+    const grantStore = new MemoryGrantStore();
+    const session = makeSession();
+
+    const flow = new OAuthFlowHandler({
+      baseUrl: 'http://localhost:3000',
+      stateSecret: TEST_SECRET,
+      providers: registry,
+      elicitationStore,
+      grantStore,
+      tokenVault: vault,
+    });
+
+    const context = new OAuthContext({
+      session,
+      photonId: 'my-photon',
+      tenantId: 'tenant-1',
+      oauthFlow: flow,
+      tokenVault: vault,
+    });
+
+    // Step 1: First yield → elicitation required
+    const askResponse1 = await context.handleOAuthAsk({
+      ask: 'oauth',
+      provider: 'github',
+      scopes: ['repo'],
+    });
+
+    assert.equal(askResponse1.success, false, 'First ask should require elicitation');
+    assert.ok(askResponse1.elicitationUrl, 'Should have auth URL');
+    assert.ok(askResponse1.elicitationId, 'Should have elicitation ID');
+
+    // Step 2: Simulate successful grant (in real flow, OAuth callback would do this)
+    const testToken = 'ghs_simulated_token_xyz';
+    const encrypted = await vault.encrypt('tenant-1', testToken);
+
+    const grant = await grantStore.create({
+      tenantId: 'tenant-1',
+      photonId: 'my-photon',
+      provider: 'github',
+      scopes: ['repo'],
+      accessTokenEncrypted: encrypted,
+      tokenExpiresAt: new Date(Date.now() + 3600 * 1000),
+    });
+
+    assert.ok(grant.id, 'Grant should be created');
+
+    // Step 3: Second yield → token available
+    const askResponse2 = await context.handleOAuthAsk({
+      ask: 'oauth',
+      provider: 'github',
+      scopes: ['repo'],
+    });
+
+    assert.equal(askResponse2.success, true, 'Second ask should return token');
+    assert.equal(askResponse2.token, testToken, 'Token should match stored grant');
+  });
+}
+
+// ============================================================================
 // Run
 // ============================================================================
 
@@ -547,6 +882,9 @@ async function testOAuthElicitationRequired() {
   await testLocalTokenVault();
   await testWellKnown();
   await testOAuthElicitationRequired();
+  await testOAuthFlowHandler();
+  await testOAuthContext();
+  await testEndToEndFlow();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
