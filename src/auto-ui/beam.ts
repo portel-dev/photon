@@ -857,18 +857,29 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   }) as any;
 
   const updateStatus = (url?: string, isReady = false) => {
+    // Don't show anything until we have at least the URL
+    if (!url && !isReady) return;
+
     const status = `⚡ Photon Beam v${PHOTON_VERSION} (${workingDir})${url ? ` → ${url}` : ''}`;
-    if (isTTY && !isReady) {
-      originalStderrWrite(`\r${status.padEnd(120)}`);
-    } else if (isReady && !showedMainLine) {
+
+    if (isReady && !showedMainLine) {
+      // Final output: new line with newlines around it
       originalLog(`\n${status}\n`);
       showedMainLine = true;
       suppressOutput = false; // Allow output now
+    } else if (!isReady && url) {
+      // Progressive update with URL (on same line in TTY)
+      if (isTTY) {
+        originalStderrWrite(`\r${status.padEnd(120)}`);
+      } else {
+        // Non-TTY: just print once
+        if (!showedMainLine) {
+          originalLog(`${status}`);
+          showedMainLine = true;
+        }
+      }
     }
   };
-
-  // Show initial status
-  updateStatus();
 
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
