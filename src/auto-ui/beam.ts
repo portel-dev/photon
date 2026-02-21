@@ -862,22 +862,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     const status = `⚡ Photon Beam v${PHOTON_VERSION} (${workingDir})${url ? ` → ${url}` : ''}`;
 
-    if (isReady && !showedMainLine) {
+    if (isReady) {
       // Final output: new line with newlines around it
-      originalLog(`\n${status}\n`);
+      if (!showedMainLine) {
+        originalLog(`\n${status}\n`);
+      }
       showedMainLine = true;
       suppressOutput = false; // Allow output now
-    } else if (!isReady && url) {
-      // Progressive update with URL (on same line in TTY)
+    } else if (!isReady && url && !showedMainLine) {
+      // First time showing the status line
       if (isTTY) {
+        // TTY: show with carriage return for updates, mark as shown
         originalStderrWrite(`\r${status.padEnd(120)}`);
+        showedMainLine = true;
       } else {
-        // Non-TTY: just print once
-        if (!showedMainLine) {
-          originalLog(`${status}`);
-          showedMainLine = true;
-        }
+        // Non-TTY: print once
+        originalLog(`${status}`);
+        showedMainLine = true;
       }
+    } else if (!isReady && url && showedMainLine && isTTY) {
+      // Already shown, just update on same line in TTY
+      originalStderrWrite(`\r${status.padEnd(120)}`);
     }
   };
 
@@ -3802,7 +3807,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       logger.warn(`Config watcher error: ${err.message}`);
     });
     watchers.push(configWatcher);
-    logger.info(`👀 Watching config.json for external MCP changes`);
+    // Only log if config.json actually exists
+    if (existsSync(CONFIG_FILE)) {
+      logger.info(`👀 Watching config.json for external MCP changes`);
+    }
   } catch (error) {
     logger.warn(`Config watching not available: ${error}`);
   }
