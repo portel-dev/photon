@@ -6,6 +6,7 @@
  */
 
 import { PhotonLoader } from '../dist/loader.js';
+import { parseRuntimeRequirement, checkRuntimeCompatibility } from '@portel/photon-core';
 import { strict as assert } from 'assert';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -235,8 +236,14 @@ async function runTests() {
 
       assert.ok(result, 'Should load photon');
       assert.equal(result.tools.length, 2, 'Should have 2 tools');
-      assert.ok(result.tools.some(t => t.name === 'echo'), 'Should have echo tool');
-      assert.ok(result.tools.some(t => t.name === 'add'), 'Should have add tool');
+      assert.ok(
+        result.tools.some((t) => t.name === 'echo'),
+        'Should have echo tool'
+      );
+      assert.ok(
+        result.tools.some((t) => t.name === 'add'),
+        'Should have add tool'
+      );
       console.log('  ✅ Load basic photon');
     }
 
@@ -274,7 +281,7 @@ async function runTests() {
       const result = await loader.loadFile(testFile);
 
       assert.ok(result.tools.length >= 2, 'Should have tools');
-      const greetTool = result.tools.find(t => t.name === 'greet');
+      const greetTool = result.tools.find((t) => t.name === 'greet');
       assert.ok(greetTool, 'Should have greet tool');
       console.log('  ✅ Load annotated photon');
     }
@@ -297,7 +304,7 @@ async function runTests() {
         }
       `;
       await fs.writeFile(testFile, updatedContent, 'utf-8');
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       // Reload
       const result2 = await loader.reloadFile(testFile);
@@ -382,8 +389,10 @@ async function runTests() {
         await loader.executeTool(mcp, 'nonExistent', {});
         assert.fail('Should throw error');
       } catch (error: any) {
-        assert.ok(error.message.includes('not found') || error.message.includes('undefined'),
-          'Should indicate tool not found');
+        assert.ok(
+          error.message.includes('not found') || error.message.includes('undefined'),
+          'Should indicate tool not found'
+        );
         console.log('  ✅ Execute non-existent tool');
       }
     }
@@ -400,7 +409,7 @@ async function runTests() {
       const testFile = await createTestPhoton('exec-template', fullFeaturedPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const template = mcp.templates.find(t => t.name === 'prompt1');
+      const template = mcp.templates.find((t) => t.name === 'prompt1');
       assert.ok(template, 'Should have template');
       assert.ok(template.inputSchema?.properties?.topic, 'Template should have topic param');
       console.log('  ✅ Templates discovered correctly');
@@ -418,7 +427,7 @@ async function runTests() {
       const testFile = await createTestPhoton('exec-static', fullFeaturedPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const staticRes = mcp.statics.find(s => s.name === 'docs');
+      const staticRes = mcp.statics.find((s) => s.name === 'docs');
       assert.ok(staticRes, 'Should have docs static');
       assert.ok(staticRes.uri === 'api://docs', 'Should have correct URI');
       console.log('  ✅ Statics discovered correctly (no params)');
@@ -430,7 +439,7 @@ async function runTests() {
       const testFile = await createTestPhoton('exec-static-params', fullFeaturedPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const staticRes = mcp.statics.find(s => s.name === 'readme');
+      const staticRes = mcp.statics.find((s) => s.name === 'readme');
       assert.ok(staticRes, 'Should have readme static');
       assert.ok(staticRes.uri?.includes('{project}'), 'Should have URI template');
       console.log('  ✅ Statics with params have URI template');
@@ -448,7 +457,7 @@ async function runTests() {
       const testFile = await createTestPhoton('schema', basicPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const addTool = mcp.tools.find(t => t.name === 'add');
+      const addTool = mcp.tools.find((t) => t.name === 'add');
       assert.ok(addTool?.inputSchema, 'Should have input schema');
       assert.ok(addTool?.inputSchema.properties.a, 'Should have param a');
       assert.ok(addTool?.inputSchema.properties.b, 'Should have param b');
@@ -461,7 +470,7 @@ async function runTests() {
       const testFile = await createTestPhoton('jsdoc', basicPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const echoTool = mcp.tools.find(t => t.name === 'echo');
+      const echoTool = mcp.tools.find((t) => t.name === 'echo');
       assert.ok(echoTool?.description?.includes('echo'), 'Should extract description');
       console.log('  ✅ Extract description from JSDoc');
     }
@@ -472,7 +481,7 @@ async function runTests() {
       const testFile = await createTestPhoton('annotations', annotatedPhotonContent);
       const mcp = await loader.loadFile(testFile);
 
-      const greetTool = mcp.tools.find(t => t.name === 'greet');
+      const greetTool = mcp.tools.find((t) => t.name === 'greet');
       assert.ok(greetTool, 'Should have greet tool');
       // Annotations should be extracted (icon, format, etc)
       console.log('  ✅ Extract annotations');
@@ -500,12 +509,15 @@ async function runTests() {
     // Test 19: Handle invalid TypeScript
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('invalid-ts', `
+      const testFile = await createTestPhoton(
+        'invalid-ts',
+        `
         export default class {
           // Invalid - missing class name and syntax errors
           async method( { return; }
         }
-      `);
+      `
+      );
 
       try {
         await loader.loadFile(testFile);
@@ -519,11 +531,14 @@ async function runTests() {
     // Test 20: Handle missing default export
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('no-export', `
+      const testFile = await createTestPhoton(
+        'no-export',
+        `
         export class NotDefault {
           async method() { return true; }
         }
-      `);
+      `
+      );
 
       try {
         await loader.loadFile(testFile);
@@ -546,11 +561,13 @@ async function runTests() {
       const testFile = await createTestPhoton('no-assets', basicPhotonContent);
 
       const result = await loader.loadFile(testFile);
-      assert.ok(!result.assets ||
-        (result.assets.ui.length === 0 &&
-         result.assets.prompts.length === 0 &&
-         result.assets.resources.length === 0),
-        'Should have no assets');
+      assert.ok(
+        !result.assets ||
+          (result.assets.ui.length === 0 &&
+            result.assets.prompts.length === 0 &&
+            result.assets.resources.length === 0),
+        'Should have no assets'
+      );
       console.log('  ✅ No assets when no folder exists');
     }
 
@@ -724,28 +741,29 @@ async function runTests() {
 
     console.log('\n📋 Special Cases');
 
-    // Test 32: Photon with no methods should throw
+    // Test 32: Photon with no methods loads with zero tools
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('empty', `
+      const testFile = await createTestPhoton(
+        'empty',
+        `
         export default class EmptyMCP {
           // No methods
         }
-      `);
+      `
+      );
 
-      try {
-        await loader.loadFile(testFile);
-        assert.fail('Should throw for empty class');
-      } catch (error: any) {
-        assert.ok(error.message.includes('No MCP class found'), 'Should indicate no MCP class');
-        console.log('  ✅ Photon with no methods throws error');
-      }
+      const result = await loader.loadFile(testFile);
+      assert.equal(result.tools.length, 0, 'Empty class should have 0 tools');
+      console.log('  ✅ Photon with no methods loads with zero tools');
     }
 
     // Test 33: Photon with private methods
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('private', `
+      const testFile = await createTestPhoton(
+        'private',
+        `
         export default class PrivateMCP {
           private helper() { return 'private'; }
 
@@ -753,7 +771,8 @@ async function runTests() {
             return this.helper();
           }
         }
-      `);
+      `
+      );
 
       const result = await loader.loadFile(testFile);
       assert.equal(result.tools.length, 1, 'Should only expose public method');
@@ -763,7 +782,9 @@ async function runTests() {
     // Test 34: Photon with static methods (should be ignored)
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('static', `
+      const testFile = await createTestPhoton(
+        'static',
+        `
         export default class StaticMCP {
           static staticMethod() { return 'static'; }
 
@@ -771,17 +792,23 @@ async function runTests() {
             return 'instance';
           }
         }
-      `);
+      `
+      );
 
       const result = await loader.loadFile(testFile);
-      assert.ok(result.tools.some(t => t.name === 'instanceMethod'), 'Should have instance method');
+      assert.ok(
+        result.tools.some((t) => t.name === 'instanceMethod'),
+        'Should have instance method'
+      );
       console.log('  ✅ Photon with static methods');
     }
 
     // Test 35: Photon with constructor params
     {
       const loader = new PhotonLoader();
-      const testFile = await createTestPhoton('constructor', `
+      const testFile = await createTestPhoton(
+        'constructor',
+        `
         export default class ConstructorMCP {
           private value: string;
 
@@ -793,7 +820,8 @@ async function runTests() {
             return this.value;
           }
         }
-      `);
+      `
+      );
 
       const result = await loader.loadFile(testFile);
       assert.ok(result, 'Should load photon with constructor');
@@ -808,15 +836,13 @@ async function runTests() {
 
     // Test 36: Parse runtime requirement from source
     {
-      const parseRuntime = (PhotonLoader as any).parseRuntimeRequirement;
-
-      const result1 = parseRuntime('/**\n * @runtime ^1.5.0\n */');
+      const result1 = parseRuntimeRequirement('/**\n * @runtime ^1.5.0\n */');
       assert.equal(result1, '^1.5.0', 'Should parse caret version');
 
-      const result2 = parseRuntime('/**\n * @runtime >=2.0.0\n */');
+      const result2 = parseRuntimeRequirement('/**\n * @runtime >=2.0.0\n */');
       assert.equal(result2, '>=2.0.0', 'Should parse gte version');
 
-      const result3 = parseRuntime('// No runtime annotation');
+      const result3 = parseRuntimeRequirement('// No runtime annotation');
       assert.equal(result3, undefined, 'Should return undefined for no annotation');
 
       console.log('  ✅ Parse runtime requirement');
@@ -824,12 +850,10 @@ async function runTests() {
 
     // Test 37: Check runtime compatibility - exact version
     {
-      const check = (PhotonLoader as any).checkRuntimeCompatibility;
-
-      const result = check('1.5.0', '1.5.0');
+      const result = checkRuntimeCompatibility('1.5.0', '1.5.0');
       assert.ok(result.compatible, 'Exact match should be compatible');
 
-      const incompatible = check('1.5.0', '1.6.0');
+      const incompatible = checkRuntimeCompatibility('1.5.0', '1.6.0');
       assert.ok(!incompatible.compatible, 'Exact mismatch should be incompatible');
 
       console.log('  ✅ Check exact version compatibility');
@@ -837,18 +861,16 @@ async function runTests() {
 
     // Test 38: Check runtime compatibility - caret version
     {
-      const check = (PhotonLoader as any).checkRuntimeCompatibility;
-
-      const compatible1 = check('^1.5.0', '1.5.0');
+      const compatible1 = checkRuntimeCompatibility('^1.5.0', '1.5.0');
       assert.ok(compatible1.compatible, '^1.5.0 should match 1.5.0');
 
-      const compatible2 = check('^1.5.0', '1.6.0');
+      const compatible2 = checkRuntimeCompatibility('^1.5.0', '1.6.0');
       assert.ok(compatible2.compatible, '^1.5.0 should match 1.6.0');
 
-      const compatible3 = check('^1.5.0', '1.9.9');
+      const compatible3 = checkRuntimeCompatibility('^1.5.0', '1.9.9');
       assert.ok(compatible3.compatible, '^1.5.0 should match 1.9.9');
 
-      const incompatible = check('^1.5.0', '2.0.0');
+      const incompatible = checkRuntimeCompatibility('^1.5.0', '2.0.0');
       assert.ok(!incompatible.compatible, '^1.5.0 should not match 2.0.0');
 
       console.log('  ✅ Check caret version compatibility');
@@ -856,12 +878,10 @@ async function runTests() {
 
     // Test 39: Check runtime compatibility - tilde version
     {
-      const check = (PhotonLoader as any).checkRuntimeCompatibility;
-
-      const compatible = check('~1.5.0', '1.5.3');
+      const compatible = checkRuntimeCompatibility('~1.5.0', '1.5.3');
       assert.ok(compatible.compatible, '~1.5.0 should match 1.5.3');
 
-      const incompatible = check('~1.5.0', '1.6.0');
+      const incompatible = checkRuntimeCompatibility('~1.5.0', '1.6.0');
       assert.ok(!incompatible.compatible, '~1.5.0 should not match 1.6.0');
 
       console.log('  ✅ Check tilde version compatibility');
@@ -869,15 +889,13 @@ async function runTests() {
 
     // Test 40: Check runtime compatibility - gte version
     {
-      const check = (PhotonLoader as any).checkRuntimeCompatibility;
-
-      const compatible1 = check('>=1.5.0', '1.5.0');
+      const compatible1 = checkRuntimeCompatibility('>=1.5.0', '1.5.0');
       assert.ok(compatible1.compatible, '>=1.5.0 should match 1.5.0');
 
-      const compatible2 = check('>=1.5.0', '2.0.0');
+      const compatible2 = checkRuntimeCompatibility('>=1.5.0', '2.0.0');
       assert.ok(compatible2.compatible, '>=1.5.0 should match 2.0.0');
 
-      const incompatible = check('>=1.5.0', '1.4.0');
+      const incompatible = checkRuntimeCompatibility('>=1.5.0', '1.4.0');
       assert.ok(!incompatible.compatible, '>=1.5.0 should not match 1.4.0');
 
       console.log('  ✅ Check gte version compatibility');
@@ -885,12 +903,10 @@ async function runTests() {
 
     // Test 41: Check runtime compatibility - gt version
     {
-      const check = (PhotonLoader as any).checkRuntimeCompatibility;
-
-      const compatible = check('>1.5.0', '1.5.1');
+      const compatible = checkRuntimeCompatibility('>1.5.0', '1.5.1');
       assert.ok(compatible.compatible, '>1.5.0 should match 1.5.1');
 
-      const incompatible = check('>1.5.0', '1.5.0');
+      const incompatible = checkRuntimeCompatibility('>1.5.0', '1.5.0');
       assert.ok(!incompatible.compatible, '>1.5.0 should not match 1.5.0');
 
       console.log('  ✅ Check gt version compatibility');
@@ -924,7 +940,10 @@ async function runTests() {
       const parsed = [{ name: 'lodash', version: '*' }];
       const merged = merge(extracted, parsed);
 
-      assert.ok(merged.some((d: any) => d.name === 'axios'), 'Should have axios');
+      assert.ok(
+        merged.some((d: any) => d.name === 'axios'),
+        'Should have axios'
+      );
       console.log('  ✅ Merge dependency specs');
     }
 
@@ -941,7 +960,7 @@ async function runTests() {
       const mcp = await loader.loadFile(testFile);
 
       // Test that streaming tool exists
-      const streamTool = mcp.tools.find(t => t.name === 'streamData');
+      const streamTool = mcp.tools.find((t) => t.name === 'streamData');
       assert.ok(streamTool, 'Should have streaming tool');
       console.log('  ✅ Streaming tool discovered');
     }
@@ -1000,11 +1019,14 @@ async function runTests() {
     {
       const loader = new PhotonLoader();
       const testFile = path.join(testDir, 'test.photon.js');
-      await fs.writeFile(testFile, `
+      await fs.writeFile(
+        testFile,
+        `
         export default class JsMCP {
           async test() { return 'js works'; }
         }
-      `);
+      `
+      );
 
       const result = await loader.loadFile(testFile);
       assert.ok(result, 'Should load JS file');
@@ -1021,8 +1043,12 @@ async function runTests() {
         await loader.loadFile(testFile);
         assert.fail('Should reject non-ts/js file');
       } catch (error: any) {
-        assert.ok(error.message.includes('extension') || error.message.includes('ts') || error.message.includes('js'),
-          'Should mention extension');
+        assert.ok(
+          error.message.includes('extension') ||
+            error.message.includes('ts') ||
+            error.message.includes('js'),
+          'Should mention extension'
+        );
         console.log('  ✅ Reject invalid extension');
       }
     }
@@ -1041,6 +1067,131 @@ async function runTests() {
       const result = await loader.loadFile(testFile);
       assert.ok(result, 'Should load with verbose mode');
       console.log('  ✅ Loader with verbose mode');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SYMLINK CACHE KEY TESTS
+    // ═══════════════════════════════════════════════════════════════════
+
+    console.log('\n📋 Symlink Cache Key Tests');
+
+    // Test 51: Symlink and real path produce same cache key
+    {
+      const loader = new PhotonLoader();
+      const realFile = path.join(testDir, 'real-cache.photon.ts');
+      const symlinkFile = path.join(testDir, 'link-cache.photon.ts');
+      await fs.writeFile(realFile, basicPhotonContent, 'utf-8');
+      await fs.symlink(realFile, symlinkFile);
+
+      const key1 = (loader as any).getCacheKey('test', realFile);
+      const key2 = (loader as any).getCacheKey('test', symlinkFile);
+      assert.equal(key1, key2, 'Symlink and real path must produce same cache key');
+      console.log('  ✅ Symlink and real path produce same cache key');
+
+      await fs.unlink(symlinkFile);
+    }
+
+    // Test 52: Symlink load produces same compiled output as real path
+    {
+      const loader = new PhotonLoader();
+      const realFile = path.join(testDir, 'real-load.photon.ts');
+      const symlinkFile = path.join(testDir, 'link-load.photon.ts');
+      await fs.writeFile(realFile, basicPhotonContent, 'utf-8');
+      await fs.symlink(realFile, symlinkFile);
+
+      const result1 = await loader.loadFile(realFile);
+      const result2 = await loader.loadFile(symlinkFile);
+      assert.equal(
+        result1.tools.length,
+        result2.tools.length,
+        'Symlink load should find same number of tools'
+      );
+      console.log('  ✅ Symlink load produces same compiled output');
+
+      await fs.unlink(symlinkFile);
+    }
+
+    // Test 53: Reload via symlink picks up changes to real file
+    {
+      const loader = new PhotonLoader();
+      const realFile = path.join(testDir, 'real-reload.photon.ts');
+      const symlinkFile = path.join(testDir, 'link-reload.photon.ts');
+      await fs.writeFile(realFile, basicPhotonContent, 'utf-8');
+      await fs.symlink(realFile, symlinkFile);
+
+      // Initial load via symlink
+      const result1 = await loader.loadFile(symlinkFile);
+      assert.equal(result1.tools.length, 2, 'Initial load should have 2 tools');
+
+      // Modify the real file
+      const updatedContent = `
+        export default class UpdatedMCP {
+          async method1() { return 1; }
+          async method2() { return 2; }
+          async method3() { return 3; }
+        }
+      `;
+      await fs.writeFile(realFile, updatedContent, 'utf-8');
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Reload via symlink — should see 3 tools
+      const result2 = await loader.reloadFile(symlinkFile);
+      assert.equal(
+        result2.tools.length,
+        3,
+        'Reload via symlink should see updated file with 3 tools'
+      );
+      console.log('  ✅ Reload via symlink picks up changes to real file');
+
+      await fs.unlink(symlinkFile);
+    }
+
+    // Test 54: Stale .mjs files cleaned on reload
+    {
+      const loader = new PhotonLoader();
+      const testFile = await createTestPhoton('stale-cleanup', basicPhotonContent);
+
+      // Load to create the build dir and .mjs file
+      await loader.loadFile(testFile);
+
+      const mcpName = 'stale-cleanup';
+      const cacheKey = (loader as any).getCacheKey(mcpName, testFile);
+      const buildDir = (loader as any).getBuildCacheDir(cacheKey);
+      const fileName = path.basename(testFile, '.ts');
+
+      // Plant fake stale .mjs files
+      await fs.writeFile(path.join(buildDir, `${fileName}.deadbeef1234.mjs`), '// stale 1');
+      await fs.writeFile(path.join(buildDir, `${fileName}.cafebabe5678.mjs`), '// stale 2');
+
+      const beforeFiles = await fs.readdir(buildDir);
+      const staleBefore = beforeFiles.filter((f) => f.startsWith(fileName) && f.endsWith('.mjs'));
+      assert.ok(
+        staleBefore.length >= 3,
+        `Should have at least 3 .mjs files before reload (got ${staleBefore.length})`
+      );
+
+      // Modify and reload
+      await fs.writeFile(
+        testFile,
+        `
+        export default class CleanedUp {
+          async only() { return 'fresh'; }
+        }
+      `,
+        'utf-8'
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      await loader.reloadFile(testFile);
+
+      const afterFiles = await fs.readdir(buildDir);
+      const staleAfter = afterFiles.filter((f) => f.startsWith(fileName) && f.endsWith('.mjs'));
+      // After reload, only the new .mjs should exist (the one just compiled)
+      assert.equal(
+        staleAfter.length,
+        1,
+        `Should have exactly 1 .mjs after reload (got ${staleAfter.length}): ${staleAfter.join(', ')}`
+      );
+      console.log('  ✅ Stale .mjs files cleaned on reload');
     }
 
     console.log('\n✅ All Comprehensive Loader tests passed!');

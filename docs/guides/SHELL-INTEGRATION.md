@@ -5,10 +5,14 @@ Run photons as direct terminal commands with full tab completion.
 ## Quick Start
 
 ```bash
-photon shell init
+photon init cli
 ```
 
-This auto-detects your shell, adds the hook to your profile, and generates the completion cache. Restart your terminal or source your profile.
+This auto-detects your shell, adds the hook to your profile, and generates the completion cache. Then activate it:
+
+```bash
+source ~/.zshrc   # or source ~/.bashrc
+```
 
 ## What It Does
 
@@ -43,21 +47,21 @@ Tab completion works at every level:
 
 | Shell | Profile | Completion System | Hook Line |
 |-------|---------|-------------------|-----------|
-| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon shell init --hook)"` |
-| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon shell init --hook)"` |
-| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon shell init --hook)` |
+| **zsh** | `~/.zshrc` | `compdef` + `_arguments` | `eval "$(photon init cli --hook)"` |
+| **bash** | `~/.bashrc` | `complete -F` + `compgen` | `eval "$(photon init cli --hook)"` |
+| **PowerShell** | `$PROFILE` | `Register-ArgumentCompleter` | `Invoke-Expression (& photon init cli --hook)` |
 
 Detection is automatic:
 - **zsh/bash**: Detected via `$SHELL` environment variable
 - **PowerShell**: Detected via `$PSModulePath` environment variable or Windows platform
 
-Running `photon shell init` on an unsupported shell (e.g., fish, nushell) shows the supported list and exits with an error.
+Running `photon init cli` on an unsupported shell (e.g., fish, nushell) shows the supported list and exits with an error.
 
 ## How It Works
 
 ### Shell Hook
 
-`photon shell init` appends a single line to your shell profile. When your shell starts, this line:
+`photon init cli` appends a single line to your shell profile. When your shell starts, this line:
 
 1. **Creates shell functions** for each installed photon (e.g., `list() { photon cli list "$@"; }` or `function list { photon cli list @Args }` in PowerShell). These functions are what enable tab completion.
 
@@ -81,7 +85,7 @@ The cache contains:
 ### Cache Freshness
 
 The cache is automatically regenerated when:
-- `photon shell init` is run (first install)
+- `photon init cli` is run (first install)
 - `photon add <name>` installs a new photon
 - `photon remove <name>` removes a photon
 - `photon use <photon> <instance>` switches instances
@@ -89,47 +93,40 @@ The cache is automatically regenerated when:
 To manually refresh:
 
 ```bash
-photon shell completions --generate
+photon init completions --generate
 ```
 
 To check cache status:
 
 ```bash
-photon shell completions
+photon init completions
 ```
 
 ## Commands Reference
 
 | Command | Description |
 |---------|-------------|
-| `photon shell init` | Install shell integration into your profile |
-| `photon shell init --hook` | Output the hook script (used by eval/Invoke-Expression, not run directly) |
-| `photon shell completions` | Show cache status |
-| `photon shell completions --generate` | Regenerate the completions cache |
+| `photon init cli` | Install shell integration into your profile |
+| `photon init cli --hook` | Output the hook script (used by eval/Invoke-Expression, not run directly) |
+| `photon init completions` | Show cache status |
+| `photon init completions --generate` | Regenerate the completions cache |
+| `photon uninit cli` | Remove shell integration from your profile |
 
 ## Uninstall
 
-Remove the hook line from your shell profile:
-
-**zsh/bash:**
 ```bash
-# Remove from ~/.zshrc or ~/.bashrc:
-eval "$(photon shell init --hook)"
+photon uninit cli
 ```
 
-**PowerShell:**
-```powershell
-# Remove from $PROFILE:
-Invoke-Expression (& photon shell init --hook)
-```
+This removes the hook line and marker from your shell profile. Then restart your shell or run `exec $SHELL`.
 
 ## Troubleshooting
 
 **"Unsupported shell" error:**
-Photon shell integration supports zsh, bash, and PowerShell. If your shell isn't detected correctly, set `$SHELL` explicitly: `SHELL=/bin/zsh photon shell init`.
+Photon shell integration supports zsh, bash, and PowerShell. If your shell isn't detected correctly, set `$SHELL` explicitly: `SHELL=/bin/zsh photon init cli`.
 
 **Tab completion not working after installing a new photon:**
-Run `photon shell completions --generate` to rebuild the cache, then restart your shell.
+Run `photon init completions --generate` to rebuild the cache, then restart your shell.
 
 **Shell functions conflict with existing commands:**
 The command-not-found handler only fires when no real command exists. Shell functions created by the hook will shadow commands with the same name. If a photon name conflicts with a system command, remove the photon or rename it.
