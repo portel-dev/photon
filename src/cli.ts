@@ -2912,7 +2912,7 @@ const RESERVED_COMMANDS = [
   'search',
   'maker',
   'host',
-  'shell',
+  'uninit',
   'diagram',
   'diagrams',
   'enable',
@@ -2968,7 +2968,8 @@ const knownCommands = [
 const knownSubcommands: Record<string, string[]> = {
   marketplace: ['list', 'add', 'remove', 'enable', 'disable'],
   maker: ['new', 'validate', 'sync', 'init'],
-  shell: ['init', 'completions'],
+  init: ['cli', 'completions'],
+  uninit: ['cli'],
 };
 
 /**
