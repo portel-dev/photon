@@ -31,7 +31,8 @@ export class SessionManager {
     photonPath: string,
     photonName: string,
     sessionTimeout: number = 600000,
-    logger?: Logger
+    logger?: Logger,
+    workingDir?: string
   ) {
     this.photonPath = photonPath;
     this.photonName = photonName;
@@ -40,7 +41,8 @@ export class SessionManager {
       logger ?? createLogger({ component: 'session-manager', scope: photonName, minimal: true });
     this.loader = new PhotonLoader(
       false,
-      this.logger.child({ component: 'photon-loader', scope: photonName })
+      this.logger.child({ component: 'photon-loader', scope: photonName }),
+      workingDir
     );
 
     this.startCleanup();

@@ -211,6 +211,8 @@ interface HandlerContext {
   externalMCPSDKClients?: Map<string, any>; // SDK clients with full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  /** Working directory override (base dir for state/config/cache) */
+  workingDir?: string;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -809,6 +811,7 @@ const handlers: Record<string, RequestHandler> = {
           photonPath: photonInfo.path,
           sessionId: beamSessionId,
           instanceName: session.instanceName,
+          workingDir: ctx.workingDir,
         };
 
         // Elicitation-based instance selection when _use called without name
@@ -2215,6 +2218,8 @@ export interface StreamableHTTPOptions {
   externalMCPSDKClients?: Map<string, any>; // SDK clients for full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
   loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  /** Working directory override (base dir for state/config/cache) */
+  workingDir?: string;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -2375,6 +2380,7 @@ export async function handleStreamableHTTP(
       loader: options.loader,
       broadcast: options.broadcast,
       subscriptionManager: options.subscriptionManager,
+      workingDir: options.workingDir,
     };
 
     // Process requests

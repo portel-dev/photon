@@ -265,6 +265,7 @@ export const DAEMON_TOOLS: DaemonToolDefinition[] = [
  */
 class SubscriptionManager {
   private sessions = new Map<string, Map<string, SessionSubscriptions>>();
+  workingDir?: string;
 
   /**
    * Subscribe to channels for a session
@@ -298,9 +299,14 @@ class SubscriptionManager {
       }
 
       try {
-        const unsubscribe = await subscribeChannel(photonName, pattern, (message) => {
-          onMessage(pattern, message);
-        });
+        const unsubscribe = await subscribeChannel(
+          photonName,
+          pattern,
+          (message) => {
+            onMessage(pattern, message);
+          },
+          { workingDir: this.workingDir }
+        );
 
         subs.patterns.push(pattern);
         subs.unsubscribeFns.set(pattern, unsubscribe);
@@ -406,7 +412,8 @@ export async function handleDaemonTool(
   toolName: string,
   args: Record<string, unknown>,
   sessionId: string,
-  sendNotification: (method: string, params: unknown) => void
+  sendNotification: (method: string, params: unknown) => void,
+  workingDir?: string
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
     switch (toolName) {
@@ -479,7 +486,7 @@ export async function handleDaemonTool(
         const channel = args.channel as string;
         const message = args.message;
 
-        await publishToChannel(photon, channel, message);
+        await publishToChannel(photon, channel, message, workingDir);
 
         return {
           content: [

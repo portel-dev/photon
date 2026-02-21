@@ -183,17 +183,26 @@ export async function writeLocalMetadata(metadata: LocalMetadata): Promise<void>
 export class MarketplaceManager {
   private config: MarketplaceConfig = { marketplaces: [] };
   private logger: Logger;
+  private configDir: string;
+  private configFile: string;
+  private cacheDir: string;
+  private metadataFile: string;
 
-  constructor(logger?: Logger) {
+  constructor(logger?: Logger, baseDir?: string) {
     this.logger = logger ?? createLogger({ component: 'marketplace-manager', minimal: true });
+    const dir = baseDir || CONFIG_DIR;
+    this.configDir = dir;
+    this.configFile = path.join(dir, 'marketplaces.json');
+    this.cacheDir = path.join(dir, '.cache', 'marketplaces');
+    this.metadataFile = path.join(dir, '.metadata.json');
   }
 
   async initialize() {
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-    await fs.mkdir(CACHE_DIR, { recursive: true });
+    await fs.mkdir(this.configDir, { recursive: true });
+    await fs.mkdir(this.cacheDir, { recursive: true });
 
-    if (existsSync(CONFIG_FILE)) {
-      const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+    if (existsSync(this.configFile)) {
+      const data = await fs.readFile(this.configFile, 'utf-8');
       try {
         this.config = JSON.parse(data);
       } catch (parseError) {
@@ -215,7 +224,7 @@ export class MarketplaceManager {
   }
 
   async save() {
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf-8');
+    await fs.writeFile(this.configFile, JSON.stringify(this.config, null, 2), 'utf-8');
   }
 
   /**
@@ -480,7 +489,7 @@ export class MarketplaceManager {
    * Get cache file path for marketplace
    */
   private getCacheFile(marketplaceName: string): string {
-    return path.join(CACHE_DIR, `${marketplaceName}.json`);
+    return path.join(this.cacheDir, `${marketplaceName}.json`);
   }
 
   /**

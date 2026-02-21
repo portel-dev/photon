@@ -1311,7 +1311,8 @@ export async function listMethods(photonName: string): Promise<void> {
 export async function runMethod(
   photonName: string,
   methodName: string,
-  args: string[]
+  args: string[],
+  workingDir?: string
 ): Promise<void> {
   // Set up readline prompt handler for CLI
   setPromptHandler(async (message: string, defaultValue?: string) => {
@@ -1482,14 +1483,14 @@ export async function runMethod(
       const { CLISessionStore } = await import('./context-store.js');
       const sessionInstance = new CLISessionStore().getCurrentInstance(photonName);
       const sessionId = `cli-${photonName}`;
-      const sendOpts = { photonPath: resolvedPath, sessionId };
+      const sendOpts = { photonPath: resolvedPath, sessionId, workingDir };
       await sendCommand(photonName, '_use', { name: sessionInstance }, sendOpts);
 
       // Send the actual command
       result = await sendCommand(photonName, methodName, parsedArgs, sendOpts);
     } else {
       // STATELESS PATH: Direct execution
-      const loader = new PhotonLoader(false); // verbose=false for CLI mode
+      const loader = new PhotonLoader(false, undefined, workingDir); // verbose=false for CLI mode
       const photonInstance = await loader.loadFile(resolvedPath);
 
       // Print resume message before execution

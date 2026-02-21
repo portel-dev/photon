@@ -42,12 +42,12 @@ function isStateful(source: string): boolean {
 /**
  * Generate the completions cache file by scanning all installed photons.
  */
-export async function generateCompletionCache(): Promise<string> {
+export async function generateCompletionCache(baseDir?: string): Promise<string> {
   const { SchemaExtractor } = await import('@portel/photon-core');
   const { InstanceStore } = await import('./context-store.js');
 
-  const photonDir = path.join(os.homedir(), '.photon');
-  const instanceStore = new InstanceStore();
+  const photonDir = baseDir || path.join(os.homedir(), '.photon');
+  const instanceStore = new InstanceStore(photonDir);
 
   let entries: string[] = [];
   try {

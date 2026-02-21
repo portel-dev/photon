@@ -55,7 +55,13 @@ export async function sendCommand(
   photonName: string,
   method: string,
   args: Record<string, any>,
-  options?: { maxRetries?: number; photonPath?: string; sessionId?: string; instanceName?: string }
+  options?: {
+    maxRetries?: number;
+    photonPath?: string;
+    sessionId?: string;
+    instanceName?: string;
+    workingDir?: string;
+  }
 ): Promise<any> {
   const maxRetries = options?.maxRetries ?? 1;
 
@@ -67,7 +73,8 @@ export async function sendCommand(
         args,
         options?.photonPath,
         options?.sessionId,
-        options?.instanceName
+        options?.instanceName,
+        options?.workingDir
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
@@ -89,7 +96,8 @@ async function sendCommandDirect(
   args: Record<string, any>,
   photonPath?: string,
   sessionId?: string,
-  instanceName?: string
+  instanceName?: string,
+  workingDir?: string
 ): Promise<any> {
   const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
@@ -118,6 +126,7 @@ async function sendCommandDirect(
         method,
         args,
         instanceName,
+        workingDir,
       };
 
       client.write(JSON.stringify(request) + '\n');
@@ -223,7 +232,7 @@ export async function subscribeChannel(
   photonName: string,
   channel: string,
   handler: (message: unknown, eventId?: string) => void,
-  options?: SubscribeOptions
+  options?: SubscribeOptions & { workingDir?: string }
 ): Promise<() => void> {
   let cancelled = false;
   let currentClient: net.Socket | null = null;
@@ -247,6 +256,7 @@ export async function subscribeChannel(
           channel,
           clientType: 'beam',
           lastEventId: lastSeenEventId,
+          workingDir: options?.workingDir,
         };
         client.write(JSON.stringify(request) + '\n');
       });
@@ -379,7 +389,8 @@ export async function subscribeChannel(
 export async function publishToChannel(
   photonName: string,
   channel: string,
-  message: unknown
+  message: unknown,
+  workingDir?: string
 ): Promise<void> {
   const socketPath = getGlobalSocketPath();
   const requestId = `pub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -399,6 +410,7 @@ export async function publishToChannel(
         photonName,
         channel,
         message,
+        workingDir,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -436,7 +448,8 @@ export async function publishToChannel(
 export async function acquireLock(
   photonName: string,
   lockName: string,
-  timeout?: number
+  timeout?: number,
+  workingDir?: string
 ): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
   const requestId = `lock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -457,6 +470,7 @@ export async function acquireLock(
         sessionId: SESSION_ID,
         lockName,
         lockTimeout: timeout,
+        workingDir,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -491,7 +505,11 @@ export async function acquireLock(
  * Release a distributed lock
  * Returns true if lock released, false if not held by this session
  */
-export async function releaseLock(photonName: string, lockName: string): Promise<boolean> {
+export async function releaseLock(
+  photonName: string,
+  lockName: string,
+  workingDir?: string
+): Promise<boolean> {
   const socketPath = getGlobalSocketPath();
   const requestId = `unlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -510,6 +528,7 @@ export async function releaseLock(photonName: string, lockName: string): Promise
         photonName,
         sessionId: SESSION_ID,
         lockName,
+        workingDir,
       };
       client.write(JSON.stringify(request) + '\n');
     });
@@ -769,7 +788,8 @@ export async function listJobs(photonName: string): Promise<
  */
 export async function reloadDaemon(
   photonName: string,
-  photonPath: string
+  photonPath: string,
+  workingDir?: string
 ): Promise<{ success: boolean; error?: string; sessionsUpdated?: number }> {
   const socketPath = getGlobalSocketPath();
   const requestId = `reload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -788,6 +808,7 @@ export async function reloadDaemon(
         id: requestId,
         photonName,
         photonPath,
+        workingDir,
       };
       client.write(JSON.stringify(request) + '\n');
     });

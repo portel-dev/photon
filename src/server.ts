@@ -78,6 +78,8 @@ export interface PhotonServerOptions {
   port?: number;
   logOptions?: LoggerOptions;
   unresolvedPhoton?: UnresolvedPhoton;
+  /** Working directory override (base dir for state/config/cache) */
+  workingDir?: string;
 }
 
 // SSE session record for managing multiple clients
@@ -169,7 +171,8 @@ export class PhotonServer {
 
     this.loader = new PhotonLoader(
       true,
-      this.logger.child({ component: 'photon-loader', scope: 'loader' })
+      this.logger.child({ component: 'photon-loader', scope: 'loader' }),
+      options.workingDir
     );
 
     // Create MCP server instance
@@ -600,6 +603,7 @@ export class PhotonServer {
         photonPath: this.options.filePath,
         sessionId: ctx.sessionId,
         instanceName: ctx.getInstanceName(),
+        workingDir: this.options.workingDir,
       };
 
       // Elicitation-based instance selection when _use called without name
@@ -696,7 +700,7 @@ export class PhotonServer {
     // Handler for channel events - forward to daemon for cross-process pub/sub
     const outputHandler = (emit: any) => {
       if (this.daemonName && emit?.channel) {
-        publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+        publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(() => {
           // Ignore publish errors - daemon may not be running
         });
       }
@@ -923,7 +927,9 @@ export class PhotonServer {
           const inputProvider = this.createMCPInputProvider();
           const outputHandler = (emit: any) => {
             if (this.daemonName && emit?.channel) {
-              publishToChannel(this.daemonName, emit.channel, emit).catch(() => {});
+              publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
+                () => {}
+              );
             }
           };
 
@@ -1384,9 +1390,11 @@ export class PhotonServer {
       const inputProvider = this.createMCPInputProvider();
       const outputHandler = (emit: any) => {
         if (this.daemonName && emit?.channel) {
-          publishToChannel(this.daemonName, emit.channel, emit).catch((e) => {
-            this.log('debug', 'Publish to channel failed', { error: getErrorMessage(e) });
-          });
+          publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
+            (e) => {
+              this.log('debug', 'Publish to channel failed', { error: getErrorMessage(e) });
+            }
+          );
         }
       };
 
@@ -1507,7 +1515,8 @@ export class PhotonServer {
         `${this.daemonName}:*`,
         (message: unknown) => {
           this.handleChannelMessage(message);
-        }
+        },
+        { workingDir: this.options.workingDir }
       );
       this.channelUnsubscribers.push(unsubscribe);
       this.log('info', `Subscribed to daemon channel: ${this.daemonName}:*`);
@@ -1806,7 +1815,12 @@ export class PhotonServer {
               }
               // Forward channel events to daemon for cross-process pub/sub
               if (this.daemonName && emit.channel) {
-                publishToChannel(this.daemonName, emit.channel, emit).catch(() => {
+                publishToChannel(
+                  this.daemonName,
+                  emit.channel,
+                  emit,
+                  this.options.workingDir
+                ).catch(() => {
                   // Ignore publish errors - daemon may not be running
                 });
               }

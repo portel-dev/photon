@@ -91,6 +91,7 @@ import {
   type MiddlewareContext,
   type MiddlewareDeclaration,
   type MiddlewareHandler,
+  DEFAULT_PHOTON_DIR,
 } from '@portel/photon-core';
 import * as os from 'os';
 
@@ -145,10 +146,14 @@ export class PhotonLoader {
   /** Per-photon custom middleware definitions discovered from module exports */
   private photonMiddleware = new Map<string, MiddlewareDefinition[]>();
 
-  constructor(verbose: boolean = false, logger?: Logger) {
+  /** Base directory for state/config/cache (defaults to ~/.photon) */
+  public readonly baseDir: string;
+
+  constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
+    this.baseDir = baseDir || DEFAULT_PHOTON_DIR;
   }
 
   /**
@@ -173,7 +178,7 @@ export class PhotonLoader {
     if (!this.marketplaceManagerPromise) {
       this.marketplaceManagerPromise = (async () => {
         const managerLogger = this.logger.child({ component: 'marketplace-manager' });
-        const manager = new MarketplaceManager(managerLogger);
+        const manager = new MarketplaceManager(managerLogger, this.baseDir);
         await manager.initialize();
         return manager;
       })();
@@ -213,7 +218,7 @@ export class PhotonLoader {
   }
 
   private getPhotonCacheDir(): string {
-    return path.join(os.homedir(), '.photon', '.cache', 'photons');
+    return path.join(this.baseDir, '.cache', 'photons');
   }
 
   private sanitizeCacheLabel(label: string): string {
@@ -625,6 +630,7 @@ export class PhotonLoader {
 
       // Inject cross-photon call handler (enables this.call() calls)
       if (typeof instance._callHandler === 'undefined' || instance._callHandler === undefined) {
+        const callBaseDir = this.baseDir;
         instance._callHandler = async (
           photonName: string,
           method: string,
@@ -632,7 +638,7 @@ export class PhotonLoader {
         ) => {
           // Dynamic import to avoid circular dependency
           const { sendCommand } = await import('./daemon/client.js');
-          return sendCommand(photonName, method, params);
+          return sendCommand(photonName, method, params, { workingDir: callBaseDir });
         };
         this.log(`Injected call handler into ${name}`);
       }
@@ -742,7 +748,7 @@ export class PhotonLoader {
         if (caps.has('instanceMeta')) {
           // Inject instance metadata (file-stat-based timestamps)
           const instanceName = options?.instanceName || 'default';
-          const stateDir = path.join(os.homedir(), '.photon', 'state', name);
+          const stateDir = path.join(this.baseDir, 'state', name);
           const stateFile = path.join(stateDir, `${instanceName}.json`);
           try {
             const stat = await fs.stat(stateFile);
@@ -764,8 +770,9 @@ export class PhotonLoader {
         if (caps.has('allInstances')) {
           // Inject cross-instance iterator
           const photonName = name;
+          const loaderBaseDir = this.baseDir;
           instance.allInstances = async function* () {
-            const stateDir = path.join(os.homedir(), '.photon', 'state', photonName);
+            const stateDir = path.join(loaderBaseDir, 'state', photonName);
             try {
               const files = await fs.readdir(stateDir);
               for (const file of files.filter((f: string) => f.endsWith('.json'))) {
@@ -1417,9 +1424,9 @@ export class PhotonLoader {
       path.join(process.cwd(), fileName),
       path.join(process.cwd(), 'photons', fileName),
       path.join(process.cwd(), 'templates', fileName),
-      path.join(os.homedir(), '.photon', fileName),
-      path.join(os.homedir(), '.photon', 'photons', fileName),
-      path.join(os.homedir(), '.photon', 'marketplace', fileName),
+      path.join(this.baseDir, fileName),
+      path.join(this.baseDir, 'photons', fileName),
+      path.join(this.baseDir, 'marketplace', fileName),
     ];
 
     for (const candidate of candidates) {
@@ -1601,13 +1608,7 @@ export class PhotonLoader {
 
   private async resolveNpmPhoton(dep: PhotonDependency): Promise<string> {
     const { packageSpec, packageName, filePath } = this.parseNpmSource(dep.source);
-    const cacheDir = path.join(
-      os.homedir(),
-      '.photon',
-      '.cache',
-      'npm',
-      this.sanitizeCacheLabel(packageSpec)
-    );
+    const cacheDir = path.join(this.baseDir, '.cache', 'npm', this.sanitizeCacheLabel(packageSpec));
     await fs.mkdir(cacheDir, { recursive: true });
     await this.ensureNpmPackageInstalled(cacheDir, packageSpec, packageName);
 
