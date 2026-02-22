@@ -1293,13 +1293,7 @@ program
   .description('Launch Photon Beam - interactive control panel for all your photons')
   .action(async (options: any, command: Command) => {
     try {
-      // Get working directory: explicit --dir takes precedence.
-      // When --dir is not provided, default to CWD so each project folder
-      // is automatically isolated (marketplace installs, state, config all
-      // stay in the folder where beam was launched).
-      const dirSource = program.getOptionValueSource('dir');
-      const workingDir = dirSource === 'default' ? process.cwd() : path.resolve(program.opts().dir);
-      // Keep env var in sync with the resolved working dir
+      const workingDir = path.resolve(program.opts().dir || DEFAULT_WORKING_DIR);
       process.env.PHOTON_DIR = workingDir;
 
       // Find available port
