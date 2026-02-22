@@ -12,7 +12,7 @@
     "templates"
   ],
   "scripts": {
-    "build": "tsc && cp -r src/photons dist/ && chmod +x dist/cli.js",
+    "build": "tsc && cp -r src/photons dist/ && chmod +x dist/cli.js && tsx scripts/build-beam.ts",
     "dev": "tsc --watch",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
