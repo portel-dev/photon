@@ -43,6 +43,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
+import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
@@ -119,7 +120,7 @@ export default class Maker {
     path?: string;
     code?: string;
   }> {
-    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
@@ -321,7 +322,7 @@ ${allStubs.join('\n\n')}
         ? descriptionRaw.trim()
         : '[Add description]';
     const icon = typeof iconRaw === 'string' && iconRaw.trim() ? iconRaw.trim() : '⚡';
-    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
     const fileName = `${nameStr}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 

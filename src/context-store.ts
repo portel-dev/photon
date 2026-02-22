@@ -15,9 +15,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { ConstructorParam } from '@portel/photon-core';
+import { DEFAULT_PHOTON_DIR } from './path-resolver.js';
 import { isNodeError, getErrorMessage } from './shared/error-handler.js';
 
-const PHOTON_DIR = path.join(os.homedir(), '.photon');
+const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Instance Store — tracks current instance name per photon per client
@@ -254,7 +255,7 @@ export function getInstanceStatePath(
   baseDir?: string
 ): string {
   const name = instance || 'default';
-  const dir = baseDir || path.join(os.homedir(), '.photon');
+  const dir = baseDir || DEFAULT_PHOTON_DIR;
   return path.join(dir, 'state', photonName, `${name}.json`);
 }
 
