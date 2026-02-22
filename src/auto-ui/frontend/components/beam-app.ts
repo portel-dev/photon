@@ -5953,11 +5953,13 @@ export class BeamApp extends LitElement {
                   type="button"
                   class="photon-badge update"
                   @click=${this._handleUpgrade}
-                >
-                  Update
-                  available${this._selectedPhoton.updateVersion
+                  title="Update available${this._selectedPhoton.updateVersion
                     ? ` → ${this._selectedPhoton.updateVersion}`
-                    : ''}
+                    : ''}"
+                >
+                  ↑${this._selectedPhoton.updateVersion
+                    ? ` ${this._selectedPhoton.updateVersion}`
+                    : ' Update'}
                 </button>`
               : ''}
             ${this._selectedPhoton.author
