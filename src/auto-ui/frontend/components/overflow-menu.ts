@@ -267,6 +267,14 @@ export class OverflowMenu extends LitElement {
       top = rect.top - menuH - 4;
     }
 
+    // Clamp to viewport (top and bottom)
+    if (top < 8) top = 8;
+    const availableH = window.innerHeight - top - 8;
+    if (menuH > availableH) {
+      portal.style.maxHeight = `${availableH}px`;
+      portal.style.overflowY = 'auto';
+    }
+
     portal.style.left = `${left}px`;
     portal.style.top = `${top}px`;
 
