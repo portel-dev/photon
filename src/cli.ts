@@ -1036,11 +1036,12 @@ program
   });
 
 // Set PHOTON_DIR env var from --dir flag so photons doing their own path
-// resolution can read the working directory (e.g. for cross-instance state access)
+// resolution can read the working directory (e.g. for cross-instance state access).
+// Always resolve to absolute path so photons using relative paths work correctly.
 program.hook('preAction', () => {
   const dir = program.opts().dir;
   if (dir) {
-    process.env.PHOTON_DIR = dir;
+    process.env.PHOTON_DIR = path.resolve(dir);
   }
 });
 
@@ -1292,8 +1293,21 @@ program
   .description('Launch Photon Beam - interactive control panel for all your photons')
   .action(async (options: any, command: Command) => {
     try {
-      // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      // Get working directory: explicit --dir takes precedence.
+      // If the user didn't pass --dir and the CWD contains photon files,
+      // default to CWD so project-local installs are automatically isolated.
+      const dirSource = program.getOptionValueSource('dir');
+      let workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      if (dirSource === 'default') {
+        const { listPhotonMCPs } = await import('./path-resolver.js');
+        const cwdPhotons = await listPhotonMCPs(process.cwd());
+        if (cwdPhotons.length > 0) {
+          workingDir = process.cwd();
+        }
+      }
+      workingDir = path.resolve(workingDir);
+      // Keep env var in sync with the resolved working dir
+      process.env.PHOTON_DIR = workingDir;
 
       // Find available port
       const startPort = parseInt(options.port, 10);
