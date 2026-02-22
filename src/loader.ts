@@ -1145,7 +1145,7 @@ export class PhotonLoader {
 
     // Lazy-load env store and instance state path
     const { EnvStore, getInstanceStatePath } = await import('./context-store.js');
-    const envStore = new EnvStore();
+    const envStore = new EnvStore(this.baseDir);
 
     const values: any[] = [];
     const missingEnvVars: Array<{ paramName: string; envVarName: string; type: string }> = [];
@@ -1229,7 +1229,7 @@ export class PhotonLoader {
         case 'state': {
           // Inject persisted state from instance-specific state file
           const stateKey = injection.stateKey!;
-          const stateFile = getInstanceStatePath(mcpName, instanceName);
+          const stateFile = getInstanceStatePath(mcpName, instanceName, this.baseDir);
           try {
             const snapshot = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
             if (stateKey in snapshot) {
