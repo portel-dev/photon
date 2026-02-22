@@ -12,18 +12,18 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
+import { DEFAULT_PHOTON_DIR } from '../path-resolver.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PHOTON_DIR = path.join(os.homedir(), '.photon');
+const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
 // Global daemon paths (single daemon for all photons)

@@ -2223,7 +2223,7 @@ initCmd
 
     // --hook flag: output the hook script
     if (options.hook) {
-      const photonDir = path.join(os.homedir(), '.photon');
+      const photonDir = DEFAULT_WORKING_DIR;
       let photonNames: string[] = [];
       try {
         const entries = await fs.readdir(photonDir);

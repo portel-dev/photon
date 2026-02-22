@@ -8,12 +8,13 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
 
 export default class Marketplace {
   private workingDir: string;
 
   constructor(workingDir?: string) {
-    this.workingDir = workingDir || process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    this.workingDir = workingDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
   }
 
   // ============================================
@@ -50,7 +51,7 @@ export default class Marketplace {
       installed: boolean;
     }> = [];
 
-    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
 
     for (const [name, sources] of results) {
       const source = sources[0];
@@ -93,7 +94,7 @@ export default class Marketplace {
     const manager = new MarketplaceManager();
     await manager.initialize();
 
-    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', value: { step: 'searching' }, message: `Searching for ${name}...` };
 
@@ -163,7 +164,7 @@ export default class Marketplace {
       return;
     }
 
-    const workingDir = process.env.PHOTON_DIR || path.join(os.homedir(), '.photon');
+    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', value: { step: 'installing' }, message: `Upgrading ${name}...` };
 
