@@ -1803,7 +1803,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // UI templates are in <photon-dir>/<photon-name>/ui/<id>.html
-      const photonDir = path.dirname(photon.path);
+      // For symlinked photons, resolve to the origin so assets are served
+      // from the source repo (not the symlink location).
+      const resolvedPhotonPath = lstatSync(photon.path).isSymbolicLink()
+        ? realpathSync(photon.path)
+        : photon.path;
+      const photonDir = path.dirname(resolvedPhotonPath);
 
       // Try to use resolved path from assets if available (respects JSDoc)
       const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
