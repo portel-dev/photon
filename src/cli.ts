@@ -1294,18 +1294,11 @@ program
   .action(async (options: any, command: Command) => {
     try {
       // Get working directory: explicit --dir takes precedence.
-      // If the user didn't pass --dir and the CWD contains photon files,
-      // default to CWD so project-local installs are automatically isolated.
+      // When --dir is not provided, default to CWD so each project folder
+      // is automatically isolated (marketplace installs, state, config all
+      // stay in the folder where beam was launched).
       const dirSource = program.getOptionValueSource('dir');
-      let workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
-      if (dirSource === 'default') {
-        const { listPhotonMCPs } = await import('./path-resolver.js');
-        const cwdPhotons = await listPhotonMCPs(process.cwd());
-        if (cwdPhotons.length > 0) {
-          workingDir = process.cwd();
-        }
-      }
-      workingDir = path.resolve(workingDir);
+      const workingDir = dirSource === 'default' ? process.cwd() : path.resolve(program.opts().dir);
       // Keep env var in sync with the resolved working dir
       process.env.PHOTON_DIR = workingDir;
 
