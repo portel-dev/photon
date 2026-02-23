@@ -2148,8 +2148,9 @@ program
   .description('List all instances of a stateful photon')
   .action(async (photonName: string) => {
     try {
+      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
       const { InstanceStore } = await import('./context-store.js');
-      const store = new InstanceStore();
+      const store = new InstanceStore(workingDir);
 
       const instances = store.listInstances(photonName);
       const current = store.getCurrentInstance(photonName) || 'default';
