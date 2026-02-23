@@ -50,6 +50,7 @@
     "test:readme": "bash tests/readme-validation.sh",
     "test:schema": "npx tsx tests/schema-extractor.test.ts",
     "test:marketplace": "npx tsx tests/marketplace-manager.test.ts",
+    "test:github-ref": "npx tsx tests/github-ref-install.test.ts",
     "test:loader": "npx tsx tests/loader.test.ts",
     "test:server": "npx tsx tests/server.test.ts",
     "test:integration": "npx tsx tests/integration.test.ts",
