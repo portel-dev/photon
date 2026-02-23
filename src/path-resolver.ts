@@ -18,7 +18,11 @@ export {
 } from '@portel/photon-core';
 
 // Backward compatibility aliases
-export const DEFAULT_WORKING_DIR = DEFAULT_PHOTON_DIR;
+// Respect PHOTON_DIR env var so `export PHOTON_DIR=...` works without --dir flag
+import * as _path from 'path';
+export const DEFAULT_WORKING_DIR = process.env.PHOTON_DIR
+  ? _path.resolve(process.env.PHOTON_DIR)
+  : DEFAULT_PHOTON_DIR;
 export const ensureWorkingDir = ensurePhotonDir;
 export const listPhotonMCPs = listPhotonFiles;
 
