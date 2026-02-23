@@ -128,6 +128,10 @@ export class BeamApp extends LitElement {
         display: none;
       }
 
+      :host(.focus-mode) .photon-header {
+        display: none;
+      }
+
       .main-area {
         flex: 1;
         position: relative;
@@ -1589,6 +1593,7 @@ export class BeamApp extends LitElement {
   @state() private _reconnectAttempt = 0;
   private _connectRetries = 0;
   @state() private _sidebarVisible = false;
+  @state() private _focusMode = false;
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
@@ -2238,8 +2243,9 @@ export class BeamApp extends LitElement {
     let sharedParams: Record<string, any> = {};
     if (queryPart) {
       const params = new URLSearchParams(queryPart);
-      // Focus mode: hide sidebar and expand main area to full width
+      // Focus mode: hide sidebar and photon header, expand main area to full width
       if (params.has('focus')) {
+        this._focusMode = true;
         this.classList.add('focus-mode');
       }
       for (const [key, value] of params) {
@@ -2857,10 +2863,10 @@ export class BeamApp extends LitElement {
       </nav>
 
       <main class="main-area" aria-label="Main content">
-        ${this._shouldShowFullscreen()
+        ${this._selectedPhoton
           ? html`<button
               class="beam-fullscreen-btn"
-              @click=${this._handleFullscreen}
+              @click=${this._toggleFocusMode}
               @mouseenter=${(e: MouseEvent) => {
                 (e.target as HTMLElement).style.color = 'var(--t-primary)';
                 (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
@@ -2869,9 +2875,9 @@ export class BeamApp extends LitElement {
                 (e.target as HTMLElement).style.color = 'var(--t-muted)';
                 (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
               }}
-              title="Full screen"
+              title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
             >
-              ⛶
+              ${this._focusMode ? '⊡' : '⛶'}
             </button>`
           : ''}
         ${this._renderContent()}
@@ -5300,26 +5306,23 @@ export class BeamApp extends LitElement {
     return false;
   }
 
+  private _toggleFocusMode = () => {
+    this._focusMode = !this._focusMode;
+    if (this._focusMode) {
+      this.classList.add('focus-mode');
+      // Add ?focus=1 to the current hash without triggering hashchange
+      const hash = window.location.hash.replace(/\?focus=1/, '');
+      history.replaceState(null, '', hash + '?focus=1');
+    } else {
+      this.classList.remove('focus-mode');
+      // Remove ?focus=1 from the hash
+      const hash = window.location.hash.replace(/\?focus=1/, '');
+      history.replaceState(null, '', hash || '#');
+    }
+  };
+
   private _handleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-      return;
-    }
-    // For native photon apps, use the popout overlay
-    const layout = this.shadowRoot?.querySelector('app-layout') as any;
-    if (layout?.togglePopout) {
-      layout.togglePopout();
-      return;
-    }
-    // For MCP apps, use browser fullscreen on the glass-panel
-    const panel = this.shadowRoot?.querySelector('.glass-panel') as HTMLElement;
-    if (panel) {
-      panel.requestFullscreen();
-      return;
-    }
-    // For regular photon views, fullscreen the main-area
-    const main = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
-    main?.requestFullscreen();
+    this._toggleFocusMode();
   };
 
   /**
