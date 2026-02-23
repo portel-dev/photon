@@ -48,6 +48,8 @@ const photonPaths = new Map<string, string>(); // compositeKey -> photonPath
 const workingDirs = new Map<string, string>(); // compositeKey -> workingDir
 const fileWatchers = new Map<string, fs.FSWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>();
+// parentDir -> FSWatcher: one watcher per unique parent directory
+const parentDirWatchers = new Map<string, fs.FSWatcher>();
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -603,7 +605,10 @@ async function getOrCreateSessionManager(
 
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
-    if (workingDir) workingDirs.set(key, workingDir);
+    if (workingDir) {
+      workingDirs.set(key, workingDir);
+      watchWorkingDir(workingDir);
+    }
     watchPhotonFile(photonName, pathToUse);
 
     logger.info('Session manager initialized', { photonName, key });
@@ -1308,6 +1313,66 @@ function unwatchPhotonFile(watchPath: string): void {
   if (timer) {
     clearTimeout(timer);
     watchDebounce.delete(watchPath);
+  }
+}
+
+/**
+ * Watch the parent directory of a workingDir.
+ * When the workingDir itself is deleted (rm -rf, trash, mv), clear all in-memory
+ * instances for that workingDir so stale state isn't replayed into the fresh directory.
+ *
+ * We watch the PARENT because fs.watch on the workingDir itself dies when it's deleted.
+ * One watcher is shared per unique parent directory.
+ */
+function watchWorkingDir(workingDir: string): void {
+  const parentDir = path.dirname(workingDir);
+  const dirName = path.basename(workingDir);
+
+  // Default workingDir (~/.photon) is always present — no need to watch
+  if (workingDir === DEFAULT_PHOTON_DIR) return;
+  // Already watching this parent
+  if (parentDirWatchers.has(parentDir)) return;
+
+  try {
+    const watcher = fs.watch(parentDir, (eventType, filename) => {
+      if (filename !== dirName) return;
+      if (eventType !== 'rename') return;
+
+      // Debounce: the deletion fires multiple rename events
+      const debounceKey = `workingdir:${workingDir}`;
+      const existing = watchDebounce.get(debounceKey);
+      if (existing) clearTimeout(existing);
+
+      watchDebounce.set(
+        debounceKey,
+        setTimeout(async () => {
+          watchDebounce.delete(debounceKey);
+
+          if (fs.existsSync(workingDir)) return; // Still exists (e.g. a file was renamed inside)
+
+          logger.info('workingDir deleted — clearing all instances', { workingDir });
+
+          // Find all session managers registered under this workingDir and clear them
+          for (const [key, dir] of workingDirs.entries()) {
+            if (dir !== workingDir) continue;
+            const manager = sessionManagers.get(key);
+            if (manager) {
+              await manager.clearInstances();
+            }
+          }
+        }, 150)
+      );
+    });
+
+    watcher.on('error', (err) => {
+      logger.warn('workingDir parent watcher error', { parentDir, error: getErrorMessage(err) });
+      parentDirWatchers.delete(parentDir);
+    });
+
+    parentDirWatchers.set(parentDir, watcher);
+    logger.info('Watching workingDir parent for deletion', { workingDir, parentDir });
+  } catch (err) {
+    logger.warn('Failed to watch workingDir parent', { parentDir, error: getErrorMessage(err) });
   }
 }
 
