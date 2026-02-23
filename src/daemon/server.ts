@@ -50,6 +50,10 @@ const fileWatchers = new Map<string, fs.FSWatcher>();
 const watchDebounce = new Map<string, NodeJS.Timeout>();
 // parentDir -> FSWatcher: one watcher per unique parent directory
 const parentDirWatchers = new Map<string, fs.FSWatcher>();
+// workingDir -> inode: recorded at watch time for rename-vs-delete detection
+const workingDirInodes = new Map<string, number>();
+// workingDir -> FSWatcher: watches {workingDir}/state/ for photon subdir deletions
+const stateDirWatchers = new Map<string, fs.FSWatcher>();
 
 /**
  * Create a composite key from photonName + workingDir for map lookups.
@@ -608,6 +612,7 @@ async function getOrCreateSessionManager(
     if (workingDir) {
       workingDirs.set(key, workingDir);
       watchWorkingDir(workingDir);
+      watchStateDir(workingDir);
     }
     watchPhotonFile(photonName, pathToUse);
 
@@ -1275,6 +1280,21 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
             unwatchPhotonFile(watchPath);
             if (fs.existsSync(photonPath)) {
               watchPhotonFile(photonName, photonPath);
+            } else {
+              // Photon file deleted (uninstalled) — unload all session managers for it
+              logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
+              for (const [key, storedPath] of photonPaths.entries()) {
+                if (storedPath !== photonPath) continue;
+                const manager = sessionManagers.get(key);
+                if (manager) {
+                  await manager.clearInstances();
+                  sessionManagers.delete(key);
+                }
+                photonPaths.delete(key);
+                workingDirs.delete(key);
+              }
+              stateKeysCache.delete(photonName);
+              return;
             }
           }
 
@@ -1317,11 +1337,54 @@ function unwatchPhotonFile(watchPath: string): void {
 }
 
 /**
- * Watch the parent directory of a workingDir.
- * When the workingDir itself is deleted (rm -rf, trash, mv), clear all in-memory
- * instances for that workingDir so stale state isn't replayed into the fresh directory.
+ * Detect whether a missing workingDir was renamed (moved) or deleted.
  *
- * We watch the PARENT because fs.watch on the workingDir itself dies when it's deleted.
+ * Strategy: scan sibling entries in the parent directory for one with the same
+ * inode as the original workingDir. Inodes survive renames within the same
+ * filesystem. If found → renamed. If not → deleted (or moved cross-filesystem).
+ *
+ * Returns the new path if renamed, null if deleted.
+ */
+function detectRenameOrDelete(workingDir: string): string | null {
+  const originalInode = workingDirInodes.get(workingDir);
+  if (originalInode === undefined) return null;
+
+  const parentDir = path.dirname(workingDir);
+  const dirName = path.basename(workingDir);
+
+  try {
+    const siblings = fs.readdirSync(parentDir);
+    for (const sibling of siblings) {
+      if (sibling === dirName) continue; // Original name — skip
+      try {
+        const sibPath = path.join(parentDir, sibling);
+        const sibStat = fs.statSync(sibPath);
+        if (sibStat.isDirectory() && sibStat.ino === originalInode) {
+          return sibPath; // Same inode → this is the renamed directory
+        }
+      } catch {
+        // Entry vanished between readdir and stat — skip
+      }
+    }
+  } catch {
+    // Parent dir unreadable
+  }
+
+  return null; // Not found in parent → deleted or moved cross-filesystem
+}
+
+/**
+ * Watch the parent directory of a workingDir.
+ *
+ * Distinguishes between rename and delete using inode comparison:
+ * - Rename (mv .photon .photon.bak): data preserved at new path.
+ *   Update tracking maps to the new path; in-memory state stays alive.
+ *   Note: photon modules cache STATE_DIR at import time, so a full daemon
+ *   restart is still needed for writes to go to the new path.
+ * - Delete (rm -rf, trash): data gone. Clear all in-memory instances so
+ *   stale state isn't replayed into a freshly-created directory.
+ *
+ * We watch the PARENT because fs.watch on the workingDir itself dies when deleted.
  * One watcher is shared per unique parent directory.
  */
 function watchWorkingDir(workingDir: string): void {
@@ -1330,6 +1393,14 @@ function watchWorkingDir(workingDir: string): void {
 
   // Default workingDir (~/.photon) is always present — no need to watch
   if (workingDir === DEFAULT_PHOTON_DIR) return;
+
+  // Record inode now for rename detection later
+  try {
+    workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
+  } catch {
+    // Dir may not exist yet (will be created on first photon run)
+  }
+
   // Already watching this parent
   if (parentDirWatchers.has(parentDir)) return;
 
@@ -1338,7 +1409,7 @@ function watchWorkingDir(workingDir: string): void {
       if (filename !== dirName) return;
       if (eventType !== 'rename') return;
 
-      // Debounce: the deletion fires multiple rename events
+      // Debounce: deletions/renames fire multiple events
       const debounceKey = `workingdir:${workingDir}`;
       const existing = watchDebounce.get(debounceKey);
       if (existing) clearTimeout(existing);
@@ -1348,17 +1419,41 @@ function watchWorkingDir(workingDir: string): void {
         setTimeout(async () => {
           watchDebounce.delete(debounceKey);
 
-          if (fs.existsSync(workingDir)) return; // Still exists (e.g. a file was renamed inside)
+          if (fs.existsSync(workingDir)) {
+            // Still exists — record updated inode in case it was recreated
+            try {
+              workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
+            } catch {}
+            return;
+          }
 
-          logger.info('workingDir deleted — clearing all instances', { workingDir });
+          const renamedTo = detectRenameOrDelete(workingDir);
 
-          // Find all session managers registered under this workingDir and clear them
-          for (const [key, dir] of workingDirs.entries()) {
-            if (dir !== workingDir) continue;
-            const manager = sessionManagers.get(key);
-            if (manager) {
-              await manager.clearInstances();
+          if (renamedTo) {
+            // RENAME: data is intact at the new path — update tracking maps.
+            // In-memory state stays alive; the next Beam/CLI session pointing
+            // to the new path will load from disk automatically.
+            logger.info('workingDir renamed — updating tracking', {
+              from: workingDir,
+              to: renamedTo,
+            });
+            for (const [key, dir] of workingDirs.entries()) {
+              if (dir === workingDir) workingDirs.set(key, renamedTo);
             }
+            workingDirInodes.delete(workingDir);
+            workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
+          } else {
+            // DELETE: data is gone — clear all in-memory instances so stale
+            // state isn't replayed into a fresh directory.
+            logger.info('workingDir deleted — clearing all instances', { workingDir });
+            for (const [key, dir] of workingDirs.entries()) {
+              if (dir !== workingDir) continue;
+              const manager = sessionManagers.get(key);
+              if (manager) {
+                await manager.clearInstances();
+              }
+            }
+            workingDirInodes.delete(workingDir);
           }
         }, 150)
       );
@@ -1370,9 +1465,72 @@ function watchWorkingDir(workingDir: string): void {
     });
 
     parentDirWatchers.set(parentDir, watcher);
-    logger.info('Watching workingDir parent for deletion', { workingDir, parentDir });
+    logger.info('Watching workingDir parent for changes', { workingDir, parentDir });
   } catch (err) {
     logger.warn('Failed to watch workingDir parent', { parentDir, error: getErrorMessage(err) });
+  }
+}
+
+/**
+ * Watch {workingDir}/state/ for photon-specific subdirectory deletions.
+ * When state/{photon}/ is deleted, clear instances for that photon so
+ * stale in-memory data isn't persisted back to the freshly-emptied location.
+ *
+ * Called when a session manager is first created (by which point the state
+ * dir will exist or be created soon). Safe to call multiple times — skips
+ * if already watching this workingDir's state dir.
+ */
+function watchStateDir(workingDir: string): void {
+  if (stateDirWatchers.has(workingDir)) return;
+
+  const stateDir = path.join(workingDir, 'state');
+
+  // If state dir doesn't exist yet, watch the workingDir for its creation
+  if (!fs.existsSync(stateDir)) {
+    // Re-attempt after a short delay — state dir is created on first tool call
+    setTimeout(() => watchStateDir(workingDir), 2000);
+    return;
+  }
+
+  try {
+    const watcher = fs.watch(stateDir, (eventType, filename) => {
+      if (!filename || eventType !== 'rename') return;
+
+      const debounceKey = `statedir:${workingDir}:${filename}`;
+      const existing = watchDebounce.get(debounceKey);
+      if (existing) clearTimeout(existing);
+
+      watchDebounce.set(
+        debounceKey,
+        setTimeout(async () => {
+          watchDebounce.delete(debounceKey);
+
+          const photonStateDir = path.join(stateDir, filename);
+          if (fs.existsSync(photonStateDir)) return; // Still there — not a deletion
+
+          // A photon's state subdir was deleted — clear its instances
+          logger.info('Photon state dir deleted — clearing instances', {
+            photon: filename,
+            workingDir,
+          });
+          const key = compositeKey(filename, workingDir);
+          const manager = sessionManagers.get(key);
+          if (manager) {
+            await manager.clearInstances();
+          }
+        }, 150)
+      );
+    });
+
+    watcher.on('error', (err) => {
+      logger.warn('State dir watcher error', { stateDir, error: getErrorMessage(err) });
+      stateDirWatchers.delete(workingDir);
+    });
+
+    stateDirWatchers.set(workingDir, watcher);
+    logger.info('Watching state dir for photon subdir changes', { stateDir });
+  } catch (err) {
+    logger.warn('Failed to watch state dir', { stateDir, error: getErrorMessage(err) });
   }
 }
 
