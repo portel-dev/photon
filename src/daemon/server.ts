@@ -1430,15 +1430,22 @@ function watchWorkingDir(workingDir: string): void {
           const renamedTo = detectRenameOrDelete(workingDir);
 
           if (renamedTo) {
-            // RENAME: data is intact at the new path — update tracking maps.
-            // In-memory state stays alive; the next Beam/CLI session pointing
-            // to the new path will load from disk automatically.
-            logger.info('workingDir renamed — updating tracking', {
+            // RENAME: data is intact at the new path.
+            // Migrate each session manager's loader baseDir to the new path so
+            // subsequent loadFile calls set PHOTON_DIR correctly — photon
+            // module-level constants (STATE_DIR, etc.) pick up the new location
+            // on the next fresh import (loader uses ?t=Date.now() cache busting).
+            logger.info('workingDir renamed — migrating sessions', {
               from: workingDir,
               to: renamedTo,
             });
             for (const [key, dir] of workingDirs.entries()) {
-              if (dir === workingDir) workingDirs.set(key, renamedTo);
+              if (dir !== workingDir) continue;
+              workingDirs.set(key, renamedTo);
+              const manager = sessionManagers.get(key);
+              if (manager) {
+                await manager.migrateBaseDir(renamedTo);
+              }
             }
             workingDirInodes.delete(workingDir);
             workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
