@@ -539,6 +539,11 @@ export class PhotonLoader {
         return await import(`${fileUrl}?t=${Date.now()}`);
       };
 
+      // Set PHOTON_DIR so photon modules that read process.env.PHOTON_DIR
+      // at load time (module-level constants) pick up the correct working dir.
+      const prevPhotonDir = process.env.PHOTON_DIR;
+      process.env.PHOTON_DIR = this.baseDir;
+
       try {
         module = await importModule();
       } catch (error) {
@@ -555,6 +560,13 @@ export class PhotonLoader {
           module = await importModule();
         } else {
           throw error;
+        }
+      } finally {
+        // Restore previous PHOTON_DIR value
+        if (prevPhotonDir === undefined) {
+          delete process.env.PHOTON_DIR;
+        } else {
+          process.env.PHOTON_DIR = prevPhotonDir;
         }
       }
 
@@ -575,10 +587,13 @@ export class PhotonLoader {
         this.log(`🔧 Discovered ${module.middleware.length} custom middleware for ${name}`);
       }
 
-      // Resolve all constructor injections using type-based detection
+      // Resolve all constructor injections using type-based detection.
+      // Use the file-name-derived mcpName (e.g. 'kanban') for state path resolution,
+      // not the class-name-derived name (e.g. 'kanban-photon'), so that state files
+      // written by the daemon (keyed by file name) are correctly found.
       const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
         tsContent || '',
-        name,
+        mcpName || name,
         absolutePath,
         options?.instanceName ?? ''
       );
