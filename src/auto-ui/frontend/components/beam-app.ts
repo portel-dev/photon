@@ -132,6 +132,10 @@ export class BeamApp extends LitElement {
         display: none;
       }
 
+      :host(.focus-mode) context-bar {
+        display: none;
+      }
+
       .main-area {
         flex: 1;
         position: relative;
