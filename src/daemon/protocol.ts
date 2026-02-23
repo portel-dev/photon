@@ -25,7 +25,8 @@ export interface DaemonRequest {
     | 'unschedule'
     | 'list_jobs'
     | 'list_locks'
-    | 'get_events_since';
+    | 'get_events_since'
+    | 'clear_instances';
   id: string;
   /** Photon name for routing to correct SessionManager (required for multi-photon daemon) */
   photonName?: string;
@@ -157,6 +158,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'list_jobs',
     'list_locks',
     'get_events_since',
+    'clear_instances',
   ];
   if (!validTypes.includes(req.type as string)) return false;
 

@@ -43,7 +43,7 @@ import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
 import { PhotonDocExtractor } from '../photon-doc-extractor.js';
 import { TemplateManager } from '../template-manager.js';
-import { subscribeChannel, pingDaemon } from '../daemon/client.js';
+import { subscribeChannel, pingDaemon, clearInstances } from '../daemon/client.js';
 import { ensureDaemon } from '../daemon/manager.js';
 import {
   SchemaExtractor,
@@ -3565,6 +3565,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   if (statefulPhotons.length > 0) {
     try {
       await ensureDaemon();
+
+      // If the state directory doesn't exist yet, this is a fresh workingDir.
+      // Clear any stale in-memory instances from the daemon so deleted state isn't replayed.
+      const stateDir = path.join(workingDir, 'state');
+      if (!existsSync(stateDir)) {
+        for (const photon of statefulPhotons) {
+          await clearInstances(photon.name, workingDir);
+        }
+      }
+
       for (const photon of statefulPhotons) {
         const photonName = photon.name;
         const channel = `${photonName}:state-changed`;
