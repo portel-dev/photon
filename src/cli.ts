@@ -3158,12 +3158,15 @@ function preprocessArgs(): PreprocessResult {
         }
       }
 
-      const { MarketplaceManager } = await import('./marketplace-manager.js');
-      const manager = new MarketplaceManager(undefined, workingDir);
-      await manager.initialize();
-
-      const { alreadyInstalled } = await manager.fetchAndInstallFromRef(githubRef, workingDir);
-      if (!alreadyInstalled) {
+      // Fast path: photon already installed — skip all marketplace I/O.
+      // This makes repeated invocations (e.g. MCP server restarts) essentially free.
+      const { existsSync } = await import('fs');
+      const photonFile = path.join(workingDir, `${photonName}.photon.ts`);
+      if (!existsSync(photonFile)) {
+        const { MarketplaceManager } = await import('./marketplace-manager.js');
+        const manager = new MarketplaceManager(undefined, workingDir);
+        await manager.initialize();
+        await manager.fetchAndInstallFromRef(githubRef, workingDir);
         console.error(`✅ Installed ${photonName} from ${githubRef}`);
       }
     } catch (err) {
