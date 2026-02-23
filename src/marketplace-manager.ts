@@ -1090,7 +1090,7 @@ export class MarketplaceManager {
     metadata: PhotonMetadata,
     combinedHash: string
   ): Promise<void> {
-    const localMetadata = await readLocalMetadata();
+    const localMetadata = await this.readMetadata();
 
     localMetadata.photons[fileName] = {
       marketplace: marketplace.name,
@@ -1100,15 +1100,32 @@ export class MarketplaceManager {
       installedAt: new Date().toISOString(),
     };
 
-    await writeLocalMetadata(localMetadata);
+    await this.writeMetadata(localMetadata);
   }
 
   /**
    * Get local installation metadata for a Photon
    */
   async getPhotonInstallMetadata(fileName: string): Promise<PhotonInstallMetadata | null> {
-    const localMetadata = await readLocalMetadata();
+    const localMetadata = await this.readMetadata();
     return localMetadata.photons[fileName] || null;
+  }
+
+  private async readMetadata(): Promise<LocalMetadata> {
+    try {
+      if (existsSync(this.metadataFile)) {
+        const data = await fs.readFile(this.metadataFile, 'utf-8');
+        return JSON.parse(data);
+      }
+    } catch {
+      /* corrupted — start fresh */
+    }
+    return { photons: {} };
+  }
+
+  private async writeMetadata(metadata: LocalMetadata): Promise<void> {
+    await fs.mkdir(this.configDir, { recursive: true });
+    await fs.writeFile(this.metadataFile, JSON.stringify(metadata, null, 2), 'utf-8');
   }
 
   /**
@@ -1678,7 +1695,20 @@ export class MarketplaceManager {
     const manifest = await this.getCachedManifest(marketplace.name);
     const metadata = manifest?.photons.find((p) => p.name === photonName);
 
-    await this.installPhoton({ content, marketplace, metadata }, photonName, workingDir);
+    // When no manifest exists, use a minimal synthetic metadata so that
+    // .metadata.json is always written (enables update detection via hash comparison)
+    const effectiveMetadata: PhotonMetadata = metadata ?? {
+      name: photonName,
+      version: 'unknown',
+      description: '',
+      source: rawUrl,
+    };
+
+    await this.installPhoton(
+      { content, marketplace, metadata: effectiveMetadata },
+      photonName,
+      workingDir
+    );
     return { photonName, alreadyInstalled: false };
   }
 
