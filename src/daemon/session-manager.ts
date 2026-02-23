@@ -157,6 +157,18 @@ export class SessionManager {
   }
 
   /**
+   * Migrate this session manager to a new workingDir (e.g. after a rename).
+   * Updates the loader's baseDir so all subsequent loadFile calls set
+   * PHOTON_DIR to the new path — photon module-level constants like STATE_DIR
+   * pick up the new location on the next fresh import.
+   */
+  async migrateBaseDir(newBaseDir: string): Promise<void> {
+    this.loader.baseDir = newBaseDir;
+    await this.clearInstances();
+    this.logger.info('Migrated baseDir', { photon: this.photonName, newBaseDir });
+  }
+
+  /**
    * Clear all cached instances and reload active sessions from disk.
    * Called when the workingDir is freshly created to avoid stale in-memory state.
    */

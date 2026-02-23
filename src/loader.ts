@@ -147,7 +147,7 @@ export class PhotonLoader {
   private photonMiddleware = new Map<string, MiddlewareDefinition[]>();
 
   /** Base directory for state/config/cache (defaults to ~/.photon) */
-  public readonly baseDir: string;
+  public baseDir: string;
 
   constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
     this.dependencyManager = new DependencyManager();
