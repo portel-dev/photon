@@ -2240,7 +2240,9 @@ initCmd
 
       if (shellType === 'zsh') {
         const functions = photonNames
-          .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+          .map(
+            (name) => `${name}() { photon \${PHOTON_DIR:+--dir="\$PHOTON_DIR"} cli ${name} "$@"; }`
+          )
           .join('\n');
 
         console.log(`${marker}
@@ -2250,8 +2252,9 @@ ${functions}
 
 # Fallback for newly installed photons (before shell restart)
 command_not_found_handler() {
-  if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
-    photon cli "$@"
+  local _pd="\${PHOTON_DIR:-$HOME/.photon}"
+  if [ -f "\$_pd/\$1.photon.ts" ] || [ -f "\$_pd/\$1.photon.js" ]; then
+    photon \${PHOTON_DIR:+--dir="\$PHOTON_DIR"} cli "$@"
     return $?
   fi
   echo "zsh: command not found: \$1" >&2
@@ -2376,7 +2379,9 @@ if (( $+functions[compdef] )); then
 fi`);
       } else if (shellType === 'bash') {
         const functions = photonNames
-          .map((name) => `${name}() { photon cli ${name} "$@"; }`)
+          .map(
+            (name) => `${name}() { photon \${PHOTON_DIR:+--dir="\$PHOTON_DIR"} cli ${name} "$@"; }`
+          )
           .join('\n');
 
         console.log(`${marker}
@@ -2386,8 +2391,9 @@ ${functions}
 
 # Fallback for newly installed photons (before shell restart)
 command_not_found_handle() {
-  if [ -f "$HOME/.photon/\$1.photon.ts" ] || [ -f "$HOME/.photon/\$1.photon.js" ]; then
-    photon cli "$@"
+  local _pd="\${PHOTON_DIR:-$HOME/.photon}"
+  if [ -f "\$_pd/\$1.photon.ts" ] || [ -f "\$_pd/\$1.photon.js" ]; then
+    photon \${PHOTON_DIR:+--dir="\$PHOTON_DIR"} cli "$@"
     return $?
   fi
   echo "bash: \$1: command not found" >&2
