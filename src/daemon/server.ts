@@ -744,6 +744,20 @@ async function handleRequest(
     return { type: 'result', id: request.id, success: true, data: { message: 'Shutting down' } };
   }
 
+  // Handle clear_instances request (called by Beam on fresh workingDir startup)
+  if (request.type === 'clear_instances') {
+    const photonName = request.photonName;
+    if (!photonName) {
+      return { type: 'error', id: request.id, error: 'photonName required for clear_instances' };
+    }
+    const key = compositeKey(photonName, request.workingDir);
+    const sessionManager = sessionManagers.get(key);
+    if (sessionManager) {
+      await sessionManager.clearInstances();
+    }
+    return { type: 'result', id: request.id, success: true, data: { cleared: !!sessionManager } };
+  }
+
   // Handle hot-reload request
   if (request.type === 'reload') {
     const photonName = request.photonName;

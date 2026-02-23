@@ -157,6 +157,29 @@ export class SessionManager {
   }
 
   /**
+   * Clear all cached instances and reload active sessions from disk.
+   * Called when the workingDir is freshly created to avoid stale in-memory state.
+   */
+  async clearInstances(): Promise<void> {
+    this.instances.clear();
+    for (const session of this.sessions.values()) {
+      try {
+        const newInstance = await this.loader.loadFile(this.photonPath, {
+          instanceName: session.instanceName || 'default',
+        });
+        session.instance = newInstance;
+        this.instances.set(session.instanceName || 'default', newInstance);
+      } catch (err) {
+        this.logger.error('Failed to reload instance after clear', {
+          sessionId: session.id,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+    this.logger.info('Cleared instance cache', { photon: this.photonName });
+  }
+
+  /**
    * Update a session's instance (used during hot-reload)
    * Returns true if session was found and updated
    */

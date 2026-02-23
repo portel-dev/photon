@@ -905,6 +905,53 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
  * Get events since a specific timestamp for a channel
  * Used for explicit delta sync when client has missed events
  */
+/**
+ * Clear cached instances for a photon in a given workingDir.
+ * Called by Beam when starting with a fresh workingDir to avoid stale in-memory state.
+ */
+export async function clearInstances(photonName: string, workingDir?: string): Promise<boolean> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `clearinst_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve) => {
+    const client = net.createConnection(socketPath);
+
+    const timeout = setTimeout(() => {
+      client.destroy();
+      resolve(false);
+    }, 5000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'clear_instances',
+        id: requestId,
+        photonName,
+        workingDir,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId) {
+          clearTimeout(timeout);
+          client.destroy();
+          resolve(response.success ?? true);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    });
+
+    client.on('error', () => {
+      clearTimeout(timeout);
+      client.destroy();
+      resolve(false); // Daemon not running — nothing to clear
+    });
+  });
+}
+
 export async function getEventsSince(
   photonName: string,
   channel: string,
