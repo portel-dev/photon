@@ -3104,6 +3104,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // File watcher for hot reload
   const watchers: FSWatcher[] = [];
   const pendingReloads = new Map<string, NodeJS.Timeout>();
+  const activeLoads = new Set<string>(); // Tracks photons currently being loaded to prevent duplicate pushes
 
   // Determine which photon a file change belongs to
   const getPhotonForPath = (changedPath: string): string | null => {
@@ -3140,212 +3141,63 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       setTimeout(async () => {
         pendingReloads.delete(photonName);
 
-        const photonIndex = photons.findIndex((p) => p.name === photonName);
-        const isNewPhoton = photonIndex === -1;
-        const photonPath = isNewPhoton
-          ? path.join(workingDir, `${photonName}.photon.ts`)
-          : photons[photonIndex].path;
-
-        // Handle file deletion - if file no longer exists and photon is in list, remove it
-        if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
-          logger.info(`🗑️ Photon file deleted: ${photonName}`);
-          photons.splice(photonIndex, 1);
-          photonMCPs.delete(photonName);
-          // Also remove from saved config
-          if (savedConfig.photons[photonName]) {
-            delete savedConfig.photons[photonName];
-            await saveConfig(savedConfig, workingDir);
-          }
-          broadcastPhotonChange();
-          broadcastToBeam('beam/photon-removed', { name: photonName });
-          return;
-        }
-
-        logger.info(
-          isNewPhoton
-            ? `✨ New photon detected: ${photonName}`
-            : `🔄 File change detected, reloading ${photonName}...`
-        );
-
-        // Auto-scaffold empty photon files with a starter template
-        if (isNewPhoton) {
-          try {
-            const rawContent = await fs.readFile(photonPath, 'utf-8');
-            if (rawContent.trim().length === 0) {
-              const className = photonName
-                .split(/[-_]/)
-                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join('');
-              const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
-              await fs.writeFile(photonPath, scaffold, 'utf-8');
-              logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
-              // The write triggers another watcher event which will load the scaffolded photon
-              return;
-            }
-          } catch {
-            // File read failed, continue with normal load attempt
-          }
-        }
-
-        // For new photons, check if configuration is needed first
-        if (isNewPhoton) {
-          const extractor = new SchemaExtractor();
-          let constructorParams: ConfigParam[] = [];
-
-          try {
-            const source = await fs.readFile(photonPath, 'utf-8');
-            const params = extractor.extractConstructorParams(source);
-            constructorParams = params
-              .filter((p: ConstructorParam) => p.isPrimitive)
-              .map((p: ConstructorParam) => ({
-                name: p.name,
-                envVar: toEnvVarName(photonName, p.name),
-                type: p.type,
-                isOptional: p.isOptional,
-                hasDefault: p.hasDefault,
-                defaultValue: p.defaultValue,
-              }));
-          } catch {
-            // Can't extract params, try to load anyway
-          }
-
-          // Check if any required params are missing
-          const missingRequired = constructorParams.filter(
-            (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
-          );
-
-          if (missingRequired.length > 0 && constructorParams.length > 0) {
-            // Add as unconfigured photon
-            const targetPhoton: UnconfiguredPhotonInfo = {
-              id: generatePhotonId(photonPath),
-              name: photonName,
-              path: photonPath,
-              configured: false,
-              requiredParams: constructorParams,
-              errorReason: 'missing-config',
-              errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
-            };
-            photons.push(targetPhoton);
-            broadcastPhotonChange();
-            logger.info(`⚙️ ${photonName} added (needs configuration)`);
-            return;
-          }
-        }
+        // Skip if already loading this photon (prevents duplicate pushes from race conditions)
+        if (activeLoads.has(photonName)) return;
+        activeLoads.add(photonName);
 
         try {
-          // Load or reload the photon
-          const mcp = isNewPhoton
-            ? await loader.loadFile(photonPath)
-            : await loader.reloadFile(photonPath);
-          if (!mcp.instance) throw new Error('Failed to create instance');
+          const photonIndex = photons.findIndex((p) => p.name === photonName);
+          const isNewPhoton = photonIndex === -1;
+          const photonPath = isNewPhoton
+            ? path.join(workingDir, `${photonName}.photon.ts`)
+            : photons[photonIndex].path;
 
-          photonMCPs.set(photonName, mcp);
-
-          // Re-extract schema - use extractAllFromSource to get both tools and templates
-          const extractor = new SchemaExtractor();
-          const reloadSource = await fs.readFile(photonPath, 'utf-8');
-          const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
-          (mcp as any).schemas = schemas; // Store schemas for result rendering
-
-          const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
-          const uiAssets = mcp.assets?.ui || [];
-          const methods: MethodInfo[] = schemas
-            .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-            .map((schema: any) => {
-              const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
-              return {
-                name: schema.name,
-                description: schema.description || '',
-                params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-                returns: { type: 'object' },
-                autorun: schema.autorun || false,
-                outputFormat: schema.outputFormat,
-                layoutHints: schema.layoutHints,
-                buttonLabel: schema.buttonLabel,
-                icon: schema.icon,
-                linkedUi: linkedAsset?.id,
-              };
-            });
-
-          // Add templates as methods
-          templates.forEach((template: any) => {
-            if (!lifecycleMethods.includes(template.name)) {
-              methods.push({
-                name: template.name,
-                description: template.description || '',
-                params: template.inputSchema || { type: 'object', properties: {}, required: [] },
-                returns: { type: 'object' },
-                isTemplate: true,
-                outputFormat: 'markdown',
-              });
+          // Handle file deletion - if file no longer exists and photon is in list, remove it
+          if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
+            logger.info(`🗑️ Photon file deleted: ${photonName}`);
+            photons.splice(photonIndex, 1);
+            photonMCPs.delete(photonName);
+            // Also remove from saved config
+            if (savedConfig.photons[photonName]) {
+              delete savedConfig.photons[photonName];
+              await saveConfig(savedConfig, workingDir);
             }
-          });
-
-          // Apply @visibility annotations
-          applyMethodVisibility(reloadSource, methods);
-
-          // Check if this is an App (has main() method with @ui)
-          const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
-
-          // Extract class metadata from source
-          const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
-
-          // Extract constructor params for reconfiguration support
-          let reloadConstructorParams: ConfigParam[] = [];
-          try {
-            const reloadParams = extractor.extractConstructorParams(reloadSource);
-            reloadConstructorParams = reloadParams
-              .filter((p: ConstructorParam) => p.isPrimitive)
-              .map((p: ConstructorParam) => ({
-                name: p.name,
-                envVar: toEnvVarName(photonName, p.name),
-                type: p.type,
-                isOptional: p.isOptional,
-                hasDefault: p.hasDefault,
-                defaultValue: p.defaultValue,
-              }));
-          } catch {
-            // Can't extract params
+            broadcastPhotonChange();
+            broadcastToBeam('beam/photon-removed', { name: photonName });
+            return;
           }
 
-          backfillEnvDefaults(mcp.instance, reloadConstructorParams);
+          logger.info(
+            isNewPhoton
+              ? `✨ New photon detected: ${photonName}`
+              : `🔄 File change detected, reloading ${photonName}...`
+          );
 
-          const isStateful = /@stateful\b/.test(reloadSource);
-          const reloadedPhoton: PhotonInfo = {
-            id: generatePhotonId(photonPath),
-            name: photonName,
-            path: photonPath,
-            configured: true,
-            methods,
-            isApp: !!mainMethod,
-            appEntry: mainMethod,
-            description: reloadClassMeta.description,
-            icon: reloadClassMeta.icon,
-            internal: reloadClassMeta.internal,
-            ...(isStateful && { stateful: true }),
-            ...(reloadConstructorParams.length > 0 && { requiredParams: reloadConstructorParams }),
-            ...(mcp.injectedPhotons &&
-              mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
-          };
-
+          // Auto-scaffold empty photon files with a starter template
           if (isNewPhoton) {
-            photons.push(reloadedPhoton);
-            broadcastPhotonChange();
-            logger.info(`✅ ${photonName} added`);
-          } else {
-            photons[photonIndex] = reloadedPhoton;
-            logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
-            broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
-            broadcastPhotonChange();
-            logger.info(`✅ ${photonName} hot reloaded`);
+            try {
+              const rawContent = await fs.readFile(photonPath, 'utf-8');
+              if (rawContent.trim().length === 0) {
+                const className = photonName
+                  .split(/[-_]/)
+                  .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                  .join('');
+                const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
+                await fs.writeFile(photonPath, scaffold, 'utf-8');
+                logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
+                // The write triggers another watcher event which will load the scaffolded photon
+                return;
+              }
+            } catch {
+              // File read failed, continue with normal load attempt
+            }
           }
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error);
 
-          // For new photons that fail to load, add as unconfigured
+          // For new photons, check if configuration is needed first
           if (isNewPhoton) {
             const extractor = new SchemaExtractor();
             let constructorParams: ConfigParam[] = [];
+
             try {
               const source = await fs.readFile(photonPath, 'utf-8');
               const params = extractor.extractConstructorParams(source);
@@ -3360,30 +3212,189 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                   defaultValue: p.defaultValue,
                 }));
             } catch {
-              // Ignore extraction errors
+              // Can't extract params, try to load anyway
             }
 
-            const targetPhoton: UnconfiguredPhotonInfo = {
+            // Check if any required params are missing
+            const missingRequired = constructorParams.filter(
+              (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+            );
+
+            if (missingRequired.length > 0 && constructorParams.length > 0) {
+              // Add as unconfigured photon
+              const targetPhoton: UnconfiguredPhotonInfo = {
+                id: generatePhotonId(photonPath),
+                name: photonName,
+                path: photonPath,
+                configured: false,
+                requiredParams: constructorParams,
+                errorReason: 'missing-config',
+                errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
+              };
+              photons.push(targetPhoton);
+              broadcastPhotonChange();
+              logger.info(`⚙️ ${photonName} added (needs configuration)`);
+              return;
+            }
+          }
+
+          try {
+            // Load or reload the photon
+            const mcp = isNewPhoton
+              ? await loader.loadFile(photonPath)
+              : await loader.reloadFile(photonPath);
+            if (!mcp.instance) throw new Error('Failed to create instance');
+
+            photonMCPs.set(photonName, mcp);
+
+            // Re-extract schema - use extractAllFromSource to get both tools and templates
+            const extractor = new SchemaExtractor();
+            const reloadSource = await fs.readFile(photonPath, 'utf-8');
+            const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
+            (mcp as any).schemas = schemas; // Store schemas for result rendering
+
+            const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+            const uiAssets = mcp.assets?.ui || [];
+            const methods: MethodInfo[] = schemas
+              .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+              .map((schema: any) => {
+                const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+                return {
+                  name: schema.name,
+                  description: schema.description || '',
+                  params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+                  returns: { type: 'object' },
+                  autorun: schema.autorun || false,
+                  outputFormat: schema.outputFormat,
+                  layoutHints: schema.layoutHints,
+                  buttonLabel: schema.buttonLabel,
+                  icon: schema.icon,
+                  linkedUi: linkedAsset?.id,
+                };
+              });
+
+            // Add templates as methods
+            templates.forEach((template: any) => {
+              if (!lifecycleMethods.includes(template.name)) {
+                methods.push({
+                  name: template.name,
+                  description: template.description || '',
+                  params: template.inputSchema || { type: 'object', properties: {}, required: [] },
+                  returns: { type: 'object' },
+                  isTemplate: true,
+                  outputFormat: 'markdown',
+                });
+              }
+            });
+
+            // Apply @visibility annotations
+            applyMethodVisibility(reloadSource, methods);
+
+            // Check if this is an App (has main() method with @ui)
+            const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+
+            // Extract class metadata from source
+            const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
+
+            // Extract constructor params for reconfiguration support
+            let reloadConstructorParams: ConfigParam[] = [];
+            try {
+              const reloadParams = extractor.extractConstructorParams(reloadSource);
+              reloadConstructorParams = reloadParams
+                .filter((p: ConstructorParam) => p.isPrimitive)
+                .map((p: ConstructorParam) => ({
+                  name: p.name,
+                  envVar: toEnvVarName(photonName, p.name),
+                  type: p.type,
+                  isOptional: p.isOptional,
+                  hasDefault: p.hasDefault,
+                  defaultValue: p.defaultValue,
+                }));
+            } catch {
+              // Can't extract params
+            }
+
+            backfillEnvDefaults(mcp.instance, reloadConstructorParams);
+
+            const isStateful = /@stateful\b/.test(reloadSource);
+            const reloadedPhoton: PhotonInfo = {
               id: generatePhotonId(photonPath),
               name: photonName,
               path: photonPath,
-              configured: false,
-              requiredParams: constructorParams,
-              errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
-              errorMessage: errorMsg.slice(0, 200),
+              configured: true,
+              methods,
+              isApp: !!mainMethod,
+              appEntry: mainMethod,
+              description: reloadClassMeta.description,
+              icon: reloadClassMeta.icon,
+              internal: reloadClassMeta.internal,
+              ...(isStateful && { stateful: true }),
+              ...(reloadConstructorParams.length > 0 && {
+                requiredParams: reloadConstructorParams,
+              }),
+              ...(mcp.injectedPhotons &&
+                mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
             };
-            photons.push(targetPhoton);
-            broadcastPhotonChange();
-            logger.info(`⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`);
-            return;
-          }
 
-          logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
-          broadcastToBeam('beam/error', {
-            type: 'hot-reload-error',
-            photon: photonName,
-            message: errorMsg.slice(0, 200),
-          });
+            if (isNewPhoton) {
+              photons.push(reloadedPhoton);
+              broadcastPhotonChange();
+              logger.info(`✅ ${photonName} added`);
+            } else {
+              photons[photonIndex] = reloadedPhoton;
+              logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
+              broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
+              broadcastPhotonChange();
+              logger.info(`✅ ${photonName} hot reloaded`);
+            }
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+
+            // For new photons that fail to load, add as unconfigured
+            if (isNewPhoton) {
+              const extractor = new SchemaExtractor();
+              let constructorParams: ConfigParam[] = [];
+              try {
+                const source = await fs.readFile(photonPath, 'utf-8');
+                const params = extractor.extractConstructorParams(source);
+                constructorParams = params
+                  .filter((p: ConstructorParam) => p.isPrimitive)
+                  .map((p: ConstructorParam) => ({
+                    name: p.name,
+                    envVar: toEnvVarName(photonName, p.name),
+                    type: p.type,
+                    isOptional: p.isOptional,
+                    hasDefault: p.hasDefault,
+                    defaultValue: p.defaultValue,
+                  }));
+              } catch {
+                // Ignore extraction errors
+              }
+
+              const targetPhoton: UnconfiguredPhotonInfo = {
+                id: generatePhotonId(photonPath),
+                name: photonName,
+                path: photonPath,
+                configured: false,
+                requiredParams: constructorParams,
+                errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
+                errorMessage: errorMsg.slice(0, 200),
+              };
+              photons.push(targetPhoton);
+              broadcastPhotonChange();
+              logger.info(`⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`);
+              return;
+            }
+
+            logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
+            broadcastToBeam('beam/error', {
+              type: 'hot-reload-error',
+              photon: photonName,
+              message: errorMsg.slice(0, 200),
+            });
+          }
+        } finally {
+          activeLoads.delete(photonName);
         }
       }, 100)
     );
