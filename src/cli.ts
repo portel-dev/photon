@@ -3070,49 +3070,111 @@ program.on('command:*', async (operands) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // If the first argument is not a reserved command, treat it as a photon name
 // This enables: `photon lg-remote volume +5` instead of `photon cli lg-remote volume +5`
+//
+// GitHub ref support: owner/repo or owner/repo/photon-name
+// Automatically installs the photon before dispatch:
+//   photon arul/photons/kanban board → install kanban → photon cli kanban board
+//   npx @portel/photon arul/photons/kanban --mcp → install → MCP stdio mode
 
-function preprocessArgs(): string[] {
+/**
+ * Detect if an arg looks like a GitHub shorthand ref (owner/repo or owner/repo/photon-name).
+ * Photon names are plain identifiers — no slashes — so any slash means a remote ref.
+ */
+function parseGitHubRef(arg: string): { owner: string; repo: string; photonName: string } | null {
+  const parts = arg.split('/');
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.some((p) => !p || !/^[a-zA-Z0-9._-]+$/.test(p))) return null;
+  const [owner, repo, photonName] = parts;
+  return { owner, repo, photonName: photonName || repo };
+}
+
+interface PreprocessResult {
+  args: string[];
+  githubRef: string | null;
+  photonName: string | null;
+}
+
+function preprocessArgs(): PreprocessResult {
   const args = process.argv.slice(2);
 
   // No args - launch Beam (the primary interface)
-  // Use `photon -h` or `photon --help` for help
   if (args.length === 0) {
-    return [...process.argv, 'beam'];
+    return { args: [...process.argv, 'beam'], githubRef: null, photonName: null };
   }
 
   // Find the first non-flag argument (skip values of flags that take a parameter)
   const flagsWithValues = ['--dir', '--log-level'];
   const firstArgIndex = args.findIndex((arg, i) => {
     if (arg.startsWith('-')) return false;
-    // Skip values of preceding flags (e.g., "." in "--dir .")
     if (i > 0 && flagsWithValues.includes(args[i - 1])) return false;
     return true;
   });
   if (firstArgIndex === -1) {
-    // No subcommand — only flags present (e.g., --dir=. --log-level debug)
-    // photon --help / -h / --version / -V → show program help/version
     if (args.some((a) => a === '--help' || a === '-h' || a === '--version' || a === '-V')) {
-      return process.argv;
+      return { args: process.argv, githubRef: null, photonName: null };
     }
-    // Otherwise launch Beam (e.g., photon --dir=.)
-    return [...process.argv, 'beam'];
+    return { args: [...process.argv, 'beam'], githubRef: null, photonName: null };
   }
 
   const firstArg = args[firstArgIndex];
 
   // If first arg is a reserved command, let commander handle normally
   if (RESERVED_COMMANDS.includes(firstArg)) {
-    return process.argv;
+    return { args: process.argv, githubRef: null, photonName: null };
   }
 
-  // First arg looks like a photon name - inject 'cli' command
+  // Check if it's a GitHub ref (owner/repo or owner/repo/photon-name)
+  const ref = parseGitHubRef(firstArg);
+  if (ref) {
+    // Replace the ref with the resolved photon name, inject 'cli' before it
+    const newArgv = [...process.argv];
+    newArgv[2 + firstArgIndex] = ref.photonName;
+    newArgv.splice(2 + firstArgIndex, 0, 'cli');
+    return { args: newArgv, githubRef: firstArg, photonName: ref.photonName };
+  }
+
+  // Regular photon name - inject 'cli' command
   // photon lg-remote volume +5 → photon cli lg-remote volume +5
   const newArgs = [...process.argv];
   newArgs.splice(2 + firstArgIndex, 0, 'cli');
-  return newArgs;
+  return { args: newArgs, githubRef: null, photonName: null };
 }
 
-program.parse(preprocessArgs());
+(async () => {
+  const { args, githubRef, photonName } = preprocessArgs();
+
+  if (githubRef && photonName) {
+    try {
+      // Extract --dir from raw args before commander parses
+      const rawArgs = process.argv.slice(2);
+      let workingDir = DEFAULT_WORKING_DIR;
+      const dirIdx = rawArgs.findIndex((a) => a === '--dir' || a.startsWith('--dir='));
+      if (dirIdx !== -1) {
+        const dirArg = rawArgs[dirIdx];
+        if (dirArg.startsWith('--dir=')) {
+          workingDir = path.resolve(dirArg.slice(6));
+        } else if (rawArgs[dirIdx + 1]) {
+          workingDir = path.resolve(rawArgs[dirIdx + 1]);
+        }
+      }
+
+      const { MarketplaceManager } = await import('./marketplace-manager.js');
+      const manager = new MarketplaceManager(undefined, workingDir);
+      await manager.initialize();
+
+      const { alreadyInstalled } = await manager.fetchAndInstallFromRef(githubRef, workingDir);
+      if (!alreadyInstalled) {
+        console.error(`✅ Installed ${photonName} from ${githubRef}`);
+      }
+    } catch (err) {
+      const { printError } = await import('./cli-formatter.js');
+      printError(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  }
+
+  program.parse(args);
+})();
 
 /**
  * Inline template fallback
