@@ -160,9 +160,42 @@ export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
 }
 
 /**
- * Ensure daemon is running, start if needed
+ * Check if the daemon binary has been updated since the daemon started.
+ * Uses the PID file mtime as a proxy for daemon start time —
+ * if server.js is newer than the PID file, the binary was rebuilt/reinstalled.
+ */
+function isDaemonBinaryStale(): boolean {
+  if (!fs.existsSync(GLOBAL_PID_FILE)) return false;
+
+  const daemonScriptSrc = path.join(__dirname, 'server.js');
+  const daemonScript = fs.existsSync(daemonScriptSrc)
+    ? daemonScriptSrc
+    : daemonScriptSrc.replace(`${path.sep}src${path.sep}`, `${path.sep}dist${path.sep}`);
+
+  if (!fs.existsSync(daemonScript)) return false;
+
+  try {
+    const daemonStartedAt = fs.statSync(GLOBAL_PID_FILE).mtimeMs;
+    const binaryBuiltAt = fs.statSync(daemonScript).mtimeMs;
+    return binaryBuiltAt > daemonStartedAt;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure daemon is running, start if needed.
+ * Auto-restarts if the daemon binary has been updated since the daemon started.
  */
 export async function ensureDaemon(quiet: boolean = true): Promise<void> {
+  if (isGlobalDaemonRunning() && isDaemonBinaryStale()) {
+    if (!quiet) {
+      logger.info('Daemon binary updated, restarting...');
+    }
+    await restartGlobalDaemon();
+    return;
+  }
+
   if (!isGlobalDaemonRunning()) {
     await startGlobalDaemon(quiet);
   }
