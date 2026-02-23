@@ -1287,11 +1287,12 @@ program
 // Beam command: interactive UI for all photons
 program
   .command('beam', { hidden: true })
+  .argument('[photon]', 'Photon to open in full-width focus view')
   .option('-p, --port <number>', 'Port to start from (auto-finds available)', '3000')
   .option('-o, --open', 'Auto-open browser after starting')
   .option('--no-open', 'Do not auto-open browser')
   .description('Launch Photon Beam - interactive control panel for all your photons')
-  .action(async (options: any, command: Command) => {
+  .action(async (photon: string | undefined, options: any, command: Command) => {
     try {
       const workingDir = path.resolve(program.opts().dir || DEFAULT_WORKING_DIR);
       process.env.PHOTON_DIR = workingDir;
@@ -1308,11 +1309,13 @@ program
       const { startBeam } = await import('./auto-ui/beam.js');
       await startBeam(workingDir, port);
 
-      // Auto-open browser if requested
-      // Use actual bound port from BEAM_PORT env var (set by startBeam after binding)
-      if (options.open) {
+      // Auto-open browser — always when a photon is specified (focus mode), or when --open flag is set
+      if (photon || options.open) {
         const actualPort = process.env.BEAM_PORT || port;
-        const url = `http://localhost:${actualPort}`;
+        // Focus mode: hash routes to the photon, ?focus=1 hides sidebar for full-width view
+        const url = photon
+          ? `http://localhost:${actualPort}/#${photon}?focus=1`
+          : `http://localhost:${actualPort}`;
         const { exec } = await import('child_process');
         const openCmd =
           process.platform === 'darwin'
@@ -1320,7 +1323,7 @@ program
             : process.platform === 'win32'
               ? 'start'
               : 'xdg-open';
-        exec(`${openCmd} ${url}`, (err) => {
+        exec(`${openCmd} "${url}"`, (err) => {
           if (err) logger.debug(`Could not auto-open browser: ${err.message}`);
         });
       }
@@ -3123,21 +3126,27 @@ function preprocessArgs(): PreprocessResult {
     return { args: process.argv, githubRef: null, photonName: null };
   }
 
+  // Check whether there are additional positional args after the photon name (method + args)
+  // If so → CLI mode. If bare name only → beam focus mode.
+  const remainingArgs = args.slice(firstArgIndex + 1);
+  const hasMethodArgs = remainingArgs.some((a) => !a.startsWith('-'));
+
   // Check if it's a GitHub ref (owner/repo or owner/repo/photon-name)
   const ref = parseGitHubRef(firstArg);
   if (ref) {
-    // Replace the ref with the resolved photon name, inject 'cli' before it
     const newArgv = [...process.argv];
     newArgv[2 + firstArgIndex] = ref.photonName;
-    newArgv.splice(2 + firstArgIndex, 0, 'cli');
+    // With method args → CLI. Bare ref → beam (focus on photon)
+    newArgv.splice(2 + firstArgIndex, 0, hasMethodArgs ? 'cli' : 'beam');
     return { args: newArgv, githubRef: firstArg, photonName: ref.photonName };
   }
 
-  // Regular photon name - inject 'cli' command
-  // photon lg-remote volume +5 → photon cli lg-remote volume +5
+  // Regular photon name
+  // With method args → CLI (e.g. photon cli lg-remote volume +5)
+  // Bare name → beam focused on photon (e.g. photon beam connect-four)
   const newArgs = [...process.argv];
-  newArgs.splice(2 + firstArgIndex, 0, 'cli');
-  return { args: newArgs, githubRef: null, photonName: null };
+  newArgs.splice(2 + firstArgIndex, 0, hasMethodArgs ? 'cli' : 'beam');
+  return { args: newArgs, githubRef: null, photonName: hasMethodArgs ? null : firstArg };
 }
 
 (async () => {

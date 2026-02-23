@@ -124,6 +124,10 @@ export class BeamApp extends LitElement {
         flex-direction: column;
       }
 
+      :host(.focus-mode) .sidebar-area {
+        display: none;
+      }
+
       .main-area {
         flex: 1;
         position: relative;
@@ -2234,7 +2238,12 @@ export class BeamApp extends LitElement {
     let sharedParams: Record<string, any> = {};
     if (queryPart) {
       const params = new URLSearchParams(queryPart);
+      // Focus mode: hide sidebar and expand main area to full width
+      if (params.has('focus')) {
+        this.classList.add('focus-mode');
+      }
       for (const [key, value] of params) {
+        if (key === 'focus') continue; // UI mode flag, not a shared param
         // Try to parse JSON values (objects, arrays, numbers, booleans)
         try {
           sharedParams[key] = JSON.parse(value);
