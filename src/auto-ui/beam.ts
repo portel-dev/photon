@@ -881,11 +881,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         // TTY: show with carriage return for updates, mark as shown
         originalStderrWrite(`\r${status.padEnd(120)}`);
         showedMainLine = true;
-      } else {
-        // Non-TTY: print once
-        originalLog(`${status}`);
-        showedMainLine = true;
       }
+      // Non-TTY: defer until isReady=true so the ready signal comes after photons are loaded
     } else if (!isReady && url && showedMainLine && isTTY) {
       // Already shown, just update on same line in TTY
       originalStderrWrite(`\r${status.padEnd(120)}`);
