@@ -1615,6 +1615,74 @@ export class MarketplaceManager {
   }
 
   /**
+   * Resolve and install a photon from a GitHub shorthand reference.
+   * Format: owner/repo  (photon name = repo name)
+   *      or owner/repo/photon-name
+   *
+   * - Adds the marketplace to config (idempotent)
+   * - Fetches and installs the photon to workingDir
+   * - If already installed, skips fetch
+   * - Returns the resolved photon name
+   */
+  async fetchAndInstallFromRef(
+    ref: string,
+    workingDir: string
+  ): Promise<{ photonName: string; alreadyInstalled: boolean }> {
+    const parts = ref.split('/');
+    let owner: string, repo: string, photonName: string;
+
+    if (parts.length === 2) {
+      [owner, repo] = parts;
+      photonName = repo;
+    } else if (parts.length === 3) {
+      [owner, repo, photonName] = parts;
+    } else {
+      throw new Error(
+        `Invalid photon reference: ${ref}. Expected owner/repo or owner/repo/photon-name`
+      );
+    }
+
+    const photonFile = path.join(workingDir, `${photonName}.photon.ts`);
+
+    // Already installed — skip fetch
+    if (existsSync(photonFile)) {
+      return { photonName, alreadyInstalled: true };
+    }
+
+    // Add marketplace (idempotent — skips if already added)
+    const repoShorthand = `${owner}/${repo}`;
+    const { marketplace: marketplaceInfo } = await this.add(repoShorthand);
+
+    // Fetch photon content directly from GitHub raw
+    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${photonName}.photon.ts`;
+    let content: string;
+    try {
+      const response = await fetch(rawUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      content = await response.text();
+    } catch (err) {
+      throw new Error(
+        `Could not fetch photon '${photonName}' from ${repoShorthand}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Try to get manifest metadata (best-effort)
+    const marketplace = this.get(marketplaceInfo.name);
+    if (!marketplace) throw new Error(`Marketplace not found after add: ${marketplaceInfo.name}`);
+
+    await this.updateMarketplaceCache(marketplace.name).catch(() => {
+      /* non-fatal */
+    });
+    const manifest = await this.getCachedManifest(marketplace.name);
+    const metadata = manifest?.photons.find((p) => p.name === photonName);
+
+    await this.installPhoton({ content, marketplace, metadata }, photonName, workingDir);
+    return { photonName, alreadyInstalled: false };
+  }
+
+  /**
    * Compare two semver versions
    * Returns: positive if v1 > v2, negative if v1 < v2, 0 if equal
    */
