@@ -211,7 +211,8 @@ export class FilePicker extends LitElement {
           class="${this.hasError ? 'error' : ''}"
           .value=${this.value}
           @input=${this._handleInput}
-          placeholder="${this.placeholder || '/path/to/file'}"
+          placeholder="${this.placeholder ||
+          (this.mode === 'directory' ? '/path/to/folder' : '/path/to/file')}"
         />
         <button
           class="btn-secondary"
