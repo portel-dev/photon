@@ -2173,6 +2173,83 @@ program
     }
   });
 
+// Daemon command group: manage the background daemon process
+const daemonCmd = program.command('daemon').description('Manage the Photon background daemon');
+
+daemonCmd
+  .command('start')
+  .description('Start the daemon (no-op if already running)')
+  .action(async () => {
+    try {
+      const { ensureDaemon, isGlobalDaemonRunning } = await import('./daemon/manager.js');
+      if (isGlobalDaemonRunning()) {
+        printInfo('Daemon is already running.');
+        return;
+      }
+      await ensureDaemon(false);
+      printSuccess('Daemon started.');
+    } catch (error) {
+      printError(`Failed to start daemon: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+daemonCmd
+  .command('stop')
+  .description('Stop the running daemon')
+  .action(async () => {
+    try {
+      const { stopGlobalDaemon, isGlobalDaemonRunning } = await import('./daemon/manager.js');
+      if (!isGlobalDaemonRunning()) {
+        printInfo('Daemon is not running.');
+        return;
+      }
+      stopGlobalDaemon();
+      printSuccess('Daemon stopped.');
+    } catch (error) {
+      printError(`Failed to stop daemon: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+daemonCmd
+  .command('restart')
+  .description('Restart the daemon')
+  .action(async () => {
+    try {
+      const { restartGlobalDaemon } = await import('./daemon/manager.js');
+      await restartGlobalDaemon();
+      printSuccess('Daemon restarted.');
+    } catch (error) {
+      printError(`Failed to restart daemon: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+daemonCmd
+  .command('status')
+  .description('Show whether the daemon is running')
+  .action(async () => {
+    try {
+      const { isGlobalDaemonRunning, GLOBAL_PID_FILE, GLOBAL_LOG_FILE } =
+        await import('./daemon/manager.js');
+      const running = isGlobalDaemonRunning();
+      if (running) {
+        const { readFileSync, existsSync } = await import('fs');
+        const pid = existsSync(GLOBAL_PID_FILE)
+          ? readFileSync(GLOBAL_PID_FILE, 'utf-8').trim()
+          : 'unknown';
+        printSuccess(`Daemon is running (PID ${pid})`);
+        console.log(`  Log: ${GLOBAL_LOG_FILE}`);
+      } else {
+        printInfo('Daemon is not running.');
+      }
+    } catch (error) {
+      printError(`Failed to check daemon status: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
 // Init command group: setup and shell integration
 const initCmd = program.command('init').description('Setup and shell integration');
 
@@ -2911,6 +2988,7 @@ const RESERVED_COMMANDS = [
   'doctor',
   'clear-cache',
   'clean',
+  'daemon',
   // Instance/env
   'use',
   'instances',
