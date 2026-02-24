@@ -311,8 +311,10 @@ export async function subscribeChannel(
             if (response.type === 'error' && response.id === subscribeId) {
               reject(new Error(response.error || 'Subscription failed'));
             }
-          } catch {
-            // Ignore parse errors for partial messages
+          } catch (e) {
+            // Lines are fully buffered (split on '\n'), so a parse error here
+            // indicates actual protocol corruption — log it.
+            logger.warn('Failed to parse daemon channel message', { error: getErrorMessage(e) });
           }
         }
       });
@@ -321,9 +323,9 @@ export async function subscribeChannel(
         if (!subscribed) {
           if (options?.reconnect && !cancelled) {
             // Initial connection failed — retry (e.g. daemon not running yet)
-            resolve((() => {
+            resolve(() => {
               cancelled = true;
-            }) as any);
+            });
             scheduleReconnect();
           } else {
             reject(new Error(`Connection error: ${getErrorMessage(error)}`));
@@ -336,9 +338,9 @@ export async function subscribeChannel(
       client.on('end', () => {
         if (!subscribed) {
           if (options?.reconnect && !cancelled) {
-            resolve((() => {
+            resolve(() => {
               cancelled = true;
-            }) as any);
+            });
             scheduleReconnect();
           } else {
             reject(new Error('Connection closed before subscription confirmed'));
@@ -374,7 +376,10 @@ export async function subscribeChannel(
         reconnectAttempts = 0;
         logger.info(`Reconnected subscription for ${channel}`);
         options?.onReconnect?.();
-      } catch {
+      } catch (e) {
+        logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
+          error: getErrorMessage(e),
+        });
         if (!cancelled) scheduleReconnect();
       }
     }, delay);
@@ -428,8 +433,8 @@ export async function publishToChannel(
             reject(new Error(response.error || 'Publish failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -488,8 +493,8 @@ export async function acquireLock(
             reject(new Error(response.error || 'Lock failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -546,8 +551,8 @@ export async function releaseLock(
             reject(new Error(response.error || 'Unlock failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -598,8 +603,8 @@ export async function listLocks(
             reject(new Error(response.error || 'List locks failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -659,8 +664,8 @@ export async function scheduleJob(
             reject(new Error(response.error || 'Schedule failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -710,8 +715,8 @@ export async function unscheduleJob(photonName: string, jobId: string): Promise<
             reject(new Error(response.error || 'Unschedule failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -769,8 +774,8 @@ export async function listJobs(photonName: string): Promise<
             reject(new Error(response.error || 'List jobs failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -835,8 +840,8 @@ export async function reloadDaemon(
             resolve({ success: false, error: response.error || 'Reload failed' });
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -939,8 +944,8 @@ export async function clearInstances(photonName: string, workingDir?: string): P
           client.destroy();
           resolve(response.success ?? true);
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 
@@ -999,8 +1004,8 @@ export async function getEventsSince(
             reject(new Error(response.error || 'Get events failed'));
           }
         }
-      } catch {
-        // Ignore parse errors
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
       }
     });
 

@@ -3726,10 +3726,16 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           handleFileChange(photonName);
         }
       });
-      photonWatcher.on('error', () => {});
+      photonWatcher.on('error', (e) => {
+        logger.debug('File watcher error', { photon: photonName, error: getErrorMessage(e) });
+      });
       watchers.push(photonWatcher);
-    } catch {
-      // Ignore errors
+    } catch (e) {
+      // watch() throws if the path doesn't exist yet — photon may still be installing
+      logger.debug('Could not watch photon file', {
+        photon: photonName,
+        error: getErrorMessage(e),
+      });
     }
 
     const assetFolder = path.join(photonDir, photonName);
