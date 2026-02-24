@@ -8,3 +8,4 @@
 
 export { LoadingGate } from './loading-gate.js';
 export { DedupMap } from './dedup-map.js';
+export { withTimeout } from './with-timeout.js';

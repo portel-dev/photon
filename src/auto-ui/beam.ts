@@ -29,18 +29,7 @@ function generatePhotonId(photonPath: string): string {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Race a promise against a timeout. Clears the timer when the main promise settles. */
-async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}
+import { withTimeout } from '../async/index.js';
 // WebSocket removed - now using MCP Streamable HTTP (SSE) only
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
@@ -72,7 +61,6 @@ import {
   broadcastNotification,
   broadcastToBeam,
   sendToSession,
-  requestExternalElicitation,
 } from './streamable-http-transport.js';
 // MCPServer type removed - no longer needed for WebSocket transport
 import type {
@@ -88,16 +76,9 @@ import type {
   ReloadRequest,
   RemoveRequest,
   ExternalMCPInfo,
-  MCPServerConfig,
 } from './types.js';
-import { SDKMCPClientFactory, type MCPConfig } from '@portel/photon-core';
 import { getBundledPhotonPath, BEAM_BUNDLED_PHOTONS } from '../shared-utils.js';
-// SDK imports for direct resource access (transport wrapper doesn't expose these yet)
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
@@ -121,6 +102,11 @@ import { SubscriptionManager } from './beam/subscription.js';
 import { handleMarketplaceRoutes } from './beam/routes/api-marketplace.js';
 import { handleBrowseRoutes } from './beam/routes/api-browse.js';
 import { handleConfigRoutes } from './beam/routes/api-config.js';
+import {
+  loadExternalMCPs as loadExternalMCPsFromModule,
+  reconnectExternalMCP as reconnectExternalMCPFromModule,
+  generateExternalMCPId,
+} from './beam/external-mcp.js';
 export type { PhotonConfig } from './beam/types.js';
 export type { BeamState } from './beam/types.js';
 
@@ -180,446 +166,20 @@ const getConfigFilePath = getConfigFilePathFromModule;
 // PhotonConfig type imported from beam/types.ts
 type PhotonConfig = import('./beam/types.js').PhotonConfig;
 
-// ════════════════════════════════════════════════════════════════════════════════
-// EXTERNAL MCP STATE (module-level for MCP transport access)
-// ════════════════════════════════════════════════════════════════════════════════
-
-/** External MCP servers loaded from config */
+// Module-level state for external MCPs (shared with transport handler)
 const externalMCPs: ExternalMCPInfo[] = [];
-
-/** Active MCP client instances for external MCPs */
 const externalMCPClients = new Map<string, any>();
-
-/** Direct SDK clients for resource access (listResources, readResource) */
 const externalMCPSDKClients = new Map<string, Client>();
-
-/**
- * Generate a unique ID for an external MCP based on its name
- */
-function generateExternalMCPId(name: string): string {
-  return createHash('sha256').update(`external:${name}`).digest('hex').slice(0, 12);
-}
 
 // Delegate to extracted module
 const prettifyToolName = prettifyToolNameFromModule;
 
-/**
- * Create an HTTP transport for a URL-based MCP.
- * Tries Streamable HTTP first; falls back to legacy SSE.
- */
-async function connectHTTPClient(url: string, mcpName: string): Promise<Client> {
-  const sdkClient = new Client(
-    { name: 'beam-mcp-client', version: '1.0.0' },
-    {
-      capabilities: {
-        elicitation: {}, // Declare elicitation support
-        experimental: {
-          ui: {}, // Request SEP-1865 format for MCP Apps
-        },
-      },
-    }
-  );
-
-  // Set up elicitation handler
-  sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const params = request.params as any;
-    const result = await requestExternalElicitation(mcpName, {
-      mode: params.mode as 'form' | 'url',
-      message: params.message,
-      requestedSchema: params.requestedSchema,
-      url: params.url,
-    });
-    return result;
-  });
-
-  try {
-    const transport = new StreamableHTTPClientTransport(new URL(url));
-    const connectPromise = sdkClient.connect(transport);
-    await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
-    logger.debug(`Connected to ${url} via Streamable HTTP`);
-    return sdkClient;
-  } catch (streamableError) {
-    logger.debug(`Streamable HTTP failed for ${url}, trying legacy SSE: ${streamableError}`);
-  }
-
-  // Fallback: legacy SSE transport
-  const sseClient = new Client(
-    { name: 'beam-mcp-client', version: '1.0.0' },
-    {
-      capabilities: {
-        elicitation: {}, // Declare elicitation support
-        experimental: {
-          ui: {}, // Request SEP-1865 format for MCP Apps
-        },
-      },
-    }
-  );
-
-  // Set up elicitation handler for SSE client too
-  sseClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const params = request.params as any;
-    const result = await requestExternalElicitation(mcpName, {
-      mode: params.mode as 'form' | 'url',
-      message: params.message,
-      requestedSchema: params.requestedSchema,
-      url: params.url,
-    });
-    return result;
-  });
-
-  const sseTransport = new SSEClientTransport(new URL(url));
-  const connectPromise = sseClient.connect(sseTransport);
-  await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
-  logger.debug(`Connected to ${url} via legacy SSE`);
-  return sseClient;
-}
-
-/**
- * Load external MCPs from config.json mcpServers section
- *
- * @param config - The PhotonConfig with mcpServers section
- * @returns Array of ExternalMCPInfo objects (populated with connected status)
- */
-async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]> {
-  const mcpServers = config.mcpServers || {};
-  const results: ExternalMCPInfo[] = [];
-
-  for (const [name, serverConfig] of Object.entries(mcpServers)) {
-    const mcpId = generateExternalMCPId(name);
-
-    // Create the MCP info with initial disconnected state
-    const mcpInfo: ExternalMCPInfo = {
-      type: 'external-mcp',
-      id: mcpId,
-      name,
-      connected: false,
-      methods: [],
-      label: prettifyToolName(name),
-      icon: '🔌',
-      config: serverConfig,
-    };
-
-    try {
-      let methods: MethodInfo[] = [];
-
-      if (serverConfig.url) {
-        // HTTP transport — SDK client only (no wrapper needed)
-        // Tries Streamable HTTP first, falls back to legacy SSE
-        const sdkClient = await connectHTTPClient(serverConfig.url, name);
-        externalMCPSDKClients.set(name, sdkClient);
-
-        // List tools with full metadata using SDK client
-        const toolsResult = await sdkClient.listTools();
-        const tools = toolsResult.tools || [];
-
-        // Convert tools to MethodInfo[] with full _meta support
-        methods = tools.map((tool: any) => ({
-          name: tool.name,
-          description: tool.description || '',
-          params: tool.inputSchema || { type: 'object', properties: {} },
-          returns: { type: 'object' },
-          icon: tool['x-icon'],
-          linkedUi: tool._meta?.ui?.resourceUri,
-          visibility: tool._meta?.ui?.visibility,
-        }));
-
-        // Fetch resources to detect MCP Apps
-        try {
-          const resourcesResult = await sdkClient.listResources();
-          const resources = resourcesResult.resources || [];
-
-          const allUiResources = resources.filter(
-            (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
-          );
-
-          // Count only non-UI resources (UI resources are internal implementation detail)
-          mcpInfo.resourceCount = resources.length - allUiResources.length;
-
-          // Only standalone UI resources make this an "app" — resources linked to
-          // specific tools are companion UIs (e.g. file-preview for read_file)
-          const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
-          const standaloneResources = allUiResources.filter((r: any) => !toolLinkedUris.has(r.uri));
-
-          if (standaloneResources.length > 0) {
-            mcpInfo.hasApp = true;
-            mcpInfo.appResourceUri = standaloneResources[0].uri;
-            mcpInfo.appResourceUris = standaloneResources.map((r: any) => r.uri);
-            const uriList = mcpInfo.appResourceUris.join(', ');
-            logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
-          }
-        } catch (resourceError) {
-          logger.debug(`Resources not supported by ${name}`);
-        }
-
-        mcpInfo.connected = true;
-        mcpInfo.methods = methods;
-      } else if (serverConfig.command) {
-        // Stdio transport — create wrapper client as fallback, SDK client as primary
-        const mcpConfig: MCPConfig = {
-          mcpServers: {
-            [name]: serverConfig,
-          },
-        };
-        const factory = new SDKMCPClientFactory(mcpConfig, false);
-        const client = factory.create(name);
-        externalMCPClients.set(name, client);
-
-        try {
-          const sdkTransport = new StdioClientTransport({
-            command: serverConfig.command,
-            args: serverConfig.args,
-            cwd: serverConfig.cwd,
-            env: serverConfig.env,
-            stderr: 'ignore', // Suppress stderr to avoid ugly tracebacks on shutdown
-          });
-          const sdkClient = new Client(
-            { name: 'beam-mcp-client', version: '1.0.0' },
-            {
-              capabilities: {
-                elicitation: {}, // Declare elicitation support
-                experimental: {
-                  ui: {}, // Request SEP-1865 format for MCP Apps
-                },
-              },
-            }
-          );
-
-          // Set up elicitation handler BEFORE connecting
-          // This handles elicitation/create requests from the server
-          sdkClient.setRequestHandler(ElicitRequestSchema, async (request) => {
-            const params = request.params as any;
-            const result = await requestExternalElicitation(name, {
-              mode: params.mode as 'form' | 'url',
-              message: params.message,
-              requestedSchema: params.requestedSchema,
-              url: params.url,
-            });
-            return result;
-          });
-
-          const connectPromise = sdkClient.connect(sdkTransport);
-          await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
-
-          externalMCPSDKClients.set(name, sdkClient);
-
-          // List tools with full metadata using SDK client
-          const toolsResult = await sdkClient.listTools();
-          const tools = toolsResult.tools || [];
-
-          // Convert tools to MethodInfo[] with full _meta support
-          methods = tools.map((tool: any) => ({
-            name: tool.name,
-            description: tool.description || '',
-            params: tool.inputSchema || { type: 'object', properties: {} },
-            returns: { type: 'object' },
-            icon: tool['x-icon'],
-            // Preserve MCP App linkage from tool metadata
-            linkedUi: tool._meta?.ui?.resourceUri,
-            visibility: tool._meta?.ui?.visibility,
-          }));
-
-          // Fetch resources to detect MCP Apps
-          try {
-            const resourcesResult = await sdkClient.listResources();
-            const resources = resourcesResult.resources || [];
-
-            const allUiResources = resources.filter(
-              (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
-            );
-
-            // Count only non-UI resources (UI resources are internal implementation detail)
-            mcpInfo.resourceCount = resources.length - allUiResources.length;
-
-            // Only standalone UI resources make this an "app"
-            const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
-            const standaloneResources = allUiResources.filter(
-              (r: any) => !toolLinkedUris.has(r.uri)
-            );
-
-            if (standaloneResources.length > 0) {
-              mcpInfo.hasApp = true;
-              mcpInfo.appResourceUri = standaloneResources[0].uri;
-              mcpInfo.appResourceUris = standaloneResources.map((r: any) => r.uri);
-              const uriList = mcpInfo.appResourceUris.join(', ');
-              logger.info(`🎨 MCP App detected: ${name} (${uriList})`);
-            }
-          } catch (resourceError) {
-            // Resources not supported - that's fine
-            logger.debug(`Resources not supported by ${name}`);
-          }
-
-          // Set connected state after successful SDK client setup
-          mcpInfo.connected = true;
-          mcpInfo.methods = methods;
-        } catch (sdkError) {
-          // SDK client failed — don't fall back to wrapper for stdio MCPs
-          // (same command would fail identically, and wrapper spawns a process
-          // without stderr suppression, leaking raw Node.js stack traces)
-          throw sdkError;
-        }
-      } else {
-        // No command or URL — create wrapper client (legacy fallback)
-        const mcpConfig: MCPConfig = {
-          mcpServers: {
-            [name]: serverConfig,
-          },
-        };
-        const factory = new SDKMCPClientFactory(mcpConfig, false);
-        const client = factory.create(name);
-        externalMCPClients.set(name, client);
-
-        const tools = await client.list();
-        methods = (tools || []).map((tool: any) => ({
-          name: tool.name,
-          description: tool.description || '',
-          params: tool.inputSchema || { type: 'object', properties: {} },
-          returns: { type: 'object' },
-          icon: tool['x-icon'],
-        }));
-
-        mcpInfo.connected = true;
-        mcpInfo.methods = methods;
-      }
-
-      logger.info(`🔌 Connected to external MCP: ${name} (${methods.length} tools)`);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      mcpInfo.errorMessage = errorMsg.slice(0, 200);
-
-      // User-friendly error messages for common failures
-      const shortMsg = errorMsg.includes('Cannot find module')
-        ? `Module not found (run npm build in the MCP directory)`
-        : errorMsg.includes('ENOENT')
-          ? `Command not found: ${serverConfig.command}`
-          : errorMsg.includes('Connection timeout')
-            ? `Connection timed out (server may not be running)`
-            : errorMsg.includes('Connection closed')
-              ? `Server exited immediately (check configuration)`
-              : errorMsg.slice(0, 120);
-
-      logger.warn(`⚠️  External MCP "${name}" — ${shortMsg}`);
-    }
-
-    results.push(mcpInfo);
-  }
-
-  return results;
-}
-
-/**
- * Reconnect a failed external MCP
- *
- * @param name - The MCP name to reconnect
- * @returns Success status and error message if failed
- */
-async function reconnectExternalMCP(name: string): Promise<{ success: boolean; error?: string }> {
-  const mcpIndex = externalMCPs.findIndex((m) => m.name === name);
-  if (mcpIndex === -1) {
-    return { success: false, error: `External MCP not found: ${name}` };
-  }
-
-  const mcpConfig = externalMCPs[mcpIndex].config;
-
-  try {
-    let methods: MethodInfo[] = [];
-    let resourceCount: number | undefined;
-    let hasApp: boolean | undefined;
-    let appResourceUri: string | undefined;
-    let appResourceUris: string[] | undefined;
-
-    if (mcpConfig.url) {
-      // HTTP transport — tries Streamable HTTP, falls back to legacy SSE
-      const sdkClient = await connectHTTPClient(mcpConfig.url, name);
-      externalMCPSDKClients.set(name, sdkClient);
-
-      const toolsResult = await sdkClient.listTools();
-      const tools = toolsResult.tools || [];
-
-      methods = tools.map((tool: any) => ({
-        name: tool.name,
-        description: tool.description || '',
-        params: tool.inputSchema || { type: 'object', properties: {} },
-        returns: { type: 'object' },
-        icon: tool['x-icon'],
-        linkedUi: tool._meta?.ui?.resourceUri,
-        visibility: tool._meta?.ui?.visibility,
-      }));
-
-      // Fetch resources to detect MCP Apps
-      try {
-        const resourcesResult = await sdkClient.listResources();
-        const resources = resourcesResult.resources || [];
-
-        const allUiResources = resources.filter(
-          (r: any) => r.uri?.startsWith('ui://') || r.mimeType === 'application/vnd.mcp.ui+html'
-        );
-
-        // Count only non-UI resources (UI resources are internal implementation detail)
-        resourceCount = resources.length - allUiResources.length;
-
-        // Only standalone UI resources make this an "app"
-        const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
-        const standaloneResources = allUiResources.filter((r: any) => !toolLinkedUris.has(r.uri));
-
-        if (standaloneResources.length > 0) {
-          hasApp = true;
-          appResourceUri = standaloneResources[0].uri;
-          appResourceUris = standaloneResources.map((r: any) => r.uri);
-        }
-      } catch {
-        // Resources not supported
-      }
-    } else {
-      // Stdio / wrapper transport
-      const stdioConfig: MCPConfig = {
-        mcpServers: {
-          [name]: mcpConfig,
-        },
-      };
-      const factory = new SDKMCPClientFactory(stdioConfig, false);
-      const client = factory.create(name);
-
-      const tools = (await withTimeout(client.list(), 10000, 'Connection timeout (10s)')) as any[];
-
-      methods = (tools || []).map((tool: any) => ({
-        name: tool.name,
-        description: tool.description || '',
-        params: tool.inputSchema || { type: 'object', properties: {} },
-        returns: { type: 'object' },
-        icon: tool['x-icon'],
-      }));
-
-      externalMCPClients.set(name, client);
-    }
-
-    // Re-find after awaits — externalMCPs may have been modified during connection
-    const currentIndex = externalMCPs.findIndex((m) => m.name === name);
-    if (currentIndex === -1) {
-      return { success: false, error: `External MCP '${name}' was removed during reconnection` };
-    }
-    const mcp = externalMCPs[currentIndex];
-
-    // Update MCP info
-    mcp.connected = true;
-    mcp.methods = methods;
-    mcp.errorMessage = undefined;
-    if (resourceCount !== undefined) mcp.resourceCount = resourceCount;
-    if (hasApp !== undefined) {
-      mcp.hasApp = hasApp;
-      mcp.appResourceUri = appResourceUri;
-      mcp.appResourceUris = appResourceUris;
-    }
-
-    logger.info(`🔌 Reconnected to external MCP: ${name} (${methods.length} tools)`);
-    return { success: true };
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    const failedMcp = externalMCPs.find((m) => m.name === name);
-    if (failedMcp) failedMcp.errorMessage = errorMsg.slice(0, 200);
-    logger.warn(`⚠️ Failed to reconnect to external MCP: ${name} - ${errorMsg}`);
-    return { success: false, error: errorMsg };
-  }
-}
+// Delegates — external MCP management now in beam/external-mcp.ts
+const externalMCPState = { externalMCPs, externalMCPClients, externalMCPSDKClients };
+const loadExternalMCPs = (config: PhotonConfig) =>
+  loadExternalMCPsFromModule(config, externalMCPState);
+const reconnectExternalMCP = (name: string) =>
+  reconnectExternalMCPFromModule(name, externalMCPState);
 
 // Delegates to extracted config module
 const migrateConfig = migrateConfigFromModule;
