@@ -124,8 +124,12 @@ export class PhotonLoader {
   private mcpClientFactory?: MCPClientFactory;
   /** Cache of loaded Photon instances by source path */
   private loadedPhotons: Map<string, PhotonClassExtended> = new Map();
+  /** In-flight Photon load promises — dedup concurrent loads of the same path */
+  private loadedPhotonPromises: Map<string, Promise<any>> = new Map();
   /** MCP clients cache - reuse connections */
   private mcpClients: Map<string, any> = new Map();
+  /** In-flight MCP client creation promises — dedup concurrent creates for the same dep */
+  private mcpClientPromises: Map<string, Promise<any>> = new Map();
   /** SDK factory for MCP connections */
   private sdkFactory?: SDKMCPClientFactory;
   /** Cached MCP config from ~/.photon/config.json */
@@ -1308,6 +1312,21 @@ export class PhotonLoader {
       return this.mcpClients.get(dep.name);
     }
 
+    // Dedup concurrent loads: if another call is already creating this client, wait for it
+    if (this.mcpClientPromises.has(dep.name)) {
+      return this.mcpClientPromises.get(dep.name);
+    }
+
+    const promise = this._createMCPClient(dep);
+    this.mcpClientPromises.set(dep.name, promise);
+    try {
+      return await promise;
+    } finally {
+      this.mcpClientPromises.delete(dep.name);
+    }
+  }
+
+  private async _createMCPClient(dep: MCPDependency): Promise<any> {
     // Try to get config from ~/.photon/config.json first
     const photonConfig = await this.ensureMCPConfig();
     let serverConfig: MCPServerConfig;
@@ -1388,14 +1407,24 @@ export class PhotonLoader {
       return this.loadedPhotons.get(resolvedPath)!.instance;
     }
 
+    // Dedup concurrent loads: if another call is already loading this path, wait for it
+    if (this.loadedPhotonPromises.has(resolvedPath)) {
+      const loaded = await this.loadedPhotonPromises.get(resolvedPath);
+      return loaded.instance;
+    }
+
     // Load the Photon (recursive call)
     this.log(`  📦 Loading Photon dependency: ${dep.name} from ${resolvedPath}`);
-    const loaded = await this.loadFile(resolvedPath);
-
-    // Cache it
-    this.loadedPhotons.set(resolvedPath, loaded);
-
-    return loaded.instance;
+    const loadPromise = this.loadFile(resolvedPath);
+    this.loadedPhotonPromises.set(resolvedPath, loadPromise);
+    try {
+      const loaded = await loadPromise;
+      // Cache it
+      this.loadedPhotons.set(resolvedPath, loaded);
+      return loaded.instance;
+    } finally {
+      this.loadedPhotonPromises.delete(resolvedPath);
+    }
   }
 
   /**
