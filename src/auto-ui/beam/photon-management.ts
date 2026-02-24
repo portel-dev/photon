@@ -52,6 +52,7 @@ function buildMethodList(
         buttonLabel: schema.buttonLabel,
         icon: schema.icon,
         linkedUi: linkedAsset?.id,
+        scheduled: schema.scheduled,
       };
     });
 

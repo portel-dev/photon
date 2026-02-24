@@ -4019,14 +4019,14 @@ export class BeamApp extends LitElement {
     if (!method || !this._mcpReady) return false;
     const shouldAutorun = method.autorun === true;
     const params = method.params || {};
-    const required = params.required || [];
-    const hasNoRequiredParams = required.length === 0;
-    return shouldAutorun || hasNoRequiredParams;
+    const properties = params.properties || {};
+    const hasNoParams = Object.keys(properties).length === 0;
+    return shouldAutorun || hasNoParams;
   }
 
   /**
    * Check if a method should auto-invoke and invoke it if so.
-   * Auto-invokes when: method.autorun === true OR method has no required parameters
+   * Auto-invokes when: method.autorun === true OR method has no parameters at all
    */
   private _maybeAutoInvoke(method: any) {
     if (!this._willAutoInvoke(method)) return;
