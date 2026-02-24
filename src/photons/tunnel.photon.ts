@@ -4,7 +4,7 @@
  * @internal
  */
 
-import { spawn, execSync, ChildProcess } from 'child_process';
+import { spawn, spawnSync, execSync, ChildProcess } from 'child_process';
 
 interface TunnelInfo {
   provider: string;
@@ -210,12 +210,9 @@ export default class Tunnel {
   // ============================================
 
   private _checkCommand(cmd: string): boolean {
-    try {
-      execSync(`which ${cmd}`, { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false; // command not found
-    }
+    const which = process.platform === 'win32' ? 'where' : 'which';
+    const result = spawnSync(which, [cmd], { stdio: 'ignore' });
+    return result.status === 0;
   }
 
   private async _getPublicIp(): Promise<string> {
