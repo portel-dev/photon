@@ -281,6 +281,7 @@ export class ElicitationModal extends LitElement {
   @state() private _formValues: Record<string, any> = {};
 
   private _oauthPopup: Window | null = null;
+  private _oauthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private _boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
 
   connectedCallback() {
@@ -299,6 +300,10 @@ export class ElicitationModal extends LitElement {
     if (this._boundGlobalKeydown) {
       document.removeEventListener('keydown', this._boundGlobalKeydown);
       this._boundGlobalKeydown = null;
+    }
+    if (this._oauthCheckInterval) {
+      clearInterval(this._oauthCheckInterval);
+      this._oauthCheckInterval = null;
     }
   }
 
@@ -659,10 +664,11 @@ export class ElicitationModal extends LitElement {
       `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
     );
 
-    // Listen for OAuth completion
-    const checkClosed = setInterval(() => {
+    // Listen for OAuth completion — store handle so disconnectedCallback can clear it
+    this._oauthCheckInterval = setInterval(() => {
       if (this._oauthPopup?.closed) {
-        clearInterval(checkClosed);
+        clearInterval(this._oauthCheckInterval!);
+        this._oauthCheckInterval = null;
         // Assume success when popup closes
         this.dispatchEvent(
           new CustomEvent('oauth-complete', {
