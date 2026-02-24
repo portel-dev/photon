@@ -442,6 +442,14 @@ export class MethodCard extends LitElement {
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
+            ${isCron
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(215,80%,60%,0.15);color:hsl(215,80%,65%)"
+                  title="Runs automatically on schedule: ${this.method.scheduled}"
+                  >⏱ Scheduled</span
+                >`
+              : ''}
             ${isDeprecated
               ? html`<span
                   class="badge"
