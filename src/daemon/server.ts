@@ -214,42 +214,155 @@ setInterval(cleanupExpiredLocks, 10000);
 const scheduledJobs = new Map<string, ScheduledJob & { photonName: string; workingDir?: string }>();
 const jobTimers = new Map<string, NodeJS.Timeout>();
 
+function parseCronField(field: string, min: number, max: number): number[] | null {
+  if (field === '*') {
+    const values: number[] = [];
+    for (let i = min; i <= max; i++) values.push(i);
+    return values;
+  }
+  // Comma-separated list
+  if (field.includes(',')) {
+    const values = new Set<number>();
+    for (const part of field.split(',')) {
+      const partValues = parseCronField(part, min, max);
+      if (!partValues) return null;
+      partValues.forEach((v) => values.add(v));
+    }
+    return Array.from(values).sort((a, b) => a - b);
+  }
+  // Step values: */n, start/n, start-end/n
+  if (field.includes('/')) {
+    const slashIdx = field.indexOf('/');
+    const range = field.slice(0, slashIdx);
+    const step = parseInt(field.slice(slashIdx + 1));
+    if (isNaN(step) || step <= 0) return null;
+    let start = min;
+    let end = max;
+    if (range !== '*') {
+      if (range.includes('-')) {
+        const [s, e] = range.split('-').map(Number);
+        if (isNaN(s) || isNaN(e)) return null;
+        start = s;
+        end = e;
+      } else {
+        start = parseInt(range);
+        if (isNaN(start)) return null;
+      }
+    }
+    const values: number[] = [];
+    for (let i = start; i <= end; i += step) values.push(i);
+    return values;
+  }
+  // Range: n-m
+  if (field.includes('-')) {
+    const [s, e] = field.split('-').map(Number);
+    if (isNaN(s) || isNaN(e) || s < min || e > max) return null;
+    const values: number[] = [];
+    for (let i = s; i <= e; i++) values.push(i);
+    return values;
+  }
+  // Single value
+  const value = parseInt(field);
+  if (isNaN(value) || value < min || value > max) return null;
+  return [value];
+}
+
 function parseCron(cron: string): { isValid: boolean; nextRun: number } {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) {
     return { isValid: false, nextRun: 0 };
   }
 
-  const [minute, hour] = parts;
-  const now = new Date();
-  const nextDate = new Date(now);
-  nextDate.setSeconds(0);
-  nextDate.setMilliseconds(0);
+  const [minuteField, hourField, domField, monthField, dowField] = parts;
 
-  if (minute === '*' && hour === '*') {
-    nextDate.setMinutes(nextDate.getMinutes() + 1);
-  } else if (minute.startsWith('*/') || minute.startsWith('0/')) {
-    const interval = parseInt(minute.slice(2));
-    const currentMinute = nextDate.getMinutes();
-    const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;
-    nextDate.setMinutes(nextMinute);
-  } else if (hour === '*') {
-    const targetMinute = parseInt(minute);
-    if (nextDate.getMinutes() >= targetMinute) {
-      nextDate.setHours(nextDate.getHours() + 1);
-    }
-    nextDate.setMinutes(targetMinute);
-  } else {
-    const targetMinute = parseInt(minute);
-    const targetHour = parseInt(hour);
-    nextDate.setMinutes(targetMinute);
-    nextDate.setHours(targetHour);
-    if (nextDate <= now) {
-      nextDate.setDate(nextDate.getDate() + 1);
-    }
+  const minutes = parseCronField(minuteField, 0, 59);
+  const hours = parseCronField(hourField, 0, 23);
+  const doms = parseCronField(domField, 1, 31);
+  const months = parseCronField(monthField, 1, 12); // cron months are 1-indexed
+  const dows = parseCronField(dowField, 0, 7); // 0 and 7 both mean Sunday
+
+  if (!minutes || !hours || !doms || !months || !dows) {
+    return { isValid: false, nextRun: 0 };
   }
 
-  return { isValid: true, nextRun: nextDate.getTime() };
+  const minuteSet = new Set(minutes);
+  const hourSet = new Set(hours);
+  const domSet = new Set(doms);
+  const monthSet = new Set(months);
+  // Normalize: 7 → 0 (both mean Sunday)
+  const dowSet = new Set(dows.map((d) => (d === 7 ? 0 : d)));
+
+  const domIsWild = domField === '*';
+  const dowIsWild = dowField === '*';
+
+  // Advance to next minute boundary from now
+  const candidate = new Date();
+  candidate.setSeconds(0);
+  candidate.setMilliseconds(0);
+  candidate.setMinutes(candidate.getMinutes() + 1);
+
+  const limit = new Date(candidate);
+  limit.setFullYear(limit.getFullYear() + 4);
+
+  while (candidate < limit) {
+    // Check month (JS: 0-indexed, cron: 1-indexed)
+    if (!monthSet.has(candidate.getMonth() + 1)) {
+      candidate.setMonth(candidate.getMonth() + 1);
+      candidate.setDate(1);
+      candidate.setHours(0);
+      candidate.setMinutes(0);
+      continue;
+    }
+
+    // Day check: if both dom and dow are non-wild, standard cron uses OR semantics
+    let dayMatch: boolean;
+    if (domIsWild && dowIsWild) {
+      dayMatch = true;
+    } else if (domIsWild) {
+      dayMatch = dowSet.has(candidate.getDay());
+    } else if (dowIsWild) {
+      dayMatch = domSet.has(candidate.getDate());
+    } else {
+      dayMatch = domSet.has(candidate.getDate()) || dowSet.has(candidate.getDay());
+    }
+
+    if (!dayMatch) {
+      candidate.setDate(candidate.getDate() + 1);
+      candidate.setHours(0);
+      candidate.setMinutes(0);
+      continue;
+    }
+
+    // Check hour
+    if (!hourSet.has(candidate.getHours())) {
+      const nextHour = [...hourSet].find((h) => h > candidate.getHours());
+      if (nextHour !== undefined) {
+        candidate.setHours(nextHour);
+        candidate.setMinutes(0);
+      } else {
+        candidate.setDate(candidate.getDate() + 1);
+        candidate.setHours(0);
+        candidate.setMinutes(0);
+      }
+      continue;
+    }
+
+    // Check minute
+    if (!minuteSet.has(candidate.getMinutes())) {
+      const nextMinute = [...minuteSet].find((m) => m > candidate.getMinutes());
+      if (nextMinute !== undefined) {
+        candidate.setMinutes(nextMinute);
+      } else {
+        candidate.setHours(candidate.getHours() + 1);
+        candidate.setMinutes(0);
+      }
+      continue;
+    }
+
+    return { isValid: true, nextRun: candidate.getTime() };
+  }
+
+  return { isValid: false, nextRun: 0 };
 }
 
 function scheduleJob(job: ScheduledJob & { photonName: string; workingDir?: string }): boolean {
