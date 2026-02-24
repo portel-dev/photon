@@ -3913,6 +3913,10 @@ export class BeamApp extends LitElement {
       .replace(/^\s*@\w+[^\n]*/gm, '')
       // Collapse multiple spaces only (not newlines) so markdown structure is preserved
       .replace(/[ \t]{2,}/g, ' ')
+      // Reconstruct list structure that may have been flattened during JSDoc extraction:
+      // " - item" → newline before "- item", " 1. item" → newline before "1. item"
+      .replace(/ (- (?!\d))/g, '\n$1')
+      .replace(/ (\d+\. )/g, '\n$1')
       .trim();
     if (!cleaned) return html``;
     const marked = (window as any).marked;
