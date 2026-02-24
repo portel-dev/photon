@@ -4597,6 +4597,8 @@ export class BeamApp extends LitElement {
   }
 
   private _handleBridgeMessage = async (event: MessageEvent) => {
+    // Only accept messages from same origin (srcdoc iframes) or null (about:srcdoc)
+    if (event.origin !== window.location.origin && event.origin !== 'null') return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
 
