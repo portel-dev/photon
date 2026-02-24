@@ -774,12 +774,30 @@ export class MarketplaceManager {
 
           // Security: verify content hash if metadata provides one
           // Prefer contentHash (source-only) for download verification; fall back to hash
-          const verifyHash = metadata?.contentHash || metadata?.hash;
+          let verifyHash = metadata?.contentHash || metadata?.hash;
           if (verifyHash && marketplace.sourceType !== 'local') {
             const expectedHash = verifyHash.replace(/^sha256:/, '');
             if (!verifyContentHash(content, expectedHash)) {
-              this.logger.warn(`Content hash mismatch for ${mcpName} — skipping`);
-              continue;
+              // Hash mismatch may mean local cache is stale — refresh and retry once
+              this.logger.info(`Content hash mismatch for ${mcpName} — refreshing manifest cache`);
+              const updated = await this.updateMarketplaceCache(marketplace.name);
+              if (updated) {
+                const freshManifest = await this.getCachedManifest(marketplace.name);
+                const freshMeta = freshManifest?.photons.find((p) => p.name === mcpName);
+                verifyHash = freshMeta?.contentHash || freshMeta?.hash;
+                if (verifyHash) {
+                  const freshHash = verifyHash.replace(/^sha256:/, '');
+                  if (!verifyContentHash(content, freshHash)) {
+                    this.logger.warn(
+                      `Content hash mismatch for ${mcpName} after cache refresh — skipping`
+                    );
+                    continue;
+                  }
+                }
+              } else {
+                this.logger.warn(`Content hash mismatch for ${mcpName} — skipping`);
+                continue;
+              }
             }
           }
 
