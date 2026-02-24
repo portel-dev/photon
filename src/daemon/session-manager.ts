@@ -96,12 +96,18 @@ export class SessionManager {
    * Loads the instance if not already loaded.
    */
   async switchInstance(sessionId: string, instanceName: string): Promise<PhotonSession> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+    if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
     const instance = await this.getOrLoadInstance(instanceName);
+
+    // Re-check: session may have been cleaned up during the await above
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session expired during instance switch: ${sessionId}`);
+    }
+
     session.instance = instance;
     session.instanceName = instanceName;
     session.lastActivity = Date.now();

@@ -108,7 +108,7 @@ async function sendCommandDirect(
     let buffer = '';
     let responseReceived = false;
 
-    const timeout = setTimeout(() => {
+    let currentTimeout = setTimeout(() => {
       if (!responseReceived) {
         client.destroy();
         reject(new Error('Request timeout'));
@@ -149,7 +149,7 @@ async function sendCommandDirect(
             // Handle prompt request from daemon
             if (response.type === 'prompt' && response.prompt) {
               // Reset timeout while waiting for user input
-              clearTimeout(timeout);
+              clearTimeout(currentTimeout);
 
               // Get user input via readline
               const userInput = await promptUser(response.prompt.message, response.prompt.default);
@@ -163,8 +163,8 @@ async function sendCommandDirect(
 
               client.write(JSON.stringify(promptResponse) + '\n');
 
-              // Restart timeout for next response
-              setTimeout(() => {
+              // Restart timeout for next response — store handle so it can be cleared
+              currentTimeout = setTimeout(() => {
                 if (!responseReceived) {
                   client.destroy();
                   reject(new Error('Request timeout'));
@@ -174,14 +174,14 @@ async function sendCommandDirect(
             // Handle final result
             else if (response.type === 'result') {
               responseReceived = true;
-              clearTimeout(timeout);
+              clearTimeout(currentTimeout);
               client.destroy();
               resolve(response.data);
             }
             // Handle error
             else if (response.type === 'error') {
               responseReceived = true;
-              clearTimeout(timeout);
+              clearTimeout(currentTimeout);
               client.destroy();
               reject(new Error(response.error || 'Unknown error'));
             }
@@ -193,13 +193,13 @@ async function sendCommandDirect(
     });
 
     client.on('error', (error) => {
-      clearTimeout(timeout);
+      clearTimeout(currentTimeout);
       client.destroy();
       reject(new Error(`Connection error: ${getErrorMessage(error)}`));
     });
 
     client.on('end', () => {
-      clearTimeout(timeout);
+      clearTimeout(currentTimeout);
       client.destroy();
       if (!responseReceived) {
         reject(new Error('Connection closed before receiving response'));
