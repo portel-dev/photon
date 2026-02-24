@@ -421,7 +421,7 @@ export function registerMakerCommands(program: Command, defaultDir: string): voi
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = command.optsWithGlobals().dir || defaultDir;
 
         // Ensure working directory exists
         await ensureWorkingDir(workingDir);
@@ -489,7 +489,7 @@ export function registerMakerCommands(program: Command, defaultDir: string): voi
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = command.optsWithGlobals().dir || defaultDir;
 
         // Resolve file path from name in working directory
         const filePath = await resolvePhotonPath(name, workingDir);

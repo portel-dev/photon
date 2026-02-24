@@ -94,6 +94,25 @@ import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // BUNDLED_PHOTONS and getBundledPhotonPath are imported from shared-utils.js
 
+// Extracted modules (Phase 5)
+import {
+  loadConfig as loadConfigFromModule,
+  saveConfig as saveConfigFromModule,
+  migrateConfig as migrateConfigFromModule,
+  getConfigFilePath as getConfigFilePathFromModule,
+} from './beam/config.js';
+import {
+  extractClassMetadataFromSource as extractClassMetadataFromModule,
+  applyMethodVisibility as applyMethodVisibilityFromModule,
+  extractCspFromSource as extractCspFromModule,
+  prettifyName as prettifyNameFromModule,
+  prettifyToolName as prettifyToolNameFromModule,
+  backfillEnvDefaults as backfillEnvDefaultsFromModule,
+} from './beam/class-metadata.js';
+import { StartupSequencer } from './beam/startup.js';
+export type { PhotonConfig } from './beam/types.js';
+export type { BeamState } from './beam/types.js';
+
 // Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
 // InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
 // RemoveRequest are imported from ./types.js
@@ -144,16 +163,11 @@ type ClientMessage =
   | GetPromptMessage
   | ReadResourceMessage;
 
-// Helper to get config file path based on working directory
-function getConfigFilePath(workingDir: string): string {
-  return process.env.PHOTON_CONFIG_FILE || path.join(workingDir, 'config.json');
-}
+// Delegate to extracted module
+const getConfigFilePath = getConfigFilePathFromModule;
 
-// Unified config structure (MCPServerConfig imported from types.ts)
-interface PhotonConfig {
-  photons: Record<string, Record<string, string>>;
-  mcpServers: Record<string, MCPServerConfig>;
-}
+// PhotonConfig type imported from beam/types.ts
+type PhotonConfig = import('./beam/types.js').PhotonConfig;
 
 // ════════════════════════════════════════════════════════════════════════════════
 // EXTERNAL MCP STATE (module-level for MCP transport access)
@@ -175,15 +189,8 @@ function generateExternalMCPId(name: string): string {
   return createHash('sha256').update(`external:${name}`).digest('hex').slice(0, 12);
 }
 
-/**
- * Convert a tool name to a display label
- */
-function prettifyToolName(name: string): string {
-  return name
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
+// Delegate to extracted module
+const prettifyToolName = prettifyToolNameFromModule;
 
 /**
  * Create an HTTP transport for a URL-based MCP.
@@ -617,295 +624,27 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
   }
 }
 
-/**
- * Migrate old flat config to new nested structure
- */
-function migrateConfig(config: any): PhotonConfig {
-  // Already new format
-  if (config.photons !== undefined || config.mcpServers !== undefined) {
-    return {
-      photons: config.photons || {},
-      mcpServers: config.mcpServers || {},
-    };
-  }
+// Delegates to extracted config module
+const migrateConfig = migrateConfigFromModule;
+const loadConfig = loadConfigFromModule;
+const saveConfig = saveConfigFromModule;
 
-  // Old flat format → migrate all keys under photons
-  console.error('📦 Migrating config.json to new nested format...');
-  return {
-    photons: { ...config },
-    mcpServers: {},
-  };
-}
+// Delegates to extracted class-metadata module
+const prettifyName = prettifyNameFromModule;
+const backfillEnvDefaults = backfillEnvDefaultsFromModule;
 
-async function loadConfig(workingDir: string): Promise<PhotonConfig> {
-  const configFile = getConfigFilePath(workingDir);
-  try {
-    const data = await fs.readFile(configFile, 'utf-8');
-    const raw = JSON.parse(data);
-    const migrated = migrateConfig(raw);
+const extractClassMetadataFromSource = extractClassMetadataFromModule;
 
-    // Save back if migration occurred (structure changed)
-    if (!raw.photons && Object.keys(raw).length > 0) {
-      await saveConfig(migrated, workingDir);
-      console.error('✅ Config migrated successfully');
-    }
-
-    return migrated;
-  } catch (error: any) {
-    if (error?.code === 'ENOENT') {
-      // Normal on first run — config.json doesn't exist yet
-      return { photons: {}, mcpServers: {} };
-    }
-    // Real error: JSON parse failure, permission denied, etc.
-    console.error(`⚠️ Failed to load config.json: ${error?.message || error}`);
-    return { photons: {}, mcpServers: {} };
-  }
-}
-
-async function saveConfig(config: PhotonConfig, workingDir: string): Promise<void> {
-  const configFile = getConfigFilePath(workingDir);
-  const dir = path.dirname(configFile);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(configFile, JSON.stringify(config, null, 2));
-}
-
-/**
- * Extract class-level metadata (description, icon) from JSDoc comments
- */
-/**
- * Convert a kebab-case name to a display label
- * e.g. "filesystem" → "Filesystem", "git-box" → "Git Box"
- */
-function prettifyName(name: string): string {
-  return name
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-/**
- * After loading a photon, backfill env vars for constructor params that used
- * their TypeScript defaults (env var not set). This ensures the env var always
- * reflects the effective value so other consumers (e.g. /api/browse) can read it.
- */
-function backfillEnvDefaults(instance: any, params: ConfigParam[]) {
-  for (const param of params) {
-    if (!process.env[param.envVar] && param.hasDefault) {
-      const value = (instance as Record<string, unknown>)[param.name];
-      if (value !== undefined && value !== null) {
-        process.env[param.envVar] = String(value);
-      }
-    }
-  }
-}
-
-function extractClassMetadataFromSource(content: string): {
-  description?: string;
-  icon?: string;
-  internal?: boolean;
-  version?: string;
-  author?: string;
-  label?: string;
-} {
-  try {
-    // Find class-level JSDoc (immediately before class, or first JSDoc in file)
-    const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+\w+/;
-    const match = content.match(classDocRegex) || content.match(/^\/\*\*([\s\S]*?)\*\//);
-
-    if (!match) {
-      return {};
-    }
-
-    const docContent = match[1];
-    const metadata: {
-      description?: string;
-      icon?: string;
-      internal?: boolean;
-      version?: string;
-      author?: string;
-      label?: string;
-    } = {};
-
-    // Extract @icon
-    const iconMatch = docContent.match(/@icon\s+(\S+)/);
-    if (iconMatch) {
-      metadata.icon = iconMatch[1];
-    }
-
-    // Extract @internal (presence indicates internal photon)
-    if (/@internal\b/.test(docContent)) {
-      metadata.internal = true;
-    }
-
-    // Extract @version
-    const versionMatch = docContent.match(/@version\s+(\S+)/);
-    if (versionMatch) {
-      metadata.version = versionMatch[1];
-    }
-
-    // Extract @author
-    const authorMatch = docContent.match(/@author\s+([^\n@]+)/);
-    if (authorMatch) {
-      metadata.author = authorMatch[1].trim();
-    }
-
-    // Extract @label (custom display name)
-    const labelMatch = docContent.match(/@label\s+([^\n@]+)/);
-    if (labelMatch) {
-      metadata.label = labelMatch[1].trim();
-    }
-
-    // Extract @description or first line of doc (not starting with @)
-    const descMatch = docContent.match(/@description\s+([^\n@]+)/);
-    if (descMatch) {
-      metadata.description = descMatch[1].trim();
-    } else {
-      // Get first non-empty line that's not a tag
-      const lines = docContent
-        .split('\n')
-        .map((l) => l.replace(/^\s*\*\s?/, '').trim())
-        .filter((l) => l && !l.startsWith('@'));
-      if (lines.length > 0) {
-        metadata.description = lines[0];
-      }
-    }
-
-    return metadata;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Extract @visibility annotations from method-level JSDoc and apply to methods
- * @visibility model,app → ['model', 'app']
- */
-function applyMethodVisibility(source: string, methods: MethodInfo[]): void {
-  const regex = /\/\*\*[\s\S]*?@visibility\s+([\w,\s]+)[\s\S]*?\*\/\s*(?:async\s+)?\*?\s*(\w+)/g;
-  let match;
-  while ((match = regex.exec(source)) !== null) {
-    const [, visibilityStr, methodName] = match;
-    const method = methods.find((m) => m.name === methodName);
-    if (method) {
-      method.visibility = visibilityStr
-        .split(',')
-        .map((v) => v.trim())
-        .filter((v): v is 'model' | 'app' => v === 'model' || v === 'app');
-    }
-  }
-}
-
-/**
- * Extract @csp annotations from class-level JSDoc
- * @csp connect domain1,domain2
- * @csp resource cdn.example.com
- */
-function extractCspFromSource(source: string): Record<
-  string,
-  {
-    connectDomains?: string[];
-    resourceDomains?: string[];
-    frameDomains?: string[];
-    baseUriDomains?: string[];
-  }
-> {
-  const result: Record<string, any> = {};
-
-  // Match class-level JSDoc with @csp tags
-  const classDocRegex = /\/\*\*([\s\S]*?)\*\/\s*\n?(?:export\s+)?(?:default\s+)?class\s+(\w+)/g;
-  let classMatch;
-  while ((classMatch = classDocRegex.exec(source)) !== null) {
-    const docContent = classMatch[1];
-    const csp: any = {};
-    let hasCsp = false;
-
-    const cspRegex = /@csp\s+(connect|resource|frame|base-uri)\s+([^\n@]+)/g;
-    let cspMatch;
-    while ((cspMatch = cspRegex.exec(docContent)) !== null) {
-      hasCsp = true;
-      const directive = cspMatch[1].trim();
-      const domains = cspMatch[2]
-        .trim()
-        .split(/[,\s]+/)
-        .filter(Boolean);
-      const key = directive === 'base-uri' ? 'baseUriDomains' : `${directive}Domains`;
-      csp[key] = (csp[key] || []).concat(domains);
-    }
-
-    if (hasCsp) {
-      result['__class__'] = csp;
-    }
-  }
-
-  return result;
-}
+const applyMethodVisibility = applyMethodVisibilityFromModule;
+const extractCspFromSource = extractCspFromModule;
 
 export async function startBeam(rawWorkingDir: string, port: number): Promise<void> {
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
 
-  // Queue all output to show after main status line
-  const outputQueue: string[] = [];
-  const originalLog = console.log;
-  const originalWarn = console.warn;
-  const originalError = console.error;
-  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  // StartupSequencer manages ordered output during startup
+  const startup = new StartupSequencer(PHOTON_VERSION, workingDir);
   const isTTY = process.stderr.isTTY;
-
-  let showedMainLine = false;
-  let suppressOutput = true; // Suppress until main line shown
-
-  // Queue all console output
-  const queuedLog = (...args: any[]) => {
-    if (showedMainLine) {
-      originalLog(...args); // Show immediately after main line
-    } else {
-      outputQueue.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
-    }
-  };
-
-  // Suppress console and stderr output during startup
-  console.log = queuedLog;
-  console.warn = queuedLog;
-  console.error = queuedLog;
-  process.stderr.write = ((chunk: any, ...args: any[]) => {
-    // Allow our status line updates through, suppress logger output
-    const str = typeof chunk === 'string' ? chunk : chunk.toString();
-    if (suppressOutput && !str.includes('⚡ Photon Beam')) {
-      return true; // Suppress logger output
-    }
-    return originalStderrWrite(chunk, ...args);
-  }) as any;
-
-  const updateStatus = (url?: string, isReady = false) => {
-    // Don't show anything until we have at least the URL
-    if (!url && !isReady) return;
-
-    const status = `⚡ Photon Beam v${PHOTON_VERSION} (${workingDir})${url ? ` → ${url}` : ''}`;
-
-    if (isReady) {
-      // Final output: new line with newlines around it
-      if (!showedMainLine) {
-        originalLog(`\n${status}\n`);
-      } else if (isTTY) {
-        // Status line was already shown on same line (TTY), add newline before restoring output
-        originalStderrWrite('\n');
-      }
-      showedMainLine = true;
-      suppressOutput = false; // Allow output now
-    } else if (!isReady && url && !showedMainLine) {
-      // First time showing the status line
-      if (isTTY) {
-        // TTY: show with carriage return for updates, mark as shown
-        originalStderrWrite(`\r${status.padEnd(120)}`);
-        showedMainLine = true;
-      }
-      // Non-TTY: defer until isReady=true so the ready signal comes after photons are loaded
-    } else if (!isReady && url && showedMainLine && isTTY) {
-      // Already shown, just update on same line in TTY
-      originalStderrWrite(`\r${status.padEnd(120)}`);
-    }
-  };
 
   // Initialize marketplace manager for photon discovery and installation
   const marketplace = new MarketplaceManager();
@@ -3552,7 +3291,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         process.env.BEAM_PORT = String(currentPort);
         const url = `http://localhost:${currentPort}`;
         if (isTTY) process.stderr.write('\r\x1b[K'); // Clear any port status line
-        updateStatus(url, false); // Update status with URL but don't mark as ready
+        startup.showUrl(url); // Show URL status line (not ready yet)
         resolve();
       });
 
@@ -3602,17 +3341,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     externalMCPList.length > 0 ? `, ${connectedMCPs}/${externalMCPList.length} MCPs` : '';
   const url = `http://localhost:${process.env.BEAM_PORT || port}`;
 
-  // Show final status line and restore console + stderr
-  updateStatus(url, true);
-  console.log = originalLog;
-  console.warn = originalWarn;
-  console.error = originalError;
-  process.stderr.write = originalStderrWrite; // Restore stderr
-
-  // Flush queued output
-  for (const line of outputQueue) {
-    originalLog(line);
-  }
+  // Mark startup complete — flushes queued output and restores console
+  startup.ready();
 
   // Notify connected clients that photon list is now available
   broadcastPhotonChange();

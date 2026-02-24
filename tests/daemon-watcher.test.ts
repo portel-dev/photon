@@ -1249,8 +1249,8 @@ async function testSourcePatterns() {
       'Expected startupWatchPhotons function'
     );
     assert.ok(
-      source.includes('DEFAULT_PHOTON_DIR'),
-      'Expected DEFAULT_PHOTON_DIR import for startup scan'
+      source.includes('getDefaultContext') || source.includes('DEFAULT_PHOTON_DIR'),
+      'Expected getDefaultContext() or DEFAULT_PHOTON_DIR for startup scan'
     );
     assert.ok(
       source.includes('.photon.ts') && source.includes('.photon.js'),
