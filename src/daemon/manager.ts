@@ -27,8 +27,8 @@ const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
 // Global daemon paths (single daemon for all photons)
-const GLOBAL_PID_FILE = path.join(PHOTON_DIR, 'daemon.pid');
-const GLOBAL_LOG_FILE = path.join(PHOTON_DIR, 'daemon.log');
+export const GLOBAL_PID_FILE = path.join(PHOTON_DIR, 'daemon.pid');
+export const GLOBAL_LOG_FILE = path.join(PHOTON_DIR, 'daemon.log');
 
 /**
  * Get global socket path for the Photon daemon
