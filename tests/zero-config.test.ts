@@ -13,7 +13,7 @@ import { strict as assert } from 'assert';
 // parsePhotonSpec Tests
 // ══════════════════════════════════════════════════════════════════════════════
 
-import { parsePhotonSpec } from '../src/cli.js';
+import { parsePhotonSpec } from '../src/cli/commands/mcp.js';
 
 function testParsePhotonSpec() {
   console.log('📋 Testing parsePhotonSpec()...\n');
@@ -179,10 +179,7 @@ function testBuildPlaceholderTools() {
     assert.equal(tools.length, 2, 'Should have 2 placeholder tools');
     assert.equal(tools[0].name, 'fetch', 'First tool should be "fetch"');
     assert.equal(tools[1].name, 'search', 'Second tool should be "search"');
-    assert.ok(
-      tools[0].description.includes('Requires setup'),
-      'Should have setup description'
-    );
+    assert.ok(tools[0].description.includes('Requires setup'), 'Should have setup description');
     console.log('  ✅ With metadata tools: returns named placeholder tools');
   }
 
@@ -214,10 +211,7 @@ function testBuildPlaceholderTools() {
     const tools = (server as any).buildPlaceholderTools();
     assert.equal(tools.length, 1, 'Should have 1 setup tool');
     assert.equal(tools[0].name, 'setup', 'Tool should be named "setup"');
-    assert.ok(
-      tools[0].description.includes('Set up'),
-      'Should mention setup in description'
-    );
+    assert.ok(tools[0].description.includes('Set up'), 'Should mention setup in description');
     console.log('  ✅ Without metadata tools: returns single "setup" tool');
   }
 
