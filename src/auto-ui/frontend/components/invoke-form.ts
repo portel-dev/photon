@@ -4,6 +4,17 @@ import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 
+/**
+ * Capitalize an enum value for display purposes.
+ * The submitted value is always the original; this only affects display text.
+ * Handles known acronyms (ai → AI, url → URL, etc.) via formatLabel.
+ */
+function capitalizeEnumValue(val: string): string {
+  // Use formatLabel to handle acronyms properly (ai → AI, id → ID, etc.)
+  // formatLabel expects camelCase/snake_case but also handles plain lowercase words
+  return formatLabel(val);
+}
+
 /** Convert plural field names to singular for button labels */
 function singularize(word: string): string {
   // Common irregular plurals
@@ -648,7 +659,7 @@ export class InvokeForm extends LitElement {
                   @click=${(e: Event) => e.stopPropagation()}
                   @change=${() => this._toggleMultiselect(key, val)}
                 />
-                ${val}
+                ${capitalizeEnumValue(val)}
               </label>
             `
           )}
@@ -659,6 +670,36 @@ export class InvokeForm extends LitElement {
     // Handle Array of Objects -> Repeatable Mini-Forms (Swagger-style)
     if (schema.type === 'array' && (schema as any).items?.type === 'object') {
       return this._renderArrayOfObjects(key, schema, hasError);
+    }
+
+    // Handle plain Array (string/number items) -> Text input with comma-separated hint
+    if (schema.type === 'array') {
+      const defaultVal = (schema as any).default;
+      const placeholder = defaultVal != null ? String(defaultVal) : 'value1, value2, value3';
+      return html`
+        <div>
+          <input
+            type="text"
+            class="${errorClass}"
+            placeholder="${placeholder}"
+            .value=${Array.isArray(this._values[key])
+              ? (this._values[key] as string[]).join(', ')
+              : this._values[key] || ''}
+            @input=${(e: Event) => {
+              const raw = (e.target as HTMLInputElement).value;
+              // Split on commas, trim whitespace, filter empty entries
+              const arr = raw
+                .split(',')
+                .map((s: string) => s.trim())
+                .filter((s: string) => s.length > 0);
+              this._handleChange(key, arr.length > 0 ? arr : raw);
+            }}
+          />
+          <div class="hint" style="font-size:0.75rem;color:var(--t-muted);margin-top:2px;">
+            Comma-separated values
+          </div>
+        </div>
+      `;
     }
 
     // Handle Object with Properties -> Nested Sub-Fields
@@ -682,7 +723,9 @@ export class InvokeForm extends LitElement {
           <option value="">Select...</option>
           ${(schema as any).enum.map(
             (val: string) => html`
-              <option value=${val} ?selected=${val === currentValue}>${val}</option>
+              <option value=${val} ?selected=${val === currentValue}>
+                ${capitalizeEnumValue(val)}
+              </option>
             `
           )}
         </select>
@@ -738,6 +781,8 @@ export class InvokeForm extends LitElement {
         <input
           type="number"
           class="${errorClass}"
+          min="0"
+          max="9999"
           .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
           @input=${(e: Event) =>
             this._handleChange(key, Number((e.target as HTMLInputElement).value))}
@@ -848,7 +893,9 @@ export class InvokeForm extends LitElement {
               <option value="">Select...</option>
               ${candidates.map(
                 (val: string) => html`
-                  <option value=${val} ?selected=${val === currentValue}>${val}</option>
+                  <option value=${val} ?selected=${val === currentValue}>
+                    ${capitalizeEnumValue(val)}
+                  </option>
                 `
               )}
             </select>
