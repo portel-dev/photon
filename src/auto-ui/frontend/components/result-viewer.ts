@@ -3228,7 +3228,8 @@ export class ResultViewer extends LitElement {
         // Chart: predominantly numeric data patterns
         if (this._isChartShaped(data)) return 'chart';
 
-        // Check if we have semantic fields for list
+        // Check if we have semantic fields for list — but prefer table for data-rich objects
+        const fieldCount = Object.keys(data[0]).length;
         const hasListFields = this._hasSemanticFields(data[0], [
           'name',
           'title',
@@ -3236,7 +3237,7 @@ export class ResultViewer extends LitElement {
           'state',
           'description',
         ]);
-        return hasListFields ? 'list' : 'table';
+        return hasListFields && fieldCount <= 4 ? 'list' : 'table';
       }
     }
 
@@ -3377,6 +3378,26 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderTable(data: any[]): TemplateResult {
+    // If data is a non-array object with array properties, extract and display them
+    if (!Array.isArray(data) && data && typeof data === 'object') {
+      const arrayEntries = Object.entries(data).filter(([, v]) => Array.isArray(v) && v.length > 0);
+      if (arrayEntries.length > 0) {
+        return html`${arrayEntries.map(
+          ([key, arr]) => html`
+            <div style="margin-bottom: 16px;">
+              <div
+                style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); margin-bottom: 6px;"
+              >
+                ${formatLabel(key)}
+              </div>
+              ${this._renderTable(arr as any[])}
+            </div>
+          `
+        )}`;
+      }
+      // Single object with no arrays → fall back to card
+      return this._renderCard(data);
+    }
     if (!Array.isArray(data) || data.length === 0) {
       return html`<div class="empty-state">No data</div>`;
     }

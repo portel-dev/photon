@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
@@ -604,9 +605,10 @@ export class InvokeForm extends LitElement {
         : !!schema.required;
       const error = this._errors[key];
 
+      const inputId = `field-${key}`;
       return html`
         <div class="form-group">
-          <label>
+          <label for=${inputId}>
             ${formatLabel(key)}
             ${isRequired ? html`<span style="color: var(--accent-secondary)">*</span>` : ''}
             ${schema.description
@@ -615,14 +617,14 @@ export class InvokeForm extends LitElement {
                 >`
               : ''}
           </label>
-          ${this._renderInput(key, schema, !!error)}
+          ${this._renderInput(key, schema, !!error, inputId)}
           ${error ? html`<div class="error-text">${error}</div>` : ''}
         </div>
       `;
     });
   }
 
-  private _renderInput(key: string, schema: MethodParam, hasError = false) {
+  private _renderInput(key: string, schema: MethodParam, hasError = false, inputId?: string) {
     const isBoolean = schema.type === 'boolean' || (schema as any).type === '"boolean"';
     const errorClass = hasError ? 'error' : '';
 
@@ -679,6 +681,7 @@ export class InvokeForm extends LitElement {
       return html`
         <div>
           <input
+            id=${ifDefined(inputId)}
             type="text"
             class="${errorClass}"
             placeholder="${placeholder}"
@@ -716,6 +719,7 @@ export class InvokeForm extends LitElement {
       const currentValue = this._values[key] || '';
       return html`
         <select
+          id=${ifDefined(inputId)}
           class="${errorClass}"
           .value=${currentValue}
           @change=${(e: Event) => this._handleChange(key, (e.target as HTMLSelectElement).value)}
@@ -750,6 +754,7 @@ export class InvokeForm extends LitElement {
           <div class="number-with-range">
             <div class="number-input-row">
               <input
+                id=${ifDefined(inputId)}
                 type="number"
                 class="${errorClass}"
                 min="${min}"
@@ -779,10 +784,11 @@ export class InvokeForm extends LitElement {
 
       return html`
         <input
+          id=${ifDefined(inputId)}
           type="number"
           class="${errorClass}"
-          min="0"
-          max="9999"
+          min=${0}
+          max=${9999}
           .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
           @input=${(e: Event) =>
             this._handleChange(key, Number((e.target as HTMLInputElement).value))}
@@ -860,6 +866,7 @@ export class InvokeForm extends LitElement {
     if (isMultiLine) {
       return html`
         <textarea
+          id=${ifDefined(inputId)}
           class="${errorClass}"
           rows="6"
           .value=${this._values[key] || ''}
@@ -885,6 +892,7 @@ export class InvokeForm extends LitElement {
           const currentValue = this._values[key] || '';
           return html`
             <select
+              id=${ifDefined(inputId)}
               class="${errorClass}"
               .value=${currentValue}
               @change=${(e: Event) =>
@@ -909,6 +917,7 @@ export class InvokeForm extends LitElement {
     const placeholder = defaultVal != null ? String(defaultVal) : '';
     return html`
       <input
+        id=${ifDefined(inputId)}
         type="text"
         class="${errorClass}"
         placeholder="${placeholder}"
@@ -1157,6 +1166,8 @@ export class InvokeForm extends LitElement {
       return html`
         <input
           type="number"
+          min=${(schema as any).minimum ?? 0}
+          max=${(schema as any).maximum ?? 9999}
           .value=${value !== undefined ? String(value) : ''}
           @input=${(e: Event) => onChange(propKey, Number((e.target as HTMLInputElement).value))}
         />
@@ -1309,6 +1320,8 @@ export class InvokeForm extends LitElement {
       return html`
         <input
           type="number"
+          min=${(schema as any).minimum ?? 0}
+          max=${(schema as any).maximum ?? 9999}
           .value=${value !== undefined ? String(value) : ''}
           @input=${(e: Event) => handleNestedChange(Number((e.target as HTMLInputElement).value))}
         />
