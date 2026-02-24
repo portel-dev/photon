@@ -1283,13 +1283,14 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
             } else {
               // Photon file deleted (uninstalled) — unload all session managers for it
               logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
-              for (const [key, storedPath] of photonPaths.entries()) {
-                if (storedPath !== photonPath) continue;
+              // Collect keys first — mutating Maps during a live async iterator is unsafe
+              const keysToDelete = Array.from(photonPaths.entries())
+                .filter(([, storedPath]) => storedPath === photonPath)
+                .map(([key]) => key);
+              for (const key of keysToDelete) {
                 const manager = sessionManagers.get(key);
-                if (manager) {
-                  await manager.clearInstances();
-                  sessionManagers.delete(key);
-                }
+                if (manager) await manager.clearInstances();
+                sessionManagers.delete(key);
                 photonPaths.delete(key);
                 workingDirs.delete(key);
               }
@@ -1453,12 +1454,16 @@ function watchWorkingDir(workingDir: string): void {
             // DELETE: data is gone — clear all in-memory instances so stale
             // state isn't replayed into a fresh directory.
             logger.info('workingDir deleted — clearing all instances', { workingDir });
-            for (const [key, dir] of workingDirs.entries()) {
-              if (dir !== workingDir) continue;
+            // Collect keys first to avoid async mutation of live iterators
+            const deletedDirKeys = Array.from(workingDirs.entries())
+              .filter(([, dir]) => dir === workingDir)
+              .map(([key]) => key);
+            for (const key of deletedDirKeys) {
               const manager = sessionManagers.get(key);
-              if (manager) {
-                await manager.clearInstances();
-              }
+              if (manager) await manager.clearInstances();
+              sessionManagers.delete(key);
+              photonPaths.delete(key);
+              workingDirs.delete(key);
             }
             workingDirInodes.delete(workingDir);
           }

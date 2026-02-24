@@ -1885,9 +1885,11 @@ export class BeamApp extends LitElement {
       });
 
       mcpClient.on('tools-changed', async () => {
-        const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
         const tools = await mcpClient.listTools();
         const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+        // Capture prevNames AFTER the await — _photons may have been updated by
+        // a concurrent SSE 'photons' event while we were waiting for listTools().
+        const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
         this._photons = photons;
         this._externalMCPs = externalMCPs;
         // Re-add unconfigured photons from configuration schema
