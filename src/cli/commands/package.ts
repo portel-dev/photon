@@ -657,7 +657,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
                 await fs.unlink(filePath);
                 count++;
               } catch {
-                // Ignore errors
+                // Ignore — file may have been deleted between readdir and unlink
               }
             }
 
