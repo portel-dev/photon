@@ -27,7 +27,7 @@ export function registerHostCommand(program: Command, defaultDir: string): void 
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = command.optsWithGlobals().dir || defaultDir;
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);
@@ -69,7 +69,7 @@ export function registerHostCommand(program: Command, defaultDir: string): void 
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = command.optsWithGlobals().dir || defaultDir;
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);
