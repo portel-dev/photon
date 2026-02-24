@@ -1,0 +1,141 @@
+{
+  "description": "Test fixtures for result-viewer layout auto-detection",
+  "fixtures": [
+    {
+      "name": "empty_result",
+      "input": null,
+      "expectedLayout": "text"
+    },
+    {
+      "name": "string_plain",
+      "input": "Hello world",
+      "expectedLayout": "text"
+    },
+    {
+      "name": "string_markdown",
+      "input": "## Heading\n\nSome **bold** text with `code`",
+      "expectedLayout": "markdown"
+    },
+    {
+      "name": "string_mermaid",
+      "input": "graph TD\n  A --> B\n  B --> C",
+      "expectedLayout": "mermaid"
+    },
+    {
+      "name": "number_primitive",
+      "input": 42,
+      "expectedLayout": "text"
+    },
+    {
+      "name": "boolean_primitive",
+      "input": true,
+      "expectedLayout": "text"
+    },
+    {
+      "name": "array_of_strings",
+      "input": ["apple", "banana", "cherry"],
+      "expectedLayout": "chips"
+    },
+    {
+      "name": "array_of_strings_markdown",
+      "input": ["## First", "**Second**"],
+      "expectedLayout": "markdown"
+    },
+    {
+      "name": "array_empty",
+      "input": [],
+      "expectedLayout": "json"
+    },
+    {
+      "name": "array_of_objects_table",
+      "input": [
+        {"name": "Alice", "email": "alice@test.com", "role": "admin", "active": true},
+        {"name": "Bob", "email": "bob@test.com", "role": "user", "active": false},
+        {"name": "Charlie", "email": "charlie@test.com", "role": "user", "active": true}
+      ],
+      "expectedLayout": "list",
+      "note": "has semantic field 'name' so detects as list, not table"
+    },
+    {
+      "name": "array_of_objects_list",
+      "input": [
+        {"name": "Task 1", "status": "done", "description": "First task"},
+        {"name": "Task 2", "status": "pending", "description": "Second task"},
+        {"name": "Task 3", "status": "in-progress", "description": "Third task"}
+      ],
+      "expectedLayout": "list"
+    },
+    {
+      "name": "array_of_objects_timeline",
+      "input": [
+        {"date": "2026-01-01", "title": "Launch", "detail": "v1.0"},
+        {"date": "2026-02-01", "title": "Update", "detail": "v1.1"},
+        {"date": "2026-03-01", "title": "Release", "detail": "v2.0"}
+      ],
+      "expectedLayout": "timeline"
+    },
+    {
+      "name": "array_of_objects_cart",
+      "input": [
+        {"name": "Widget", "price": 9.99, "quantity": 2},
+        {"name": "Gadget", "price": 19.99, "quantity": 1}
+      ],
+      "expectedLayout": "cart"
+    },
+    {
+      "name": "object_single_metric",
+      "input": {"count": 42},
+      "expectedLayout": "metric"
+    },
+    {
+      "name": "object_gauge",
+      "input": {"value": 75, "max": 100, "label": "CPU Usage"},
+      "expectedLayout": "gauge"
+    },
+    {
+      "name": "object_card",
+      "input": {"name": "Alice", "email": "alice@example.com", "role": "admin"},
+      "expectedLayout": "card"
+    },
+    {
+      "name": "object_nested_tree",
+      "input": {
+        "server": {
+          "host": "localhost",
+          "port": 3000,
+          "routes": ["GET /api", "POST /api"]
+        },
+        "database": {
+          "type": "postgres",
+          "host": "db.example.com"
+        }
+      },
+      "expectedLayout": "card"
+    },
+    {
+      "name": "object_dashboard",
+      "input": {
+        "users": 1500,
+        "revenue": 45000,
+        "items": ["A", "B", "C"],
+        "breakdown": {"web": 60, "mobile": 40}
+      },
+      "expectedLayout": "dashboard"
+    },
+    {
+      "name": "long_text",
+      "input": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+      "expectedLayout": "text"
+    },
+    {
+      "name": "special_chars",
+      "input": "Special chars: <script>alert('xss')</script> & \"quotes\" 'apostrophe'",
+      "expectedLayout": "text"
+    },
+    {
+      "name": "acronyms",
+      "input": {"API": "REST", "AI": "Claude", "URL": "https://example.com"},
+      "expectedLayout": "card"
+    }
+  ]
+}
