@@ -17,35 +17,43 @@ import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
-import { DEFAULT_PHOTON_DIR } from '../path-resolver.js';
+import { DEFAULT_WORKING_DIR } from '../path-resolver.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
-// Global daemon paths (single daemon for all photons)
-export const GLOBAL_PID_FILE = path.join(PHOTON_DIR, 'daemon.pid');
-export const GLOBAL_LOG_FILE = path.join(PHOTON_DIR, 'daemon.log');
+// Resolve photon dir at call-time so PHOTON_DIR env var is always respected.
+// Using a getter instead of a module-level constant means a changed PHOTON_DIR
+// (e.g. set just before starting Beam) is picked up correctly.
+function getPhotonDir(): string {
+  return process.env.PHOTON_DIR ? path.resolve(process.env.PHOTON_DIR) : DEFAULT_WORKING_DIR;
+}
+
+// Global daemon paths (single daemon per photon dir)
+export const GLOBAL_PID_FILE = path.join(getPhotonDir(), 'daemon.pid');
+export const GLOBAL_LOG_FILE = path.join(getPhotonDir(), 'daemon.log');
 
 /**
- * Get global socket path for the Photon daemon
+ * Get global socket path for the Photon daemon.
+ * Evaluated at call-time so PHOTON_DIR is always respected.
  */
 export function getGlobalSocketPath(): string {
   if (process.platform === 'win32') {
     return '\\\\.\\pipe\\photon-daemon';
   }
-  return path.join(PHOTON_DIR, 'daemon.sock');
+  return path.join(getPhotonDir(), 'daemon.sock');
 }
 
 /**
  * Ensure photon directory exists
  */
 function ensurePhotonDir(): void {
-  if (!fs.existsSync(PHOTON_DIR)) {
-    fs.mkdirSync(PHOTON_DIR, { recursive: true });
+  const dir = getPhotonDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
