@@ -1497,7 +1497,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             photonMCPs,
             loader,
             savedConfig,
-            workingDir
+            workingDir,
+            activeLoads
           );
         },
         reloadPhoton: async (photonName: string) => {
@@ -1507,7 +1508,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             photonMCPs,
             loader,
             savedConfig,
-            broadcastPhotonChange
+            broadcastPhotonChange,
+            activeLoads
           );
         },
         removePhoton: async (photonName: string) => {
@@ -3104,7 +3106,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // File watcher for hot reload
   const watchers: FSWatcher[] = [];
   const pendingReloads = new Map<string, NodeJS.Timeout>();
-  const activeLoads = new Set<string>(); // Tracks photons currently being loaded to prevent duplicate pushes
+  const activeLoads = new Set<string>(); // Photons currently being loaded (prevents concurrent duplicate loads)
+  const pendingAfterLoad = new Set<string>(); // File changes that arrived while a load was active; re-triggered after
 
   // Determine which photon a file change belongs to
   const getPhotonForPath = (changedPath: string): string | null => {
@@ -3141,8 +3144,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       setTimeout(async () => {
         pendingReloads.delete(photonName);
 
-        // Skip if already loading this photon (prevents duplicate pushes from race conditions)
-        if (activeLoads.has(photonName)) return;
+        // Skip if already loading this photon — but mark it so we re-run after the active load
+        // finishes. Without this, file changes that arrive mid-load are silently dropped.
+        if (activeLoads.has(photonName)) {
+          pendingAfterLoad.add(photonName);
+          return;
+        }
         activeLoads.add(photonName);
 
         try {
@@ -3231,9 +3238,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 errorReason: 'missing-config',
                 errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
               };
-              photons.push(targetPhoton);
-              broadcastPhotonChange();
-              logger.info(`⚙️ ${photonName} added (needs configuration)`);
+              if (!photons.find((p) => p.name === photonName)) {
+                photons.push(targetPhoton);
+                broadcastPhotonChange();
+                logger.info(`⚙️ ${photonName} added (needs configuration)`);
+              }
               return;
             }
           }
@@ -3336,16 +3345,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
             };
 
+            // Re-find the index — it may have shifted during the async work above
+            const currentIndex = photons.findIndex((p) => p.name === photonName);
             if (isNewPhoton) {
-              photons.push(reloadedPhoton);
-              broadcastPhotonChange();
-              logger.info(`✅ ${photonName} added`);
+              if (currentIndex === -1) {
+                photons.push(reloadedPhoton);
+                broadcastPhotonChange();
+                logger.info(`✅ ${photonName} added`);
+              }
+              // else: another async path already added it — skip duplicate push
             } else {
-              photons[photonIndex] = reloadedPhoton;
-              logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
-              broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
-              broadcastPhotonChange();
-              logger.info(`✅ ${photonName} hot reloaded`);
+              if (currentIndex !== -1) {
+                photons[currentIndex] = reloadedPhoton;
+                logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
+                broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
+                broadcastPhotonChange();
+                logger.info(`✅ ${photonName} hot reloaded`);
+              }
+              // else: photon was removed while we were reloading — discard result
             }
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
@@ -3380,9 +3397,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
                 errorMessage: errorMsg.slice(0, 200),
               };
-              photons.push(targetPhoton);
-              broadcastPhotonChange();
-              logger.info(`⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`);
+              if (!photons.find((p) => p.name === photonName)) {
+                photons.push(targetPhoton);
+                broadcastPhotonChange();
+                logger.info(
+                  `⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`
+                );
+              }
               return;
             }
 
@@ -3395,6 +3416,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }
         } finally {
           activeLoads.delete(photonName);
+          // If another file change arrived while we were loading, process it now
+          if (pendingAfterLoad.has(photonName)) {
+            pendingAfterLoad.delete(photonName);
+            handleFileChange(photonName);
+          }
         }
       }, 100)
     );
@@ -3533,7 +3559,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     const results = await Promise.allSettled(batch.map((name) => loadSinglePhoton(name)));
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value) {
-        photons.push(result.value);
+        // Dedup: file watcher may have already loaded this photon during startup
+        if (!photons.find((p) => p.name === result.value!.name)) {
+          photons.push(result.value);
+        }
       }
     }
   }
@@ -3856,13 +3885,23 @@ async function configurePhotonViaMCP(
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
   savedConfig: PhotonConfig,
-  workingDir: string
+  workingDir: string,
+  activeLoads?: Set<string>
 ): Promise<{ success: boolean; error?: string }> {
   // Find the photon (configured or unconfigured)
   const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
     return { success: false, error: `Photon not found: ${photonName}` };
   }
+
+  // Serialize with file-watcher reloads to prevent concurrent mutation
+  if (activeLoads?.has(photonName)) {
+    return {
+      success: false,
+      error: `${photonName} is currently being reloaded — try again shortly`,
+    };
+  }
+  activeLoads?.add(photonName);
 
   // Apply config to environment
   for (const [key, value] of Object.entries(config)) {
@@ -3953,7 +3992,14 @@ async function configurePhotonViaMCP(
         mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
-    photons[photonIndex] = configuredPhoton;
+    // Re-find index — array may have shifted during the async work above
+    const currentIndex = photons.findIndex((p) => p.name === photonName);
+    if (currentIndex === -1) {
+      activeLoads?.delete(photonName);
+      return { success: false, error: `${photonName} was removed during configuration` };
+    }
+    photons[currentIndex] = configuredPhoton;
+    activeLoads?.delete(photonName);
 
     logger.info(`✅ ${photonName} configured via MCP`);
 
@@ -3963,6 +4009,7 @@ async function configurePhotonViaMCP(
 
     return { success: true };
   } catch (error) {
+    activeLoads?.delete(photonName);
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(`Failed to configure ${photonName} via MCP: ${errorMsg}`);
     return { success: false, error: errorMsg };
@@ -3978,13 +4025,23 @@ async function reloadPhotonViaMCP(
   photonMCPs: Map<string, any>,
   loader: PhotonLoader,
   savedConfig: PhotonConfig,
-  broadcastChange: () => void
+  broadcastChange: () => void,
+  activeLoads?: Set<string>
 ): Promise<{ success: boolean; photon?: PhotonInfo; error?: string }> {
   // Find the photon
   const photonIndex = photons.findIndex((p) => p.name === photonName);
   if (photonIndex === -1) {
     return { success: false, error: `Photon not found: ${photonName}` };
   }
+
+  // Serialize with file-watcher reloads
+  if (activeLoads?.has(photonName)) {
+    return {
+      success: false,
+      error: `${photonName} is currently being reloaded — try again shortly`,
+    };
+  }
+  activeLoads?.add(photonName);
 
   const photon = photons[photonIndex];
   const photonPath = photon.path;
@@ -4074,7 +4131,14 @@ async function reloadPhotonViaMCP(
         mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };
 
-    photons[photonIndex] = reloadedPhoton;
+    // Re-find index — array may have shifted during the async work above
+    const currentIndex = photons.findIndex((p) => p.name === photonName);
+    if (currentIndex === -1) {
+      activeLoads?.delete(photonName);
+      return { success: false, error: `${photonName} was removed during reload` };
+    }
+    photons[currentIndex] = reloadedPhoton;
+    activeLoads?.delete(photonName);
 
     logger.info(`🔄 ${photonName} reloaded via MCP`);
 
@@ -4083,6 +4147,7 @@ async function reloadPhotonViaMCP(
 
     return { success: true, photon: reloadedPhoton };
   } catch (error) {
+    activeLoads?.delete(photonName);
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(`Failed to reload ${photonName} via MCP: ${errorMsg}`);
     return { success: false, error: errorMsg };
@@ -4139,20 +4204,17 @@ async function updateMetadataViaMCP(
     return { success: false, error: `Photon not found: ${photonName}` };
   }
 
-  const photon = photons[photonIndex];
-
   if (methodName) {
-    // Update method metadata
-    if (!photon.configured || !photon.methods) {
+    // Update method metadata — read via index at point of use (not a cached ref)
+    if (!photons[photonIndex].configured || !photons[photonIndex].methods) {
       return { success: false, error: 'Photon is not configured or has no methods' };
     }
 
-    const method = photon.methods.find((m: any) => m.name === methodName);
+    const method = photons[photonIndex].methods!.find((m: any) => m.name === methodName);
     if (!method) {
       return { success: false, error: `Method not found: ${methodName}` };
     }
 
-    // Update method metadata
     if (metadata.description !== undefined) {
       method.description = metadata.description;
     }
@@ -4162,12 +4224,12 @@ async function updateMetadataViaMCP(
 
     logger.info(`📝 Updated metadata for ${photonName}/${methodName}`);
   } else {
-    // Update photon metadata
+    // Update photon metadata directly via index
     if (metadata.description !== undefined) {
-      (photon as any).description = metadata.description;
+      (photons[photonIndex] as any).description = metadata.description;
     }
     if (metadata.icon !== undefined) {
-      (photon as any).icon = metadata.icon;
+      (photons[photonIndex] as any).icon = metadata.icon;
     }
 
     logger.info(`📝 Updated metadata for ${photonName}`);
