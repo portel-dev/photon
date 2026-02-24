@@ -134,6 +134,8 @@ export class PhotonLoader {
   private sdkFactory?: SDKMCPClientFactory;
   /** Cached MCP config from ~/.photon/config.json */
   private mcpConfig?: PhotonMCPConfig;
+  /** Inflight config load promise (dedup concurrent calls) */
+  private mcpConfigPromise?: Promise<PhotonMCPConfig>;
   /** Progress renderer for inline CLI animation */
   private progressRenderer = new ProgressRenderer();
   /** Marketplace manager for resolving remote Photons */
@@ -165,14 +167,19 @@ export class PhotonLoader {
    * Called lazily on first MCP injection
    */
   private async ensureMCPConfig(): Promise<PhotonMCPConfig> {
-    if (!this.mcpConfig) {
-      this.mcpConfig = await loadPhotonMCPConfig();
-      const serverCount = Object.keys(this.mcpConfig.mcpServers).length;
+    if (this.mcpConfig) return this.mcpConfig;
+    if (this.mcpConfigPromise) return this.mcpConfigPromise;
+
+    this.mcpConfigPromise = loadPhotonMCPConfig().then((config) => {
+      this.mcpConfig = config;
+      this.mcpConfigPromise = undefined;
+      const serverCount = Object.keys(config.mcpServers).length;
       if (serverCount > 0) {
         this.log(`Loaded ${serverCount} MCP servers from config`);
       }
-    }
-    return this.mcpConfig;
+      return config;
+    });
+    return this.mcpConfigPromise;
   }
 
   private async getMarketplaceManager(): Promise<MarketplaceManager> {

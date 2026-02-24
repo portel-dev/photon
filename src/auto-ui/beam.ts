@@ -34,6 +34,19 @@ function generatePhotonId(photonPath: string): string {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** Race a promise against a timeout. Clears the timer when the main promise settles. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 // WebSocket removed - now using MCP Streamable HTTP (SSE) only
 import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
@@ -224,10 +237,7 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
   try {
     const transport = new StreamableHTTPClientTransport(new URL(url));
     const connectPromise = sdkClient.connect(transport);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-    );
-    await Promise.race([connectPromise, timeoutPromise]);
+    await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
     logger.debug(`Connected to ${url} via Streamable HTTP`);
     return sdkClient;
   } catch (streamableError) {
@@ -261,10 +271,7 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
 
   const sseTransport = new SSEClientTransport(new URL(url));
   const connectPromise = sseClient.connect(sseTransport);
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-  );
-  await Promise.race([connectPromise, timeoutPromise]);
+  await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
   logger.debug(`Connected to ${url} via legacy SSE`);
   return sseClient;
 }
@@ -393,10 +400,7 @@ async function loadExternalMCPs(config: PhotonConfig): Promise<ExternalMCPInfo[]
           });
 
           const connectPromise = sdkClient.connect(sdkTransport);
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-          );
-          await Promise.race([connectPromise, timeoutPromise]);
+          await withTimeout(connectPromise, 10000, 'Connection timeout (10s)');
 
           externalMCPSDKClients.set(name, sdkClient);
 
@@ -577,12 +581,7 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
       const factory = new SDKMCPClientFactory(stdioConfig, false);
       const client = factory.create(name);
 
-      const connectPromise = client.list();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Connection timeout (10s)')), 10000)
-      );
-
-      const tools = (await Promise.race([connectPromise, timeoutPromise])) as any[];
+      const tools = (await withTimeout(client.list(), 10000, 'Connection timeout (10s)')) as any[];
 
       methods = (tools || []).map((tool: any) => ({
         name: tool.name,
@@ -818,12 +817,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     // All params satisfied, try to load with timeout
     try {
-      const loadPromise = loader.loadFile(photonPath);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Loading timeout (10s)')), 10000)
-      );
-
-      const mcp = (await Promise.race([loadPromise, timeoutPromise])) as any;
+      const mcp = (await withTimeout(
+        loader.loadFile(photonPath),
+        10000,
+        'Loading timeout (10s)'
+      )) as any;
       const instance = mcp.instance;
 
       if (!instance) {
@@ -3545,24 +3543,26 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           `🔧 config.json changed — added: [${added}], removed: [${removed}], modified: [${modified}]`
         );
 
-        // Remove MCPs
+        // Remove MCPs — do all synchronous Map mutations first, then close async
+        const removedSdkClients: Array<{ name: string; client: any }> = [];
         for (const name of removed) {
           const idx = externalMCPs.findIndex((m) => m.name === name);
           if (idx !== -1) externalMCPs.splice(idx, 1);
 
-          // Clean up clients
-          try {
-            const sdkClient = externalMCPSDKClients.get(name);
-            if (sdkClient) {
-              await sdkClient.close();
-              externalMCPSDKClients.delete(name);
-            }
-          } catch {
-            /* ignore */
-          }
+          const sdkClient = externalMCPSDKClients.get(name);
+          if (sdkClient) removedSdkClients.push({ name, client: sdkClient });
+          externalMCPSDKClients.delete(name);
           externalMCPClients.delete(name);
 
           logger.info(`🔌 Removed external MCP: ${name}`);
+        }
+        // Close SDK clients after all Maps are consistent
+        for (const { name, client } of removedSdkClients) {
+          try {
+            await client.close();
+          } catch {
+            /* ignore */
+          }
         }
 
         // Add new MCPs
@@ -3580,25 +3580,27 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           }
         }
 
-        // Reconnect modified MCPs
+        // Reconnect modified MCPs — synchronous cleanup first, then async reconnect
+        const modifiedSdkClients: Array<{ name: string; client: any }> = [];
         for (const name of modified) {
           const idx = externalMCPs.findIndex((m) => m.name === name);
-          if (idx !== -1) {
-            // Clean up old clients
-            try {
-              const sdkClient = externalMCPSDKClients.get(name);
-              if (sdkClient) {
-                await sdkClient.close();
-                externalMCPSDKClients.delete(name);
-              }
-            } catch {
-              /* ignore */
-            }
-            externalMCPClients.delete(name);
-            externalMCPs.splice(idx, 1);
-          }
+          if (idx !== -1) externalMCPs.splice(idx, 1);
 
-          // Reconnect with new config
+          const sdkClient = externalMCPSDKClients.get(name);
+          if (sdkClient) modifiedSdkClients.push({ name, client: sdkClient });
+          externalMCPSDKClients.delete(name);
+          externalMCPClients.delete(name);
+        }
+        // Close old SDK clients
+        for (const { client } of modifiedSdkClients) {
+          try {
+            await client.close();
+          } catch {
+            /* ignore */
+          }
+        }
+        // Reconnect all modified MCPs
+        for (const name of modified) {
           const modConfig: PhotonConfig = {
             photons: {},
             mcpServers: { [name]: newServers[name] },
@@ -4065,10 +4067,7 @@ export async function stopBeam(): Promise<void> {
 
   // Wait for all clients to close (with timeout)
   if (closePromises.length > 0) {
-    await Promise.race([
-      Promise.all(closePromises),
-      new Promise<void>((resolve) => setTimeout(resolve, 1000)), // 1 second timeout
-    ]);
+    await withTimeout(Promise.all(closePromises), 1000, 'MCP client close timeout').catch(() => {}); // Timeout during shutdown is expected
   }
 
   externalMCPSDKClients.clear();

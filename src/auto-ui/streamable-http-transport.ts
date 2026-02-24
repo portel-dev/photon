@@ -78,6 +78,7 @@ interface PendingElicitation {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   sessionId: string;
+  timer?: ReturnType<typeof setTimeout>;
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
 
@@ -321,6 +322,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     pendingElicitations.delete(elicitationId);
+    if (pending.timer) clearTimeout(pending.timer);
 
     if (params?.cancelled) {
       pending.reject(new Error('Elicitation cancelled by user'));
@@ -1100,11 +1102,12 @@ const handlers: Record<string, RequestHandler> = {
 
         return new Promise((resolve, reject) => {
           // Store pending elicitation
-          pendingElicitations.set(elicitationId, {
+          const pending: PendingElicitation = {
             resolve,
             reject,
             sessionId: session?.id || '',
-          });
+          };
+          pendingElicitations.set(elicitationId, pending);
 
           // Broadcast elicitation request to frontend
           ctx.broadcast!({
@@ -1116,8 +1119,8 @@ const handlers: Record<string, RequestHandler> = {
             },
           });
 
-          // Timeout after 5 minutes
-          setTimeout(() => {
+          // Timeout after 5 minutes (timer cleared on normal resolve)
+          pending.timer = setTimeout(() => {
             if (pendingElicitations.has(elicitationId)) {
               pendingElicitations.delete(elicitationId);
               reject(new Error('Elicitation timeout - no response received'));
@@ -2565,7 +2568,7 @@ export function requestExternalElicitation(
 
   return new Promise((resolve, reject) => {
     // Store pending elicitation
-    pendingElicitations.set(elicitationId, {
+    const pending: PendingElicitation = {
       resolve: (value: any) => {
         resolve({ action: 'accept', content: value });
       },
@@ -2577,7 +2580,8 @@ export function requestExternalElicitation(
         }
       },
       sessionId: '', // External MCP elicitations aren't tied to a specific session
-    });
+    };
+    pendingElicitations.set(elicitationId, pending);
 
     // Broadcast elicitation request to all Beam clients
     broadcastToBeam('beam/elicitation', {
@@ -2589,8 +2593,8 @@ export function requestExternalElicitation(
       url: request.url,
     });
 
-    // Timeout after 5 minutes
-    setTimeout(() => {
+    // Timeout after 5 minutes (timer cleared on normal resolve)
+    pending.timer = setTimeout(() => {
       if (pendingElicitations.has(elicitationId)) {
         pendingElicitations.delete(elicitationId);
         resolve({ action: 'cancel' });
@@ -2614,7 +2618,7 @@ function requestBeamElicitation(data: {
   const elicitationId = randomUUID();
 
   return new Promise((resolve) => {
-    pendingElicitations.set(elicitationId, {
+    const pending: PendingElicitation = {
       resolve: (value: any) => {
         resolve({ action: 'accept', content: value });
       },
@@ -2626,7 +2630,8 @@ function requestBeamElicitation(data: {
         }
       },
       sessionId: '',
-    });
+    };
+    pendingElicitations.set(elicitationId, pending);
 
     // Broadcast with Photon-native ask format (not MCP form mode)
     broadcastToBeam('beam/elicitation', {
@@ -2634,7 +2639,8 @@ function requestBeamElicitation(data: {
       ...data,
     });
 
-    setTimeout(() => {
+    // Timeout after 5 minutes (timer cleared on normal resolve)
+    pending.timer = setTimeout(() => {
       if (pendingElicitations.has(elicitationId)) {
         pendingElicitations.delete(elicitationId);
         resolve({ action: 'cancel' });
