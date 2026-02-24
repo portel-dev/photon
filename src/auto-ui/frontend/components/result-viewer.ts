@@ -3,6 +3,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
+import { formatLabel } from '../utils/format-label.js';
 
 type LayoutType =
   | 'table'
@@ -3525,7 +3526,33 @@ export class ResultViewer extends LitElement {
       return html`<div class="empty-state">No items</div>`;
     }
 
+    // Derive field mapping from first item so we can render a header row
+    const firstObj = typeof data[0] === 'object' && data[0] !== null ? data[0] : null;
+    const mapping = firstObj ? this._analyzeFields(firstObj) : null;
+
     return html`
+      ${mapping && (mapping.title || mapping.subtitle || mapping.badge || mapping.detail)
+        ? html`
+            <div
+              style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;font-size:0.7rem;color:var(--t-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border-glass);"
+            >
+              <span style="flex:1;"
+                >${mapping.title ? this._formatColumnName(mapping.title) : ''}${mapping.subtitle &&
+                mapping.title
+                  ? ' / ' + this._formatColumnName(mapping.subtitle)
+                  : mapping.subtitle
+                    ? this._formatColumnName(mapping.subtitle)
+                    : ''}</span
+              >
+              <span style="display:flex;gap:16px;">
+                ${mapping.detail
+                  ? html`<span>${this._formatColumnName(mapping.detail)}</span>`
+                  : ''}
+                ${mapping.badge ? html`<span>${this._formatColumnName(mapping.badge)}</span>` : ''}
+              </span>
+            </div>
+          `
+        : ''}
       <ul class="smart-list">
         ${data.map((item) => this._renderListItem(item))}
       </ul>
@@ -3573,7 +3600,7 @@ export class ResultViewer extends LitElement {
             : ''}
           ${mapping.badge
             ? html`<span class="status-badge ${this._getStatusClass(item[mapping.badge])}"
-                >${item[mapping.badge]}</span
+                >${formatLabel(String(item[mapping.badge]))}</span
               >`
             : ''}
         </div>
@@ -3633,7 +3660,14 @@ export class ResultViewer extends LitElement {
       value.some((v) => typeof v === 'object' && v !== null)
     )
       return true;
-    if (typeof value === 'object' && value !== null && Object.keys(value).length > 4) return true;
+    // Only treat plain objects (not arrays) with many keys as nested
+    if (
+      !Array.isArray(value) &&
+      typeof value === 'object' &&
+      value !== null &&
+      Object.keys(value).length > 4
+    )
+      return true;
     return false;
   }
 
@@ -4287,14 +4321,8 @@ export class ResultViewer extends LitElement {
   }
 
   private _formatColumnName(name: string): string {
-    // Convert camelCase/snake_case to Title Case
-    return name
-      .replace(/([A-Z])/g, ' $1')
-      .replace(/_/g, ' ')
-      .replace(/^\s/, '')
-      .split(' ')
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+    // Delegate to formatLabel which handles camelCase, snake_case, and known acronyms (ID, URL, etc.)
+    return formatLabel(name);
   }
 
   private _formatCellValue(value: any, key: string, highlight = false): TemplateResult | string {
@@ -4337,7 +4365,9 @@ export class ResultViewer extends LitElement {
 
     // Check for status fields
     if (this._isStatusField(key) && typeof value === 'string') {
-      return html`<span class="status-badge ${this._getStatusClass(value)}">${value}</span>`;
+      return html`<span class="status-badge ${this._getStatusClass(value)}"
+        >${formatLabel(value)}</span
+      >`;
     }
 
     if (Array.isArray(value)) {
@@ -4420,20 +4450,21 @@ export class ResultViewer extends LitElement {
     }
 
     if (typeof value === 'object' && value !== null) {
-      // Single nested object → inline key-value pairs
+      // Single nested object → sub-rows (one key-value pair per row for readability)
       const entries = Object.entries(value).filter(([, v]) => v !== undefined);
       if (entries.length <= 4) {
-        return html`<span style="display:flex;flex-wrap:wrap;gap:4px 10px;"
-          >${entries.map(
+        return html`<div style="display:flex;flex-direction:column;gap:2px;">
+          ${entries.map(
             ([k, v]) =>
-              html`<span
-                ><span style="color:var(--t-muted);font-size:0.75rem;text-transform:uppercase;"
-                  >${k}</span
+              html`<div style="display:flex;gap:8px;align-items:baseline;">
+                <span
+                  style="color:var(--t-muted);font-size:0.75rem;white-space:nowrap;min-width:4em;"
+                  >${this._formatColumnName(k)}</span
                 >
-                <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span></span
-              >`
-          )}</span
-        >`;
+                <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+              </div>`
+          )}
+        </div>`;
       }
       const nodeKey = `cell-${key}`;
       const isExpanded = this._expandedNodes.has(nodeKey);
@@ -4534,7 +4565,17 @@ ${str}</pre
 
   private _isStatusField(key: string): boolean {
     const lower = key.toLowerCase();
-    return lower === 'status' || lower === 'state' || lower === 'priority';
+    return (
+      lower === 'status' ||
+      lower === 'state' ||
+      lower === 'priority' ||
+      lower === 'assignee' ||
+      lower === 'author' ||
+      lower === 'createdby' ||
+      lower === 'updatedby' ||
+      lower === 'role' ||
+      lower === 'type'
+    );
   }
 
   private _isImageUrl(value: any): boolean {
