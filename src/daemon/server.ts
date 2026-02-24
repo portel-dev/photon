@@ -1790,7 +1790,9 @@ function resetIdleTimer(): void {
 // ════════════════════════════════════════════════════════════════════════════════
 
 function startupWatchPhotons(): void {
-  const photonDir = DEFAULT_PHOTON_DIR;
+  const photonDir = process.env.PHOTON_DIR
+    ? path.resolve(process.env.PHOTON_DIR)
+    : DEFAULT_PHOTON_DIR;
   if (!fs.existsSync(photonDir)) return;
 
   let entries: fs.Dirent[];
