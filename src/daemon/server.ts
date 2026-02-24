@@ -1424,7 +1424,9 @@ function watchWorkingDir(workingDir: string): void {
             // Still exists — record updated inode in case it was recreated
             try {
               workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
-            } catch {}
+            } catch {
+              /* stat may fail if dir was just recreated */
+            }
             return;
           }
 
