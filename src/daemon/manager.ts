@@ -179,6 +179,7 @@ function isDaemonBinaryStale(): boolean {
     const binaryBuiltAt = fs.statSync(daemonScript).mtimeMs;
     return binaryBuiltAt > daemonStartedAt;
   } catch {
+    // PID file or daemon script missing — assume no update needed
     return false;
   }
 }

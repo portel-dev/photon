@@ -901,6 +901,11 @@ export class MarketplaceView extends LitElement {
     await this._fetchItems();
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearTimeout(this._searchTimeout);
+  }
+
   render() {
     return html`
       <!-- Actions Toolbar -->

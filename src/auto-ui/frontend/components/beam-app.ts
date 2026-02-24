@@ -3766,7 +3766,9 @@ export class BeamApp extends LitElement {
   /** Fetch available instances for a stateful photon from the server */
   private async _fetchInstances(photonName: string) {
     try {
-      const res = await fetch(`/api/instances/${photonName}`);
+      const res = await fetch(`/api/instances/${photonName}`, {
+        signal: AbortSignal.timeout(10000),
+      });
       if (res.ok) {
         const data = await res.json();
         this._instances = data.instances || [];
