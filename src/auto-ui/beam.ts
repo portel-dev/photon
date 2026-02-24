@@ -509,14 +509,18 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
     return { success: false, error: `External MCP not found: ${name}` };
   }
 
-  const mcp = externalMCPs[mcpIndex];
+  const mcpConfig = externalMCPs[mcpIndex].config;
 
   try {
     let methods: MethodInfo[] = [];
+    let resourceCount: number | undefined;
+    let hasApp: boolean | undefined;
+    let appResourceUri: string | undefined;
+    let appResourceUris: string[] | undefined;
 
-    if (mcp.config.url) {
+    if (mcpConfig.url) {
       // HTTP transport — tries Streamable HTTP, falls back to legacy SSE
-      const sdkClient = await connectHTTPClient(mcp.config.url, name);
+      const sdkClient = await connectHTTPClient(mcpConfig.url, name);
       externalMCPSDKClients.set(name, sdkClient);
 
       const toolsResult = await sdkClient.listTools();
@@ -542,28 +546,28 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
         );
 
         // Count only non-UI resources (UI resources are internal implementation detail)
-        mcp.resourceCount = resources.length - allUiResources.length;
+        resourceCount = resources.length - allUiResources.length;
 
         // Only standalone UI resources make this an "app"
         const toolLinkedUris = new Set(methods.map((m: any) => m.linkedUi).filter(Boolean));
         const standaloneResources = allUiResources.filter((r: any) => !toolLinkedUris.has(r.uri));
 
         if (standaloneResources.length > 0) {
-          mcp.hasApp = true;
-          mcp.appResourceUri = standaloneResources[0].uri;
-          mcp.appResourceUris = standaloneResources.map((r: any) => r.uri);
+          hasApp = true;
+          appResourceUri = standaloneResources[0].uri;
+          appResourceUris = standaloneResources.map((r: any) => r.uri);
         }
       } catch {
         // Resources not supported
       }
     } else {
       // Stdio / wrapper transport
-      const mcpConfig: MCPConfig = {
+      const stdioConfig: MCPConfig = {
         mcpServers: {
-          [name]: mcp.config,
+          [name]: mcpConfig,
         },
       };
-      const factory = new SDKMCPClientFactory(mcpConfig, false);
+      const factory = new SDKMCPClientFactory(stdioConfig, false);
       const client = factory.create(name);
 
       const connectPromise = client.list();
@@ -584,16 +588,30 @@ async function reconnectExternalMCP(name: string): Promise<{ success: boolean; e
       externalMCPClients.set(name, client);
     }
 
+    // Re-find after awaits — externalMCPs may have been modified during connection
+    const currentIndex = externalMCPs.findIndex((m) => m.name === name);
+    if (currentIndex === -1) {
+      return { success: false, error: `External MCP '${name}' was removed during reconnection` };
+    }
+    const mcp = externalMCPs[currentIndex];
+
     // Update MCP info
     mcp.connected = true;
     mcp.methods = methods;
     mcp.errorMessage = undefined;
+    if (resourceCount !== undefined) mcp.resourceCount = resourceCount;
+    if (hasApp !== undefined) {
+      mcp.hasApp = hasApp;
+      mcp.appResourceUri = appResourceUri;
+      mcp.appResourceUris = appResourceUris;
+    }
 
     logger.info(`🔌 Reconnected to external MCP: ${name} (${methods.length} tools)`);
     return { success: true };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    mcp.errorMessage = errorMsg.slice(0, 200);
+    const failedMcp = externalMCPs.find((m) => m.name === name);
+    if (failedMcp) failedMcp.errorMessage = errorMsg.slice(0, 200);
     logger.warn(`⚠️ Failed to reconnect to external MCP: ${name} - ${errorMsg}`);
     return { success: false, error: errorMsg };
   }
