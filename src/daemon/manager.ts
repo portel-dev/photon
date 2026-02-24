@@ -11,13 +11,14 @@
  */
 
 import * as fs from 'fs';
+import * as net from 'net';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
-import { DEFAULT_WORKING_DIR } from '../path-resolver.js';
+import { DEFAULT_PHOTON_DIR } from '../path-resolver.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -25,40 +26,82 @@ const __dirname = path.dirname(__filename);
 
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
-// Resolve photon dir at call-time so PHOTON_DIR env var is always respected.
-// Using a getter instead of a module-level constant means a changed PHOTON_DIR
-// (e.g. set just before starting Beam) is picked up correctly.
-function getPhotonDir(): string {
-  return process.env.PHOTON_DIR ? path.resolve(process.env.PHOTON_DIR) : DEFAULT_WORKING_DIR;
-}
-
-// Global daemon paths (single daemon per photon dir)
-export const GLOBAL_PID_FILE = path.join(getPhotonDir(), 'daemon.pid');
-export const GLOBAL_LOG_FILE = path.join(getPhotonDir(), 'daemon.log');
+// One global daemon per system — always at ~/.photon regardless of PHOTON_DIR.
+// PHOTON_DIR affects which photon files are loaded, not where the daemon socket lives.
+export const GLOBAL_PID_FILE = path.join(DEFAULT_PHOTON_DIR, 'daemon.pid');
+export const GLOBAL_LOG_FILE = path.join(DEFAULT_PHOTON_DIR, 'daemon.log');
 
 /**
- * Get global socket path for the Photon daemon.
- * Evaluated at call-time so PHOTON_DIR is always respected.
+ * Get global socket path. Always ~/.photon/daemon.sock — one daemon for all instances.
  */
 export function getGlobalSocketPath(): string {
   if (process.platform === 'win32') {
     return '\\\\.\\pipe\\photon-daemon';
   }
-  return path.join(getPhotonDir(), 'daemon.sock');
+  return path.join(DEFAULT_PHOTON_DIR, 'daemon.sock');
 }
 
 /**
- * Ensure photon directory exists
+ * Test whether the daemon socket is actually accepting connections.
+ * This is the definitive liveness check — a process can be alive but the
+ * socket stale (e.g. daemon crashed mid-startup, socket file left behind).
  */
-function ensurePhotonDir(): void {
-  const dir = getPhotonDir();
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+async function isSocketAlive(socketPath: string): Promise<boolean> {
+  if (process.platform === 'win32' || !fs.existsSync(socketPath)) return false;
+  return new Promise((resolve) => {
+    const sock = net.createConnection(socketPath);
+    const timer = setTimeout(() => {
+      sock.destroy();
+      resolve(false);
+    }, 500);
+    sock.on('connect', () => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(true);
+    });
+    sock.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Kill any PID recorded in the PID file and remove stale state files.
+ * Called when the socket is unresponsive to clean up zombie daemon processes.
+ */
+function cleanupStaleDaemon(): void {
+  const socketPath = getGlobalSocketPath();
+  if (fs.existsSync(GLOBAL_PID_FILE)) {
+    try {
+      const pid = parseInt(fs.readFileSync(GLOBAL_PID_FILE, 'utf-8').trim(), 10);
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Process already dead — that's fine
+      }
+    } catch {
+      // Can't read PID file
+    }
+    try {
+      fs.unlinkSync(GLOBAL_PID_FILE);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+  if (fs.existsSync(socketPath) && process.platform !== 'win32') {
+    try {
+      fs.unlinkSync(socketPath);
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }
 
 /**
- * Check if global daemon is running
+ * Check if global daemon is running (synchronous PID check).
+ * Callers that need the definitive answer should use startGlobalDaemon() or
+ * ensureDaemon() which do a socket responsiveness check.
  */
 export function isGlobalDaemonRunning(): boolean {
   if (!fs.existsSync(GLOBAL_PID_FILE)) {
@@ -103,24 +146,27 @@ export function getGlobalDaemonStatus(): DaemonStatus {
 }
 
 /**
- * Start the global Photon daemon if not already running
+ * Start the global Photon daemon if not already running.
+ * Uses socket responsiveness as the definitive liveness check so that zombie
+ * processes (alive but socket dead) are cleaned up rather than treated as "running".
  */
 export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
-  ensurePhotonDir();
+  if (!fs.existsSync(DEFAULT_PHOTON_DIR)) {
+    fs.mkdirSync(DEFAULT_PHOTON_DIR, { recursive: true });
+  }
 
-  if (isGlobalDaemonRunning()) {
+  const socketPath = getGlobalSocketPath();
+
+  // Socket answers → daemon is alive and healthy, nothing to do
+  if (await isSocketAlive(socketPath)) {
     if (!quiet) {
       logger.debug('Global daemon already running');
     }
     return;
   }
 
-  const socketPath = getGlobalSocketPath();
-
-  // Clean up old socket file if it exists
-  if (fs.existsSync(socketPath) && process.platform !== 'win32') {
-    fs.unlinkSync(socketPath);
-  }
+  // Socket unresponsive → kill any stale PID and remove leftover socket file
+  cleanupStaleDaemon();
 
   // Spawn daemon process
   // When running via tsx from src/, __dirname points to src/daemon/ where server.js doesn't exist.
