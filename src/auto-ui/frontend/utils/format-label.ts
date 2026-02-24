@@ -38,6 +38,7 @@ export function formatLabel(name: string): string {
       const upper = word.toUpperCase();
       if (
         [
+          'AI',
           'ID',
           'IDS',
           'URL',
