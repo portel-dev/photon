@@ -1398,6 +1398,14 @@ export class BeamApp extends LitElement {
       .method-description p:last-child {
         margin-bottom: 0;
       }
+      .method-description ul,
+      .method-description ol {
+        margin: 0.2em 0 0.4em;
+        padding-left: 1.4em;
+      }
+      .method-description li {
+        margin: 0.1em 0;
+      }
       .method-description code {
         background: var(--bg-glass);
         padding: 1px 5px;
@@ -3903,7 +3911,8 @@ export class BeamApp extends LitElement {
     // should be preserved as meaningful content.
     const cleaned = description
       .replace(/^\s*@\w+[^\n]*/gm, '')
-      .replace(/\s{2,}/g, ' ')
+      // Collapse multiple spaces only (not newlines) so markdown structure is preserved
+      .replace(/[ \t]{2,}/g, ' ')
       .trim();
     if (!cleaned) return html``;
     const marked = (window as any).marked;
