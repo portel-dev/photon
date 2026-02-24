@@ -15,9 +15,9 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { DEFAULT_PHOTON_DIR } from './path-resolver.js';
+import { getDefaultContext } from './context.js';
 
-export const CACHE_DIR = path.join(DEFAULT_PHOTON_DIR, 'cache');
+export const CACHE_DIR = path.join(getDefaultContext().baseDir, 'cache');
 export const CACHE_FILE = path.join(CACHE_DIR, 'completions.cache');
 
 /**
@@ -46,7 +46,7 @@ export async function generateCompletionCache(baseDir?: string): Promise<string>
   const { SchemaExtractor } = await import('@portel/photon-core');
   const { InstanceStore } = await import('./context-store.js');
 
-  const photonDir = baseDir || DEFAULT_PHOTON_DIR;
+  const photonDir = baseDir || getDefaultContext().baseDir;
   const instanceStore = new InstanceStore(photonDir);
 
   let entries: string[] = [];

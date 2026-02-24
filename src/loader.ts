@@ -91,8 +91,8 @@ import {
   type MiddlewareContext,
   type MiddlewareDeclaration,
   type MiddlewareHandler,
-  DEFAULT_PHOTON_DIR,
 } from '@portel/photon-core';
+import { getDefaultContext } from './context.js';
 import * as os from 'os';
 
 interface DependencySpec {
@@ -157,7 +157,7 @@ export class PhotonLoader {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
     this.logger = logger ?? createLogger({ component: 'photon-loader', minimal: true });
-    this.baseDir = baseDir || DEFAULT_PHOTON_DIR;
+    this.baseDir = baseDir || getDefaultContext().baseDir;
   }
 
   /**
@@ -543,11 +543,6 @@ export class PhotonLoader {
         return await import(`${fileUrl}?t=${Date.now()}`);
       };
 
-      // Set PHOTON_DIR so photon modules that read process.env.PHOTON_DIR
-      // at load time (module-level constants) pick up the correct working dir.
-      const prevPhotonDir = process.env.PHOTON_DIR;
-      process.env.PHOTON_DIR = this.baseDir;
-
       try {
         module = await importModule();
       } catch (error) {
@@ -564,13 +559,6 @@ export class PhotonLoader {
           module = await importModule();
         } else {
           throw error;
-        }
-      } finally {
-        // Restore previous PHOTON_DIR value
-        if (prevPhotonDir === undefined) {
-          delete process.env.PHOTON_DIR;
-        } else {
-          process.env.PHOTON_DIR = prevPhotonDir;
         }
       }
 

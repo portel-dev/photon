@@ -14,7 +14,7 @@ export default class Marketplace {
   private workingDir: string;
 
   constructor(workingDir?: string) {
-    this.workingDir = workingDir || process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    this.workingDir = workingDir || DEFAULT_PHOTON_DIR;
   }
 
   // ============================================
@@ -51,7 +51,7 @@ export default class Marketplace {
       installed: boolean;
     }> = [];
 
-    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    const workingDir = DEFAULT_PHOTON_DIR;
 
     for (const [name, sources] of results) {
       const source = sources[0];
@@ -94,7 +94,7 @@ export default class Marketplace {
     const manager = new MarketplaceManager();
     await manager.initialize();
 
-    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    const workingDir = DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', value: { step: 'searching' }, message: `Searching for ${name}...` };
 
@@ -164,7 +164,7 @@ export default class Marketplace {
       return;
     }
 
-    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    const workingDir = DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', value: { step: 'installing' }, message: `Upgrading ${name}...` };
 
@@ -308,7 +308,7 @@ export default class Marketplace {
     value?: any;
     [key: string]: any;
   }> {
-    const workingDir = process.env.PHOTON_DIR || process.cwd();
+    const workingDir = DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', message: 'Scanning for photons...' };
 

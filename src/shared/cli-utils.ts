@@ -5,7 +5,7 @@
  */
 
 import type { Command } from 'commander';
-import { DEFAULT_PHOTON_DIR } from '@portel/photon-core';
+import { getDefaultContext } from '../context.js';
 
 /**
  * Global CLI options that can be set on any command
@@ -32,7 +32,7 @@ export function getGlobalOptions(command: Command): GlobalOptions {
   const opts = current?.opts() || {};
 
   return {
-    dir: opts.dir || DEFAULT_PHOTON_DIR,
+    dir: opts.dir || getDefaultContext().baseDir,
     logLevel: opts.logLevel,
     jsonLogs: opts.jsonLogs,
   };

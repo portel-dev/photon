@@ -1911,7 +1911,8 @@ export class PhotonServer {
    * List all photons in the .photon directory
    */
   private async listAllPhotons() {
-    const { listPhotonFiles, DEFAULT_PHOTON_DIR } = await import('./path-resolver.js');
+    const { listPhotonFiles } = await import('./path-resolver.js');
+    const { getDefaultContext } = await import('./context.js');
     const photonFiles = await listPhotonFiles();
 
     const photons = await Promise.all(
@@ -1925,7 +1926,7 @@ export class PhotonServer {
           return {
             name: mcp.name,
             description: mcp.description,
-            file: file.replace(DEFAULT_PHOTON_DIR + '/', ''),
+            file: file.replace(getDefaultContext().baseDir + '/', ''),
             tools: mcp.tools.map((tool) => ({
               name: tool.name,
               description: tool.description,

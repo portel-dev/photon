@@ -10,11 +10,12 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
-import { resolvePhotonPath, DEFAULT_PHOTON_DIR } from './path-resolver.js';
+import { resolvePhotonPath } from './path-resolver.js';
+import { getDefaultContext } from './context.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { logger } from './shared/logger.js';
 
-const ALIAS_DIR = path.join(DEFAULT_PHOTON_DIR, 'bin');
+const ALIAS_DIR = path.join(getDefaultContext().baseDir, 'bin');
 const IS_WINDOWS = process.platform === 'win32';
 const PATH_SEPARATOR = IS_WINDOWS ? ';' : ':';
 

@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 import { DaemonStatus } from './protocol.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
-import { DEFAULT_PHOTON_DIR } from '../path-resolver.js';
+import { getDefaultContext, type PhotonContext } from '../context.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -26,19 +26,19 @@ const __dirname = path.dirname(__filename);
 
 const logger = createLogger({ component: 'daemon-manager', minimal: true });
 
+// Daemon infrastructure always resolves from the default context (global daemon).
+const _ctx = getDefaultContext();
+
 // One global daemon per system — always at ~/.photon regardless of PHOTON_DIR.
 // PHOTON_DIR affects which photon files are loaded, not where the daemon socket lives.
-export const GLOBAL_PID_FILE = path.join(DEFAULT_PHOTON_DIR, 'daemon.pid');
-export const GLOBAL_LOG_FILE = path.join(DEFAULT_PHOTON_DIR, 'daemon.log');
+export const GLOBAL_PID_FILE = _ctx.pidFile;
+export const GLOBAL_LOG_FILE = _ctx.logFile;
 
 /**
  * Get global socket path. Always ~/.photon/daemon.sock — one daemon for all instances.
  */
 export function getGlobalSocketPath(): string {
-  if (process.platform === 'win32') {
-    return '\\\\.\\pipe\\photon-daemon';
-  }
-  return path.join(DEFAULT_PHOTON_DIR, 'daemon.sock');
+  return _ctx.socketPath;
 }
 
 /**
@@ -151,8 +151,8 @@ export function getGlobalDaemonStatus(): DaemonStatus {
  * processes (alive but socket dead) are cleaned up rather than treated as "running".
  */
 export async function startGlobalDaemon(quiet: boolean = false): Promise<void> {
-  if (!fs.existsSync(DEFAULT_PHOTON_DIR)) {
-    fs.mkdirSync(DEFAULT_PHOTON_DIR, { recursive: true });
+  if (!fs.existsSync(_ctx.baseDir)) {
+    fs.mkdirSync(_ctx.baseDir, { recursive: true });
   }
 
   const socketPath = getGlobalSocketPath();

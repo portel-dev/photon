@@ -120,7 +120,7 @@ export default class Maker {
     path?: string;
     code?: string;
   }> {
-    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    const workingDir = DEFAULT_PHOTON_DIR;
     const fileName = `${name}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 
@@ -215,7 +215,7 @@ ${allStubs.join('\n\n')}
     error?: string;
     summary?: { valid: number; errors: number };
   }> {
-    const workingDir = process.env.PHOTON_DIR || process.cwd();
+    const workingDir = DEFAULT_PHOTON_DIR;
 
     yield { emit: 'status', value: { step: 'scanning' }, photon: undefined };
 
@@ -322,7 +322,7 @@ ${allStubs.join('\n\n')}
         ? descriptionRaw.trim()
         : '[Add description]';
     const icon = typeof iconRaw === 'string' && iconRaw.trim() ? iconRaw.trim() : '⚡';
-    const workingDir = process.env.PHOTON_DIR || DEFAULT_PHOTON_DIR;
+    const workingDir = DEFAULT_PHOTON_DIR;
     const fileName = `${nameStr}.photon.ts`;
     const filePath = path.join(workingDir, fileName);
 

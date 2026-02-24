@@ -15,10 +15,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { ConstructorParam } from '@portel/photon-core';
-import { DEFAULT_PHOTON_DIR } from './path-resolver.js';
+import { getDefaultContext } from './context.js';
 import { isNodeError, getErrorMessage } from './shared/error-handler.js';
-
-const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Instance Store — tracks current instance name per photon per client
@@ -27,7 +25,7 @@ const PHOTON_DIR = DEFAULT_PHOTON_DIR;
 export class InstanceStore {
   private baseDir: string;
 
-  constructor(baseDir: string = PHOTON_DIR) {
+  constructor(baseDir: string = getDefaultContext().baseDir) {
     this.baseDir = baseDir;
   }
 
@@ -185,7 +183,7 @@ export class CLISessionStore {
 export class EnvStore {
   private baseDir: string;
 
-  constructor(baseDir: string = PHOTON_DIR) {
+  constructor(baseDir: string = getDefaultContext().baseDir) {
     this.baseDir = baseDir;
   }
 
@@ -255,7 +253,7 @@ export function getInstanceStatePath(
   baseDir?: string
 ): string {
   const name = instance || 'default';
-  const dir = baseDir || DEFAULT_PHOTON_DIR;
+  const dir = baseDir || getDefaultContext().baseDir;
   return path.join(dir, 'state', photonName, `${name}.json`);
 }
 

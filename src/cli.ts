@@ -14,12 +14,8 @@ import * as os from 'os';
 import * as net from 'net';
 import { PhotonServer } from './server.js';
 import { FileWatcher } from './watcher.js';
-import {
-  resolvePhotonPath,
-  listPhotonMCPs,
-  ensureWorkingDir,
-  DEFAULT_WORKING_DIR,
-} from './path-resolver.js';
+import { resolvePhotonPath, listPhotonMCPs, ensureWorkingDir } from './path-resolver.js';
+import { createPhotonContext, getDefaultContext } from './context.js';
 import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
@@ -433,7 +429,7 @@ async function performMarketplaceSync(
   options: { name?: string; description?: string; owner?: string; filterInstalled?: boolean }
 ): Promise<void> {
   const resolvedPath = path.resolve(dirPath);
-  const isDefaultDir = resolvedPath === DEFAULT_WORKING_DIR;
+  const isDefaultDir = resolvedPath === getDefaultContext().baseDir;
 
   if (!existsSync(resolvedPath)) {
     exitWithError(`Directory not found: ${resolvedPath}`, {
@@ -858,7 +854,7 @@ async function validateConfiguration(filePath: string, mcpName: string): Promise
 async function showConfigTemplate(
   filePath: string,
   mcpName: string,
-  workingDir: string = DEFAULT_WORKING_DIR
+  workingDir: string = getDefaultContext().baseDir
 ): Promise<void> {
   cliHeading(`📋 Configuration template for: ${mcpName}`);
   cliSpacer();
@@ -894,7 +890,7 @@ async function showConfigTemplate(
     }
   });
 
-  const needsWorkingDir = workingDir !== DEFAULT_WORKING_DIR;
+  const needsWorkingDir = workingDir !== getDefaultContext().baseDir;
   const config = {
     mcpServers: {
       [mcpName]: {
@@ -921,7 +917,7 @@ program
   .name('photon')
   .description('Universal runtime for single-file TypeScript programs')
   .version(version)
-  .option('--dir <path>', 'Photon directory (default: ~/.photon)', DEFAULT_WORKING_DIR)
+  .option('--dir <path>', 'Photon directory (default: ~/.photon)', getDefaultContext().baseDir)
   .option('--log-level <level>', 'Set log verbosity (error|warn|info|debug)', 'info')
   .option('--json-logs', 'Emit newline-delimited JSON logs for runtime output')
   .configureHelp({
@@ -1035,15 +1031,9 @@ program
     }
   });
 
-// Set PHOTON_DIR env var from --dir flag so photons doing their own path
-// resolution can read the working directory (e.g. for cross-instance state access).
-// Always resolve to absolute path so photons using relative paths work correctly.
-program.hook('preAction', () => {
-  const dir = program.opts().dir;
-  if (dir) {
-    process.env.PHOTON_DIR = path.resolve(dir);
-  }
-});
+// Note: --dir flag is consumed via program.opts().dir by each command.
+// PhotonContext is created per-command from the --dir value.
+// No global env mutation needed — context flows explicitly.
 
 // MCP Runtime: run a .photon.ts file as MCP server
 program
@@ -1061,7 +1051,7 @@ program
       const { name, marketplaceSource } = parsePhotonSpec(rawName);
 
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
       const logOptions = getLogOptionsFromCommand(command);
 
       // Resolve file path - check bundled photons first, then user directory
@@ -1221,7 +1211,7 @@ program
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
       const logOptions = getLogOptionsFromCommand(command);
 
       // Resolve file path from name
@@ -1294,8 +1284,7 @@ program
   .description('Launch Photon Beam - interactive control panel for all your photons')
   .action(async (photon: string | undefined, options: any, command: Command) => {
     try {
-      const workingDir = path.resolve(program.opts().dir || DEFAULT_WORKING_DIR);
-      process.env.PHOTON_DIR = workingDir;
+      const workingDir = path.resolve(program.opts().dir || getDefaultContext().baseDir);
 
       // If a photon name is given but not installed, try marketplace auto-install
       if (photon) {
@@ -1480,7 +1469,7 @@ host
   .action(async (target: string, name: string, options: any) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
 
       // Resolve file path from name
       const photonPath = await resolvePhotonPath(name, workingDir);
@@ -1522,7 +1511,7 @@ host
   .action(async (target: string, name: string, options: any) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
 
       // Resolve file path from name
       const photonPath = await resolvePhotonPath(name, workingDir);
@@ -1622,7 +1611,7 @@ maker
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
 
       // Ensure working directory exists
       await ensureWorkingDir(workingDir);
@@ -1681,7 +1670,7 @@ maker
   .action(async (name: string, options: any, command: Command) => {
     try {
       // Get working directory from global options
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
 
       // Resolve file path from name in working directory
       const filePath = await resolvePhotonPath(name, workingDir);
@@ -1731,7 +1720,7 @@ maker
       const dirPath = options.dir || '.';
       const resolvedPath = path.resolve(dirPath);
       // Only filter installed photons when syncing ~/.photon
-      const filterInstalled = resolvedPath === DEFAULT_WORKING_DIR;
+      const filterInstalled = resolvedPath === getDefaultContext().baseDir;
       await performMarketplaceSync(dirPath, { ...options, filterInstalled });
 
       // Generate Claude Code plugin if requested
@@ -1859,13 +1848,13 @@ maker
 registerMarketplaceCommands(program);
 
 // Register info command
-registerInfoCommand(program, DEFAULT_WORKING_DIR);
+registerInfoCommand(program, getDefaultContext().baseDir);
 
 // Register package management commands
-registerPackageCommands(program, DEFAULT_WORKING_DIR);
+registerPackageCommands(program, getDefaultContext().baseDir);
 
 // Register package-app command (cross-platform PWA launchers)
-registerPackageAppCommand(program, DEFAULT_WORKING_DIR);
+registerPackageAppCommand(program, getDefaultContext().baseDir);
 
 // Doctor command: diagnose photon environment
 program
@@ -1877,7 +1866,7 @@ program
     try {
       const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } =
         await import('./cli-formatter.js');
-      const workingDir = command.parent?.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = command.parent?.opts().dir || getDefaultContext().baseDir;
       const diagnostics: Record<string, any> = {};
       const suggestions: string[] = [];
       let issuesFound = 0;
@@ -2124,7 +2113,7 @@ SEE ALSO:
 
     const { listMethods, runMethod } = await import('./photon-cli-runner.js');
 
-    const cliWorkingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+    const cliWorkingDir = program.opts().dir || getDefaultContext().baseDir;
     if (!method) {
       // List all methods
       await listMethods(photon);
@@ -2170,7 +2159,7 @@ program
   .description('List all instances of a stateful photon')
   .action(async (photonName: string) => {
     try {
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
       const { InstanceStore } = await import('./context-store.js');
       const store = new InstanceStore(workingDir);
 
@@ -2326,7 +2315,7 @@ initCmd
 
     // --hook flag: output the hook script
     if (options.hook) {
-      const photonDir = DEFAULT_WORKING_DIR;
+      const photonDir = getDefaultContext().baseDir;
       let photonNames: string[] = [];
       try {
         const entries = await fs.readdir(photonDir);
@@ -3040,7 +3029,7 @@ program
   .description('Configure environment for a photon (params without defaults)')
   .action(async (photonName: string, args: string[]) => {
     try {
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
 
       // Resolve photon path
       const filePath = await resolvePhotonPathWithBundled(photonName, workingDir);
@@ -3153,7 +3142,7 @@ program
   .description('Run test methods in photons')
   .action(async (photon: string | undefined, test: string | undefined, options: any) => {
     try {
-      const workingDir = program.opts().dir || DEFAULT_WORKING_DIR;
+      const workingDir = program.opts().dir || getDefaultContext().baseDir;
       const { runTests } = await import('./test-runner.js');
 
       // Validate mode
@@ -3452,7 +3441,7 @@ function preprocessArgs(): PreprocessResult {
     try {
       // Extract --dir from raw args before commander parses
       const rawArgs = process.argv.slice(2);
-      let workingDir = DEFAULT_WORKING_DIR;
+      let workingDir = getDefaultContext().baseDir;
       const dirIdx = rawArgs.findIndex((a) => a === '--dir' || a.startsWith('--dir='));
       if (dirIdx !== -1) {
         const dirArg = rawArgs[dirIdx];
