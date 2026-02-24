@@ -1561,8 +1561,8 @@ export class PhotonServer {
       this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
     }
 
-    // Also send to SSE sessions
-    for (const session of this.sseSessions.values()) {
+    // Also send to SSE sessions — snapshot to avoid live-iterator + await issues
+    for (const session of Array.from(this.sseSessions.values())) {
       try {
         await session.server.notification(payload);
       } catch (e) {
@@ -2571,8 +2571,18 @@ export class PhotonServer {
         await this.mcpClientFactory.disconnect();
       }
 
-      // Close SSE sessions
-      for (const [_sessionId, session] of this.sseSessions) {
+      // Unsubscribe daemon channels
+      for (const unsubscribe of this.channelUnsubscribers) {
+        try {
+          unsubscribe();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.channelUnsubscribers = [];
+
+      // Close SSE sessions — snapshot to avoid live-iterator + await issues
+      for (const session of Array.from(this.sseSessions.values())) {
         await session.server.close();
       }
       this.sseSessions.clear();
@@ -2662,7 +2672,8 @@ export class PhotonServer {
       this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
     }
 
-    for (const session of this.sseSessions.values()) {
+    // Snapshot to avoid live-iterator + await issues
+    for (const session of Array.from(this.sseSessions.values())) {
       try {
         await session.server.notification(payload);
       } catch (e) {
