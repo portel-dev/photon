@@ -2722,6 +2722,142 @@ Register-ArgumentCompleter -CommandName photon -ScriptBlock {
   });
 
 initCmd
+  .command('daemon')
+  .description('Set up daemon auto-start on login (launchd / systemd)')
+  .action(async () => {
+    const platform = process.platform;
+    const photonBin = process.execPath.replace(/node$/, 'photon');
+    // Resolve the actual photon binary path from PATH
+    let photonExe: string;
+    try {
+      const { execSync } = await import('child_process');
+      photonExe =
+        platform === 'win32'
+          ? execSync('where photon', { encoding: 'utf-8' }).trim().split('\n')[0].trim()
+          : execSync('which photon', { encoding: 'utf-8' }).trim();
+    } catch {
+      photonExe = photonBin;
+    }
+
+    if (platform === 'darwin') {
+      // macOS: launchd plist in ~/Library/LaunchAgents/
+      const plistDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+      const plistPath = path.join(plistDir, 'dev.photon.daemon.plist');
+      const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.photon.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${photonExe}</string>
+    <string>daemon</string>
+    <string>start</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${os.homedir()}/.photon/daemon-init.log</string>
+  <key>StandardErrorPath</key>
+  <string>${os.homedir()}/.photon/daemon-init.log</string>
+</dict>
+</plist>
+`;
+      await fs.mkdir(plistDir, { recursive: true });
+      await fs.writeFile(plistPath, plistContent, 'utf-8');
+      printSuccess(`Daemon auto-start registered: ${plistPath}`);
+      console.log('');
+      console.log('  The daemon will start automatically at next login.');
+      console.log('  To start it now without logging out:');
+      console.log(`    launchctl load ${plistPath}`);
+      console.log('');
+      console.log('  To remove: photon uninit daemon');
+    } else if (platform === 'linux') {
+      // Linux: systemd user service
+      const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
+      const servicePath = path.join(systemdDir, 'photon-daemon.service');
+      const serviceContent = `[Unit]
+Description=Photon background daemon
+After=default.target
+
+[Service]
+ExecStart=${photonExe} daemon start
+Type=oneshot
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target
+`;
+      await fs.mkdir(systemdDir, { recursive: true });
+      await fs.writeFile(servicePath, serviceContent, 'utf-8');
+      printSuccess(`Daemon service written: ${servicePath}`);
+      console.log('');
+      console.log('  Enable auto-start:');
+      console.log('    systemctl --user enable photon-daemon');
+      console.log('    systemctl --user start photon-daemon');
+      console.log('');
+      console.log('  (Requires systemd with lingering: loginctl enable-linger)');
+      console.log('');
+      console.log('  To remove: photon uninit daemon');
+    } else if (platform === 'win32') {
+      // Windows: Task Scheduler via schtasks
+      const taskName = 'PhotonDaemon';
+      try {
+        const { execSync } = await import('child_process');
+        execSync(
+          `schtasks /create /tn "${taskName}" /tr "${photonExe} daemon start" /sc onlogon /f`,
+          { stdio: 'ignore' }
+        );
+        printSuccess(`Task Scheduler entry created: ${taskName}`);
+        console.log('');
+        console.log('  The daemon will start at next login.');
+        console.log('  To remove: photon uninit daemon');
+      } catch {
+        printError('Failed to create Task Scheduler entry. Try running as Administrator.');
+        console.log('');
+        console.log('  Manual alternative: add to startup folder:');
+        console.log(`    ${photonExe} daemon start`);
+      }
+    } else {
+      printError(`Unsupported platform: ${platform}`);
+      console.log('  Supported: macOS (launchd), Linux (systemd), Windows (Task Scheduler)');
+      process.exit(1);
+    }
+  });
+
+initCmd
+  .command('all')
+  .description('Run all setup steps: shell integration + daemon auto-start')
+  .action(async () => {
+    const { execFileSync } = await import('child_process');
+    const cli = process.argv[1]; // path to this CLI script
+
+    console.log('Setting up Photon...\n');
+
+    console.log('Step 1/2: Shell integration');
+    try {
+      execFileSync(process.execPath, [cli, 'init', 'cli'], { stdio: 'inherit' });
+    } catch {
+      // error already printed by the subcommand
+    }
+
+    console.log('');
+
+    console.log('Step 2/2: Daemon auto-start');
+    try {
+      execFileSync(process.execPath, [cli, 'init', 'daemon'], { stdio: 'inherit' });
+    } catch {
+      // error already printed by the subcommand
+    }
+
+    console.log('');
+    printSuccess('Photon setup complete.');
+  });
+
+initCmd
   .command('completions')
   .option('--generate', 'Regenerate the completions cache')
   .description('Manage shell completion cache')
@@ -2812,6 +2948,65 @@ uninitCmd
       console.log('  Run: . $PROFILE  (or restart PowerShell)');
     } else {
       console.log(`  Run: exec $SHELL  (or restart your terminal)`);
+    }
+  });
+
+uninitCmd
+  .command('daemon')
+  .description('Remove daemon auto-start')
+  .action(async () => {
+    const platform = process.platform;
+
+    if (platform === 'darwin') {
+      const plistPath = path.join(
+        os.homedir(),
+        'Library',
+        'LaunchAgents',
+        'dev.photon.daemon.plist'
+      );
+      try {
+        const { execSync } = await import('child_process');
+        try {
+          execSync(`launchctl unload ${plistPath}`, { stdio: 'ignore' });
+        } catch {
+          // already unloaded — fine
+        }
+        await fs.unlink(plistPath);
+        printSuccess('Daemon auto-start removed.');
+      } catch {
+        printInfo('No daemon auto-start found (plist not present).');
+      }
+    } else if (platform === 'linux') {
+      const servicePath = path.join(
+        os.homedir(),
+        '.config',
+        'systemd',
+        'user',
+        'photon-daemon.service'
+      );
+      try {
+        const { execSync } = await import('child_process');
+        try {
+          execSync('systemctl --user disable photon-daemon', { stdio: 'ignore' });
+        } catch {
+          // may already be disabled
+        }
+        await fs.unlink(servicePath);
+        printSuccess('Daemon service removed.');
+      } catch {
+        printInfo('No systemd daemon service found.');
+      }
+    } else if (platform === 'win32') {
+      try {
+        const { execSync } = await import('child_process');
+        execSync('schtasks /delete /tn "PhotonDaemon" /f', { stdio: 'ignore' });
+        printSuccess('Task Scheduler entry removed.');
+      } catch {
+        printInfo('No Task Scheduler entry found.');
+      }
+    } else {
+      printError(`Unsupported platform: ${platform}`);
+      process.exit(1);
     }
   });
 
