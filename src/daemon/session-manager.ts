@@ -20,6 +20,8 @@ export class SessionManager {
   private sessions = new Map<string, PhotonSession>();
   /** Maps instanceName → loaded photon instance (shared across sessions) */
   private instances = new Map<string, any>();
+  /** Inflight instance loads — prevents concurrent duplicate loadFile calls */
+  private inflightLoads = new Map<string, Promise<any>>();
   private photonPath: string;
   private photonName: string;
   public loader: PhotonLoader;
@@ -131,14 +133,29 @@ export class SessionManager {
       return this.instances.get(key)!;
     }
 
+    // Dedup: concurrent callers join the same inflight promise
+    const inflight = this.inflightLoads.get(key);
+    if (inflight) return inflight;
+
     this.logger.info('Loading instance', {
       instanceName: key,
       photon: this.photonName,
     });
 
-    const instance = await this.loader.loadFile(this.photonPath, { instanceName });
-    this.instances.set(key, instance);
-    return instance;
+    const promise = this.loader.loadFile(this.photonPath, { instanceName }).then(
+      (instance) => {
+        this.inflightLoads.delete(key);
+        this.instances.set(key, instance);
+        return instance;
+      },
+      (error) => {
+        this.inflightLoads.delete(key);
+        throw error;
+      }
+    );
+
+    this.inflightLoads.set(key, promise);
+    return promise;
   }
 
   /**
@@ -180,13 +197,19 @@ export class SessionManager {
    */
   async clearInstances(): Promise<void> {
     this.instances.clear();
-    for (const session of this.sessions.values()) {
+    this.inflightLoads.clear();
+    // Snapshot sessions before async iteration — Map may be modified during awaits
+    const sessionSnapshot = Array.from(this.sessions.values());
+    for (const session of sessionSnapshot) {
       try {
         const newInstance = await this.loader.loadFile(this.photonPath, {
           instanceName: session.instanceName || 'default',
         });
-        session.instance = newInstance;
-        this.instances.set(session.instanceName || 'default', newInstance);
+        // Re-check session still exists after await
+        if (this.sessions.has(session.id)) {
+          session.instance = newInstance;
+          this.instances.set(session.instanceName || 'default', newInstance);
+        }
       } catch (err) {
         this.logger.error('Failed to reload instance after clear', {
           sessionId: session.id,
@@ -262,6 +285,7 @@ export class SessionManager {
     this.logger.warn('Destroying active sessions', { activeSessions: this.sessions.size });
     this.sessions.clear();
     this.instances.clear();
+    this.inflightLoads.clear();
   }
 
   /**
