@@ -327,10 +327,18 @@ export function createPhotonBridge(): PhotonBridge {
           const msg = event.data;
           if (msg?.jsonrpc === '2.0' && msg.id === callId && !msg.method) {
             window.removeEventListener('message', handleResponse);
+            clearTimeout(timeoutId);
             if (msg.error) reject(new Error(msg.error.message || 'Tool call failed'));
             else resolve(msg.result);
           }
         }
+
+        // Remove listener if parent never responds to prevent indefinite accumulation
+        const timeoutId = setTimeout(() => {
+          window.removeEventListener('message', handleResponse);
+          reject(new Error(`Tool call timed out: ${toolName}`));
+        }, 30000);
+
         window.addEventListener('message', handleResponse);
 
         window.parent.postMessage(
