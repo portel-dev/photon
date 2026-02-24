@@ -10,7 +10,7 @@ import * as crypto from 'crypto';
 import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
-import { DEFAULT_PHOTON_DIR } from './path-resolver.js';
+import { getDefaultContext } from './context.js';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
@@ -87,7 +87,7 @@ export interface MarketplaceManifest {
   photons: PhotonMetadata[];
 }
 
-const CONFIG_DIR = DEFAULT_PHOTON_DIR;
+const CONFIG_DIR = getDefaultContext().baseDir;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'marketplaces.json');
 const CACHE_DIR = path.join(CONFIG_DIR, '.cache', 'marketplaces');
 const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');

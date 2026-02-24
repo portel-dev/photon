@@ -23,7 +23,8 @@ import {
   type ScheduledJob,
   type LockInfo,
 } from './protocol.js';
-import { setPromptHandler, type PromptHandler, DEFAULT_PHOTON_DIR } from '@portel/photon-core';
+import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
+import { getDefaultContext } from '../context.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
@@ -61,7 +62,7 @@ const stateDirWatchers = new Map<string, fs.FSWatcher>();
  * for backwards compatibility.
  */
 function compositeKey(photonName: string, workingDir?: string): string {
-  if (!workingDir || workingDir === DEFAULT_PHOTON_DIR) return photonName;
+  if (!workingDir || workingDir === getDefaultContext().baseDir) return photonName;
   const dirHash = crypto.createHash('sha256').update(workingDir).digest('hex').slice(0, 8);
   return `${photonName}:${dirHash}`;
 }
@@ -1506,7 +1507,7 @@ function watchWorkingDir(workingDir: string): void {
   const dirName = path.basename(workingDir);
 
   // Default workingDir (~/.photon) is always present — no need to watch
-  if (workingDir === DEFAULT_PHOTON_DIR) return;
+  if (workingDir === getDefaultContext().baseDir) return;
 
   // Record inode now for rename detection later
   try {
@@ -1790,9 +1791,7 @@ function resetIdleTimer(): void {
 // ════════════════════════════════════════════════════════════════════════════════
 
 function startupWatchPhotons(): void {
-  const photonDir = process.env.PHOTON_DIR
-    ? path.resolve(process.env.PHOTON_DIR)
-    : DEFAULT_PHOTON_DIR;
+  const photonDir = getDefaultContext().baseDir;
   if (!fs.existsSync(photonDir)) return;
 
   let entries: fs.Dirent[];

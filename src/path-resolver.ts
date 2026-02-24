@@ -3,6 +3,9 @@
  *
  * Re-exports from @portel/photon-core for consolidation.
  * All path resolution utilities are now in the shared core library.
+ *
+ * NOTE: For new code, prefer importing from './context.js' instead.
+ * This module is retained for backwards compatibility.
  */
 
 // Re-export everything from photon-core's path-resolver
@@ -17,14 +20,15 @@ export {
   type ResolverOptions,
 } from '@portel/photon-core';
 
+import { DEFAULT_PHOTON_DIR, ensurePhotonDir, listPhotonFiles } from '@portel/photon-core';
+
 // Backward compatibility aliases
-// Respect PHOTON_DIR env var so `export PHOTON_DIR=...` works without --dir flag
-import * as _path from 'path';
-export const DEFAULT_WORKING_DIR = process.env.PHOTON_DIR
-  ? _path.resolve(process.env.PHOTON_DIR)
-  : DEFAULT_PHOTON_DIR;
 export const ensureWorkingDir = ensurePhotonDir;
 export const listPhotonMCPs = listPhotonFiles;
 
-// Need to import for the aliases
-import { DEFAULT_PHOTON_DIR, ensurePhotonDir, listPhotonFiles } from '@portel/photon-core';
+/**
+ * @deprecated Use `getDefaultContext().baseDir` from './context.js' instead.
+ * This reads process.env.PHOTON_DIR at module load time, which freezes the
+ * value and cannot be updated if the environment changes.
+ */
+export const DEFAULT_WORKING_DIR = DEFAULT_PHOTON_DIR;
