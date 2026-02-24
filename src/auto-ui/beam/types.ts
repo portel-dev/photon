@@ -39,6 +39,28 @@ export interface BufferedEvent {
   timestamp: number;
 }
 
+/** Route handler signature: returns true if it handled the request */
+export type RouteHandler = (
+  req: import('http').IncomingMessage,
+  res: import('http').ServerResponse,
+  url: URL,
+  state: BeamState
+) => Promise<boolean>;
+
+/** Callbacks that route handlers can invoke to trigger side effects */
+export interface BeamActions {
+  broadcastPhotonChange: () => void;
+  handleFileChange: (photonName: string) => Promise<void>;
+  loadSinglePhoton: (name: string) => Promise<AnyPhotonInfo | null>;
+  reconnectExternalMCP: (name: string) => Promise<{ success: boolean; error?: string }>;
+  loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  subscribeToChannel: (channel: string) => Promise<void>;
+  unsubscribeFromChannel: (channel: string) => void;
+  configurePhotonViaMCP: (photonName: string, config: Record<string, any>) => Promise<any>;
+  reloadPhotonViaMCP: (photonName: string) => Promise<any>;
+  removePhotonViaMCP: (photonName: string) => Promise<any>;
+}
+
 /**
  * BeamState — mutable shared state for the Beam server.
  *
@@ -46,6 +68,8 @@ export interface BufferedEvent {
  * This replaces the closure-captured variables scattered throughout the 4300-line function.
  */
 export interface BeamState {
+  /** Actions (callbacks) that route handlers can invoke */
+  actions: BeamActions;
   /** Resolved working directory */
   workingDir: string;
   /** PhotonContext for path resolution */
