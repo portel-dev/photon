@@ -1321,6 +1321,23 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         const realDir = path.dirname(realPath);
         const assetFolder = path.join(realDir, photon.name);
 
+        // Watch the real source file (symlink target) for .photon.ts changes.
+        // We watch the parent directory instead of the file itself because
+        // fs.watch on individual files is unreliable on macOS (atomic writes
+        // via rename break the watch handle).
+        try {
+          const realFileName = path.basename(realPath);
+          const srcDirWatcher = watch(realDir, (eventType, filename) => {
+            if (filename === realFileName) {
+              handleFileChange(photon.name);
+            }
+          });
+          srcDirWatcher.on('error', () => {});
+          watchers.push(srcDirWatcher);
+        } catch {
+          // Source file watching not available — asset-only watching below
+        }
+
         if (existsSync(assetFolder)) {
           const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
             if (filename) {
@@ -1342,10 +1359,51 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           watchers.push(assetWatcher);
           logger.info(`👀 Watching ${photon.name}/ (symlinked → ${assetFolder})`);
         } else {
-          logger.debug(`⏭️ Skipping ${photon.name}: asset folder not found at ${assetFolder}`);
+          logger.info(`👀 Watching ${photon.name} (symlinked → ${realDir})`);
         }
       } else {
-        logger.debug(`⏭️ Skipping ${photon.name}: not a symlink`);
+        // Non-symlinked photon (e.g. ~/.photon/boards.photon.ts) — watch both
+        // the source file and its asset folder if they're outside the workingDir
+        // (workingDir is already covered by the recursive watcher above)
+        const photonDir = path.dirname(photon.path);
+        if (!photonDir.startsWith(workingDir)) {
+          try {
+            const srcFileName = path.basename(photon.path);
+            const srcDirWatcher = watch(photonDir, (eventType, filename) => {
+              if (filename === srcFileName) {
+                handleFileChange(photon.name);
+              }
+            });
+            srcDirWatcher.on('error', () => {});
+            watchers.push(srcDirWatcher);
+
+            const assetFolder = path.join(photonDir, photon.name);
+            if (existsSync(assetFolder)) {
+              const assetWatcher = watch(
+                assetFolder,
+                { recursive: true },
+                (eventType, filename) => {
+                  if (filename) {
+                    if (
+                      filename.endsWith('.json') ||
+                      filename.startsWith('boards/') ||
+                      filename === 'data.json'
+                    ) {
+                      return;
+                    }
+                    logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
+                    handleFileChange(photon.name);
+                  }
+                }
+              );
+              assetWatcher.on('error', () => {});
+              watchers.push(assetWatcher);
+            }
+            logger.info(`👀 Watching ${photon.name} (${photonDir})`);
+          } catch {
+            logger.debug(`⏭️ Could not watch ${photon.name}: ${photon.path}`);
+          }
+        }
       }
     } catch (err) {
       logger.debug(`⏭️ Skipping ${photon.name}: ${err instanceof Error ? err.message : err}`);
