@@ -78,7 +78,7 @@ export async function sendCommand(
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
-        logger.info('Daemon unreachable, ensuring daemon is running...');
+        logger.info(`Daemon unreachable (${photonName}/${method}), retrying...`);
         await ensureDaemon();
         continue;
       }

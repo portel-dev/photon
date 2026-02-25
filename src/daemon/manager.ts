@@ -66,11 +66,24 @@ export class DaemonManager {
 
   /**
    * Idempotent ensure — start if needed, restart if binary is stale.
+   * Concurrent callers join the in-flight operation instead of racing.
    */
+  private _ensurePromise: Promise<void> | null = null;
+
   async ensure(quiet = true): Promise<void> {
+    // Coalesce concurrent ensure() calls into a single operation
+    if (this._ensurePromise) return this._ensurePromise;
+
+    this._ensurePromise = this._ensureImpl(quiet).finally(() => {
+      this._ensurePromise = null;
+    });
+    return this._ensurePromise;
+  }
+
+  private async _ensureImpl(quiet: boolean): Promise<void> {
     if (this.fsm.state === 'running') {
       if (this.isBinaryStale()) {
-        if (!quiet) this.logger.info('Daemon binary updated, restarting...');
+        this.logger.info('Daemon binary updated since last start, restarting...');
         await this.restart();
         return;
       }
@@ -84,7 +97,7 @@ export class DaemonManager {
     }
 
     // starting/stopping — wait for it to settle, then check again
-    // (This handles the edge case of concurrent ensure() calls)
+    // (This handles the edge case of external state changes)
   }
 
   /**
