@@ -1852,16 +1852,19 @@ export class BeamApp extends LitElement {
     }
   };
 
+  private _initialConnectDone = false;
+
   private async _connectMCP() {
     try {
       mcpClient.on('connect', async () => {
+        const isReconnect = this._initialConnectDone;
         this._mcpReady = true;
         this._connected = true;
         this._reconnecting = false;
         this._reconnectAttempt = 0;
-        console.log('MCP client connected');
+        console.log(isReconnect ? 'MCP client reconnected' : 'MCP client connected');
 
-        // Load initial photon list
+        // Load/refresh photon list
         const tools = await mcpClient.listTools();
         const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
         this._photons = photons;
@@ -1869,6 +1872,22 @@ export class BeamApp extends LitElement {
 
         // Add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
+
+        if (isReconnect) {
+          // Reconnect: update selected photon reference but do NOT re-invoke main()
+          // Re-invoking would blank the app UI that's already displaying content
+          if (this._selectedPhoton) {
+            const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
+            if (updated) this._selectedPhoton = updated;
+          }
+          // Restore instance for stateful photons (daemon may have restarted)
+          if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
+            this._restoreInstance(this._selectedPhoton.name);
+          }
+          return;
+        }
+
+        this._initialConnectDone = true;
 
         // Check for available updates in background
         this._checkForUpdates();
