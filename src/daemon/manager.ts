@@ -327,14 +327,14 @@ export class DaemonManager {
       this.logger.info('Started global Photon daemon', { pid: child.pid });
     }
 
-    // Wait for socket to be ready
+    // Wait for socket to actually accept connections (not just file existence)
     const maxWait = 3000;
     const interval = 100;
     let waited = 0;
     while (waited < maxWait) {
       await new Promise((resolve) => setTimeout(resolve, interval));
       waited += interval;
-      if (fs.existsSync(this.ctx.socketPath)) {
+      if (await this.isSocketAlive()) {
         return;
       }
     }
