@@ -325,39 +325,59 @@ export class InvokeForm extends LitElement {
         margin-top: var(--space-xs);
       }
 
-      /* Number Input with Range Slider */
-      .number-with-range {
+      /* Slider-First Numeric Input */
+      .slider-group {
         display: flex;
         flex-direction: column;
-        gap: var(--space-xs);
+        gap: 6px;
       }
 
-      .number-with-range input[type='range'] {
-        width: 100%;
-        height: 6px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-xs);
-        border: none;
-        -webkit-appearance: none;
-      }
-
-      .number-with-range input[type='range']::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        width: 16px;
-        height: 16px;
-        background: var(--accent-primary);
-        border-radius: 50%;
-        cursor: pointer;
-      }
-
-      .number-input-row {
+      .slider-row {
         display: flex;
         align-items: center;
         gap: var(--space-sm);
       }
 
-      .number-input-row input[type='number'] {
-        width: 100px;
+      .slider-row input[type='range'] {
+        flex: 1;
+        height: 6px;
+        background: var(--bg-glass);
+        border-radius: var(--radius-xs);
+        border: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+      }
+
+      .slider-row input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        background: var(--accent-primary);
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .slider-row input[type='range']::-webkit-slider-runnable-track {
+        height: 6px;
+        background: var(--bg-glass);
+        border-radius: var(--radius-xs);
+      }
+
+      .slider-value {
+        min-width: 60px;
+        text-align: center;
+        font-size: var(--text-md);
+        font-weight: 600;
+        color: var(--t-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .slider-number-input {
+        width: 80px;
+        text-align: right;
+        font-size: var(--text-sm);
+        padding: 4px 8px;
       }
 
       .range-labels {
@@ -365,6 +385,45 @@ export class InvokeForm extends LitElement {
         justify-content: space-between;
         font-size: var(--text-xs);
         color: var(--t-muted);
+        padding: 0 2px;
+      }
+
+      /* Date/Time Inputs */
+      .date-input {
+        width: 100%;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        padding: 8px 12px;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-md);
+      }
+
+      .date-input:focus-visible {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
+      }
+
+      .date-input::-webkit-calendar-picker-indicator {
+        filter: invert(0.7);
+        cursor: pointer;
+      }
+
+      .date-range-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .date-range-row .date-input {
+        flex: 1;
+      }
+
+      .date-range-arrow {
+        color: var(--t-muted);
+        font-size: var(--text-lg);
+        flex-shrink: 0;
       }
 
       /* ===== Responsive Design ===== */
@@ -400,13 +459,16 @@ export class InvokeForm extends LitElement {
           padding: var(--space-sm);
         }
 
-        .number-input-row {
-          flex-direction: column;
-          align-items: stretch;
+        .slider-row {
+          flex-wrap: wrap;
         }
 
-        .number-input-row input[type='number'] {
+        .slider-number-input {
           width: 100%;
+        }
+
+        .date-range-row {
+          flex-direction: column;
         }
 
         .multiselect-container {
@@ -705,6 +767,11 @@ export class InvokeForm extends LitElement {
       `;
     }
 
+    // Handle Date/Time formats (check before object, since date-range produces objects)
+    if (this._isDateTimeFormat(key, schema)) {
+      return this._renderDateTimeInput(key, schema, hasError, inputId);
+    }
+
     // Handle Object with Properties -> Nested Sub-Fields
     if (
       schema.type === 'object' &&
@@ -736,63 +803,70 @@ export class InvokeForm extends LitElement {
       `;
     }
 
-    // Handle Number with min/max -> Number Input with Range Slider
+    // Handle Number/Integer -> Slider-First with companion number input
     if (schema.type === 'number' || schema.type === 'integer') {
-      const hasRange =
-        (schema as any).minimum !== undefined && (schema as any).maximum !== undefined;
-      const min = (schema as any).minimum ?? 0;
-      const max = (schema as any).maximum ?? 100;
-      const step =
-        schema.type === 'integer' ||
-        (Number.isInteger(min) && Number.isInteger(max) && !(schema as any).multipleOf)
-          ? 1
-          : ((schema as any).multipleOf ?? 0.1);
-      const currentValue = this._values[key] ?? (schema as any).default ?? min;
+      const isInteger = schema.type === 'integer';
+      const isFloat = !isInteger;
+      const hasMin = (schema as any).minimum !== undefined;
+      const hasMax = (schema as any).maximum !== undefined;
 
-      if (hasRange) {
-        return html`
-          <div class="number-with-range">
-            <div class="number-input-row">
-              <input
-                id=${ifDefined(inputId)}
-                type="number"
-                class="${errorClass}"
-                min="${min}"
-                max="${max}"
-                step="${step}"
-                .value=${String(currentValue)}
-                @input=${(e: Event) =>
-                  this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-              />
-              <input
-                type="range"
-                min="${min}"
-                max="${max}"
-                step="${step}"
-                .value=${String(currentValue)}
-                @input=${(e: Event) =>
-                  this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-              />
-            </div>
-            <div class="range-labels">
-              <span>${min}</span>
-              <span>${max}</span>
-            </div>
-          </div>
-        `;
+      // Derive sensible bounds
+      let min: number, max: number;
+      if (hasMin && hasMax) {
+        min = (schema as any).minimum;
+        max = (schema as any).maximum;
+      } else if (hasMin && !hasMax) {
+        min = (schema as any).minimum;
+        max = min <= 0 ? 100 : min * 2;
+      } else if (!hasMin && hasMax) {
+        min = 0;
+        max = (schema as any).maximum;
+      } else {
+        // No bounds at all
+        min = isFloat ? 0 : 0;
+        max = isFloat ? 1 : 100;
       }
 
+      const step = isInteger ? 1 : ((schema as any).multipleOf ?? 0.01);
+      const defaultVal = (schema as any).default ?? min;
+      const currentValue = this._values[key] ?? defaultVal;
+      const displayValue = isInteger
+        ? String(Math.round(Number(currentValue)))
+        : String(currentValue);
+
       return html`
-        <input
-          id=${ifDefined(inputId)}
-          type="number"
-          class="${errorClass}"
-          min=${0}
-          max=${9999}
-          .value=${this._values[key] !== undefined ? String(this._values[key]) : ''}
-          @input=${(e: Event) =>
-            this._handleChange(key, Number((e.target as HTMLInputElement).value))}
-        />
+        <div class="slider-group">
+          <div class="slider-row">
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentValue)}
+              @input=${(e: Event) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                this._handleChange(key, v);
+              }}
+            />
+            <input
+              id=${ifDefined(inputId)}
+              type="number"
+              class="slider-number-input ${errorClass}"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${displayValue}
+              @input=${(e: Event) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                this._handleChange(key, v);
+              }}
+            />
+          </div>
+          <div class="range-labels">
+            <span>${min}</span>
+            <span>${max}</span>
+          </div>
+        </div>
       `;
     }
 
@@ -921,6 +995,123 @@ export class InvokeForm extends LitElement {
         type="text"
         class="${errorClass}"
         placeholder="${placeholder}"
+        .value=${this._values[key] || ''}
+        @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+      />
+    `;
+  }
+
+  /** Detect if a schema/key should render as a date/time input */
+  private _isDateTimeFormat(key: string, schema: any): boolean {
+    const fmt = (schema as any).format;
+    if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
+      return true;
+    }
+    // Key name heuristics (only for string type or untyped)
+    if (schema.type && schema.type !== 'string') return false;
+    const lk = key.toLowerCase();
+    const dateKeys = [
+      'date',
+      'deadline',
+      'duedate',
+      'createdat',
+      'updatedat',
+      'startat',
+      'endat',
+      'startdate',
+      'enddate',
+      'birthday',
+      'birthdate',
+      'expiry',
+      'expirydate',
+      'expiresat',
+    ];
+    const timeKeys = ['time', 'starttime', 'endtime', 'createtime', 'updatetime'];
+    if (dateKeys.includes(lk)) return true;
+    if (timeKeys.includes(lk)) return true;
+    return false;
+  }
+
+  /** Determine the effective date/time format from schema and key heuristics */
+  private _getDateTimeFormat(key: string, schema: any): string {
+    const fmt = (schema as any).format;
+    if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
+      return fmt;
+    }
+    const lk = key.toLowerCase();
+    const timeKeys = ['time', 'starttime', 'endtime', 'createtime', 'updatetime'];
+    if (timeKeys.includes(lk)) return 'time';
+    return 'date'; // default heuristic
+  }
+
+  /** Render date/time input based on format */
+  private _renderDateTimeInput(key: string, schema: any, hasError: boolean, inputId?: string) {
+    const fmt = this._getDateTimeFormat(key, schema);
+    const errorClass = hasError ? 'error' : '';
+
+    if (fmt === 'date-range') {
+      const currentObj = (this._values[key] as { start?: string; end?: string }) || {};
+      return html`
+        <div class="date-range-row">
+          <input
+            type="date"
+            class="date-input ${errorClass}"
+            .value=${currentObj.start || ''}
+            @input=${(e: Event) => {
+              const start = (e.target as HTMLInputElement).value;
+              this._handleChange(key, { ...currentObj, start });
+            }}
+          />
+          <span class="date-range-arrow">→</span>
+          <input
+            type="date"
+            class="date-input ${errorClass}"
+            min=${currentObj.start || ''}
+            .value=${currentObj.end || ''}
+            @input=${(e: Event) => {
+              const end = (e.target as HTMLInputElement).value;
+              this._handleChange(key, { ...currentObj, end });
+            }}
+          />
+        </div>
+      `;
+    }
+
+    if (fmt === 'datetime-range') {
+      const currentObj = (this._values[key] as { start?: string; end?: string }) || {};
+      return html`
+        <div class="date-range-row">
+          <input
+            type="datetime-local"
+            class="date-input ${errorClass}"
+            .value=${currentObj.start || ''}
+            @input=${(e: Event) => {
+              const start = (e.target as HTMLInputElement).value;
+              this._handleChange(key, { ...currentObj, start });
+            }}
+          />
+          <span class="date-range-arrow">→</span>
+          <input
+            type="datetime-local"
+            class="date-input ${errorClass}"
+            min=${currentObj.start || ''}
+            .value=${currentObj.end || ''}
+            @input=${(e: Event) => {
+              const end = (e.target as HTMLInputElement).value;
+              this._handleChange(key, { ...currentObj, end });
+            }}
+          />
+        </div>
+      `;
+    }
+
+    // Single date, date-time, or time
+    const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
+    return html`
+      <input
+        id=${ifDefined(inputId)}
+        type="${inputType}"
+        class="date-input ${errorClass}"
         .value=${this._values[key] || ''}
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       />
@@ -1163,13 +1354,81 @@ export class InvokeForm extends LitElement {
       `;
     }
     if (schema.type === 'number' || schema.type === 'integer') {
+      const isInteger = schema.type === 'integer';
+      const isFloat = !isInteger;
+      const hasMin = schema.minimum !== undefined;
+      const hasMax = schema.maximum !== undefined;
+      let min = hasMin ? schema.minimum : 0;
+      let max = hasMax ? schema.maximum : isFloat ? 1 : 100;
+      if (hasMin && !hasMax) max = min <= 0 ? 100 : min * 2;
+      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
+      const currentVal = value ?? schema.default ?? min;
+      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
+
+      return html`
+        <div class="slider-group">
+          <div class="slider-row">
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentVal)}
+              @input=${(e: Event) =>
+                onChange(propKey, Number((e.target as HTMLInputElement).value))}
+            />
+            <input
+              type="number"
+              class="slider-number-input"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${displayVal}
+              @input=${(e: Event) =>
+                onChange(propKey, Number((e.target as HTMLInputElement).value))}
+            />
+          </div>
+          <div class="range-labels">
+            <span>${min}</span>
+            <span>${max}</span>
+          </div>
+        </div>
+      `;
+    }
+    // Date/time formats
+    if (this._isDateTimeFormat(propKey, schema)) {
+      const fmt = this._getDateTimeFormat(propKey, schema);
+      if (fmt === 'date-range' || fmt === 'datetime-range') {
+        const inputType = fmt === 'datetime-range' ? 'datetime-local' : 'date';
+        const currentObj = (value as { start?: string; end?: string }) || {};
+        return html`
+          <div class="date-range-row">
+            <input
+              type="${inputType}"
+              class="date-input"
+              .value=${currentObj.start || ''}
+              @input=${(e: Event) =>
+                onChange(propKey, { ...currentObj, start: (e.target as HTMLInputElement).value })}
+            />
+            <span class="date-range-arrow">→</span>
+            <input
+              type="${inputType}"
+              class="date-input"
+              min=${currentObj.start || ''}
+              .value=${currentObj.end || ''}
+              @input=${(e: Event) =>
+                onChange(propKey, { ...currentObj, end: (e.target as HTMLInputElement).value })}
+            />
+          </div>
+        `;
+      }
+      const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
       return html`
         <input
-          type="number"
-          min=${(schema as any).minimum ?? 0}
-          max=${(schema as any).maximum ?? 9999}
-          .value=${value !== undefined ? String(value) : ''}
-          @input=${(e: Event) => onChange(propKey, Number((e.target as HTMLInputElement).value))}
+          type="${inputType}"
+          class="date-input"
+          .value=${value || ''}
+          @input=${(e: Event) => onChange(propKey, (e.target as HTMLInputElement).value)}
         />
       `;
     }
@@ -1315,15 +1574,84 @@ export class InvokeForm extends LitElement {
       `;
     }
 
-    // Handle number
+    // Handle number — slider-first
     if (schema.type === 'number' || schema.type === 'integer') {
+      const isInteger = schema.type === 'integer';
+      const isFloat = !isInteger;
+      const hasMin = schema.minimum !== undefined;
+      const hasMax = schema.maximum !== undefined;
+      let min = hasMin ? schema.minimum : 0;
+      let max = hasMax ? schema.maximum : isFloat ? 1 : 100;
+      if (hasMin && !hasMax) max = min <= 0 ? 100 : min * 2;
+      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
+      const currentVal = value ?? schema.default ?? min;
+      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
+
+      return html`
+        <div class="slider-group">
+          <div class="slider-row">
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentVal)}
+              @input=${(e: Event) =>
+                handleNestedChange(Number((e.target as HTMLInputElement).value))}
+            />
+            <input
+              type="number"
+              class="slider-number-input"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${displayVal}
+              @input=${(e: Event) =>
+                handleNestedChange(Number((e.target as HTMLInputElement).value))}
+            />
+          </div>
+          <div class="range-labels">
+            <span>${min}</span>
+            <span>${max}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // Handle date/time
+    if (this._isDateTimeFormat(propKey, schema)) {
+      const fmt = this._getDateTimeFormat(propKey, schema);
+      if (fmt === 'date-range' || fmt === 'datetime-range') {
+        const inputType = fmt === 'datetime-range' ? 'datetime-local' : 'date';
+        const currentObj = (value as { start?: string; end?: string }) || {};
+        return html`
+          <div class="date-range-row">
+            <input
+              type="${inputType}"
+              class="date-input"
+              .value=${currentObj.start || ''}
+              @input=${(e: Event) =>
+                handleNestedChange({ ...currentObj, start: (e.target as HTMLInputElement).value })}
+            />
+            <span class="date-range-arrow">→</span>
+            <input
+              type="${inputType}"
+              class="date-input"
+              min=${currentObj.start || ''}
+              .value=${currentObj.end || ''}
+              @input=${(e: Event) =>
+                handleNestedChange({ ...currentObj, end: (e.target as HTMLInputElement).value })}
+            />
+          </div>
+        `;
+      }
+      const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
       return html`
         <input
-          type="number"
-          min=${(schema as any).minimum ?? 0}
-          max=${(schema as any).maximum ?? 9999}
-          .value=${value !== undefined ? String(value) : ''}
-          @input=${(e: Event) => handleNestedChange(Number((e.target as HTMLInputElement).value))}
+          type="${inputType}"
+          class="date-input"
+          .value=${value || ''}
+          @input=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).value)}
         />
       `;
     }
