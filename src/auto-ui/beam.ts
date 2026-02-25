@@ -1276,7 +1276,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           {
             reconnect: true,
             workingDir,
-            onReconnect: () => logger.info(`📡 Reconnected ${channel} subscription`),
+            onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
             onRefreshNeeded: () => {
               logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
               broadcastToBeam('photon/state-changed', {

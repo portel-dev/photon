@@ -10,7 +10,7 @@ import * as net from 'net';
 import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { DaemonRequest, DaemonResponse } from './protocol.js';
-import { getGlobalSocketPath, restartGlobalDaemon } from './manager.js';
+import { getGlobalSocketPath, ensureDaemon } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 
@@ -78,8 +78,8 @@ export async function sendCommand(
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
-        logger.info('Daemon unreachable, auto-restarting...');
-        await restartGlobalDaemon();
+        logger.info('Daemon unreachable, ensuring daemon is running...');
+        await ensureDaemon();
         continue;
       }
       throw error;
@@ -361,7 +361,7 @@ export async function subscribeChannel(
 
     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
     if (reconnectAttempts === 1) {
-      logger.info(`Subscription lost for ${channel}, reconnecting...`);
+      logger.debug(`Subscription lost for ${channel}, reconnecting...`);
     } else {
       logger.debug(`Reconnecting ${channel} in ${delay}ms (attempt ${reconnectAttempts})`);
     }
@@ -369,12 +369,11 @@ export async function subscribeChannel(
     setTimeout(async () => {
       if (cancelled) return;
       try {
-        // Restart daemon if needed
-        await restartGlobalDaemon();
-        await new Promise((r) => setTimeout(r, 500));
+        // Try reconnecting to existing daemon first; only start if it's down
+        await ensureDaemon();
         await connect();
         reconnectAttempts = 0;
-        logger.info(`Reconnected subscription for ${channel}`);
+        logger.debug(`Reconnected subscription for ${channel}`);
         options?.onReconnect?.();
       } catch (e) {
         logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
