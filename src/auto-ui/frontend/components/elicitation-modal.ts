@@ -39,6 +39,12 @@ export interface FormField {
   required?: boolean;
   default?: any;
   placeholder?: string;
+  // Rich input support
+  enum?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  format?: string; // date, date-time, time
 }
 
 @customElement('elicitation-modal')
@@ -204,6 +210,136 @@ export class ElicitationModal extends LitElement {
         gap: var(--space-md);
       }
 
+      /* Slider */
+      .slider-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .slider-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .slider-row input[type='range'] {
+        flex: 1;
+        height: 6px;
+        background: var(--bg-glass);
+        border-radius: var(--radius-xs);
+        border: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+      }
+
+      .slider-row input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        background: var(--accent-primary);
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .slider-row input[type='range']::-webkit-slider-runnable-track {
+        height: 6px;
+        background: var(--bg-glass);
+        border-radius: var(--radius-xs);
+      }
+
+      .slider-number-input {
+        width: 80px;
+        text-align: right;
+        font-size: var(--text-sm);
+        padding: 4px 8px;
+      }
+
+      .range-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        padding: 0 2px;
+      }
+
+      /* Date/Time Inputs */
+      .date-input {
+        width: 100%;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-primary);
+        padding: 8px 12px;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-md);
+      }
+
+      .date-input:focus-visible {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
+      }
+
+      .date-input::-webkit-calendar-picker-indicator {
+        filter: invert(0.7);
+        cursor: pointer;
+      }
+
+      /* Toggle Switch */
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .toggle-switch {
+        position: relative;
+        width: 44px;
+        height: 24px;
+        flex-shrink: 0;
+      }
+
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        background: var(--bg-glass-strong);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .toggle-track::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        background: white;
+        border-radius: 50%;
+        transition: transform 0.2s;
+      }
+
+      .toggle-switch input:checked + .toggle-track {
+        background: var(--accent-primary);
+      }
+
+      .toggle-switch input:checked + .toggle-track::after {
+        transform: translateX(20px);
+      }
+
+      .toggle-label {
+        font-size: var(--text-md);
+        color: var(--t-muted);
+      }
+
       /* ===== Responsive Design ===== */
       @media (max-width: 768px) {
         .modal-content {
@@ -247,6 +383,14 @@ export class ElicitationModal extends LitElement {
 
         .select-option {
           padding: var(--space-md);
+        }
+
+        .slider-row {
+          flex-wrap: wrap;
+        }
+
+        .slider-number-input {
+          width: 100%;
         }
       }
 
@@ -316,7 +460,8 @@ export class ElicitationModal extends LitElement {
   private _resetState() {
     if (!this.data) return;
 
-    this._inputValue = this.data.default ?? '';
+    this._inputValue =
+      this.data.default ?? (this.data.ask === 'number' ? (this.data.min ?? 0) : '');
     this._selectedValues = [];
     this._formValues = {};
 
@@ -389,18 +534,61 @@ export class ElicitationModal extends LitElement {
   }
 
   private _renderNumberInput() {
+    const hasMin = this.data?.min != null;
+    const hasMax = this.data?.max != null;
+    const isFloat = this.data?.step != null && this.data.step % 1 !== 0;
+
+    let min: number, max: number;
+    if (hasMin && hasMax) {
+      min = this.data!.min!;
+      max = this.data!.max!;
+    } else if (hasMin && !hasMax) {
+      min = this.data!.min!;
+      max = min <= 0 ? 100 : min * 2;
+    } else if (!hasMin && hasMax) {
+      min = 0;
+      max = this.data!.max!;
+    } else {
+      min = isFloat ? 0 : 0;
+      max = isFloat ? 1 : 100;
+    }
+
+    const step = this.data?.step ?? (isFloat ? 0.01 : 1);
+    const currentValue = this._inputValue ?? min;
+
     return html`
       <div class="form-group">
-        <input
-          type="number"
-          .value=${String(this._inputValue)}
-          min=${this.data?.min ?? nothing}
-          max=${this.data?.max ?? nothing}
-          step=${this.data?.step ?? nothing}
-          @input=${(e: Event) => (this._inputValue = Number((e.target as HTMLInputElement).value))}
-          @keydown=${this._handleKeydown}
-          autofocus
-        />
+        <div class="slider-group">
+          <div class="slider-row">
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentValue)}
+              @input=${(e: Event) => {
+                this._inputValue = Number((e.target as HTMLInputElement).value);
+              }}
+            />
+            <input
+              type="number"
+              class="slider-number-input"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentValue)}
+              @input=${(e: Event) => {
+                this._inputValue = Number((e.target as HTMLInputElement).value);
+              }}
+              @keydown=${this._handleKeydown}
+              autofocus
+            />
+          </div>
+          <div class="range-labels">
+            <span>${min}</span>
+            <span>${max}</span>
+          </div>
+        </div>
       </div>
       <div class="actions">
         <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
@@ -535,10 +723,20 @@ export class ElicitationModal extends LitElement {
       fields = Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
         name,
         label: prop.title || name,
-        type: prop.type === 'number' ? 'number' : 'text',
+        type:
+          prop.type === 'boolean'
+            ? 'boolean'
+            : prop.type === 'number' || prop.type === 'integer'
+              ? 'number'
+              : 'text',
         required: required.has(name),
         default: prop.default,
         placeholder: prop.description,
+        enum: prop.enum,
+        min: prop.minimum,
+        max: prop.maximum,
+        step: prop.multipleOf,
+        format: prop.format,
       }));
 
       // Initialize form values with defaults
@@ -587,6 +785,111 @@ export class ElicitationModal extends LitElement {
       `;
     }
 
+    // Boolean → toggle switch
+    if (type === 'boolean') {
+      const checked = !!this._formValues[field.name];
+      return html`
+        <div class="toggle-row">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              .checked=${checked}
+              @change=${(e: Event) =>
+                this._updateFormValue(field.name, (e.target as HTMLInputElement).checked)}
+            />
+            <span class="toggle-track"></span>
+          </label>
+          <span class="toggle-label">${checked ? 'Yes' : 'No'}</span>
+        </div>
+      `;
+    }
+
+    // String with enum → dropdown
+    if (field.enum && field.enum.length > 0) {
+      return html`
+        <select
+          @change=${(e: Event) =>
+            this._updateFormValue(field.name, (e.target as HTMLSelectElement).value)}
+        >
+          ${field.enum.map(
+            (opt) => html`<option value=${opt} ?selected=${value === opt}>${opt}</option>`
+          )}
+        </select>
+      `;
+    }
+
+    // String with date/time format
+    if (field.format === 'date' || field.format === 'date-time' || field.format === 'time') {
+      const inputType = field.format === 'date-time' ? 'datetime-local' : field.format;
+      return html`
+        <input
+          type=${inputType}
+          class="date-input"
+          .value=${value}
+          @input=${(e: Event) =>
+            this._updateFormValue(field.name, (e.target as HTMLInputElement).value)}
+        />
+      `;
+    }
+
+    // Number → slider + number input
+    if (type === 'number') {
+      const hasMin = field.min != null;
+      const hasMax = field.max != null;
+      const isFloat = field.step != null && field.step % 1 !== 0;
+
+      let min: number, max: number;
+      if (hasMin && hasMax) {
+        min = field.min!;
+        max = field.max!;
+      } else if (hasMin && !hasMax) {
+        min = field.min!;
+        max = min <= 0 ? 100 : min * 2;
+      } else if (!hasMin && hasMax) {
+        min = 0;
+        max = field.max!;
+      } else {
+        min = 0;
+        max = isFloat ? 1 : 100;
+      }
+
+      const step = field.step ?? (isFloat ? 0.01 : 1);
+      const currentValue = this._formValues[field.name] ?? field.default ?? min;
+
+      return html`
+        <div class="slider-group">
+          <div class="slider-row">
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentValue)}
+              @input=${(e: Event) => {
+                this._updateFormValue(field.name, Number((e.target as HTMLInputElement).value));
+              }}
+            />
+            <input
+              type="number"
+              class="slider-number-input"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              .value=${String(currentValue)}
+              @input=${(e: Event) => {
+                this._updateFormValue(field.name, Number((e.target as HTMLInputElement).value));
+              }}
+            />
+          </div>
+          <div class="range-labels">
+            <span>${min}</span>
+            <span>${max}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // Default: text input
     return html`
       <input
         type=${type}
