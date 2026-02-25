@@ -5,6 +5,7 @@
  * Extracted from beam.ts to reduce file size.
  */
 
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -348,6 +349,65 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         resolve(true);
       });
     });
+  }
+
+  // Instances API: List named instances for a stateful photon
+  if (url.pathname.startsWith('/api/instances/')) {
+    const photonName = url.pathname.slice('/api/instances/'.length);
+    if (!photonName) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'Missing photon name' }));
+      return true;
+    }
+    try {
+      const photonBase = state.workingDir;
+      // Check both storage locations:
+      // 1. @stateful runtime state: ~/.photon/state/{photon}/*.json
+      // 2. Legacy board-based storage: ~/.photon/{photon}/boards/*.json (e.g. kanban)
+      const candidateDirs = [
+        path.join(photonBase, 'state', photonName),
+        path.join(photonBase, photonName, 'boards'),
+      ];
+
+      let instances: string[] = [];
+      let autoInstance = '';
+
+      for (const dir of candidateDirs) {
+        try {
+          const files = await fs.readdir(dir);
+          const jsonFiles = files.filter(
+            (f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl')
+          );
+          if (jsonFiles.length === 0) continue;
+          const withMtime = await Promise.all(
+            jsonFiles.map(async (f) => {
+              const stat = await fs.stat(path.join(dir, f));
+              return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
+            })
+          );
+          withMtime.sort((a, b) => b.mtime - a.mtime);
+          instances = withMtime.map((f) => f.name);
+          autoInstance = instances[0] || 'default';
+          break; // Use first directory that has instances
+        } catch {
+          // Dir doesn't exist, try next
+        }
+      }
+
+      // Always include "default" — matches daemon's _instances behavior
+      if (!instances.includes('default')) {
+        instances.push('default');
+        instances.sort();
+      }
+      if (!autoInstance) autoInstance = 'default';
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ instances, autoInstance }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return true;
   }
 
   return false;
