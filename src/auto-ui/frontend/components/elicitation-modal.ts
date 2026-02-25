@@ -226,27 +226,40 @@ export class ElicitationModal extends LitElement {
       .slider-row input[type='range'] {
         flex: 1;
         height: 6px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-xs);
-        border: none;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
         -webkit-appearance: none;
         cursor: pointer;
+        margin: 8px 0;
+        outline: none;
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         background: var(--accent-primary);
         border-radius: 50%;
         cursor: pointer;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       }
 
-      .slider-row input[type='range']::-webkit-slider-runnable-track {
+      .slider-row input[type='range']::-moz-range-track {
         height: 6px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-xs);
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .slider-row input[type='range']::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        background: var(--accent-primary);
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       }
 
       .slider-number-input {
@@ -726,9 +739,11 @@ export class ElicitationModal extends LitElement {
         type:
           prop.type === 'boolean'
             ? 'boolean'
-            : prop.type === 'number' || prop.type === 'integer'
-              ? 'number'
-              : 'text',
+            : prop.type === 'integer'
+              ? 'integer'
+              : prop.type === 'number'
+                ? 'number'
+                : 'text',
         required: required.has(name),
         default: prop.default,
         placeholder: prop.description,
@@ -832,11 +847,12 @@ export class ElicitationModal extends LitElement {
       `;
     }
 
-    // Number → slider + number input
-    if (type === 'number') {
+    // Number/Integer → slider + number input
+    if (type === 'number' || type === 'integer') {
+      const isInteger = type === 'integer';
+      const isFloat = !isInteger && (field.step == null || field.step % 1 !== 0);
       const hasMin = field.min != null;
       const hasMax = field.max != null;
-      const isFloat = field.step != null && field.step % 1 !== 0;
 
       let min: number, max: number;
       if (hasMin && hasMax) {
@@ -853,7 +869,7 @@ export class ElicitationModal extends LitElement {
         max = isFloat ? 1 : 100;
       }
 
-      const step = field.step ?? (isFloat ? 0.01 : 1);
+      const step = field.step ?? (isInteger ? 1 : isFloat ? 0.01 : 1);
       const currentValue = this._formValues[field.name] ?? field.default ?? min;
 
       return html`

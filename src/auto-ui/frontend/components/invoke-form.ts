@@ -341,27 +341,40 @@ export class InvokeForm extends LitElement {
       .slider-row input[type='range'] {
         flex: 1;
         height: 6px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-xs);
-        border: none;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
         -webkit-appearance: none;
         cursor: pointer;
+        margin: 8px 0;
+        outline: none;
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         background: var(--accent-primary);
         border-radius: 50%;
         cursor: pointer;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       }
 
-      .slider-row input[type='range']::-webkit-slider-runnable-track {
+      .slider-row input[type='range']::-moz-range-track {
         height: 6px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-xs);
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .slider-row input[type='range']::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        background: var(--accent-primary);
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       }
 
       .slider-value {
@@ -827,10 +840,16 @@ export class InvokeForm extends LitElement {
         max = isFloat ? 1 : 100;
       }
 
-      const step = isInteger ? 1 : ((schema as any).multipleOf ?? 0.01);
+      // Infer integer step when type is 'number' but bounds are both whole numbers
+      const boundsAreIntegers = hasMin && hasMax && Number.isInteger(min) && Number.isInteger(max);
+      const step =
+        isInteger || (boundsAreIntegers && !(schema as any).multipleOf)
+          ? 1
+          : ((schema as any).multipleOf ?? 0.01);
       const defaultVal = (schema as any).default ?? min;
       const currentValue = this._values[key] ?? defaultVal;
-      const displayValue = isInteger
+      const effectivelyInteger = isInteger || step === 1;
+      const displayValue = effectivelyInteger
         ? String(Math.round(Number(currentValue)))
         : String(currentValue);
 
