@@ -793,18 +793,11 @@ const handlers: Record<string, RequestHandler> = {
     // Stateful photons: route through daemon for shared instance across all clients
     if (photonInfo?.stateful && photonInfo.path) {
       try {
-        const { sendCommand, pingDaemon } = await import('../daemon/client.js');
-        const { isGlobalDaemonRunning, startGlobalDaemon } = await import('../daemon/manager.js');
+        const { sendCommand } = await import('../daemon/client.js');
+        const { ensureDaemon } = await import('../daemon/manager.js');
 
-        // Ensure daemon is running
-        if (!isGlobalDaemonRunning()) {
-          await startGlobalDaemon(true);
-          // Wait for daemon readiness
-          for (let i = 0; i < 10; i++) {
-            await new Promise((r) => setTimeout(r, 500));
-            if (await pingDaemon(photonName)) break;
-          }
-        }
+        // Ensure daemon is running (idempotent — handles stale binary restart too)
+        await ensureDaemon();
 
         // Each browser tab gets its own daemon session via the MCP session ID.
         // Instance state is tracked per-session on the daemon — no global persistence.
