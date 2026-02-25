@@ -1907,10 +1907,9 @@ export class ResultViewer extends LitElement {
         padding: 6px var(--space-md);
         font-size: var(--text-xs);
         font-weight: 600;
-        color: var(--t-muted);
+        color: var(--accent, #7c3aed);
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        border-bottom: 1px solid var(--border-glass);
       }
 
       .panel-content {
@@ -5322,6 +5321,17 @@ ${str}</pre
       return this._renderMetricCard(value);
     }
 
+    // Gauge: { value, max } or { progress } — check before metric to avoid false matches
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (('progress' in value && typeof value.progress === 'number') ||
+        ('value' in value && typeof value.value === 'number' && ('max' in value || 'min' in value)))
+    ) {
+      return this._renderGauge(value);
+    }
+
     // Metric object: { value, label, delta }
     if (
       value &&
@@ -5335,17 +5345,6 @@ ${str}</pre
       if (numericKeys.length === 1 || keys.length <= 5) {
         return this._renderMetric(value);
       }
-    }
-
-    // Gauge: { value, max } or { progress }
-    if (
-      value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      (('progress' in value && typeof value.progress === 'number') ||
-        ('value' in value && typeof value.value === 'number' && ('max' in value || 'min' in value)))
-    ) {
-      return this._renderGauge(value);
     }
 
     // Array of objects → try chart first, then table
