@@ -667,14 +667,18 @@ export class PhotonLoader {
 
         if (caps.has('emit')) {
           // Inject emit() that reads from executionContext (set during executeTool)
+          // Falls back to last known outputHandler for timer-based emits after method returns
           instance.emit = (data: any) => {
             const store = executionContext.getStore();
             const emitData =
               instance._photonName && typeof data === 'object' && data !== null
                 ? { ...data, _source: instance._photonName }
                 : data;
-            if (store?.outputHandler) {
-              store.outputHandler(emitData);
+            const handler =
+              store?.outputHandler ||
+              (instance._lastOutputHandler as ((data: any) => void) | undefined);
+            if (handler) {
+              handler(emitData);
             }
             // Also publish to channel broker if channel is specified
             if (data && typeof data.channel === 'string') {
@@ -2023,6 +2027,10 @@ Run: photon mcp ${mcpName} --config
 
       // Wrap ALL plain class execution in executionContext for unified observability
       // This enables this.emit() to read outputHandler from context
+      // Also stash outputHandler on instance for timer-based emits after method returns
+      if (!isStatic && mcp.instance) {
+        mcp.instance._lastOutputHandler = outputHandler;
+      }
       let generatorFn = isStatic
         ? () => method.call(null, ...args)
         : () => executionContext.run({ outputHandler }, () => method.call(mcp.instance, ...args));
