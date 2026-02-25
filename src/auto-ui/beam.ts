@@ -726,6 +726,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (handled) return;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // REST API routes (extracted modules)
+    // ══════════════════════════════════════════════════════════════════════════
+    if (url.pathname.startsWith('/api/')) {
+      if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
+      if (await handleBrowseRoutes(req, res, url, beamState)) return;
+      if (await handleConfigRoutes(req, res, url, beamState)) return;
+    }
+
     // Serve static frontend bundle
     if (url.pathname === '/beam.bundle.js') {
       try {
