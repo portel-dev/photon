@@ -580,23 +580,19 @@ export class McpAppRenderer extends LitElement {
       // Extract data for photon UI consumption
       const data = this._extractResultData(result);
 
-      // Send result to iframe via postMessage (photon UIs use onResult callback)
+      // Send result to iframe as JSON-RPC notification (platform bridge handles this)
       this._iframeRef.contentWindow.postMessage(
         {
-          type: 'photon:result',
-          data,
+          jsonrpc: '2.0',
+          method: 'ui/notifications/tool-result',
+          params: {
+            content: result.content,
+            structuredContent: result.structuredContent,
+            isError: result.isError,
+          },
         },
         '*'
       );
-
-      // Also send via AppBridge for MCP Apps Extension compliant apps
-      if (this._bridge) {
-        this._bridge.sendToolResult({
-          content: result.content,
-          structuredContent: result.structuredContent,
-          isError: result.isError,
-        });
-      }
     } catch (error) {
       console.error('Failed to auto-invoke linked tool:', error);
     }

@@ -3300,9 +3300,13 @@ export class BeamApp extends LitElement {
       // Find the linked tool (the one with _meta.ui.resourceUri matching the current URI)
       // This tool provides initial data to the app
       // linkedUi is extracted path (e.g., "mcp-app.html"), mcpAppUri is full URI (e.g., "ui://server/mcp-app.html")
-      const linkedMethod = this._selectedPhoton.methods?.find(
-        (m: any) => m.linkedUi && currentUri?.endsWith('/' + m.linkedUi)
-      );
+      const linkedMethod =
+        this._selectedPhoton.methods?.find(
+          (m: any) => m.linkedUi && currentUri?.endsWith('/' + m.linkedUi)
+        ) ||
+        // Fallback: external MCPs with standalone UI resources may not set _meta.ui on tools.
+        // Use 'main' method as the linked tool (convention: main() provides initial app data).
+        this._selectedPhoton.methods?.find((m: any) => m.name === 'main');
 
       // Extract tab name from URI (e.g., "ui://server/dashboard.html" -> "dashboard")
       const getTabName = (uri: string) => {
