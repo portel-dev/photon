@@ -36,6 +36,8 @@ export interface DaemonRequest {
   clientType?: 'cli' | 'mcp' | 'code-mode' | 'beam'; // Client type for debugging
   /** Instance name hint for auto-recovery from session drift */
   instanceName?: string;
+  /** One-shot instance-scoped execution — runs on this instance without mutating the session */
+  targetInstance?: string;
   /** Working directory override (base dir for state/config/cache). Defaults to ~/.photon */
   workingDir?: string;
   method?: string;

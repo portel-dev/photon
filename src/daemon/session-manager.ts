@@ -126,7 +126,7 @@ export class SessionManager {
    * Get or load a photon instance for a given instanceName.
    * Instances are shared: multiple sessions on the same instanceName share state.
    */
-  private async getOrLoadInstance(instanceName: string): Promise<any> {
+  async getOrLoadInstance(instanceName: string): Promise<any> {
     const key = instanceName || 'default';
 
     if (this.instances.has(key)) {

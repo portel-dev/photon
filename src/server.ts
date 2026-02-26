@@ -2280,15 +2280,17 @@ export class PhotonServer {
         if (i >= 0) resultListeners.splice(i, 1);
       };
     },
-    callTool: function(name, args) {
+    callTool: function(name, args, opts) {
       var callId = generateCallId();
       return new Promise(function(resolve, reject) {
         pendingCalls[callId] = { resolve: resolve, reject: reject };
+        var a = args || {};
+        if (opts && opts.instance !== undefined) { a = Object.assign({}, a, { _targetInstance: opts.instance }); }
         postToHost({
           jsonrpc: '2.0',
           id: callId,
           method: 'tools/call',
-          params: { name: name, arguments: args || {} }
+          params: { name: name, arguments: a }
         });
         setTimeout(function() {
           if (pendingCalls[callId]) {
@@ -2298,7 +2300,7 @@ export class PhotonServer {
         }, 30000);
       });
     },
-    invoke: function(name, args) { return window.photon.callTool(name, args); },
+    invoke: function(name, args, opts) { return window.photon.callTool(name, args, opts); },
     onEmit: function(cb) {
       emitListeners.push(cb);
       return function() {

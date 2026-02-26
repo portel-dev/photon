@@ -648,11 +648,15 @@ export class PhotonLoader {
         instance._callHandler = async (
           photonName: string,
           method: string,
-          params: Record<string, any>
+          params: Record<string, any>,
+          targetInstance?: string
         ) => {
           // Dynamic import to avoid circular dependency
           const { sendCommand } = await import('./daemon/client.js');
-          return sendCommand(photonName, method, params, { workingDir: callBaseDir });
+          return sendCommand(photonName, method, params, {
+            workingDir: callBaseDir,
+            targetInstance,
+          });
         };
         this.log(`Injected call handler into ${name}`);
       }
@@ -715,7 +719,11 @@ export class PhotonLoader {
 
         if (caps.has('call') && !instance.call) {
           // Inject call() for cross-photon communication
-          instance.call = async (target: string, params: Record<string, any> = {}) => {
+          instance.call = async (
+            target: string,
+            params: Record<string, any> = {},
+            options?: { instance?: string }
+          ) => {
             const dotIndex = target.indexOf('.');
             if (dotIndex === -1) {
               throw new Error(
@@ -730,7 +738,8 @@ export class PhotonLoader {
             return (instance._callHandler as (...args: unknown[]) => unknown)(
               photonName,
               methodName,
-              params
+              params,
+              options?.instance
             );
           };
         }
@@ -1395,34 +1404,42 @@ export class PhotonLoader {
   }
 
   /**
-   * Get or load a Photon instance for a dependency
+   * Get or load a Photon instance for a dependency.
+   * When dep.instanceName is set, loads a named instance (separate state).
    */
   private async getPhotonInstance(dep: PhotonDependency, currentPhotonPath: string): Promise<any> {
     // Resolve the Photon path
     const resolvedPath = await this.resolvePhotonPath(dep, currentPhotonPath);
 
+    // Cache key includes instance name to allow multiple instances of the same photon
+    const cacheKey = dep.instanceName ? `${resolvedPath}::${dep.instanceName}` : resolvedPath;
+
     // Check cache
-    if (this.loadedPhotons.has(resolvedPath)) {
-      return this.loadedPhotons.get(resolvedPath)!.instance;
+    if (this.loadedPhotons.has(cacheKey)) {
+      return this.loadedPhotons.get(cacheKey)!.instance;
     }
 
     // Dedup concurrent loads: if another call is already loading this path, wait for it
-    if (this.loadedPhotonPromises.has(resolvedPath)) {
-      const loaded = await this.loadedPhotonPromises.get(resolvedPath);
+    if (this.loadedPhotonPromises.has(cacheKey)) {
+      const loaded = await this.loadedPhotonPromises.get(cacheKey);
       return loaded.instance;
     }
 
     // Load the Photon (recursive call)
-    this.log(`  📦 Loading Photon dependency: ${dep.name} from ${resolvedPath}`);
-    const loadPromise = this.loadFile(resolvedPath);
-    this.loadedPhotonPromises.set(resolvedPath, loadPromise);
+    const instanceLabel = dep.instanceName ? ` (instance: ${dep.instanceName})` : '';
+    this.log(`  📦 Loading Photon dependency: ${dep.name} from ${resolvedPath}${instanceLabel}`);
+    const loadPromise = this.loadFile(
+      resolvedPath,
+      dep.instanceName ? { instanceName: dep.instanceName } : undefined
+    );
+    this.loadedPhotonPromises.set(cacheKey, loadPromise);
     try {
       const loaded = await loadPromise;
       // Cache it
-      this.loadedPhotons.set(resolvedPath, loaded);
+      this.loadedPhotons.set(cacheKey, loaded);
       return loaded.instance;
     } finally {
-      this.loadedPhotonPromises.delete(resolvedPath);
+      this.loadedPhotonPromises.delete(cacheKey);
     }
   }
 

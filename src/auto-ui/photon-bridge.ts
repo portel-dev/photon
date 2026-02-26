@@ -135,10 +135,18 @@ export interface PhotonBridge {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /** Invoke another tool on the same photon */
-  callTool(toolName: string, args: Record<string, any>): Promise<any>;
+  callTool(
+    toolName: string,
+    args: Record<string, any>,
+    options?: { instance?: string }
+  ): Promise<any>;
 
   /** Alias for callTool - invoke another tool on the same photon */
-  invoke(toolName: string, args: Record<string, any>): Promise<any>;
+  invoke(
+    toolName: string,
+    args: Record<string, any>,
+    options?: { instance?: string }
+  ): Promise<any>;
 
   /** Send a follow-up message (for conversational UIs) */
   sendFollowUpMessage(message: string): Promise<void>;
@@ -320,7 +328,7 @@ export function createPhotonBridge(): PhotonBridge {
     },
 
     // Actions
-    async callTool(toolName, args) {
+    async callTool(toolName, args, options?) {
       const callId = 'call_' + Math.random().toString(36).slice(2);
       return new Promise((resolve, reject) => {
         function handleResponse(event: any) {
@@ -341,12 +349,17 @@ export function createPhotonBridge(): PhotonBridge {
 
         window.addEventListener('message', handleResponse);
 
+        const callArgs: Record<string, any> = { ...(args || {}) };
+        if (options?.instance !== undefined) {
+          callArgs._targetInstance = options.instance;
+        }
+
         window.parent.postMessage(
           {
             jsonrpc: '2.0',
             id: callId,
             method: 'tools/call',
-            params: { name: toolName, arguments: args || {} },
+            params: { name: toolName, arguments: callArgs },
           },
           '*'
         );
@@ -354,8 +367,8 @@ export function createPhotonBridge(): PhotonBridge {
     },
 
     // Alias for callTool - used by custom UI templates
-    async invoke(toolName, args) {
-      return this.callTool(toolName, args);
+    async invoke(toolName, args, options?) {
+      return this.callTool(toolName, args, options);
     },
 
     async sendFollowUpMessage(message) {
@@ -441,7 +454,7 @@ export function generateBridgeLoaderScript(): string {
     onResult: function(cb) { return sub(rL, cb); },
     onError: function(cb) { return sub(errL, cb); },
     onElicitation: function(h) { eH = h; return function() { eH = null; }; },
-    callTool: function(name, args) {
+    callTool: function(name, args, opts) {
       var id = 'call_' + Math.random().toString(36).slice(2);
       return new Promise(function(res, rej) {
         function h(e) {
@@ -451,11 +464,13 @@ export function generateBridgeLoaderScript(): string {
             if (m.error) rej(new Error(m.error.message || 'Tool call failed')); else res(m.result);
           }
         }
+        var a = args || {};
+        if (opts && opts.instance !== undefined) { a = Object.assign({}, a, { _targetInstance: opts.instance }); }
         window.addEventListener('message', h);
-        window.parent.postMessage({ jsonrpc: '2.0', id: id, method: 'tools/call', params: { name: name, arguments: args || {} } }, '*');
+        window.parent.postMessage({ jsonrpc: '2.0', id: id, method: 'tools/call', params: { name: name, arguments: a } }, '*');
       });
     },
-    invoke: function(name, args) { return this.callTool(name, args); },
+    invoke: function(name, args, opts) { return this.callTool(name, args, opts); },
     sendFollowUpMessage: function(msg) {
       window.parent.postMessage({ type: 'photon:follow-up', message: msg }, '*');
     },

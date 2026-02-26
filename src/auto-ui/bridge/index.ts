@@ -294,15 +294,19 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // TOOL CALLING
   // ═══════════════════════════════════════════════════════════════════════════
 
-  function callTool(name, args) {
+  function callTool(name, args, options) {
     var callId = generateCallId();
     return new Promise(function(resolve, reject) {
       pendingCalls[callId] = { resolve: resolve, reject: reject };
+      var callArgs = args || {};
+      if (options && options.instance !== undefined) {
+        callArgs = Object.assign({}, callArgs, { _targetInstance: options.instance });
+      }
       postToHost({
         jsonrpc: '2.0',
         id: callId,
         method: 'tools/call',
-        params: { name: name, arguments: args || {} }
+        params: { name: name, arguments: callArgs }
       });
       setTimeout(function() {
         if (pendingCalls[callId]) {

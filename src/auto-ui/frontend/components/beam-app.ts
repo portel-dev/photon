@@ -4614,6 +4614,7 @@ export class BeamApp extends LitElement {
     // MCP Apps standard: JSON-RPC tools/call from iframes
     if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
       if (this._selectedPhoton && this._mcpReady) {
+        // Pass args through as-is — _targetInstance is extracted by the transport layer
         const toolName = `${this._selectedPhoton.name}/${msg.params?.name}`;
         try {
           const mcpResult = await mcpClient.callTool(toolName, msg.params?.arguments || {});
