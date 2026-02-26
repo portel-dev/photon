@@ -131,6 +131,7 @@ export class McpAppRenderer extends LitElement {
     css`
       :host {
         display: block;
+        position: relative;
         width: 100%;
         height: 100%;
         min-height: 500px;
@@ -139,17 +140,29 @@ export class McpAppRenderer extends LitElement {
         overflow: hidden;
       }
 
+      .iframe-host {
+        width: 100%;
+        height: 100%;
+      }
+
       iframe {
         width: 100%;
         height: 100%;
         border: none;
         display: block;
-        opacity: 0;
-        transition: opacity 0.15s ease-in;
+        /* Force own compositing layer — fixes Safari not painting
+           iframe content in shadow DOM until a resize event */
+        will-change: transform;
       }
 
-      iframe.ready {
-        opacity: 1;
+      /* Loading and error overlays sit on top of .iframe-host.
+         .iframe-host is NEVER hidden — the iframe always has real
+         dimensions so it can lay out content correctly. */
+      .loading,
+      .error-container {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
       }
 
       .loading {
@@ -199,11 +212,6 @@ export class McpAppRenderer extends LitElement {
       .retry-btn:hover {
         opacity: 0.9;
       }
-
-      .app-container {
-        width: 100%;
-        height: 100%;
-      }
     `,
   ];
 
@@ -224,11 +232,18 @@ export class McpAppRenderer extends LitElement {
   @state() private _error = '';
   private _bridge: AppBridge | null = null;
   private _transport: PostMessageTransport | null = null;
+  private _blobUrl: string | null = null;
+  private _loadTimer: ReturnType<typeof setTimeout> | null = null;
+  private _loadGeneration = 0;
 
   disconnectedCallback() {
     super.disconnectedCallback();
     // Fire-and-forget teardown
     this.teardown().catch(() => {});
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
   }
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -271,13 +286,52 @@ export class McpAppRenderer extends LitElement {
 
   protected updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     if (changedProperties.has('mcpName') || changedProperties.has('appUri')) {
-      this._loadContent();
+      // Debounce: properties may arrive in separate Lit update cycles
+      if (this._loadTimer) clearTimeout(this._loadTimer);
+      this._loadTimer = setTimeout(() => this._loadContent(), 0);
     }
+
+    // When _srcDoc is ready, mount the iframe using a blob URL.
+    // No need for updateComplete — .iframe-host is always in the DOM.
+    if (changedProperties.has('_srcDoc') && this._srcDoc) {
+      this._mountIframe();
+    }
+  }
+
+  /**
+   * Create iframe imperatively using a blob URL instead of srcdoc.
+   * Safari has a known bug where srcdoc in shadow DOM races with the
+   * initial about:blank navigation. Using blob URL with src= bypasses
+   * this entirely — it's a normal URL navigation.
+   */
+  private _mountIframe() {
+    const container = this.shadowRoot?.querySelector('.iframe-host');
+    if (!container) return;
+
+    const old = container.querySelector('iframe');
+    if (old) old.remove();
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
+
+    const blob = new Blob([this._srcDoc], { type: 'text/html' });
+    this._blobUrl = URL.createObjectURL(blob);
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute(
+      'sandbox',
+      'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
+    );
+    iframe.addEventListener('load', (e) => this._handleIframeLoad(e));
+    iframe.src = this._blobUrl;
+    container.appendChild(iframe);
   }
 
   private async _loadContent() {
     if (!this.mcpName || !this.appUri) return;
 
+    const generation = ++this._loadGeneration;
     this._loading = true;
     this._error = '';
     this._srcDoc = '';
@@ -324,11 +378,17 @@ export class McpAppRenderer extends LitElement {
         }
       }
 
+      // Abort if a newer _loadContent() was triggered while we were fetching
+      if (generation !== this._loadGeneration) return;
+
       this._srcDoc = htmlContent;
     } catch (e: any) {
+      if (generation !== this._loadGeneration) return;
       this._error = e.message;
     } finally {
-      this._loading = false;
+      if (generation === this._loadGeneration) {
+        this._loading = false;
+      }
     }
   }
 
@@ -365,9 +425,9 @@ export class McpAppRenderer extends LitElement {
       },
       '*'
     );
-    // Reveal iframe after theme is applied (next frame lets bridge script run)
+    // Force Safari to repaint the iframe in the next frame
     requestAnimationFrame(() => {
-      iframe.classList.add('ready');
+      iframe.style.transform = 'translateZ(0)';
     });
 
     // Remove previous message handler if any
@@ -599,28 +659,21 @@ export class McpAppRenderer extends LitElement {
   }
 
   render() {
-    if (this._error) {
-      return html`
-        <div class="error-container">
-          <div class="error-icon">⚠️</div>
-          <div class="error-message">${this._error}</div>
-          <button class="retry-btn" @click=${this._loadContent}>Retry</button>
-        </div>
-      `;
-    }
-
-    if (this._loading) {
-      return html`<div class="loading">Loading MCP App...</div>`;
-    }
-
+    // .iframe-host is ALWAYS visible with real dimensions so the iframe can
+    // lay out content correctly. Loading/error are absolutely-positioned
+    // overlays on top (see CSS). This prevents the Safari zero-dimension bug
+    // where an iframe in a display:none container renders blank.
     return html`
-      <div class="app-container">
-        <iframe
-          srcdoc=${this._srcDoc}
-          sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
-          @load=${this._handleIframeLoad}
-        ></iframe>
-      </div>
+      <div class="iframe-host"></div>
+      ${this._error
+        ? html`<div class="error-container">
+            <div class="error-icon">⚠️</div>
+            <div class="error-message">${this._error}</div>
+            <button class="retry-btn" @click=${this._loadContent}>Retry</button>
+          </div>`
+        : this._loading
+          ? html`<div class="loading">Loading MCP App...</div>`
+          : ''}
     `;
   }
 }

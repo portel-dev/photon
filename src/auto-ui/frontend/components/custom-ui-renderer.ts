@@ -12,6 +12,7 @@ export class CustomUiRenderer extends LitElement {
     css`
       :host {
         display: block;
+        position: relative;
         width: 100%;
         height: 100%;
         min-height: 500px;
@@ -20,17 +21,29 @@ export class CustomUiRenderer extends LitElement {
         overflow: hidden;
       }
 
+      .iframe-host {
+        width: 100%;
+        height: 100%;
+      }
+
       iframe {
         width: 100%;
         height: 100%;
         border: none;
         display: block;
-        opacity: 0;
-        transition: opacity 0.15s ease-in;
+        /* Force own compositing layer — fixes Safari not painting
+           iframe content in shadow DOM until a resize event */
+        will-change: transform;
       }
 
-      iframe.ready {
-        opacity: 1;
+      /* Loading and error overlays sit on top of .iframe-host.
+         .iframe-host is NEVER hidden — the iframe always has real
+         dimensions so it can lay out content correctly. */
+      .loading,
+      .error-container {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
       }
 
       .loading {
@@ -159,6 +172,9 @@ export class CustomUiRenderer extends LitElement {
   @state() private _loading = true;
   @state() private _error = '';
   private _iframeRef: HTMLIFrameElement | null = null;
+  private _blobUrl: string | null = null; // tracked for cleanup
+  private _loadTimer: ReturnType<typeof setTimeout> | null = null;
+  private _loadGeneration = 0; // tracks which load is current
 
   protected updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     if (
@@ -168,7 +184,15 @@ export class CustomUiRenderer extends LitElement {
       changedProperties.has('uiId') ||
       changedProperties.has('uiUri')
     ) {
-      this._loadContent();
+      // Debounce: properties may arrive in separate Lit update cycles
+      if (this._loadTimer) clearTimeout(this._loadTimer);
+      this._loadTimer = setTimeout(() => this._loadContent(), 0);
+    }
+
+    // When _srcDoc is ready, mount the iframe using a blob URL.
+    // No need for updateComplete — .iframe-host is always in the DOM.
+    if (changedProperties.has('_srcDoc') && this._srcDoc) {
+      this._mountIframe();
     }
 
     // Deliver result to iframe when initialResult changes after iframe is already loaded
@@ -216,9 +240,42 @@ export class CustomUiRenderer extends LitElement {
     }
   }
 
+  /**
+   * Create iframe imperatively using a blob URL instead of srcdoc.
+   * Safari has a known bug where srcdoc in shadow DOM races with the
+   * initial about:blank navigation (whatwg/html#763). Using blob URL
+   * with src= bypasses this entirely — it's a normal URL navigation.
+   */
+  private _mountIframe() {
+    const container = this.shadowRoot?.querySelector('.iframe-host');
+    if (!container) return;
+
+    // Clean up previous iframe and blob URL
+    const old = container.querySelector('iframe');
+    if (old) old.remove();
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
+
+    // Create blob URL from HTML content
+    const blob = new Blob([this._srcDoc], { type: 'text/html' });
+    this._blobUrl = URL.createObjectURL(blob);
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute(
+      'sandbox',
+      'allow-scripts allow-forms allow-same-origin allow-popups allow-modals'
+    );
+    iframe.addEventListener('load', (e) => this._handleIframeLoad(e));
+    iframe.src = this._blobUrl;
+    container.appendChild(iframe);
+  }
+
   private async _loadContent() {
     if (!this.photon && !this.uiUri) return;
 
+    const generation = ++this._loadGeneration;
     this._loading = true;
     this._error = '';
     this._srcDoc = '';
@@ -290,13 +347,19 @@ export class CustomUiRenderer extends LitElement {
         finalHtml = `<html><head>${injected}</head><body>${finalHtml}</body></html>`;
       }
 
+      // Abort if a newer _loadContent() was triggered while we were fetching
+      if (generation !== this._loadGeneration) return;
+
       this._srcDoc = finalHtml;
       // Note: Custom UIs should send 'photon:viewing' message with actual board name
       // to enable on-demand channel subscriptions
     } catch (e: any) {
+      if (generation !== this._loadGeneration) return;
       this._error = e.message;
     } finally {
-      this._loading = false;
+      if (generation === this._loadGeneration) {
+        this._loading = false;
+      }
     }
   }
 
@@ -330,29 +393,24 @@ export class CustomUiRenderer extends LitElement {
   }
 
   render() {
-    if (this._error) {
-      return html`
-        <div class="error-container">
-          <div class="error-icon">⚠️</div>
-          <div class="error-message">${this._error}</div>
-          <button class="retry-btn" @click=${this._loadContent}>Retry</button>
-        </div>
-      `;
-    }
-
-    if (this._loading) {
-      return html`<div class="loading">
-        <div class="loading-spinner"></div>
-        <span>Loading interface…</span>
-      </div>`;
-    }
-
+    // .iframe-host is ALWAYS visible with real dimensions so the iframe can
+    // lay out content correctly. Loading/error are absolutely-positioned
+    // overlays on top (see CSS). This prevents the Safari zero-dimension bug
+    // where an iframe in a display:none container renders blank.
     return html`
-      <iframe
-        srcdoc=${this._srcDoc}
-        sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
-        @load=${this._handleIframeLoad}
-      ></iframe>
+      <div class="iframe-host"></div>
+      ${this._error
+        ? html`<div class="error-container">
+            <div class="error-icon">⚠️</div>
+            <div class="error-message">${this._error}</div>
+            <button class="retry-btn" @click=${this._loadContent}>Retry</button>
+          </div>`
+        : this._loading
+          ? html`<div class="loading">
+              <div class="loading-spinner"></div>
+              <span>Loading interface…</span>
+            </div>`
+          : ''}
     `;
   }
 
@@ -387,10 +445,17 @@ export class CustomUiRenderer extends LitElement {
     super.disconnectedCallback();
     // Fire-and-forget teardown on unmount
     this.teardown().catch(() => {});
+    // Clean up blob URL
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
   }
 
   private _handleIframeLoad(e: Event) {
-    this._iframeRef = e.target as HTMLIFrameElement;
+    const iframe = e.target as HTMLIFrameElement;
+    this._iframeRef = iframe;
+
     // Send initial theme to iframe after load (with tokens for immediate styling)
     const themeTokens = getThemeTokens(this.theme);
     // Standard MCP Apps notification
@@ -426,9 +491,11 @@ export class CustomUiRenderer extends LitElement {
       );
     }
 
-    // Reveal iframe after theme is applied (next frame lets bridge script run)
+    // Force Safari to repaint the iframe in the next frame
     requestAnimationFrame(() => {
-      this._iframeRef?.classList.add('ready');
+      if (this._iframeRef) {
+        this._iframeRef.style.transform = 'translateZ(0)';
+      }
     });
   }
 }

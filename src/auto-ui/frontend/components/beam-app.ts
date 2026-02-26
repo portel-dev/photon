@@ -3471,28 +3471,11 @@ export class BeamApp extends LitElement {
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
             >
               <div slot="app" style="min-height: calc(100vh - 140px);">${appRenderer}</div>
-              <div slot="popout" style="height: 100%;">
-                ${isExternalMCP
-                  ? html`
-                      <mcp-app-renderer
-                        .mcpName=${this._selectedPhoton.name}
-                        .appUri=${`ui://${this._selectedPhoton.name}/${this._selectedMethod.linkedUi}`}
-                        .linkedTool=${this._selectedMethod.name}
-                        .theme=${this._theme}
-                        style="height: 100%;"
-                      ></mcp-app-renderer>
-                    `
-                  : html`
-                      <custom-ui-renderer
-                        .photon=${this._selectedPhoton.name}
-                        .method=${this._selectedMethod.name}
-                        .uiId=${this._selectedMethod.linkedUi}
-                        .theme=${this._theme}
-                        .initialResult=${this._lastResult}
-                        style="height: 100%;"
-                      ></custom-ui-renderer>
-                    `}
-              </div>
+              <!-- Popout slot is lazily populated when app-layout toggles popout mode.
+                   Eagerly creating a second renderer causes Safari to load two
+                   iframes simultaneously (one with zero dimensions), leading to
+                   blank screens. -->
+              <div slot="popout" style="height: 100%;"></div>
               <div slot="below-fold">
                 ${otherMethods.length > 0
                   ? html`
