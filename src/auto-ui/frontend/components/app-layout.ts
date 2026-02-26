@@ -7,6 +7,9 @@ import { theme } from '../styles/theme.js';
  *
  * The app UI fills the viewport. A labeled divider hints that methods
  * are available below. Fullscreen button lives in the context bar (external).
+ *
+ * Popout mode makes the app viewport fullscreen — no second renderer needed.
+ * This avoids Safari blank iframe issues caused by duplicate iframes in shadow DOM.
  */
 @customElement('app-layout')
 export class AppLayout extends LitElement {
@@ -23,56 +26,32 @@ export class AppLayout extends LitElement {
         overflow: hidden;
       }
 
-      .scroll-divider {
-        position: relative;
-        text-align: center;
-        margin: var(--space-lg) 0;
-      }
-
-      .scroll-divider::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: var(--border-glass);
-      }
-
-      .scroll-divider span {
-        position: relative;
-        display: inline-block;
-        padding: 0 var(--space-md);
-        background: var(--bg-app, #0a0a12);
-        color: var(--t-muted);
-        font-size: var(--text-sm);
-        opacity: 0.6;
-      }
-
-      .below-fold {
-        padding-top: var(--space-lg);
-      }
-
-      /* Pop-out overlay */
-      .popout-overlay {
+      /* Popout mode: app-viewport goes fullscreen */
+      :host([popped-out]) .app-viewport {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: var(--bg-app, #0a0a12);
+        min-height: unset;
+        border-radius: 0;
         z-index: 9999;
+        background: var(--bg-app, #0a0a12);
         display: flex;
         flex-direction: column;
       }
 
       .popout-header {
-        display: flex;
+        display: none;
         align-items: center;
         padding: var(--space-sm) var(--space-md);
         border-bottom: 1px solid var(--border-glass);
         background: var(--bg-glass);
         flex-shrink: 0;
+      }
+
+      :host([popped-out]) .popout-header {
+        display: flex;
       }
 
       .popout-header .app-name {
@@ -103,9 +82,44 @@ export class AppLayout extends LitElement {
         border-color: var(--accent-primary);
       }
 
-      .popout-body {
+      .app-content {
         flex: 1;
         overflow: auto;
+      }
+
+      :host([popped-out]) .scroll-divider,
+      :host([popped-out]) .below-fold {
+        display: none;
+      }
+
+      .scroll-divider {
+        position: relative;
+        text-align: center;
+        margin: var(--space-lg) 0;
+      }
+
+      .scroll-divider::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: var(--border-glass);
+      }
+
+      .scroll-divider span {
+        position: relative;
+        display: inline-block;
+        padding: 0 var(--space-md);
+        background: var(--bg-app, #0a0a12);
+        color: var(--t-muted);
+        font-size: var(--text-sm);
+        opacity: 0.6;
+      }
+
+      .below-fold {
+        padding-top: var(--space-lg);
       }
 
       /* Anchor navigation links */
@@ -154,15 +168,24 @@ export class AppLayout extends LitElement {
   private _handleKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Escape' && this._poppedOut) {
       this._poppedOut = false;
+      this.removeAttribute('popped-out');
     }
   };
 
   render() {
     return html`
-      ${this._poppedOut ? this._renderPopout() : ''}
-
       <div class="app-viewport">
-        <slot name="app"></slot>
+        <div class="popout-header">
+          <span class="app-name"
+            >${this.photonIcon ? html`${this.photonIcon} ` : ''}${this.photonName}</span
+          >
+          <button class="popout-close" @click=${() => this.togglePopout()}>
+            ✕ Close <kbd>Esc</kbd>
+          </button>
+        </div>
+        <div class="app-content">
+          <slot name="app"></slot>
+        </div>
       </div>
 
       <div class="scroll-divider">
@@ -180,26 +203,13 @@ export class AppLayout extends LitElement {
     `;
   }
 
-  private _renderPopout() {
-    return html`
-      <div class="popout-overlay">
-        <div class="popout-header">
-          <span class="app-name"
-            >${this.photonIcon ? html`${this.photonIcon} ` : ''}${this.photonName}</span
-          >
-          <button class="popout-close" @click=${() => (this._poppedOut = false)}>
-            ✕ Close <kbd>Esc</kbd>
-          </button>
-        </div>
-        <div class="popout-body">
-          <slot name="popout"></slot>
-        </div>
-      </div>
-    `;
-  }
-
   togglePopout() {
     this._poppedOut = !this._poppedOut;
+    if (this._poppedOut) {
+      this.setAttribute('popped-out', '');
+    } else {
+      this.removeAttribute('popped-out');
+    }
   }
 
   private _scrollTo(id: string) {
