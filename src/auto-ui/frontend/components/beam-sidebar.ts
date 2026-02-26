@@ -25,6 +25,8 @@ interface PhotonItem {
   hasMcpApp?: boolean;
   mcpAppUri?: string;
   mcpAppUris?: string[];
+  /** True if photon has property-based settings */
+  hasSettings?: boolean;
 }
 
 @customElement('beam-sidebar')
@@ -516,6 +518,26 @@ export class BeamSidebar extends LitElement {
         color: white;
       }
 
+      .settings-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px;
+        font-size: var(--text-sm);
+        opacity: 0;
+        transition: all 0.2s;
+        flex-shrink: 0;
+      }
+
+      .photon-item:hover .settings-btn {
+        opacity: 0.4;
+      }
+
+      .settings-btn:hover {
+        opacity: 0.8 !important;
+        transform: scale(1.1);
+      }
+
       .star-btn {
         background: none;
         border: none;
@@ -919,6 +941,16 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
         </div>
+        ${photon.hasSettings
+          ? html`<button
+              class="settings-btn"
+              @click=${(e: Event) => this._openSettings(e, photon.name)}
+              title="Settings"
+              aria-label="Open settings for ${photon.name}"
+            >
+              ⚙
+            </button>`
+          : ''}
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
@@ -1047,6 +1079,17 @@ export class BeamSidebar extends LitElement {
 
   private _selectPhoton(photon: PhotonItem) {
     this.dispatchEvent(new CustomEvent('select', { detail: { photon } }));
+  }
+
+  private _openSettings(e: Event, photonName: string) {
+    e.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent('photon-settings', {
+        detail: { name: photonName },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _toggleFavorite(e: Event, photonName: string) {

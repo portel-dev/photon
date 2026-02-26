@@ -130,6 +130,8 @@ export interface PhotonInfo {
   injectedPhotons?: string[];
   /** True if marked with @stateful */
   stateful?: boolean;
+  /** True if photon has `protected settings = { ... }` */
+  hasSettings?: boolean;
 }
 
 /**
