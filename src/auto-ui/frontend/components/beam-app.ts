@@ -2401,6 +2401,7 @@ export class BeamApp extends LitElement {
             defaultValue: prop.default,
           })
         ),
+        errorReason: config['x-error-reason'],
         errorMessage: config['x-error-message'],
       }));
 
@@ -3251,6 +3252,52 @@ export class BeamApp extends LitElement {
               </div>
             `
           : ''}
+      `;
+    }
+
+    // Show load error view for photons that failed to load
+    if (
+      this._selectedPhoton.configured === false &&
+      (this._selectedPhoton as any).errorReason === 'load-error'
+    ) {
+      const photon = this._selectedPhoton as any;
+      return html`
+        <div
+          class="glass-panel"
+          style="padding: var(--space-lg); max-width: 700px; border-left: 3px solid hsl(0, 70%, 55%);"
+        >
+          <h2 style="margin: 0 0 var(--space-sm) 0; color: hsl(0, 70%, 65%);">⚠ Failed to load</h2>
+          <p
+            style="color: var(--t-secondary); margin: 0 0 var(--space-md) 0; font-size: var(--text-md);"
+          >
+            <strong>${photon.name}</strong> could not be loaded. Fix the issue and Beam will reload
+            it automatically.
+          </p>
+          ${photon.path
+            ? html`<p
+                style="color: var(--t-muted); font-size: var(--text-sm); margin: 0 0 var(--space-sm) 0; font-family: monospace;"
+              >
+                ${photon.path}
+              </p>`
+            : ''}
+          <pre
+            style="
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: var(--space-md);
+            font-size: var(--text-sm);
+            color: hsl(0, 60%, 70%);
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+            max-height: 400px;
+            overflow-y: auto;
+          "
+          >
+${photon.errorMessage || 'Unknown error'}</pre
+          >
+        </div>
       `;
     }
 
