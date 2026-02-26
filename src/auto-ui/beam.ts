@@ -506,6 +506,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         promptCount,
         installSource,
         ...(isStateful && { stateful: true }),
+        ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
         ...(mcp.injectedPhotons &&
           mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
@@ -1010,6 +1011,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               icon: reloadClassMeta.icon,
               internal: reloadClassMeta.internal,
               ...(isStateful && { stateful: true }),
+              ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
               ...(reloadConstructorParams.length > 0 && {
                 requiredParams: reloadConstructorParams,
               }),
