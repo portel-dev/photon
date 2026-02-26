@@ -86,7 +86,25 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const extractor = new SchemaExtractor();
   const metadata = extractor.extractAllFromSource(source);
 
-  return metadata.tools.map((tool) => {
+  const toolsToConvert = [...metadata.tools];
+
+  // Add auto-generated settings tool if the photon has `protected settings`
+  if (metadata.settingsSchema?.hasSettings) {
+    const properties: Record<string, any> = {};
+    for (const prop of metadata.settingsSchema.properties) {
+      properties[prop.name] = {
+        type: prop.type,
+        description: prop.description,
+      };
+    }
+    toolsToConvert.push({
+      name: 'settings',
+      description: 'View or update settings',
+      inputSchema: { type: 'object', properties, required: [] },
+    } as any);
+  }
+
+  return toolsToConvert.map((tool) => {
     const params: MethodInfo['params'] = [];
     const schema = tool.inputSchema;
 

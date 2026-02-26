@@ -442,6 +442,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         }
       });
 
+      // Add auto-generated settings tool if the photon has `protected settings`
+      if (mcp.settingsSchema?.hasSettings) {
+        const settingsTool = mcp.tools.find((t: any) => t.name === 'settings');
+        if (settingsTool) {
+          methods.push({
+            name: 'settings',
+            description: settingsTool.description || 'Board settings',
+            params: settingsTool.inputSchema || { type: 'object', properties: {} },
+            returns: { type: 'object' },
+          });
+        }
+      }
+
       // Apply @visibility annotations from source to methods
       applyMethodVisibility(schemaSource, methods);
 
@@ -968,6 +981,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 });
               }
             });
+
+            // Add auto-generated settings tool if the photon has `protected settings`
+            if (mcp.settingsSchema?.hasSettings) {
+              const settingsTool = mcp.tools.find((t: any) => t.name === 'settings');
+              if (settingsTool) {
+                methods.push({
+                  name: 'settings',
+                  description: settingsTool.description || 'Board settings',
+                  params: settingsTool.inputSchema || { type: 'object', properties: {} },
+                  returns: { type: 'object' },
+                });
+              }
+            }
 
             // Apply @visibility annotations
             applyMethodVisibility(reloadSource, methods);
