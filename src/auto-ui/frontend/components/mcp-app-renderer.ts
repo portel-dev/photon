@@ -473,6 +473,7 @@ export class McpAppRenderer extends LitElement {
       // Handle JSON-RPC tools/call from platform bridge
       if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
         const { name, arguments: args } = msg.params || {};
+        // Pass args through as-is — _targetInstance is extracted by the transport layer
         const toolName = `${this.mcpName}/${name}`;
 
         try {

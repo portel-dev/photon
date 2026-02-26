@@ -907,12 +907,14 @@ const handlers: Record<string, RequestHandler> = {
           };
         }
 
-        const result = await sendCommand(
-          photonName,
-          methodName,
-          (args || {}) as Record<string, any>,
-          sendOpts
-        );
+        // Extract _targetInstance from args for instance-scoped execution
+        const callArgs = { ...(args || {}) } as Record<string, any>;
+        const targetInstance = callArgs._targetInstance as string | undefined;
+        delete callArgs._targetInstance;
+
+        const callOpts = targetInstance !== undefined ? { ...sendOpts, targetInstance } : sendOpts;
+
+        const result = await sendCommand(photonName, methodName, callArgs, callOpts);
 
         const resultText = formatResultText(result);
 

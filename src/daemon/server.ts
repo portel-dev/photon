@@ -1206,6 +1206,53 @@ async function handleRequest(
       }
       // ─────────────────────────────────────────────────────────────
 
+      // ── Instance-scoped execution (one-shot, no session mutation) ──
+      // If targetInstance is set, load that instance, execute on it,
+      // persist its state, and return — without changing the session.
+      if (request.targetInstance !== undefined) {
+        const targetName = request.targetInstance;
+        logger.info('Instance-scoped execution', {
+          method: request.method,
+          photon: photonName,
+          targetInstance: targetName || 'default',
+          sessionId: session.id,
+        });
+
+        const targetInst = await sessionManager.getOrLoadInstance(targetName);
+
+        setPromptHandler(createSocketPromptHandler(socket, request.id));
+
+        const outputHandler = (emit: any) => {
+          if (emit && typeof emit === 'object' && emit.channel) {
+            publishToChannel(emit.channel, emit, socket);
+          }
+        };
+
+        const result = await sessionManager.loader.executeTool(
+          targetInst,
+          request.method,
+          request.args || {},
+          { outputHandler }
+        );
+
+        setPromptHandler(null);
+
+        await persistInstanceState(targetInst, photonName, targetName, request.workingDir);
+
+        publishToChannel(
+          `${photonName}:state-changed`,
+          {
+            event: 'state-changed',
+            method: request.method,
+            instance: targetName,
+            data: result,
+          },
+          socket
+        );
+
+        return { type: 'result', id: request.id, success: true, data: result };
+      }
+
       logger.info('Executing request', {
         method: request.method,
         photon: photonName,

@@ -60,6 +60,7 @@ export async function sendCommand(
     photonPath?: string;
     sessionId?: string;
     instanceName?: string;
+    targetInstance?: string;
     workingDir?: string;
   }
 ): Promise<any> {
@@ -74,7 +75,8 @@ export async function sendCommand(
         options?.photonPath,
         options?.sessionId,
         options?.instanceName,
-        options?.workingDir
+        options?.workingDir,
+        options?.targetInstance
       );
     } catch (error) {
       if (isDaemonConnectionError(error) && attempt < maxRetries) {
@@ -97,7 +99,8 @@ async function sendCommandDirect(
   photonPath?: string,
   sessionId?: string,
   instanceName?: string,
-  workingDir?: string
+  workingDir?: string,
+  targetInstance?: string
 ): Promise<any> {
   const socketPath = getGlobalSocketPath();
   const requestId = `req_${Date.now()}_${Math.random()}`;
@@ -126,6 +129,7 @@ async function sendCommandDirect(
         method,
         args,
         instanceName,
+        targetInstance,
         workingDir,
       };
 
