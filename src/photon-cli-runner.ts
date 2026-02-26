@@ -584,23 +584,35 @@ function renderMarkdownNicely(content: string): void {
 
   rendered = rendered.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_m, text, url) => chalk.blueBright(text) + chalk.dim(` (${url})`)
+    (_m, text, url) => '[' + chalk.blueBright(text) + ']' + chalk.dim('(' + url + ')')
   );
 
   rendered = rendered.replace(/^(#{1,6})\s+(.+)$/gm, (_m, hashes, text) => {
     const level = hashes.length;
     const colorFn = level === 1 ? chalk.magenta.bold : level === 2 ? chalk.yellow.bold : chalk.cyan;
-    return colorFn(text.trim());
+    return chalk.dim(hashes + ' ') + colorFn(text.trim());
   });
 
-  rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => chalk.dim('│ ') + chalk.italic(quote));
-  rendered = rendered.replace(/^---+$/gm, chalk.dim('─'.repeat(40)));
-  rendered = rendered.replace(/^- /gm, chalk.dim('  • '));
-  rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => chalk.dim(`  ${num}. `));
-  rendered = rendered.replace(/\*\*(.+?)\*\*/g, (_m, text) => chalk.bold(text));
-  rendered = rendered.replace(/\*(.+?)\*/g, (_m, text) => chalk.italic(text));
-  rendered = rendered.replace(/_(.+?)_/g, (_m, text) => chalk.italic(text));
-  rendered = rendered.replace(/`([^`]+)`/g, (_m, code) => chalk.cyan(code));
+  rendered = rendered.replace(/^> (.+)$/gm, (_m, quote) => chalk.dim('> ') + chalk.italic(quote));
+  rendered = rendered.replace(/^---+$/gm, chalk.dim('---'));
+  rendered = rendered.replace(/^- /gm, chalk.dim('- '));
+  rendered = rendered.replace(/^(\d+)\. /gm, (_m, num) => chalk.dim(`${num}. `));
+  rendered = rendered.replace(
+    /\*\*(.+?)\*\*/g,
+    (_m, text) => chalk.dim('**') + chalk.bold(text) + chalk.dim('**')
+  );
+  rendered = rendered.replace(
+    /\*(.+?)\*/g,
+    (_m, text) => chalk.dim('*') + chalk.italic(text) + chalk.dim('*')
+  );
+  rendered = rendered.replace(
+    /_(.+?)_/g,
+    (_m, text) => chalk.dim('_') + chalk.italic(text) + chalk.dim('_')
+  );
+  rendered = rendered.replace(
+    /`([^`]+)`/g,
+    (_m, code) => chalk.dim('`') + chalk.cyan(code) + chalk.dim('`')
+  );
 
   rendered = rendered
     .split('\n')
