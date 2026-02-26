@@ -164,13 +164,17 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
   const schema: Record<string, any> = {};
 
   for (const photon of photons) {
-    const params = (photon as any).requiredParams;
-    if (!params || params.length === 0) continue;
+    const params = (photon as any).requiredParams as any[] | undefined;
+    const unconfigured = photon as UnconfiguredPhotonInfo;
+    const isLoadError = !photon.configured && unconfigured.errorReason === 'load-error';
+
+    // Skip configured photons with no constructor params unless they're a load-error
+    if (photon.configured || (!isLoadError && (!params || params.length === 0))) continue;
 
     const properties: Record<string, any> = {};
     const required: string[] = [];
 
-    for (const param of params) {
+    for (const param of params ?? []) {
       properties[param.name] = configParamToJsonSchema(param);
 
       // Mark as required if not optional and no default
@@ -183,9 +187,8 @@ function generateConfigurationSchema(photons: AnyPhotonInfo[]): Record<string, a
       type: 'object',
       properties,
       required: required.length > 0 ? required : undefined,
-      'x-error-message': !photon.configured
-        ? (photon as UnconfiguredPhotonInfo).errorMessage
-        : undefined,
+      'x-error-reason': unconfigured.errorReason,
+      'x-error-message': unconfigured.errorMessage,
       'x-internal': (photon as any).internal,
       'x-configured': photon.configured || undefined,
     };

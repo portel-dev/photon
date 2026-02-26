@@ -524,7 +524,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         requiredParams: constructorParams,
         errorReason:
           constructorParams.length > 0 ? ('missing-config' as const) : ('load-error' as const),
-        errorMessage: errorMsg.slice(0, 200),
+        errorMessage: errorMsg.slice(0, 2000),
       };
     }
   }
