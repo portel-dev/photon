@@ -108,7 +108,7 @@ async function resolvePhotonPathWithBundled(
  *
  * Run Photon as HTTP server with SSE transport (auto port detection)
  */
-export function registerSSECommand(program: Command, defaultDir: string): void {
+export function registerSSECommand(program: Command): void {
   program
     .command('sse', { hidden: true })
     .argument('<name>', 'Photon name (without .photon.ts extension)')
@@ -118,7 +118,7 @@ export function registerSSECommand(program: Command, defaultDir: string): void {
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || getDefaultContext().baseDir;
+        const workingDir = getDefaultContext().baseDir;
         const logOptions = getLogOptionsFromCommand(command);
 
         // Resolve file path from name
@@ -190,7 +190,7 @@ export function registerSSECommand(program: Command, defaultDir: string): void {
  *
  * Launch Photon Beam - interactive control panel for all your photons
  */
-export function registerBeamCommand(program: Command, defaultDir: string): void {
+export function registerBeamCommand(program: Command): void {
   program
     .command('beam', { hidden: true })
     .argument('[photon]', 'Photon to open in full-width focus view')
@@ -200,7 +200,7 @@ export function registerBeamCommand(program: Command, defaultDir: string): void 
     .description('Launch Photon Beam - interactive control panel for all your photons')
     .action(async (photon: string | undefined, options: any, command: Command) => {
       try {
-        const workingDir = path.resolve(command.parent?.opts().dir || getDefaultContext().baseDir);
+        const workingDir = getDefaultContext().baseDir;
 
         const { existsSync } = await import('fs');
 

@@ -13,7 +13,7 @@ import { getDefaultContext } from '../../context.js';
 /**
  * Register the `host` command group (host preview, host deploy)
  */
-export function registerHostCommand(program: Command, defaultDir: string): void {
+export function registerHostCommand(program: Command): void {
   const host = program
     .command('host', { hidden: true })
     .description('Manage cloud hosting and deployment');
@@ -27,7 +27,7 @@ export function registerHostCommand(program: Command, defaultDir: string): void 
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.optsWithGlobals().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);
@@ -69,7 +69,7 @@ export function registerHostCommand(program: Command, defaultDir: string): void 
     .action(async (target: string, name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.optsWithGlobals().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Resolve file path from name
         const photonPath = await resolvePhotonPath(name, workingDir);

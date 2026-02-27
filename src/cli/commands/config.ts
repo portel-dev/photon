@@ -9,11 +9,12 @@
 
 import type { Command } from 'commander';
 import { getErrorMessage } from '../../shared/error-handler.js';
+import { getDefaultContext } from '../../context.js';
 
 /**
  * Register config-related commands: use, instances, set
  */
-export function registerConfigCommands(program: Command, defaultDir: string): void {
+export function registerConfigCommands(program: Command): void {
   // Use command: switch to a named instance of a stateful photon
   program
     .command('use')
@@ -53,8 +54,7 @@ export function registerConfigCommands(program: Command, defaultDir: string): vo
     .action(async (photonName: string, _options: unknown, command: Command) => {
       try {
         const { printInfo, printError, printHeader } = await import('../../cli-formatter.js');
-        const parentOpts = command.parent?.opts() || {};
-        const workingDir = parentOpts.dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
         const { InstanceStore } = await import('../../context-store.js');
         const store = new InstanceStore(workingDir);
 
@@ -91,8 +91,7 @@ export function registerConfigCommands(program: Command, defaultDir: string): vo
       try {
         const { printInfo, printSuccess, printError, printHeader } =
           await import('../../cli-formatter.js');
-        const parentOpts = command.parent?.opts() || {};
-        const workingDir = parentOpts.dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Resolve photon path (including bundled photons)
         const { getBundledPhotonPath } = await import('../../shared-utils.js');

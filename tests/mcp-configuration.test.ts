@@ -77,11 +77,10 @@ async function mcpRequest(
   };
 }
 
-// Start Beam server with a custom --dir pointing to our test photon directory
+// Start Beam server with PHOTON_DIR pointing to our test photon directory
 async function startBeamServer(port: number, dir: string): Promise<ChildProcess> {
   const cliPath = path.join(__dirname, '..', 'dist', 'cli.js');
 
-  // --dir must come after 'beam' to avoid preprocessArgs() treating the path as a photon name
   const emptyConfigPath = path.join(dir, 'config.json');
 
   // Build env for subprocess: start with parent env but explicitly unset test photon config vars
@@ -91,7 +90,9 @@ async function startBeamServer(port: number, dir: string): Promise<ChildProcess>
   subprocessEnv.NODE_ENV = 'test';
   subprocessEnv.PHOTON_CONFIG_FILE = emptyConfigPath;
 
-  const proc = spawn('node', [cliPath, 'beam', '--port', String(port), '--dir', dir], {
+  subprocessEnv.PHOTON_DIR = dir;
+
+  const proc = spawn('node', [cliPath, 'beam', '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: subprocessEnv,
   });

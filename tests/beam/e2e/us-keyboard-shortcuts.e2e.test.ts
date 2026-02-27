@@ -101,10 +101,10 @@ test.beforeAll(async () => {
   );
 
   // Start Beam server pointing to test directory
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test' },
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: testPhotonDir },
   });
 
   // Wait for server to be ready
@@ -116,7 +116,11 @@ test.beforeAll(async () => {
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve();
       }
@@ -172,9 +176,12 @@ async function setupPage(page: Page): Promise<void> {
  * Helper: Get the selected photon name from the sidebar
  */
 async function getSelectedPhotonName(page: Page): Promise<string | null> {
-  return page.$eval('[role="option"][aria-selected="true"]', (el) =>
-    el.querySelector('.photon-name')?.textContent?.trim() || null
-  ).catch(() => null);
+  return page
+    .$eval(
+      '[role="option"][aria-selected="true"]',
+      (el) => el.querySelector('.photon-name')?.textContent?.trim() || null
+    )
+    .catch(() => null);
 }
 
 // =============================================================================
@@ -203,7 +210,10 @@ test.describe('US-080: Cmd+K / Ctrl+K focuses search', () => {
       const app = document.querySelector('beam-app');
       const sidebar = app?.shadowRoot?.querySelector('beam-sidebar');
       const input = sidebar?.shadowRoot?.querySelector('input[type="search"]');
-      return input === sidebar?.shadowRoot?.activeElement || document.activeElement?.shadowRoot?.activeElement?.shadowRoot?.activeElement === input;
+      return (
+        input === sidebar?.shadowRoot?.activeElement ||
+        document.activeElement?.shadowRoot?.activeElement?.shadowRoot?.activeElement === input
+      );
     });
     // Alternative: check if the search input has focus by trying to type
     // Type something and verify the search input value changed

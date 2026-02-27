@@ -73,7 +73,7 @@ async function extractConstructorParams(
  * Runs environment diagnostics: Node version, npm, working directory, cache,
  * port availability, marketplace configuration, and optional per-photon checks.
  */
-export function registerDoctorCommand(program: Command, defaultDir: string): void {
+export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
     .argument('[name]', 'Photon name to diagnose (checks environment if omitted)')
@@ -83,7 +83,7 @@ export function registerDoctorCommand(program: Command, defaultDir: string): voi
       try {
         const { formatOutput, printHeader, printInfo, printSuccess, printWarning, STATUS } =
           await import('../../cli-formatter.js');
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
         const diagnostics: Record<string, any> = {};
         const suggestions: string[] = [];
         let issuesFound = 0;

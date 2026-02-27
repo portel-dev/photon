@@ -63,14 +63,9 @@ export default class BrowseTest {
 
 async function startBeam(): Promise<void> {
   return new Promise((resolve, reject) => {
-    beamProcess = spawn('node', [
-      'dist/cli.js',
-      `--dir=${tmpDir}`,
-      'beam',
-      '--port', String(BEAM_PORT),
-    ], {
+    beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' },
+      env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: tmpDir },
     });
 
     let started = false;
@@ -84,9 +79,14 @@ async function startBeam(): Promise<void> {
           for (let i = 0; i < 10; i++) {
             try {
               const res = await fetch(`${BEAM_URL}/api/photons`);
-              if (res.ok) { resolve(); return; }
-            } catch { /* retry */ }
-            await new Promise(r => setTimeout(r, 500));
+              if (res.ok) {
+                resolve();
+                return;
+              }
+            } catch {
+              /* retry */
+            }
+            await new Promise((r) => setTimeout(r, 500));
           }
           resolve();
         }, 1000);
@@ -100,14 +100,16 @@ async function startBeam(): Promise<void> {
     });
 
     beamProcess.on('error', reject);
-    setTimeout(() => { if (!started) reject(new Error('Beam start timeout')); }, 20000);
+    setTimeout(() => {
+      if (!started) reject(new Error('Beam start timeout'));
+    }, 20000);
   });
 }
 
 async function cleanup() {
   if (beamProcess) {
     beamProcess.kill('SIGTERM');
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
     beamProcess = null;
   }
   if (tmpDir) {
@@ -132,8 +134,10 @@ async function runTests() {
       const data = await res.json();
       assert(res.ok, `Expected 200, got ${res.status}`);
       assert(data.path !== undefined, 'Response should have path');
-      assert(data.root === null || data.root === undefined || data.root === null,
-        'Root should be null when no photon specified');
+      assert(
+        data.root === null || data.root === undefined || data.root === null,
+        'Root should be null when no photon specified'
+      );
     },
   });
 
@@ -143,12 +147,18 @@ async function runTests() {
       const res = await fetch(`${BEAM_URL}/api/browse?photon=browse-test`);
       const data = await res.json();
       assert(res.ok, `Expected 200, got ${res.status}`);
-      assert(data.root !== null && data.root !== undefined,
-        `Root should be set from photon instance workdir, got: ${JSON.stringify(data.root)}`);
-      assert(data.items.some((i: any) => i.name === 'test-file.txt'),
-        'Should list files in photon workdir');
-      assert(data.items.some((i: any) => i.name === 'subdir'),
-        'Should list subdirectories in photon workdir');
+      assert(
+        data.root !== null && data.root !== undefined,
+        `Root should be set from photon instance workdir, got: ${JSON.stringify(data.root)}`
+      );
+      assert(
+        data.items.some((i: any) => i.name === 'test-file.txt'),
+        'Should list files in photon workdir'
+      );
+      assert(
+        data.items.some((i: any) => i.name === 'subdir'),
+        'Should list subdirectories in photon workdir'
+      );
     },
   });
 
@@ -156,7 +166,9 @@ async function runTests() {
     name: 'browse constrains navigation to workdir root',
     fn: async () => {
       // Try to navigate above the workdir
-      const res = await fetch(`${BEAM_URL}/api/browse?photon=browse-test&path=${encodeURIComponent(tmpDir)}`);
+      const res = await fetch(
+        `${BEAM_URL}/api/browse?photon=browse-test&path=${encodeURIComponent(tmpDir)}`
+      );
       assert(res.status === 403, `Expected 403 for path outside workdir, got ${res.status}`);
     },
   });

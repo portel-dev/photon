@@ -16,7 +16,7 @@ import type { Command } from 'commander';
  * These are hidden commands that manage CLI shortcut aliases for photons,
  * delegating all logic to the cli-alias module.
  */
-export function registerAliasCommands(program: Command, _defaultDir: string): void {
+export function registerAliasCommands(program: Command): void {
   program
     .command('alias', { hidden: true })
     .argument('<photon>', 'Photon to create alias for')

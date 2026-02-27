@@ -11,7 +11,7 @@ import { PHOTON_VERSION } from '../../version.js';
 /**
  * Register the `search` command
  */
-export function registerSearchCommand(program: Command, defaultDir: string): void {
+export function registerSearchCommand(program: Command): void {
   program
     .command('search', { hidden: true })
     .argument('<query>', 'MCP name or keyword to search for')

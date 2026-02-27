@@ -74,19 +74,20 @@ let serverReady = false;
  */
 async function startBeam(port: number, workingDir?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // --dir is a global option, so it must come before the subcommand
-    // Use = syntax to avoid Commander.js parsing issues
-    const args = workingDir
-      ? ['dist/cli.js', `--dir=${workingDir}`, 'beam', '--port', String(port)]
-      : ['dist/cli.js', 'beam', '--port', String(port)];
+    const args = ['dist/cli.js', 'beam', '--port', String(port)];
 
     if (process.env.DEBUG) {
       console.error('[BEAM] Starting with args:', args.join(' '));
     }
 
+    const env: Record<string, string | undefined> = { ...process.env, NODE_ENV: 'test' };
+    if (workingDir) {
+      env.PHOTON_DIR = workingDir;
+    }
+
     beamProcess = spawn('node', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' }
+      env,
     });
 
     let started = false;
@@ -111,7 +112,7 @@ async function startBeam(port: number, workingDir?: string): Promise<void> {
             } catch {
               // Server not ready yet, wait and retry
             }
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise((r) => setTimeout(r, 200));
           }
           resolve(); // Proceed anyway after retries
         }, 800);
@@ -163,7 +164,7 @@ async function stopBeam(): Promise<void> {
     });
     beamProcess = null;
     // Brief pause to ensure port is released
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 300));
   }
 }
 
@@ -226,21 +227,23 @@ function createBeamContext(page: Page, port: number): BeamContext {
       await resultContent.waitFor({ state: 'visible', timeout: 10000 });
 
       // Wait for result to be populated (not empty)
-      await page.waitForFunction(
-        (selector: string) => {
-          const el = document.querySelector(selector);
-          return el && el.innerHTML.trim().length > 0;
-        },
-        pvVisible ? '#pv-result-content' : '#result-content',
-        { timeout: 10000 }
-      ).catch(() => {
-        // Continue anyway - content might be there
-      });
+      await page
+        .waitForFunction(
+          (selector: string) => {
+            const el = document.querySelector(selector);
+            return el && el.innerHTML.trim().length > 0;
+          },
+          pvVisible ? '#pv-result-content' : '#result-content',
+          { timeout: 10000 }
+        )
+        .catch(() => {
+          // Continue anyway - content might be there
+        });
 
       if (expected.type === 'kv-table') {
         // Smart rendering: flat objects render as cards or kv-tables
         const kvTable = resultContent.locator('.kv-table, .smart-card, table');
-        assert.ok(await kvTable.count() > 0, 'Expected key-value table or card');
+        assert.ok((await kvTable.count()) > 0, 'Expected key-value table or card');
 
         if (expected.contains) {
           const content = await resultContent.innerHTML();
@@ -251,7 +254,7 @@ function createBeamContext(page: Page, port: number): BeamContext {
       } else if (expected.type === 'grid-table') {
         // Smart rendering: arrays of objects render as lists
         const gridTable = resultContent.locator('.grid-table, .smart-list');
-        assert.ok(await gridTable.count() > 0, 'Expected grid table or list');
+        assert.ok((await gridTable.count()) > 0, 'Expected grid table or list');
 
         if (expected.columns) {
           // For smart-list, columns appear in list-item content
@@ -273,10 +276,10 @@ function createBeamContext(page: Page, port: number): BeamContext {
         }
       } else if (expected.type === 'mermaid') {
         const mermaid = resultContent.locator('.mermaid-container');
-        assert.ok(await mermaid.count() > 0, 'Expected mermaid diagram');
+        assert.ok((await mermaid.count()) > 0, 'Expected mermaid diagram');
       } else if (expected.type === 'markdown') {
         // Check for rendered markdown elements
-        const hasMarkdown = await resultContent.locator('p, h1, h2, h3, ul, ol, pre').count() > 0;
+        const hasMarkdown = (await resultContent.locator('p, h1, h2, h3, ul, ol, pre').count()) > 0;
         assert.ok(hasMarkdown, 'Expected markdown content');
       }
 
@@ -290,7 +293,7 @@ function createBeamContext(page: Page, port: number): BeamContext {
 
     async expectElement(selector: string) {
       const element = page.locator(selector);
-      assert.ok(await element.count() > 0, `Expected element: ${selector}`);
+      assert.ok((await element.count()) > 0, `Expected element: ${selector}`);
     },
 
     async expectText(selector: string, text: string) {
@@ -369,9 +372,11 @@ function createBeamContext(page: Page, port: number): BeamContext {
     async searchMarketplace(query: string) {
       const input = page.locator('#marketplace-search');
       await input.fill(query);
-      await page.evaluate('document.getElementById("marketplace-search").dispatchEvent(new Event("input"))');
+      await page.evaluate(
+        'document.getElementById("marketplace-search").dispatchEvent(new Event("input"))'
+      );
       await page.waitForTimeout(800);
-    }
+    },
   };
 }
 
@@ -407,7 +412,7 @@ async function initSharedContext(workingDir?: string): Promise<void> {
       if (process.env.DEBUG) {
         console.error(`[BEAM] Init attempt ${attempt} failed, retrying...`);
       }
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
@@ -452,7 +457,10 @@ export async function withBeam(
     if (sharedPage) {
       const debugDir = path.join(__dirname, 'debug');
       await fs.mkdir(debugDir, { recursive: true });
-      await sharedPage.screenshot({ path: path.join(debugDir, `failure-${Date.now()}.png`), fullPage: true });
+      await sharedPage.screenshot({
+        path: path.join(debugDir, `failure-${Date.now()}.png`),
+        fullPage: true,
+      });
     }
     throw error;
   }

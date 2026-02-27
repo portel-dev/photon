@@ -1,7 +1,7 @@
 /**
  * New User Experience (NUE) E2E Tests
  *
- * Simulates a brand-new user launching Beam with an empty --dir.
+ * Simulates a brand-new user launching Beam with an empty PHOTON_DIR.
  * Verifies bundled photons load, marketplace is discoverable,
  * and the experience is smooth.
  *
@@ -35,15 +35,11 @@ test.beforeAll(async () => {
   emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'beam-nue-'));
 
   // Start Beam with empty dir — only bundled photons should appear
-  beamProcess = spawn(
-    'node',
-    ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', emptyDir],
-    {
-      cwd: path.join(__dirname, '../../..'),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' },
-    },
-  );
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
+    cwd: path.join(__dirname, '../../..'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: emptyDir },
+  });
 
   // Wait for server to be ready
   await new Promise<void>((resolve, reject) => {
@@ -190,9 +186,7 @@ test.describe('New User Experience (NUE)', () => {
         // Look for any element referencing beam tools
         const allText = beamApp.shadowRoot.innerHTML;
         return (
-          allText.includes('beam/') ||
-          allText.includes('configure') ||
-          allText.includes('reload')
+          allText.includes('beam/') || allText.includes('configure') || allText.includes('reload')
         );
       });
       // Beam tools should be present in some form
@@ -236,7 +230,7 @@ test.describe('New User Experience (NUE)', () => {
 
     // Look for help/shortcuts modal
     const helpModal = page.locator(
-      '[class*="modal"], [class*="dialog"], [role="dialog"], [class*="shortcuts"], [class*="help"]',
+      '[class*="modal"], [class*="dialog"], [role="dialog"], [class*="shortcuts"], [class*="help"]'
     );
 
     const modalVisible = (await helpModal.count()) > 0;
@@ -260,7 +254,7 @@ test.describe('New User Experience (NUE)', () => {
 
     // Look for search input in the sidebar or toolbar
     const searchInput = page.locator(
-      'input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i], .search-input',
+      'input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i], .search-input'
     );
 
     if ((await searchInput.count()) > 0) {
@@ -288,7 +282,7 @@ test.describe('New User Experience (NUE)', () => {
 
       // Check if search appeared
       const searchAfterShortcut = page.locator(
-        'input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i]',
+        'input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i]'
       );
       // At minimum, the page shouldn't crash
       const indicator = page.locator('.status-indicator.connected');
@@ -322,7 +316,7 @@ test.describe('New User Experience (NUE)', () => {
     ];
 
     const unexpectedErrors = consoleErrors.filter(
-      (err) => !knownNoise.some((noise) => err.toLowerCase().includes(noise.toLowerCase())),
+      (err) => !knownNoise.some((noise) => err.toLowerCase().includes(noise.toLowerCase()))
     );
 
     // No unexpected console errors
@@ -335,7 +329,7 @@ test.describe('New User Experience (NUE)', () => {
 
     // Look for marketplace UI elements — install button, marketplace panel, or gallery
     const marketplaceElements = page.locator(
-      '[class*="marketplace" i], [data-section="marketplace"], button:has-text("Install"), button:has-text("Marketplace"), [aria-label*="marketplace" i]',
+      '[class*="marketplace" i], [data-section="marketplace"], button:has-text("Install"), button:has-text("Marketplace"), [aria-label*="marketplace" i]'
     );
 
     if ((await marketplaceElements.count()) > 0) {
@@ -344,9 +338,7 @@ test.describe('New User Experience (NUE)', () => {
       await expect(clickable).toBeVisible();
     } else {
       // Check sidebar for a marketplace section header
-      const sidebarHeaders = page.locator(
-        '[class*="header"], h2, h3, [role="heading"]',
-      );
+      const sidebarHeaders = page.locator('[class*="header"], h2, h3, [role="heading"]');
       const count = await sidebarHeaders.count();
       let hasMarketplace = false;
       for (let i = 0; i < count; i++) {
@@ -396,7 +388,7 @@ test.describe('New User Experience (NUE)', () => {
 
     // If there are non-bundled photons, at least one should not be installed
     const nonBundled = photons.filter(
-      (p: any) => p.name !== 'maker' && p.name !== 'tunnel' && !p.internal,
+      (p: any) => p.name !== 'maker' && p.name !== 'tunnel' && !p.internal
     );
     if (nonBundled.length > 0) {
       const hasUninstalled = nonBundled.some((p: any) => p.installed === false);

@@ -11,7 +11,6 @@ import { getDefaultContext } from '../context.js';
  * Global CLI options that can be set on any command
  */
 export interface GlobalOptions {
-  dir: string;
   logLevel?: string;
   jsonLogs?: boolean;
 }
@@ -32,17 +31,16 @@ export function getGlobalOptions(command: Command): GlobalOptions {
   const opts = current?.opts() || {};
 
   return {
-    dir: opts.dir || getDefaultContext().baseDir,
     logLevel: opts.logLevel,
     jsonLogs: opts.jsonLogs,
   };
 }
 
 /**
- * Get the working directory from command options
+ * Get the working directory (respects PHOTON_DIR env var)
  */
-export function getWorkingDir(command: Command): string {
-  return getGlobalOptions(command).dir;
+export function getWorkingDir(_command?: Command): string {
+  return getDefaultContext().baseDir;
 }
 
 /**

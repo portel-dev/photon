@@ -58,7 +58,7 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
 /**
  * Register the `serve` command (multi-tenant MCP hosting)
  */
-export function registerServeCommand(program: Command, defaultDir: string): void {
+export function registerServeCommand(program: Command): void {
   program
     .command('serve', { hidden: true })
     .option('-p, --port <number>', 'Port to run on', '4000')

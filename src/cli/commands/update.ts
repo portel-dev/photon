@@ -12,7 +12,7 @@ import { PHOTON_VERSION } from '../../version.js';
 /**
  * Register the hidden `update` command
  */
-export function registerUpdateCommand(program: Command, defaultDir: string): void {
+export function registerUpdateCommand(program: Command): void {
   program
     .command('update', { hidden: true })
     .description('Update marketplace indexes and check for CLI updates')

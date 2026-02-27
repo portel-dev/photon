@@ -257,9 +257,10 @@ async function testCLIInstallAndRun() {
     const { execSync } = await import('child_process');
 
     // List the photon — it should appear in `photon list`
-    const listOutput = execSync(`node dist/cli.js list --dir "${dir}" 2>&1`, {
+    const listOutput = execSync(`node dist/cli.js list 2>&1`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
+      env: { ...process.env, PHOTON_DIR: dir },
     });
     assert.ok(listOutput.includes('connect-four'), 'Installed photon should appear in photon list');
     console.log('✅ Photon appears in `photon list` after GitHub ref install');
@@ -269,10 +270,11 @@ async function testCLIInstallAndRun() {
     const startTime = Date.now();
     try {
       // Request help from the photon to verify it loads correctly
-      execSync(`node dist/cli.js Arul-/photons/connect-four --help --dir "${dir}" 2>&1`, {
+      execSync(`node dist/cli.js Arul-/photons/connect-four --help 2>&1`, {
         encoding: 'utf-8',
         cwd: process.cwd(),
         timeout: 10000,
+        env: { ...process.env, PHOTON_DIR: dir },
       });
     } catch (e: any) {
       // --help may exit non-zero but we just want to confirm it ran, not errored on install

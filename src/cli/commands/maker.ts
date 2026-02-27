@@ -408,7 +408,7 @@ export default class TemplateName {
 /**
  * Register the `maker` command group and all its subcommands
  */
-export function registerMakerCommands(program: Command, defaultDir: string): void {
+export function registerMakerCommands(program: Command): void {
   const maker = program
     .command('maker', { hidden: true })
     .description('Commands for creating photons and marketplaces');
@@ -421,7 +421,7 @@ export function registerMakerCommands(program: Command, defaultDir: string): voi
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.optsWithGlobals().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Ensure working directory exists
         await ensureWorkingDir(workingDir);
@@ -489,7 +489,7 @@ export function registerMakerCommands(program: Command, defaultDir: string): voi
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.optsWithGlobals().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Resolve file path from name in working directory
         const filePath = await resolvePhotonPath(name, workingDir);
