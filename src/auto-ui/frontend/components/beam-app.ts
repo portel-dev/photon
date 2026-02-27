@@ -4499,7 +4499,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         break;
       }
       case 'clone': {
-        const newName = prompt(`Clone "${detail.instance}" as:`);
+        const newName = detail.cloneName;
         if (!newName) return;
         try {
           const res = await fetch(`/api/instances/${photonName}/${detail.instance}/clone`, {
@@ -4551,7 +4551,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
           showToast('Cannot delete default instance', 'error');
           return;
         }
-        if (!confirm(`Delete instance "${instanceToDelete}"? This cannot be undone.`)) return;
         try {
           const res = await fetch(`/api/instances/${photonName}/${instanceToDelete}`, {
             method: 'DELETE',

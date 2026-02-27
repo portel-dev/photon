@@ -77,6 +77,15 @@ export class InstancePanel extends LitElement {
   @state()
   private _renameName = '';
 
+  @state()
+  private _cloning = false;
+
+  @state()
+  private _cloneName = '';
+
+  @state()
+  private _confirmingDelete = false;
+
   private _portal: HTMLDivElement | null = null;
   private _boundClose = this._handleOutsideClick.bind(this);
 
@@ -146,6 +155,8 @@ export class InstancePanel extends LitElement {
     this._searchQuery = '';
     this._creating = false;
     this._renaming = false;
+    this._cloning = false;
+    this._confirmingDelete = false;
 
     this._removePortal();
     this._renderPortal(rect);
@@ -375,6 +386,117 @@ export class InstancePanel extends LitElement {
         return;
       }
 
+      // Cloning inline
+      if (this._cloning) {
+        const divCl = document.createElement('div');
+        divCl.style.cssText = `height: 1px; background: ${borderGlass}; margin: 4px 0;`;
+        portal.appendChild(divCl);
+
+        const cloneWrap = document.createElement('div');
+        cloneWrap.style.cssText = 'padding: 4px;';
+        const cloneLabel = document.createElement('div');
+        cloneLabel.textContent = `Clone "${this.instanceName}" as:`;
+        cloneLabel.style.cssText = `font-size: 0.75rem; color: ${tMuted}; margin-bottom: 4px; padding: 0 4px;`;
+        cloneWrap.appendChild(cloneLabel);
+
+        const cloneInput = document.createElement('input');
+        cloneInput.type = 'text';
+        cloneInput.placeholder = 'Clone name...';
+        cloneInput.value = this._cloneName;
+        cloneInput.style.cssText = `
+          width: 100%;
+          box-sizing: border-box;
+          padding: 6px 10px;
+          background: ${bgGlass};
+          border: 1px solid ${accentPrimary};
+          border-radius: ${radiusSm};
+          color: ${tPrimary};
+          font-size: 0.82rem;
+          font-family: inherit;
+          outline: none;
+        `;
+        cloneInput.addEventListener('input', () => {
+          this._cloneName = cloneInput.value;
+        });
+        cloneInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && this._cloneName.trim()) {
+            this._emitClone(this._cloneName.trim());
+            this._close();
+          } else if (e.key === 'Escape') {
+            this._cloning = false;
+            rebuild();
+          }
+        });
+        cloneWrap.appendChild(cloneInput);
+        portal.appendChild(cloneWrap);
+
+        requestAnimationFrame(() => cloneInput.focus());
+        return;
+      }
+
+      // Confirming delete inline
+      if (this._confirmingDelete) {
+        const divD = document.createElement('div');
+        divD.style.cssText = `height: 1px; background: ${borderGlass}; margin: 4px 0;`;
+        portal.appendChild(divD);
+
+        const deleteWrap = document.createElement('div');
+        deleteWrap.style.cssText = 'padding: 4px;';
+        const deleteLabel = document.createElement('div');
+        deleteLabel.textContent = `Delete "${this.instanceName}"? This cannot be undone.`;
+        deleteLabel.style.cssText = `font-size: 0.78rem; color: ${colorError}; margin-bottom: 6px; padding: 0 4px;`;
+        deleteWrap.appendChild(deleteLabel);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; gap: 6px; padding: 0 4px;';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.cssText = `
+          flex: 1; padding: 5px 0; border: 1px solid ${borderGlass}; background: none;
+          color: ${tMuted}; font-size: 0.78rem; font-family: inherit; cursor: pointer;
+          border-radius: ${radiusSm}; transition: all 0.12s;
+        `;
+        cancelBtn.onmouseenter = () => {
+          cancelBtn.style.background = bgGlass;
+          cancelBtn.style.color = tPrimary;
+        };
+        cancelBtn.onmouseleave = () => {
+          cancelBtn.style.background = 'none';
+          cancelBtn.style.color = tMuted;
+        };
+        cancelBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          this._confirmingDelete = false;
+          rebuild();
+        };
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Delete';
+        confirmBtn.style.cssText = `
+          flex: 1; padding: 5px 0; border: 1px solid ${colorError}; background: hsla(0, 80%, 60%, 0.15);
+          color: ${colorError}; font-size: 0.78rem; font-family: inherit; cursor: pointer;
+          border-radius: ${radiusSm}; font-weight: 600; transition: all 0.12s;
+        `;
+        confirmBtn.onmouseenter = () => {
+          confirmBtn.style.background = 'hsla(0, 80%, 60%, 0.25)';
+        };
+        confirmBtn.onmouseleave = () => {
+          confirmBtn.style.background = 'hsla(0, 80%, 60%, 0.15)';
+        };
+        confirmBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          this._emitDelete();
+          this._close();
+        };
+
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(confirmBtn);
+        deleteWrap.appendChild(btnRow);
+        portal.appendChild(deleteWrap);
+        return;
+      }
+
       // Action buttons row
       const divider2 = document.createElement('div');
       divider2.style.cssText = `height: 1px; background: ${borderGlass}; margin: 4px 0;`;
@@ -425,8 +547,9 @@ export class InstancePanel extends LitElement {
       );
       actions.appendChild(
         makeBtn('Clone', '⧉', () => {
-          this._emitClone();
-          this._close();
+          this._cloning = true;
+          this._cloneName = '';
+          rebuild();
         })
       );
       actions.appendChild(
@@ -441,8 +564,11 @@ export class InstancePanel extends LitElement {
           'Delete',
           '🗑',
           () => {
-            this._emitDelete();
-            this._close();
+            if (this.instanceName === 'default') {
+              return; // Can't delete default — beam-app will also guard this
+            }
+            this._confirmingDelete = true;
+            rebuild();
           },
           true
         )
@@ -510,8 +636,8 @@ export class InstancePanel extends LitElement {
     this._emit('create', { instance: name });
   }
 
-  private _emitClone() {
-    this._emit('clone', { instance: this.instanceName });
+  private _emitClone(cloneName: string) {
+    this._emit('clone', { instance: this.instanceName, cloneName });
   }
 
   private _emitRename(newName: string) {
