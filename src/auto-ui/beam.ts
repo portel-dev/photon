@@ -794,6 +794,73 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const pendingReloads = new Map<string, NodeJS.Timeout>();
   const activeLoads = new Set<string>(); // Photons currently being loaded (prevents concurrent duplicate loads)
   const pendingAfterLoad = new Set<string>(); // File changes that arrived while a load was active; re-triggered after
+  const symlinkWatchedDirs = new Set<string>(); // Track which source dirs already have watchers (prevents duplicates on re-setup)
+
+  // Set up file watchers for a symlinked photon's real source directory and asset folder.
+  // Called both at startup and after a previously-errored symlinked photon recovers.
+  const setupSymlinkWatcher = (photonName: string, photonPath: string): void => {
+    try {
+      const stat = lstatSync(photonPath);
+      if (!stat.isSymbolicLink()) return;
+
+      const realPath = realpathSync(photonPath);
+      const realDir = path.dirname(realPath);
+
+      // Skip if we already have a watcher on this source directory for this photon
+      const watchKey = `${photonName}:${realDir}`;
+      if (symlinkWatchedDirs.has(watchKey)) return;
+
+      const realFileName = path.basename(realPath);
+
+      try {
+        const srcDirWatcher = watch(realDir, (eventType, filename) => {
+          if (filename === realFileName) {
+            handleFileChange(photonName);
+          }
+        });
+        srcDirWatcher.on('error', () => {});
+        watchers.push(srcDirWatcher);
+        symlinkWatchedDirs.add(watchKey);
+      } catch {
+        // Source file watching not available
+      }
+
+      // Watch asset folder if it exists
+      const assetFolder = path.join(realDir, photonName);
+      if (existsSync(assetFolder)) {
+        try {
+          const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
+            if (filename) {
+              if (
+                filename.endsWith('.json') ||
+                filename.startsWith('boards/') ||
+                filename === 'data.json'
+              ) {
+                return;
+              }
+              logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
+              handleFileChange(photonName);
+            }
+          });
+          assetWatcher.on('error', (err) => {
+            logger.warn(`Watcher error for ${photonName}/: ${err.message}`);
+          });
+          watchers.push(assetWatcher);
+        } catch {
+          // Asset watching not available
+        }
+      }
+
+      logger.info(
+        existsSync(assetFolder)
+          ? `👀 Watching ${photonName}/ (symlinked → ${assetFolder})`
+          : `👀 Watching ${photonName} (symlinked → ${realDir})`
+      );
+    } catch {
+      // Symlink broken or unreadable — will retry on next successful reload
+      logger.debug(`⏭️ Symlink watcher deferred for ${photonName}: target not resolvable`);
+    }
+  };
 
   // Determine which photon a file change belongs to
   const getPhotonForPath = (changedPath: string): string | null => {
@@ -844,20 +911,41 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           const photonPath = isNewPhoton
             ? path.join(workingDir, `${photonName}.photon.ts`)
             : photons[photonIndex].path;
+          const previouslyConfigured = !isNewPhoton && photons[photonIndex]?.configured === true;
 
           // Handle file deletion - if file no longer exists and photon is in list, remove it
           if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
-            logger.info(`🗑️ Photon file deleted: ${photonName}`);
-            photons.splice(photonIndex, 1);
-            photonMCPs.delete(photonName);
-            // Also remove from saved config
-            if (savedConfig.photons[photonName]) {
-              delete savedConfig.photons[photonName];
-              await saveConfig(savedConfig, workingDir);
+            // For symlinks, `ln -sf` causes a transient gap between unlink and create.
+            // Retry once after a short delay before treating it as a real deletion.
+            let isTransientSymlinkReplacement = false;
+            try {
+              const stat = lstatSync(photonPath);
+              if (stat.isSymbolicLink()) {
+                await new Promise((r) => setTimeout(r, 200));
+                if (existsSync(photonPath)) {
+                  isTransientSymlinkReplacement = true;
+                }
+              }
+            } catch {
+              // lstat failed — symlink inode itself is gone, proceed with removal
             }
-            broadcastPhotonChange();
-            broadcastToBeam('beam/photon-removed', { name: photonName });
-            return;
+
+            if (isTransientSymlinkReplacement) {
+              logger.info(`🔗 Symlink replaced: ${photonName}, treating as change`);
+              // Fall through to reload logic below
+            } else {
+              logger.info(`🗑️ Photon file deleted: ${photonName}`);
+              photons.splice(photonIndex, 1);
+              photonMCPs.delete(photonName);
+              // Also remove from saved config
+              if (savedConfig.photons[photonName]) {
+                delete savedConfig.photons[photonName];
+                await saveConfig(savedConfig, workingDir);
+              }
+              broadcastPhotonChange();
+              broadcastToBeam('beam/photon-removed', { name: photonName });
+              return;
+            }
           }
 
           logger.info(
@@ -1063,6 +1151,12 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 logger.info(`✅ ${photonName} hot reloaded`);
               }
               // else: photon was removed while we were reloading — discard result
+            }
+
+            // If this photon is symlinked and was previously errored (or new), set up
+            // source-directory watchers that may have been skipped at startup.
+            if (isNewPhoton || !previouslyConfigured) {
+              setupSymlinkWatcher(photonName, reloadedPhoton.path);
             }
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1345,50 +1439,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     try {
       const stat = lstatSync(photon.path);
       if (stat.isSymbolicLink()) {
-        const realPath = realpathSync(photon.path);
-        const realDir = path.dirname(realPath);
-        const assetFolder = path.join(realDir, photon.name);
-
-        // Watch the real source file (symlink target) for .photon.ts changes.
-        // We watch the parent directory instead of the file itself because
-        // fs.watch on individual files is unreliable on macOS (atomic writes
-        // via rename break the watch handle).
-        try {
-          const realFileName = path.basename(realPath);
-          const srcDirWatcher = watch(realDir, (eventType, filename) => {
-            if (filename === realFileName) {
-              handleFileChange(photon.name);
-            }
-          });
-          srcDirWatcher.on('error', () => {});
-          watchers.push(srcDirWatcher);
-        } catch {
-          // Source file watching not available — asset-only watching below
-        }
-
-        if (existsSync(assetFolder)) {
-          const assetWatcher = watch(assetFolder, { recursive: true }, (eventType, filename) => {
-            if (filename) {
-              if (
-                filename.endsWith('.json') ||
-                filename.startsWith('boards/') ||
-                filename === 'data.json'
-              ) {
-                logger.debug(`⏭️ Ignoring data file change: ${photon.name}/${filename}`);
-                return;
-              }
-              logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
-              handleFileChange(photon.name);
-            }
-          });
-          assetWatcher.on('error', (err) => {
-            logger.warn(`Watcher error for ${photon.name}/: ${err.message}`);
-          });
-          watchers.push(assetWatcher);
-          logger.info(`👀 Watching ${photon.name}/ (symlinked → ${assetFolder})`);
-        } else {
-          logger.info(`👀 Watching ${photon.name} (symlinked → ${realDir})`);
-        }
+        // Delegate to reusable setupSymlinkWatcher (also called after error recovery)
+        setupSymlinkWatcher(photon.name, photon.path);
       } else {
         // Non-symlinked photon (e.g. ~/.photon/boards.photon.ts) — watch both
         // the source file and its asset folder if they're outside the workingDir
