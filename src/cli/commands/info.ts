@@ -45,7 +45,7 @@ async function getGlobalPhotonPath(): Promise<string | null> {
       return `node ${photonBin}`;
     }
   } catch {
-    // npm root -g fails on non-standard installations — fall through to return null
+    // npm root -g fails on non-standard installations — fall through
   }
   return null;
 }

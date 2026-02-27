@@ -102,7 +102,7 @@ async function performMarketplaceSync(
     try {
       return lstatSync(path.join(resolvedPath, f)).isDirectory() && !f.startsWith('.');
     } catch {
-      return false;
+      return false; // stat failed (permission denied, broken symlink)
     }
   });
   const misplaced: string[] = [];

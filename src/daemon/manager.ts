@@ -233,7 +233,7 @@ export class DaemonManager {
     try {
       return parseInt(fs.readFileSync(this.ctx.pidFile, 'utf-8').trim(), 10);
     } catch {
-      return null;
+      return null; // PID file missing or unreadable
     }
   }
 
@@ -319,7 +319,7 @@ export class DaemonManager {
       const binaryBuiltAt = fs.statSync(daemonScript).mtimeMs;
       return binaryBuiltAt > daemonStartedAt;
     } catch {
-      return false;
+      return false; // stat race condition — file removed between exists check and stat
     }
   }
 
