@@ -4501,6 +4501,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ newName }),
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (res.ok) {
             await this._fetchInstances(photonName);
@@ -4522,6 +4523,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ newName }),
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (res.ok) {
             // Switch to the renamed instance
@@ -4548,6 +4550,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         try {
           const res = await fetch(`/api/instances/${photonName}/${instanceToDelete}`, {
             method: 'DELETE',
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (res.ok) {
             // Switch to default
