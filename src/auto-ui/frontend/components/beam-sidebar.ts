@@ -941,16 +941,7 @@ export class BeamSidebar extends LitElement {
           <div class="photon-name">${photon.name}</div>
           ${photon.internal ? html`<span class="internal-badge">System</span>` : ''}
         </div>
-        ${photon.hasSettings
-          ? html`<button
-              class="settings-btn"
-              @click=${(e: Event) => this._openSettings(e, photon.name)}
-              title="Settings"
-              aria-label="Open settings for ${photon.name}"
-            >
-              ⚙
-            </button>`
-          : ''}
+        ${'' /* Settings button removed — now in context bar (Phase 3) */}
         <button
           class="star-btn ${isFavorited ? 'favorited' : ''}"
           @click=${(e: Event) => this._toggleFavorite(e, photon.name)}
