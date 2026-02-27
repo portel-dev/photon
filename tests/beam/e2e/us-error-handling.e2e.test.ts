@@ -58,15 +58,11 @@ export default class ErrorTestPhoton {
  */
 function startBeamServer(photonDir: string, port: number): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(
-      'node',
-      ['dist/cli.js', 'beam', '--port', String(port), '--dir', photonDir],
-      {
-        cwd: path.join(__dirname, '../../..'),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, NODE_ENV: 'test' },
-      }
-    );
+    const proc = spawn('node', ['dist/cli.js', 'beam', '--port', String(port)], {
+      cwd: path.join(__dirname, '../../..'),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: photonDir },
+    });
 
     const timeout = global.setTimeout(() => {
       reject(new Error('Beam server failed to start within timeout'));
@@ -75,7 +71,11 @@ function startBeamServer(photonDir: string, port: number): Promise<ChildProcess>
     proc.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve(proc);
       }
@@ -104,10 +104,7 @@ test.beforeAll(async () => {
   fs.mkdirSync(testPhotonDir, { recursive: true });
 
   // Create a photon with error-throwing methods
-  fs.writeFileSync(
-    path.join(testPhotonDir, 'error-test.photon.ts'),
-    createErrorPhoton()
-  );
+  fs.writeFileSync(path.join(testPhotonDir, 'error-test.photon.ts'), createErrorPhoton());
 
   // Start Beam server
   beamProcess = await startBeamServer(testPhotonDir, BEAM_PORT);
@@ -269,9 +266,7 @@ test.describe.skip('User Story: Connection Resilience', () => {
 
 test.describe.skip('User Story: Method Execution Errors', () => {
   // TODO: Requires error-throwing photon and result area verification
-  test('US-132: Method execution error displays error message in result area', async ({
-    page,
-  }) => {
+  test('US-132: Method execution error displays error message in result area', async ({ page }) => {
     /**
      * AS A user
      * I WANT TO see a clear error message when a method execution fails

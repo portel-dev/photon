@@ -292,14 +292,14 @@ async function showConfigTemplate(
     }
   });
 
-  const needsWorkingDir = workingDir !== getDefaultContext().baseDir;
+  if (process.env.PHOTON_DIR) {
+    envExample.PHOTON_DIR = workingDir;
+  }
   const config = {
     mcpServers: {
       [mcpName]: {
         command: 'npx',
-        args: needsWorkingDir
-          ? ['@portel/photon', 'mcp', mcpName, '--dir', workingDir]
-          : ['@portel/photon', 'mcp', mcpName],
+        args: ['@portel/photon', 'mcp', mcpName],
         env: envExample,
       },
     },
@@ -320,7 +320,7 @@ async function showConfigTemplate(
  *
  * MCP Runtime: run a .photon.ts file as MCP server
  */
-export function registerMCPCommand(program: Command, defaultDir: string): void {
+export function registerMCPCommand(program: Command): void {
   program
     .command('mcp', { hidden: true })
     .argument('<name>', 'MCP name (without .photon.ts extension)')
@@ -336,7 +336,7 @@ export function registerMCPCommand(program: Command, defaultDir: string): void {
         const { name, marketplaceSource } = parsePhotonSpec(rawName);
 
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultDir;
+        const workingDir = getDefaultContext().baseDir;
         const logOptions = getLogOptionsFromCommand(command);
 
         // Resolve file path - check bundled photons first, then user directory

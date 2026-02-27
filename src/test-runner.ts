@@ -287,7 +287,7 @@ async function runCliTest(
 
   return new Promise((resolve) => {
     // Build CLI arguments (use 'cli' command - the implicit run mode)
-    const args = ['cli', photonName, methodName, '--json', '--dir', workingDir];
+    const args = ['cli', photonName, methodName, '--json'];
 
     // Add params as CLI flags
     for (const [key, value] of Object.entries(params)) {
@@ -302,6 +302,7 @@ async function runCliTest(
       cwd: workingDir,
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 30000, // 30 second timeout
+      env: { ...process.env, PHOTON_DIR: workingDir },
     });
 
     let stdout = '';
@@ -390,11 +391,12 @@ async function runMcpTest(
 
   return new Promise((resolve) => {
     // Start MCP server for this photon
-    const args = ['mcp', photonName, '--dir', workingDir];
+    const args = ['mcp', photonName];
 
     const proc = spawn('node', [CLI_PATH, ...args], {
       cwd: workingDir,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PHOTON_DIR: workingDir },
     });
 
     let initialized = false;

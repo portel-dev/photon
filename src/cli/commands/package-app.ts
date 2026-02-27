@@ -9,6 +9,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
+import { getDefaultContext } from '../../context.js';
 
 function toClassName(name: string): string {
   return name
@@ -46,7 +47,7 @@ for port in $(seq $START_PORT $END_PORT); do
 done
 
 # No existing beam found — start one
-npx @portel/photon beam --dir="$PHOTON_DIR" --port=$START_PORT &
+npx @portel/photon beam --port=$START_PORT &
 BEAM_PID=$!
 
 # Poll until beam is ready (up to 30s)
@@ -116,7 +117,7 @@ for /L %%p in (%START_PORT%,1,%END_PORT%) do (
 )
 
 REM No existing beam found — start one
-start /b npx @portel/photon beam --dir="%PHOTON_DIR%" --port=%START_PORT%
+start /b npx @portel/photon beam --port=%START_PORT%
 
 REM Poll until beam is ready (up to 30s)
 set WAITED=0
@@ -194,7 +195,7 @@ async function generateWindowsLauncher(
   return batPath;
 }
 
-export function registerPackageAppCommand(program: Command, defaultWorkingDir: string): void {
+export function registerPackageAppCommand(program: Command): void {
   program
     .command('package')
     .argument('<name>', 'Photon name to package')
@@ -202,7 +203,7 @@ export function registerPackageAppCommand(program: Command, defaultWorkingDir: s
     .option('--port <number>', 'Preferred start port', '3000')
     .description('Generate cross-platform PWA launchers for a photon')
     .action(async (name: string, options: any, command: Command) => {
-      const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+      const workingDir = getDefaultContext().baseDir;
       const outputDir = path.resolve(options.output);
       const startPort = parseInt(options.port, 10);
 

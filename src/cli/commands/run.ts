@@ -212,7 +212,7 @@ export function preprocessArgs(): PreprocessResult {
   }
 
   // Find the first non-flag argument (skip values of flags that take a parameter)
-  const flagsWithValues = ['--dir', '--log-level'];
+  const flagsWithValues = ['--log-level'];
   const firstArgIndex = args.findIndex((arg, i) => {
     if (arg.startsWith('-')) return false;
     if (i > 0 && flagsWithValues.includes(args[i - 1])) return false;
@@ -267,7 +267,7 @@ export function preprocessArgs(): PreprocessResult {
  * the photon name conflicts with a reserved command. It is also the implicit
  * dispatch target for bare photon invocations rewritten by preprocessArgs().
  */
-export function registerRunCommand(program: Command, defaultDir: string): void {
+export function registerRunCommand(program: Command): void {
   // CLI command: directly invoke photon methods.
   // Also serves as escape hatch for photons with reserved names (e.g., photon cli list get).
   program
@@ -324,7 +324,7 @@ SEE ALSO:
 
       const { listMethods, runMethod } = await import('../../photon-cli-runner.js');
 
-      const cliWorkingDir = program.opts().dir || defaultDir;
+      const cliWorkingDir = getDefaultContext().baseDir;
       if (!method) {
         // List all methods
         await listMethods(photon);

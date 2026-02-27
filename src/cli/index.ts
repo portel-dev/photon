@@ -31,8 +31,6 @@ import { registerTestCommand } from './commands/test.js';
 import { registerAliasCommands } from './commands/alias.js';
 import { preprocessArgs } from './commands/run.js';
 
-const defaultDir = getDefaultContext().baseDir;
-
 export function createProgram(): Command {
   const program = new Command();
 
@@ -40,7 +38,6 @@ export function createProgram(): Command {
     .name('photon')
     .description('Universal runtime for single-file TypeScript programs')
     .version(PHOTON_VERSION)
-    .option('--dir <path>', 'Photon directory (default: ~/.photon)', defaultDir)
     .option('--log-level <level>', 'Set log verbosity (error|warn|info|debug)', 'info')
     .option('--json-logs', 'Emit newline-delimited JSON logs for runtime output')
     .configureHelp({
@@ -93,26 +90,26 @@ Run 'photon <command> --help' for detailed usage.
     );
 
   // Register all command modules
-  registerUpdateCommand(program, defaultDir);
-  registerMCPCommand(program, defaultDir);
-  registerSSECommand(program, defaultDir);
-  registerBeamCommand(program, defaultDir);
-  registerServeCommand(program, defaultDir);
-  registerHostCommand(program, defaultDir);
-  registerSearchCommand(program, defaultDir);
-  registerMakerCommands(program, defaultDir);
+  registerUpdateCommand(program);
+  registerMCPCommand(program);
+  registerSSECommand(program);
+  registerBeamCommand(program);
+  registerServeCommand(program);
+  registerHostCommand(program);
+  registerSearchCommand(program);
+  registerMakerCommands(program);
   registerMarketplaceCommands(program);
-  registerInfoCommand(program, defaultDir);
-  registerPackageCommands(program, defaultDir);
-  registerPackageAppCommand(program, defaultDir);
-  registerDoctorCommand(program, defaultDir);
-  registerRunCommand(program, defaultDir);
-  registerConfigCommands(program, defaultDir);
+  registerInfoCommand(program);
+  registerPackageCommands(program);
+  registerPackageAppCommand(program);
+  registerDoctorCommand(program);
+  registerRunCommand(program);
+  registerConfigCommands(program);
   registerDaemonCommands(program);
   registerInitCommands(program);
   registerUninitCommands(program);
-  registerTestCommand(program, defaultDir);
-  registerAliasCommands(program, defaultDir);
+  registerTestCommand(program);
+  registerAliasCommands(program);
 
   return program;
 }

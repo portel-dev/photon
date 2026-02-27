@@ -20,15 +20,19 @@ async function runIntegrationTests() {
 
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, `--dir=${fixturesDir}`, 'mcp', 'content'],
+    args: [cliPath, 'mcp', 'content'],
+    env: { ...process.env, PHOTON_DIR: fixturesDir },
   });
 
-  const client = new Client({
-    name: 'integration-test-client',
-    version: '1.0.0',
-  }, {
-    capabilities: {},
-  });
+  const client = new Client(
+    {
+      name: 'integration-test-client',
+      version: '1.0.0',
+    },
+    {
+      capabilities: {},
+    }
+  );
 
   try {
     // Connect to the server
@@ -53,8 +57,12 @@ async function runIntegrationTests() {
       assert.ok(Array.isArray(prompts), 'Should return prompts array');
       assert.equal(prompts.length, 3, 'Should have 3 prompts');
 
-      const promptNames = prompts.map(p => p.name).sort();
-      assert.deepEqual(promptNames, ['codeReview', 'commitPrompt', 'prDescription'], 'Should have correct prompt names');
+      const promptNames = prompts.map((p) => p.name).sort();
+      assert.deepEqual(
+        promptNames,
+        ['codeReview', 'commitPrompt', 'prDescription'],
+        'Should have correct prompt names'
+      );
       console.log('✅ prompts/list endpoint working');
     }
 
@@ -65,10 +73,10 @@ async function runIntegrationTests() {
       assert.ok(Array.isArray(resources), 'Should return resources array');
 
       // Should only include non-parameterized resources
-      const staticUris = resources.filter(r => !r.uri.includes('{'));
+      const staticUris = resources.filter((r) => !r.uri.includes('{'));
       assert.ok(staticUris.length > 0, 'Should have static resources');
 
-      const hasApiDocs = resources.some(r => r.uri === 'api://docs');
+      const hasApiDocs = resources.some((r) => r.uri === 'api://docs');
       assert.ok(hasApiDocs, 'Should include api://docs');
       console.log('✅ resources/list endpoint working');
     }
@@ -80,10 +88,10 @@ async function runIntegrationTests() {
       assert.ok(Array.isArray(resourceTemplates), 'Should return resourceTemplates array');
 
       // Should only include parameterized resources
-      const templateUris = resourceTemplates.filter(r => r.uriTemplate.includes('{'));
+      const templateUris = resourceTemplates.filter((r) => r.uriTemplate.includes('{'));
       assert.ok(templateUris.length > 0, 'Should have template resources');
 
-      const hasReadme = resourceTemplates.some(r => r.uriTemplate === 'readme://{projectType}');
+      const hasReadme = resourceTemplates.some((r) => r.uriTemplate === 'readme://{projectType}');
       assert.ok(hasReadme, 'Should include readme://{projectType}');
       console.log('✅ resources/templates/list endpoint working');
     }
@@ -147,7 +155,6 @@ async function runIntegrationTests() {
     }
 
     console.log('\n✅ All MCP Integration tests passed!');
-
   } catch (error: any) {
     console.error('❌ Integration test failed:', error.message);
     if (error.stack) {

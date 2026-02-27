@@ -12,6 +12,7 @@ import { renderSection } from '../../shared/cli-sections.js';
 import { toEnvVarName } from '../../shared/config-docs.js';
 import { PHOTON_VERSION } from '../../version.js';
 import { resolvePhotonPath, listPhotonMCPs } from '../../path-resolver.js';
+import { getDefaultContext } from '../../context.js';
 
 // Helper to format default values for display
 function formatDefaultValue(value: unknown): string {
@@ -68,7 +69,7 @@ function getConfigPath(): string {
 /**
  * Register info command
  */
-export function registerInfoCommand(program: Command, defaultWorkingDir: string): void {
+export function registerInfoCommand(program: Command): void {
   program
     .command('info', { hidden: true })
     .argument('[name]', 'Photon name to show details for (shows all if omitted)')
@@ -81,9 +82,8 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
       try {
         const { formatOutput, printInfo, printError, printHeader, STATUS } =
           await import('../../cli-formatter.js');
-        // Get working directory from global/parent options
-        const parentOpts = command.parent?.opts() || {};
-        const workingDir = parentOpts.dir || defaultWorkingDir;
+        // Get working directory (respects PHOTON_DIR env var)
+        const workingDir = getDefaultContext().baseDir;
         const asMcp = options.mcp || false;
         const asJson = options.json || false;
 
@@ -162,19 +162,19 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
 
             // Check for global photon installation
             const globalPhotonPath = await getGlobalPhotonPath();
-            const needsWorkingDir = workingDir !== defaultWorkingDir;
+            if (process.env.PHOTON_DIR) {
+              env.PHOTON_DIR = workingDir;
+            }
 
             const config = globalPhotonPath
               ? {
                   command: globalPhotonPath,
-                  args: needsWorkingDir ? ['mcp', name, '--dir', workingDir] : ['mcp', name],
+                  args: ['mcp', name],
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
                   command: 'npx',
-                  args: needsWorkingDir
-                    ? ['@portel/photon', 'mcp', name, '--dir', workingDir]
-                    : ['@portel/photon', 'mcp', name],
+                  args: ['@portel/photon', 'mcp', name],
                   ...(Object.keys(env).length > 0 && { env }),
                 };
 
@@ -264,7 +264,6 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
 
           // Check for global photon installation once
           const globalPhotonPath = await getGlobalPhotonPath();
-          const needsWorkingDir = workingDir !== defaultWorkingDir;
 
           for (const mcpName of mcps) {
             const filePath = await resolvePhotonPath(mcpName, workingDir);
@@ -280,18 +279,19 @@ export function registerInfoCommand(program: Command, defaultWorkingDir: string)
                   : `<your-${param.name}>`;
               env[envVarName] = defaultDisplay;
             }
+            if (process.env.PHOTON_DIR) {
+              env.PHOTON_DIR = workingDir;
+            }
 
             allConfigs[mcpName] = globalPhotonPath
               ? {
                   command: globalPhotonPath,
-                  args: needsWorkingDir ? ['mcp', mcpName, '--dir', workingDir] : ['mcp', mcpName],
+                  args: ['mcp', mcpName],
                   ...(Object.keys(env).length > 0 && { env }),
                 }
               : {
                   command: 'npx',
-                  args: needsWorkingDir
-                    ? ['@portel/photon', 'mcp', mcpName, '--dir', workingDir]
-                    : ['@portel/photon', 'mcp', mcpName],
+                  args: ['@portel/photon', 'mcp', mcpName],
                   ...(Object.keys(env).length > 0 && { env }),
                 };
           }

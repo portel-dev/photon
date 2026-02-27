@@ -74,16 +74,13 @@ test.beforeAll(async () => {
   fs.mkdirSync(testPhotonDir, { recursive: true });
 
   // Create a photon with slow methods
-  fs.writeFileSync(
-    path.join(testPhotonDir, 'slow-test.photon.ts'),
-    createSlowPhoton('slow-test')
-  );
+  fs.writeFileSync(path.join(testPhotonDir, 'slow-test.photon.ts'), createSlowPhoton('slow-test'));
 
   // Start Beam server pointing to test directory
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test' },
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: testPhotonDir },
   });
 
   // Wait for server to be ready
@@ -95,7 +92,11 @@ test.beforeAll(async () => {
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve();
       }
@@ -256,7 +257,7 @@ test.describe('User Story: Help Modal', () => {
 // =============================================================================
 
 test.describe.skip('User Story: Progress Indicator', () => {
-  // TODO: Requires slow-test photon from temp dir; --dir not loading properly
+  // TODO: Requires slow-test photon from temp dir; PHOTON_DIR not loading properly
   test('US-123: Progress indicator shows during method execution', async ({ page }) => {
     /**
      * AS A user

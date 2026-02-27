@@ -105,10 +105,10 @@ test.beforeAll(async () => {
     createSecondPhoton('other-photon')
   );
 
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test' },
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: testPhotonDir },
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -119,7 +119,11 @@ test.beforeAll(async () => {
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve();
       }
@@ -166,9 +170,7 @@ async function navigateToMethod(
   methodName: string
 ): Promise<void> {
   // Click the photon in the sidebar whose label contains the substring
-  const photonItem = page.locator(
-    `[aria-labelledby="mcps-header"] [role="option"]`,
-  );
+  const photonItem = page.locator(`[aria-labelledby="mcps-header"] [role="option"]`);
   const count = await photonItem.count();
   for (let i = 0; i < count; i++) {
     const text = await photonItem.nth(i).textContent();
@@ -239,7 +241,7 @@ async function disableRememberValues(page: Page): Promise<void> {
 // =============================================================================
 
 test.describe.skip('User Story: Form Persistence', () => {
-  // TODO: Test photons not being loaded from --dir; needs investigation
+  // TODO: Test photons not being loaded from PHOTON_DIR; needs investigation
   test('US-090: Remember Values toggle saves form inputs to localStorage', async ({ page }) => {
     /**
      * AS A user
@@ -268,7 +270,9 @@ test.describe.skip('User Story: Form Persistence', () => {
     await page.evaluate(() => {
       const beamApp = document.querySelector('beam-app');
       const form = beamApp?.shadowRoot?.querySelector('invoke-form');
-      const input = form?.shadowRoot?.querySelector('input[type="text"], textarea') as HTMLInputElement;
+      const input = form?.shadowRoot?.querySelector(
+        'input[type="text"], textarea'
+      ) as HTMLInputElement;
       if (input) {
         input.value = 'test-query-value';
         input.dispatchEvent(new Event('input', { bubbles: true }));

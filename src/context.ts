@@ -6,7 +6,7 @@
  *
  * Design:
  * - socketPath/pidFile/logFile ALWAYS resolve to ~/.photon/ (one global daemon)
- * - baseDir/stateDir/cacheDir/configFile respect --dir/PHOTON_DIR overrides
+ * - baseDir/stateDir/cacheDir/configFile respect PHOTON_DIR env var overrides
  * - Immutable after creation — no runtime mutations
  */
 
@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 export interface PhotonContext {
-  /** Base directory for photon files (~/.photon or --dir override) */
+  /** Base directory for photon files (~/.photon or PHOTON_DIR override) */
   readonly baseDir: string;
   /** State directory (baseDir/state) */
   readonly stateDir: string;
@@ -36,7 +36,7 @@ const HOME_PHOTON_DIR = path.join(os.homedir(), '.photon');
 /**
  * Create an immutable PhotonContext.
  *
- * @param dirOverride - Explicit --dir flag or PHOTON_DIR env value (resolved to absolute)
+ * @param dirOverride - Explicit PHOTON_DIR env value or internal override (resolved to absolute)
  */
 export function createPhotonContext(dirOverride?: string): PhotonContext {
   const baseDir = dirOverride ? path.resolve(dirOverride) : HOME_PHOTON_DIR;
@@ -58,16 +58,12 @@ export function createPhotonContext(dirOverride?: string): PhotonContext {
   });
 }
 
-/** Default context using ~/.photon */
-let _defaultContext: PhotonContext | undefined;
-
 /**
- * Get the default PhotonContext (lazy singleton).
- * Use createPhotonContext() when you have an explicit --dir override.
+ * Get the default PhotonContext.
+ * Respects PHOTON_DIR env var; falls back to ~/.photon.
+ *
+ * Not cached — env var may change between calls (e.g. tests).
  */
 export function getDefaultContext(): PhotonContext {
-  if (!_defaultContext) {
-    _defaultContext = createPhotonContext();
-  }
-  return _defaultContext;
+  return createPhotonContext(process.env.PHOTON_DIR);
 }

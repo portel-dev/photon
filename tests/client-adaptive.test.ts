@@ -52,7 +52,8 @@ type ClientOpts = {
 async function createStdioClient(opts: ClientOpts): Promise<Client> {
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, `--dir=${fixturesDir}`, 'mcp', 'ui-test'],
+    args: [cliPath, 'mcp', 'ui-test'],
+    env: { ...process.env, PHOTON_DIR: fixturesDir },
   });
 
   const client = new Client(
@@ -70,17 +71,8 @@ async function createStdioClient(opts: ClientOpts): Promise<Client> {
 async function startSSEServer(port: number): Promise<ChildProcess> {
   const proc = spawn(
     'node',
-    [
-      cliPath,
-      `--dir=${fixturesDir}`,
-      'mcp',
-      'ui-test',
-      '--transport',
-      'sse',
-      '--port',
-      String(port),
-    ],
-    { stdio: ['pipe', 'pipe', 'pipe'] }
+    [cliPath, 'mcp', 'ui-test', '--transport', 'sse', '--port', String(port)],
+    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PHOTON_DIR: fixturesDir } }
   );
 
   // Capture stderr for debugging

@@ -66,10 +66,7 @@ test.beforeAll(async () => {
   fs.mkdirSync(testPhotonDir, { recursive: true });
 
   // Write the photon file
-  fs.writeFileSync(
-    path.join(testPhotonDir, 'assets-test.photon.ts'),
-    createPhotonWithAssets()
-  );
+  fs.writeFileSync(path.join(testPhotonDir, 'assets-test.photon.ts'), createPhotonWithAssets());
 
   // Create asset folder matching photon basename: assets-test/
   const assetDir = path.join(testPhotonDir, 'assets-test');
@@ -93,10 +90,10 @@ test.beforeAll(async () => {
   );
 
   // Start Beam server pointing to test directory
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test' },
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: testPhotonDir },
   });
 
   // Wait for server to be ready
@@ -108,7 +105,11 @@ test.beforeAll(async () => {
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve();
       }

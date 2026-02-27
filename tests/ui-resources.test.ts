@@ -20,20 +20,24 @@ async function runUIResourceTests() {
   // Connect to the ui-test photon
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [cliPath, `--dir=${fixturesDir}`, 'mcp', 'ui-test'],
+    args: [cliPath, 'mcp', 'ui-test'],
+    env: { ...process.env, PHOTON_DIR: fixturesDir },
   });
 
-  const client = new Client({
-    name: 'ui-resources-test-client',
-    version: '1.0.0',
-  }, {
-    capabilities: {
-      // Advertise SEP-1865 UI capability to get ui:// scheme
-      experimental: {
-        ui: {},
-      },
+  const client = new Client(
+    {
+      name: 'ui-resources-test-client',
+      version: '1.0.0',
     },
-  });
+    {
+      capabilities: {
+        // Advertise SEP-1865 UI capability to get ui:// scheme
+        experimental: {
+          ui: {},
+        },
+      },
+    }
+  );
 
   let uiResources: any[] = [];
 
@@ -49,12 +53,15 @@ async function runUIResourceTests() {
       assert.ok(Array.isArray(resources), 'Should return resources array');
 
       // Find ui:// resources
-      uiResources = resources.filter(r => r.uri.startsWith('ui://'));
+      uiResources = resources.filter((r) => r.uri.startsWith('ui://'));
       assert.ok(uiResources.length > 0, 'Should have ui:// resources');
 
       // Should have the main-ui resource (photon name is derived from class name UITestPhoton -> u-i-test-photon)
-      const mainUi = uiResources.find(r => r.uri.includes('/main-ui'));
-      assert.ok(mainUi, `Should have ui://.../main-ui resource. Found: ${uiResources.map(r => r.uri).join(', ')}`);
+      const mainUi = uiResources.find((r) => r.uri.includes('/main-ui'));
+      assert.ok(
+        mainUi,
+        `Should have ui://.../main-ui resource. Found: ${uiResources.map((r) => r.uri).join(', ')}`
+      );
       assert.ok(mainUi.mimeType?.includes('html'), 'UI resource should have html mimeType');
 
       console.log(`✅ resources/list includes ${uiResources.length} ui:// resource(s)`);
@@ -63,7 +70,7 @@ async function runUIResourceTests() {
     // Test 2: Read a ui:// resource
     {
       // Use the URI we discovered in Test 1
-      const mainUiUri = uiResources.find(r => r.uri.includes('/main-ui'))!.uri;
+      const mainUiUri = uiResources.find((r) => r.uri.includes('/main-ui'))!.uri;
 
       const response = await client.readResource({
         uri: mainUiUri,
@@ -93,15 +100,18 @@ async function runUIResourceTests() {
         });
       } catch (e: any) {
         errorThrown = true;
-        assert.ok(e.message.includes('not found') || e.message.includes('UI asset') || e.message.includes('Resource'),
-          `Error message should indicate resource not found. Got: ${e.message}`);
+        assert.ok(
+          e.message.includes('not found') ||
+            e.message.includes('UI asset') ||
+            e.message.includes('Resource'),
+          `Error message should indicate resource not found. Got: ${e.message}`
+        );
       }
       assert.ok(errorThrown, 'Should throw error for nonexistent ui:// resource');
       console.log('✅ Invalid ui:// URI correctly throws error');
     }
 
     console.log('\n✅ All UI Resources (ui:// scheme) tests passed!');
-
   } catch (error: any) {
     console.error('❌ UI Resources test failed:', error.message);
     if (error.stack) {

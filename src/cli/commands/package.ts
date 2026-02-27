@@ -18,6 +18,7 @@ import {
 } from '@portel/photon-core';
 import { resolvePhotonPath, ensureWorkingDir } from '../../path-resolver.js';
 import { getErrorMessage } from '../../shared/error-handler.js';
+import { getDefaultContext } from '../../context.js';
 import { logger } from '../../shared/logger.js';
 import { createReadline, promptConfirm, promptChoice } from '../../shared/cli-utils.js';
 
@@ -195,7 +196,7 @@ async function setupMCPDependencies(
 /**
  * Register package management commands
  */
-export function registerPackageCommands(program: Command, defaultWorkingDir: string): void {
+export function registerPackageCommands(program: Command): void {
   // Add command: add an MCP from a marketplace
   program
     .command('add')
@@ -207,7 +208,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .action(async (name: string, options: any, command: Command) => {
       try {
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+        const workingDir = getDefaultContext().baseDir;
         await ensureWorkingDir(workingDir);
 
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
@@ -391,7 +392,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .action(async (name: string, options: any, command: Command) => {
       try {
         const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
-        const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+        const workingDir = getDefaultContext().baseDir;
 
         // Find the photon file
         const filePath = await resolvePhotonPath(name, workingDir);
@@ -457,7 +458,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
         const { formatOutput, printInfo, printSuccess, printWarning, printError, STATUS } =
           await import('../../cli-formatter.js');
         // Get working directory from global options
-        const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+        const workingDir = getDefaultContext().baseDir;
 
         const { VersionChecker } = await import('../../version-checker.js');
         const checker = new VersionChecker();
@@ -612,7 +613,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
 
         if (name) {
           // Clear cache for specific photon
-          const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+          const workingDir = getDefaultContext().baseDir;
           const filePath = await resolvePhotonPath(name, workingDir);
 
           if (!filePath) {
@@ -691,7 +692,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .action(async (name: string, options: any, command: Command) => {
       try {
         const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
-        const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+        const workingDir = getDefaultContext().baseDir;
 
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager();
@@ -728,7 +729,7 @@ export function registerPackageCommands(program: Command, defaultWorkingDir: str
     .action(async (name: string, _options: any, command: Command) => {
       try {
         const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
-        const workingDir = command.parent?.opts().dir || defaultWorkingDir;
+        const workingDir = getDefaultContext().baseDir;
 
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager();

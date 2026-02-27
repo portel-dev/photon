@@ -109,10 +109,10 @@ test.beforeAll(async () => {
   );
 
   // Start Beam server pointing to test directory
-  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT), '--dir', testPhotonDir], {
+  beamProcess = spawn('node', ['dist/cli.js', 'beam', '--port', String(BEAM_PORT)], {
     cwd: path.join(__dirname, '../../..'),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test' },
+    env: { ...process.env, NODE_ENV: 'test', PHOTON_DIR: testPhotonDir },
   });
 
   // Wait for server to be ready
@@ -124,7 +124,11 @@ test.beforeAll(async () => {
     beamProcess!.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       console.log('[Beam]', output);
-      if (output.includes('Photon Beam') || output.includes('Beam server running') || output.includes('listening')) {
+      if (
+        output.includes('Photon Beam') ||
+        output.includes('Beam server running') ||
+        output.includes('listening')
+      ) {
         global.clearTimeout(timeout);
         resolve();
       }
@@ -604,7 +608,10 @@ test.describe('User Story: Favorites', () => {
     await waitForConnection(page);
 
     // Get the name of the first photon
-    const firstPhotonName = await page.locator('[role="option"] .photon-name').first().textContent();
+    const firstPhotonName = await page
+      .locator('[role="option"] .photon-name')
+      .first()
+      .textContent();
     expect(firstPhotonName).toBeTruthy();
 
     // Hover and click the star on the first photon
@@ -715,9 +722,7 @@ test.describe('User Story: Favorites', () => {
     const mcpsHeader = page.locator('#mcps-header');
     await expect(mcpsHeader).toBeVisible();
 
-    const mcpPhotonsInFilter = page.locator(
-      '[aria-labelledby="mcps-header"] [role="option"]'
-    );
+    const mcpPhotonsInFilter = page.locator('[aria-labelledby="mcps-header"] [role="option"]');
     expect(await mcpPhotonsInFilter.count()).toBeGreaterThan(0);
 
     // The favorited photon's star should show as favorited

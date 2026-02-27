@@ -236,13 +236,13 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
             } else if (mode === 'cli') {
               // CLI mode: spawn subprocess to test CLI interface
               const cliPath = path.resolve(__dirname, '..', '..', '..', 'cli.js');
-              const args = ['cli', photonName, testName, '--json', '--dir', state.workingDir];
+              const args = ['cli', photonName, testName, '--json'];
 
               result = await new Promise((resolveProc) => {
                 const proc = spawn('node', [cliPath, ...args], {
                   cwd: state.workingDir,
                   timeout: 30000,
-                  env: { ...process.env },
+                  env: { ...process.env, PHOTON_DIR: state.workingDir },
                 });
 
                 let stdout = '';

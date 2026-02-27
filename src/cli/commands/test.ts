@@ -19,7 +19,7 @@ import { getDefaultContext } from '../../context.js';
  * Runs test methods in one or all photons, with selectable execution modes:
  * direct (unit), cli (integration via CLI), mcp (integration via MCP), or all.
  */
-export function registerTestCommand(program: Command, defaultDir: string): void {
+export function registerTestCommand(program: Command): void {
   program
     .command('test')
     .argument('[photon]', 'Photon to test (tests all if omitted)')
@@ -39,7 +39,7 @@ export function registerTestCommand(program: Command, defaultDir: string): void 
         command: Command
       ) => {
         try {
-          const workingDir = command.parent?.opts().dir || defaultDir;
+          const workingDir = getDefaultContext().baseDir;
           const { runTests } = await import('../../test-runner.js');
 
           // Validate mode
