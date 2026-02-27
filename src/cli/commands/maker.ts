@@ -8,7 +8,7 @@
 import type { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, lstatSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getErrorMessage, ExitCode, exitWithError } from '../../shared/error-handler.js';
 import { logger } from '../../shared/logger.js';
@@ -95,6 +95,35 @@ async function performMarketplaceSync(
     if (originalCount !== photonFiles.length) {
       console.error(`   Filtered out ${originalCount - photonFiles.length} installed photons`);
     }
+  }
+
+  // Check for misplaced photon files in subdirectories
+  const subdirs = files.filter((f) => {
+    try {
+      return lstatSync(path.join(resolvedPath, f)).isDirectory() && !f.startsWith('.');
+    } catch {
+      return false;
+    }
+  });
+  const misplaced: string[] = [];
+  for (const dir of subdirs) {
+    const subfiles = await fs.readdir(path.join(resolvedPath, dir));
+    for (const f of subfiles) {
+      if (f.endsWith('.photon.ts')) {
+        const rootExists = photonFiles.includes(f);
+        if (!rootExists) {
+          misplaced.push(`${dir}/${f}`);
+        }
+      }
+    }
+  }
+  if (misplaced.length > 0) {
+    const fileList = misplaced.join(', ');
+    const names = misplaced.map((f) => f.split('/').pop()).join(', ');
+    exitWithError(`Photon files must live at the root, not in subdirectories: ${fileList}`, {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      suggestion: `Move to root: ${names}. Subdirectories are for assets only (ui/, etc.)`,
+    });
   }
 
   if (photonFiles.length === 0) {
