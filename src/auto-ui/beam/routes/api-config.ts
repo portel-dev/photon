@@ -352,7 +352,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
   }
 
   // Instances API: List named instances for a stateful photon
-  if (url.pathname.startsWith('/api/instances/')) {
+  if (url.pathname.startsWith('/api/instances/') && req.method === 'GET') {
     const photonName = url.pathname.slice('/api/instances/'.length);
     if (!photonName) {
       res.writeHead(400);
@@ -361,45 +361,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     }
     try {
       const photonBase = state.workingDir;
-      // Check both storage locations:
-      // 1. @stateful runtime state: ~/.photon/state/{photon}/*.json
-      // 2. Legacy board-based storage: ~/.photon/{photon}/boards/*.json (e.g. kanban)
-      const candidateDirs = [
-        path.join(photonBase, 'state', photonName),
-        path.join(photonBase, photonName, 'boards'),
-      ];
-
-      let instances: string[] = [];
-      let autoInstance = '';
-
-      for (const dir of candidateDirs) {
-        try {
-          const files = await fs.readdir(dir);
-          const jsonFiles = files.filter(
-            (f) => f.endsWith('.json') && !f.endsWith('.archive.jsonl')
-          );
-          if (jsonFiles.length === 0) continue;
-          const withMtime = await Promise.all(
-            jsonFiles.map(async (f) => {
-              const stat = await fs.stat(path.join(dir, f));
-              return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
-            })
-          );
-          withMtime.sort((a, b) => b.mtime - a.mtime);
-          instances = withMtime.map((f) => f.name);
-          autoInstance = instances[0] || 'default';
-          break; // Use first directory that has instances
-        } catch {
-          // Dir doesn't exist, try next
-        }
-      }
-
-      // Always include "default" — matches daemon's _instances behavior
-      if (!instances.includes('default')) {
-        instances.push('default');
-        instances.sort();
-      }
-      if (!autoInstance) autoInstance = 'default';
+      const { instances, autoInstance } = await listInstances(photonBase, photonName);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ instances, autoInstance }));
@@ -410,5 +372,167 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Instance CRUD: DELETE /api/instances/:photon/:instance
+  if (url.pathname.match(/^\/api\/instances\/[^/]+\/[^/]+$/) && req.method === 'DELETE') {
+    if (!isLocalRequest(req)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return true;
+    }
+    const parts = url.pathname.slice('/api/instances/'.length).split('/');
+    const [photonName, instanceName] = parts;
+    if (instanceName === 'default') {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'Cannot delete default instance' }));
+      return true;
+    }
+    try {
+      const dirs = getInstanceDirs(state.workingDir, photonName);
+      let deleted = false;
+      for (const dir of dirs) {
+        for (const suffix of ['.json', '-settings.json']) {
+          try {
+            await fs.unlink(path.join(dir, `${instanceName}${suffix}`));
+            deleted = true;
+          } catch {
+            // File may not exist
+          }
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ deleted, instance: instanceName }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return true;
+  }
+
+  // Instance CRUD: POST /api/instances/:photon/:instance/rename
+  if (url.pathname.match(/^\/api\/instances\/[^/]+\/[^/]+\/rename$/) && req.method === 'POST') {
+    if (!isLocalRequest(req)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return true;
+    }
+    const parts = url.pathname.slice('/api/instances/'.length).split('/');
+    const [photonName, instanceName] = parts;
+    try {
+      const body = await readBody(req);
+      const { newName } = JSON.parse(body);
+      if (!newName || typeof newName !== 'string') {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing newName' }));
+        return true;
+      }
+      const dirs = getInstanceDirs(state.workingDir, photonName);
+      let renamed = false;
+      for (const dir of dirs) {
+        for (const suffix of ['.json', '-settings.json']) {
+          const oldPath = path.join(dir, `${instanceName}${suffix}`);
+          const newPath = path.join(dir, `${newName}${suffix}`);
+          try {
+            await fs.access(oldPath);
+            await fs.rename(oldPath, newPath);
+            renamed = true;
+          } catch {
+            // File may not exist
+          }
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ renamed, from: instanceName, to: newName }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return true;
+  }
+
+  // Instance CRUD: POST /api/instances/:photon/:instance/clone
+  if (url.pathname.match(/^\/api\/instances\/[^/]+\/[^/]+\/clone$/) && req.method === 'POST') {
+    if (!isLocalRequest(req)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return true;
+    }
+    const parts = url.pathname.slice('/api/instances/'.length).split('/');
+    const [photonName, instanceName] = parts;
+    try {
+      const body = await readBody(req);
+      const { newName } = JSON.parse(body);
+      if (!newName || typeof newName !== 'string') {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing newName' }));
+        return true;
+      }
+      const dirs = getInstanceDirs(state.workingDir, photonName);
+      let cloned = false;
+      for (const dir of dirs) {
+        const srcPath = path.join(dir, `${instanceName}.json`);
+        const destPath = path.join(dir, `${newName}.json`);
+        try {
+          await fs.access(srcPath);
+          await fs.copyFile(srcPath, destPath);
+          cloned = true;
+        } catch {
+          // Source may not exist in this dir
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ cloned, from: instanceName, to: newName }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return true;
+  }
+
   return false;
 };
+
+/** Get candidate directories for instance state files */
+function getInstanceDirs(workingDir: string, photonName: string): string[] {
+  return [path.join(workingDir, 'state', photonName), path.join(workingDir, photonName, 'boards')];
+}
+
+/** List instances for a photon from state directories */
+async function listInstances(
+  workingDir: string,
+  photonName: string
+): Promise<{ instances: string[]; autoInstance: string }> {
+  const candidateDirs = getInstanceDirs(workingDir, photonName);
+
+  let instances: string[] = [];
+  let autoInstance = '';
+
+  for (const dir of candidateDirs) {
+    try {
+      const files = await fs.readdir(dir);
+      const jsonFiles = files.filter(
+        (f) => f.endsWith('.json') && !f.endsWith('-settings.json') && !f.endsWith('.archive.jsonl')
+      );
+      if (jsonFiles.length === 0) continue;
+      const withMtime = await Promise.all(
+        jsonFiles.map(async (f) => {
+          const stat = await fs.stat(path.join(dir, f));
+          return { name: f.replace('.json', ''), mtime: stat.mtimeMs };
+        })
+      );
+      withMtime.sort((a, b) => b.mtime - a.mtime);
+      instances = withMtime.map((f) => f.name);
+      autoInstance = instances[0] || 'default';
+      break;
+    } catch {
+      // Dir doesn't exist, try next
+    }
+  }
+
+  if (!instances.includes('default')) {
+    instances.push('default');
+    instances.sort();
+  }
+  if (!autoInstance) autoInstance = 'default';
+
+  return { instances, autoInstance };
+}

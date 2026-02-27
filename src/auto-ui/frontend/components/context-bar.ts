@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 import type { OverflowMenuItem } from './overflow-menu.js';
+import './instance-panel.js';
 
 export interface ContextBarPhoton {
   name: string;
@@ -17,6 +18,7 @@ export interface ContextBarPhoton {
   configured?: boolean;
   methods?: any[];
   isExternalMCP?: boolean;
+  stateful?: boolean;
 }
 
 @customElement('context-bar')
@@ -388,6 +390,29 @@ export class ContextBar extends LitElement {
   @property({ type: Array })
   overflowItems: OverflowMenuItem[] = [];
 
+  // --- Phase 1: Instance Manager ---
+  /** Current instance name (for stateful photons) */
+  @property({ type: String })
+  instanceName = 'default';
+
+  /** Whether the photon is stateful (controls instance pill visibility) */
+  @property({ type: Boolean })
+  isStateful = false;
+
+  /** Available instances for the instance panel */
+  @property({ type: Array })
+  instances: string[] = [];
+
+  // --- Phase 2: Source/Edit toggle ---
+  /** Source mode: 'hidden' = no button, 'source' = show "Source" btn, 'edit' = show "Edit" btn */
+  @property({ type: String })
+  sourceMode: 'hidden' | 'source' | 'edit' = 'hidden';
+
+  // --- Phase 3: Settings ---
+  /** Whether to show the settings gear button */
+  @property({ type: Boolean })
+  hasSettings = false;
+
   @state()
   private _methodDropdownOpen = false;
 
@@ -550,9 +575,30 @@ export class ContextBar extends LitElement {
             `}
 
         <div class="secondary-actions">
-          ${this.showEdit && !p.isExternalMCP
-            ? html`<button class="action-btn" @click=${() => this._emit('edit-studio')}>
-                ✎ Edit
+          ${this.isStateful && !p.isExternalMCP
+            ? html`<instance-panel
+                .instanceName=${this.instanceName}
+                .instances=${this.instances}
+                .photonName=${p.name}
+                @instance-action=${(e: CustomEvent) => this._emit('instance-action', e.detail)}
+              ></instance-panel>`
+            : ''}
+          ${this.sourceMode === 'source'
+            ? html`<button class="action-btn" @click=${() => this._emit('view-source')}>
+                ◎ Source
+              </button>`
+            : this.sourceMode === 'edit'
+              ? html`<button class="action-btn" @click=${() => this._emit('edit-studio')}>
+                  ✎ Edit
+                </button>`
+              : ''}
+          ${this.hasSettings
+            ? html`<button
+                class="action-btn"
+                @click=${() => this._emit('open-settings')}
+                title="Settings"
+              >
+                ⚙
               </button>`
             : ''}
           ${this.showConfigure && !p.isExternalMCP

@@ -1616,7 +1616,8 @@ export class BeamApp extends LitElement {
     | 'config'
     | 'diagnostics'
     | 'mcp-app'
-    | 'studio' = 'list';
+    | 'studio'
+    | 'source' = 'list';
   @state() private _welcomePhase: 'welcome' | 'marketplace' = 'welcome';
   @state() private _configMode: 'initial' | 'edit' = 'initial';
   private _pendingStudioOpen = false; // Open Studio after maker creates a new photon
@@ -2977,6 +2978,11 @@ export class BeamApp extends LitElement {
   }
 
   private _renderContent() {
+    // Source view — inline source code display (Phase 2)
+    if (this._view === 'source') {
+      return this._renderSourceView();
+    }
+
     if (this._view === 'studio') {
       return html`<photon-studio
         .photonName=${this._selectedPhoton?.name || ''}
@@ -3809,8 +3815,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       await this._restoreInstance(this._selectedPhoton.name);
     }
 
-    // Fetch available instances for stateful apps (populates board selector)
-    if (this._selectedPhoton.stateful && this._selectedPhoton.isApp) {
+    // Fetch available instances for stateful photons (populates instance panel)
+    if (this._selectedPhoton.stateful) {
       this._fetchInstances(this._selectedPhoton.name);
     }
 
@@ -4422,6 +4428,141 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Failed to load source', 'error');
+      }
+    }
+  };
+
+  /** Navigate to inline source view (Phase 2) */
+  private _handleViewSourceInline = async () => {
+    if (this._view === 'source') {
+      // Already on source — toggle to studio
+      this._view = 'studio';
+      return;
+    }
+    // Load source data then switch to source view
+    await this._handleViewSource();
+    if (this._sourceData) {
+      this._showSourceModal = false; // Don't show modal
+      this._view = 'source';
+    }
+  };
+
+  /** Open settings for the current photon (Phase 3) */
+  private _handleOpenSettings = () => {
+    if (!this._selectedPhoton) return;
+    const settingsMethod = this._selectedPhoton.methods?.find((m: any) => m.name === 'settings');
+    if (settingsMethod) {
+      this._selectedMethod = settingsMethod;
+      this._view = 'form';
+      this._maybeAutoInvoke(settingsMethod);
+    }
+  };
+
+  /** Handle instance panel CRUD actions (Phase 1) */
+  private _handleInstanceAction = async (detail: any) => {
+    if (!this._selectedPhoton) return;
+    const photonName = this._selectedPhoton.name;
+    const { action } = detail;
+
+    switch (action) {
+      case 'switch': {
+        const target = detail.instance;
+        if (target === this._currentInstance) return;
+        try {
+          await mcpClient.callTool(`${photonName}/_use`, { name: target });
+          this._setCurrentInstance(photonName, target);
+          showToast(`Switched to: ${target === 'default' ? '(default)' : target}`, 'success');
+          // Re-invoke current method to refresh data
+          if (this._selectedMethod) {
+            this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+          }
+        } catch {
+          showToast('Failed to switch instance', 'error');
+        }
+        break;
+      }
+      case 'create': {
+        const name = detail.instance;
+        try {
+          await mcpClient.callTool(`${photonName}/_use`, { name });
+          this._setCurrentInstance(photonName, name);
+          await this._fetchInstances(photonName);
+          showToast(`Created instance: ${name}`, 'success');
+        } catch {
+          showToast('Failed to create instance', 'error');
+        }
+        break;
+      }
+      case 'clone': {
+        const newName = prompt(`Clone "${detail.instance}" as:`);
+        if (!newName) return;
+        try {
+          const res = await fetch(`/api/instances/${photonName}/${detail.instance}/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newName }),
+          });
+          if (res.ok) {
+            await this._fetchInstances(photonName);
+            showToast(`Cloned as: ${newName}`, 'success');
+          } else {
+            const err = await res.json();
+            showToast(err.error || 'Clone failed', 'error');
+          }
+        } catch {
+          showToast('Failed to clone instance', 'error');
+        }
+        break;
+      }
+      case 'rename': {
+        const newName = detail.newName;
+        if (!newName) return;
+        try {
+          const res = await fetch(`/api/instances/${photonName}/${detail.instance}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newName }),
+          });
+          if (res.ok) {
+            // Switch to the renamed instance
+            await mcpClient.callTool(`${photonName}/_use`, { name: newName });
+            this._setCurrentInstance(photonName, newName);
+            await this._fetchInstances(photonName);
+            showToast(`Renamed to: ${newName}`, 'success');
+          } else {
+            const err = await res.json();
+            showToast(err.error || 'Rename failed', 'error');
+          }
+        } catch {
+          showToast('Failed to rename instance', 'error');
+        }
+        break;
+      }
+      case 'delete': {
+        const instanceToDelete = detail.instance;
+        if (instanceToDelete === 'default') {
+          showToast('Cannot delete default instance', 'error');
+          return;
+        }
+        if (!confirm(`Delete instance "${instanceToDelete}"? This cannot be undone.`)) return;
+        try {
+          const res = await fetch(`/api/instances/${photonName}/${instanceToDelete}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            // Switch to default
+            await mcpClient.callTool(`${photonName}/_use`, { name: 'default' });
+            this._setCurrentInstance(photonName, 'default');
+            await this._fetchInstances(photonName);
+            showToast(`Deleted: ${instanceToDelete}`, 'success');
+          } else {
+            const err = await res.json();
+            showToast(err.error || 'Delete failed', 'error');
+          }
+        } catch {
+          showToast('Failed to delete instance', 'error');
+        }
+        break;
       }
     }
   };
@@ -5094,6 +5235,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._showPhotonHelp = false;
         return;
       }
+      if (this._view === 'source') {
+        this._view = 'list';
+        return;
+      }
       if (this._showSourceModal) {
         this._closeSourceModal();
         return;
@@ -5418,18 +5563,33 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const isExternalMCP = this._selectedPhoton?.isExternalMCP;
     const hasPath = !!this._selectedPhoton?.path;
     const hasInstallSource = !!this._selectedPhoton?.installSource;
+    const isStateful = !!this._selectedPhoton?.stateful;
+    const hasSettings = !!this._selectedPhoton?.hasSettings;
+    // Source mode: show source button for local photons on list view, edit button on source view
+    const sourceMode = isExternalMCP
+      ? 'hidden'
+      : this._view === 'source'
+        ? 'edit'
+        : hasPath && !this._selectedPhoton?.internal
+          ? 'source'
+          : 'hidden';
     return html`
       <context-bar
         .photon=${this._selectedPhoton}
         .showEdit=${false}
         .showConfigure=${options?.showConfigure ?? !isExternalMCP}
         .showCopyConfig=${options?.showCopyConfig ?? true}
+        .isStateful=${isStateful}
+        .instanceName=${this._currentInstance}
+        .instances=${this._instances}
+        .sourceMode=${sourceMode}
+        .hasSettings=${hasSettings && !isExternalMCP}
         .overflowItems=${this._buildOverflowItems({
           showRefresh: !isExternalMCP,
-          showEdit: hasPath && !isExternalMCP && !this._selectedPhoton?.internal,
+          showEdit: false,
           showUpgrade: !!this._selectedPhoton?.hasUpdate,
           showRename: !isExternalMCP,
-          showViewSource: !isExternalMCP,
+          showViewSource: false,
           showFork: hasInstallSource && !isExternalMCP,
           showContribute: hasInstallSource && !isExternalMCP,
           showDelete: !isExternalMCP,
@@ -5570,21 +5730,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
             first === 5,
         });
     }
-    // Add "Switch Instance" for stateful photons
-    if (this._selectedPhoton?.stateful) {
-      items.push({
-        id: 'switch-instance',
-        label: 'Switch Instance',
-        icon: '📦',
-        dividerBefore: true,
-      });
-    }
     if (showHelp) {
       items.push({
         id: 'help',
         label: 'Help',
         icon: '📖',
-        dividerBefore: !this._selectedPhoton?.stateful,
+        dividerBefore: true,
       });
     }
     return items;
@@ -5601,8 +5752,18 @@ ${photon.errorMessage || 'Unknown error'}</pre
         break;
       case 'edit-studio':
         if (this._selectedPhoton) {
+          // From source view, go to studio; otherwise go to studio directly
           this._view = 'studio';
         }
+        break;
+      case 'view-source':
+        this._handleViewSourceInline();
+        break;
+      case 'open-settings':
+        this._handleOpenSettings();
+        break;
+      case 'instance-action':
+        this._handleInstanceAction(e.detail);
         break;
       case 'configure':
         this._handleReconfigure();
@@ -5667,9 +5828,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
             break;
           case 'remove':
             this._handleRemove();
-            break;
-          case 'switch-instance':
-            this._switchInstance();
             break;
           case 'help':
             this._showPhotonHelpModal();
@@ -6760,6 +6918,90 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
     }
   };
+
+  /** Render source code as an inline view (not a modal) — Phase 2 */
+  private _renderSourceView() {
+    if (!this._sourceData) {
+      return html`
+        ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
+        <div
+          class="glass-panel"
+          style="padding: var(--space-xl); text-align: center; color: var(--t-muted);"
+        >
+          Loading source...
+        </div>
+      `;
+    }
+
+    const filename = this._sourceData.path.split('/').pop() || 'source.ts';
+    const ext = filename.split('.').pop()?.toLowerCase() || 'ts';
+    const langMap: Record<string, string> = {
+      ts: 'typescript',
+      tsx: 'typescript',
+      js: 'javascript',
+      jsx: 'javascript',
+      py: 'python',
+      json: 'json',
+      css: 'css',
+      sql: 'sql',
+      yaml: 'yaml',
+      yml: 'yaml',
+      md: 'markdown',
+      rs: 'rust',
+      go: 'go',
+      sh: 'bash',
+      bash: 'bash',
+    };
+    const language = langMap[ext] || 'typescript';
+
+    let highlightedCode = this._sourceData.code;
+    const Prism = (window as any).Prism;
+    if (Prism && Prism.languages[language]) {
+      highlightedCode = Prism.highlight(this._sourceData.code, Prism.languages[language], language);
+    }
+
+    return html`
+      ${this._renderPhotonToolbar({ showConfigure: false, showCopyConfig: false })}
+      <div
+        class="glass-panel"
+        style="margin-top: var(--space-md); display: flex; flex-direction: column; max-height: calc(100vh - 120px);"
+      >
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
+        >
+          <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--t-muted);">
+            ${filename}
+          </div>
+          <button
+            class="action-btn"
+            style="background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-xs);"
+            @click=${this._copySourceCode}
+            title="Copy source code"
+          >
+            📋 Copy
+          </button>
+        </div>
+        <pre
+          class="language-${language}"
+          style="
+          flex: 1;
+          overflow: auto;
+          white-space: pre;
+          background: #1e1e2e;
+          padding: var(--space-md);
+          margin: 0;
+          font-family: var(--font-mono);
+          font-size: 0.85rem;
+          line-height: 1.6;
+          tab-size: 2;
+          border-radius: 0 0 var(--radius-md) var(--radius-md);
+        "
+        ><code class="language-${language}" style="display: block; overflow-x: visible;">${Prism
+          ? unsafeHTML(highlightedCode)
+          : this._sourceData.code}</code></pre>
+      </div>
+    `;
+  }
 
   private _renderSourceModal() {
     if (!this._sourceData) return '';
