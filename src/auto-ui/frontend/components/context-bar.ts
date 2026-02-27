@@ -580,7 +580,8 @@ export class ContextBar extends LitElement {
                 .instanceName=${this.instanceName}
                 .instances=${this.instances}
                 .photonName=${p.name}
-                @instance-action=${(e: CustomEvent) => this._emit('instance-action', e.detail)}
+                @instance-action=${(e: CustomEvent) =>
+                  this._emit('instance-action', { instanceDetail: e.detail })}
               ></instance-panel>`
             : ''}
           ${this.sourceMode === 'source'

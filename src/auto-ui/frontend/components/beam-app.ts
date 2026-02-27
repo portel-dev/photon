@@ -2309,6 +2309,11 @@ export class BeamApp extends LitElement {
           await this._restoreInstance(photon.name);
         }
 
+        // Fetch available instances for stateful photons (populates instance panel)
+        if (photon.stateful) {
+          this._fetchInstances(photon.name);
+        }
+
         // Handle external MCPs with MCP Apps
         if (photon.isExternalMCP && photon.hasMcpApp) {
           this._selectedMethod = null;
@@ -5766,7 +5771,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._handleOpenSettings();
         break;
       case 'instance-action':
-        this._handleInstanceAction(e.detail);
+        this._handleInstanceAction(e.detail.instanceDetail);
         break;
       case 'configure':
         this._handleReconfigure();
