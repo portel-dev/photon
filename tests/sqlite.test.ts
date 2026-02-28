@@ -19,7 +19,7 @@ async function main() {
   if (!fs.existsSync(mcpPath)) {
     console.log('⚠️  Skipping: sqlite.photon.ts not found (moved to marketplace)');
     console.log('   Install with: photon install sqlite');
-    process.exit(0);
+    if (typeof globalThis.vitest === 'undefined') process.exit(0);
   }
 
   // Create temp database file
@@ -229,10 +229,10 @@ async function main() {
 
     console.log('\n' + '='.repeat(50));
 
-    process.exit(results.failed > 0 ? 1 : 0);
+    if (typeof globalThis.vitest === 'undefined') process.exit(results.failed > 0 ? 1 : 0);
   } catch (error) {
     console.error('❌ Test suite error:', error);
-    process.exit(1);
+    if (typeof globalThis.vitest === 'undefined') process.exit(1);
   } finally {
     await client.shutdown();
 

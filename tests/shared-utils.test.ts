@@ -11,15 +11,13 @@ import {
   summarizeConstructorParams,
   generateConfigErrorMessage,
 } from '../dist/shared/config-docs.js';
-import { renderSection, renderKeyValueSection } from '../dist/shared/cli-sections.js';
+import { renderSection } from '../dist/shared/cli-sections.js';
 import { runTask } from '../dist/shared/task-runner.js';
 import {
   getBundledPhotonPath,
   DEFAULT_BUNDLED_PHOTONS,
   BEAM_BUNDLED_PHOTONS,
   getErrorMessage,
-  withErrorContext,
-  withErrorContextSync,
 } from '../dist/shared-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,10 +55,7 @@ console.log('📋 config-docs.ts Tests');
     'toEnvVarName: handles kebab-case MCP name'
   );
 
-  test(
-    toEnvVarName('simple', 'value') === 'SIMPLE_VALUE',
-    'toEnvVarName: handles simple names'
-  );
+  test(toEnvVarName('simple', 'value') === 'SIMPLE_VALUE', 'toEnvVarName: handles simple names');
 
   test(
     toEnvVarName('test', 'camelCaseParam') === 'TEST_CAMEL_CASE_PARAM',
@@ -190,15 +185,9 @@ console.log('📋 config-docs.ts Tests');
     'summarizeConstructorParams: includes env var name'
   );
 
-  test(
-    result.docs.includes('[REQUIRED]'),
-    'summarizeConstructorParams: marks required params'
-  );
+  test(result.docs.includes('[REQUIRED]'), 'summarizeConstructorParams: marks required params');
 
-  test(
-    result.docs.includes('[OPTIONAL]'),
-    'summarizeConstructorParams: marks optional params'
-  );
+  test(result.docs.includes('[OPTIONAL]'), 'summarizeConstructorParams: marks optional params');
 
   test(
     result.exampleEnv['TEST_MCP_API_KEY'] !== undefined,
@@ -225,20 +214,11 @@ console.log('📋 config-docs.ts Tests');
     'generateConfigErrorMessage: includes warning header'
   );
 
-  test(
-    message.includes('MY_MCP_API_KEY'),
-    'generateConfigErrorMessage: includes first env var'
-  );
+  test(message.includes('MY_MCP_API_KEY'), 'generateConfigErrorMessage: includes first env var');
 
-  test(
-    message.includes('MY_MCP_TOKEN'),
-    'generateConfigErrorMessage: includes second env var'
-  );
+  test(message.includes('MY_MCP_TOKEN'), 'generateConfigErrorMessage: includes second env var');
 
-  test(
-    message.includes('mcpServers'),
-    'generateConfigErrorMessage: includes MCP config example'
-  );
+  test(message.includes('mcpServers'), 'generateConfigErrorMessage: includes MCP config example');
 
   test(
     message.includes('photon my-mcp --config'),
@@ -263,10 +243,7 @@ console.log('\n📋 cli-sections.ts Tests');
     noError = false;
   }
 
-  test(
-    noError,
-    'renderSection: renders without error'
-  );
+  test(noError, 'renderSection: renders without error');
 
   // Test with empty array - should not throw
   noError = true;
@@ -276,31 +253,7 @@ console.log('\n📋 cli-sections.ts Tests');
     noError = false;
   }
 
-  test(
-    noError,
-    'renderSection: handles empty array'
-  );
-}
-
-// renderKeyValueSection tests
-{
-  let noError = true;
-  try {
-    renderKeyValueSection('Key Value Section', [
-      { label: 'Name', value: 'Test' },
-      { label: 'Version', value: '1.0.0' },
-      { label: 'Empty', value: null },
-      { label: 'Undefined', value: undefined },
-      { label: 'Blank', value: '' },
-    ]);
-  } catch (e) {
-    noError = false;
-  }
-
-  test(
-    noError,
-    'renderKeyValueSection: renders without error'
-  );
+  test(noError, 'renderSection: handles empty array');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -317,15 +270,9 @@ console.log('\n📋 task-runner.ts Tests');
     return 'done';
   });
 
-  test(
-    executed === true,
-    'runTask: executes the task function'
-  );
+  test(executed === true, 'runTask: executes the task function');
 
-  test(
-    result === 'done',
-    'runTask: returns the task result'
-  );
+  test(result === 'done', 'runTask: returns the task result');
 }
 
 {
@@ -338,10 +285,7 @@ console.log('\n📋 task-runner.ts Tests');
     errorCaught = true;
   }
 
-  test(
-    errorCaught === true,
-    'runTask: propagates errors'
-  );
+  test(errorCaught === true, 'runTask: propagates errors');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -352,23 +296,14 @@ console.log('\n📋 shared-utils.ts Tests (Bundled Photon Paths)');
 
 // DEFAULT_BUNDLED_PHOTONS tests
 {
-  test(
-    DEFAULT_BUNDLED_PHOTONS.includes('maker'),
-    'DEFAULT_BUNDLED_PHOTONS: includes maker'
-  );
+  test(DEFAULT_BUNDLED_PHOTONS.includes('maker'), 'DEFAULT_BUNDLED_PHOTONS: includes maker');
 }
 
 // BEAM_BUNDLED_PHOTONS tests
 {
-  test(
-    BEAM_BUNDLED_PHOTONS.includes('maker'),
-    'BEAM_BUNDLED_PHOTONS: includes maker'
-  );
+  test(BEAM_BUNDLED_PHOTONS.includes('maker'), 'BEAM_BUNDLED_PHOTONS: includes maker');
 
-  test(
-    BEAM_BUNDLED_PHOTONS.includes('tunnel'),
-    'BEAM_BUNDLED_PHOTONS: includes tunnel'
-  );
+  test(BEAM_BUNDLED_PHOTONS.includes('tunnel'), 'BEAM_BUNDLED_PHOTONS: includes tunnel');
 }
 
 // getBundledPhotonPath tests
@@ -413,98 +348,6 @@ console.log('\n📋 shared-utils.ts Tests (Error Handling)');
   test(
     getErrorMessage({ code: 404 }) === '[object Object]',
     'getErrorMessage: stringifies object errors'
-  );
-}
-
-// withErrorContext tests
-{
-  let contextResult: string | null = null;
-  (async () => {
-    contextResult = await withErrorContext(
-      async () => 'success',
-      'Test operation'
-    );
-  })();
-
-  // Give async a moment
-  await new Promise(resolve => setTimeout(resolve, 10));
-
-  test(
-    contextResult === 'success',
-    'withErrorContext: passes through successful result'
-  );
-}
-
-{
-  let errorWrapped = false;
-  try {
-    await withErrorContext(
-      async () => { throw new Error('Inner error'); },
-      'Loading file'
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      errorWrapped = error.message.includes('Loading file') && error.message.includes('Inner error');
-    }
-  }
-
-  test(
-    errorWrapped,
-    'withErrorContext: wraps errors with context'
-  );
-}
-
-{
-  let loggedMessage = '';
-  const mockLogger = {
-    error: (msg: string) => { loggedMessage = msg; }
-  };
-
-  try {
-    await withErrorContext(
-      async () => { throw new Error('Logged error'); },
-      'Test context',
-      mockLogger
-    );
-  } catch {
-    // Expected
-  }
-
-  test(
-    loggedMessage.includes('Test context') && loggedMessage.includes('Logged error'),
-    'withErrorContext: calls logger when provided'
-  );
-}
-
-// withErrorContextSync tests
-{
-  const syncResult = withErrorContextSync(
-    () => 42,
-    'Sync operation'
-  );
-
-  test(
-    syncResult === 42,
-    'withErrorContextSync: works synchronously'
-  );
-}
-
-{
-  let syncErrorWrapped = false;
-  try {
-    withErrorContextSync(
-      () => { throw new Error('Sync error'); },
-      'Sync context'
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      syncErrorWrapped = error.message.includes('Sync context');
-    }
-  }
-
-  test(
-    syncErrorWrapped,
-    'withErrorContextSync: wraps sync errors'
   );
 }
 

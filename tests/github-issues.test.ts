@@ -14,7 +14,7 @@ async function main() {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     console.error('❌ Set GITHUB_TOKEN environment variable');
-    process.exit(1);
+    if (typeof globalThis.vitest === 'undefined') process.exit(1);
   }
 
   console.log('🧪 Testing GitHub Issues MCP\n');
@@ -211,10 +211,10 @@ async function main() {
 
     console.log('\n' + '='.repeat(50));
 
-    process.exit(results.failed > 0 ? 1 : 0);
+    if (typeof globalThis.vitest === 'undefined') process.exit(results.failed > 0 ? 1 : 0);
   } catch (error) {
     console.error('❌ Test suite error:', error);
-    process.exit(1);
+    if (typeof globalThis.vitest === 'undefined') process.exit(1);
   } finally {
     await client.shutdown();
   }

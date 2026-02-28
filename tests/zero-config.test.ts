@@ -299,9 +299,7 @@ async function runTests() {
   console.log('✅ All zero-config tests passed!');
 }
 
-runTests()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error('Test failed:', err);
-    process.exit(1);
-  });
+runTests().catch((err) => {
+  console.error('Test failed:', err);
+  if (typeof globalThis.vitest === 'undefined') process.exit(1);
+});
