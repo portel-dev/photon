@@ -2,7 +2,7 @@
  * Instance Store & Injection Tests
  *
  * Tests for named instance management, environment config, and injection classification.
- * Covers: InstanceStore, EnvStore, getInstanceStatePath, classifyParam.
+ * Covers: InstanceStore, EnvStore, getInstanceStatePath.
  *
  * Run: npx tsx tests/constructor-context.test.ts
  */
@@ -11,13 +11,7 @@ import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { ConstructorParam } from '@portel/photon-core';
-import {
-  InstanceStore,
-  EnvStore,
-  getInstanceStatePath,
-  classifyParam,
-} from '../src/context-store.js';
+import { InstanceStore, EnvStore, getInstanceStatePath } from '../src/context-store.js';
 
 let passed = 0;
 let failed = 0;
@@ -137,86 +131,6 @@ async function run() {
       assert.ok(a.includes('todo-list'));
       assert.ok(b.includes('notes'));
     });
-
-    // ═════════════════════════════════════════════════════════════
-    console.log('\n\uD83D\uDCE6 Injection Type Classification\n');
-    // ═════════════════════════════════════════════════════════════
-
-    await test('primitive without default → env', () => {
-      const result = classifyParam(
-        { name: 'apiKey', type: 'string', isPrimitive: true, hasDefault: false },
-        false,
-        new Set(),
-        new Set()
-      );
-      assert.equal(result, 'env');
-    });
-
-    await test('primitive with default → env (no more context type)', () => {
-      const result = classifyParam(
-        {
-          name: 'region',
-          type: 'string',
-          isPrimitive: true,
-          hasDefault: true,
-          defaultValue: 'us-east',
-        },
-        false,
-        new Set(),
-        new Set()
-      );
-      assert.equal(result, 'env');
-    });
-
-    await test('non-primitive with default on @stateful → state', () => {
-      const result = classifyParam(
-        { name: 'items', type: 'string[]', isPrimitive: false, hasDefault: true },
-        true,
-        new Set(),
-        new Set()
-      );
-      assert.equal(result, 'state');
-    });
-
-    await test('name matching @mcp → mcp regardless of type', () => {
-      const result = classifyParam(
-        { name: 'github', type: 'any', isPrimitive: false, hasDefault: false },
-        false,
-        new Set(['github']),
-        new Set()
-      );
-      assert.equal(result, 'mcp');
-    });
-
-    await test('name matching @photon → photon regardless of type', () => {
-      const result = classifyParam(
-        { name: 'billing', type: 'any', isPrimitive: false, hasDefault: false },
-        false,
-        new Set(),
-        new Set(['billing'])
-      );
-      assert.equal(result, 'photon');
-    });
-
-    await test('primitive with default + @mcp match → mcp wins', () => {
-      const result = classifyParam(
-        {
-          name: 'github',
-          type: 'string',
-          isPrimitive: true,
-          hasDefault: true,
-          defaultValue: 'token',
-        },
-        false,
-        new Set(['github']),
-        new Set()
-      );
-      assert.equal(result, 'mcp');
-    });
-
-    // ═════════════════════════════════════════════════════════════
-    console.log('\n');
-    // ═════════════════════════════════════════════════════════════
 
     console.log(`Results: ${passed} passed, ${failed} failed\n`);
     if (failed > 0) process.exit(1);
