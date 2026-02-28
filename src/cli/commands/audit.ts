@@ -2,13 +2,22 @@
  * Audit CLI Command
  *
  * View and filter the persistent audit log at ~/.photon/audit.jsonl
+ * Supports reading rotated archives for historical queries.
  */
 
 import type { Command } from 'commander';
-import { createReadStream, existsSync, watchFile, unwatchFile } from 'fs';
+import { createReadStream, existsSync, statSync, watchFile } from 'fs';
 import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { createInterface } from 'readline';
-import { AUDIT_FILE_PATH, type AuditEntry } from '../../shared/audit.js';
+import {
+  AUDIT_FILE_PATH,
+  AUDIT_DIR_PATH,
+  MAX_ROTATED_FILES,
+  MAX_FILE_SIZE,
+  forceRotate,
+  type AuditEntry,
+} from '../../shared/audit.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -89,16 +98,22 @@ function formatTable(entries: AuditEntry[]): string {
   return [header, sep, ...lines].join('\n');
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
-// READ LOG
+// READ LOG (with rotated archive support)
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function readAuditLog(): Promise<AuditEntry[]> {
-  if (!existsSync(AUDIT_FILE_PATH)) return [];
+async function readJSONLFile(path: string): Promise<AuditEntry[]> {
+  if (!existsSync(path)) return [];
 
   const entries: AuditEntry[] = [];
   const rl = createInterface({
-    input: createReadStream(AUDIT_FILE_PATH),
+    input: createReadStream(path),
     crlfDelay: Infinity,
   });
 
@@ -111,6 +126,26 @@ async function readAuditLog(): Promise<AuditEntry[]> {
     }
   }
 
+  return entries;
+}
+
+/**
+ * Read audit entries, optionally including rotated archives.
+ * Archives are read oldest-first so entries are in chronological order.
+ */
+async function readAuditLog(includeArchives = false): Promise<AuditEntry[]> {
+  const entries: AuditEntry[] = [];
+
+  if (includeArchives) {
+    // Read rotated files oldest-first: audit.3.jsonl → audit.2.jsonl → audit.1.jsonl
+    for (let i = MAX_ROTATED_FILES; i >= 1; i--) {
+      const archivePath = join(AUDIT_DIR_PATH, `audit.${i}.jsonl`);
+      entries.push(...(await readJSONLFile(archivePath)));
+    }
+  }
+
+  // Current file is always read
+  entries.push(...(await readJSONLFile(AUDIT_FILE_PATH)));
   return entries;
 }
 
@@ -133,7 +168,11 @@ async function tailAuditLog(filters: { photon?: string; client?: string }): Prom
     try {
       const content = await readFile(AUDIT_FILE_PATH, 'utf-8');
       const currentSize = Buffer.byteLength(content);
-      if (currentSize <= fileSize) return;
+      if (currentSize <= fileSize) {
+        // File was rotated (smaller now) — reset offset
+        fileSize = 0;
+        if (currentSize === 0) return;
+      }
 
       // Read new content
       const newContent = Buffer.from(content).subarray(fileSize).toString();
@@ -144,16 +183,12 @@ async function tailAuditLog(filters: { photon?: string; client?: string }): Prom
         try {
           const entry: AuditEntry = JSON.parse(line);
           if (matchesFilters(entry, filters)) {
-            if (filters.photon || filters.client) {
-              console.log(JSON.stringify(entry));
-            } else {
-              const time = new Date(entry.ts).toLocaleTimeString();
-              const dur = entry.durationMs != null ? ` ${entry.durationMs}ms` : '';
-              const err = entry.error ? ` ERROR: ${entry.error}` : '';
-              console.log(
-                `${time}  ${entry.event}  ${entry.photon || '-'}/${entry.method || '-'}  [${entry.client || '-'}]${dur}${err}`
-              );
-            }
+            const time = new Date(entry.ts).toLocaleTimeString();
+            const dur = entry.durationMs != null ? ` ${entry.durationMs}ms` : '';
+            const err = entry.error ? ` ERROR: ${entry.error}` : '';
+            console.log(
+              `${time}  ${entry.event}  ${entry.photon || '-'}/${entry.method || '-'}  [${entry.client || '-'}]${dur}${err}`
+            );
           }
         } catch {
           // Skip malformed
@@ -181,14 +216,74 @@ export function registerAuditCommand(program: Command): void {
     .option('--photon <name>', 'Filter by photon name')
     .option('--client <type>', 'Filter by client type (cli, beam, mcp, stdio)')
     .option('--since <duration>', 'Show entries from last N (e.g. 30m, 2h, 1d)')
+    .option('--all', 'Include rotated archive files')
     .option('--json', 'Output raw JSONL')
+    .option('--rotate', 'Force log rotation now')
+    .option('--stats', 'Show audit log file statistics')
     .action(async (opts) => {
+      // --rotate: force rotation
+      if (opts.rotate) {
+        const rotated = forceRotate();
+        if (rotated) {
+          console.log('Audit log rotated. Current log archived to audit.1.jsonl');
+        } else {
+          console.log('Nothing to rotate (no audit log file found).');
+        }
+        return;
+      }
+
+      // --stats: show file info
+      if (opts.stats) {
+        const files: { name: string; size: number; entries: number }[] = [];
+
+        if (existsSync(AUDIT_FILE_PATH)) {
+          const s = statSync(AUDIT_FILE_PATH);
+          const entries = await readJSONLFile(AUDIT_FILE_PATH);
+          files.push({ name: 'audit.jsonl (current)', size: s.size, entries: entries.length });
+        }
+
+        for (let i = 1; i <= MAX_ROTATED_FILES; i++) {
+          const p = join(AUDIT_DIR_PATH, `audit.${i}.jsonl`);
+          if (existsSync(p)) {
+            const s = statSync(p);
+            const entries = await readJSONLFile(p);
+            files.push({ name: `audit.${i}.jsonl`, size: s.size, entries: entries.length });
+          }
+        }
+
+        if (files.length === 0) {
+          console.log('No audit log files found.');
+          return;
+        }
+
+        const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+        const totalEntries = files.reduce((sum, f) => sum + f.entries, 0);
+
+        console.log('Audit Log Files:');
+        for (const f of files) {
+          console.log(
+            `  ${f.name.padEnd(28)} ${formatBytes(f.size).padStart(8)}  ${f.entries} entries`
+          );
+        }
+        console.log(`  ${''.padEnd(28)} ${'-'.repeat(8)}  ${'─'.repeat(10)}`);
+        console.log(
+          `  ${'Total'.padEnd(28)} ${formatBytes(totalSize).padStart(8)}  ${totalEntries} entries`
+        );
+        console.log(
+          `\nRotation: at ${formatBytes(MAX_FILE_SIZE)}, keeping ${MAX_ROTATED_FILES} archives`
+        );
+        return;
+      }
+
+      // --tail: live mode
       if (opts.tail) {
         await tailAuditLog({ photon: opts.photon, client: opts.client });
         return;
       }
 
-      const entries = await readAuditLog();
+      // Default: read and display
+      const includeArchives = opts.all || !!opts.since;
+      const entries = await readAuditLog(includeArchives);
       const sinceDate = opts.since ? parseSince(opts.since) : undefined;
 
       const filtered = entries.filter((e) =>
