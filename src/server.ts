@@ -709,10 +709,13 @@ export class PhotonServer {
     const tool = this.mcp.tools.find((t) => t.name === toolName);
     const outputFormat = tool?.outputFormat;
 
+    const startTime = Date.now();
     const result = await this.loader.executeTool(this.mcp, toolName, args || {}, {
       inputProvider,
       outputHandler,
     });
+    const durationMs = Date.now() - startTime;
+    this.log('info', `${toolName} completed in ${durationMs}ms`, { durationMs });
 
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;

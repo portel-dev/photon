@@ -2784,7 +2784,7 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _log(type: string, message: string, verbose = false) {
+  private _log(type: string, message: string, verbose = false, durationMs?: number) {
     // Skip verbose messages if verbose logging is disabled
     if (verbose && !this._verboseLogging) {
       return;
@@ -2809,6 +2809,7 @@ export class BeamApp extends LitElement {
         timestamp: new Date().toISOString(),
         count: 1,
         photonName: this._selectedPhoton?.name,
+        ...(durationMs != null ? { durationMs } : {}),
       },
       ...this._activityLog,
     ];
@@ -4645,7 +4646,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (this._mcpReady) {
       try {
         const toolName = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
+        const execStart = Date.now();
         const result = await mcpClient.callTool(toolName, args);
+        const execDuration = Date.now() - execStart;
 
         if (result.isError) {
           const errorText = result.content.find((c) => c.type === 'text')?.text || 'Unknown error';
@@ -4656,7 +4659,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           }
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
-          this._log('success', 'Execution completed');
+          this._log('success', 'Execution completed', false, execDuration);
 
           // Scroll result into view on mobile
           this.updateComplete.then(() => {

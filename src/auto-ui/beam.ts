@@ -622,9 +622,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Create HTTP server
   const server = http.createServer(async (req, res) => {
+    const reqStart = Date.now();
     // Security: set standard security headers on all responses
     setSecurityHeaders(res);
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
+
+    // Access logging for API and MCP routes (debug-level to avoid noise)
+    res.on('finish', () => {
+      if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') {
+        const duration = Date.now() - reqStart;
+        logger.debug(`${req.method} ${url.pathname} ${res.statusCode} ${duration}ms`);
+      }
+    });
 
     // ══════════════════════════════════════════════════════════════════════════
     // MCP Streamable HTTP Transport (standard MCP clients like Claude Desktop)

@@ -918,7 +918,19 @@ const handlers: Record<string, RequestHandler> = {
 
         const callOpts = targetInstance !== undefined ? { ...sendOpts, targetInstance } : sendOpts;
 
+        const startTime = Date.now();
         const result = await sendCommand(photonName, methodName, callArgs, callOpts);
+        const durationMs = Date.now() - startTime;
+
+        broadcastNotification(
+          'beam/log',
+          {
+            type: 'info',
+            message: `${methodName} completed in ${durationMs}ms`,
+            durationMs,
+          },
+          true
+        );
 
         const resultText = formatResultText(result);
 
@@ -1131,6 +1143,7 @@ const handlers: Record<string, RequestHandler> = {
       // Use loader.executeTool if available (sets up execution context for this.emit())
       // Fall back to direct method call for backward compatibility
       let result: any;
+      const startTime = Date.now();
       if (ctx.loader) {
         result = await ctx.loader.executeTool(mcp, methodName, args || {}, {
           outputHandler,
@@ -1174,6 +1187,17 @@ const handlers: Record<string, RequestHandler> = {
         // Use return value if no chunks were yielded, otherwise use chunks
         const finalResult =
           chunks.length > 0 ? (chunks.length === 1 ? chunks[0] : chunks) : returnValue;
+        const durationMs = Date.now() - startTime;
+        broadcastNotification(
+          'beam/log',
+          {
+            type: 'info',
+            message: `${methodName} completed in ${durationMs}ms`,
+            durationMs,
+          },
+          true
+        );
+
         const genResultText = formatResultText(finalResult);
         const genResponse = {
           jsonrpc: '2.0' as const,
@@ -1200,6 +1224,17 @@ const handlers: Record<string, RequestHandler> = {
 
         return genResponse;
       }
+
+      const durationMs = Date.now() - startTime;
+      broadcastNotification(
+        'beam/log',
+        {
+          type: 'info',
+          message: `${methodName} completed in ${durationMs}ms`,
+          durationMs,
+        },
+        true
+      );
 
       // For void methods, provide a success acknowledgment so the UI shows feedback
       const resultText = formatResultText(result);

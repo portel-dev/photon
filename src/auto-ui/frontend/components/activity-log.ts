@@ -9,6 +9,7 @@ interface ActivityItem {
   timestamp: string;
   count?: number; // For collapsed repeated messages
   photonName?: string; // For per-photon filtering
+  durationMs?: number; // Tool execution duration
 }
 
 @customElement('activity-log')
@@ -124,6 +125,17 @@ export class ActivityLog extends LitElement {
         word-break: break-all;
       }
 
+      .duration {
+        display: inline-block;
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        background: hsla(220, 10%, 80%, 0.08);
+        padding: 1px 6px;
+        border-radius: var(--radius-full);
+        margin-left: var(--space-sm);
+        font-variant-numeric: tabular-nums;
+      }
+
       .type-info {
         border-left-color: var(--accent-secondary);
       }
@@ -224,7 +236,9 @@ export class ActivityLog extends LitElement {
             <div class="log-item type-${item.type}">
               <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
               <span class="content"
-                >${item.message}${item.count && item.count > 1
+                >${item.message}${item.durationMs != null
+                  ? html`<span class="duration">${item.durationMs}ms</span>`
+                  : ''}${item.count && item.count > 1
                   ? html`<span class="count">(×${item.count})</span>`
                   : ''}</span
               >
