@@ -28,6 +28,7 @@ import { getDefaultContext } from '../context.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
+import { audit } from '../shared/audit.js';
 
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
@@ -1262,6 +1263,18 @@ async function handleRequest(
           method: request.method,
           photon: photonName,
           instance: targetName,
+          clientType: request.clientType || 'unknown',
+          sessionId: session.id,
+          durationMs,
+        });
+        audit({
+          ts: new Date().toISOString(),
+          event: 'tool_call',
+          photon: photonName,
+          method: request.method,
+          instance: targetName || 'default',
+          client: request.clientType || 'unknown',
+          sessionId: session.id,
           durationMs,
         });
 
@@ -1308,7 +1321,24 @@ async function handleRequest(
 
       setPromptHandler(null);
 
-      logger.info('Request completed', { method: request.method, photon: photonName, durationMs });
+      logger.info('Request completed', {
+        method: request.method,
+        photon: photonName,
+        instance: session.instanceName || 'default',
+        clientType: request.clientType || 'unknown',
+        sessionId: session.id,
+        durationMs,
+      });
+      audit({
+        ts: new Date().toISOString(),
+        event: 'tool_call',
+        photon: photonName,
+        method: request.method,
+        instance: session.instanceName || 'default',
+        client: request.clientType || 'unknown',
+        sessionId: session.id,
+        durationMs,
+      });
 
       // Persist reactive state after each tool call
       await persistInstanceState(
@@ -1333,6 +1363,16 @@ async function handleRequest(
     } catch (error) {
       logger.error('Error executing request', {
         method: request.method,
+        error: getErrorMessage(error),
+      });
+      audit({
+        ts: new Date().toISOString(),
+        event: 'tool_error',
+        photon: photonName,
+        method: request.method,
+        instance: request.instanceName || 'default',
+        client: request.clientType || 'unknown',
+        sessionId: request.sessionId,
         error: getErrorMessage(error),
       });
       setPromptHandler(null);

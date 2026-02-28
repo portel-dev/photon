@@ -35,6 +35,7 @@ import type {
   ExternalMCPInfo,
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
+import { audit } from '../shared/audit.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // LOCAL TYPES (specific to this transport)
@@ -811,6 +812,7 @@ const handlers: Record<string, RequestHandler> = {
           sessionId: beamSessionId,
           instanceName: session.instanceName,
           workingDir: ctx.workingDir,
+          clientType: 'beam' as const,
         };
 
         // Elicitation-based instance selection when _use called without name
@@ -928,9 +930,22 @@ const handlers: Record<string, RequestHandler> = {
             type: 'info',
             message: `${methodName} completed in ${durationMs}ms`,
             durationMs,
+            photon: photonName,
+            instance: session.instanceName || 'default',
+            client: 'beam',
           },
           true
         );
+        audit({
+          ts: new Date().toISOString(),
+          event: 'tool_call',
+          photon: photonName,
+          method: methodName,
+          instance: session.instanceName || 'default',
+          client: 'beam',
+          sessionId: session.id,
+          durationMs,
+        });
 
         const resultText = formatResultText(result);
 
@@ -945,6 +960,16 @@ const handlers: Record<string, RequestHandler> = {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        audit({
+          ts: new Date().toISOString(),
+          event: 'tool_error',
+          photon: photonName,
+          method: methodName,
+          instance: session?.instanceName || 'default',
+          client: 'beam',
+          sessionId: session?.id,
+          error: message,
+        });
         return {
           jsonrpc: '2.0',
           id: req.id,
@@ -1194,9 +1219,22 @@ const handlers: Record<string, RequestHandler> = {
             type: 'info',
             message: `${methodName} completed in ${durationMs}ms`,
             durationMs,
+            photon: photonName,
+            instance: session?.instanceName || 'default',
+            client: session?.clientInfo?.name || 'beam',
           },
           true
         );
+        audit({
+          ts: new Date().toISOString(),
+          event: 'tool_call',
+          photon: photonName,
+          method: methodName,
+          instance: session?.instanceName || 'default',
+          client: session?.clientInfo?.name || 'beam',
+          sessionId: session?.id,
+          durationMs,
+        });
 
         const genResultText = formatResultText(finalResult);
         const genResponse = {
@@ -1232,9 +1270,22 @@ const handlers: Record<string, RequestHandler> = {
           type: 'info',
           message: `${methodName} completed in ${durationMs}ms`,
           durationMs,
+          photon: photonName,
+          instance: session?.instanceName || 'default',
+          client: session?.clientInfo?.name || 'beam',
         },
         true
       );
+      audit({
+        ts: new Date().toISOString(),
+        event: 'tool_call',
+        photon: photonName,
+        method: methodName,
+        instance: session?.instanceName || 'default',
+        client: session?.clientInfo?.name || 'beam',
+        sessionId: session?.id,
+        durationMs,
+      });
 
       // For void methods, provide a success acknowledgment so the UI shows feedback
       const resultText = formatResultText(result);
@@ -1265,6 +1316,16 @@ const handlers: Record<string, RequestHandler> = {
       return toolResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      audit({
+        ts: new Date().toISOString(),
+        event: 'tool_error',
+        photon: photonName,
+        method: methodName,
+        instance: session?.instanceName || 'default',
+        client: session?.clientInfo?.name || 'beam',
+        sessionId: session?.id,
+        error: message,
+      });
       return {
         jsonrpc: '2.0',
         id: req.id,

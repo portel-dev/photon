@@ -46,6 +46,7 @@ import { subscribeChannel, pingDaemon, publishToChannel } from './daemon/client.
 import { isGlobalDaemonRunning, startGlobalDaemon } from './daemon/manager.js';
 import { PhotonDocExtractor } from './photon-doc-extractor.js';
 import { isLocalRequest, readBody, setSecurityHeaders } from './shared/security.js';
+import { audit } from './shared/audit.js';
 
 export class HotReloadDisabledError extends Error {
   constructor(message: string) {
@@ -715,7 +716,20 @@ export class PhotonServer {
       outputHandler,
     });
     const durationMs = Date.now() - startTime;
-    this.log('info', `${toolName} completed in ${durationMs}ms`, { durationMs });
+    const transport = this.options.transport || 'stdio';
+    this.log('info', `${toolName} completed in ${durationMs}ms`, {
+      durationMs,
+      photon: this.mcp?.name,
+      transport,
+    });
+    audit({
+      ts: new Date().toISOString(),
+      event: 'tool_call',
+      photon: this.mcp?.name,
+      method: toolName,
+      client: transport,
+      durationMs,
+    });
 
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;
