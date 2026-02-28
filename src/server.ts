@@ -252,7 +252,12 @@ export class PhotonServer {
   }
 
   // Known clients that support MCP Apps UI (fallback when capability isn't announced)
-  private static readonly UI_CAPABLE_CLIENTS = new Set(['chatgpt', 'mcpjam', 'mcp-inspector']);
+  private static readonly UI_CAPABLE_CLIENTS = new Set([
+    'claude-ai',
+    'chatgpt',
+    'mcpjam',
+    'mcp-inspector',
+  ]);
 
   /**
    * Check if client supports MCP Apps UI (structuredContent + _meta.ui)
@@ -267,8 +272,12 @@ export class PhotonServer {
     const targetServer = server || this.server;
 
     // 1. Check capabilities (official MCP Apps negotiation)
+    // Clients may send this under 'experimental' or 'extensions' depending on spec version
     const capabilities = targetServer.getClientCapabilities();
     if (capabilities?.experimental?.['io.modelcontextprotocol/ui']) {
+      return true;
+    }
+    if ((capabilities as any)?.extensions?.['io.modelcontextprotocol/ui']) {
       return true;
     }
 
