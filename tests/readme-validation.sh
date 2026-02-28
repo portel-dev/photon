@@ -106,16 +106,16 @@ if [ -f ~/.photon/test-readme-calc.photon.ts ]; then
     fi
 fi
 
-test_start "photon maker new with --dir should create file in custom directory"
-cd "$TEST_DIR"
-if $PHOTON_CMD --dir="$TEST_DIR" maker new local-calc > /dev/null 2>&1; then
-    if [ -f "$TEST_DIR/local-calc.photon.ts" ]; then
-        test_pass "File created in custom working directory"
+test_start "photon maker new should create another photon"
+rm -f ~/.photon/local-calc.photon.ts
+if $PHOTON_CMD maker new local-calc > /dev/null 2>&1; then
+    if [ -f ~/.photon/local-calc.photon.ts ]; then
+        test_pass "local-calc.photon.ts created in ~/.photon/"
     else
-        test_fail "File not created in custom directory"
+        test_fail "local-calc.photon.ts not found in ~/.photon/"
     fi
 else
-    test_fail "init with --dir failed"
+    test_fail "maker new local-calc failed"
 fi
 
 # ============================================================================
@@ -129,11 +129,11 @@ else
     test_fail "Validation failed"
 fi
 
-test_start "photon --dir maker validate should work"
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate local-calc > /dev/null 2>&1; then
-    test_pass "Validation with dir successful"
+test_start "photon maker validate should work for local-calc"
+if $PHOTON_CMD maker validate local-calc > /dev/null 2>&1; then
+    test_pass "Validation of local-calc successful"
 else
-    test_fail "Validation with dir failed"
+    test_fail "Validation of local-calc failed"
 fi
 
 # ============================================================================
@@ -195,17 +195,16 @@ fi
 # SECTION 5: Working Directory Flag
 # ============================================================================
 
-test_start "photon --dir should work with custom directory"
-CUSTOM_DIR="$TEST_DIR/custom-mcps"
-mkdir -p "$CUSTOM_DIR"
-if $PHOTON_CMD --dir="$CUSTOM_DIR" maker new test-mcp > /dev/null 2>&1; then
-    if [ -f "$CUSTOM_DIR/test-mcp.photon.ts" ]; then
-        test_pass "Created file in custom directory"
+test_start "photon maker new should create photon with hyphenated name"
+rm -f ~/.photon/test-mcp.photon.ts
+if $PHOTON_CMD maker new test-mcp > /dev/null 2>&1; then
+    if [ -f ~/.photon/test-mcp.photon.ts ]; then
+        test_pass "test-mcp.photon.ts created in ~/.photon/"
     else
-        test_fail "File not in custom directory"
+        test_fail "test-mcp.photon.ts not found in ~/.photon/"
     fi
 else
-    test_fail "Working directory flag failed"
+    test_fail "maker new test-mcp failed"
 fi
 
 # ============================================================================
@@ -231,7 +230,7 @@ fi
 # ============================================================================
 
 test_start "Constructor parameters should map to environment variables"
-cat > "$TEST_DIR/config-test.photon.ts" <<'EOF'
+cat > ~/.photon/config-test.photon.ts <<'EOF'
 export default class ConfigTest {
   constructor(
     private apiKey: string,
@@ -244,8 +243,8 @@ export default class ConfigTest {
 }
 EOF
 
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate config-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --dir="$TEST_DIR" info config-test --mcp 2>&1)
+if $PHOTON_CMD maker validate config-test > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD info config-test --mcp 2>&1)
     if echo "$OUTPUT" | grep -q "CONFIG_TEST_API_KEY"; then
         test_pass "Env var CONFIG_TEST_API_KEY detected"
     else
@@ -260,7 +259,7 @@ fi
 # ============================================================================
 
 test_start "Schema extraction should handle complex types"
-cat > "$TEST_DIR/types-test.photon.ts" <<'EOF'
+cat > ~/.photon/types-test.photon.ts <<'EOF'
 export default class TypesTest {
   /**
    * Test complex types
@@ -279,12 +278,12 @@ export default class TypesTest {
 }
 EOF
 
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate types-test > /dev/null 2>&1; then
+if $PHOTON_CMD maker validate types-test > /dev/null 2>&1; then
     # Validation success means types were extracted correctly
     test_pass "Complex types validated successfully"
 
     # Verify the photon has tools
-    OUTPUT=$($PHOTON_CMD --dir="$TEST_DIR" info types-test 2>&1)
+    OUTPUT=$($PHOTON_CMD info types-test 2>&1)
     if echo "$OUTPUT" | grep -q "Tools:"; then
         test_pass "Complex type tool detected"
     else
@@ -299,7 +298,7 @@ fi
 # ============================================================================
 
 test_start "JSDoc descriptions should be extracted"
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate types-test > /dev/null 2>&1; then
+if $PHOTON_CMD maker validate types-test > /dev/null 2>&1; then
     # Validation success means JSDoc was parsed correctly
     test_pass "Tool description extracted from JSDoc"
 else
@@ -311,7 +310,7 @@ fi
 # ============================================================================
 
 test_start "Private methods (starting with _) should not be tools"
-cat > "$TEST_DIR/private-test.photon.ts" <<'EOF'
+cat > ~/.photon/private-test.photon.ts <<'EOF'
 export default class PrivateTest {
   async publicTool(params: {}) {
     return this._helperMethod();
@@ -323,8 +322,8 @@ export default class PrivateTest {
 }
 EOF
 
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate private-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --dir="$TEST_DIR" maker validate private-test 2>&1)
+if $PHOTON_CMD maker validate private-test > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD maker validate private-test 2>&1)
     # Check that it has exactly 1 tool (only publicTool, not _helperMethod)
     if echo "$OUTPUT" | grep -q "Tools: 1"; then
         test_pass "Private method excluded from tools"
@@ -340,7 +339,7 @@ fi
 # ============================================================================
 
 test_start "Different return value formats should be supported"
-cat > "$TEST_DIR/return-test.photon.ts" <<'EOF'
+cat > ~/.photon/return-test.photon.ts <<'EOF'
 export default class ReturnTest {
   async stringReturn(params: {}) {
     return "string result";
@@ -356,8 +355,8 @@ export default class ReturnTest {
 }
 EOF
 
-if $PHOTON_CMD --dir="$TEST_DIR" maker validate return-test > /dev/null 2>&1; then
-    OUTPUT=$($PHOTON_CMD --dir="$TEST_DIR" maker validate return-test 2>&1)
+if $PHOTON_CMD maker validate return-test > /dev/null 2>&1; then
+    OUTPUT=$($PHOTON_CMD maker validate return-test 2>&1)
     # Check that it has 3 tools (all return format methods)
     if echo "$OUTPUT" | grep -q "Tools: 3"; then
         test_pass "All return format methods detected"
@@ -375,6 +374,12 @@ fi
 cd /
 rm -rf "$TEST_DIR"
 rm -f ~/.photon/test-readme-calc.photon.ts
+rm -f ~/.photon/local-calc.photon.ts
+rm -f ~/.photon/test-mcp.photon.ts
+rm -f ~/.photon/config-test.photon.ts
+rm -f ~/.photon/types-test.photon.ts
+rm -f ~/.photon/private-test.photon.ts
+rm -f ~/.photon/return-test.photon.ts
 
 # ============================================================================
 # Summary
