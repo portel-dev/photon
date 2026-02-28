@@ -251,42 +251,37 @@ export class PhotonServer {
     return !!capabilities.elicitation;
   }
 
-  // Known clients that support MCP Apps UI (fallback when capability isn't announced)
-  private static readonly UI_CAPABLE_CLIENTS = new Set([
-    'claude-ai',
-    'chatgpt',
-    'mcpjam',
-    'mcp-inspector',
-  ]);
+  private static readonly MCP_UI_CAPABILITY = 'io.modelcontextprotocol/ui';
 
   /**
    * Check if client supports MCP Apps UI (structuredContent + _meta.ui)
    *
-   * Detection order:
-   * 1. capabilities.experimental["io.modelcontextprotocol/ui"] — official MCP Apps negotiation
-   * 2. clientInfo.name — fallback for known UI-capable clients
+   * Looks for the "io.modelcontextprotocol/ui" capability in the client's
+   * initialize handshake. Any MCP client that advertises this capability
+   * gets rich UI responses — Claude Desktop, ChatGPT, MCPJam, etc.
    *
-   * Basic/unknown clients get text-only responses (no structuredContent, no _meta.ui).
+   * The capability may appear under `experimental` (older SDK types) or
+   * `extensions` (protocol version 2025-11-25+). We check both so it
+   * just works regardless of which field the client uses.
+   *
+   * Beam is special-cased because it's our own SSE transport where the
+   * capability is implicit.
    */
   private clientSupportsUI(server?: Server): boolean {
     const targetServer = server || this.server;
 
-    // 1. Check capabilities (official MCP Apps negotiation)
-    // Clients may send this under 'experimental' or 'extensions' depending on spec version
-    const capabilities = targetServer.getClientCapabilities();
-    if (capabilities?.experimental?.['io.modelcontextprotocol/ui']) {
+    // Check capabilities — the canonical way for any MCP client to declare UI support
+    const capabilities = targetServer.getClientCapabilities() as Record<string, any>;
+    if (capabilities?.experimental?.[PhotonServer.MCP_UI_CAPABILITY]) {
       return true;
     }
-    if ((capabilities as any)?.extensions?.['io.modelcontextprotocol/ui']) {
+    if (capabilities?.extensions?.[PhotonServer.MCP_UI_CAPABILITY]) {
       return true;
     }
 
-    // 2. Check clientInfo.name (fallback for known UI-capable clients)
+    // Beam is our own transport — UI support is implicit
     const clientInfo = targetServer.getClientVersion();
-    if (clientInfo?.name) {
-      if (clientInfo.name === 'beam') return true;
-      if (PhotonServer.UI_CAPABLE_CLIENTS.has(clientInfo.name)) return true;
-    }
+    if (clientInfo?.name === 'beam') return true;
 
     return false;
   }
