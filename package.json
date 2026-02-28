@@ -12,6 +12,7 @@
     "templates"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "build": "tsc && cp -r src/photons dist/ && chmod +x dist/cli.js && tsx scripts/build-beam.ts",
     "dev": "tsc --watch",
     "lint": "eslint src/",
