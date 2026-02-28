@@ -98,6 +98,136 @@ function formatTable(entries: AuditEntry[]): string {
   return [header, sep, ...lines].join('\n');
 }
 
+function formatDashboard(entries: AuditEntry[]): string {
+  if (entries.length === 0) return 'No audit entries to summarize.';
+
+  const lines: string[] = [];
+  const calls = entries.filter((e) => e.event === 'tool_call');
+  const errors = entries.filter((e) => e.event === 'tool_error');
+  const durations = calls.filter((e) => e.durationMs != null).map((e) => e.durationMs!);
+  const avgMs =
+    durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+  const maxMs = durations.length > 0 ? Math.max(...durations) : 0;
+  const p95Ms =
+    durations.length > 0 ? durations.sort((a, b) => a - b)[Math.floor(durations.length * 0.95)] : 0;
+
+  // Time range
+  const first = new Date(entries[0].ts);
+  const last = new Date(entries[entries.length - 1].ts);
+
+  lines.push('Audit Dashboard');
+  lines.push('═'.repeat(50));
+  lines.push('');
+  lines.push(`  Period:      ${first.toLocaleString()} → ${last.toLocaleString()}`);
+  lines.push(`  Total calls: ${calls.length}`);
+  lines.push(
+    `  Errors:      ${errors.length}${errors.length > 0 ? ` (${((errors.length / (calls.length + errors.length)) * 100).toFixed(1)}%)` : ''}`
+  );
+  lines.push('');
+
+  if (durations.length > 0) {
+    lines.push('Latency');
+    lines.push('─'.repeat(30));
+    lines.push(`  Avg:  ${avgMs}ms`);
+    lines.push(`  P95:  ${p95Ms}ms`);
+    lines.push(`  Max:  ${maxMs}ms`);
+    lines.push('');
+  }
+
+  // Per-photon breakdown
+  const byPhoton = new Map<
+    string,
+    { calls: number; errors: number; totalMs: number; count: number }
+  >();
+  for (const e of entries) {
+    const name = e.photon || 'unknown';
+    const stat = byPhoton.get(name) || { calls: 0, errors: 0, totalMs: 0, count: 0 };
+    if (e.event === 'tool_call') {
+      stat.calls++;
+      if (e.durationMs != null) {
+        stat.totalMs += e.durationMs;
+        stat.count++;
+      }
+    } else if (e.event === 'tool_error') {
+      stat.errors++;
+    }
+    byPhoton.set(name, stat);
+  }
+
+  if (byPhoton.size > 0) {
+    lines.push('By Photon');
+    lines.push('─'.repeat(50));
+    const sorted = [...byPhoton.entries()].sort(
+      (a, b) => b[1].calls + b[1].errors - (a[1].calls + a[1].errors)
+    );
+    for (const [name, stat] of sorted) {
+      const avg = stat.count > 0 ? Math.round(stat.totalMs / stat.count) : 0;
+      const errStr = stat.errors > 0 ? `, ${stat.errors} err` : '';
+      const avgStr = stat.count > 0 ? `, avg ${avg}ms` : '';
+      lines.push(`  ${name.padEnd(20)} ${stat.calls} calls${errStr}${avgStr}`);
+    }
+    lines.push('');
+  }
+
+  // Per-client breakdown
+  const byClient = new Map<string, number>();
+  for (const e of entries) {
+    const client = e.client || 'unknown';
+    byClient.set(client, (byClient.get(client) || 0) + 1);
+  }
+
+  if (byClient.size > 0) {
+    lines.push('By Client');
+    lines.push('─'.repeat(30));
+    const sorted = [...byClient.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [client, count] of sorted) {
+      lines.push(`  ${client.padEnd(12)} ${count}`);
+    }
+    lines.push('');
+  }
+
+  // Top methods by call count
+  const byMethod = new Map<string, { calls: number; totalMs: number; count: number }>();
+  for (const e of calls) {
+    const key = `${e.photon || '?'}/${e.method || '?'}`;
+    const stat = byMethod.get(key) || { calls: 0, totalMs: 0, count: 0 };
+    stat.calls++;
+    if (e.durationMs != null) {
+      stat.totalMs += e.durationMs;
+      stat.count++;
+    }
+    byMethod.set(key, stat);
+  }
+
+  if (byMethod.size > 0) {
+    lines.push('Top Methods');
+    lines.push('─'.repeat(50));
+    const sorted = [...byMethod.entries()].sort((a, b) => b[1].calls - a[1].calls).slice(0, 10);
+    for (const [method, stat] of sorted) {
+      const avg = stat.count > 0 ? Math.round(stat.totalMs / stat.count) : 0;
+      const avgStr = stat.count > 0 ? `, avg ${avg}ms` : '';
+      lines.push(`  ${method.padEnd(30)} ${stat.calls} calls${avgStr}`);
+    }
+    lines.push('');
+  }
+
+  // Recent errors
+  if (errors.length > 0) {
+    lines.push('Recent Errors');
+    lines.push('─'.repeat(50));
+    const recentErrors = errors.slice(-5);
+    for (const e of recentErrors) {
+      const time = new Date(e.ts).toLocaleTimeString();
+      lines.push(
+        `  ${time}  ${e.photon || '-'}/${e.method || '-'}  ${(e.error || '').slice(0, 60)}`
+      );
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -220,6 +350,7 @@ export function registerAuditCommand(program: Command): void {
     .option('--json', 'Output raw JSONL')
     .option('--rotate', 'Force log rotation now')
     .option('--stats', 'Show audit log file statistics')
+    .option('--dashboard', 'Show aggregate dashboard with latency, breakdown, and errors')
     .action(async (opts) => {
       // --rotate: force rotation
       if (opts.rotate) {
@@ -272,6 +403,20 @@ export function registerAuditCommand(program: Command): void {
         console.log(
           `\nRotation: at ${formatBytes(MAX_FILE_SIZE)}, keeping ${MAX_ROTATED_FILES} archives`
         );
+        return;
+      }
+
+      // --dashboard: aggregate view
+      if (opts.dashboard) {
+        const includeArchives = opts.all || !!opts.since;
+        const entries = await readAuditLog(includeArchives);
+        const sinceDate = opts.since ? parseSince(opts.since) : undefined;
+
+        const filtered = entries.filter((e) =>
+          matchesFilters(e, { photon: opts.photon, client: opts.client, since: sinceDate })
+        );
+
+        console.log(formatDashboard(filtered));
         return;
       }
 
