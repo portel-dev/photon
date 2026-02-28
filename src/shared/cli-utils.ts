@@ -1,93 +1,16 @@
 /**
  * CLI Utilities
  *
- * Shared utilities for CLI commands to ensure consistent behavior
+ * Shared readline helpers for CLI commands
  */
-
-import type { Command } from 'commander';
-import { getDefaultContext } from '../context.js';
-
-/**
- * Global CLI options that can be set on any command
- */
-export interface GlobalOptions {
-  logLevel?: string;
-  jsonLogs?: boolean;
-}
-
-/**
- * Get global options from a command, handling parent chain
- *
- * Commander stores global options on the program root, so we need
- * to traverse up the parent chain to find them.
- */
-export function getGlobalOptions(command: Command): GlobalOptions {
-  // Traverse up to find the root program
-  let current: Command | null = command;
-  while (current?.parent) {
-    current = current.parent;
-  }
-
-  const opts = current?.opts() || {};
-
-  return {
-    logLevel: opts.logLevel,
-    jsonLogs: opts.jsonLogs,
-  };
-}
-
-/**
- * Get the working directory (respects PHOTON_DIR env var)
- */
-export function getWorkingDir(_command?: Command): string {
-  return getDefaultContext().baseDir;
-}
-
-/**
- * Check if we're in JSON output mode
- */
-export function isJsonMode(command: Command): boolean {
-  return getGlobalOptions(command).jsonLogs === true;
-}
-
-/**
- * Check if stdout is a TTY (for formatting decisions)
- */
-export function isTTY(): boolean {
-  return process.stdout.isTTY === true;
-}
-
-/**
- * Format output based on mode (JSON vs human-readable)
- */
-export function formatOutput(data: unknown, command?: Command): string {
-  if (command && isJsonMode(command)) {
-    return JSON.stringify(data, null, 2);
-  }
-
-  if (typeof data === 'string') {
-    return data;
-  }
-
-  return JSON.stringify(data, null, 2);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// READLINE UTILITIES
-// ══════════════════════════════════════════════════════════════════════════════
 
 import * as readline from 'readline';
-
-/**
- * Readline interface type for reuse
- */
-export type ReadlineInterface = readline.Interface;
 
 /**
  * Create a readline interface for CLI prompts
  * Uses stderr for output to keep stdout clean for data
  */
-export function createReadline(): ReadlineInterface {
+export function createReadline(): readline.Interface {
   return readline.createInterface({
     input: process.stdin,
     output: process.stderr,
@@ -96,8 +19,6 @@ export function createReadline(): ReadlineInterface {
 
 /**
  * Prompt user for text input
- * @param prompt - The prompt to display
- * @returns User's input
  */
 export function promptText(prompt: string): Promise<string> {
   const rl = createReadline();
@@ -111,9 +32,6 @@ export function promptText(prompt: string): Promise<string> {
 
 /**
  * Prompt user for confirmation (yes/no)
- * @param message - The message to display
- * @param defaultYes - Whether default is yes (true) or no (false)
- * @returns true for yes, false for no
  */
 export function promptConfirm(message: string, defaultYes = false): Promise<boolean> {
   const rl = createReadline();
@@ -134,12 +52,6 @@ export function promptConfirm(message: string, defaultYes = false): Promise<bool
 
 /**
  * Prompt user to select from numbered options
- * @param prompt - The prompt to display
- * @param optionCount - Number of options available
- * @param options - Configuration options
- * @param options.allowCancel - Whether empty input cancels (returns null). Default: true
- * @param options.defaultChoice - Default choice (1-based) to use on empty input
- * @returns Selected option number (1-based) or null if cancelled
  */
 export function promptChoice(
   prompt: string,
@@ -148,7 +60,6 @@ export function promptChoice(
 ): Promise<number | null> {
   const rl = createReadline();
 
-  // Handle legacy boolean parameter
   const opts = typeof options === 'boolean' ? { allowCancel: options } : options;
   const { allowCancel = true, defaultChoice } = opts;
 
@@ -182,30 +93,5 @@ export function promptChoice(
       });
     };
     ask();
-  });
-}
-
-/**
- * Prompt user to wait and press Enter
- * @param message - Optional message (defaults to "Press Enter to continue")
- * @param allowCancel - Whether typing "cancel" aborts
- * @returns true to continue, false if cancelled
- */
-export function promptWait(
-  message = 'Press Enter to continue',
-  allowCancel = true
-): Promise<boolean> {
-  const rl = createReadline();
-  const suffix = allowCancel ? ' (or type "cancel" to abort)' : '';
-
-  return new Promise((resolve) => {
-    rl.question(`${message}${suffix}: `, (answer) => {
-      rl.close();
-      if (allowCancel && answer.toLowerCase().trim() === 'cancel') {
-        resolve(false);
-      } else {
-        resolve(true);
-      }
-    });
   });
 }

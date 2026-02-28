@@ -1,6 +1,5 @@
 /**
  * Centralized error handling utilities
- * Provides consistent error formatting, user-friendly messages, and structured error types
  */
 
 import { Logger } from './logger.js';
@@ -38,62 +37,7 @@ export const ExitCode = {
   CANCELLED: 130,
 } as const;
 
-export type ExitCodeType = (typeof ExitCode)[keyof typeof ExitCode];
-
-/**
- * Get appropriate exit code for an error
- */
-export function getExitCode(error: unknown): ExitCodeType {
-  if (error instanceof ValidationError) {
-    return ExitCode.VALIDATION_ERROR;
-  }
-  if (error instanceof ConfigurationError) {
-    return ExitCode.CONFIG_ERROR;
-  }
-  if (error instanceof NetworkError) {
-    return ExitCode.NETWORK_ERROR;
-  }
-  if (error instanceof FileSystemError) {
-    const details = error.details as { code?: string } | undefined;
-    if (details?.code === 'ENOENT') {
-      return ExitCode.NOT_FOUND;
-    }
-    if (details?.code === 'EACCES' || details?.code === 'EPERM') {
-      return ExitCode.PERMISSION_DENIED;
-    }
-    return ExitCode.ERROR;
-  }
-  if (isNodeError(error)) {
-    if (error.code === 'ENOENT') return ExitCode.NOT_FOUND;
-    if (error.code === 'EACCES' || error.code === 'EPERM') return ExitCode.PERMISSION_DENIED;
-  }
-  return ExitCode.ERROR;
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// ERROR TYPES (extended, specific to photon CLI)
-// ══════════════════════════════════════════════════════════════════════════════
-
-export class FileSystemError extends PhotonError {
-  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
-    super(message, 'FILE_SYSTEM_ERROR', details, suggestion);
-    this.name = 'FileSystemError';
-  }
-}
-
-export class NetworkError extends PhotonError {
-  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
-    super(message, 'NETWORK_ERROR', details, suggestion);
-    this.name = 'NetworkError';
-  }
-}
-
-export class ConfigurationError extends PhotonError {
-  constructor(message: string, details?: Record<string, unknown>, suggestion?: string) {
-    super(message, 'CONFIGURATION_ERROR', details, suggestion);
-    this.name = 'ConfigurationError';
-  }
-}
+type ExitCodeType = (typeof ExitCode)[keyof typeof ExitCode];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ERROR UTILITIES
@@ -116,23 +60,6 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
- * Safe error stack extraction
- */
-export function getErrorStack(error: unknown): string | undefined {
-  if (error instanceof Error && error.stack) {
-    return error.stack;
-  }
-  return undefined;
-}
-
-/**
- * Check if error is a specific type
- */
-export function isErrorCode(error: unknown, code: string): boolean {
-  return error instanceof PhotonError && error.code === code;
-}
-
-/**
  * Check if error is a Node.js file system error
  */
 export function isNodeError(error: unknown, code?: string): error is NodeJS.ErrnoException {
@@ -145,67 +72,6 @@ export function isNodeError(error: unknown, code?: string): error is NodeJS.Errn
 }
 
 /**
- * Format error for user display
- */
-export function formatErrorMessage(
-  error: unknown,
-  options?: {
-    includeStack?: boolean;
-    context?: string;
-  }
-): string {
-  const message = getErrorMessage(error);
-  const parts: string[] = [];
-
-  if (options?.context) {
-    parts.push(`${options.context}:`);
-  }
-
-  parts.push(message);
-
-  if (error instanceof PhotonError && error.suggestion) {
-    parts.push(`\nSuggestion: ${error.suggestion}`);
-  }
-
-  if (options?.includeStack) {
-    const stack = getErrorStack(error);
-    if (stack) {
-      parts.push(`\nStack trace:\n${stack}`);
-    }
-  }
-
-  return parts.join(' ');
-}
-
-/**
- * Wrap Node.js ENOENT errors with helpful context
- */
-export function handleFileNotFound(path: string, context?: string): FileSystemError {
-  const message = context ? `File not found: ${path} (${context})` : `File not found: ${path}`;
-
-  return new FileSystemError(
-    message,
-    { path },
-    'Check that the file exists and you have read permissions'
-  );
-}
-
-/**
- * Wrap Node.js EACCES errors with helpful context
- */
-export function handlePermissionDenied(path: string, context?: string): FileSystemError {
-  const message = context
-    ? `Permission denied: ${path} (${context})`
-    : `Permission denied: ${path}`;
-
-  return new FileSystemError(
-    message,
-    { path },
-    'Check file permissions and ensure you have access rights'
-  );
-}
-
-/**
  * Convert unknown error to PhotonError
  */
 export function wrapError(error: unknown, context?: string, suggestion?: string): PhotonError {
@@ -215,15 +81,30 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 
   const message = context ? `${context}: ${getErrorMessage(error)}` : getErrorMessage(error);
 
-  // Handle Node.js errors
+  // Handle Node.js errors with helpful context
   if (isNodeError(error)) {
     if (error.code === 'ENOENT' && error.path) {
-      return handleFileNotFound(error.path, context);
+      return new PhotonError(
+        `File not found: ${error.path}${context ? ` (${context})` : ''}`,
+        'FILE_SYSTEM_ERROR',
+        { path: error.path },
+        'Check that the file exists and you have read permissions'
+      );
     }
     if (error.code === 'EACCES' && error.path) {
-      return handlePermissionDenied(error.path, context);
+      return new PhotonError(
+        `Permission denied: ${error.path}${context ? ` (${context})` : ''}`,
+        'FILE_SYSTEM_ERROR',
+        { path: error.path },
+        'Check file permissions and ensure you have access rights'
+      );
     }
-    return new FileSystemError(message, { code: error.code, path: error.path }, suggestion);
+    return new PhotonError(
+      message,
+      'FILE_SYSTEM_ERROR',
+      { code: error.code, path: error.path },
+      suggestion
+    );
   }
 
   return new PhotonError(message, 'UNKNOWN_ERROR', undefined, suggestion);
@@ -233,17 +114,18 @@ export function wrapError(error: unknown, context?: string, suggestion?: string)
 // ERROR HANDLER
 // ══════════════════════════════════════════════════════════════════════════════
 
-export interface ErrorHandlerOptions {
-  logger?: Logger;
-  exitOnError?: boolean;
-  exitCode?: ExitCodeType;
-  showStack?: boolean;
-}
-
 /**
- * Centralized error handler
+ * Centralized error handler for CLI commands
  */
-export function handleError(error: unknown, options: ErrorHandlerOptions = {}): never | void {
+export function handleError(
+  error: unknown,
+  options: {
+    logger?: Logger;
+    exitOnError?: boolean;
+    exitCode?: ExitCodeType;
+    showStack?: boolean;
+  } = {}
+): never | void {
   const {
     logger,
     exitOnError = false,
@@ -251,17 +133,22 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
     showStack = process.env.DEBUG === 'true',
   } = options;
 
-  const message = formatErrorMessage(error, {
-    includeStack: showStack,
-  });
+  const message = getErrorMessage(error);
+  const suggestion = error instanceof PhotonError ? error.suggestion : undefined;
+  const stack = error instanceof Error ? error.stack : undefined;
+
+  const parts = [message];
+  if (suggestion) parts.push(`\nSuggestion: ${suggestion}`);
+  if (showStack && stack) parts.push(`\nStack trace:\n${stack}`);
+  const formatted = parts.join(' ');
 
   if (logger) {
-    logger.error(message);
-    if (showStack && error instanceof Error && error.stack) {
-      logger.debug(error.stack);
+    logger.error(formatted);
+    if (showStack && stack) {
+      logger.debug(stack);
     }
   } else {
-    console.error(`❌ ${message}`);
+    console.error(`❌ ${formatted}`);
   }
 
   if (error instanceof PhotonError && error.details) {
@@ -273,8 +160,7 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
   }
 
   if (exitOnError) {
-    // Use provided exit code, or derive from error type
-    const code = exitCode ?? getExitCode(error);
+    const code = exitCode ?? ExitCode.ERROR;
     process.exit(code);
   }
 }
@@ -285,7 +171,6 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
 
 /**
  * Print error to stderr and exit with appropriate code
- * Use this for CLI commands to ensure consistent error handling
  */
 export function exitWithError(
   message: string,
@@ -317,132 +202,4 @@ export function exitWithError(
   }
 
   process.exit(exitCode);
-}
-
-/**
- * Exit successfully with optional message
- */
-export function exitSuccess(message?: string, logger?: Logger): never {
-  if (message) {
-    if (logger) {
-      logger.info(message);
-    } else {
-      console.error(`✓ ${message}`);
-    }
-  }
-  process.exit(ExitCode.SUCCESS);
-}
-
-/**
- * Async error wrapper for cleaner try-catch
- */
-export async function tryAsync<T>(
-  fn: () => Promise<T>,
-  context?: string,
-  suggestion?: string
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    throw wrapError(error, context, suggestion);
-  }
-}
-
-/**
- * Sync error wrapper for cleaner try-catch
- */
-export function trySync<T>(fn: () => T, context?: string, suggestion?: string): T {
-  try {
-    return fn();
-  } catch (error) {
-    throw wrapError(error, context, suggestion);
-  }
-}
-
-/**
- * Retry an async operation with exponential backoff
- */
-export async function retry<T>(
-  fn: () => Promise<T>,
-  options: {
-    maxAttempts?: number;
-    initialDelay?: number;
-    maxDelay?: number;
-    backoffFactor?: number;
-    context?: string;
-    retryIf?: (error: unknown) => boolean;
-  } = {}
-): Promise<T> {
-  const {
-    maxAttempts = 3,
-    initialDelay = 1000,
-    maxDelay = 10000,
-    backoffFactor = 2,
-    context,
-    retryIf = () => true,
-  } = options;
-
-  let lastError: unknown;
-  let delay = initialDelay;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-
-      // Don't retry if condition not met
-      if (!retryIf(error)) {
-        throw wrapError(error, context, `Operation failed and is not retryable`);
-      }
-
-      // Don't retry on last attempt
-      if (attempt === maxAttempts) {
-        break;
-      }
-
-      // Wait before retrying
-      await new Promise((resolve) => setTimeout(resolve, delay));
-
-      // Exponential backoff
-      delay = Math.min(delay * backoffFactor, maxDelay);
-    }
-  }
-
-  throw wrapError(lastError, context, `Operation failed after ${maxAttempts} attempts`);
-}
-
-/**
- * Check if an error is retryable (network/transient errors)
- */
-export function isRetryableError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-
-  const message = error.message.toLowerCase();
-  const name = error.name.toLowerCase();
-
-  // Network errors
-  if (
-    message.includes('econnrefused') ||
-    message.includes('econnreset') ||
-    message.includes('etimedout') ||
-    message.includes('timeout') ||
-    message.includes('network') ||
-    name === 'timeouterror' ||
-    name === 'networkerror'
-  ) {
-    return true;
-  }
-
-  // Rate limiting
-  if (message.includes('rate limit') || message.includes('too many requests')) {
-    return true;
-  }
-
-  // Service unavailable
-  if (message.includes('503') || message.includes('service unavailable')) {
-    return true;
-  }
-
-  return false;
 }

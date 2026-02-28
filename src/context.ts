@@ -34,14 +34,15 @@ export interface PhotonContext {
 const HOME_PHOTON_DIR = path.join(os.homedir(), '.photon');
 
 /**
- * Create an immutable PhotonContext.
+ * Get the default PhotonContext.
+ * Respects PHOTON_DIR env var; falls back to ~/.photon.
  *
- * @param dirOverride - Explicit PHOTON_DIR env value or internal override (resolved to absolute)
+ * Not cached — env var may change between calls (e.g. tests).
  */
-export function createPhotonContext(dirOverride?: string): PhotonContext {
+export function getDefaultContext(): PhotonContext {
+  const dirOverride = process.env.PHOTON_DIR;
   const baseDir = dirOverride ? path.resolve(dirOverride) : HOME_PHOTON_DIR;
 
-  // Daemon infrastructure is always global — one daemon per system
   const socketPath =
     process.platform === 'win32'
       ? '\\\\.\\pipe\\photon-daemon'
@@ -56,14 +57,4 @@ export function createPhotonContext(dirOverride?: string): PhotonContext {
     pidFile: path.join(HOME_PHOTON_DIR, 'daemon.pid'),
     logFile: path.join(HOME_PHOTON_DIR, 'daemon.log'),
   });
-}
-
-/**
- * Get the default PhotonContext.
- * Respects PHOTON_DIR env var; falls back to ~/.photon.
- *
- * Not cached — env var may change between calls (e.g. tests).
- */
-export function getDefaultContext(): PhotonContext {
-  return createPhotonContext(process.env.PHOTON_DIR);
 }

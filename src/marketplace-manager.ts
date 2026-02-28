@@ -15,7 +15,7 @@ import { getDefaultContext } from './context.js';
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
 
-export type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
+type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
 export interface Marketplace {
   name: string;
@@ -27,7 +27,7 @@ export interface Marketplace {
   lastUpdated?: string;
 }
 
-export interface MarketplaceConfig {
+interface MarketplaceConfig {
   marketplaces: Marketplace[];
 }
 
@@ -68,14 +68,14 @@ export interface PhotonInstallMetadata {
 /**
  * Local metadata file structure
  */
-export interface LocalMetadata {
+interface LocalMetadata {
   photons: Record<string, PhotonInstallMetadata>;
 }
 
 /**
  * Marketplace manifest (.marketplace/photons.json)
  */
-export interface MarketplaceManifest {
+interface MarketplaceManifest {
   name: string;
   version?: string;
   description?: string;
@@ -171,14 +171,6 @@ export async function readLocalMetadata(): Promise<LocalMetadata> {
     logger.warn(`Failed to read metadata file, using empty defaults: ${getErrorMessage(error)}`);
   }
   return { photons: {} };
-}
-
-/**
- * Write local installation metadata
- */
-export async function writeLocalMetadata(metadata: LocalMetadata): Promise<void> {
-  await fs.mkdir(CONFIG_DIR, { recursive: true });
-  await fs.writeFile(METADATA_FILE, JSON.stringify(metadata, null, 2), 'utf-8');
 }
 
 export class MarketplaceManager {
@@ -1487,7 +1479,7 @@ export class MarketplaceManager {
 
     // Remove marketplace tracking
     delete localMetadata.photons[fileName];
-    await writeLocalMetadata(localMetadata);
+    await this.writeMetadata(localMetadata);
 
     const parts = [];
     parts.push(`${name} is now your own`);
