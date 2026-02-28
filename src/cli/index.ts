@@ -29,6 +29,7 @@ import { registerDaemonCommands } from './commands/daemon.js';
 import { registerInitCommands, registerUninitCommands } from './commands/init.js';
 import { registerTestCommand } from './commands/test.js';
 import { registerAliasCommands } from './commands/alias.js';
+import { registerAuditCommand } from './commands/audit.js';
 import { preprocessArgs } from './commands/run.js';
 
 export function createProgram(): Command {
@@ -74,6 +75,7 @@ Package Management:
 Maintenance:
   update                  Refresh marketplace indexes & check CLI version
   doctor [name]           Diagnose environment and installations
+  audit                   View persistent tool execution audit log
 
 Development:
   maker new <name>        Create a new photon from template
@@ -110,6 +112,7 @@ Run 'photon <command> --help' for detailed usage.
   registerUninitCommands(program);
   registerTestCommand(program);
   registerAliasCommands(program);
+  registerAuditCommand(program);
 
   return program;
 }

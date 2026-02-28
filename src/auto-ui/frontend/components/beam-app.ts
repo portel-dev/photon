@@ -1989,7 +1989,7 @@ export class BeamApp extends LitElement {
       mcpClient.on('log', (data: any) => {
         if (data?.message) {
           const level = data.level || 'info';
-          this._log(level, data.message);
+          this._log(level, data.message, false, data.durationMs);
         }
       });
 
