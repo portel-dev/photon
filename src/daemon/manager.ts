@@ -401,10 +401,6 @@ export function isGlobalDaemonRunning(): boolean {
   return getManager().getStatus().running;
 }
 
-export function getGlobalDaemonStatus(): DaemonStatus {
-  return getManager().getStatus();
-}
-
 export async function startGlobalDaemon(quiet = false): Promise<void> {
   return getManager().start(quiet);
 }
@@ -419,8 +415,4 @@ export function stopGlobalDaemon(): void {
 
 export async function restartGlobalDaemon(): Promise<void> {
   return getManager().restart();
-}
-
-export function stopAllDaemons(): void {
-  return getManager().stop();
 }

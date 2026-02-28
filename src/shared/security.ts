@@ -78,17 +78,6 @@ export function validateNpmPackageName(input: string): boolean {
   return NPM_PACKAGE_NAME_RE.test(input);
 }
 
-/**
- * Validates a URL string. Returns the parsed URL or throws on invalid/dangerous input.
- */
-export function validateUrl(input: string): URL {
-  const url = new URL(input);
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error(`Invalid URL protocol: ${url.protocol}`);
-  }
-  return url;
-}
-
 // ─── HTML / XSS Prevention ──────────────────────────────────────────
 
 const HTML_ESCAPE_MAP: Record<string, string> = {
@@ -104,29 +93,6 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
  */
 export function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, (ch) => HTML_ESCAPE_MAP[ch]);
-}
-
-// ─── Prototype Pollution Prevention ─────────────────────────────────
-
-const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
-/**
- * Returns a shallow copy of `obj` with dangerous prototype-pollution keys removed.
- * Works recursively on nested objects.
- */
-export function sanitizeObject<T extends Record<string, any>>(obj: T): T {
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-    return obj;
-  }
-
-  const result: Record<string, any> = {};
-  for (const key of Object.keys(obj)) {
-    if (DANGEROUS_KEYS.has(key)) continue;
-    const val = obj[key];
-    result[key] =
-      val !== null && typeof val === 'object' && !Array.isArray(val) ? sanitizeObject(val) : val;
-  }
-  return result as T;
 }
 
 // ─── Template Safety ────────────────────────────────────────────────

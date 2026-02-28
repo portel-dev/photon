@@ -7,7 +7,6 @@
 import type { Command } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
-import * as net from 'net';
 import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { SchemaExtractor, ConstructorParam } from '@portel/photon-core';
@@ -18,7 +17,6 @@ import {
   handleError,
 } from '../../shared/error-handler.js';
 import { LoggerOptions, normalizeLogLevel, logger } from '../../shared/logger.js';
-import { validateOrThrow, isPositive } from '../../shared/validation.js';
 import { createReadline, promptText } from '../../shared/cli-utils.js';
 import { printError, printWarning, printInfo, printSuccess } from '../../cli-formatter.js';
 import { printHeader } from '../../cli-formatter.js';
@@ -84,48 +82,9 @@ function getLogOptionsFromCommand(command: Command | null | undefined): LoggerOp
   }
 }
 
-/**
- * Check if a port is available
- */
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.once('listening', () => {
-      server.close();
-      resolve(true);
-    });
-    server.listen(port);
-  });
-}
-
-/**
- * Find an available port starting from the given port
- */
-async function findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number> {
-  validateOrThrow(startPort, [isPositive('start port')]);
-
-  for (let i = 0; i < maxAttempts; i++) {
-    const port = startPort + i;
-    if (port > 65535) {
-      throw new Error(`Port ${port} exceeds maximum port number (65535)`);
-    }
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(
-    `No available port found between ${startPort} and ${startPort + maxAttempts - 1}`
-  );
-}
-
 function cliHeading(title: string): void {
   console.log('');
   printHeader(title);
-}
-
-function cliListItem(text: string): void {
-  printInfo(`  ${text}`);
 }
 
 function cliSpacer(): void {

@@ -257,33 +257,6 @@ export function getInstanceStatePath(
   return path.join(dir, 'state', photonName, `${name}.json`);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Param Classification
-// ══════════════════════════════════════════════════════════════════════════════
-
-export type InjectionType = 'env' | 'mcp' | 'photon' | 'state';
-
-/**
- * Classify a constructor param into an injection type.
- *
- * 3 types (context type removed — instance naming is runtime, not code):
- * - env: primitive params → environment variables
- * - mcp: matches @mcp declaration
- * - photon: matches @photon declaration
- * - state: non-primitive with default on @stateful → persisted reactive state
- */
-export function classifyParam(
-  param: ConstructorParam,
-  isStateful: boolean,
-  mcpNames: Set<string>,
-  photonNames: Set<string>
-): InjectionType {
-  if (mcpNames.has(param.name)) return 'mcp';
-  if (photonNames.has(param.name)) return 'photon';
-  if (!param.isPrimitive && param.hasDefault && isStateful) return 'state';
-  return 'env'; // primitives (with or without default) are env
-}
-
 export function getEnvParams(params: ConstructorParam[]): ConstructorParam[] {
   return params.filter((p) => p.isPrimitive && !p.hasDefault);
 }

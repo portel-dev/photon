@@ -25,10 +25,3 @@ import { DEFAULT_PHOTON_DIR, ensurePhotonDir, listPhotonFiles } from '@portel/ph
 // Backward compatibility aliases
 export const ensureWorkingDir = ensurePhotonDir;
 export const listPhotonMCPs = listPhotonFiles;
-
-/**
- * @deprecated Use `getDefaultContext().baseDir` from './context.js' instead.
- * This reads process.env.PHOTON_DIR at module load time, which freezes the
- * value and cannot be updated if the environment changes.
- */
-export const DEFAULT_WORKING_DIR = DEFAULT_PHOTON_DIR;

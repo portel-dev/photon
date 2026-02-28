@@ -5,17 +5,12 @@
 import {
   PhotonError,
   ValidationError,
-  FileSystemError,
-  NetworkError,
-  ConfigurationError,
   getErrorMessage,
-  getErrorStack,
-  isErrorCode,
   isNodeError,
-  formatErrorMessage,
   wrapError,
-  tryAsync,
-  trySync,
+  ExitCode,
+  handleError,
+  exitWithError,
 } from '../dist/shared/error-handler.js';
 
 function test(name: string, fn: () => void | Promise<void>) {
@@ -58,12 +53,6 @@ async function runTests() {
       assert(err.name === 'ValidationError', 'wrong name');
     }),
 
-    test('FileSystemError is a PhotonError', () => {
-      const err = new FileSystemError('file not found');
-      assert(err instanceof PhotonError, 'not a PhotonError');
-      assert(err.code === 'FILE_SYSTEM_ERROR', 'wrong code');
-    }),
-
     test('getErrorMessage extracts from Error', () => {
       const msg = getErrorMessage(new Error('test error'));
       assert(msg === 'test error', 'message extraction failed');
@@ -84,52 +73,11 @@ async function runTests() {
       assert(msg === 'Unknown error', 'null handling failed');
     }),
 
-    test('getErrorStack extracts stack from Error', () => {
-      const err = new Error('test');
-      const stack = getErrorStack(err);
-      assert(stack !== undefined, 'stack not extracted');
-      assert(stack!.includes('Error: test'), 'stack content wrong');
-    }),
-
-    test('getErrorStack returns undefined for non-Error', () => {
-      const stack = getErrorStack('not an error');
-      assert(stack === undefined, 'should be undefined');
-    }),
-
-    test('isErrorCode identifies PhotonError by code', () => {
-      const err = new PhotonError('test', 'MY_CODE');
-      assert(isErrorCode(err, 'MY_CODE'), 'code not identified');
-      assert(!isErrorCode(err, 'OTHER_CODE'), 'false positive');
-    }),
-
     test('isNodeError identifies Node.js errors', () => {
       const err: NodeJS.ErrnoException = new Error('test');
       err.code = 'ENOENT';
       assert(isNodeError(err, 'ENOENT'), 'Node error not identified');
       assert(isNodeError(err), 'generic Node error check failed');
-    }),
-
-    test('formatErrorMessage formats basic error', () => {
-      const formatted = formatErrorMessage(new Error('test'));
-      assert(formatted.includes('test'), 'message not included');
-    }),
-
-    test('formatErrorMessage includes context', () => {
-      const formatted = formatErrorMessage(new Error('test'), { context: 'loading file' });
-      assert(formatted.includes('loading file'), 'context not included');
-      assert(formatted.includes('test'), 'message not included');
-    }),
-
-    test('formatErrorMessage includes suggestion from PhotonError', () => {
-      const err = new PhotonError('test', 'CODE', undefined, 'try this');
-      const formatted = formatErrorMessage(err);
-      assert(formatted.includes('try this'), 'suggestion not included');
-    }),
-
-    test('formatErrorMessage includes stack when requested', () => {
-      const err = new Error('test');
-      const formatted = formatErrorMessage(err, { includeStack: true });
-      assert(formatted.includes('Stack trace'), 'stack header not included');
     }),
 
     test('wrapError converts Error to PhotonError', () => {
@@ -151,42 +99,14 @@ async function runTests() {
       err.code = 'ENOENT';
       err.path = '/test/file';
       const wrapped = wrapError(err);
-      assert(wrapped instanceof FileSystemError, 'not FileSystemError');
+      assert(wrapped instanceof PhotonError, 'not PhotonError');
       assert(wrapped.message.includes('/test/file'), 'path not included');
     }),
 
-    test('trySync wraps sync function errors', () => {
-      try {
-        trySync(() => {
-          throw new Error('sync error');
-        }, 'doing sync work');
-        assert(false, 'should have thrown');
-      } catch (err) {
-        assert(err instanceof PhotonError, 'not wrapped');
-        assert((err as PhotonError).message.includes('doing sync work'), 'context not added');
-      }
-    }),
-
-    test('trySync returns value on success', () => {
-      const result = trySync(() => 42);
-      assert(result === 42, 'wrong return value');
-    }),
-
-    test('tryAsync wraps async function errors', async () => {
-      try {
-        await tryAsync(async () => {
-          throw new Error('async error');
-        }, 'doing async work');
-        assert(false, 'should have thrown');
-      } catch (err) {
-        assert(err instanceof PhotonError, 'not wrapped');
-        assert((err as PhotonError).message.includes('doing async work'), 'context not added');
-      }
-    }),
-
-    test('tryAsync returns value on success', async () => {
-      const result = await tryAsync(async () => 42);
-      assert(result === 42, 'wrong return value');
+    test('ExitCode constants exist', () => {
+      assert(ExitCode.SUCCESS === 0, 'SUCCESS wrong');
+      assert(ExitCode.ERROR === 1, 'ERROR wrong');
+      assert(ExitCode.NOT_FOUND === 4, 'NOT_FOUND wrong');
     }),
   ];
 

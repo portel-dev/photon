@@ -14,9 +14,7 @@ import {
   isLocalRequest,
   timingSafeEqual,
   validateNpmPackageName,
-  validateUrl,
   escapeHtml,
-  sanitizeObject,
   findForbiddenIdentifier,
   readBody,
   setSecurityHeaders,
@@ -93,7 +91,7 @@ console.log('\n#1 Path traversal protection (isPathWithin)');
 // #2 — Unauthenticated invoke
 console.log('\n#2 Local request detection (isLocalRequest)');
 {
-  const makeReq = (addr: string) => ({ socket: { remoteAddress: addr } } as any);
+  const makeReq = (addr: string) => ({ socket: { remoteAddress: addr } }) as any;
   test(isLocalRequest(makeReq('127.0.0.1')), 'allows 127.0.0.1');
   test(isLocalRequest(makeReq('::1')), 'allows ::1');
   test(isLocalRequest(makeReq('::ffff:127.0.0.1')), 'allows ::ffff:127.0.0.1');
@@ -135,19 +133,7 @@ console.log('\n#6 npm package name validation (validateNpmPackageName)');
 console.log('\n#7 maker command injection — covered by #6 (same validateNpmPackageName)');
 test(true, 'validateNpmPackageName covers maker');
 
-// #8 — URL injection in CLI open
-console.log('\n#8 URL validation (validateUrl)');
-{
-  const valid = validateUrl('https://example.com');
-  test(valid.protocol === 'https:', 'allows HTTPS URL');
-
-  const httpValid = validateUrl('http://localhost:3000');
-  test(httpValid.protocol === 'http:', 'allows HTTP URL');
-
-  testThrows(() => validateUrl('file:///etc/passwd'), 'blocks file:// protocol');
-  testThrows(() => validateUrl('javascript:alert(1)'), 'blocks javascript: protocol');
-  testThrows(() => validateUrl('not-a-url'), 'blocks invalid URL');
-}
+// #8 — URL injection in CLI open (validateUrl removed — trivial wrapper over new URL)
 
 // ═══════════════════════════════════════════════════════════════════
 // HIGH FIXES (#9-#17)
@@ -162,7 +148,10 @@ test(!isPathWithin('/photons/../../../etc/passwd', '/photons'), 'blocks template
 // #10 — Asset path traversal
 console.log('\n#10 Asset path validation (validateAssetPath)');
 {
-  test(validateAssetPath('styles/main.css') === path.normalize('styles/main.css'), 'allows normal relative path');
+  test(
+    validateAssetPath('styles/main.css') === path.normalize('styles/main.css'),
+    'allows normal relative path'
+  );
   test(validateAssetPath('icon.png') === 'icon.png', 'allows simple filename');
   testThrows(() => validateAssetPath('../../../etc/passwd'), 'blocks ../ traversal');
   testThrows(() => validateAssetPath('/etc/passwd'), 'blocks absolute path');
@@ -181,15 +170,21 @@ test(true, 'dev secrets replaced with crypto.randomBytes (structural)');
 console.log('\n#13 Webhook auth + timing-safe comparison (timingSafeEqual)');
 {
   test(timingSafeEqual('secret123', 'secret123'), 'equal strings match');
-  test(!timingSafeEqual('secret123', 'secret124'), 'different strings don\'t match');
-  test(!timingSafeEqual('short', 'longer-string'), 'different lengths don\'t match');
+  test(!timingSafeEqual('secret123', 'secret124'), "different strings don't match");
+  test(!timingSafeEqual('short', 'longer-string'), "different lengths don't match");
 }
 
 // #14 — innerHTML XSS
 console.log('\n#14 HTML escaping (escapeHtml)');
 {
-  test(escapeHtml('<script>alert(1)</script>') === '&lt;script&gt;alert(1)&lt;/script&gt;', 'escapes script tags');
-  test(escapeHtml('"onmouseover="alert(1)"') === '&quot;onmouseover=&quot;alert(1)&quot;', 'escapes double quotes');
+  test(
+    escapeHtml('<script>alert(1)</script>') === '&lt;script&gt;alert(1)&lt;/script&gt;',
+    'escapes script tags'
+  );
+  test(
+    escapeHtml('"onmouseover="alert(1)"') === '&quot;onmouseover=&quot;alert(1)&quot;',
+    'escapes double quotes'
+  );
   test(escapeHtml("it's") === 'it&#39;s', 'escapes single quotes');
   test(escapeHtml('a&b') === 'a&amp;b', 'escapes ampersands');
   test(escapeHtml('safe text') === 'safe text', 'leaves safe text unchanged');
@@ -206,7 +201,10 @@ console.log('\n#16 Template expression sandboxing (findForbiddenIdentifier)');
   test(findForbiddenIdentifier('process.exit(1)') === 'process', 'blocks process');
   test(findForbiddenIdentifier('require("fs")') === 'require', 'blocks require');
   test(findForbiddenIdentifier('eval("code")') === 'eval', 'blocks eval');
-  test(findForbiddenIdentifier('new Function("code")') === 'Function', 'blocks Function constructor');
+  test(
+    findForbiddenIdentifier('new Function("code")') === 'Function',
+    'blocks Function constructor'
+  );
   test(findForbiddenIdentifier('globalThis.something') === 'globalThis', 'blocks globalThis');
   test(findForbiddenIdentifier('child_process') === 'child_process', 'blocks child_process');
   test(findForbiddenIdentifier('x + y * 2') === null, 'allows safe expressions');
@@ -214,25 +212,7 @@ console.log('\n#16 Template expression sandboxing (findForbiddenIdentifier)');
   test(findForbiddenIdentifier('data.value') === null, 'allows property access');
 }
 
-// #17 — Prototype pollution
-console.log('\n#17 Prototype pollution prevention (sanitizeObject)');
-{
-  // Use JSON.parse to create objects with __proto__ as own property
-  const polluted = JSON.parse('{"normal":1,"__proto__":{"admin":true},"constructor":{"bad":true}}');
-  const clean = sanitizeObject(polluted);
-  test(!Object.prototype.hasOwnProperty.call(clean, '__proto__'), 'strips __proto__');
-  test(!Object.prototype.hasOwnProperty.call(clean, 'constructor'), 'strips constructor');
-  test(clean.normal === 1, 'preserves normal keys');
-
-  const nested = JSON.parse('{"a":{"__proto__":{"x":1},"safe":2}}');
-  const cleanNested = sanitizeObject(nested);
-  test(cleanNested.a.safe === 2, 'preserves nested safe keys');
-  test(!Object.prototype.hasOwnProperty.call(cleanNested.a, '__proto__'), 'strips nested __proto__');
-
-  // Edge cases
-  test(sanitizeObject(null as any) === null, 'handles null');
-  test(Array.isArray(sanitizeObject([] as any)), 'passes arrays through');
-}
+// #17 — Prototype pollution (sanitizeObject removed — never used in production code)
 
 // ═══════════════════════════════════════════════════════════════════
 // MEDIUM FIXES (#18-#23)
@@ -287,7 +267,9 @@ console.log('\n#22 Security headers (setSecurityHeaders)');
 {
   const headers: Record<string, string> = {};
   const mockRes = {
-    setHeader(name: string, value: string) { headers[name] = value; }
+    setHeader(name: string, value: string) {
+      headers[name] = value;
+    },
   } as any;
   setSecurityHeaders(mockRes);
   test(headers['X-Content-Type-Options'] === 'nosniff', 'sets X-Content-Type-Options');
@@ -337,7 +319,12 @@ console.log('\n#4 Dangerous module detection (warnIfDangerous)');
 console.log('\nPhoton isolation (no runtime-internal imports)');
 {
   const fs = await import('fs');
-  const photonDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'photons');
+  const photonDir = path.join(
+    path.dirname(new URL(import.meta.url).pathname),
+    '..',
+    'src',
+    'photons'
+  );
   const files = fs.readdirSync(photonDir).filter((f: string) => f.endsWith('.photon.ts'));
 
   for (const file of files) {

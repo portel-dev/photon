@@ -174,27 +174,6 @@ function extractBaseType(typeStr: string): string {
  *   "{ mute?: boolean } | boolean" -> [["mute", { type: "boolean", optional: true }]]
  *   "{ level?: number | string }" -> [["level", { type: "number", optional: true }]]
  */
-function extractObjectProperties(
-  typeStr: string
-): Map<string, { type: string; optional: boolean }> {
-  const props = new Map<string, { type: string; optional: boolean }>();
-
-  // Find all object type definitions: { prop?: type } or { prop: type }
-  // Match individual properties within object type: prop?: type or prop: type
-  const propMatches = typeStr.matchAll(/(\w+)(\??):\s*([^;,}]+)/g);
-
-  for (const match of propMatches) {
-    const propName = match[1];
-    const isOptional = match[2] === '?';
-    const propType = match[3].trim();
-
-    // Extract base type from the property type (handles unions)
-    const baseType = extractBaseType(propType);
-    props.set(propName, { type: baseType, optional: isOptional });
-  }
-
-  return props;
-}
 
 /**
  * Format output for display to the user (with error handling)
@@ -1579,16 +1558,4 @@ export async function runMethod(
       suggestion: hint ? String(hint) : undefined,
     });
   }
-}
-
-/**
- * Convert MCP name and parameter name to environment variable name
- */
-function toEnvVarName(mcpName: string, paramName: string): string {
-  const mcpPrefix = mcpName.toUpperCase().replace(/-/g, '_');
-  const paramSuffix = paramName
-    .replace(/([A-Z])/g, '_$1')
-    .toUpperCase()
-    .replace(/^_/, '');
-  return `${mcpPrefix}_${paramSuffix}`;
 }

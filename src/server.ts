@@ -21,12 +21,7 @@ import * as fs from 'fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
-import {
-  PhotonClassExtended,
-  ConstructorParam,
-  getAuditTrail,
-  generateExecutionId,
-} from '@portel/photon-core';
+import { PhotonClassExtended, ConstructorParam, generateExecutionId } from '@portel/photon-core';
 import type { ExtractedSchema } from '@portel/photon-core';
 import type { Marketplace, PhotonMetadata } from './marketplace-manager.js';
 import { createSDKMCPClientFactory, type SDKMCPClientFactory } from '@portel/photon-core';
@@ -213,16 +208,6 @@ export class PhotonServer {
 
   private log(level: LogLevel, message: string, meta?: Record<string, any>) {
     this.logger.log(level, message, meta);
-  }
-
-  /**
-   * Detect UI format based on client capabilities
-   *
-   * All clients use the MCP Apps standard (SEP-1865) ui:// format.
-   * Text-only clients have no UI support.
-   */
-  private getUIFormat(): UIFormat {
-    return 'sep-1865';
   }
 
   /**
