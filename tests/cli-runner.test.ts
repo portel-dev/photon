@@ -347,7 +347,7 @@ async function runTests() {
     {
       const result = await runCLI(['cli', 'test-cli-calc', 'markdownDoc']);
       assert(
-        result.stdout.includes('Documentation') && result.stdout.includes('• Item one'),
+        result.stdout.includes('Documentation') && result.stdout.includes('- Item one'),
         'Render markdown output nicely'
       );
     }
