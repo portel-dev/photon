@@ -1391,7 +1391,7 @@ export class PhotonLoader {
   ): void {
     if (typeof instance.emit === 'function') {
       try {
-        (instance.emit as Function)({
+        (instance.emit as (...args: unknown[]) => void)({
           event: 'settings:changed',
           data: {
             property,

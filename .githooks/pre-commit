@@ -1,20 +1,225 @@
 #!/bin/bash
-# Pre-commit hook: Auto-sync marketplace manifest before commit
-# This ensures .marketplace/photons.json and .claude-plugin/ are always up-to-date
+# ═══════════════════════════════════════════════════════════════════════════════
+# Photon Pre-Commit Hook
+# Enforces architectural constraints learned from past mistakes
+# See ARCHITECTURE.md for rationale
+#
+# Install: git config core.hooksPath .githooks
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# Check if any .photon.ts files or marketplace files are being committed
-if git diff --cached --name-only | grep -qE '\.photon\.ts$|\.marketplace/|\.claude-plugin/'; then
-  echo "🔄 Syncing marketplace manifest..."
+set -e
 
-  # Run photon maker sync with --claude-code to generate plugin files
-  if photon maker sync --dir . --claude-code; then
-    # Stage the generated files
-    git add .marketplace/photons.json README.md *.md .claude-plugin/ 2>/dev/null
-    echo "✅ Marketplace and Claude Code plugin synced and staged"
-  else
-    echo "❌ Failed to sync marketplace"
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+ERRORS=0
+WARNINGS=0
+
+error() {
+  echo -e "${RED}❌ ERROR: $1${NC}"
+  ERRORS=$((ERRORS + 1))
+}
+
+warn() {
+  echo -e "${YELLOW}⚠️  WARNING: $1${NC}"
+  WARNINGS=$((WARNINGS + 1))
+}
+
+success() {
+  echo -e "${GREEN}✅ $1${NC}"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 0. AUTO-FORMAT STAGED FILES
+# Runs Prettier on staged .ts files so CI format:check never fails
+# ═══════════════════════════════════════════════════════════════════════════════
+
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM | grep '\.ts$' || true)
+if [ -n "$STAGED_TS" ]; then
+  echo "🎨 Formatting staged .ts files..."
+  echo "$STAGED_TS" | xargs npx prettier --write 2>/dev/null
+  echo "$STAGED_TS" | xargs git add
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 0b. LINT STAGED FILES (errors only — matches CI's `npm run lint`)
+# Catches the exact issues that fail GitHub Actions before push
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if [ -n "$STAGED_TS" ]; then
+  echo "🔍 Linting staged .ts files (errors only)..."
+  # --quiet suppresses warnings, only reports errors (exit 1 if any)
+  if ! echo "$STAGED_TS" | xargs npx eslint --quiet 2>/dev/null; then
+    echo ""
+    echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}  COMMIT BLOCKED: ESLint errors found${NC}"
+    echo -e "${RED}  Fix the errors above before committing.${NC}"
+    echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
     exit 1
   fi
 fi
+
+echo "🔍 Checking architectural constraints..."
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. NO WEBSOCKET IN BEAM
+# Mistake: Used WebSocket for real-time instead of SSE/MCP Streamable HTTP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if grep -r --include="*.ts" "WebSocketServer\|wss\.on\|new WebSocket" src/auto-ui/*.ts 2>/dev/null | grep -v "\.d\.ts" | grep -v "// external:"; then
+  echo ""
+  error "WebSocket forbidden in Beam (src/auto-ui/)"
+  echo "   Beam uses MCP Streamable HTTP (SSE) for real-time."
+  echo "   Use: handleStreamableHTTP(), broadcastNotification()"
+  echo ""
+fi
+
+if grep -r --include="*.ts" "new WebSocket" src/auto-ui/frontend/ 2>/dev/null | grep -v "\.d\.ts"; then
+  echo ""
+  error "WebSocket forbidden in frontend"
+  echo "   Frontend uses MCPClient with EventSource (SSE)."
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. NO IN-MEMORY CACHE FOR CROSS-PROCESS DATA
+# Mistake: Kanban board cache caused cross-process sync failures
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Check for new Map() that stores data (not sessions/connections which are expected)
+if grep -rn --include="*.ts" "new Map<.*Board\|new Map<.*Task\|new Map<.*Data\|boardCache\|dataCache\|entityCache" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts"; then
+  echo ""
+  warn "Potential cross-process cache detected"
+  echo "   In-memory caches for shared data cause sync issues."
+  echo "   Use: Disk storage + daemon pub/sub for real-time sync."
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. NO SWALLOWED ERRORS
+# Mistake: catch {} blocks that silently return null hide real problems
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Detect catch blocks that just return null/undefined without logging
+SWALLOWED=$(grep -rn --include="*.ts" -A2 "} catch" src/ 2>/dev/null | grep -E "catch.*\{$" -A2 | grep -E "return (null|undefined|false);?\s*$" | grep -v node_modules | head -5 || true)
+if [ -n "$SWALLOWED" ]; then
+  echo "$SWALLOWED"
+  echo ""
+  warn "Potential swallowed errors (catch returning null/undefined)"
+  echo "   Silent failures hide bugs. Log errors or rethrow."
+  echo ""
+fi
+
+# Detect empty catch blocks
+if grep -rn --include="*.ts" "catch\s*{\s*}" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts"; then
+  echo ""
+  warn "Empty catch block detected"
+  echo "   At minimum, log the error for debugging."
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. NO FETCH WITHOUT TIMEOUT
+# Mistake: fetch() calls that can hang indefinitely
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Check for fetch() calls without AbortSignal.timeout
+# Look for the closing brace of the fetch call to determine the full range
+FETCH_FILES=$(grep -rln --include="*.ts" "await fetch(" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts" || true)
+for file in $FETCH_FILES; do
+  # Check if the file has fetch without timeout nearby
+  if grep -n "await fetch(" "$file" | while read line; do
+    linenum=$(echo "$line" | cut -d: -f1)
+    # Check if AbortSignal.timeout is within 15 lines (fetch calls can span many lines)
+    if ! sed -n "$linenum,$((linenum+15))p" "$file" | grep -q "AbortSignal.timeout"; then
+      echo "   $file:$linenum"
+      return 1
+    fi
+  done; then
+    :
+  else
+    warn "fetch() without timeout in $file"
+    echo "   Add: signal: AbortSignal.timeout(10000)"
+  fi
+done 2>/dev/null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. NO HARDCODED LOCALHOST IN PRODUCTION CODE
+# Mistake: OpenAPI spec pointed to localhost when deployed
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if grep -rn --include="*.ts" "localhost:3000\|localhost:3457\|127\.0\.0\.1:3" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts" | grep -v "// dev-only" | grep -v test | grep -v example; then
+  echo ""
+  warn "Hardcoded localhost URL detected"
+  echo "   Use environment variables or config for URLs."
+  echo "   Mark dev-only code with '// dev-only' comment to skip this check."
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. NO MAGIC TIMEOUT NUMBERS
+# Mistake: Inconsistent timeout values scattered across codebase
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Check for raw timeout numbers (30000, 60000, 600000, etc.) not in constants
+MAGIC_TIMEOUTS=$(grep -rn --include="*.ts" -E "(setTimeout|setInterval|timeout.*=)\s*[^a-zA-Z_]*(30000|60000|600000|10000)\b" src/ 2>/dev/null | grep -v node_modules | grep -v "const.*TIMEOUT\|const.*_MS\|const.*INTERVAL" | grep -v "\.d\.ts" | head -3 || true)
+if [ -n "$MAGIC_TIMEOUTS" ]; then
+  echo "$MAGIC_TIMEOUTS"
+  echo ""
+  warn "Magic timeout numbers detected"
+  echo "   Define constants: const SESSION_TIMEOUT_MS = 30000;"
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. CHECK FOR INCOMPLETE FEATURES (TODOs in critical paths)
+# Mistake: OAuth returning undefined, elicitation not implemented
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CRITICAL_TODOS=$(grep -rn --include="*.ts" "TODO.*implement\|TODO.*undefined\|undefined.*TODO" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts" | grep -v test || true)
+if [ -n "$CRITICAL_TODOS" ]; then
+  echo ""
+  warn "Critical TODOs found (may cause runtime failures)"
+  echo "$CRITICAL_TODOS" | head -5
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. NO SILENT LOGGER SUPPRESSION IN PRODUCTION
+# Mistake: Beam silenced loader errors, hiding syntax errors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if grep -rn --include="*.ts" "silentLogger\|nullStream\|suppress.*error\|silent.*error" src/ 2>/dev/null | grep -v node_modules | grep -v "\.d\.ts" | grep -v test; then
+  echo ""
+  warn "Silent error suppression detected"
+  echo "   Errors should be logged, not silenced."
+  echo "   Use log levels instead of null streams."
+  echo ""
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+echo ""
+if [ $ERRORS -gt 0 ]; then
+  echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+  echo -e "${RED}  COMMIT BLOCKED: $ERRORS error(s) found${NC}"
+  echo -e "${RED}  See ARCHITECTURE.md for rationale${NC}"
+  echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+  exit 1
+fi
+
+if [ $WARNINGS -gt 0 ]; then
+  echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+  echo -e "${YELLOW}  $WARNINGS warning(s) - review before committing${NC}"
+  echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+fi
+
+success "Architecture constraints passed"
+echo ""
 
 exit 0
