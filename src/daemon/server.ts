@@ -863,6 +863,25 @@ async function handleRequest(
     return { type: 'pong', id: request.id };
   }
 
+  if (request.type === 'status') {
+    let totalSessions = 0;
+    for (const sm of sessionManagers.values()) {
+      totalSessions += sm.getSessions().length;
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: {
+        uptime: process.uptime(),
+        memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        sessions: totalSessions,
+        subscriptions: channelSubscriptions.size,
+        photonsLoaded: sessionManagers.size,
+      },
+    };
+  }
+
   if (request.type === 'shutdown') {
     shutdown();
     return { type: 'result', id: request.id, success: true, data: { message: 'Shutting down' } };
@@ -1228,14 +1247,23 @@ async function handleRequest(
           }
         };
 
+        const startTime = Date.now();
         const result = await sessionManager.loader.executeTool(
           targetInst,
           request.method,
           request.args || {},
           { outputHandler }
         );
+        const durationMs = Date.now() - startTime;
 
         setPromptHandler(null);
+
+        logger.info('Request completed', {
+          method: request.method,
+          photon: photonName,
+          instance: targetName,
+          durationMs,
+        });
 
         await persistInstanceState(targetInst, photonName, targetName, request.workingDir);
 
@@ -1250,7 +1278,7 @@ async function handleRequest(
           socket
         );
 
-        return { type: 'result', id: request.id, success: true, data: result };
+        return { type: 'result', id: request.id, success: true, data: result, durationMs };
       }
 
       logger.info('Executing request', {
@@ -1269,14 +1297,18 @@ async function handleRequest(
         }
       };
 
+      const startTime = Date.now();
       const result = await sessionManager.loader.executeTool(
         session.instance,
         request.method,
         request.args || {},
         { outputHandler }
       );
+      const durationMs = Date.now() - startTime;
 
       setPromptHandler(null);
+
+      logger.info('Request completed', { method: request.method, photon: photonName, durationMs });
 
       // Persist reactive state after each tool call
       await persistInstanceState(
@@ -1297,7 +1329,7 @@ async function handleRequest(
         socket
       );
 
-      return { type: 'result', id: request.id, success: true, data: result };
+      return { type: 'result', id: request.id, success: true, data: result, durationMs };
     } catch (error) {
       logger.error('Error executing request', {
         method: request.method,

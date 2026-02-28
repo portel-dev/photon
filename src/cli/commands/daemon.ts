@@ -71,7 +71,7 @@ export function registerDaemonCommands(program: Command): void {
 
   daemonCmd
     .command('status')
-    .description('Show whether the daemon is running')
+    .description('Show daemon status and health info')
     .action(async () => {
       try {
         const { printInfo, printSuccess, printError } = await import('../../cli-formatter.js');
@@ -85,6 +85,20 @@ export function registerDaemonCommands(program: Command): void {
             : 'unknown';
           printSuccess(`Daemon is running (PID ${pid})`);
           console.log(`  Log: ${GLOBAL_LOG_FILE}`);
+
+          // Query daemon for health info
+          const { queryDaemonStatus } = await import('../../daemon/client.js');
+          const health = await queryDaemonStatus();
+          if (health) {
+            const uptimeSec = Math.round(health.uptime);
+            const hours = Math.floor(uptimeSec / 3600);
+            const mins = Math.floor((uptimeSec % 3600) / 60);
+            const uptimeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+            console.log(`  Uptime: ${uptimeStr}`);
+            console.log(`  Memory: ${health.memoryMB} MB`);
+            console.log(`  Sessions: ${health.sessions}`);
+            console.log(`  Photons loaded: ${health.photonsLoaded}`);
+          }
         } else {
           printInfo('Daemon is not running.');
         }

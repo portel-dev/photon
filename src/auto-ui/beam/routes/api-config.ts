@@ -119,6 +119,15 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         path: p.path || undefined,
       }));
 
+      // Query daemon health (non-blocking, returns null if daemon unavailable)
+      let daemonHealth: any = null;
+      try {
+        const { queryDaemonStatus } = await import('../../../daemon/client.js');
+        daemonHealth = await queryDaemonStatus();
+      } catch {
+        // Daemon not available — skip
+      }
+
       res.writeHead(200);
       res.end(
         JSON.stringify({
@@ -131,6 +140,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
           unconfiguredCount: state.photons.filter((p) => !p.configured).length,
           marketplaceSources: sources.filter((s) => s.enabled).length,
           photons: photonStatus,
+          daemon: daemonHealth,
         })
       );
     } catch {

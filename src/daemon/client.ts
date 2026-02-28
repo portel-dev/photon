@@ -910,6 +910,62 @@ export async function pingDaemon(photonName: string): Promise<boolean> {
 }
 
 /**
+ * Query daemon health status (uptime, memory, sessions, etc.)
+ */
+export async function queryDaemonStatus(): Promise<{
+  uptime: number;
+  memoryMB: number;
+  sessions: number;
+  subscriptions: number;
+  photonsLoaded: number;
+} | null> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `status_${Date.now()}`;
+
+  return new Promise((resolve) => {
+    const client = net.createConnection(socketPath);
+
+    const timeout = setTimeout(() => {
+      client.destroy();
+      resolve(null);
+    }, 5000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'status',
+        id: requestId,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId && response.type === 'result' && response.data) {
+          clearTimeout(timeout);
+          client.destroy();
+          resolve(response.data as any);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    });
+
+    client.on('error', () => {
+      clearTimeout(timeout);
+      client.destroy();
+      resolve(null);
+    });
+
+    client.on('end', () => {
+      clearTimeout(timeout);
+      client.destroy();
+      resolve(null);
+    });
+  });
+}
+
+/**
  * Get events since a specific timestamp for a channel
  * Used for explicit delta sync when client has missed events
  */

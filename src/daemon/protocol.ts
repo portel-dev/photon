@@ -26,7 +26,8 @@ export interface DaemonRequest {
     | 'list_jobs'
     | 'list_locks'
     | 'get_events_since'
-    | 'clear_instances';
+    | 'clear_instances'
+    | 'status';
   id: string;
   /** Photon name for routing to correct SessionManager (required for multi-photon daemon) */
   photonName?: string;
@@ -84,6 +85,8 @@ export interface DaemonResponse {
   message?: unknown;
   /** Event timestamp for tracking (for delta sync support) */
   eventId?: string;
+  /** Tool execution duration in milliseconds */
+  durationMs?: number;
 }
 
 /**
@@ -161,6 +164,7 @@ export function isValidDaemonRequest(obj: unknown): obj is DaemonRequest {
     'list_locks',
     'get_events_since',
     'clear_instances',
+    'status',
   ];
   if (!validTypes.includes(req.type as string)) return false;
 
