@@ -119,6 +119,19 @@ export class PhotonServer {
   private sseInstanceNames = new Map<string, string>();
   /** Whether client capabilities have been logged (one-time on first tools/list) */
   private clientCapabilitiesLogged = false;
+  /**
+   * Raw client capabilities captured from the initialize request BEFORE Zod parsing.
+   *
+   * The MCP SDK uses Zod to validate incoming requests, which strips unknown fields
+   * from ClientCapabilities. Notably, `extensions` (protocol 2025-11-25+) is not in
+   * the SDK's Zod schema yet, so `getClientCapabilities()` returns an object without
+   * it. Real clients like Claude Desktop and ChatGPT send UI capability under
+   * `extensions`, not `experimental`. We intercept the raw JSON-RPC message to
+   * capture the full capabilities before Zod strips them.
+   *
+   * Key: Server instance → Value: raw capabilities object from initialize request
+   */
+  private rawClientCapabilities = new WeakMap<Server, Record<string, any>>();
   private currentStatus: {
     type: 'info' | 'success' | 'error' | 'warn';
     message: string;
@@ -270,12 +283,16 @@ export class PhotonServer {
   private clientSupportsUI(server?: Server): boolean {
     const targetServer = server || this.server;
 
-    // Check capabilities — the canonical way for any MCP client to declare UI support
+    // Check SDK-parsed capabilities (works for `experimental` which is in the Zod schema)
     const capabilities = targetServer.getClientCapabilities() as Record<string, any>;
     if (capabilities?.experimental?.[PhotonServer.MCP_UI_CAPABILITY]) {
       return true;
     }
-    if (capabilities?.extensions?.[PhotonServer.MCP_UI_CAPABILITY]) {
+
+    // Check raw capabilities captured before Zod parsing (needed for `extensions`
+    // which the SDK's Zod schema strips — Claude Desktop and ChatGPT use this field)
+    const raw = this.rawClientCapabilities.get(targetServer);
+    if (raw?.extensions?.[PhotonServer.MCP_UI_CAPABILITY]) {
       return true;
     }
 
@@ -1578,10 +1595,33 @@ export class PhotonServer {
   }
 
   /**
+   * Intercept a transport to capture raw client capabilities before Zod strips them.
+   *
+   * The MCP SDK's Zod schema for ClientCapabilities doesn't include `extensions`
+   * (protocol 2025-11-25+), so getClientCapabilities() returns an object without it.
+   * We intercept the transport's onmessage to capture the raw `initialize` request
+   * and store capabilities before Zod parsing occurs.
+   */
+  private interceptTransportForRawCapabilities(
+    transport: { onmessage?: (...args: any[]) => void },
+    targetServer: Server
+  ) {
+    const origOnMessage = transport.onmessage;
+    transport.onmessage = (message: any, extra?: any) => {
+      // Capture raw capabilities from initialize request
+      if (message?.method === 'initialize' && message?.params?.capabilities) {
+        this.rawClientCapabilities.set(targetServer, message.params.capabilities);
+      }
+      origOnMessage?.(message, extra);
+    };
+  }
+
+  /**
    * Start server with stdio transport
    */
   private async startStdio() {
     const transport = new StdioServerTransport();
+    this.interceptTransportForRawCapabilities(transport, this.server);
     await this.server.connect(transport);
     this.log('info', `Server started: ${this.mcp!.name}`);
   }
@@ -1986,6 +2026,7 @@ export class PhotonServer {
 
     // Create SSE transport
     const transport = new SSEServerTransport(messagesPath, res);
+    this.interceptTransportForRawCapabilities(transport, sessionServer);
     const sessionId = transport.sessionId;
 
     // Store session

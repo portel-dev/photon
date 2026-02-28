@@ -387,12 +387,25 @@ async function runTests() {
       };
     }
 
+    // Helper: populate rawClientCapabilities WeakMap on a PhotonServer for a mock server
+    // This simulates what interceptTransportForRawCapabilities() does at runtime
+    function setRawCapabilities(
+      photonServer: any,
+      server: any,
+      rawCaps: Record<string, any>
+    ): void {
+      photonServer.rawClientCapabilities.set(server, rawCaps);
+    }
+
     // Test 12: Claude Desktop (extensions field) → UI capable
+    // Extensions are captured via transport interception (rawClientCapabilities),
+    // since the MCP SDK's Zod schema strips them from getClientCapabilities()
     {
       const server = new PhotonServer({ filePath: uiTestFile });
       const supportsUI = (server as any).clientSupportsUI.bind(server);
 
-      const claudeDesktop = mockServer('claude-ai', {
+      const claudeDesktop = mockServer('claude-ai', {});
+      setRawCapabilities(server, claudeDesktop, {
         extensions: {
           'io.modelcontextprotocol/ui': {
             mimeTypes: ['text/html;profile=mcp-app'],
@@ -400,7 +413,7 @@ async function runTests() {
         },
       });
       assert.equal(supportsUI(claudeDesktop), true, 'Claude Desktop should support UI');
-      console.log('✅ Claude Desktop (extensions) → UI capable');
+      console.log('✅ Claude Desktop (extensions via raw capture) → UI capable');
     }
 
     // Test 13: ChatGPT (extensions field) → UI capable
@@ -408,7 +421,8 @@ async function runTests() {
       const server = new PhotonServer({ filePath: uiTestFile });
       const supportsUI = (server as any).clientSupportsUI.bind(server);
 
-      const chatgpt = mockServer('chatgpt', {
+      const chatgpt = mockServer('chatgpt', {});
+      setRawCapabilities(server, chatgpt, {
         extensions: {
           'io.modelcontextprotocol/ui': {
             mimeTypes: ['text/html;profile=mcp-app'],
@@ -416,7 +430,7 @@ async function runTests() {
         },
       });
       assert.equal(supportsUI(chatgpt), true, 'ChatGPT should support UI');
-      console.log('✅ ChatGPT (extensions) → UI capable');
+      console.log('✅ ChatGPT (extensions via raw capture) → UI capable');
     }
 
     // Test 14: Older client using experimental field → UI capable
@@ -480,7 +494,8 @@ async function runTests() {
       const server = new PhotonServer({ filePath: uiTestFile });
       const supportsUI = (server as any).clientSupportsUI.bind(server);
 
-      const futureClient = mockServer('cursor-mcp', {
+      const futureClient = mockServer('cursor-mcp', {});
+      setRawCapabilities(server, futureClient, {
         extensions: {
           'io.modelcontextprotocol/ui': {
             mimeTypes: ['text/html;profile=mcp-app'],
@@ -492,7 +507,7 @@ async function runTests() {
         true,
         'Any client advertising UI extension should be supported'
       );
-      console.log('✅ Unknown future client (with extensions) → UI capable');
+      console.log('✅ Unknown future client (with extensions via raw capture) → UI capable');
     }
 
     // Test 18: Response enrichment — UI client gets structuredContent for UI-linked tool
@@ -511,7 +526,8 @@ async function runTests() {
       const toolName = 'show';
       const actualResult = { items: [1, 2, 3] };
       const linkedUI = mcp.assets?.ui.find((u: any) => u.linkedTool === toolName);
-      const uiClient = mockServer('claude-ai', {
+      const uiClient = mockServer('claude-ai', {});
+      setRawCapabilities(server, uiClient, {
         extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } },
       });
 
@@ -586,7 +602,8 @@ async function runTests() {
       const toolName = 'plain'; // NOT linked to any UI
       const actualResult = 'hello';
       const linkedUI = mcp.assets?.ui.find((u: any) => u.linkedTool === toolName);
-      const uiClient = mockServer('claude-ai', {
+      const uiClient = mockServer('claude-ai', {});
+      setRawCapabilities(server, uiClient, {
         extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } },
       });
 
