@@ -223,6 +223,19 @@ export const skipArrow = icon(
   `<line x1="4" y1="10" x2="16" y2="10"/><polyline points="12 6 16 10 12 14"/>`
 );
 
+/** Sun (light mode) */
+export const sun = icon(
+  `<circle cx="10" cy="10" r="3.5"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.3" y1="4.3" x2="5.7" y2="5.7"/><line x1="14.3" y1="14.3" x2="15.7" y2="15.7"/><line x1="4.3" y1="15.7" x2="5.7" y2="14.3"/><line x1="14.3" y1="5.7" x2="15.7" y2="4.3"/>`
+);
+
+/** Moon (dark mode) */
+export const moon = icon(`<path d="M15 3a7 7 0 1 0 0 14A7 7 0 0 1 15 3z"/>`);
+
+/** Link / share */
+export const link = icon(
+  `<path d="M8 12a3 3 0 0 1 0-4l2-2a3 3 0 0 1 4.2 4.2"/><path d="M12 8a3 3 0 0 1 0 4l-2 2a3 3 0 0 1-4.2-4.2"/>`
+);
+
 // ---------- Sized icon helper ----------
 
 /**
@@ -279,6 +292,9 @@ export const icons = {
   packageBox,
   sparkle,
   skipArrow,
+  sun,
+  moon,
+  link,
 } as const;
 
 export type IconName = keyof typeof icons;

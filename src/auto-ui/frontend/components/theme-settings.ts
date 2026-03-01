@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, type Theme } from '../styles/index.js';
-import { xMark } from '../icons.js';
+import { xMark, sun, moon } from '../icons.js';
 import {
   generateBeamThemeColors,
   beamThemeToCSS,
@@ -444,13 +444,13 @@ export class ThemeSettings extends LitElement {
             class="mode-btn ${this.currentTheme === 'light' ? 'active' : ''}"
             @click=${() => this._setThemeMode('light')}
           >
-            ☀️ Light
+            ${sun} Light
           </button>
           <button
             class="mode-btn ${this.currentTheme === 'dark' ? 'active' : ''}"
             @click=${() => this._setThemeMode('dark')}
           >
-            🌙 Dark
+            ${moon} Dark
           </button>
         </div>
       </div>

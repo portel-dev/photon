@@ -261,6 +261,9 @@ export class BeamSidebar extends LitElement {
       .section-header.attention {
         color: var(--color-warning);
         border-left-color: var(--color-warning);
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
       }
 
       .photon-list {
@@ -876,7 +879,7 @@ export class BeamSidebar extends LitElement {
             ${needsConfig.length > 0
               ? html`
                   <div class="section-header attention" id="config-header">
-                    ${warningIcon} NEEDS CONFIGURATION
+                    ${warningIcon}<span>NEEDS CONFIGURATION</span>
                   </div>
                   <ul class="photon-list" role="listbox" aria-labelledby="config-header">
                     ${needsConfig.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
@@ -886,7 +889,7 @@ export class BeamSidebar extends LitElement {
             ${loadErrors.length > 0
               ? html`
                   <div class="section-header attention" id="errors-header">
-                    ${xMark} LOAD ERRORS
+                    ${xMark}<span>LOAD ERRORS</span>
                   </div>
                   <ul class="photon-list" role="listbox" aria-labelledby="errors-header">
                     ${loadErrors.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}

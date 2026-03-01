@@ -4,6 +4,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
+import { link, expand } from '../icons.js';
 
 type LayoutType =
   | 'table'
@@ -2708,8 +2709,8 @@ export class ResultViewer extends LitElement {
             ${this._isTabularData()
               ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
               : ''}
-            <button @click=${this._share} title="Share link to this result">🔗 Share</button>
-            <button @click=${this._fullscreen} title="Full screen result">⛶</button>
+            <button @click=${this._share} title="Share link to this result">${link} Share</button>
+            <button @click=${this._fullscreen} title="Full screen result">${expand}</button>
           </div>
         </div>
         <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
