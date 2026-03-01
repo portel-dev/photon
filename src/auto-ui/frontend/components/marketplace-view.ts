@@ -108,6 +108,15 @@ export class MarketplaceView extends LitElement {
         color: var(--t-primary);
       }
 
+      .card-icon-large.initials-icon {
+        background: hsl(
+          var(--icon-hue, 0),
+          var(--initials-bg-sat, 35%),
+          var(--initials-bg-lum, 22%)
+        );
+        color: hsl(var(--icon-hue, 0), var(--initials-fg-sat, 60%), var(--initials-fg-lum, 75%));
+      }
+
       .card-icon-large.emoji-icon {
         background: transparent;
       }
@@ -1296,14 +1305,14 @@ export class MarketplaceView extends LitElement {
 
     // Icon: emoji if present, otherwise colored initials
     const hasIcon = !!item.icon;
-    let initialsStyle = '';
+    let iconHueStyle = '';
     if (!hasIcon) {
       let hash = 0;
       for (let i = 0; i < item.name.length; i++) {
         hash = item.name.charCodeAt(i) + ((hash << 5) - hash);
       }
       const hue = Math.abs(hash) % 360;
-      initialsStyle = `background: hsl(${hue}, 35%, 22%); color: hsl(${hue}, 60%, 75%);`;
+      iconHueStyle = `--icon-hue: ${hue}`;
     }
     const displayIcon = hasIcon ? item.icon : item.name.substring(0, 2).toUpperCase();
 
@@ -1319,8 +1328,8 @@ export class MarketplaceView extends LitElement {
       >
         <div class="card-body">
           <div
-            class="card-icon-large ${hasIcon ? 'emoji-icon' : ''}"
-            style="${initialsStyle}"
+            class="card-icon-large ${hasIcon ? 'emoji-icon' : 'initials-icon'}"
+            style="${iconHueStyle}"
             aria-hidden="true"
           >
             ${displayIcon}
