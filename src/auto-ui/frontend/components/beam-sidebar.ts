@@ -278,7 +278,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-item {
-        padding: var(--space-sm) var(--space-md);
+        padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
         margin-bottom: var(--space-xs);
         border-radius: var(--radius-sm);
         cursor: pointer;
@@ -397,15 +397,15 @@ export class BeamSidebar extends LitElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
+        gap: 3px;
         font-size: var(--text-2xs);
-        padding: 2px 6px;
+        padding: 2px 5px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-full);
         font-weight: 500;
         flex-shrink: 0;
-        min-width: 28px;
+        min-width: 26px;
         box-sizing: border-box;
       }
 
@@ -420,8 +420,8 @@ export class BeamSidebar extends LitElement {
       }
       .count-sep {
         color: var(--t-muted);
-        opacity: 0.5;
-        font-size: 0.7em;
+        opacity: 0.4;
+        font-size: 0.55em;
       }
 
       .version-badge {
@@ -600,7 +600,7 @@ export class BeamSidebar extends LitElement {
         background: none;
         border: none;
         cursor: pointer;
-        padding: 2px;
+        padding: 1px;
         font-size: var(--text-md);
         color: var(--t-muted);
         opacity: 0.5;
