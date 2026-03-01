@@ -116,7 +116,7 @@ export class ContextBar extends LitElement {
         padding: 0;
         border-radius: var(--radius-xs);
         flex-shrink: 0;
-        transform: scaleX(-1);
+        /* no flip — pencil tip naturally points toward text on left */
         width: 0;
         overflow: hidden;
         display: inline-flex;
