@@ -524,6 +524,8 @@ export class InvokeForm extends LitElement {
   @state()
   private _values: Record<string, any> = {};
 
+  private _initialValues: Record<string, any> = {};
+
   @state()
   private _errors: Record<string, string> = {};
 
@@ -585,6 +587,7 @@ export class InvokeForm extends LitElement {
     // Only load persisted values if remember is enabled
     if (!this.rememberValues) {
       this._values = {};
+      this._initialValues = {};
       return;
     }
 
@@ -597,6 +600,11 @@ export class InvokeForm extends LitElement {
     } catch (e) {
       console.warn('Failed to load persisted form values:', e);
     }
+    this._initialValues = { ...this._values };
+  }
+
+  get isDirty(): boolean {
+    return JSON.stringify(this._values) !== JSON.stringify(this._initialValues);
   }
 
   private _savePersistedValues() {
@@ -1822,6 +1830,9 @@ export class InvokeForm extends LitElement {
   }
 
   private _handleCancel() {
+    if (this.isDirty && !confirm('You have unsaved changes. Discard them?')) {
+      return;
+    }
     this.dispatchEvent(new CustomEvent('cancel'));
   }
 }

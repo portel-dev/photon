@@ -874,6 +874,9 @@ export class MarketplaceView extends LitElement {
   private _activeFilter: string | null = null;
 
   @state()
+  private _activeTag: string | null = null;
+
+  @state()
   private _loading = false;
 
   @state()
@@ -982,13 +985,31 @@ export class MarketplaceView extends LitElement {
                     this._removeSource(source.name);
                   }}
                   title="Remove marketplace"
-                  >✕</span
+                  aria-label="Remove marketplace"
+                  >${xMark}</span
                 >
               </button>
             `
           )}
       </div>
 
+      ${this._allTags.length > 0
+        ? html`
+            <div class="source-filters" style="padding-top: 0;">
+              ${this._allTags.map(
+                (tag) => html`
+                  <button
+                    class="filter-pill ${this._activeTag === tag ? 'active' : ''}"
+                    @click=${() => this._filterByTag(this._activeTag === tag ? null : tag)}
+                    style="font-size: var(--text-xs);"
+                  >
+                    ${tag}
+                  </button>
+                `
+              )}
+            </div>
+          `
+        : ''}
       ${this._loading
         ? html`<div style="text-align: center; color: var(--t-muted); padding: 40px;">
             Loading marketplace...
@@ -1374,12 +1395,28 @@ export class MarketplaceView extends LitElement {
     this._applyFilter();
   }
 
-  private _applyFilter() {
-    if (this._activeFilter === null) {
-      this._items = this._allItems;
-    } else {
-      this._items = this._allItems.filter((item) => item.marketplace === this._activeFilter);
+  private _filterByTag(tag: string | null) {
+    this._activeTag = tag;
+    this._applyFilter();
+  }
+
+  private get _allTags(): string[] {
+    const tags = new Set<string>();
+    for (const item of this._allItems) {
+      for (const tag of item.tags) tags.add(tag);
     }
+    return [...tags].sort();
+  }
+
+  private _applyFilter() {
+    let items = this._allItems;
+    if (this._activeFilter !== null) {
+      items = items.filter((item) => item.marketplace === this._activeFilter);
+    }
+    if (this._activeTag !== null) {
+      items = items.filter((item) => item.tags.includes(this._activeTag!));
+    }
+    this._items = items;
   }
 
   private async _removeSource(name: string) {

@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, type Theme } from '../styles/index.js';
+import { xMark } from '../icons.js';
 import {
   generateBeamThemeColors,
   beamThemeToCSS,
@@ -295,9 +296,18 @@ export class ThemeSettings extends LitElement {
   @state() private _lightness = 0.65;
   @state() private _presetName: string | undefined = 'Default Violet';
 
+  private _previousConfig: ThemeConfigState | null = null;
+
   connectedCallback() {
     super.connectedCallback();
     this._loadConfig();
+    // Snapshot current config so we can revert on cancel
+    this._previousConfig = {
+      hue: this._hue,
+      chroma: this._chroma,
+      lightness: this._lightness,
+      presetName: this._presetName,
+    };
   }
 
   private _loadConfig() {
@@ -394,6 +404,16 @@ export class ThemeSettings extends LitElement {
     this.dispatchEvent(new CustomEvent('oklch-theme-reset', { bubbles: true, composed: true }));
   }
 
+  private _revert() {
+    if (!this._previousConfig) return;
+    this._hue = this._previousConfig.hue;
+    this._chroma = this._previousConfig.chroma;
+    this._lightness = this._previousConfig.lightness;
+    this._presetName = this._previousConfig.presetName;
+    this._emitThemeUpdate();
+    this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true }));
+  }
+
   render() {
     const previewConfig: ThemeConfig = {
       hue: this._hue,
@@ -411,8 +431,9 @@ export class ThemeSettings extends LitElement {
           @click=${() =>
             this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true }))}
           title="Close"
+          aria-label="Close"
         >
-          ✕
+          ${xMark}
         </button>
       </div>
 
@@ -548,8 +569,11 @@ export class ThemeSettings extends LitElement {
         </div>
       </div>
 
-      <!-- Reset -->
-      <button class="reset-btn" @click=${this._reset}>Reset to Default</button>
+      <!-- Actions -->
+      <div style="display: flex; gap: var(--space-sm);">
+        <button class="reset-btn" @click=${this._revert}>Revert Changes</button>
+        <button class="reset-btn" @click=${this._reset}>Reset to Default</button>
+      </div>
     `;
   }
 }

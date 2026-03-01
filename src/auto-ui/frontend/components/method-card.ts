@@ -273,9 +273,7 @@ export class MethodCard extends LitElement {
 
       /* Emoji Picker */
       .emoji-picker {
-        position: absolute;
-        top: 50px;
-        left: var(--space-md);
+        position: fixed;
         background: var(--bg-panel);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
@@ -629,7 +627,11 @@ export class MethodCard extends LitElement {
     ];
 
     return html`
-      <div class="emoji-picker" @click=${(e: Event) => e.stopPropagation()}>
+      <div
+        class="emoji-picker"
+        style="top:${this._pickerPos.top}px;left:${this._pickerPos.left}px"
+        @click=${(e: Event) => e.stopPropagation()}
+      >
         ${emojis.map(
           (emoji) => html` <button @click=${() => this._selectIcon(emoji)}>${emoji}</button> `
         )}
@@ -662,9 +664,22 @@ export class MethodCard extends LitElement {
     this.dispatchEvent(new CustomEvent('select', { detail: { method: this.method } }));
   }
 
+  private _pickerPos = { top: 0, left: 0 };
+
   private _handleIconClick(e: Event) {
     e.stopPropagation();
     this._editingIcon = !this._editingIcon;
+    if (this._editingIcon) {
+      const target = (e.currentTarget || e.target) as HTMLElement;
+      const rect = target.getBoundingClientRect();
+      const pickerHeight = 220; // approximate
+      // Position below the icon, or above if near bottom
+      const spaceBelow = window.innerHeight - rect.bottom;
+      this._pickerPos = {
+        top: spaceBelow > pickerHeight ? rect.bottom + 4 : rect.top - pickerHeight - 4,
+        left: Math.min(rect.left, window.innerWidth - 210),
+      };
+    }
   }
 
   private _selectIcon(icon: string) {

@@ -678,10 +678,15 @@ export class BeamSidebar extends LitElement {
   private _searchInput!: HTMLInputElement;
 
   private static FAVORITES_KEY = 'beam-favorites';
+  private static RECENT_KEY = 'beam-recent-photons';
+
+  @state()
+  private _recentPhotons: string[] = [];
 
   connectedCallback() {
     super.connectedCallback();
     this._loadFavorites();
+    this._loadRecent();
   }
 
   private _loadFavorites() {
@@ -692,6 +697,25 @@ export class BeamSidebar extends LitElement {
       }
     } catch (e) {
       console.warn('Failed to load favorites:', e);
+    }
+  }
+
+  private _loadRecent() {
+    try {
+      const stored = localStorage.getItem(BeamSidebar.RECENT_KEY);
+      if (stored) this._recentPhotons = JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+  }
+
+  trackRecentPhoton(name: string) {
+    const recent = [name, ...this._recentPhotons.filter((n) => n !== name)].slice(0, 5);
+    this._recentPhotons = recent;
+    try {
+      localStorage.setItem(BeamSidebar.RECENT_KEY, JSON.stringify(recent));
+    } catch {
+      // ignore
     }
   }
 
@@ -814,6 +838,17 @@ export class BeamSidebar extends LitElement {
           </div>
         </div>
 
+        ${this._recentPhotons.length > 0 && !this._showFavoritesOnly && !this._searchQuery
+          ? html`
+              <div class="section-header" id="recent-header">RECENT</div>
+              <ul class="photon-list" role="listbox" aria-labelledby="recent-header">
+                ${this._recentPhotons
+                  .map((name) => this._filteredPhotons.find((p) => p.name === name))
+                  .filter(Boolean)
+                  .map((photon) => this._renderPhotonItem(photon!, 'recent'))}
+              </ul>
+            `
+          : ''}
         ${this._apps.length > 0
           ? html`
               <div class="section-header" id="apps-header">APPS</div>
