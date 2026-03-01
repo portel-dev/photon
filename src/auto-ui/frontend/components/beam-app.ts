@@ -225,6 +225,21 @@ export class BeamApp extends LitElement {
         align-items: stretch;
       }
 
+      method-card.flash-highlight {
+        animation: flash-highlight 0.6s ease-out;
+      }
+
+      @keyframes flash-highlight {
+        0% {
+          outline: 2px solid var(--accent-primary);
+          outline-offset: 2px;
+        }
+        100% {
+          outline: 2px solid transparent;
+          outline-offset: 2px;
+        }
+      }
+
       /* Empty states */
       .empty-state-inline {
         display: flex;
@@ -5383,6 +5398,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const newPhoton = photons[newIndex];
       if (newPhoton) {
         this._handlePhotonSelect(new CustomEvent('select', { detail: { photon: newPhoton } }));
+        // Scroll sidebar item into view and flash highlight
+        this._sidebar?.scrollPhotonIntoView(newPhoton.name);
       }
       return;
     }
@@ -5407,7 +5424,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
 
       this._selectedMethod = methods[newIndex];
-      // Highlight but don't navigate to form
+      // Scroll method card into view and flash highlight
+      this.updateComplete.then(() => {
+        const cards = this.shadowRoot?.querySelectorAll('method-card');
+        const card = cards?.[newIndex] as HTMLElement | undefined;
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          card.classList.add('flash-highlight');
+          setTimeout(() => card.classList.remove('flash-highlight'), 600);
+        }
+      });
       return;
     }
 

@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 import { formatLabel } from '../utils/format-label.js';
+import { showToast } from './toast-manager.js';
 import { pencil, clipboard, play } from '../icons.js';
 
 interface MethodInfo {
@@ -183,6 +184,14 @@ export class MethodCard extends LitElement {
       .description-input::placeholder {
         color: var(--t-muted);
         font-style: italic;
+      }
+
+      .char-counter {
+        display: block;
+        text-align: right;
+        font-size: var(--text-2xs);
+        color: var(--t-muted);
+        margin-top: 2px;
       }
 
       .badge {
@@ -531,12 +540,14 @@ export class MethodCard extends LitElement {
                     .value=${this._editedDescription}
                     placeholder="Add a description..."
                     rows="3"
+                    maxlength="500"
                     @input=${(e: Event) =>
                       (this._editedDescription = (e.target as HTMLTextAreaElement).value)}
                     @blur=${this._saveDescription}
                     @keydown=${this._handleDescriptionKeydown}
                     @click=${(e: Event) => e.stopPropagation()}
                   ></textarea>
+                  <span class="char-counter">${this._editedDescription.length}/500</span>
                 </div>
               `
             : html`
@@ -748,6 +759,7 @@ export class MethodCard extends LitElement {
     const originalDesc = (this.method.description || '').trim();
     // No-op if nothing changed
     if (newDesc === originalDesc || (!newDesc && !this.method.description)) return;
+    showToast('Description saved', 'success');
 
     // Dispatch event to parent for persistence
     this.dispatchEvent(
