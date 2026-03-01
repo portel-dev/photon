@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
+import { folder, file } from '../icons.js';
 
 interface FileEntry {
   name: string;
@@ -270,7 +271,7 @@ export class FilePicker extends LitElement {
         class="file-item ${isSelected ? 'selected' : ''}"
         @click=${() => this._handleItemClick(item)}
       >
-        <span class="icon">${item.isDirectory ? '📁' : '📄'}</span>
+        <span class="icon">${item.isDirectory ? folder : file}</span>
         <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${item.name}</span>
       </div>
     `;

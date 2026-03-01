@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { iconSvgString, iconPaths } from '../icons.js';
 
 @customElement('instance-panel')
 export class InstancePanel extends LitElement {
@@ -544,7 +545,7 @@ export class InstancePanel extends LitElement {
           btn.style.background = 'none';
           btn.style.color = danger ? colorError : tMuted;
         };
-        btn.innerHTML = `<span style="font-size: 0.9rem;">${icon}</span> ${label}`;
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;width:16px;height:16px;">${icon}</span> ${label}`;
         btn.onclick = (ev) => {
           ev.stopPropagation();
           onClick();
@@ -553,21 +554,21 @@ export class InstancePanel extends LitElement {
       };
 
       actions.appendChild(
-        makeBtn('New', '+', () => {
+        makeBtn('New', iconSvgString(iconPaths.plus), () => {
           this._creating = true;
           this._newName = '';
           rebuild();
         })
       );
       actions.appendChild(
-        makeBtn('Clone', '⧉', () => {
+        makeBtn('Clone', iconSvgString(iconPaths.clone), () => {
           this._cloning = true;
           this._cloneName = '';
           rebuild();
         })
       );
       actions.appendChild(
-        makeBtn('Rename', '✎', () => {
+        makeBtn('Rename', iconSvgString(iconPaths.pencil), () => {
           this._renaming = true;
           this._renameName = this.instanceName;
           rebuild();
@@ -576,7 +577,7 @@ export class InstancePanel extends LitElement {
       actions.appendChild(
         makeBtn(
           'Delete',
-          '🗑',
+          iconSvgString(iconPaths.trash),
           () => {
             if (this.instanceName === 'default') {
               return; // Can't delete default — beam-app will also guard this
