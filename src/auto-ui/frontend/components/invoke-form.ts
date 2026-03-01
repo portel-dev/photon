@@ -727,7 +727,9 @@ export class InvokeForm extends LitElement {
               : ''}
           </label>
           ${this._renderInput(key, schema, !!error, inputId)}
-          ${error ? html`<div class="error-text">${error}</div>` : ''}
+          ${error
+            ? html`<div class="error-text" id="${inputId}-error" role="alert">${error}</div>`
+            : ''}
         </div>
       `;
     });
@@ -1753,21 +1755,52 @@ export class InvokeForm extends LitElement {
   }
 
   private _handleSubmit() {
-    // Validate required fields
     const properties = (this.params as any).properties || this.params;
     const requiredList = (this.params as any).required || [];
     const errors: Record<string, string> = {};
 
     if (properties && typeof properties === 'object') {
       for (const [key, schema] of Object.entries(properties)) {
-        const isRequired = Array.isArray(requiredList)
-          ? requiredList.includes(key)
-          : !!(schema as any).required;
+        const s = schema as any;
+        const value = this._values[key];
+        const isRequired = Array.isArray(requiredList) ? requiredList.includes(key) : !!s.required;
 
-        if (isRequired) {
-          const value = this._values[key];
-          if (value === undefined || value === null || value === '') {
-            errors[key] = 'This field is required';
+        // Required check
+        if (isRequired && (value === undefined || value === null || value === '')) {
+          errors[key] = 'This field is required';
+          continue;
+        }
+
+        // Skip further validation if empty and optional
+        if (value === undefined || value === null || value === '') continue;
+
+        // String constraints
+        if (typeof value === 'string') {
+          if (s.minLength != null && value.length < s.minLength) {
+            errors[key] = `Must be at least ${s.minLength} characters`;
+          } else if (s.maxLength != null && value.length > s.maxLength) {
+            errors[key] = `Must be at most ${s.maxLength} characters`;
+          } else if (s.pattern) {
+            try {
+              if (!new RegExp(s.pattern).test(value)) {
+                errors[key] = s.patternDescription || `Must match pattern: ${s.pattern}`;
+              }
+            } catch {
+              // Invalid regex in schema — skip
+            }
+          }
+        }
+
+        // Number constraints
+        if (typeof value === 'number') {
+          if (s.minimum != null && value < s.minimum) {
+            errors[key] = `Must be at least ${s.minimum}`;
+          } else if (s.maximum != null && value > s.maximum) {
+            errors[key] = `Must be at most ${s.maximum}`;
+          } else if (s.exclusiveMinimum != null && value <= s.exclusiveMinimum) {
+            errors[key] = `Must be greater than ${s.exclusiveMinimum}`;
+          } else if (s.exclusiveMaximum != null && value >= s.exclusiveMaximum) {
+            errors[key] = `Must be less than ${s.exclusiveMaximum}`;
           }
         }
       }
@@ -1775,7 +1808,12 @@ export class InvokeForm extends LitElement {
 
     if (Object.keys(errors).length > 0) {
       this._errors = errors;
-      showToast('Please fill in all required fields', 'warning');
+      showToast('Please fix the validation errors', 'warning');
+      // Scroll to first error field
+      this.updateComplete.then(() => {
+        const firstError = this.shadowRoot?.querySelector('.error-text');
+        firstError?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       return;
     }
 

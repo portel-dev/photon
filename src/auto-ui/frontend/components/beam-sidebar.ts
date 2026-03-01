@@ -289,6 +289,19 @@ export class BeamSidebar extends LitElement {
         border-left: 2px solid var(--accent-primary);
       }
 
+      .photon-item.flash-highlight {
+        animation: flash-highlight 0.6s ease-out;
+      }
+
+      @keyframes flash-highlight {
+        0% {
+          background: hsla(260, 100%, 65%, 0.2);
+        }
+        100% {
+          background: transparent;
+        }
+      }
+
       .photon-icon {
         width: 28px;
         height: 28px;
@@ -1171,5 +1184,21 @@ export class BeamSidebar extends LitElement {
 
   isFavoritesFilterActive(): boolean {
     return this._showFavoritesOnly;
+  }
+
+  scrollPhotonIntoView(name: string) {
+    this.updateComplete.then(() => {
+      const items = this.shadowRoot?.querySelectorAll('.photon-item');
+      if (!items) return;
+      for (const item of items) {
+        const nameEl = item.querySelector('.photon-name');
+        if (nameEl?.textContent?.trim() === name) {
+          item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          (item as HTMLElement).classList.add('flash-highlight');
+          setTimeout(() => (item as HTMLElement).classList.remove('flash-highlight'), 600);
+          break;
+        }
+      }
+    });
   }
 }
