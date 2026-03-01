@@ -375,6 +375,9 @@ export class BeamSidebar extends LitElement {
         border-radius: var(--radius-full);
         font-weight: 500;
         flex-shrink: 0;
+        min-width: 28px;
+        text-align: center;
+        box-sizing: border-box;
       }
 
       .method-count.unconfigured {
@@ -393,6 +396,7 @@ export class BeamSidebar extends LitElement {
         position: relative;
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
         font-size: var(--text-2xs);
         padding: 2px 6px;
@@ -401,6 +405,8 @@ export class BeamSidebar extends LitElement {
         border-radius: var(--radius-full);
         font-weight: 500;
         flex-shrink: 0;
+        min-width: 28px;
+        box-sizing: border-box;
       }
 
       .count-tools {
