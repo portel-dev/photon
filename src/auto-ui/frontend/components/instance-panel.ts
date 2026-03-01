@@ -17,14 +17,14 @@ export class InstancePanel extends LitElement {
         display: flex;
         align-items: center;
         gap: 4px;
-        padding: 5px 8px;
+        padding: 5px 10px;
         background: none;
-        border: 1px solid transparent;
+        border: 1px solid var(--border-glass);
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: var(--text-2xs);
+        font-size: var(--text-xs);
         font-weight: 500;
-        color: var(--t-muted);
+        color: var(--t-secondary);
         transition: all 0.15s ease;
         white-space: nowrap;
         height: 28px;
@@ -34,7 +34,7 @@ export class InstancePanel extends LitElement {
       .instance-pill:hover {
         color: var(--t-primary);
         background: var(--bg-glass);
-        border-color: var(--border-glass);
+        border-color: var(--accent-primary);
       }
 
       .instance-pill .chevron {
@@ -250,6 +250,7 @@ export class InstancePanel extends LitElement {
 
       // Instance list
       const list = document.createElement('div');
+      list.className = 'instance-list';
       list.style.cssText = 'max-height: 200px; overflow-y: auto; padding: 0 2px;';
 
       if (filtered.length === 0) {
@@ -593,6 +594,22 @@ export class InstancePanel extends LitElement {
 
       portal.appendChild(actions);
     };
+
+    // Inject custom scrollbar styles into the portal
+    const style = document.createElement('style');
+    style.textContent = `
+      .instance-list::-webkit-scrollbar { width: 6px; }
+      .instance-list::-webkit-scrollbar-track { background: transparent; }
+      .instance-list::-webkit-scrollbar-thumb {
+        background: ${borderGlass};
+        border-radius: 3px;
+      }
+      .instance-list::-webkit-scrollbar-thumb:hover {
+        background: ${tMuted};
+      }
+      .instance-list { scrollbar-width: thin; scrollbar-color: ${borderGlass} transparent; }
+    `;
+    portal.appendChild(style);
 
     rebuild();
     document.body.appendChild(portal);
