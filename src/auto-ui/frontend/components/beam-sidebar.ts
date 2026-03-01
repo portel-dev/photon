@@ -261,20 +261,61 @@ export class BeamSidebar extends LitElement {
         color: var(--t-muted);
         margin-top: var(--space-sm);
         border-left: 2px solid var(--accent-primary);
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .section-header:hover {
+        color: var(--t-secondary);
       }
 
       .section-header.attention {
         color: var(--color-warning);
         border-left-color: var(--color-warning);
-        display: flex;
-        align-items: center;
-        gap: var(--space-xs);
+      }
+
+      .section-header.attention:hover {
+        color: var(--color-warning);
+        opacity: 0.85;
+      }
+
+      .section-label {
+        flex: 1;
+      }
+
+      .section-count {
+        font-size: var(--text-2xs);
+        opacity: 0.55;
+        margin-left: auto;
+        padding-right: var(--space-xs);
+      }
+
+      .section-chevron {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        transition: transform 0.2s ease;
+      }
+
+      .section-chevron.collapsed {
+        transform: rotate(-90deg);
       }
 
       .photon-list {
         list-style: none;
         padding: 2px var(--space-sm) 0;
         margin: 0;
+        overflow: hidden;
+        transition: max-height 0.2s ease;
+      }
+
+      .photon-list.collapsed {
+        max-height: 0 !important;
+        padding-top: 0;
+        padding-bottom: 0;
       }
 
       .photon-item {
@@ -709,6 +750,10 @@ export class BeamSidebar extends LitElement {
 
   private static FAVORITES_KEY = 'beam-favorites';
   private static RECENT_KEY = 'beam-recent-photons';
+  private static COLLAPSED_KEY = 'beam-sidebar-collapsed';
+
+  @state()
+  private _collapsedSections: Set<string> = new Set();
 
   @state()
   private _recentPhotons: string[] = [];
@@ -717,6 +762,8 @@ export class BeamSidebar extends LitElement {
     super.connectedCallback();
     this._loadFavorites();
     this._loadRecent();
+    this._loadCollapsed();
+    this._ensureActiveSectionOpen();
   }
 
   private _loadFavorites() {
@@ -754,6 +801,56 @@ export class BeamSidebar extends LitElement {
       localStorage.setItem(BeamSidebar.FAVORITES_KEY, JSON.stringify([...this._favorites]));
     } catch (e) {
       console.warn('Failed to save favorites:', e);
+    }
+  }
+
+  private _loadCollapsed() {
+    try {
+      const raw = localStorage.getItem(BeamSidebar.COLLAPSED_KEY);
+      this._collapsedSections = new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      this._collapsedSections = new Set();
+    }
+  }
+
+  private _saveCollapsed() {
+    localStorage.setItem(BeamSidebar.COLLAPSED_KEY, JSON.stringify([...this._collapsedSections]));
+  }
+
+  private _toggleSection(key: string) {
+    const next = new Set(this._collapsedSections);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this._collapsedSections = next;
+    this._saveCollapsed();
+  }
+
+  private _ensureActiveSectionOpen() {
+    if (!this.selectedPhoton) return;
+    const sectionMap: [string, PhotonItem[]][] = [
+      ['apps', this._apps],
+      ['photons', this._configured],
+      ['config', this._needsSetup.filter((p) => p.errorReason !== 'load-error')],
+      ['errors', this._needsSetup.filter((p) => p.errorReason === 'load-error')],
+      ['mcps', this._nonAppExternalMCPs],
+    ];
+    for (const [key, items] of sectionMap) {
+      if (items.some((p) => p.name === this.selectedPhoton)) {
+        if (this._collapsedSections.has(key)) {
+          const next = new Set(this._collapsedSections);
+          next.delete(key);
+          this._collapsedSections = next;
+          this._saveCollapsed();
+        }
+        break;
+      }
+    }
+  }
+
+  updated(changedProps: Map<string, unknown>) {
+    super.updated(changedProps);
+    if (changedProps.has('selectedPhoton')) {
+      this._ensureActiveSectionOpen();
     }
   }
 
@@ -894,24 +991,16 @@ export class BeamSidebar extends LitElement {
           const configured = this._sortByRecency(this._configured);
           return html`
             ${apps.length > 0
-              ? html`
-                  <div class="section-header" id="apps-header">APPS</div>
-                  <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
-                    ${apps.map((photon) =>
-                      photon.isExternalMCP
-                        ? this._renderExternalMCPItem(photon)
-                        : this._renderPhotonItem(photon, 'app')
-                    )}
-                  </ul>
-                `
+              ? this._renderSection('apps', 'APPS', apps, (p) =>
+                  p.isExternalMCP
+                    ? this._renderExternalMCPItem(p)
+                    : this._renderPhotonItem(p, 'app')
+                )
               : ''}
             ${configured.length > 0
-              ? html`
-                  <div class="section-header" id="photons-header">PHOTONS</div>
-                  <ul class="photon-list" role="listbox" aria-labelledby="photons-header">
-                    ${configured.map((photon) => this._renderPhotonItem(photon, 'configured'))}
-                  </ul>
-                `
+              ? this._renderSection('photons', 'PHOTONS', configured, (p) =>
+                  this._renderPhotonItem(p, 'configured')
+                )
               : ''}
           `;
         })()}
@@ -920,36 +1009,34 @@ export class BeamSidebar extends LitElement {
           const loadErrors = this._needsSetup.filter((p) => p.errorReason === 'load-error');
           return html`
             ${needsConfig.length > 0
-              ? html`
-                  <div class="section-header attention" id="config-header">
-                    ${warningIcon}<span>NEEDS CONFIGURATION</span>
-                  </div>
-                  <ul class="photon-list" role="listbox" aria-labelledby="config-header">
-                    ${needsConfig.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
-                  </ul>
-                `
+              ? this._renderSection(
+                  'config',
+                  'NEEDS CONFIGURATION',
+                  needsConfig,
+                  (p) => this._renderPhotonItem(p, 'unconfigured'),
+                  'attention',
+                  warningIcon
+                )
               : ''}
             ${loadErrors.length > 0
-              ? html`
-                  <div class="section-header attention" id="errors-header">
-                    ${xMark}<span>LOAD ERRORS</span>
-                  </div>
-                  <ul class="photon-list" role="listbox" aria-labelledby="errors-header">
-                    ${loadErrors.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
-                  </ul>
-                `
+              ? this._renderSection(
+                  'errors',
+                  'LOAD ERRORS',
+                  loadErrors,
+                  (p) => this._renderPhotonItem(p, 'unconfigured'),
+                  'attention',
+                  xMark
+                )
               : ''}
           `;
         })()}
         ${this._nonAppExternalMCPs.length > 0
-          ? html`
-              <div class="section-header" id="mcps-header">MCPS</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
-                ${this._sortByRecency(this._nonAppExternalMCPs).map((mcp) =>
-                  this._renderExternalMCPItem(mcp)
-                )}
-              </ul>
-            `
+          ? this._renderSection(
+              'mcps',
+              'MCPS',
+              this._sortByRecency(this._nonAppExternalMCPs),
+              (mcp) => this._renderExternalMCPItem(mcp)
+            )
           : ''}
         ${this._apps.length === 0 &&
         this._configured.length === 0 &&
@@ -1036,6 +1123,53 @@ export class BeamSidebar extends LitElement {
         composed: true,
       })
     );
+  }
+
+  private _renderSection(
+    key: string,
+    label: string,
+    items: PhotonItem[],
+    renderItem: (item: PhotonItem) => unknown,
+    headerClass = '',
+    icon?: unknown
+  ) {
+    const collapsed = this._collapsedSections.has(key);
+    const headerId = `${key}-header`;
+    return html`
+      <div
+        class="section-header ${headerClass}"
+        id=${headerId}
+        @click=${() => this._toggleSection(key)}
+        role="button"
+        aria-expanded=${String(!collapsed)}
+      >
+        ${icon ? icon : ''}
+        <span class="section-label">${label}</span>
+        <span class="section-count">${items.length}</span>
+        <svg
+          class="section-chevron ${collapsed ? 'collapsed' : ''}"
+          viewBox="0 0 12 12"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2.5 4.5l3.5 3.5 3.5-3.5"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <ul
+        class="photon-list ${collapsed ? 'collapsed' : ''}"
+        role="listbox"
+        aria-labelledby=${headerId}
+        style="max-height: ${collapsed ? '0' : items.length * 52 + 'px'}"
+      >
+        ${items.map(renderItem)}
+      </ul>
+    `;
   }
 
   private _renderPhotonItem(photon: PhotonItem, type: 'app' | 'configured' | 'unconfigured') {
