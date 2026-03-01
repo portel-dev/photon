@@ -1691,8 +1691,12 @@ export class BeamApp extends LitElement {
   private _pendingTemplateSource: string | undefined; // Template source to apply after Studio opens
 
   private _handleInstall(e: CustomEvent) {
-    // Just log for now, the socket update 'photon_added' will handle the actual refresh
-    this._log('info', `Installed ${e.detail.name}`);
+    const name = e.detail.name;
+    this._log('info', `Installed ${name}`);
+    // After daemon updates photon list, scroll to and highlight the new photon
+    setTimeout(() => {
+      this._sidebar?.scrollPhotonIntoView(name);
+    }, 1500); // Allow time for daemon photon_added event to refresh sidebar
   }
 
   private _handleMakerAction(e: CustomEvent) {
@@ -4185,6 +4189,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private _handleBackFromMethod() {
+    // Check for unsaved form changes
+    const form = this.shadowRoot?.querySelector('invoke-form') as any;
+    if (form?.isDirty && !confirm('You have unsaved changes. Discard them?')) {
+      return;
+    }
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
       // For Apps, go back to the main Custom UI and scroll to methods
       this._selectedMethod = this._selectedPhoton.appEntry;
@@ -4711,6 +4720,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const args = e.detail.args;
     this._lastFormParams = args; // Store for sharing
     this._sharedFormParams = null; // Clear shared params after use
+    this._sidebar?.trackRecentPhoton(this._selectedPhoton.name);
     this._log('info', `Invoking ${this._selectedMethod.name}...`, true);
     this._lastResult = null;
     this._isExecuting = true;
@@ -5308,6 +5318,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
       return;
     }
 
+    // Cmd/Ctrl+Shift+Enter to re-execute last method with last args
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault();
+      if (this._selectedMethod && this._lastFormParams && !this._isExecuting) {
+        this._handleExecute(new CustomEvent('execute', { detail: { args: this._lastFormParams } }));
+        showToast('Re-executing with last parameters', 'info');
+      }
+      return;
+    }
+
     // Escape to close modals or clear
     if (e.key === 'Escape') {
       if (this._sidebarVisible) {
@@ -5444,11 +5464,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
       return;
     }
 
-    // r to reload/re-execute
+    // r to re-execute last method
     if (e.key === 'r') {
-      if (this._view === 'form' && this._selectedMethod && this._lastResult !== null) {
-        // Re-execute last method (would need form data - skip for now)
-        showToast('Press Ctrl+Enter in form to re-execute', 'info');
+      if (
+        this._view === 'form' &&
+        this._selectedMethod &&
+        this._lastFormParams &&
+        !this._isExecuting
+      ) {
+        this._handleExecute(new CustomEvent('execute', { detail: { args: this._lastFormParams } }));
+        showToast('Re-executing with last parameters', 'info');
       }
       return;
     }
