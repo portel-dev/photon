@@ -35,7 +35,7 @@ export const theme = css`
     --text-md: 0.9rem;
     --text-sm: 0.8rem;
     --text-xs: 0.7rem;
-    --text-2xs: 0.6rem;
+    --text-2xs: 0.7rem;
 
     /* Bento layout */
     --bento-border: 1px solid var(--border-glass);
@@ -102,6 +102,8 @@ export const theme = css`
   .editable-input:focus-visible,
   .description-input:focus-visible {
     outline: none;
+    box-shadow: 0 0 0 2px var(--glow-primary);
+    border-radius: var(--radius-xs);
   }
 
   /* Scrollbar */
@@ -171,6 +173,12 @@ export const theme = css`
 
   input:focus-visible + .slider {
     box-shadow: 0 0 0 2px var(--glow-primary);
+  }
+
+  /* Range slider focus — WCAG 2.4.7 */
+  input[type='range']:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
   }
 
   /* Reduced motion — WCAG 2.3.3 */

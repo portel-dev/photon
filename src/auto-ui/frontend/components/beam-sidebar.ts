@@ -1,6 +1,20 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, forms, type Theme } from '../styles/index.js';
+import {
+  starFilled,
+  starOutline,
+  marketplace as marketplaceIcon,
+  search as searchIcon,
+  keyboard as keyboardIcon,
+  palette,
+  packageBox,
+  plug,
+  appDefault,
+  warning as warningIcon,
+  xMark,
+  docs,
+} from '../icons.js';
 
 interface PhotonItem {
   name: string;
@@ -524,13 +538,16 @@ export class BeamSidebar extends LitElement {
         cursor: pointer;
         padding: 2px;
         font-size: var(--text-sm);
-        opacity: 0;
+        opacity: 0.25;
         transition: all 0.2s;
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
       }
 
-      .photon-item:hover .settings-btn {
-        opacity: 0.4;
+      .photon-item:hover .settings-btn,
+      .settings-btn:focus-visible {
+        opacity: 0.5;
       }
 
       .settings-btn:hover {
@@ -544,13 +561,16 @@ export class BeamSidebar extends LitElement {
         cursor: pointer;
         padding: 2px;
         font-size: var(--text-md);
-        opacity: 0.3;
+        opacity: 0.4;
         transition: all 0.2s;
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
       }
 
-      .star-btn:hover {
-        opacity: 0.7;
+      .star-btn:hover,
+      .star-btn:focus-visible {
+        opacity: 0.8;
         transform: scale(1.1);
       }
 
@@ -559,11 +579,12 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-item .star-btn {
-        opacity: 0.2;
+        opacity: 0.35;
       }
 
-      .photon-item:hover .star-btn {
-        opacity: 0.5;
+      .photon-item:hover .star-btn,
+      .photon-item:focus-within .star-btn {
+        opacity: 0.6;
       }
 
       .photon-item .star-btn.favorited {
@@ -765,14 +786,14 @@ export class BeamSidebar extends LitElement {
               aria-pressed="${this._showFavoritesOnly}"
               aria-label="Filter by favorites"
             >
-              ⭐ Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
+              ${starFilled} Favorites ${this._favorites.size > 0 ? `(${this._favorites.size})` : ''}
             </button>
             <button
               class="filter-btn"
               @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
               aria-label="Open marketplace"
             >
-              🛍️ Marketplace
+              ${marketplaceIcon} Marketplace
               ${this.updatesAvailable > 0
                 ? html`<span class="update-badge">${this.updatesAvailable}</span>`
                 : ''}
@@ -800,14 +821,32 @@ export class BeamSidebar extends LitElement {
               </ul>
             `
           : ''}
-        ${this._needsSetup.length > 0
-          ? html`
-              <div class="section-header attention" id="setup-header">NEEDS ATTENTION</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="setup-header">
-                ${this._needsSetup.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
-              </ul>
-            `
-          : ''}
+        ${(() => {
+          const needsConfig = this._needsSetup.filter((p) => p.errorReason !== 'load-error');
+          const loadErrors = this._needsSetup.filter((p) => p.errorReason === 'load-error');
+          return html`
+            ${needsConfig.length > 0
+              ? html`
+                  <div class="section-header attention" id="config-header">
+                    ${warningIcon} NEEDS CONFIGURATION
+                  </div>
+                  <ul class="photon-list" role="listbox" aria-labelledby="config-header">
+                    ${needsConfig.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
+                  </ul>
+                `
+              : ''}
+            ${loadErrors.length > 0
+              ? html`
+                  <div class="section-header attention" id="errors-header">
+                    ${xMark} LOAD ERRORS
+                  </div>
+                  <ul class="photon-list" role="listbox" aria-labelledby="errors-header">
+                    ${loadErrors.map((photon) => this._renderPhotonItem(photon, 'unconfigured'))}
+                  </ul>
+                `
+              : ''}
+          `;
+        })()}
         ${this._nonAppExternalMCPs.length > 0
           ? html`
               <div class="section-header" id="mcps-header">MCPS</div>
@@ -824,12 +863,12 @@ export class BeamSidebar extends LitElement {
               <div class="empty-state">
                 ${this._searchQuery.trim()
                   ? html`
-                      <div class="empty-icon">🔍</div>
+                      <div class="empty-icon">${searchIcon}</div>
                       <div class="empty-title">No results</div>
                       <div class="empty-hint">No photons match "${this._searchQuery}"</div>
                     `
                   : html`
-                      <div class="empty-icon">📦</div>
+                      <div class="empty-icon">${packageBox}</div>
                       <div class="empty-title">No photons yet</div>
                       <div class="empty-hint">
                         Add photons from the marketplace or create your own
@@ -838,7 +877,7 @@ export class BeamSidebar extends LitElement {
                         class="empty-action"
                         @click=${() => this.dispatchEvent(new CustomEvent('marketplace'))}
                       >
-                        🛍️ Browse Marketplace
+                        ${marketplaceIcon} Browse Marketplace
                       </button>
                     `}
               </div>
@@ -854,7 +893,7 @@ export class BeamSidebar extends LitElement {
           title="Server diagnostics"
           aria-label="Show diagnostics"
         >
-          🔍 Status
+          ${searchIcon} Status
         </button>
         <button
           class="footer-link"
@@ -862,7 +901,7 @@ export class BeamSidebar extends LitElement {
           title="Keyboard shortcuts"
           aria-label="Show keyboard shortcuts"
         >
-          ⌨️ <kbd>?</kbd>
+          ${keyboardIcon} Shortcuts
         </button>
         <button
           class="footer-link"
@@ -873,8 +912,18 @@ export class BeamSidebar extends LitElement {
           title="Theme settings (t)"
           aria-label="Open theme settings"
         >
-          🎨
+          ${palette} Theme
         </button>
+        <a
+          class="footer-link"
+          href="https://photon.run/docs"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Documentation"
+          aria-label="Open documentation"
+        >
+          ${docs} Docs
+        </a>
       </div>
     `;
   }
@@ -900,7 +949,8 @@ export class BeamSidebar extends LitElement {
     const isFavorited = this._favorites.has(photon.name);
 
     // Determine icon: use photon's icon if available, otherwise default
-    const displayIcon = photon.icon || (isApp ? '📱' : photon.name.substring(0, 2).toUpperCase());
+    const displayIcon =
+      photon.icon || (isApp ? appDefault : photon.name.substring(0, 2).toUpperCase());
     const hasCustomIcon = !!photon.icon;
     const isEmoji = isApp || hasCustomIcon;
 
@@ -951,7 +1001,7 @@ export class BeamSidebar extends LitElement {
             : `Add ${photon.name} to favorites`}"
           aria-pressed="${isFavorited}"
         >
-          ${isFavorited ? '⭐' : '☆'}
+          ${isFavorited ? starFilled : starOutline}
         </button>
         ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
         ${isUnconfigured
@@ -968,7 +1018,7 @@ export class BeamSidebar extends LitElement {
   private _renderExternalMCPItem(mcp: PhotonItem) {
     const methodCount = mcp.methods?.length || 0;
     const isConnected = mcp.connected !== false;
-    const displayIcon = mcp.icon || '🔌';
+    const displayIcon = mcp.icon || plug;
 
     return html`
       <li

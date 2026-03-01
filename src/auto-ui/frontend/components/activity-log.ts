@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
+import { check, xMark, warning, info } from '../icons.js';
 
 interface ActivityItem {
   id: string;
@@ -87,10 +88,25 @@ export class ActivityLog extends LitElement {
         background: hsla(210, 80%, 65%, 0.08);
       }
 
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
       .log-list {
         display: flex;
         flex-direction: column;
         gap: var(--space-xs);
+        list-style: none;
+        margin: 0;
+        padding: 0;
       }
 
       .log-item {
@@ -136,17 +152,59 @@ export class ActivityLog extends LitElement {
         font-variant-numeric: tabular-nums;
       }
 
+      .type-icon {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+      }
+
+      .type-icon svg {
+        width: 16px;
+        height: 16px;
+      }
+
       .type-info {
         border-left-color: var(--accent-secondary);
+      }
+      .type-info .type-icon {
+        color: var(--accent-secondary);
       }
       .type-success {
         border-left-color: var(--color-success);
       }
+      .type-success .type-icon {
+        color: var(--color-success);
+      }
       .type-error {
         border-left-color: var(--color-error);
       }
+      .type-error .type-icon {
+        color: var(--color-error);
+      }
       .type-warning {
         border-left-color: var(--color-warning);
+      }
+      .type-warning .type-icon {
+        color: var(--color-warning);
+      }
+
+      .log-header h3 {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .collapse-chevron {
+        display: inline-flex;
+        transition: transform 0.2s ease;
+      }
+
+      .collapse-chevron.collapsed {
+        transform: rotate(-90deg);
       }
 
       /* ===== Responsive Design ===== */
@@ -188,6 +246,7 @@ export class ActivityLog extends LitElement {
   filter: string | undefined;
 
   @state() private _filterActive = false;
+  @state() private _collapsed = false;
 
   private _lastFilter: string | undefined = undefined;
 
@@ -213,9 +272,33 @@ export class ActivityLog extends LitElement {
     const hasFilterableEntries =
       this.filter && this.items.some((i) => i.photonName === this.filter);
 
+    const typeIcon = (type: string) => {
+      switch (type) {
+        case 'success':
+          return check;
+        case 'error':
+          return xMark;
+        case 'warning':
+          return warning;
+        default:
+          return info;
+      }
+    };
+
     return html`
       <div class="log-header">
-        <h3>Activity Log</h3>
+        <h3
+          @click=${() => (this._collapsed = !this._collapsed)}
+          role="button"
+          tabindex="0"
+          @keydown=${(e: KeyboardEvent) =>
+            (e.key === 'Enter' || e.key === ' ') &&
+            (e.preventDefault(), (this._collapsed = !this._collapsed))}
+          aria-expanded="${!this._collapsed}"
+        >
+          <span class="collapse-chevron ${this._collapsed ? 'collapsed' : ''}">▾</span>
+          Activity Log
+        </h3>
         <div class="log-header-actions">
           ${hasFilterableEntries
             ? html`<button
@@ -230,22 +313,28 @@ export class ActivityLog extends LitElement {
         </div>
       </div>
 
-      <div class="log-list">
-        ${visible.map(
-          (item) => html`
-            <div class="log-item type-${item.type}">
-              <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
-              <span class="content"
-                >${item.message}${item.durationMs != null
-                  ? html`<span class="duration">${item.durationMs}ms</span>`
-                  : ''}${item.count && item.count > 1
-                  ? html`<span class="count">(×${item.count})</span>`
-                  : ''}</span
-              >
-            </div>
-          `
-        )}
-      </div>
+      ${this._collapsed
+        ? ''
+        : html`
+            <ul class="log-list" role="log" aria-live="polite" aria-label="Activity log entries">
+              ${visible.map(
+                (item) => html`
+                  <li class="log-item type-${item.type}">
+                    <span class="type-icon" aria-hidden="true">${typeIcon(item.type)}</span>
+                    <span class="meta">${new Date(item.timestamp).toLocaleTimeString()}</span>
+                    <span class="content"
+                      ><span class="visually-hidden">${item.type}: </span
+                      >${item.message}${item.durationMs != null
+                        ? html`<span class="duration">${item.durationMs}ms</span>`
+                        : ''}${item.count && item.count > 1
+                        ? html`<span class="count">(×${item.count})</span>`
+                        : ''}</span
+                    >
+                  </li>
+                `
+              )}
+            </ul>
+          `}
     `;
   }
 

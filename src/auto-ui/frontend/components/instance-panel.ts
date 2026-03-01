@@ -116,8 +116,10 @@ export class InstancePanel extends LitElement {
       <button
         class="instance-pill"
         @click=${this._toggle}
-        title="Switch instance"
+        title="Instances are separate data containers — like multiple accounts in the same app. Click to switch."
         aria-label="Current instance: ${display}"
+        aria-haspopup="true"
+        aria-expanded="${this._open}"
       >
         ${display}
         <span class="chevron ${this._open ? 'open' : ''}">▾</span>
@@ -172,6 +174,7 @@ export class InstancePanel extends LitElement {
     const accentPrimary = this._getVar('--accent-primary', '#7c3aed');
     const accentSecondary = this._getVar('--accent-secondary', '#06b6d4');
     const colorError = this._getVar('--color-error', '#f87171');
+    const glowPrimary = this._getVar('--glow-primary', 'rgba(124, 58, 237, 0.3)');
     const radiusMd = this._getVar('--radius-md', '12px');
     const radiusSm = this._getVar('--radius-sm', '6px');
 
@@ -188,6 +191,16 @@ export class InstancePanel extends LitElement {
       font-family: 'Inter', sans-serif;
       padding: 8px;
     `;
+
+    // Add focus glow ring to portal inputs since outline:none is needed for styling
+    const addFocusGlow = (el: HTMLInputElement) => {
+      el.addEventListener('focus', () => {
+        el.style.boxShadow = `0 0 0 2px ${glowPrimary}`;
+      });
+      el.addEventListener('blur', () => {
+        el.style.boxShadow = 'none';
+      });
+    };
 
     const rebuild = () => {
       portal.innerHTML = '';
@@ -212,8 +225,9 @@ export class InstancePanel extends LitElement {
         color: ${tPrimary};
         font-size: 0.82rem;
         font-family: inherit;
-        outline: none;
+        outline: none; /* focus-visible adds glow via JS below */
       `;
+      addFocusGlow(searchInput);
       searchInput.addEventListener('input', () => {
         this._searchQuery = searchInput.value;
         rebuild();
@@ -314,7 +328,7 @@ export class InstancePanel extends LitElement {
           color: ${tPrimary};
           font-size: 0.82rem;
           font-family: inherit;
-          outline: none;
+          outline: none; /* focus-visible adds glow via JS below */
         `;
         createInput.addEventListener('input', () => {
           this._newName = createInput.value;
@@ -362,7 +376,7 @@ export class InstancePanel extends LitElement {
           color: ${tPrimary};
           font-size: 0.82rem;
           font-family: inherit;
-          outline: none;
+          outline: none; /* focus-visible adds glow via JS below */
         `;
         renameInput.addEventListener('input', () => {
           this._renameName = renameInput.value;
@@ -413,7 +427,7 @@ export class InstancePanel extends LitElement {
           color: ${tPrimary};
           font-size: 0.82rem;
           font-family: inherit;
-          outline: none;
+          outline: none; /* focus-visible adds glow via JS below */
         `;
         cloneInput.addEventListener('input', () => {
           this._cloneName = cloneInput.value;

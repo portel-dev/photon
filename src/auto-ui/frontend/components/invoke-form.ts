@@ -347,7 +347,6 @@ export class InvokeForm extends LitElement {
         -webkit-appearance: none;
         cursor: pointer;
         margin: 8px 0;
-        outline: none;
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
@@ -502,6 +501,10 @@ export class InvokeForm extends LitElement {
   @property({ type: Boolean })
   loading = false;
 
+  @state() private _elapsedMs = 0;
+  private _timerInterval: ReturnType<typeof setInterval> | null = null;
+  private _loadingStartTime = 0;
+
   /** Photon name for localStorage key */
   @property({ type: String })
   photonName = '';
@@ -552,6 +555,27 @@ export class InvokeForm extends LitElement {
     if (changedProps.has('sharedValues') && this.sharedValues) {
       this._values = { ...this._values, ...this.sharedValues };
       showToast('Form pre-filled from shared link', 'info');
+    }
+    // Execution timer
+    if (changedProps.has('loading')) {
+      if (this.loading) {
+        this._loadingStartTime = Date.now();
+        this._elapsedMs = 0;
+        this._timerInterval = setInterval(() => {
+          this._elapsedMs = Date.now() - this._loadingStartTime;
+        }, 100);
+      } else if (this._timerInterval) {
+        clearInterval(this._timerInterval);
+        this._timerInterval = null;
+      }
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._timerInterval) {
+      clearInterval(this._timerInterval);
+      this._timerInterval = null;
     }
   }
 
@@ -616,7 +640,13 @@ export class InvokeForm extends LitElement {
             </button>
             <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
               ${this.loading
-                ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
+                ? html`<span class="btn-loading"
+                    ><span class="spinner"></span>Executing${this._elapsedMs >= 1000
+                      ? html` <span style="font-variant-numeric: tabular-nums; opacity: 0.7;"
+                          >${(this._elapsedMs / 1000).toFixed(1)}s</span
+                        >`
+                      : ''}...</span
+                  >`
                 : 'Re-execute'}
             </button>
           </div>
@@ -631,18 +661,22 @@ export class InvokeForm extends LitElement {
       <div class="form-container">
         ${hasComplexTypes
           ? html`
-              <div class="view-tabs">
+              <div class="view-tabs" role="tablist" aria-label="Editor mode">
                 <button
                   class="view-tab ${this._viewMode === 'form' ? 'active' : ''}"
+                  role="tab"
+                  aria-selected="${this._viewMode === 'form'}"
                   @click=${() => this._switchToFormView()}
                 >
-                  Form
+                  Visual Editor
                 </button>
                 <button
                   class="view-tab ${this._viewMode === 'json' ? 'active' : ''}"
+                  role="tab"
+                  aria-selected="${this._viewMode === 'json'}"
                   @click=${() => this._switchToJsonView()}
                 >
-                  JSON
+                  JSON Editor
                 </button>
               </div>
             `
