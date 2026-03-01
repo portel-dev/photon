@@ -1,9 +1,8 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
-import { formatLabel } from '../utils/format-label.js';
 import { showToast } from './toast-manager.js';
-import { pencil, clipboard, play } from '../icons.js';
+import { pencil, formInput, play } from '../icons.js';
 
 interface MethodInfo {
   name: string;
@@ -94,14 +93,20 @@ export class MethodCard extends LitElement {
       }
 
       .title {
-        font-family: var(--font-display);
+        font-family: var(--font-mono);
         font-weight: 600;
-        font-size: var(--text-lg);
+        font-size: var(--text-md);
         margin: 0;
         color: var(--t-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .title .method-params {
+        font-weight: 400;
+        opacity: 0.5;
+        font-size: 0.85em;
       }
 
       .editable {
@@ -111,18 +116,22 @@ export class MethodCard extends LitElement {
       }
 
       .edit-pencil {
-        opacity: 0.3;
+        opacity: 0;
         cursor: pointer;
-        font-size: var(--text-xs);
+        font-size: var(--text-2xs);
         color: var(--t-muted);
         transition:
           opacity 0.15s,
           color 0.15s;
-        padding: 2px 4px;
+        padding: 2px 3px;
         border-radius: var(--radius-xs);
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
+      }
+
+      .card:hover .edit-pencil {
+        opacity: 0.4;
       }
 
       .editable:hover .edit-pencil,
@@ -435,7 +444,7 @@ export class MethodCard extends LitElement {
         style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
         role="button"
         tabindex="0"
-        aria-label="${formatLabel(this.method.name)}${hasDescription
+        aria-label="${this.method.name}${hasDescription
           ? ': ' + this._renderDescription(this.method.description)
           : ''}"
         @click=${this._handleCardClick}
@@ -456,7 +465,6 @@ export class MethodCard extends LitElement {
                   `
                 : ''}
               <span class="editable">
-                <h3 class="title">${formatLabel(this.method.name)}</h3>
                 <span
                   class="edit-pencil"
                   role="button"
@@ -469,6 +477,7 @@ export class MethodCard extends LitElement {
                   aria-label="Rename method"
                   >${pencil}</span
                 >
+                <h3 class="title">${this.method.name}${this._renderParamSignature()}</h3>
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
@@ -509,27 +518,6 @@ export class MethodCard extends LitElement {
                 >`
               : ''}
           </div>
-          ${!this.method.isTemplate
-            ? (() => {
-                const props = this.method.params?.properties || {};
-                const paramNames = Object.keys(props);
-                const count = paramNames.length;
-                if (count <= 4) {
-                  return html`<div class="param-tags">
-                    ${paramNames.map((n) => html`<span class="param-tag">${formatLabel(n)}</span>`)}
-                  </div>`;
-                } else {
-                  return html`<div class="param-tags">
-                    ${paramNames
-                      .slice(0, 3)
-                      .map((n) => html`<span class="param-tag">${formatLabel(n)}</span>`)}<span
-                      class="param-count"
-                      >+${count - 3}</span
-                    >
-                  </div>`;
-                }
-              })()
-            : ''}
           ${this._editingDescription
             ? html`
                 <div class="description editing" @click=${(e: Event) => e.stopPropagation()}>
@@ -550,11 +538,6 @@ export class MethodCard extends LitElement {
               `
             : html`
                 <div class="editable" style="flex:1;">
-                  <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
-                    ${hasDescription
-                      ? this._renderDescription(this.method.description)
-                      : 'Add description...'}
-                  </div>
                   <span
                     class="edit-pencil"
                     role="button"
@@ -567,6 +550,11 @@ export class MethodCard extends LitElement {
                     aria-label="Edit description"
                     >${pencil}</span
                   >
+                  <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
+                    ${hasDescription
+                      ? this._renderDescription(this.method.description)
+                      : 'Add description...'}
+                  </div>
                 </div>
               `}
         </div>
@@ -578,12 +566,24 @@ export class MethodCard extends LitElement {
             class="action-icon"
             title="${hasParams ? 'Requires parameters' : 'Click to execute'}"
           >
-            ${hasParams ? clipboard : play}
+            ${hasParams ? formInput : play}
           </div>`;
         })()}
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
       </div>
     `;
+  }
+
+  private _renderParamSignature() {
+    if (this.method.isTemplate) return '';
+    const props = this.method.params?.properties || {};
+    const paramNames = Object.keys(props);
+    if (paramNames.length === 0) return '';
+    const display =
+      paramNames.length <= 4
+        ? paramNames.join(', ')
+        : paramNames.slice(0, 3).join(', ') + `, +${paramNames.length - 3}`;
+    return html`<span class="method-params">(${display})</span>`;
   }
 
   private _renderEmojiPicker() {

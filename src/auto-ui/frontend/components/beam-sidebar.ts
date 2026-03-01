@@ -1250,6 +1250,7 @@ export class BeamSidebar extends LitElement {
     const methodCount = mcp.methods?.length || 0;
     const isConnected = mcp.connected !== false;
     const displayIcon = mcp.icon || plug;
+    const isFavorited = this._favorites.has(mcp.name);
 
     return html`
       <li
@@ -1267,6 +1268,17 @@ export class BeamSidebar extends LitElement {
         <div class="photon-info">
           <div class="photon-name">${mcp.name}</div>
         </div>
+        <button
+          class="star-btn ${isFavorited ? 'favorited' : ''}"
+          @click=${(e: Event) => this._toggleFavorite(e, mcp.name)}
+          title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}"
+          aria-label="${isFavorited
+            ? `Remove ${mcp.name} from favorites`
+            : `Add ${mcp.name} to favorites`}"
+          aria-pressed="${isFavorited}"
+        >
+          ${isFavorited ? starFilled : starOutline}
+        </button>
         ${!isConnected
           ? html`
               <span class="disconnect-badge" title="${mcp.errorMessage || 'Disconnected'}"
