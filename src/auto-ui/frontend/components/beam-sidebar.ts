@@ -175,19 +175,23 @@ export class BeamSidebar extends LitElement {
       .status-indicator.connected {
         background: var(--color-success);
         box-shadow:
-          0 0 6px var(--color-success-glow),
-          0 0 2px var(--color-success);
+          0 0 4px 1px var(--color-success-glow),
+          0 0 8px 2px var(--color-success-glow);
       }
 
       .status-indicator.reconnecting {
         background: var(--color-warning);
-        box-shadow: 0 0 6px var(--color-warning);
+        box-shadow:
+          0 0 4px 1px var(--color-warning-glow),
+          0 0 8px 2px var(--color-warning-glow);
         animation: pulse 1s ease-in-out infinite;
       }
 
       .status-indicator.disconnected {
         background: var(--color-error);
-        box-shadow: 0 0 6px var(--color-error);
+        box-shadow:
+          0 0 4px 1px rgba(248, 113, 113, 0.5),
+          0 0 8px 2px rgba(248, 113, 113, 0.3);
       }
 
       @keyframes pulse {
@@ -592,7 +596,8 @@ export class BeamSidebar extends LitElement {
         cursor: pointer;
         padding: 2px;
         font-size: var(--text-md);
-        opacity: 0.4;
+        color: var(--t-muted);
+        opacity: 0.5;
         transition: all 0.2s;
         flex-shrink: 0;
         display: inline-flex;
@@ -601,21 +606,22 @@ export class BeamSidebar extends LitElement {
 
       .star-btn:hover,
       .star-btn:focus-visible {
-        opacity: 0.8;
+        opacity: 0.9;
         transform: scale(1.1);
       }
 
       .star-btn.favorited {
         opacity: 1;
+        color: var(--color-warning);
       }
 
       .photon-item .star-btn {
-        opacity: 0.35;
+        opacity: 0.45;
       }
 
       .photon-item:hover .star-btn,
       .photon-item:focus-within .star-btn {
-        opacity: 0.6;
+        opacity: 0.7;
       }
 
       .photon-item .star-btn.favorited {
