@@ -103,7 +103,7 @@ export class MarketplaceView extends LitElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 2.75rem;
+        font-size: 3.5rem;
         flex-shrink: 0;
         font-weight: 600;
         color: var(--t-primary);
