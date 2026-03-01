@@ -386,6 +386,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .counts-pill {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 6px;
@@ -420,13 +421,14 @@ export class BeamSidebar extends LitElement {
       }
 
       .update-dot {
-        display: inline-block;
+        position: absolute;
+        top: -3px;
+        right: -3px;
         width: 6px;
         height: 6px;
         border-radius: 50%;
         background: var(--accent-secondary);
-        margin-left: 2px;
-        flex-shrink: 0;
+        pointer-events: none;
       }
 
       .visually-hidden {
@@ -1082,11 +1084,6 @@ export class BeamSidebar extends LitElement {
         >
           ${isFavorited ? starFilled : starOutline}
         </button>
-        ${photon.hasUpdate
-          ? html`<span class="update-dot" title="Update available"
-              ><span class="visually-hidden">Update available</span></span
-            >`
-          : ''}
         ${isUnconfigured
           ? photon.errorReason === 'load-error'
             ? html`<span class="method-count error" aria-label="Error loading">×</span>`
@@ -1169,6 +1166,11 @@ export class BeamSidebar extends LitElement {
       aria-label="${tooltipParts.join(', ')}"
       title="${tooltipParts.join(', ')}"
     >
+      ${photon.hasUpdate
+        ? html`<span class="update-dot" title="Update available"
+            ><span class="visually-hidden">Update available</span></span
+          >`
+        : ''}
       ${actualToolCount > 0 ? html`<span class="count-tools">${actualToolCount}</span>` : ''}
       ${promptCount > 0 && actualToolCount > 0 ? html`<span class="count-sep">·</span>` : ''}
       ${promptCount > 0 ? html`<span class="count-prompts">${promptCount}</span>` : ''}
