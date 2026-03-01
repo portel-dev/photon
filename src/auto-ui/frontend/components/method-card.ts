@@ -146,7 +146,7 @@ export class MethodCard extends LitElement {
         display: inline-flex;
         align-items: center;
         flex-shrink: 0;
-        transform: scaleX(-1);
+        /* no flip — pencil tip naturally points toward text on left */
         width: 0;
         overflow: hidden;
       }
@@ -282,8 +282,8 @@ export class MethodCard extends LitElement {
 
       .action-icon {
         position: absolute;
-        bottom: var(--space-md);
-        right: var(--space-md);
+        bottom: var(--space-sm);
+        right: var(--space-sm);
         font-size: var(--text-xl);
         opacity: 0.5;
         transition:
