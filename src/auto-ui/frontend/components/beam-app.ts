@@ -3,6 +3,20 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
+import {
+  xMark,
+  menu,
+  expand,
+  collapse,
+  clipboard,
+  pencil,
+  source,
+  check,
+  hourglass,
+  appDefault,
+  refresh,
+} from '../icons.js';
+import { trapFocus } from '../utils/focus-trap.js';
 import type { BeamSidebar } from './beam-sidebar.js';
 import type { ResultViewer } from './result-viewer.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
@@ -82,7 +96,7 @@ export class BeamApp extends LitElement {
         --bg-panel: #f8f5f1;
         --t-primary: #2c2420;
         --t-muted: #6b5e54;
-        --border-glass: rgba(120, 90, 60, 0.12);
+        --border-glass: rgba(120, 90, 60, 0.2);
         --accent-primary: hsl(215, 55%, 45%);
         --accent-secondary: hsl(165, 45%, 35%);
         --glow-primary: hsla(215, 55%, 45%, 0.15);
@@ -114,6 +128,44 @@ export class BeamApp extends LitElement {
         /* Parameter tags — warm chip style for light backgrounds */
         --param-tag-bg: hsla(25, 20%, 55%, 0.12);
         --param-tag-color: hsl(20, 15%, 40%);
+      }
+
+      /* Skip to main content link — WCAG 2.4.1 */
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: auto;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        z-index: 10000;
+        padding: var(--space-sm) var(--space-md);
+        background: var(--accent-primary);
+        color: white;
+        font-size: var(--text-md);
+        border-radius: var(--radius-sm);
+        text-decoration: none;
+      }
+
+      .skip-link:focus {
+        position: fixed;
+        left: var(--space-md);
+        top: var(--space-md);
+        width: auto;
+        height: auto;
+        overflow: visible;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
 
       .sidebar-area {
@@ -2652,7 +2704,7 @@ export class BeamApp extends LitElement {
                   ${new Set(this._getAllTestMethods().map((t) => t.photon)).size} photon(s)
                 </span>
                 <button class="btn-sm" @click=${this._runAllTests} ?disabled=${this._runningTests}>
-                  ${this._runningTests ? '⏳ Running...' : '▶ Run All Tests'}
+                  ${this._runningTests ? html`${hourglass} Running...` : 'Run All Tests'}
                 </button>
               </div>
               ${this._testResults.length > 0
@@ -2662,7 +2714,7 @@ export class BeamApp extends LitElement {
                         <div
                           style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;"
                         >
-                          <span>${r.passed ? '✅' : '❌'}</span>
+                          <span>${r.passed ? check : xMark}</span>
                           <span style="flex: 1; font-family: monospace;">${r.method}</span>
                           ${r.duration != null
                             ? html`<span style="color: var(--t-muted); font-size: 0.75rem;"
@@ -2817,6 +2869,16 @@ export class BeamApp extends LitElement {
 
   render() {
     return html`
+      <a
+        class="skip-link"
+        href="#main-content"
+        @click=${(e: Event) => {
+          e.preventDefault();
+          const main = this.shadowRoot?.querySelector('#main-content') as HTMLElement;
+          main?.focus();
+        }}
+        >Skip to main content</a
+      >
       ${!this._connected
         ? html`
             <div
@@ -2860,7 +2922,7 @@ export class BeamApp extends LitElement {
         @click=${this._toggleSidebar}
         aria-label="${this._sidebarVisible ? 'Close menu' : 'Open menu'}"
       >
-        ${this._sidebarVisible ? '✕' : '☰'}
+        ${this._sidebarVisible ? xMark : menu}
       </button>
 
       <!-- Sidebar Overlay (mobile) -->
@@ -2911,7 +2973,7 @@ export class BeamApp extends LitElement {
         ></beam-sidebar>
       </nav>
 
-      <main class="main-area" aria-label="Main content">
+      <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
         ${this._selectedPhoton
           ? html`<button
               class="beam-fullscreen-btn"
@@ -2926,7 +2988,7 @@ export class BeamApp extends LitElement {
               }}
               title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
             >
-              ${this._focusMode ? '⊡' : '⛶'}
+              ${this._focusMode ? collapse : expand}
             </button>`
           : ''}
         ${this._renderContent()}
@@ -3697,7 +3759,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   <div
                     style="display: flex; align-items: center; gap: var(--space-sm); padding: 4px 0; font-size: 0.85rem;"
                   >
-                    <span>${r.passed ? '✅' : '❌'}</span>
+                    <span>${r.passed ? check : xMark}</span>
                     <span style="flex: 1;">${r.method}</span>
                     ${r.duration != null
                       ? html`<span style="color: var(--t-muted); font-size: 0.75rem;"
@@ -5972,7 +6034,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               @click=${this._handleCopyMCPConfig}
               title="Copy MCP config for Claude Desktop"
             >
-              📋 Copy MCP Config
+              ${clipboard} Copy MCP Config
             </button>
             ${this._selectedPhoton.hasUpdate
               ? html`<button class="btn-sm primary" @click=${this._handleUpgrade}>
@@ -6339,7 +6401,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
             <div class="content-preview" .innerHTML=${renderedContent}></div>
           </div>
 
-          <button class="copy-btn" @click=${this._copyPromptContent}>📋 Copy to Clipboard</button>
+          <button class="copy-btn" @click=${this._copyPromptContent}>
+            ${clipboard} Copy to Clipboard
+          </button>
         </div>
       </div>
     `;
@@ -6399,7 +6463,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           ${!isImage
             ? html`
                 <button class="copy-btn" @click=${this._copyResourceContent}>
-                  📋 Copy to Clipboard
+                  ${clipboard} Copy to Clipboard
                 </button>
               `
             : ''}
@@ -6618,7 +6682,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               @click=${this._closePhotonHelp}
               aria-label="Close help"
             >
-              ✕
+              ${xMark}
             </button>
           </div>
           <div class="markdown-body" style="color: var(--t-default);">
@@ -6706,7 +6770,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             @click=${this._copySourceCode}
             title="Copy source code"
           >
-            📋 Copy
+            ${clipboard} Copy
           </button>
         </div>
         <pre
@@ -6801,7 +6865,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       }}
                       title="Edit this photon in Studio"
                     >
-                      ✎ Open in Studio
+                      ${pencil} Open in Studio
                     </button>
                   `
                 : ''}
@@ -6811,7 +6875,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 @click=${this._copySourceCode}
                 title="Copy source code"
               >
-                📋 Copy
+                ${clipboard} Copy
               </button>
               <button
                 class="toolbar-btn"
@@ -6819,7 +6883,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 @click=${this._closeSourceModal}
                 aria-label="Close"
               >
-                ✕
+                ${xMark}
               </button>
             </div>
           </div>

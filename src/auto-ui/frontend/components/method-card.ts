@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 import { formatLabel } from '../utils/format-label.js';
+import { pencil, clipboard, play } from '../icons.js';
 
 interface MethodInfo {
   name: string;
@@ -109,7 +110,7 @@ export class MethodCard extends LitElement {
       }
 
       .edit-pencil {
-        opacity: 0;
+        opacity: 0.3;
         cursor: pointer;
         font-size: var(--text-xs);
         color: var(--t-muted);
@@ -119,10 +120,13 @@ export class MethodCard extends LitElement {
         padding: 2px 4px;
         border-radius: var(--radius-xs);
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
       }
 
-      .editable:hover .edit-pencil {
-        opacity: 0.5;
+      .editable:hover .edit-pencil,
+      .edit-pencil:focus-visible {
+        opacity: 0.7;
       }
 
       .edit-pencil:hover {
@@ -170,6 +174,10 @@ export class MethodCard extends LitElement {
         margin: 0;
         resize: none;
         line-height: 1.5;
+      }
+
+      .description-input:focus-visible {
+        outline: none; /* Parent .editing provides visual ring */
       }
 
       .description-input::placeholder {
@@ -418,7 +426,13 @@ export class MethodCard extends LitElement {
       <div
         class="card glass-panel ${isTyped ? 'typed' : ''}"
         style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
+        role="button"
+        tabindex="0"
+        aria-label="${formatLabel(this.method.name)}${hasDescription
+          ? ': ' + this._renderDescription(this.method.description)
+          : ''}"
         @click=${this._handleCardClick}
+        @keydown=${this._handleCardKeydown}
       >
         <div>
           <div class="header">
@@ -436,8 +450,17 @@ export class MethodCard extends LitElement {
                 : ''}
               <span class="editable">
                 <h3 class="title">${formatLabel(this.method.name)}</h3>
-                <span class="edit-pencil" @click=${this._handleNameEditClick} title="Rename method"
-                  >✎</span
+                <span
+                  class="edit-pencil"
+                  role="button"
+                  tabindex="0"
+                  @click=${this._handleNameEditClick}
+                  @keydown=${(e: KeyboardEvent) =>
+                    (e.key === 'Enter' || e.key === ' ') &&
+                    (e.preventDefault(), this._handleNameEditClick(e))}
+                  title="Rename method"
+                  aria-label="Rename method"
+                  >${pencil}</span
                 >
               </span>
             </div>
@@ -525,9 +548,15 @@ export class MethodCard extends LitElement {
                   </div>
                   <span
                     class="edit-pencil"
+                    role="button"
+                    tabindex="0"
                     @click=${this._handleDescriptionEditClick}
+                    @keydown=${(e: KeyboardEvent) =>
+                      (e.key === 'Enter' || e.key === ' ') &&
+                      (e.preventDefault(), this._handleDescriptionEditClick(e))}
                     title="Edit description"
-                    >✎</span
+                    aria-label="Edit description"
+                    >${pencil}</span
                   >
                 </div>
               `}
@@ -540,7 +569,7 @@ export class MethodCard extends LitElement {
             class="action-icon"
             title="${hasParams ? 'Requires parameters' : 'Click to execute'}"
           >
-            ${hasParams ? '📋' : '▶'}
+            ${hasParams ? clipboard : play}
           </div>`;
         })()}
         ${this._editingIcon ? this._renderEmojiPicker() : ''}
@@ -600,6 +629,13 @@ export class MethodCard extends LitElement {
           : ''}
       </div>
     `;
+  }
+
+  private _handleCardKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      this._handleCardClick(e);
+    }
   }
 
   private _handleCardClick(e: Event) {

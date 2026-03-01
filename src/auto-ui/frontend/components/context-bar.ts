@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme } from '../styles/theme.js';
 import type { OverflowMenuItem } from './overflow-menu.js';
 import './instance-panel.js';
+import { pencil, settings as settingsIcon, clipboard, source, appDefault } from '../icons.js';
 
 export interface ContextBarPhoton {
   name: string;
@@ -104,7 +105,7 @@ export class ContextBar extends LitElement {
       }
 
       .edit-pencil {
-        opacity: 0;
+        opacity: 0.3;
         cursor: pointer;
         font-size: var(--text-xs);
         color: var(--t-muted);
@@ -114,10 +115,13 @@ export class ContextBar extends LitElement {
         padding: 2px 4px;
         border-radius: var(--radius-xs);
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
       }
 
-      .editable:hover .edit-pencil {
-        opacity: 0.5;
+      .editable:hover .edit-pencil,
+      .edit-pencil:focus-visible {
+        opacity: 0.7;
       }
 
       .edit-pencil:hover {
@@ -436,7 +440,7 @@ export class ContextBar extends LitElement {
     const methodCount = methods.length;
     const templateCount = methods.filter((m: any) => m.isTemplate).length;
     const toolCount = methods.filter((m: any) => !m.isTemplate).length;
-    const displayIcon = p.icon || (p.isApp ? '📱' : p.name.substring(0, 2).toUpperCase());
+    const displayIcon = p.icon || (p.isApp ? appDefault : p.name.substring(0, 2).toUpperCase());
     const hasCustomIcon = !!p.icon;
     const description = p.description || `${p.name} MCP`;
     const isGenericDesc =
@@ -511,9 +515,15 @@ export class ContextBar extends LitElement {
                           ${!p.isExternalMCP
                             ? html`<span
                                 class="edit-pencil"
+                                role="button"
+                                tabindex="0"
                                 @click=${this._startEditingName}
+                                @keydown=${(e: KeyboardEvent) =>
+                                  (e.key === 'Enter' || e.key === ' ') &&
+                                  (e.preventDefault(), this._startEditingName())}
                                 title="Rename"
-                                >✎</span
+                                aria-label="Rename photon"
+                                >${pencil}</span
                               >`
                             : ''}
                         </span>`}
@@ -541,9 +551,15 @@ export class ContextBar extends LitElement {
                           </span>
                           <span
                             class="edit-pencil"
+                            role="button"
+                            tabindex="0"
                             @click=${this._startEditingDescription}
+                            @keydown=${(e: KeyboardEvent) =>
+                              (e.key === 'Enter' || e.key === ' ') &&
+                              (e.preventDefault(), this._startEditingDescription())}
                             title="Edit description"
-                            >✎</span
+                            aria-label="Edit description"
+                            >${pencil}</span
                           >
                         </span>`}
                   </div>
@@ -586,11 +602,11 @@ export class ContextBar extends LitElement {
             : ''}
           ${this.sourceMode === 'source'
             ? html`<button class="action-btn" @click=${() => this._emit('view-source')}>
-                ◎ Source
+                ${source} Source
               </button>`
             : this.sourceMode === 'edit'
               ? html`<button class="action-btn" @click=${() => this._emit('edit-studio')}>
-                  ✎ Edit
+                  ${pencil} Edit
                 </button>`
               : ''}
           ${this.hasSettings
@@ -599,7 +615,7 @@ export class ContextBar extends LitElement {
                 @click=${() => this._emit('open-settings')}
                 title="Settings"
               >
-                ⚙
+                ${settingsIcon}
               </button>`
             : ''}
           ${this.showConfigure && !p.isExternalMCP
@@ -609,7 +625,7 @@ export class ContextBar extends LitElement {
             : ''}
           ${this.showCopyConfig
             ? html`<button class="action-btn" @click=${() => this._emit('copy-config')}>
-                📋 Copy MCP Config
+                ${clipboard} Copy MCP Config
               </button>`
             : ''}
           ${this.overflowItems.length > 0

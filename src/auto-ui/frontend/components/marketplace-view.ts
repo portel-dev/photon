@@ -4,6 +4,8 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { theme, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { templates } from './studio-templates.js';
+import { sparkle, refresh as refreshIcon, check, xMark, file as fileIcon } from '../icons.js';
+import { trapFocus } from '../utils/focus-trap.js';
 
 declare const marked: { parse: (md: string) => string };
 
@@ -913,7 +915,7 @@ export class MarketplaceView extends LitElement {
         <div class="toolbar-section">
           <span class="toolbar-section-title">Create</span>
           <button class="toolbar-btn" @click=${this._createNew} title="Create a new photon">
-            <span class="icon">✨</span>
+            <span class="icon">${sparkle}</span>
             <span>New Photon</span>
           </button>
         </div>
@@ -931,7 +933,7 @@ export class MarketplaceView extends LitElement {
             <span>Add Marketplace</span>
           </button>
           <button class="toolbar-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
-            <span class="icon">🔄</span>
+            <span class="icon">${refreshIcon}</span>
             <span>Sync</span>
           </button>
         </div>
@@ -941,7 +943,7 @@ export class MarketplaceView extends LitElement {
         <div class="toolbar-section">
           <span class="toolbar-section-title">Tools</span>
           <button class="toolbar-btn" @click=${this._validatePhotons} title="Validate all photons">
-            <span class="icon">✓</span>
+            <span class="icon">${check}</span>
             <span>Validate</span>
           </button>
         </div>
@@ -1006,22 +1008,42 @@ export class MarketplaceView extends LitElement {
           if (e.target === e.currentTarget) this._showTemplates = false;
         }}
       >
-        <div class="template-modal">
+        <div
+          class="template-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="template-modal-title"
+        >
           <div class="modal-header" style="padding: 0; border: none; margin-bottom: 4px;">
             <h3
+              id="template-modal-title"
               style="margin: 0; font-size: var(--text-lg); font-weight: 600; color: var(--t-primary);"
             >
               Create New Photon
             </h3>
-            <button class="modal-close" @click=${() => (this._showTemplates = false)}>✕</button>
+            <button
+              class="modal-close"
+              @click=${() => (this._showTemplates = false)}
+              aria-label="Close"
+            >
+              ${xMark}
+            </button>
           </div>
           <div class="template-modal-subtitle">
             Start from a template or begin with a blank file
           </div>
 
           <div class="template-list">
-            <div class="template-card" @click=${() => this._createFromTemplate()}>
-              <div class="template-icon">📄</div>
+            <div
+              class="template-card"
+              role="button"
+              tabindex="0"
+              @click=${() => this._createFromTemplate()}
+              @keydown=${(e: KeyboardEvent) =>
+                (e.key === 'Enter' || e.key === ' ') &&
+                (e.preventDefault(), this._createFromTemplate())}
+            >
+              <div class="template-icon">${fileIcon}</div>
               <div class="template-info">
                 <div class="template-name">Blank</div>
                 <div class="template-desc">Empty photon — start from scratch</div>
@@ -1061,11 +1083,16 @@ export class MarketplaceView extends LitElement {
           if (e.target === e.currentTarget) this._selectedItem = null;
         }}
       >
-        <div class="modal detail-modal">
+        <div
+          class="modal detail-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detail-modal-title"
+        >
           <div class="modal-header">
             <div class="detail-header">
               ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''}
-              <span class="card-title">${item.name}</span>
+              <span class="card-title" id="detail-modal-title">${item.name}</span>
               <div
                 class="tag"
                 style="background: var(--accent-secondary); color: white; font-weight: 600;"
@@ -1074,7 +1101,13 @@ export class MarketplaceView extends LitElement {
               </div>
               <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
             </div>
-            <button class="modal-close" @click=${() => (this._selectedItem = null)}>✕</button>
+            <button
+              class="modal-close"
+              @click=${() => (this._selectedItem = null)}
+              aria-label="Close"
+            >
+              ${xMark}
+            </button>
           </div>
           <div class="detail-meta">
             ${item.author && item.author !== 'Unknown'
@@ -1136,10 +1169,16 @@ export class MarketplaceView extends LitElement {
           if (e.target === e.currentTarget) this._showAddRepoModal = false;
         }}
       >
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-repo-modal-title">
           <div class="modal-header">
-            <h3>Add Marketplace</h3>
-            <button class="modal-close" @click=${() => (this._showAddRepoModal = false)}>✕</button>
+            <h3 id="add-repo-modal-title">Add Marketplace</h3>
+            <button
+              class="modal-close"
+              @click=${() => (this._showAddRepoModal = false)}
+              aria-label="Close"
+            >
+              ${xMark}
+            </button>
           </div>
           <div class="modal-body">
             <input
@@ -1195,7 +1234,15 @@ export class MarketplaceView extends LitElement {
     const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''} ${item.hasUpdate ? 'has-update' : ''}`;
 
     return html`
-      <div class="${cardClasses}" @click=${() => (this._selectedItem = item)}>
+      <div
+        class="${cardClasses}"
+        role="button"
+        tabindex="0"
+        aria-label="${item.name}: ${item.description}"
+        @click=${() => (this._selectedItem = item)}
+        @keydown=${(e: KeyboardEvent) =>
+          (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), (this._selectedItem = item))}
+      >
         <div class="card-header">
           <div>
             <div class="card-title">
@@ -1407,6 +1454,8 @@ export class MarketplaceView extends LitElement {
   }
 
   private async _remove(item: MarketplaceItem) {
+    // Confirmation dialog for destructive action
+    if (!confirm(`Remove "${item.name}"? This will delete the photon files.`)) return;
     this._removing = item.name;
     try {
       const res = await fetch('/api/marketplace/remove', {

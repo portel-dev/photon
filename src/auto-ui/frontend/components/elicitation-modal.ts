@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, buttons, forms } from '../styles/index.js';
+import { trapFocus } from '../utils/focus-trap.js';
 
 export interface ElicitationData {
   ask: 'text' | 'password' | 'select' | 'confirm' | 'number' | 'oauth' | 'form';
@@ -232,7 +233,6 @@ export class ElicitationModal extends LitElement {
         -webkit-appearance: none;
         cursor: pointer;
         margin: 8px 0;
-        outline: none;
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
@@ -440,6 +440,7 @@ export class ElicitationModal extends LitElement {
   private _oauthPopup: Window | null = null;
   private _oauthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private _boundGlobalKeydown: ((e: KeyboardEvent) => void) | null = null;
+  private _releaseFocusTrap: (() => void) | null = null;
 
   connectedCallback() {
     super.connectedCallback();
@@ -467,6 +468,19 @@ export class ElicitationModal extends LitElement {
   updated(changedProperties: Map<string, any>) {
     if (changedProperties.has('data') && this.data) {
       this._resetState();
+    }
+    if (changedProperties.has('open')) {
+      if (this.open) {
+        this.updateComplete.then(() => {
+          const content = this.shadowRoot?.querySelector('.modal-content') as HTMLElement;
+          if (content) {
+            this._releaseFocusTrap = trapFocus(content);
+          }
+        });
+      } else if (this._releaseFocusTrap) {
+        this._releaseFocusTrap();
+        this._releaseFocusTrap = null;
+      }
     }
   }
 
@@ -497,7 +511,13 @@ export class ElicitationModal extends LitElement {
     if (!this.data) return nothing;
 
     return html`
-      <div class="modal-content" @click=${(e: Event) => e.stopPropagation()}>
+      <div
+        class="modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-label="${this.data?.message || 'Input required'}"
+        @click=${(e: Event) => e.stopPropagation()}
+      >
         <h3>${this.data.message || 'Input Required'}</h3>
         ${this._renderContent()}
       </div>
