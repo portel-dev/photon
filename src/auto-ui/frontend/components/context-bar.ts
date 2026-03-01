@@ -189,30 +189,32 @@ export class ContextBar extends LitElement {
       .secondary-actions {
         display: flex;
         align-items: center;
-        gap: var(--space-xs);
+        gap: 6px;
         flex-shrink: 0;
       }
 
       .action-btn {
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
+        background: none;
+        border: 1px solid transparent;
         color: var(--t-muted);
-        padding: 4px 10px;
+        padding: 5px 8px;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: var(--text-xs);
+        font-size: var(--text-2xs);
         font-weight: 500;
-        transition: all 0.2s ease;
+        transition: all 0.15s ease;
         white-space: nowrap;
         display: flex;
         align-items: center;
         gap: 4px;
+        height: 28px;
+        box-sizing: border-box;
       }
 
       .action-btn:hover {
         color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-color: var(--accent-primary);
+        background: var(--bg-glass);
+        border-color: var(--border-glass);
       }
 
       .action-btn.primary {
