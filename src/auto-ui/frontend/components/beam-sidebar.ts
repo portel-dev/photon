@@ -261,6 +261,7 @@ export class BeamSidebar extends LitElement {
         color: var(--t-muted);
         margin-top: var(--space-sm);
         border-left: 2px solid var(--accent-primary);
+        background: var(--bg-glass);
         cursor: pointer;
         user-select: none;
         display: flex;
@@ -270,6 +271,7 @@ export class BeamSidebar extends LitElement {
 
       .section-header:hover {
         color: var(--t-secondary);
+        background: var(--bg-glass-strong);
       }
 
       .section-header.attention {
