@@ -127,33 +127,34 @@ export class MethodCard extends LitElement {
       }
 
       .editable {
-        position: relative;
         display: flex;
         align-items: center;
         min-width: 0;
       }
 
       .edit-pencil {
-        position: absolute;
-        left: -14px;
-        top: 50%;
-        transform: translateY(-50%) scale(0.7);
         opacity: 0;
         cursor: pointer;
-        font-size: var(--text-2xs);
+        font-size: 9px;
         color: var(--t-muted);
         transition:
           opacity 0.15s,
-          color 0.15s;
-        padding: 2px;
+          color 0.15s,
+          width 0.15s;
+        padding: 0;
         border-radius: var(--radius-xs);
         display: inline-flex;
         align-items: center;
-        z-index: 1;
+        flex-shrink: 0;
+        transform: scaleX(-1);
+        width: 0;
+        overflow: hidden;
       }
 
       .card:hover .edit-pencil {
         opacity: 0.4;
+        width: 13px;
+        padding: 2px;
       }
 
       .editable:hover .edit-pencil,
@@ -487,6 +488,9 @@ export class MethodCard extends LitElement {
                   `
                 : ''}
               <span class="editable">
+                <h3 class="title">
+                  <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
+                </h3>
                 <span
                   class="edit-pencil"
                   role="button"
@@ -499,9 +503,6 @@ export class MethodCard extends LitElement {
                   aria-label="Rename method"
                   >${pencil}</span
                 >
-                <h3 class="title">
-                  <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
-                </h3>
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
@@ -561,7 +562,12 @@ export class MethodCard extends LitElement {
                 </div>
               `
             : html`
-                <div class="editable" style="flex:1;">
+                <div class="editable" style="flex:1; align-items: flex-start;">
+                  <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
+                    ${hasDescription
+                      ? this._renderDescription(this.method.description)
+                      : 'Add description...'}
+                  </div>
                   <span
                     class="edit-pencil"
                     role="button"
@@ -572,13 +578,9 @@ export class MethodCard extends LitElement {
                       (e.preventDefault(), this._handleDescriptionEditClick(e))}
                     title="Edit description"
                     aria-label="Edit description"
+                    style="margin-top: 2px;"
                     >${pencil}</span
                   >
-                  <div class="description ${hasDescription ? '' : 'placeholder'}" style="flex:1;">
-                    ${hasDescription
-                      ? this._renderDescription(this.method.description)
-                      : 'Add description...'}
-                  </div>
                 </div>
               `}
         </div>
