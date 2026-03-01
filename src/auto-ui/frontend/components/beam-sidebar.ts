@@ -728,7 +728,7 @@ export class BeamSidebar extends LitElement {
   }
 
   trackRecentPhoton(name: string) {
-    const recent = [name, ...this._recentPhotons.filter((n) => n !== name)].slice(0, 5);
+    const recent = [name, ...this._recentPhotons.filter((n) => n !== name)].slice(0, 20);
     this._recentPhotons = recent;
     try {
       localStorage.setItem(BeamSidebar.RECENT_KEY, JSON.stringify(recent));
@@ -802,7 +802,20 @@ export class BeamSidebar extends LitElement {
     return this._filteredExternalMCPs.filter((m) => !m.hasMcpApp);
   }
 
-  /** Names shown in RECENT section — exclude from normal sections to avoid duplicates */
+  /** Sort items by recency — recently used items float to the top */
+  private _sortByRecency<T extends { name: string }>(items: T[]): T[] {
+    const recentIndex = new Map(this._recentPhotons.map((name, i) => [name, i]));
+    return [...items].sort((a, b) => {
+      const aIdx = recentIndex.get(a.name);
+      const bIdx = recentIndex.get(b.name);
+      if (aIdx !== undefined && bIdx !== undefined) return aIdx - bIdx;
+      if (aIdx !== undefined) return -1;
+      if (bIdx !== undefined) return 1;
+      return 0; // preserve original order for non-recent items
+    });
+  }
+
+  /** @deprecated No longer used — recent items are sorted inline within their sections */
   private get _recentSet(): Set<string> {
     if (this._showFavoritesOnly || this._searchQuery) return new Set();
     return new Set(
@@ -864,21 +877,9 @@ export class BeamSidebar extends LitElement {
           </div>
         </div>
 
-        ${this._recentPhotons.length > 0 && !this._showFavoritesOnly && !this._searchQuery
-          ? html`
-              <div class="section-header" id="recent-header">RECENT</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="recent-header">
-                ${this._recentPhotons
-                  .map((name) => this._filteredPhotons.find((p) => p.name === name))
-                  .filter(Boolean)
-                  .map((photon) => this._renderPhotonItem(photon!, 'recent'))}
-              </ul>
-            `
-          : ''}
         ${(() => {
-          const recent = this._recentSet;
-          const apps = this._apps.filter((p) => !recent.has(p.name));
-          const configured = this._configured.filter((p) => !recent.has(p.name));
+          const apps = this._sortByRecency(this._apps);
+          const configured = this._sortByRecency(this._configured);
           return html`
             ${apps.length > 0
               ? html`
@@ -932,7 +933,9 @@ export class BeamSidebar extends LitElement {
           ? html`
               <div class="section-header" id="mcps-header">MCPS</div>
               <ul class="photon-list" role="listbox" aria-labelledby="mcps-header">
-                ${this._nonAppExternalMCPs.map((mcp) => this._renderExternalMCPItem(mcp))}
+                ${this._sortByRecency(this._nonAppExternalMCPs).map((mcp) =>
+                  this._renderExternalMCPItem(mcp)
+                )}
               </ul>
             `
           : ''}
