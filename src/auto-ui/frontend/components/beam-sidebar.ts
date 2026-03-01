@@ -112,7 +112,8 @@ export class BeamSidebar extends LitElement {
         border-top: 1px solid var(--border-glass);
         display: flex;
         justify-content: center;
-        gap: var(--space-md);
+        gap: var(--space-xs);
+        flex-wrap: wrap;
       }
 
       .footer-link {
@@ -423,9 +424,21 @@ export class BeamSidebar extends LitElement {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: hsl(0, 80%, 55%);
+        background: var(--accent-secondary);
         margin-left: 2px;
         flex-shrink: 0;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
 
       .update-badge {
@@ -1069,7 +1082,11 @@ export class BeamSidebar extends LitElement {
         >
           ${isFavorited ? starFilled : starOutline}
         </button>
-        ${photon.hasUpdate ? html`<span class="update-dot" title="Update available"></span>` : ''}
+        ${photon.hasUpdate
+          ? html`<span class="update-dot" title="Update available"
+              ><span class="visually-hidden">Update available</span></span
+            >`
+          : ''}
         ${isUnconfigured
           ? photon.errorReason === 'load-error'
             ? html`<span class="method-count error" aria-label="Error loading">×</span>`
