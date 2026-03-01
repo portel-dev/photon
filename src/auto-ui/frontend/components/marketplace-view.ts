@@ -84,7 +84,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .card:hover {
-        transform: translateY(-2px);
+        transform: translateY(2px);
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         border-color: var(--accent-secondary);
       }
@@ -92,17 +92,18 @@ export class MarketplaceView extends LitElement {
       .card-body {
         display: flex;
         gap: var(--space-md);
+        min-height: 88px;
       }
 
       .card-icon-large {
-        width: 56px;
-        height: 56px;
+        width: 88px;
+        height: 88px;
         border-radius: var(--radius-md);
         background: var(--bg-glass-strong);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 2rem;
+        font-size: 2.75rem;
         flex-shrink: 0;
         font-weight: 600;
         color: var(--t-primary);
