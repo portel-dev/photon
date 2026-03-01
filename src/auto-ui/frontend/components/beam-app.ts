@@ -80,6 +80,12 @@ export class BeamApp extends LitElement {
         --cli-muted: hsl(220, 10%, 40%);
         --cli-hover-bg: hsl(220, 15%, 10%);
 
+        /* Initials icon (marketplace cards) */
+        --initials-bg-sat: 35%;
+        --initials-bg-lum: 22%;
+        --initials-fg-sat: 60%;
+        --initials-fg-lum: 75%;
+
         /* Shadow tokens (dark defaults) */
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
         --shadow-md: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
@@ -130,6 +136,12 @@ export class BeamApp extends LitElement {
         --shadow-sm: 0px 1px 3px rgba(80, 60, 40, 0.1), 0px 1px 2px rgba(80, 60, 40, 0.08);
         --shadow-md: 0px 2px 6px rgba(80, 60, 40, 0.1), 0px 4px 8px rgba(80, 60, 40, 0.06);
         --shadow-lg: 0px 4px 8px rgba(80, 60, 40, 0.1), 0px 10px 20px rgba(80, 60, 40, 0.06);
+
+        /* Initials icon (marketplace cards) */
+        --initials-bg-sat: 30%;
+        --initials-bg-lum: 90%;
+        --initials-fg-sat: 50%;
+        --initials-fg-lum: 35%;
 
         /* Parameter tags — warm chip style for light backgrounds */
         --param-tag-bg: hsla(25, 20%, 55%, 0.12);
