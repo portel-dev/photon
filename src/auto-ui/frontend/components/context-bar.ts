@@ -105,22 +105,32 @@ export class ContextBar extends LitElement {
       }
 
       .edit-pencil {
-        opacity: 0.3;
+        opacity: 0;
         cursor: pointer;
-        font-size: var(--text-xs);
+        font-size: 9px;
         color: var(--t-muted);
         transition:
           opacity 0.15s,
-          color 0.15s;
-        padding: 2px 4px;
+          color 0.15s,
+          width 0.15s;
+        padding: 0;
         border-radius: var(--radius-xs);
         flex-shrink: 0;
+        transform: scaleX(-1);
+        width: 0;
+        overflow: hidden;
         display: inline-flex;
         align-items: center;
       }
 
-      .editable:hover .edit-pencil,
+      .identity:hover .edit-pencil,
       .edit-pencil:focus-visible {
+        opacity: 0.4;
+        width: 13px;
+        padding: 2px;
+      }
+
+      .editable:hover .edit-pencil {
         opacity: 0.7;
       }
 
