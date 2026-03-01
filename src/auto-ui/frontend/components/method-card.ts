@@ -98,15 +98,32 @@ export class MethodCard extends LitElement {
         font-size: var(--text-md);
         margin: 0;
         color: var(--t-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        display: flex;
+        align-items: baseline;
+        min-width: 0;
       }
 
+      .title-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex-shrink: 1;
+        min-width: 0;
+      }
       .title .method-params {
         font-weight: 400;
         opacity: 0.5;
         font-size: 0.85em;
+        white-space: nowrap;
+      }
+      .title .method-params-trunc {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 1;
+        min-width: 0;
+      }
+      .title .method-params-suffix {
+        flex-shrink: 0;
       }
 
       .editable {
@@ -482,7 +499,9 @@ export class MethodCard extends LitElement {
                   aria-label="Rename method"
                   >${pencil}</span
                 >
-                <h3 class="title">${this.method.name}${this._renderParamSignature()}</h3>
+                <h3 class="title">
+                  <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
+                </h3>
               </span>
             </div>
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
@@ -584,11 +603,14 @@ export class MethodCard extends LitElement {
     const props = this.method.params?.properties || {};
     const paramNames = Object.keys(props);
     if (paramNames.length === 0) return '';
-    const display =
-      paramNames.length <= 4
-        ? paramNames.join(', ')
-        : paramNames.slice(0, 3).join(', ') + `, +${paramNames.length - 3}`;
-    return html`<span class="method-params">(${display})</span>`;
+    if (paramNames.length <= 4) {
+      return html`<span class="method-params method-params-trunc">(${paramNames.join(', ')}</span
+        ><span class="method-params method-params-suffix">)</span>`;
+    }
+    // Show first 3 params, keep +N) as a non-shrinkable suffix
+    const visible = paramNames.slice(0, 3).join(', ');
+    return html`<span class="method-params method-params-trunc">(${visible}, </span
+      ><span class="method-params method-params-suffix">+${paramNames.length - 3})</span>`;
   }
 
   private _renderEmojiPicker() {
