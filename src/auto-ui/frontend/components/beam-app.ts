@@ -34,7 +34,6 @@ import {
 } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
-import { formatLabel } from '../utils/format-label.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -3700,7 +3699,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     : this._selectedPhoton.name,
                 action: 'back',
               },
-              { label: formatLabel(this._selectedMethod.name) },
+              { label: this._selectedMethod.name },
             ]}
             .live=${this._currentCollectionName !== null}
             .showEdit=${false}
@@ -3732,7 +3731,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   : this._selectedPhoton.name,
               action: 'back',
             },
-            { label: formatLabel(this._selectedMethod.name) },
+            { label: this._selectedMethod.name },
           ]}
           .live=${this._currentCollectionName !== null}
           .showEdit=${false}
@@ -4129,7 +4128,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Standard form mode
     return html`
       <div class="glass-panel method-detail">
-        <h2>${formatLabel(this._selectedMethod.name)}</h2>
+        <h2>${this._selectedMethod.name}</h2>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}

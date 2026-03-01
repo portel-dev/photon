@@ -17,22 +17,24 @@ export class InstancePanel extends LitElement {
         display: flex;
         align-items: center;
         gap: 4px;
-        padding: 3px 10px;
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-full, 20px);
+        padding: 5px 8px;
+        background: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: var(--text-xs);
+        font-size: var(--text-2xs);
         font-weight: 500;
         color: var(--t-muted);
-        transition: all 0.2s ease;
+        transition: all 0.15s ease;
         white-space: nowrap;
+        height: 28px;
+        box-sizing: border-box;
       }
 
       .instance-pill:hover {
         color: var(--t-primary);
-        background: var(--bg-glass-strong);
-        border-color: var(--accent-primary);
+        background: var(--bg-glass);
+        border-color: var(--border-glass);
       }
 
       .instance-pill .chevron {
