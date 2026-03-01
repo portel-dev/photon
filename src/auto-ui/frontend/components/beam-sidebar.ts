@@ -787,6 +787,14 @@ export class BeamSidebar extends LitElement {
     return this._filteredExternalMCPs.filter((m) => !m.hasMcpApp);
   }
 
+  /** Names shown in RECENT section — exclude from normal sections to avoid duplicates */
+  private get _recentSet(): Set<string> {
+    if (this._showFavoritesOnly || this._searchQuery) return new Set();
+    return new Set(
+      this._recentPhotons.filter((n) => this._filteredPhotons.some((p) => p.name === n))
+    );
+  }
+
   render() {
     return html`
       <nav class="sidebar-content" role="navigation" aria-label="Photon navigation">
@@ -852,26 +860,33 @@ export class BeamSidebar extends LitElement {
               </ul>
             `
           : ''}
-        ${this._apps.length > 0
-          ? html`
-              <div class="section-header" id="apps-header">APPS</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
-                ${this._apps.map((photon) =>
-                  photon.isExternalMCP
-                    ? this._renderExternalMCPItem(photon)
-                    : this._renderPhotonItem(photon, 'app')
-                )}
-              </ul>
-            `
-          : ''}
-        ${this._configured.length > 0
-          ? html`
-              <div class="section-header" id="photons-header">PHOTONS</div>
-              <ul class="photon-list" role="listbox" aria-labelledby="photons-header">
-                ${this._configured.map((photon) => this._renderPhotonItem(photon, 'configured'))}
-              </ul>
-            `
-          : ''}
+        ${(() => {
+          const recent = this._recentSet;
+          const apps = this._apps.filter((p) => !recent.has(p.name));
+          const configured = this._configured.filter((p) => !recent.has(p.name));
+          return html`
+            ${apps.length > 0
+              ? html`
+                  <div class="section-header" id="apps-header">APPS</div>
+                  <ul class="photon-list" role="listbox" aria-labelledby="apps-header">
+                    ${apps.map((photon) =>
+                      photon.isExternalMCP
+                        ? this._renderExternalMCPItem(photon)
+                        : this._renderPhotonItem(photon, 'app')
+                    )}
+                  </ul>
+                `
+              : ''}
+            ${configured.length > 0
+              ? html`
+                  <div class="section-header" id="photons-header">PHOTONS</div>
+                  <ul class="photon-list" role="listbox" aria-labelledby="photons-header">
+                    ${configured.map((photon) => this._renderPhotonItem(photon, 'configured'))}
+                  </ul>
+                `
+              : ''}
+          `;
+        })()}
         ${(() => {
           const needsConfig = this._needsSetup.filter((p) => p.errorReason !== 'load-error');
           const loadErrors = this._needsSetup.filter((p) => p.errorReason === 'load-error');
