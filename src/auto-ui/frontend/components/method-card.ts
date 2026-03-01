@@ -110,12 +110,17 @@ export class MethodCard extends LitElement {
       }
 
       .editable {
-        display: inline-flex;
+        position: relative;
+        display: flex;
         align-items: center;
-        gap: 2px;
+        min-width: 0;
       }
 
       .edit-pencil {
+        position: absolute;
+        left: -14px;
+        top: 50%;
+        transform: translateY(-50%) scale(0.7);
         opacity: 0;
         cursor: pointer;
         font-size: var(--text-2xs);
@@ -123,11 +128,11 @@ export class MethodCard extends LitElement {
         transition:
           opacity 0.15s,
           color 0.15s;
-        padding: 2px 3px;
+        padding: 2px;
         border-radius: var(--radius-xs);
-        flex-shrink: 0;
         display: inline-flex;
         align-items: center;
+        z-index: 1;
       }
 
       .card:hover .edit-pencil {
