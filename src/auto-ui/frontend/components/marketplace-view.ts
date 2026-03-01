@@ -119,7 +119,7 @@ export class MarketplaceView extends LitElement {
       }
 
       .card-icon-large.emoji-icon {
-        background: transparent;
+        background: var(--bg-glass-strong);
       }
 
       .card-content {
