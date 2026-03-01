@@ -273,7 +273,7 @@ export class BeamSidebar extends LitElement {
 
       .photon-list {
         list-style: none;
-        padding: 0 var(--space-sm);
+        padding: 2px var(--space-sm) 0;
         margin: 0;
       }
 
