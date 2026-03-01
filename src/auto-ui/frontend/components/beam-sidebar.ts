@@ -1000,7 +1000,7 @@ export class BeamSidebar extends LitElement {
         </button>
         <a
           class="footer-link"
-          href="https://photon.run/docs"
+          href="https://github.com/portel-dev/photon#readme"
           target="_blank"
           rel="noopener noreferrer"
           title="Docs"
