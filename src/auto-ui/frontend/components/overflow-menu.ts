@@ -5,7 +5,10 @@ import { theme } from '../styles/theme.js';
 export interface OverflowMenuItem {
   id: string;
   label: string;
+  /** Emoji string (legacy) */
   icon?: string;
+  /** Raw SVG markup string for inline icon (preferred over emoji) */
+  iconSvg?: string;
   danger?: boolean;
   toggle?: boolean;
   toggleActive?: boolean;
@@ -178,10 +181,18 @@ export class OverflowMenu extends LitElement {
       if (item.toggle) {
         const labelSpan = document.createElement('span');
         labelSpan.style.cssText = 'display:flex;align-items:center;gap:8px;';
-        if (item.icon) {
+        if (item.iconSvg || item.icon) {
           const iconSpan = document.createElement('span');
-          iconSpan.style.cssText = 'font-size:0.95rem;width:20px;text-align:center;';
-          iconSpan.textContent = item.icon;
+          iconSpan.style.cssText =
+            'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;color:' +
+            tMuted +
+            ';';
+          if (item.iconSvg) {
+            iconSpan.innerHTML = item.iconSvg;
+          } else {
+            iconSpan.style.cssText = 'font-size:0.95rem;width:20px;text-align:center;';
+            iconSpan.textContent = item.icon!;
+          }
           labelSpan.appendChild(iconSpan);
         }
         const textSpan = document.createElement('span');
@@ -209,10 +220,19 @@ export class OverflowMenu extends LitElement {
         toggle.appendChild(knob);
         btn.appendChild(toggle);
       } else {
-        if (item.icon) {
+        if (item.iconSvg || item.icon) {
           const iconSpan = document.createElement('span');
-          iconSpan.style.cssText = 'font-size:0.95rem;width:20px;text-align:center;flex-shrink:0;';
-          iconSpan.textContent = item.icon;
+          if (item.iconSvg) {
+            iconSpan.style.cssText =
+              'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;color:' +
+              tMuted +
+              ';';
+            iconSpan.innerHTML = item.iconSvg;
+          } else {
+            iconSpan.style.cssText =
+              'font-size:0.95rem;width:20px;text-align:center;flex-shrink:0;';
+            iconSpan.textContent = item.icon!;
+          }
           btn.appendChild(iconSpan);
         }
         const textSpan = document.createElement('span');

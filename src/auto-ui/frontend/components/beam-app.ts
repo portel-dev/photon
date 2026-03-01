@@ -16,6 +16,11 @@ import {
   appDefault,
   refresh,
   play,
+  upload,
+  prompts as promptsIcon,
+  file as fileIcon,
+  iconSvgString,
+  iconPaths,
 } from '../icons.js';
 import { trapFocus } from '../utils/focus-trap.js';
 import type { BeamSidebar } from './beam-sidebar.js';
@@ -481,12 +486,19 @@ export class BeamApp extends LitElement {
       }
 
       .editable:hover::after {
-        content: '✏️';
+        content: '';
         position: absolute;
-        right: -24px;
+        right: -22px;
         top: 50%;
         transform: translateY(-50%);
-        font-size: var(--text-sm);
+        width: 14px;
+        height: 14px;
+        background: currentColor;
+        opacity: 0.5;
+        -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E");
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E");
+        -webkit-mask-size: contain;
+        mask-size: contain;
         opacity: 0.6;
       }
 
@@ -3196,7 +3208,7 @@ export class BeamApp extends LitElement {
               style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: var(--space-sm); max-width: 580px; width: 100%; margin-bottom: var(--space-xl); align-items: center;"
             >
               <div class="glass-panel" style="padding: var(--space-md); text-align: center;">
-                <div style="font-size: 1.2rem; margin-bottom: 4px;">📄</div>
+                <div style="margin-bottom: 4px;">${fileIcon}</div>
                 <div style="font-size: 0.75rem; font-weight: 600;">One .ts file</div>
                 <div style="font-size: 0.65rem; color: var(--t-muted); font-family: monospace;">
                   app.photon.ts
@@ -5760,41 +5772,45 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     const items: import('./overflow-menu.js').OverflowMenuItem[] = [];
     if (showFullscreen) {
-      items.push({ id: 'fullscreen', label: 'Full Screen', icon: '⛶' });
+      items.push({
+        id: 'fullscreen',
+        label: 'Full Screen',
+        iconSvg: iconSvgString(iconPaths.expand),
+      });
     }
     if (showRefresh) {
-      items.push({ id: 'refresh', label: 'Refresh', icon: '🔄' });
+      items.push({ id: 'refresh', label: 'Refresh', iconSvg: iconSvgString(iconPaths.refresh) });
     }
     if (showRunTests) {
       items.push({
         id: 'run-tests',
         label: this._runningTests ? 'Running...' : 'Run Tests',
-        icon: '🧪',
+        iconSvg: iconSvgString(iconPaths.flask),
         disabled: this._runningTests,
       });
     }
     if (showEdit) {
-      items.push({ id: 'edit', label: 'Edit', icon: '✎' });
+      items.push({ id: 'edit', label: 'Edit', iconSvg: iconSvgString(iconPaths.pencil) });
     }
     if (showUpgrade) {
       const updateVersion = this._selectedPhoton?.updateVersion;
       items.push({
         id: 'upgrade',
         label: updateVersion ? `Update → ${updateVersion}` : 'Update',
-        icon: '⬆',
+        iconSvg: iconSvgString(iconPaths.upload),
       });
     }
     items.push({
       id: 'remember-values',
       label: 'Remember Values',
-      icon: '📝',
+      iconSvg: iconSvgString(iconPaths.save),
       toggle: true,
       toggleActive: this._rememberFormValues,
     });
     items.push({
       id: 'verbose-logging',
       label: 'Verbose Logging',
-      icon: '📋',
+      iconSvg: iconSvgString(iconPaths.scrollText),
       toggle: true,
       toggleActive: this._verboseLogging,
     });
@@ -5808,33 +5824,38 @@ ${photon.errorMessage || 'Unknown error'}</pre
         showRemove,
       ].findIndex(Boolean);
       if (showRename)
-        items.push({ id: 'rename', label: 'Rename', icon: '✏️', dividerBefore: first === 0 });
+        items.push({
+          id: 'rename',
+          label: 'Rename',
+          iconSvg: iconSvgString(iconPaths.pencil),
+          dividerBefore: first === 0,
+        });
       if (showViewSource)
         items.push({
           id: 'view-source',
           label: 'View Source',
-          icon: '📄',
+          iconSvg: iconSvgString(iconPaths.source),
           dividerBefore: !showRename && first === 1,
         });
       if (showFork)
         items.push({
           id: 'fork',
           label: 'Fork',
-          icon: '🍴',
+          iconSvg: iconSvgString(iconPaths.fork),
           dividerBefore: !showRename && !showViewSource && first === 2,
         });
       if (showContribute)
         items.push({
           id: 'contribute',
           label: 'Contribute',
-          icon: '🤝',
+          iconSvg: iconSvgString(iconPaths.handHelping),
           dividerBefore: !showRename && !showViewSource && !showFork && first === 3,
         });
       if (showDelete)
         items.push({
           id: 'delete',
           label: 'Delete',
-          icon: '🗑️',
+          iconSvg: iconSvgString(iconPaths.trash),
           danger: true,
           dividerBefore:
             !showRename && !showViewSource && !showFork && !showContribute && first === 4,
@@ -5843,7 +5864,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         items.push({
           id: 'remove',
           label: 'Remove',
-          icon: '🗑️',
+          iconSvg: iconSvgString(iconPaths.trash),
           danger: true,
           dividerBefore:
             !showRename &&
@@ -5858,7 +5879,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       items.push({
         id: 'help',
         label: 'Help',
-        icon: '📖',
+        iconSvg: iconSvgString(iconPaths.docs),
         dividerBefore: true,
       });
     }
@@ -6090,7 +6111,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             </button>
             ${this._selectedPhoton.hasUpdate
               ? html`<button class="btn-sm primary" @click=${this._handleUpgrade}>
-                  ⬆ Upgrade
+                  ${upload} Upgrade
                 </button>`
               : ''}
           </div>
@@ -6264,7 +6285,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     return html`
       <h3 class="section-header">
-        📝 Prompts
+        ${promptsIcon} Prompts
         <span class="count">${prompts.length}</span>
       </h3>
       <div class="cards-grid">
@@ -6276,7 +6297,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               @click=${() => this._handlePromptSelect(prompt)}
             >
               <div class="asset-header">
-                <div class="asset-icon prompt">📝</div>
+                <div class="asset-icon prompt">${promptsIcon}</div>
                 <span class="asset-name">${prompt.id}</span>
               </div>
               <div class="asset-desc">
@@ -6419,7 +6440,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <button class="close-btn" @click=${this._closePromptModal}>&times;</button>
 
           <h2 id="prompt-modal-title">
-            <span class="icon">📝</span>
+            <span class="icon">${promptsIcon}</span>
             ${this._selectedPrompt.id}
           </h2>
 
