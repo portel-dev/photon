@@ -5,6 +5,7 @@ import {
   starFilled,
   starOutline,
   marketplace as marketplaceIcon,
+  activity as activityIcon,
   search as searchIcon,
   keyboard as keyboardIcon,
   palette,
@@ -118,15 +119,14 @@ export class BeamSidebar extends LitElement {
 
       .footer-link {
         color: var(--t-muted);
-        font-size: var(--text-xs);
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 4px;
+        justify-content: center;
         transition: color 0.2s;
         background: none;
         border: none;
-        padding: var(--space-xs) var(--space-sm);
+        padding: 6px;
         border-radius: var(--radius-sm);
       }
 
@@ -656,7 +656,7 @@ export class BeamSidebar extends LitElement {
 
         .footer-link {
           min-height: 44px;
-          padding: var(--space-sm) var(--space-md);
+          min-width: 44px;
         }
       }
     `,
@@ -977,15 +977,15 @@ export class BeamSidebar extends LitElement {
           title="Server diagnostics"
           aria-label="Show diagnostics"
         >
-          ${searchIcon} Status
+          ${activityIcon}
         </button>
         <button
           class="footer-link"
           @click=${this._showShortcuts}
-          title="Keyboard shortcuts"
+          title="Shortcuts"
           aria-label="Show keyboard shortcuts"
         >
-          ${keyboardIcon} Shortcuts
+          ${keyboardIcon}
         </button>
         <button
           class="footer-link"
@@ -993,20 +993,20 @@ export class BeamSidebar extends LitElement {
             this.dispatchEvent(
               new CustomEvent('open-theme-settings', { bubbles: true, composed: true })
             )}
-          title="Theme settings (t)"
+          title="Theme"
           aria-label="Open theme settings"
         >
-          ${palette} Theme
+          ${palette}
         </button>
         <a
           class="footer-link"
           href="https://photon.run/docs"
           target="_blank"
           rel="noopener noreferrer"
-          title="Documentation"
+          title="Docs"
           aria-label="Open documentation"
         >
-          ${docs} Docs
+          ${docs}
         </a>
       </div>
     `;
