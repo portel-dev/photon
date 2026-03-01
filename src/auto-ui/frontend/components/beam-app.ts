@@ -15,6 +15,7 @@ import {
   hourglass,
   appDefault,
   refresh,
+  play,
 } from '../icons.js';
 import { trapFocus } from '../utils/focus-trap.js';
 import type { BeamSidebar } from './beam-sidebar.js';
@@ -2781,7 +2782,7 @@ export class BeamApp extends LitElement {
             this._fetchDiagnostics();
           }}
         >
-          🔄 Refresh
+          ${refresh} Refresh
         </button>
       </div>
     `;
@@ -4157,7 +4158,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             `
           : html`
               <div class="empty-state-inline result-empty">
-                <span class="empty-state-icon">▶️</span>
+                <span class="empty-state-icon">${play}</span>
                 <span>Run the method to see results here</span>
               </div>
             `}
