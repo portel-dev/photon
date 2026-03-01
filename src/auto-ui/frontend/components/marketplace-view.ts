@@ -89,17 +89,51 @@ export class MarketplaceView extends LitElement {
         border-color: var(--accent-secondary);
       }
 
-      .card-header {
+      .card-body {
         display: flex;
+        gap: var(--space-md);
+      }
+
+      .card-icon-large {
+        width: 56px;
+        height: 56px;
+        border-radius: var(--radius-md);
+        background: var(--bg-glass-strong);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        flex-shrink: 0;
+        font-weight: 600;
+        color: var(--t-primary);
+      }
+
+      .card-icon-large.emoji-icon {
+        background: transparent;
+      }
+
+      .card-content {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .card-title-row {
+        display: flex;
+        align-items: center;
         justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: var(--space-sm);
+        gap: var(--space-sm);
       }
 
       .card-title {
         font-weight: 600;
         font-size: var(--text-lg);
         color: var(--t-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .card-author {
@@ -108,22 +142,33 @@ export class MarketplaceView extends LitElement {
       }
 
       .card-desc {
-        flex: 1;
         font-size: var(--text-md);
         color: var(--t-muted);
         line-height: 1.4;
-        margin-bottom: var(--space-md);
         display: -webkit-box;
-        -webkit-line-clamp: 3;
+        -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
+      }
+
+      .card-footer {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        padding-top: var(--space-sm);
+        border-top: 1px solid var(--border-glass);
+        margin-top: var(--space-sm);
+      }
+
+      .card-footer .btn-secondary-push {
+        margin-left: auto;
       }
 
       .tags {
         display: flex;
         gap: 4px;
         flex-wrap: wrap;
-        margin-bottom: var(--space-md);
+        margin-top: var(--space-xs);
       }
 
       .tag {
@@ -168,9 +213,11 @@ export class MarketplaceView extends LitElement {
         border-color: hsl(280, 40%, 40%);
       }
 
-      .photon-icon {
-        margin-right: 6px;
-        font-size: 1.1em;
+      .card-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+        flex-shrink: 0;
       }
 
       /* Marketplace filter pills */
@@ -250,13 +297,6 @@ export class MarketplaceView extends LitElement {
 
       .filter-pill .remove-btn:hover {
         opacity: 1;
-      }
-
-      .card-meta {
-        display: flex;
-        align-items: center;
-        gap: var(--space-sm);
-        flex-wrap: wrap;
       }
 
       .actions {
@@ -1254,6 +1294,19 @@ export class MarketplaceView extends LitElement {
     const sourceClass = this._getSourceClass(item.marketplace);
     const cardClasses = `card glass ${item.internal ? 'internal' : ''} ${item.installed ? 'installed' : ''} ${item.hasUpdate ? 'has-update' : ''}`;
 
+    // Icon: emoji if present, otherwise colored initials
+    const hasIcon = !!item.icon;
+    let initialsStyle = '';
+    if (!hasIcon) {
+      let hash = 0;
+      for (let i = 0; i < item.name.length; i++) {
+        hash = item.name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      initialsStyle = `background: hsl(${hue}, 35%, 22%); color: hsl(${hue}, 60%, 75%);`;
+    }
+    const displayIcon = hasIcon ? item.icon : item.name.substring(0, 2).toUpperCase();
+
     return html`
       <div
         class="${cardClasses}"
@@ -1264,32 +1317,42 @@ export class MarketplaceView extends LitElement {
         @keydown=${(e: KeyboardEvent) =>
           (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), (this._selectedItem = item))}
       >
-        <div class="card-header">
-          <div>
-            <div class="card-title">
-              ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''} ${item.name}
+        <div class="card-body">
+          <div
+            class="card-icon-large ${hasIcon ? 'emoji-icon' : ''}"
+            style="${initialsStyle}"
+            aria-hidden="true"
+          >
+            ${displayIcon}
+          </div>
+          <div class="card-content">
+            <div class="card-title-row">
+              <span class="card-title">${item.name}</span>
+              <div class="card-meta">
+                ${item.internal
+                  ? html`<span class="source-pill source-internal">System</span>`
+                  : ''}
+                <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
+                <span
+                  class="tag"
+                  style="background: var(--accent-secondary); color: white; font-weight: 600;"
+                  >${item.version}</span
+                >
+              </div>
             </div>
             ${item.author && item.author !== 'Unknown'
               ? html`<div class="card-author">by ${item.author}</div>`
               : ''}
-          </div>
-          <div class="card-meta">
-            ${item.internal ? html`<span class="source-pill source-internal">System</span>` : ''}
-            <span class="source-pill ${sourceClass}">${item.marketplace || 'Local'}</span>
-            <div
-              class="tag"
-              style="background: var(--accent-secondary); color: white; font-weight: 600;"
-            >
-              ${item.version}
-            </div>
+            <div class="card-desc">${item.description}</div>
+            ${item.tags.length > 0
+              ? html`<div class="tags">
+                  ${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}
+                </div>`
+              : ''}
           </div>
         </div>
 
-        <div class="card-desc">${item.description}</div>
-
-        <div class="tags">${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}</div>
-
-        <div class="actions" @click=${(e: Event) => e.stopPropagation()}>
+        <div class="card-footer" @click=${(e: Event) => e.stopPropagation()}>
           ${item.installed && item.hasUpdate
             ? html`<button
                   class="btn-update"
@@ -1300,22 +1363,22 @@ export class MarketplaceView extends LitElement {
                     ? 'Updating...'
                     : `Update${item.latestVersion ? ` to ${item.latestVersion}` : ''}`}
                 </button>
-                <button class="btn-fork" style="margin-left: 8px;" @click=${() => this._fork(item)}>
+                <button class="btn-fork btn-secondary-push" @click=${() => this._fork(item)}>
                   Fork
                 </button>
                 <button
                   class="btn-remove"
-                  style="margin-left: 8px;"
                   ?disabled=${this._removing === item.name}
                   @click=${() => this._remove(item)}
                 >
                   ${this._removing === item.name ? 'Removing...' : 'Remove'}
                 </button>`
             : item.installed
-              ? html`<button class="btn-fork" @click=${() => this._fork(item)}>Fork</button>
+              ? html`<button class="btn-fork btn-secondary-push" @click=${() => this._fork(item)}>
+                    Fork
+                  </button>
                   <button
                     class="btn-remove"
-                    style="margin-left: 8px;"
                     ?disabled=${this._removing === item.name}
                     @click=${() => this._remove(item)}
                   >
