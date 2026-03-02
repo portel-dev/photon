@@ -1276,7 +1276,9 @@ export class BeamSidebar extends LitElement {
         tabindex="0"
         @click=${() => this._selectPhoton(mcp)}
         @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this._selectPhoton(mcp)}
-        title="${mcp.description || mcp.name}${mcp.errorMessage ? `\n⚠️ ${mcp.errorMessage}` : ''}"
+        title="${mcp.description || 'External MCP server'}${mcp.errorMessage
+          ? `\n⚠️ ${mcp.errorMessage}`
+          : ''}"
       >
         <div class="photon-icon external-mcp-icon" aria-hidden="true">${displayIcon}</div>
         <div class="photon-info">

@@ -6366,6 +6366,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
               ? html`<button
                   type="button"
                   class="photon-badge update"
+                  title="${this._selectedPhoton.updateVersion
+                    ? `A newer version (${this._selectedPhoton.updateVersion}) is available. Click to upgrade.`
+                    : 'A newer version of this photon is available. Click to upgrade.'}"
                   @click=${this._handleUpgrade}
                 >
                   ↑
