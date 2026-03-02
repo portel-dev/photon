@@ -285,6 +285,28 @@ export class BeamApp extends LitElement {
         margin-bottom: var(--space-lg);
       }
 
+      /* Anchor navigation: Methods | Prompts | Resources */
+      .anchor-nav {
+        display: flex;
+        gap: var(--space-md);
+        margin: var(--space-md) 0 var(--space-lg);
+      }
+
+      .anchor-link {
+        color: var(--accent-secondary);
+        font-size: var(--text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        padding: 4px 0;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+      }
+
+      .anchor-link:hover {
+        border-bottom-color: var(--accent-secondary);
+      }
+
       .bento-section-title {
         font-family: var(--font-display);
         color: var(--t-muted);
@@ -3741,23 +3763,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
           ></mcp-app-renderer>
         </div>
 
-        ${this._getVisibleMethods().length > 0
-          ? html`
-              <div style="position: relative; text-align: center; margin: var(--space-lg) 0;">
-                <div
-                  style="position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border-glass);"
-                ></div>
-                <span
-                  style="position: relative; display: inline-block; padding: 0 var(--space-md); background: var(--bg-app, #0a0a12); color: var(--t-muted); font-size: 0.8rem; opacity: 0.6;"
-                  >&darr; scroll down for methods, prompts &amp; resources</span
-                >
-              </div>
-              <div style="padding-top: var(--space-lg);">
-                <h4
-                  style="color: var(--t-secondary); font-size: 0.9rem; margin-bottom: var(--space-md);"
-                >
-                  Available Tools
-                </h4>
+        ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+        <div id="photon-methods" class="bento-methods">
+          <h3 class="bento-section-title">
+            ${(() => {
+              const visible = this._getVisibleMethods();
+              const hasTools = visible.some((m: any) => !m.isTemplate);
+              const hasPrompts = visible.some((m: any) => m.isTemplate);
+              return hasTools && hasPrompts
+                ? 'Methods & Prompts'
+                : hasPrompts
+                  ? 'Prompts'
+                  : 'Methods';
+            })()}
+          </h3>
+          ${this._getVisibleMethods().length > 0
+            ? html`
                 <div class="cards-grid">
                   ${this._getVisibleMethods().map(
                     (method: any) => html`
@@ -3774,9 +3795,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     `
                   )}
                 </div>
-              </div>
-            `
-          : ''}
+              `
+            : ''}
+        </div>
+        <div id="photon-prompts" class="bento-bottom-grid">
+          ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+        </div>
       `;
     }
 
@@ -3840,10 +3864,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
                    blank screens. -->
               <div slot="popout" style="height: 100%;"></div>
               <div slot="below-fold">
+                ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
                 ${otherMethods.length > 0
                   ? html`
-                      ${this._renderPhotonToolbar()}
-                      <div class="bento-methods">
+                      <div id="photon-methods" class="bento-methods">
                         <h3 class="bento-section-title">
                           ${(() => {
                             const hasTools = otherMethods.some((m: any) => !m.isTemplate);
@@ -3870,7 +3894,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       </div>
                     `
                   : ''}
-                <div class="bento-bottom-grid">
+                <div id="photon-prompts" class="bento-bottom-grid">
                   ${this._renderPromptsSection()} ${this._renderResourcesSection()}
                 </div>
               </div>
@@ -3948,8 +3972,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // For external MCPs, hide photon-specific toolbar actions in list view
     return html`
       ${this._renderPhotonToolbar()} ${this._editingIcon ? this._renderEmojiPicker() : ''}
+      ${this._renderAnchorNav()}
 
-      <div class="bento-methods">
+      <div id="photon-methods" class="bento-methods">
         <h3 class="bento-section-title">
           ${(() => {
             const visible = this._getVisibleMethods();
@@ -4020,7 +4045,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           `
         : ''}
 
-      <div class="bento-bottom-grid">
+      <div id="photon-prompts" class="bento-bottom-grid">
         ${this._renderPromptsSection()} ${this._renderResourcesSection()}
       </div>
     `;
@@ -5939,6 +5964,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleFullscreen = () => {
     this._toggleFocusMode();
   };
+
+  private _scrollToSection(id: string) {
+    this.shadowRoot?.getElementById(`photon-${id}`)?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  private _renderAnchorNav() {
+    return html`
+      <div class="anchor-nav">
+        <span class="anchor-link" @click=${() => this._scrollToSection('methods')}>Methods</span>
+        <span class="anchor-link" @click=${() => this._scrollToSection('prompts')}>Prompts</span>
+        <span class="anchor-link" @click=${() => this._scrollToSection('resources')}
+          >Resources</span
+        >
+      </div>
+    `;
+  }
 
   /**
    * Render the photon toolbar (context-bar) used in both list view and app below-fold.
