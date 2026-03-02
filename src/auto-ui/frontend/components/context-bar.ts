@@ -419,6 +419,14 @@ export class ContextBar extends LitElement {
   @property({ type: Array })
   instances: string[] = [];
 
+  /** Whether instance is auto-selected (follows most recently active) */
+  @property({ type: String })
+  instanceSelectorMode: 'auto' | 'manual' = 'manual';
+
+  /** The auto-selected instance name (for display in Auto option) */
+  @property({ type: String })
+  autoInstance = '';
+
   // --- Phase 2: Source/Edit toggle ---
   /** Source mode: 'hidden' = no button, 'source' = show "Source" btn, 'edit' = show "Edit" btn */
   @property({ type: String })
@@ -608,6 +616,8 @@ export class ContextBar extends LitElement {
                 .instanceName=${this.instanceName}
                 .instances=${this.instances}
                 .photonName=${p.name}
+                .selectorMode=${this.instanceSelectorMode}
+                .autoInstance=${this.autoInstance}
                 @instance-action=${(e: CustomEvent) =>
                   this._emit('instance-action', { instanceDetail: e.detail })}
               ></instance-panel>`

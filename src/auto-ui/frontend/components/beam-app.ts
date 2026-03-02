@@ -4116,7 +4116,27 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     // Fetch available instances for stateful photons (populates instance panel)
     if (this._selectedPhoton.stateful) {
-      this._fetchInstances(this._selectedPhoton.name);
+      await this._fetchInstances(this._selectedPhoton.name);
+      // Auto mode: switch to most recently active instance on first load
+      // (only if the user hasn't explicitly picked an instance for this photon)
+      const hasSessionInstance = !!sessionStorage.getItem(
+        `photon-instance:${this._selectedPhoton.name}`
+      );
+      if (
+        this._instanceSelectorMode === 'auto' &&
+        !hasSessionInstance &&
+        this._autoInstance &&
+        this._autoInstance !== this._currentInstance
+      ) {
+        try {
+          await mcpClient.callTool(`${this._selectedPhoton.name}/_use`, {
+            name: this._autoInstance,
+          });
+          this._currentInstance = this._autoInstance;
+        } catch {
+          // Fall back to default silently
+        }
+      }
     }
 
     // For Apps, automatically select the main method to show Custom UI
@@ -4770,7 +4790,30 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     switch (action) {
       case 'switch': {
-        const target = detail.instance;
+        const selected = detail.instance as string;
+
+        // Auto mode: follow the most recently active instance
+        if (selected === '__auto__') {
+          this._instanceSelectorMode = 'auto';
+          await this._fetchInstances(photonName);
+          const target = this._autoInstance || 'default';
+          if (target !== this._currentInstance) {
+            try {
+              await mcpClient.callTool(`${photonName}/_use`, { name: target });
+              this._setCurrentInstance(photonName, target);
+              if (this._selectedMethod) {
+                this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+              }
+            } catch {
+              showToast('Failed to switch to auto instance', 'error');
+            }
+          }
+          showToast('Auto mode: following most recently active instance', 'info');
+          break;
+        }
+
+        this._instanceSelectorMode = 'manual';
+        const target = selected;
         if (target === this._currentInstance) return;
         try {
           await mcpClient.callTool(`${photonName}/_use`, { name: target });
@@ -5917,6 +5960,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         .isStateful=${isStateful}
         .instanceName=${this._currentInstance}
         .instances=${this._instances}
+        .instanceSelectorMode=${this._instanceSelectorMode}
+        .autoInstance=${this._autoInstance}
         .sourceMode=${sourceMode}
         .hasSettings=${hasSettings && !isExternalMCP}
         .overflowItems=${this._buildOverflowItems({

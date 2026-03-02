@@ -133,21 +133,19 @@ export class McpAppRenderer extends LitElement {
         display: block;
         position: relative;
         width: 100%;
-        height: 100%;
         min-height: 500px;
         background: var(--bg-panel, #0d0d0d);
         border-radius: var(--radius-md);
-        overflow: hidden;
+        overflow: visible;
       }
 
       .iframe-host {
         width: 100%;
-        height: 100%;
       }
 
       iframe {
         width: 100%;
-        height: 100%;
+        height: 500px;
         border: none;
         display: block;
         /* Force own compositing layer — fixes Safari not painting
@@ -244,6 +242,8 @@ export class McpAppRenderer extends LitElement {
       URL.revokeObjectURL(this._blobUrl);
       this._blobUrl = null;
     }
+    this._contentResizeObserver?.disconnect();
+    this._contentResizeObserver = null;
   }
 
   protected willUpdate(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -394,6 +394,7 @@ export class McpAppRenderer extends LitElement {
 
   private _iframeRef: HTMLIFrameElement | null = null;
   private _messageHandler: ((e: MessageEvent) => void) | null = null;
+  private _contentResizeObserver: ResizeObserver | null = null;
 
   /**
    * Set up message handlers when iframe loads
@@ -430,6 +431,17 @@ export class McpAppRenderer extends LitElement {
       iframe.style.transform = 'translateZ(0)';
     });
 
+    // Auto-size iframe to its content height using ResizeObserver
+    this._contentResizeObserver?.disconnect();
+    const body = iframe.contentDocument?.body;
+    if (body) {
+      this._contentResizeObserver = new ResizeObserver(() => {
+        const h = Math.max(500, iframe.contentDocument?.body.scrollHeight ?? 500);
+        iframe.style.height = h + 'px';
+      });
+      this._contentResizeObserver.observe(body);
+    }
+
     // Remove previous message handler if any
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
@@ -464,9 +476,17 @@ export class McpAppRenderer extends LitElement {
       }
 
       // Handle ui/notifications/size-changed from MCP Apps protocol
-      // The host element's height is controlled by the parent (beam-app sets calc(100vh - ...))
-      // so we don't override it here — just acknowledge the notification
       if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/size-changed') {
+        const h = msg.params?.height ?? msg.params?.contentHeight;
+        if (typeof h === 'number' && h > 0) {
+          iframe.style.height = Math.max(500, h) + 'px';
+        }
+        return;
+      }
+
+      // Handle photon:notify-height from platform bridge
+      if (msg.type === 'photon:notify-height' && typeof msg.height === 'number') {
+        iframe.style.height = Math.max(500, msg.height) + 'px';
         return;
       }
 
