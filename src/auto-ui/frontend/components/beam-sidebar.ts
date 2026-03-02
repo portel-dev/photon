@@ -160,6 +160,9 @@ export class BeamSidebar extends LitElement {
         font-size: var(--text-xl);
         font-weight: 700;
         margin: 0;
+        padding: 0;
+        background: none;
+        border: none;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -946,7 +949,7 @@ export class BeamSidebar extends LitElement {
       <nav class="sidebar-content" role="navigation" aria-label="Photon navigation">
         <div class="header">
           <div class="header-row">
-            <h2
+            <button
               class="text-gradient logo"
               @click=${() =>
                 this.dispatchEvent(new CustomEvent('home', { bubbles: true, composed: true }))}
@@ -965,7 +968,7 @@ export class BeamSidebar extends LitElement {
                     ? 'Reconnecting...'
                     : 'Disconnected'}"
               ></span>
-            </h2>
+            </button>
           </div>
           <div class="search-box" role="search">
             <input

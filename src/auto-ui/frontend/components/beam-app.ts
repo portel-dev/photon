@@ -2018,7 +2018,8 @@ export class BeamApp extends LitElement {
         // Re-add unconfigured photons from configuration schema
         this._addUnconfiguredPhotons();
         // Auto-select newly added user photon (welcome wizard flow)
-        if (!this._selectedPhoton) {
+        // Skip if user is intentionally on the home page
+        if (!this._selectedPhoton && window.location.hash !== '#home') {
           const newUserPhoton = this._photons.find(
             (p) => !p.internal && p.configured && !prevNames.has(p.name)
           );
@@ -2108,6 +2109,8 @@ export class BeamApp extends LitElement {
             }
           } else {
             // Auto-select newly added user photon (welcome wizard flow)
+            // Skip if user is intentionally on the home page
+            if (window.location.hash === '#home') return;
             const newUserPhoton = this._photons.find(
               (p) => !p.internal && p.configured && !prevNames.has(p.name)
             );
@@ -2413,7 +2416,7 @@ export class BeamApp extends LitElement {
 
         // Fetch available instances for stateful photons (populates instance panel)
         if (photon.stateful) {
-          this._fetchInstances(photon.name);
+          await this._fetchInstances(photon.name);
         }
 
         // Handle external MCPs with MCP Apps
@@ -3894,6 +3897,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .showConfigure=${false}
             .showCopyConfig=${false}
             .overflowItems=${[]}
+            .instanceSelectorMode=${this._instanceSelectorMode}
+            .autoInstance=${this._autoInstance}
             @context-action=${this._handleContextAction}
           ></context-bar>
           <div
@@ -3932,6 +3937,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
             showDelete: false,
             showHelp: !isExternalMCP,
           })}
+          .instanceSelectorMode=${this._instanceSelectorMode}
+          .autoInstance=${this._autoInstance}
           @context-action=${this._handleContextAction}
         ></context-bar>
         ${this._renderMethodContent()}
