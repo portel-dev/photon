@@ -3,9 +3,9 @@
 
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-logo.png" alt="Photon" width="500">
 
-**Simplify the creation of CLI tools, MCP servers, and web applications.**
+**One TypeScript file. Used by humans. Invoked by AI.**
 
-A framework, runtime, and ecosystem. Batteries included.
+A framework for intent, a runtime for continuity, an ecosystem for reuse.
 
 [![npm version](https://img.shields.io/npm/v/@portel/photon?color=cb3837&label=npm)](https://www.npmjs.com/package/@portel/photon)
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon?color=cb3837)](https://www.npmjs.com/package/@portel/photon)
@@ -14,7 +14,7 @@ A framework, runtime, and ecosystem. Batteries included.
 [![Node](https://img.shields.io/badge/node-%3E%3D18-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
-[Quick Start](#quick-start) · [Why Photon](#why-did-we-build-this) · [Beam UI](#beam) · [How It Works](#how-it-works) · [Docs](#documentation)
+[Quick Start](#quick-start) · [How It Works](#how-it-works) · [Beam UI](#beam) · [Tags](#tag-reference) · [Docs](#documentation)
 
 [![Watch: Why Photon? (2 min)](https://img.youtube.com/vi/FI0M8s6ZKv4/maxresdefault.jpg)](https://www.youtube.com/watch?v=FI0M8s6ZKv4)
 
@@ -22,70 +22,92 @@ A framework, runtime, and ecosystem. Batteries included.
 
 ---
 
-## What Is This Thing?
+## The Claim
 
-So, here is the situation. You write a single TypeScript file. Just one. And somehow, through some dark magic I don't fully understand either, you get three things at once:
-
-1.  **An MCP server** (so Claude or Cursor can use your tools).
-2.  **A CLI tool** (so you can run it from the terminal like a normal human).
-3.  **A web application** (a visual dashboard called "Beam" that makes forms for you).
-
-It looks like this:
+You write one TypeScript file. Photon reads it and generates three interfaces: a CLI tool, an MCP server for AI clients, and a web dashboard called Beam.
 
 ```
-  analytics.photon.ts  →  MCP Server  |  CLI Tool  |  Web UI
+analytics.photon.ts  →  CLI Tool  |  MCP Server  |  Web UI (Beam)
 ```
 
-You just write the logic. Photon deals with the protocols, schemas, and the boring stuff that usually makes you question your life choices.
-
-### Who Is This For?
-
-*   **Developers** who want to give AI access to their database but are too lazy to write a full server.
-*   **Teams** who want to share tools without emailing zip files.
-*   **Anyone** who wants a CLI and a web UI without writing the boilerplate.
-
-You don't need to know what "MCP" actually stands for. If you can write a TypeScript class, you are qualified.
+The same capability. Same logic. Same data. Available to humans from the terminal, to you through a browser, and to AI through the MCP protocol — all without writing any of that infrastructure yourself.
 
 ---
 
-## Why did we build this?
+## What You Write
 
-Three reasons, if you want the short version. ([Read the longer version](./WHY-PHOTON.md))
+A photon is a TypeScript class. Public methods become tools. That's the whole contract.
 
-**MCP is personal.** The best MCP is the one built for exactly one use case. Yours. Your team's. Your company's. When you stop building for everyone, the code gets absurdly simple. One file. Twelve lines. Not twelve hundred.
+```typescript
+export default class Analytics {
+  async report(params: { period: string }) {
+    return await db.query(`SELECT * FROM events WHERE period = $1`, [params.period]);
+  }
+}
+```
 
-**Solve once, run forever.** If an LLM figured out your workflow the first time, why ask it to re-derive the same answer from scratch every time? Photon lets you keep the answer. No middleman, no tokens, no latency.
+This is a complete photon. No decorators. No registration. No server setup. Photon reads the class and derives everything else from it.
 
-**Same door, every key.** AI calls it through MCP. You call it through CLI. You open it in Beam. Same methods, same data, same result. And half the time, you don't need AI at all. You just need the data.
+---
+
+## The Intent Interpretation Model
+
+Photon doesn't treat your file as code to execute. It treats it as **intent to interpret**.
+
+Every construct in your TypeScript class carries meaning that Photon reads and acts on:
+
+| What you write | What Photon interprets |
+|---|---|
+| Method signatures | Tool definitions — name, inputs, outputs |
+| Type annotations | Input validation rules, UI field types |
+| JSDoc comments | Documentation for AI clients and human users |
+| Constructor parameters | Configuration — environment variables, settings UI |
+| JSDoc `@tags` | Control surfaces — formatting, validation, scheduling, webhooks |
+
+You encode intent once. Photon derives the interfaces. This is the core idea everything else builds on.
+
+---
+
+## What Photon Generates
+
+From the same source file, Photon produces three execution surfaces:
+
+**MCP Server** — AI clients (Claude, Cursor, any MCP host) call your methods as tools. Type annotations become input schemas. JSDoc descriptions help the AI understand what each tool does and when to use it.
+
+**CLI Tool** — Every method is a command. `photon cli analytics report --period 2024-Q4`. Same validation, same logic, runs from your terminal.
+
+**Beam (Web UI)** — A dashboard that generates forms from your method signatures. You open it, fill in parameters, run tools, and see results. No frontend code required.
+
+```bash
+photon mcp analytics          # MCP server for Claude/Cursor
+photon cli analytics report   # CLI invocation
+photon                        # Open Beam dashboard
+```
 
 ---
 
 ## Quick Start
 
-If you are the type who likes to just run commands and see what happens:
-
 ```bash
 npm install -g @portel/photon
-photon maker new my-tool       # Makes a new photon
-photon                         # Opens the Beam UI
+photon maker new my-tool      # Create a photon
+photon                        # Open Beam
 ```
 
-Or if you don't want to install anything (I get it):
+Or without installing:
 
 ```bash
 npx @portel/photon maker new my-tool
 npx @portel/photon
 ```
 
-> **Note:** You need [Node.js 18+](https://nodejs.org). Also, TypeScript helps, but Photon handles the compiling, so you don't have to fight with `tsconfig.json`.
+> Requires [Node.js 18+](https://nodejs.org). TypeScript is handled internally — no `tsconfig.json` needed.
 
 ---
 
 ## Beam
 
-Beam is the dashboard. It's where you go to poke your tools and see if they work before you let an AI loose on them.
-
-Run `photon`. That's it.
+Beam is the web dashboard. Run `photon`. It shows all your photons as forms you can invoke directly.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="100%">
@@ -93,61 +115,11 @@ Run `photon`. That's it.
 
 ---
 
-## Connecting to AI
-
-If you want to use this with Claude or Cursor, you need the config.
-
-```bash
-photon info weather --mcp
-```
-
-It spits out some JSON:
-
-```json
-{
-  "mcpServers": {
-    "weather": {
-      "command": "photon",
-      "args": ["mcp", "weather"]
-    }
-  }
-}
-```
-
-Copy that. Paste it into your AI client's config file. Done.
-
-Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any [MCP-compatible client](https://modelcontextprotocol.io).
-
----
-
-## Marketplace
-
-We also have a marketplace. 35 photons and counting.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
-</div>
-
-```bash
-photon search postgres
-photon add postgres
-```
-
-Browse the full catalog and documentation in the [official photons repository](https://github.com/portel-dev/photons).
-
-You can also make a private marketplace for your team, so internal tools stay off the public internet.
-
----
-
 ## How It Works
 
-A photon is just a TypeScript class. The **public methods become tools**. Photon reads your code, looks at the types, reads your comments, and then generates everything else.
+Here is the interpretation model in practice, step by step.
 
-I'll show you.
-
-### Step 1: The Bare Minimum
-
-Here is a class with one method. This is a valid photon.
+### Step 1: Methods become tools
 
 ```typescript
 export default class Weather {
@@ -157,30 +129,23 @@ export default class Weather {
 }
 ```
 
-**What happens:** Beam sees this and makes a form with a text box labeled "city". You click a button, and it runs.
-
-**What you get:**
-*   `photon mcp weather` (The server for Claude)
-*   `photon cli weather forecast --city Paris` (The command line tool)
-*   `photon` (The web UI)
+Photon reads this and derives: one tool named `forecast`, one required string input named `city`. Beam generates a form. The CLI gets a `--city` flag. The MCP schema is generated automatically.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1 — Bare method in Beam" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1 — Method as tool" width="100%">
 </div>
 
-### Step 2: Adding Descriptions
-
-If you add JSDoc comments, they show up as descriptions.
+### Step 2: Comments become contracts
 
 ```typescript
 /**
  * Weather - Check weather forecasts worldwide
  *
- * Provides current conditions.
+ * Provides current conditions and multi-day forecasts.
  */
 export default class Weather {
   /**
-   * Get the weather forecast
+   * Get the weather forecast for a city
    * @param city City name (e.g., "London")
    */
   async forecast(params: { city: string }) {
@@ -189,15 +154,13 @@ export default class Weather {
 }
 ```
 
-**What happens:** Now the UI has helpful text. Also, the AI client reads this to understand what the tool does.
+JSDoc comments become the description in the MCP schema — what AI clients read to decide when and how to call your tool. They also render as help text in Beam and the CLI.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2 — JSDoc descriptions in Beam" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2 — Comments as contracts" width="100%">
 </div>
 
-### Step 3: Configuration (The clever bit)
-
-If you need an API key, put it in the constructor.
+### Step 3: Constructors become configuration
 
 ```typescript
 export default class Weather {
@@ -215,15 +178,13 @@ export default class Weather {
 }
 ```
 
-**What happens:** Beam creates a settings panel. `apiKey` becomes a password field. It also maps to environment variables like `WEATHER_API_KEY`. It just works.
+Constructor parameters become configuration. `apiKey` maps to the `WEATHER_API_KEY` environment variable and renders as a password field in Beam. `units` gets a default and a text input. Photon handles the mapping — you just declare what you need.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3 — Configuration panel in Beam" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3 — Constructor as configuration" width="100%">
 </div>
 
-### Step 4: Validation (Stop bad inputs)
-
-You can add tags to valid inputs.
+### Step 4: Tags become control surfaces
 
 ```typescript
 /**
@@ -231,10 +192,7 @@ You can add tags to valid inputs.
  * @dependencies node-fetch@^3.0.0
  */
 export default class Weather {
-  constructor(
-    private apiKey: string,
-    private units: string = 'metric'
-  ) {}
+  constructor(private apiKey: string, private units: string = 'metric') {}
 
   /**
    * Get the weather forecast for a city
@@ -243,62 +201,44 @@ export default class Weather {
    * @format table
    */
   async forecast(params: { city: string; days?: number }) {
-    // fetch and return forecast data...
+    // fetch and return forecast data
   }
 }
 ```
 
-**What happens:**
-*   The `city` input validates the regex.
-*   The `days` input becomes a number spinner (1-7).
-*   The result is formatted as a table.
-*   `@dependencies` makes Photon install `node-fetch` automatically. You don't even run `npm install`.
+Tags extend the interpretation model. `@dependencies` auto-installs npm packages on first run. `{@pattern}` adds regex validation. `{@min}` and `{@max}` create a number spinner with bounds. `@format table` renders the result as a table in Beam.
 
-#### System CLI Dependencies
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4 — Tags as control surfaces" width="100%">
+</div>
 
-If your photon wraps a command-line tool (e.g. `ffmpeg`, `git`, `docker`), declare it with `@cli`. Photon checks for the tool at load time and refuses to load if it's missing.
+#### CLI tool dependencies
+
+If your photon wraps a system command-line tool, declare it with `@cli`. Photon checks at load time and refuses to start if the tool is missing.
 
 ```typescript
 /**
  * Video processor
  * @cli ffmpeg - https://ffmpeg.org/download.html
- * @cli imagemagick - https://imagemagick.org/script/download.php
  */
 export default class VideoProcessor {
   async convert({ input, format }: { input: string; format: string }) {
-    // ffmpeg is guaranteed to exist if this method runs
+    // ffmpeg is guaranteed to exist when this runs
   }
 }
 ```
 
-If `ffmpeg` is not installed, the photon won't load and the user sees:
+### Step 5: Custom interfaces (when forms aren't enough)
 
-```
-VideoProcessor requires the following CLI tools to be installed:
-  - ffmpeg: Install from https://ffmpeg.org/download.html
-```
-
-> See the full [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) for all available tags. There are 30+ covering validation, UI hints, scheduling, webhooks, and more.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4 — Validation and formatting in Beam" width="100%">
-</div>
-
-### Step 5: Custom UI (When you want to be fancy)
-
-If the auto-generated form is too boring, you can write your own HTML.
+If the auto-generated form isn't the right interface for your tool, you can write your own HTML. The `window.photon` bridge connects your UI to the tool system.
 
 ```typescript
 /**
  * Weather - Check weather forecasts worldwide
- * @dependencies node-fetch@^3.0.0
  * @ui dashboard ./ui/weather.html
  */
 export default class Weather {
-  constructor(private apiKey: string, private units: string = 'metric') {}
-
   /**
-   * Get the weather forecast for a city
    * @ui dashboard
    * @format table
    */
@@ -310,9 +250,7 @@ export default class Weather {
 
 ```html
 <!-- ui/weather.html -->
-<div id="weather-app">
-  <div id="forecast"></div>
-</div>
+<div id="forecast"></div>
 <script>
   window.photon.onResult(data => {
     document.getElementById('forecast').innerHTML = renderWeather(data);
@@ -320,23 +258,85 @@ export default class Weather {
 </script>
 ```
 
-**What changes in Beam:** Instead of the auto-generated table, results render inside your custom HTML (a weather dashboard with icons, charts, or any visualization you build). The `window.photon` API bridges your UI to the tool system.
+The result renders in your custom HTML instead of the generated table. The tool call itself — via CLI, MCP, or Beam — works identically. The UI is a view, not logic.
 
-> Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
+> Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-5.png" alt="Step 5 — Custom UI result in Beam" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-5.png" alt="Step 5 — Custom interface" width="100%">
 </div>
 
-### In Summary
+---
 
-| Step | You write | Photon generates |
-|------|---------|-----------------|
-| **1. Methods** | A function | Tools, CLI commands, Forms |
-| **2. JSDoc** | Comments | Descriptions for AI and Humans |
-| **3. Constructor** | Arguments | Config UI, Env vars |
-| **4. Tags** | `@tags` | Validation, Installers, Formatting |
-| **5. Custom UI** | HTML | A custom app |
+## Runtime Systems
+
+Beyond tool execution, Photon includes coordination primitives for building more complex systems.
+
+| System | What it does |
+|---|---|
+| **Daemon** | Background process that handles pub/sub messaging across photons and processes |
+| **Named instances** | Multiple isolated instances of the same photon, each with its own state |
+| **Webhooks** | Expose any method as an HTTP endpoint with `@webhook` |
+| **Scheduled runs** | Execute methods on a cron schedule with `@scheduled` |
+| **Distributed locks** | Prevent concurrent execution of a method with `@locked` |
+| **OAuth** | Built-in OAuth 2.1 flows for Google, GitHub, Microsoft |
+| **Memory** | Per-photon persistent storage via `this.memory` |
+| **Cross-photon calls** | Call another photon's methods via `this.call()` |
+
+These exist because durable tools need more than just execution — they need persistence, coordination, and the ability to receive external signals.
+
+---
+
+## Connecting to AI
+
+```bash
+photon info weather --mcp
+```
+
+Outputs the config block for your AI client:
+
+```json
+{
+  "mcpServers": {
+    "weather": {
+      "command": "photon",
+      "args": ["mcp", "weather"]
+    }
+  }
+}
+```
+
+Paste it into your client's config. Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible host.
+
+---
+
+## Marketplace
+
+Installable photons for common use cases.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
+</div>
+
+```bash
+photon search postgres
+photon add postgres
+```
+
+Browse the full catalog in the [official photons repository](https://github.com/portel-dev/photons). You can also host a private marketplace for your team.
+
+---
+
+## Summary
+
+| What you write | What Photon derives |
+|---|---|
+| Methods | Tools, CLI commands, Beam forms |
+| Type annotations | Input validation, field types |
+| JSDoc comments | AI and human documentation |
+| Constructor parameters | Config UI, environment variable mapping |
+| `@tags` | Validation, formatting, scheduling, webhooks, dependencies |
+| HTML templates | Custom interfaces for results |
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon Ecosystem" width="100%">
@@ -344,25 +344,7 @@ export default class Weather {
 
 ---
 
-## The Basics
-
-If you are just skimming, here is what you need to know:
-
-| Concept | What it is | Learn more |
-|---------|-----------|------------|
-| **MCP** | A way for AI to use your tools. It's a standard. | [modelcontextprotocol.io](https://modelcontextprotocol.io/introduction) |
-| **Photon file** | A `.photon.ts` file. You define tools as methods in a class. | [Guide](./docs/GUIDE.md) |
-| **Beam** | A web dashboard. It shows your tools as forms. | [Beam UI](#beam) |
-| **Marketplace** | A way to get other people's photons. | [Marketplace](#marketplace) |
-| **Daemon** | A background thing that handles messages and jobs. | [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) |
-| **Tags** | JSDoc comments that tell Photon what to do. | [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) |
-| **Custom UI** | When the auto-generated forms aren't enough. | [Custom UI Guide](./docs/guides/CUSTOM-UI.md) |
-
----
-
 ## Commands
-
-A few commands you might use:
 
 ```bash
 # Run
@@ -376,7 +358,7 @@ photon maker new <name>           # Scaffold a new photon
 
 # Manage
 photon info                       # List all photons
-photon info <name> --mcp          # Get MCP client config (paste into Claude/Cursor)
+photon info <name> --mcp          # Get MCP client config
 photon maker validate <name>      # Check for errors
 
 # Marketplace
@@ -391,15 +373,15 @@ photon test                       # Run tests
 
 ---
 
-## Tag Reference (Quick Overview)
+## Tag Reference
 
-Tags are JSDoc annotations that control how Photon processes your code. Here are the most commonly used ones:
+Tags are JSDoc annotations that extend what Photon interprets from your code:
 
-| Tag | Where | What it does |
-|-----|-------|-------------|
+| Tag | Where | What it controls |
+|---|---|---|
 | `@dependencies` | Class | Auto-install npm packages on first run |
-| `@cli` | Class | Declare system CLI tool dependencies, checked at load time |
-| `@format` | Method | Control result rendering (table, list, markdown, code, etc.) |
+| `@cli` | Class | Declare system CLI dependencies, checked at load time |
+| `@format` | Method | Result rendering (table, list, markdown, code, etc.) |
 | `@param ... {@choice a,b,c}` | Param | Dropdown selection in Beam |
 | `@param ... {@format email}` | Param | Input validation and field type |
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
@@ -411,7 +393,7 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 | `@mcp` | Class | Inject another MCP server as a dependency |
 | `@icon` | Class/Method | Set emoji icon |
 
-> This is a subset. See the full [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) for all 30+ tags with examples.
+> This is a subset. See the full [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) for all 30+ tags.
 
 ---
 
@@ -420,7 +402,7 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 **Start here:**
 
 | Guide | |
-|-------|-|
+|---|---|
 | [Getting Started](./docs/GUIDE.md) | Create your first photon, step by step |
 | [Tag Reference](./docs/reference/DOCBLOCK-TAGS.md) | Complete JSDoc tag reference with examples |
 | [Naming Conventions](./docs/guides/NAMING-CONVENTIONS.md) | How to name methods so they read naturally as CLI commands |
@@ -429,7 +411,7 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 **Build more:**
 
 | Topic | |
-|-------|-|
+|---|---|
 | [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with `window.photon` |
 | [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.1 with Google, GitHub, Microsoft |
 | [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
@@ -441,7 +423,7 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 **Operate:**
 
 | Topic | |
-|-------|-|
+|---|---|
 | [Security](./SECURITY.md) | Best practices and audit checklist |
 | [Marketplace Publishing](./docs/guides/MARKETPLACE-PUBLISHING.md) | Create and share team marketplaces |
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
@@ -453,11 +435,11 @@ Tags are JSDoc annotations that control how Photon processes your code. Here are
 
 ## Contributing
 
-If you find a bug, or if my code offends you, feel free to open an issue or a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+Open an issue or a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-[MIT](./LICENSE). Do what you want with it.
+[MIT](./LICENSE).
 
 ---
 
