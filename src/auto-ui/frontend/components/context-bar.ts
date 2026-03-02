@@ -601,7 +601,10 @@ export class ContextBar extends LitElement {
                           >`}
                     ${p.version ? html`<span class="meta-badge">${p.version}</span>` : ''}
                     ${p.hasUpdate
-                      ? html`<span class="meta-badge update" @click=${() => this._emit('upgrade')}
+                      ? html`<span
+                          class="meta-badge update"
+                          title="Update available — click to upgrade"
+                          @click=${() => this._emit('upgrade')}
                           >Update</span
                         >`
                       : ''}
