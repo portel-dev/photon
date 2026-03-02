@@ -860,76 +860,87 @@ export class InvokeForm extends LitElement {
       `;
     }
 
-    // Handle Number/Integer -> Slider-First with companion number input
+    // Handle Number/Integer — slider only when BOTH minimum AND maximum are explicitly declared
     if (schema.type === 'number' || schema.type === 'integer') {
       const isInteger = schema.type === 'integer';
-      const isFloat = !isInteger;
       const hasMin = (schema as any).minimum !== undefined;
       const hasMax = (schema as any).maximum !== undefined;
 
-      // Derive sensible bounds
-      let min: number, max: number;
+      // Only render a slider when both bounds are present; otherwise use a plain number input
       if (hasMin && hasMax) {
-        min = (schema as any).minimum;
-        max = (schema as any).maximum;
-      } else if (hasMin && !hasMax) {
-        min = (schema as any).minimum;
-        max = min <= 0 ? 100 : min * 2;
-      } else if (!hasMin && hasMax) {
-        min = 0;
-        max = (schema as any).maximum;
-      } else {
-        // No bounds at all
-        min = isFloat ? 0 : 0;
-        max = isFloat ? 1 : 100;
+        const min: number = (schema as any).minimum;
+        const max: number = (schema as any).maximum;
+
+        // Infer integer step when type is 'number' but bounds are both whole numbers
+        const boundsAreIntegers = Number.isInteger(min) && Number.isInteger(max);
+        const step =
+          isInteger || (boundsAreIntegers && !(schema as any).multipleOf)
+            ? 1
+            : ((schema as any).multipleOf ?? 0.01);
+        const defaultVal = (schema as any).default ?? min;
+        const currentValue = this._values[key] ?? defaultVal;
+        const effectivelyInteger = isInteger || step === 1;
+        const displayValue = effectivelyInteger
+          ? String(Math.round(Number(currentValue)))
+          : String(currentValue);
+
+        return html`
+          <div class="slider-group">
+            <div class="slider-row">
+              <input
+                type="range"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${String(currentValue)}
+                @input=${(e: Event) => {
+                  const v = Number((e.target as HTMLInputElement).value);
+                  this._handleChange(key, v);
+                }}
+              />
+              <input
+                id=${ifDefined(inputId)}
+                type="number"
+                class="slider-number-input ${errorClass}"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${displayValue}
+                @input=${(e: Event) => {
+                  const v = Number((e.target as HTMLInputElement).value);
+                  this._handleChange(key, v);
+                }}
+              />
+            </div>
+            <div class="range-labels">
+              <span>${min}</span>
+              <span>${max}</span>
+            </div>
+          </div>
+        `;
       }
 
-      // Infer integer step when type is 'number' but bounds are both whole numbers
-      const boundsAreIntegers = hasMin && hasMax && Number.isInteger(min) && Number.isInteger(max);
-      const step =
-        isInteger || (boundsAreIntegers && !(schema as any).multipleOf)
-          ? 1
-          : ((schema as any).multipleOf ?? 0.01);
-      const defaultVal = (schema as any).default ?? min;
+      // No explicit maximum — render a plain number input
+      const step = isInteger ? 1 : ((schema as any).multipleOf ?? 0.01);
+      const defaultVal = (schema as any).default ?? (hasMin ? (schema as any).minimum : 0);
       const currentValue = this._values[key] ?? defaultVal;
-      const effectivelyInteger = isInteger || step === 1;
-      const displayValue = effectivelyInteger
+      const displayValue = isInteger
         ? String(Math.round(Number(currentValue)))
         : String(currentValue);
-
       return html`
-        <div class="slider-group">
-          <div class="slider-row">
-            <input
-              type="range"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${String(currentValue)}
-              @input=${(e: Event) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                this._handleChange(key, v);
-              }}
-            />
-            <input
-              id=${ifDefined(inputId)}
-              type="number"
-              class="slider-number-input ${errorClass}"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${displayValue}
-              @input=${(e: Event) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                this._handleChange(key, v);
-              }}
-            />
-          </div>
-          <div class="range-labels">
-            <span>${min}</span>
-            <span>${max}</span>
-          </div>
-        </div>
+        <input
+          id=${ifDefined(inputId)}
+          type="number"
+          class="${errorClass}"
+          ${hasMin ? `min="${(schema as any).minimum}"` : ''}
+          step="${step}"
+          placeholder="${defaultVal}"
+          .value=${displayValue}
+          @input=${(e: Event) => {
+            const v = Number((e.target as HTMLInputElement).value);
+            this._handleChange(key, v);
+          }}
+        />
       `;
     }
 
@@ -1418,44 +1429,64 @@ export class InvokeForm extends LitElement {
     }
     if (schema.type === 'number' || schema.type === 'integer') {
       const isInteger = schema.type === 'integer';
-      const isFloat = !isInteger;
       const hasMin = schema.minimum !== undefined;
       const hasMax = schema.maximum !== undefined;
-      let min = hasMin ? schema.minimum : 0;
-      let max = hasMax ? schema.maximum : isFloat ? 1 : 100;
-      if (hasMin && !hasMax) max = min <= 0 ? 100 : min * 2;
-      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
-      const currentVal = value ?? schema.default ?? min;
-      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
 
+      if (hasMin && hasMax) {
+        const min = schema.minimum as number;
+        const max = schema.maximum as number;
+        const boundsAreIntegers = Number.isInteger(min) && Number.isInteger(max);
+        const step =
+          isInteger || (boundsAreIntegers && !schema.multipleOf) ? 1 : (schema.multipleOf ?? 0.01);
+        const currentVal = value ?? schema.default ?? min;
+        const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
+
+        return html`
+          <div class="slider-group">
+            <div class="slider-row">
+              <input
+                type="range"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${String(currentVal)}
+                @input=${(e: Event) =>
+                  onChange(propKey, Number((e.target as HTMLInputElement).value))}
+              />
+              <input
+                type="number"
+                class="slider-number-input"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${displayVal}
+                @input=${(e: Event) =>
+                  onChange(propKey, Number((e.target as HTMLInputElement).value))}
+              />
+            </div>
+            <div class="range-labels">
+              <span>${min}</span>
+              <span>${max}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // No explicit maximum — plain number input
+      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
+      const defaultVal = schema.default ?? (hasMin ? schema.minimum : 0);
+      const currentVal = value ?? defaultVal;
+      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
       return html`
-        <div class="slider-group">
-          <div class="slider-row">
-            <input
-              type="range"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${String(currentVal)}
-              @input=${(e: Event) =>
-                onChange(propKey, Number((e.target as HTMLInputElement).value))}
-            />
-            <input
-              type="number"
-              class="slider-number-input"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${displayVal}
-              @input=${(e: Event) =>
-                onChange(propKey, Number((e.target as HTMLInputElement).value))}
-            />
-          </div>
-          <div class="range-labels">
-            <span>${min}</span>
-            <span>${max}</span>
-          </div>
-        </div>
+        <input
+          type="number"
+          class="slider-number-input"
+          ${hasMin ? `min="${schema.minimum}"` : ''}
+          step="${step}"
+          placeholder="${defaultVal}"
+          .value=${displayVal}
+          @input=${(e: Event) => onChange(propKey, Number((e.target as HTMLInputElement).value))}
+        />
       `;
     }
     // Date/time formats
@@ -1637,47 +1668,67 @@ export class InvokeForm extends LitElement {
       `;
     }
 
-    // Handle number — slider-first
+    // Handle number — slider only when both minimum AND maximum are declared
     if (schema.type === 'number' || schema.type === 'integer') {
       const isInteger = schema.type === 'integer';
-      const isFloat = !isInteger;
       const hasMin = schema.minimum !== undefined;
       const hasMax = schema.maximum !== undefined;
-      let min = hasMin ? schema.minimum : 0;
-      let max = hasMax ? schema.maximum : isFloat ? 1 : 100;
-      if (hasMin && !hasMax) max = min <= 0 ? 100 : min * 2;
-      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
-      const currentVal = value ?? schema.default ?? min;
-      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
 
+      if (hasMin && hasMax) {
+        const min = schema.minimum as number;
+        const max = schema.maximum as number;
+        const boundsAreIntegers = Number.isInteger(min) && Number.isInteger(max);
+        const step =
+          isInteger || (boundsAreIntegers && !schema.multipleOf) ? 1 : (schema.multipleOf ?? 0.01);
+        const currentVal = value ?? schema.default ?? min;
+        const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
+
+        return html`
+          <div class="slider-group">
+            <div class="slider-row">
+              <input
+                type="range"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${String(currentVal)}
+                @input=${(e: Event) =>
+                  handleNestedChange(Number((e.target as HTMLInputElement).value))}
+              />
+              <input
+                type="number"
+                class="slider-number-input"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                .value=${displayVal}
+                @input=${(e: Event) =>
+                  handleNestedChange(Number((e.target as HTMLInputElement).value))}
+              />
+            </div>
+            <div class="range-labels">
+              <span>${min}</span>
+              <span>${max}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // No explicit maximum — plain number input
+      const step = isInteger ? 1 : (schema.multipleOf ?? 0.01);
+      const defaultVal = schema.default ?? (hasMin ? schema.minimum : 0);
+      const currentVal = value ?? defaultVal;
+      const displayVal = isInteger ? String(Math.round(Number(currentVal))) : String(currentVal);
       return html`
-        <div class="slider-group">
-          <div class="slider-row">
-            <input
-              type="range"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${String(currentVal)}
-              @input=${(e: Event) =>
-                handleNestedChange(Number((e.target as HTMLInputElement).value))}
-            />
-            <input
-              type="number"
-              class="slider-number-input"
-              min="${min}"
-              max="${max}"
-              step="${step}"
-              .value=${displayVal}
-              @input=${(e: Event) =>
-                handleNestedChange(Number((e.target as HTMLInputElement).value))}
-            />
-          </div>
-          <div class="range-labels">
-            <span>${min}</span>
-            <span>${max}</span>
-          </div>
-        </div>
+        <input
+          type="number"
+          class="slider-number-input"
+          ${hasMin ? `min="${schema.minimum}"` : ''}
+          step="${step}"
+          placeholder="${defaultVal}"
+          .value=${displayVal}
+          @input=${(e: Event) => handleNestedChange(Number((e.target as HTMLInputElement).value))}
+        />
       `;
     }
 
