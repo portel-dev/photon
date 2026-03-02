@@ -71,6 +71,12 @@ export class InstancePanel extends LitElement {
   @property({ type: String })
   photonName = '';
 
+  @property({ type: String })
+  selectorMode: 'auto' | 'manual' = 'manual';
+
+  @property({ type: String })
+  autoInstance = '';
+
   @state()
   private _open = false;
 
@@ -123,7 +129,12 @@ export class InstancePanel extends LitElement {
   }
 
   render() {
-    const display = this.instanceName === 'default' ? 'default' : this.instanceName;
+    const display =
+      this.selectorMode === 'auto'
+        ? `auto · ${this.instanceName}`
+        : this.instanceName === 'default'
+          ? 'default'
+          : this.instanceName;
     return html`
       <button
         class="instance-pill"
@@ -282,6 +293,52 @@ export class InstancePanel extends LitElement {
       const divider1 = document.createElement('div');
       divider1.style.cssText = `height: 1px; background: ${borderGlass}; margin: 2px 0 4px;`;
       portal.appendChild(divider1);
+
+      // Auto option
+      const autoItem = document.createElement('button');
+      const isAuto = this.selectorMode === 'auto';
+      autoItem.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 10px;
+        border: none;
+        background: ${isAuto ? bgGlassStrong : 'none'};
+        color: ${isAuto ? accentSecondary : tPrimary};
+        font-size: 0.82rem;
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: ${radiusSm};
+        text-align: left;
+        transition: background 0.1s;
+      `;
+      autoItem.onmouseenter = () => {
+        autoItem.style.background = bgGlass;
+      };
+      autoItem.onmouseleave = () => {
+        autoItem.style.background = isAuto ? bgGlassStrong : 'none';
+      };
+      autoItem.innerHTML = `
+        <span style="display:inline-flex;align-items:center;width:16px;height:16px;opacity:0.7;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+        </span>
+        <span>Auto</span>
+        <span style="color:${tMuted};font-size:0.75rem;margin-left:auto;">${this.autoInstance ? this.autoInstance : 'most recent'}</span>
+      `;
+      autoItem.onclick = (ev) => {
+        ev.stopPropagation();
+        this._emitSelect('__auto__');
+        this._close();
+      };
+      portal.appendChild(autoItem);
+
+      // Divider before instances
+      const dividerAuto = document.createElement('div');
+      dividerAuto.style.cssText = `height: 1px; background: ${borderGlass}; margin: 2px 0 4px;`;
+      portal.appendChild(dividerAuto);
 
       // Instance list
       const list = document.createElement('div');

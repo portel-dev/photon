@@ -14,21 +14,19 @@ export class CustomUiRenderer extends LitElement {
         display: block;
         position: relative;
         width: 100%;
-        height: 100%;
         min-height: 500px;
         background: var(--bg-panel, #0d0d0d);
         border-radius: var(--radius-md);
-        overflow: hidden;
+        overflow: visible;
       }
 
       .iframe-host {
         width: 100%;
-        height: 100%;
       }
 
       iframe {
         width: 100%;
-        height: 100%;
+        height: 500px;
         border: none;
         display: block;
         /* Force own compositing layer — fixes Safari not painting
@@ -172,6 +170,7 @@ export class CustomUiRenderer extends LitElement {
   @state() private _loading = true;
   @state() private _error = '';
   private _iframeRef: HTMLIFrameElement | null = null;
+  private _contentResizeObserver: ResizeObserver | null = null;
   private _blobUrl: string | null = null; // tracked for cleanup
   private _loadTimer: ReturnType<typeof setTimeout> | null = null;
   private _loadGeneration = 0; // tracks which load is current
@@ -441,17 +440,6 @@ export class CustomUiRenderer extends LitElement {
     });
   }
 
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    // Fire-and-forget teardown on unmount
-    this.teardown().catch(() => {});
-    // Clean up blob URL
-    if (this._blobUrl) {
-      URL.revokeObjectURL(this._blobUrl);
-      this._blobUrl = null;
-    }
-  }
-
   private _handleIframeLoad(e: Event) {
     const iframe = e.target as HTMLIFrameElement;
     this._iframeRef = iframe;
@@ -497,5 +485,29 @@ export class CustomUiRenderer extends LitElement {
         this._iframeRef.style.transform = 'translateZ(0)';
       }
     });
+
+    // Auto-size iframe to its content height using ResizeObserver
+    this._contentResizeObserver?.disconnect();
+    const body = iframe.contentDocument?.body;
+    if (body) {
+      this._contentResizeObserver = new ResizeObserver(() => {
+        const h = Math.max(500, iframe.contentDocument?.body.scrollHeight ?? 500);
+        iframe.style.height = h + 'px';
+      });
+      this._contentResizeObserver.observe(body);
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Fire-and-forget teardown on unmount
+    this.teardown().catch(() => {});
+    // Clean up blob URL
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
+    this._contentResizeObserver?.disconnect();
+    this._contentResizeObserver = null;
   }
 }
