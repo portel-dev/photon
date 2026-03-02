@@ -2556,14 +2556,14 @@ export class BeamApp extends LitElement {
 
   /**
    * Filter methods for user-facing display: hide @internal methods,
-   * _use/_instances system methods, and methods with @internal in description.
+   * _use/_instances/_settings system methods, and methods with @internal in description.
    */
   private _getVisibleMethods(photon?: any): any[] {
     const p = photon || this._selectedPhoton;
     if (!p?.methods) return [];
     return p.methods.filter((m: any) => {
-      // Hide runtime instance management methods
-      if (m.name === '_use' || m.name === '_instances') return false;
+      // Hide runtime instance management and settings methods (settings has a dedicated toolbar button)
+      if (m.name === '_use' || m.name === '_instances' || m.name === 'settings') return false;
       // Hide methods with @internal in their description
       if (m.description && /@internal\b/i.test(m.description)) return false;
       return true;
