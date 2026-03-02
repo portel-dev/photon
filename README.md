@@ -16,19 +16,25 @@
 
 ---
 
-Your tools have two kinds of consumers now. Humans who open a dashboard and explore. AI agents that call your methods through a protocol. Until now, you've been building for one or the other — or building everything twice.
+Your tools have two kinds of consumers now. Humans who open a dashboard and explore. AI agents that call your methods through a protocol. Until now, you've been building for one or the other, or building everything twice.
 
 Photon is built around a different premise: **write what you mean, and let both consumers figure it out from that**.
 
-You write a TypeScript class. Methods are your capabilities. Types describe what's valid. Comments explain the intent. That's it. Photon reads all of it and generates — automatically, without configuration — a web UI for human exploration, a CLI for scripting, and an MCP server for AI agents. Same logic. Same validation. Same data. Three interfaces from one file.
+You write a TypeScript class. Methods are your capabilities. Types describe what's valid. Comments explain the intent. That's it. Photon reads all of it and generates a web UI for human exploration, a CLI for scripting, and an MCP server for AI agents. Same logic. Same validation. Same data. Three interfaces from one file.
 
 ```
 analytics.photon.ts  →  Web UI (Beam)  ·  CLI  ·  MCP Server for AI
 ```
 
-The code stays simple — almost embarrassingly simple — because the complexity isn't in what you write. It's in what Photon derives from it.
+The code stays simple, almost embarrassingly simple, because the complexity isn't in what you write. It's in what Photon derives from it.
 
-[![Watch: Why Photon? (2 min)](https://img.youtube.com/vi/FI0M8s6ZKv4/maxresdefault.jpg)](https://www.youtube.com/watch?v=FI0M8s6ZKv4)
+<div align="center">
+
+<a href="https://www.youtube.com/watch?v=FI0M8s6ZKv4">
+  <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/video-preview.png" alt="Watch: Why Photon? (2 min)" width="100%">
+</a>
+
+</div>
 
 ---
 
@@ -37,7 +43,7 @@ The code stays simple — almost embarrassingly simple — because the complexit
 ```bash
 npm install -g @portel/photon
 photon maker new my-tool      # Create a photon
-photon                        # Open Beam — the web UI
+photon                        # Open Beam, the web UI
 ```
 
 Or without installing:
@@ -47,7 +53,7 @@ npx @portel/photon maker new my-tool
 npx @portel/photon
 ```
 
-> Requires [Node.js 18+](https://nodejs.org). TypeScript is compiled internally — no `tsconfig.json` needed.
+> Requires [Node.js 18+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
 
 ---
 
@@ -68,7 +74,7 @@ From this, Photon generates:
 - `photon cli analytics report --period 2024-Q4`
 - An MCP tool that Claude or Cursor can invoke
 
-No decorators. No registration. No server boilerplate. You wrote the logic — Photon derived the rest.
+No decorators. No registration. No server boilerplate. You wrote the logic. Photon derived the rest.
 
 The more you express, the more Photon understands.
 
@@ -76,17 +82,21 @@ The more you express, the more Photon understands.
 
 ## Everything You Add Becomes Something Useful
 
-This is the part that feels like it shouldn't work but does. Photon reads your TypeScript as **intent** — every construct you'd write anyway carries meaning it can act on.
+Photon reads your TypeScript as **intent**. Every construct you'd write anyway carries meaning it can act on.
 
 | What you write | What Photon derives |
 |---|---|
-| Method signatures | Tool definitions — names, inputs, outputs |
+| Method signatures | Tool definitions: names, inputs, outputs |
 | Type annotations | Input validation rules, UI field types |
 | JSDoc comments | Documentation for AI clients and human users |
 | Constructor parameters | Config UI, environment variable mapping |
 | `@tags` | Validation, formatting, scheduling, webhooks |
 
 So when you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation you were going to write anyway, Beam automatically validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
+</div>
 
 ---
 
@@ -98,9 +108,9 @@ Beam is the web dashboard. Every photon becomes an interactive form. Run `photon
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="100%">
 </div>
 
-The UI is **fully auto-generated** from your method signatures — field types, validation, defaults, layouts. You never write frontend code. When you add a `{@choice a,b,c}` tag to a parameter, Beam renders a dropdown. When you mark a string as `{@format email}`, the field validates email format. The UI evolves as your code does.
+The UI is **fully auto-generated** from your method signatures: field types, validation, defaults, layouts. You never write frontend code. When you add a `{@choice a,b,c}` tag to a parameter, Beam renders a dropdown. When you mark a string as `{@format email}`, the field validates email format. The UI evolves as your code does.
 
-When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. The custom UI receives tool results via `window.photon.onResult()` — a thin bridge, no framework required.
+When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. The custom UI receives tool results via `window.photon.onResult()`, a thin bridge with no framework required.
 
 > Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
@@ -135,7 +145,7 @@ Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://d
 
 Here is how a photon grows. Each step adds one thing and gets multiple capabilities from it.
 
-### Bare method → three interfaces
+### Bare method: three interfaces from twelve lines
 
 ```typescript
 export default class Weather {
@@ -151,7 +161,7 @@ A text input in Beam. A `--city` flag in the CLI. An MCP input schema. From twel
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1" width="100%">
 </div>
 
-### Add comments → AI understands your intent
+### Add comments: AI understands your intent
 
 ```typescript
 /**
@@ -172,7 +182,7 @@ The class description becomes how AI clients introduce the tool to users. The `@
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-2.png" alt="Step 2" width="100%">
 </div>
 
-### Add a constructor → configuration appears
+### Add a constructor: configuration appears
 
 ```typescript
 export default class Weather {
@@ -188,13 +198,13 @@ export default class Weather {
 }
 ```
 
-`apiKey` becomes a password field in the Beam settings panel and maps to the `WEATHER_API_KEY` environment variable. `units` gets a text input with `'metric'` pre-filled. You declared what you need — Photon built the configuration surface.
+`apiKey` becomes a password field in the Beam settings panel and maps to the `WEATHER_API_KEY` environment variable. `units` gets a text input with `'metric'` pre-filled. You declared what you need. Photon built the configuration surface.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-3.png" alt="Step 3" width="100%">
 </div>
 
-### Add tags → behavior extends across all surfaces
+### Add tags: behavior extends across all surfaces
 
 ```typescript
 /**
@@ -210,7 +220,7 @@ export default class Weather {
 }
 ```
 
-`@dependencies` installs `node-fetch` automatically on first run — no `npm install`. The `{@pattern}` validates in the form, the CLI, and the MCP schema simultaneously. `days` becomes a number spinner with bounds. `@format table` renders the result as a table in Beam. One annotation, three surfaces.
+`@dependencies` installs `node-fetch` automatically on first run, no `npm install` needed. The `{@pattern}` validates in the form, the CLI, and the MCP schema simultaneously. `days` becomes a number spinner with bounds. `@format table` renders the result as a table in Beam. One annotation, three surfaces.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-4.png" alt="Step 4" width="100%">
@@ -243,13 +253,13 @@ Things you don't build because Photon handles them:
 
 | | |
 |---|---|
-| **Auto-UI** | Forms, field types, validation, layouts — generated from your signatures |
+| **Auto-UI** | Forms, field types, validation, layouts generated from your signatures |
 | **Stateful instances** | Multiple named instances of the same photon, each with isolated state |
 | **Persistent memory** | `this.memory` gives your photon per-instance key-value storage, no database needed |
 | **Scheduled execution** | `@scheduled` runs any method on a cron schedule |
 | **Webhooks** | `@webhook` exposes any method as an HTTP endpoint |
 | **OAuth** | Built-in OAuth 2.1 flows for Google, GitHub, Microsoft |
-| **Distributed locks** | `@locked` serializes access — one caller at a time, across processes |
+| **Distributed locks** | `@locked` serializes access: one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
 | **Dependency management** | `@dependencies` auto-installs npm packages on first run |
@@ -260,7 +270,7 @@ Things you don't build because Photon handles them:
 
 Two primitives. Together they unlock a class of things that are surprisingly hard to build today.
 
-**Locks** serialize access. When a method is marked `@locked`, only one caller can execute it at a time — whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
+**Locks** serialize access. When a method is marked `@locked`, only one caller can execute at a time, whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
 
 **Events** push state changes to any browser UI in real time. `this.emit('name', data)` in your method fires `window.photon.on('name', handler)` in your custom UI. No WebSockets to configure. No polling. The data marshalling and delivery is handled by the system.
 
@@ -273,7 +283,7 @@ export default class Chess {
   async move(params: { from: string; to: string }) {
     const result = await this.applyMove(params.from, params.to);
 
-    // Browser UI updates instantly — no polling needed
+    // Browser UI updates instantly, no polling needed
     this.emit('board-updated', result.board);
     this.emit('turn-changed', { next: result.nextPlayer });
 
@@ -288,7 +298,7 @@ window.photon.on('board-updated', board => renderBoard(board));
 window.photon.on('turn-changed', ({ next }) => showTurn(next));
 ```
 
-A human moves through Beam. Claude is configured with the MCP server. The lock ensures they truly alternate. Events keep the board live on both sides. That's a fully functional turn-based chess game — human vs AI — in about 50 lines of application logic.
+A human moves through Beam. Claude is configured with the MCP server. The lock ensures they truly alternate. Events keep the board live on both sides. That's a fully functional turn-based chess game, human vs AI, in about 50 lines of application logic.
 
 The same pattern applies beyond games: approval workflows where a human reviews before AI continues, collaborative tools where edits from any source appear instantly, simulations where steps must execute in strict sequence, any system where **who acts next matters**.
 
@@ -296,7 +306,7 @@ The same pattern applies beyond games: approval workflows where a human reviews 
 
 ## Marketplace
 
-35 photons ready to install — databases, APIs, developer tools, and more.
+35 photons ready to install: databases, APIs, developer tools, and more.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
@@ -307,7 +317,7 @@ photon search postgres
 photon add postgres
 ```
 
-Browse the full catalog in the [official photons repository](https://github.com/portel-dev/photons). You can also host a private marketplace for your team — internal tools that stay off the public internet.
+Browse the full catalog in the [official photons repository](https://github.com/portel-dev/photons). You can also host a private marketplace for your team: internal tools that stay off the public internet.
 
 ---
 
@@ -405,13 +415,3 @@ Open an issue or a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 [MIT](./LICENSE).
-
----
-
-<div align="center">
-
-*Singular focus. Precise target.*
-
-Made by [Portel](https://github.com/portel-dev)
-
-</div>
