@@ -100,7 +100,7 @@ So when you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation you were goi
 
 ---
 
-## Beam — Human Exploration
+## Beam: Human Exploration
 
 Beam is the web dashboard. Every photon becomes an interactive form. Run `photon`. That's the whole command.
 
@@ -116,7 +116,7 @@ When forms aren't the right interface for what you're building, you can replace 
 
 ---
 
-## AI Agents — Machine Invocation
+## AI Agents: Machine Invocation
 
 ```bash
 photon info analytics --mcp
@@ -139,10 +139,10 @@ The AI sees the same thing a human sees in Beam: the method names, the parameter
 
 The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client.
 
-When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) render it natively — no separate app needed. The Kanban photon below is running inside Claude Desktop, same UI, same data as Beam.
+When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) render it natively, no separate app needed. The photon below is running inside Claude Desktop, same UI, same data as Beam.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/claude-desktop.png" alt="Kanban photon running as an MCP App inside Claude Desktop" width="100%">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/claude-desktop.png" alt="Photon running as an MCP App with custom UI inside Claude Desktop" width="100%">
 </div>
 
 ---
@@ -151,7 +151,7 @@ When your photon has a custom UI, clients that support the [MCP Apps Extension](
 
 Here is how a photon grows. Each step adds one thing and gets multiple capabilities from it.
 
-### Bare method: three interfaces from twelve lines
+### Bare method: three interfaces from five lines
 
 ```typescript
 export default class Weather {
@@ -161,7 +161,7 @@ export default class Weather {
 }
 ```
 
-A text input in Beam. A `--city` flag in the CLI. An MCP input schema. From twelve lines.
+A text input in Beam. A `--city` flag in the CLI. An MCP input schema. From five lines.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1" width="100%">
@@ -264,7 +264,7 @@ Things you don't build because Photon handles them:
 | **Persistent memory** | `this.memory` gives your photon per-instance key-value storage, no database needed |
 | **Scheduled execution** | `@scheduled` runs any method on a cron schedule |
 | **Webhooks** | `@webhook` exposes any method as an HTTP endpoint |
-| **OAuth** | Built-in OAuth 2.1 flows for Google, GitHub, Microsoft |
+| **OAuth** | Built-in OAuth 2.0 flows for Google, GitHub, Microsoft |
 | **Distributed locks** | `@locked` serializes access: one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
@@ -394,7 +394,7 @@ photon test                       # Run tests
 | Topic | |
 |---|---|
 | [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with `window.photon` |
-| [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.1 with Google, GitHub, Microsoft |
+| [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.0 with Google, GitHub, Microsoft |
 | [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
 | [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
