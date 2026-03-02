@@ -161,7 +161,6 @@ export class BeamSidebar extends LitElement {
         font-weight: 700;
         margin: 0;
         padding: 0;
-        background: none;
         border: none;
         display: flex;
         align-items: center;
