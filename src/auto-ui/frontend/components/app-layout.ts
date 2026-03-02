@@ -121,28 +121,6 @@ export class AppLayout extends LitElement {
       .below-fold {
         padding-top: var(--space-lg);
       }
-
-      /* Anchor navigation links */
-      .anchor-nav {
-        display: flex;
-        gap: var(--space-md);
-        margin-bottom: var(--space-lg);
-      }
-
-      .anchor-link {
-        color: var(--accent-secondary);
-        font-size: var(--text-sm);
-        font-weight: 500;
-        cursor: pointer;
-        text-decoration: none;
-        padding: 4px 0;
-        border-bottom: 2px solid transparent;
-        transition: all 0.15s;
-      }
-
-      .anchor-link:hover {
-        border-bottom-color: var(--accent-secondary);
-      }
     `,
   ];
 
@@ -193,11 +171,6 @@ export class AppLayout extends LitElement {
       </div>
 
       <div class="below-fold">
-        <div class="anchor-nav" id="methods">
-          <span class="anchor-link" @click=${() => this._scrollTo('methods')}>Methods</span>
-          <span class="anchor-link" @click=${() => this._scrollTo('prompts')}>Prompts</span>
-          <span class="anchor-link" @click=${() => this._scrollTo('resources')}>Resources</span>
-        </div>
         <slot name="below-fold"></slot>
       </div>
     `;
@@ -210,10 +183,5 @@ export class AppLayout extends LitElement {
     } else {
       this.removeAttribute('popped-out');
     }
-  }
-
-  private _scrollTo(id: string) {
-    const el = this.shadowRoot?.getElementById(id) || this.querySelector(`#${id}`);
-    el?.scrollIntoView({ behavior: 'smooth' });
   }
 }
