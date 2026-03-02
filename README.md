@@ -312,7 +312,7 @@ The same pattern applies beyond games: approval workflows where a human reviews 
 
 ## Marketplace
 
-33 photons ready to install: databases, APIs, developer tools, and more.
+32 photons ready to install: databases, APIs, developer tools, and more.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-marketplace.png" alt="Marketplace" width="100%">
