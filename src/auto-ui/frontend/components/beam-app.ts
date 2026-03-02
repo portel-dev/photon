@@ -23,6 +23,7 @@ import {
   iconPaths,
 } from '../icons.js';
 import { trapFocus } from '../utils/focus-trap.js';
+import { formatLabel } from '../utils/format-label.js';
 import type { BeamSidebar } from './beam-sidebar.js';
 import type { ResultViewer } from './result-viewer.js';
 import { getThemeTokens } from '../../design-system/tokens.js';
@@ -3914,7 +3915,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     : this._selectedPhoton.name,
                 action: 'back',
               },
-              { label: this._selectedMethod.name },
+              { label: formatLabel(this._selectedMethod.name) },
             ]}
             .live=${this._currentCollectionName !== null}
             .showEdit=${false}
@@ -3948,7 +3949,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   : this._selectedPhoton.name,
               action: 'back',
             },
-            { label: this._selectedMethod.name },
+            { label: formatLabel(this._selectedMethod.name) },
           ]}
           .live=${this._currentCollectionName !== null}
           .showEdit=${false}
@@ -4371,7 +4372,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Standard form mode
     return html`
       <div class="glass-panel method-detail">
-        <h2>${this._selectedMethod.name}</h2>
+        <h2>${formatLabel(this._selectedMethod.name)}</h2>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
