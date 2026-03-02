@@ -391,7 +391,9 @@ export class InstancePanel extends LitElement {
 
           item.onclick = (ev) => {
             ev.stopPropagation();
-            if (!isCurrent) {
+            // Always emit in auto mode (explicit click switches auto → manual),
+            // or when selecting a different instance in manual mode.
+            if (this.selectorMode === 'auto' || !isCurrent) {
               this._emitSelect(name);
             }
             this._close();
