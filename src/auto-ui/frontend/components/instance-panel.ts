@@ -37,29 +37,23 @@ export class InstancePanel extends LitElement {
         border-color: var(--accent-primary);
       }
 
-      .instance-icon {
-        display: inline-flex;
-        align-items: center;
-        opacity: 0.5;
-        flex-shrink: 0;
-      }
-
-      .instance-pill:hover .instance-icon {
-        opacity: 0.8;
-      }
-
+      .instance-icon,
       .instance-pill .chevron-icon {
         display: inline-flex;
         align-items: center;
         opacity: 0.5;
         flex-shrink: 0;
+      }
+
+      .instance-pill:hover .instance-icon,
+      .instance-pill:hover .chevron-icon {
+        opacity: 0.8;
+      }
+
+      .instance-pill .chevron-icon {
         transition:
           transform 0.15s ease,
           opacity 0.15s ease;
-      }
-
-      .instance-pill:hover .chevron-icon {
-        opacity: 0.8;
       }
 
       .instance-pill .chevron-icon.open {
