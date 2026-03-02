@@ -137,13 +137,13 @@ Paste into your AI client's config. Your photon is now an MCP server. Claude can
 
 The AI sees the same thing a human sees in Beam: the method names, the parameter descriptions from your JSDoc, the validation rules from your types. The JSDoc comment you wrote to document the tool for yourself is what Claude reads to decide when and how to call it.
 
-When your photon has a custom UI, that same UI renders inside Claude Desktop or any MCP Apps-compatible client — not just Beam. The Kanban photon below is a single TypeScript file. Open it in Beam for human use, or connect it to Claude Desktop for AI use. Same app, same data, same custom UI.
+The MCP tools themselves work with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client.
+
+When your photon has a custom UI, clients that support the [MCP Apps Extension](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) render it natively — no separate app needed. The Kanban photon below is running inside Claude Desktop, same UI, same data as Beam.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/claude-desktop.png" alt="Kanban photon running as an MCP App inside Claude Desktop" width="100%">
 </div>
-
-Works with [Claude Desktop](https://claude.ai/download), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor](https://cursor.com), and any MCP-compatible client.
 
 ---
 
