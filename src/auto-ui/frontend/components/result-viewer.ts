@@ -3382,14 +3382,19 @@ export class ResultViewer extends LitElement {
     if (!Array.isArray(data) && data && typeof data === 'object') {
       const arrayEntries = Object.entries(data).filter(([, v]) => Array.isArray(v) && v.length > 0);
       if (arrayEntries.length > 0) {
+        // Only show section labels when there are multiple sub-arrays — a single-table result
+        // doesn't need a section heading (e.g. "ITEMS" above a lone table is redundant noise).
+        const showSectionLabel = arrayEntries.length > 1;
         return html`${arrayEntries.map(
           ([key, arr]) => html`
             <div style="margin-bottom: 16px;">
-              <div
-                style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); margin-bottom: 6px;"
-              >
-                ${formatLabel(key)}
-              </div>
+              ${showSectionLabel
+                ? html`<div
+                    style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-muted); margin-bottom: 6px;"
+                  >
+                    ${formatLabel(key)}
+                  </div>`
+                : ''}
               ${this._renderTable(arr as any[])}
             </div>
           `
