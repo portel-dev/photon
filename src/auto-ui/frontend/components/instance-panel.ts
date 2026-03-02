@@ -37,17 +37,32 @@ export class InstancePanel extends LitElement {
         border-color: var(--accent-primary);
       }
 
-      .instance-pill .chevron {
-        opacity: 0.6;
-        transition: transform 0.15s ease;
-        font-size: 0.7em;
+      .instance-icon {
+        display: inline-flex;
+        align-items: center;
+        opacity: 0.5;
+        flex-shrink: 0;
       }
 
-      .instance-pill:hover .chevron {
-        opacity: 1;
+      .instance-pill:hover .instance-icon {
+        opacity: 0.8;
       }
 
-      .instance-pill .chevron.open {
+      .instance-pill .chevron-icon {
+        display: inline-flex;
+        align-items: center;
+        opacity: 0.5;
+        flex-shrink: 0;
+        transition:
+          transform 0.15s ease,
+          opacity 0.15s ease;
+      }
+
+      .instance-pill:hover .chevron-icon {
+        opacity: 0.8;
+      }
+
+      .instance-pill .chevron-icon.open {
         transform: rotate(180deg);
       }
     `,
@@ -124,8 +139,34 @@ export class InstancePanel extends LitElement {
         aria-haspopup="true"
         aria-expanded="${this._open}"
       >
+        <span class="instance-icon">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+            <path d="M3 12a9 3 0 0 0 18 0" />
+          </svg>
+        </span>
         ${display}
-        <span class="chevron ${this._open ? 'open' : ''}">▾</span>
+        <span class="chevron-icon ${this._open ? 'open' : ''}">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path
+              d="M3 4.5L6 7.5L9 4.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
       </button>
     `;
   }
