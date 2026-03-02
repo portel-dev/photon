@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { pencil, formInput, play } from '../icons.js';
+import { formatLabel } from '../utils/format-label.js';
 
 interface MethodInfo {
   name: string;
@@ -489,7 +490,8 @@ export class MethodCard extends LitElement {
                 : ''}
               <span class="editable">
                 <h3 class="title">
-                  <span class="title-name">${this.method.name}</span>${this._renderParamSignature()}
+                  <span class="title-name">${formatLabel(this.method.name)}</span
+                  >${this._renderParamSignature()}
                 </h3>
                 <span
                   class="edit-pencil"
