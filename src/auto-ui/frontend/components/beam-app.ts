@@ -4325,10 +4325,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _renderDescription(description?: string) {
     if (!description) return html``;
     // Strip docblock directive tags (@template, @internal, etc.) that may leak into descriptions.
-    // Only strip @tags at the start of a line — inline references like "Unlike @locked which..."
-    // should be preserved as meaningful content.
+    // Two cases handled:
+    // 1. Line-starting @tags (tag on its own JSDoc line)
+    // 2. Trailing @tags at end of string — when schema-extractor joins JSDoc lines with spaces
+    //    and a tag like @template ends up inline: "Description text @template"
     const cleaned = description
       .replace(/^\s*@\w+[^\n]*/gm, '')
+      .replace(/\s+@\w+(\s+@\w+)*\s*$/, '')
       // Collapse multiple spaces only (not newlines) so markdown structure is preserved
       .replace(/[ \t]{2,}/g, ' ')
       // Reconstruct list structure that may have been flattened during JSDoc extraction:

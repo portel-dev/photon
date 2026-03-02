@@ -759,9 +759,13 @@ export class MethodCard extends LitElement {
       .replace(/`([^`]*)`/g, '$1')
       // Links: [text](url)
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Strip docblock directive tags (@internal, @template, etc.) — only line-starting @tags,
-      // not inline references like "Unlike @locked which..." in prose
+      // Strip docblock directive tags (@internal, @template, etc.).
+      // Two cases:
+      // 1. Line-starting tags (when JSDoc is multi-line and tag is on its own line)
       .replace(/^\s*@\w+[^\n]*/gm, '')
+      // 2. Trailing tags at end of string — when schema-extractor joins JSDoc lines with spaces
+      //    the tag ends up inline: "Description text @template"
+      .replace(/\s+@\w+(\s+@\w+)*\s*$/, '')
       // Remove stray markdown characters (unclosed ** or `)
       .replace(/\*{1,2}/g, '')
       .replace(/`/g, '')
