@@ -133,6 +133,7 @@ export class McpAppRenderer extends LitElement {
         display: block;
         position: relative;
         width: 100%;
+        height: 100%;
         min-height: 500px;
         background: var(--bg-panel, #0d0d0d);
         border-radius: var(--radius-md);
@@ -141,11 +142,12 @@ export class McpAppRenderer extends LitElement {
 
       .iframe-host {
         width: 100%;
+        height: 100%;
       }
 
       iframe {
         width: 100%;
-        height: 500px;
+        height: 100%;
         border: none;
         display: block;
         /* Force own compositing layer — fixes Safari not painting
@@ -431,13 +433,19 @@ export class McpAppRenderer extends LitElement {
       iframe.style.transform = 'translateZ(0)';
     });
 
-    // Auto-size iframe to its content height using ResizeObserver
+    // Grow iframe when content exceeds the container height.
+    // We never shrink below the natural CSS height (100% of the container).
     this._contentResizeObserver?.disconnect();
     const body = iframe.contentDocument?.body;
     if (body) {
       this._contentResizeObserver = new ResizeObserver(() => {
-        const h = Math.max(500, iframe.contentDocument?.body.scrollHeight ?? 500);
-        iframe.style.height = h + 'px';
+        const scrollH = iframe.contentDocument?.body.scrollHeight ?? 0;
+        const containerH = this.offsetHeight || 500;
+        if (scrollH > containerH) {
+          iframe.style.height = scrollH + 'px';
+        } else {
+          iframe.style.height = ''; // let CSS height: 100% take over
+        }
       });
       this._contentResizeObserver.observe(body);
     }
