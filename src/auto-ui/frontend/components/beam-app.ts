@@ -2388,6 +2388,13 @@ export class BeamApp extends LitElement {
       }
     }
 
+    if (!photonName || photonName === 'home') {
+      this._selectedPhoton = null;
+      this._selectedMethod = null;
+      this._lastResult = null;
+      return;
+    }
+
     if (photonName) {
       // Look in both photons and external MCPs
       let photon = this._photons.find((p) => p.name === photonName);
@@ -2460,10 +2467,14 @@ export class BeamApp extends LitElement {
   };
 
   private _updateHash(replace = false) {
-    if (!this._selectedPhoton) return;
-    let hash = this._selectedPhoton.name;
-    if (this._selectedMethod) {
-      hash += `/${this._selectedMethod.name}`;
+    let hash: string;
+    if (!this._selectedPhoton) {
+      hash = 'home';
+    } else {
+      hash = this._selectedPhoton.name;
+      if (this._selectedMethod) {
+        hash += `/${this._selectedMethod.name}`;
+      }
     }
     // Push state for browser back/forward navigation
     if (replace) {
@@ -2472,6 +2483,13 @@ export class BeamApp extends LitElement {
       history.pushState(null, '', `#${hash}`);
     }
   }
+
+  private _goHome = () => {
+    this._selectedPhoton = null;
+    this._selectedMethod = null;
+    this._lastResult = null;
+    this._updateHash();
+  };
 
   /**
    * Add unconfigured photons from configurationSchema to the photons list
@@ -2988,6 +3006,7 @@ export class BeamApp extends LitElement {
           .connected=${this._connected}
           .reconnecting=${this._reconnecting}
           .updatesAvailable=${this._updatesAvailable.length}
+          @home=${this._goHome}
           @select=${this._handlePhotonSelectMobile}
           @marketplace=${this._handleMarketplaceMobile}
           @theme-change=${this._handleThemeChange}
@@ -3291,92 +3310,261 @@ export class BeamApp extends LitElement {
         `;
       }
 
-      // Has user photons but none selected — show dashboard overview
+      // Has user photons but none selected — show home page
       return html`
-        <h1 class="text-gradient" style="margin-bottom: var(--space-lg);">
-          Welcome to Photon Beam
-        </h1>
+        <div style="max-width: 780px;">
+          <h1 class="text-gradient" style="font-size: 1.8rem; margin-bottom: var(--space-xs);">
+            Photon Beam
+          </h1>
+          <p
+            style="color: var(--t-muted); font-size: 1rem; margin: 0 0 var(--space-xl) 0; line-height: 1.6;"
+          >
+            Your local MCP runtime — turn TypeScript classes into AI tools, callable from Claude,
+            Cursor, or any MCP client.
+          </p>
 
-        <div
-          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-lg);"
-        >
-          <div class="glass-panel" style="padding: var(--space-lg);">
-            <h3 style="margin-bottom: var(--space-sm);">Your Photons</h3>
-            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
-              ${configuredPhotons.length} configured
-              photon${configuredPhotons.length !== 1 ? 's' : ''}
-            </p>
-            ${configuredPhotons.length > 0
-              ? html`<div style="font-size: 0.85rem; color: var(--t-secondary);">
-                  ${configuredPhotons
-                    .slice(0, 5)
-                    .map(
-                      (p) => html`<div style="padding: 2px 0;">${p.icon || '⚡'} ${p.name}</div>`
-                    )}
-                  ${configuredPhotons.length > 5
-                    ? html`<div style="color: var(--t-muted);">
-                        +${configuredPhotons.length - 5} more
-                      </div>`
-                    : ''}
-                </div>`
-              : html`<p style="color: var(--t-muted); font-size: 0.85rem;">
-                  No photons configured yet.
-                </p>`}
-          </div>
-
-          <div class="glass-panel" style="padding: var(--space-lg);">
-            <h3 style="margin-bottom: var(--space-sm);">Browse Marketplace</h3>
-            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-md);">
-              Discover and install new photons.
-            </p>
-            <button class="btn-primary" @click=${() => (this._view = 'marketplace')}>
-              Explore
-            </button>
-          </div>
-
-          <div class="glass-panel" style="padding: var(--space-lg);">
-            <h3 style="margin-bottom: var(--space-sm);">Keyboard Shortcuts</h3>
-            <p style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
-              Press
-              <kbd
-                style="padding: 2px 6px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); font-size: 0.85rem;"
-                >?</kbd
-              >
-              to see all shortcuts.
-            </p>
-          </div>
-        </div>
-
-        ${unconfiguredPhotons.length > 0
-          ? html`
-              <div
-                class="glass-panel"
-                style="padding: var(--space-lg); border-left: 3px solid hsl(45, 80%, 50%);"
-              >
-                <h3 style="margin-bottom: var(--space-sm);">Setup Required</h3>
-                <p
-                  style="color: var(--t-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);"
+          ${unconfiguredPhotons.length > 0
+            ? html`
+                <div
+                  class="glass-panel"
+                  style="padding: var(--space-md) var(--space-lg); border-left: 3px solid hsl(45, 80%, 50%); margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;"
                 >
-                  ${unconfiguredPhotons.length}
-                  photon${unconfiguredPhotons.length !== 1 ? 's need' : ' needs'} configuration.
-                </p>
-                <div style="font-size: 0.85rem; color: var(--t-secondary);">
-                  ${unconfiguredPhotons.map(
-                    (p) =>
-                      html`<button
-                        style="display: block; width: 100%; padding: 2px 0; background: none; border: none; font: inherit; color: inherit; text-align: left; cursor: pointer;"
-                        @click=${() => {
-                          this._selectedPhoton = p;
-                          this._view = 'config';
-                        }}
-                      >
-                        ⚠️ ${p.name}
-                      </button>`
-                  )}
+                  <div style="flex: 1; min-width: 200px;">
+                    <div style="font-weight: 600; margin-bottom: 2px;">Setup required</div>
+                    <div style="color: var(--t-muted); font-size: 0.85rem;">
+                      ${unconfiguredPhotons.length}
+                      photon${unconfiguredPhotons.length !== 1 ? 's need' : ' needs'} configuration
+                      before use.
+                    </div>
+                  </div>
+                  <div style="display: flex; flex-wrap: wrap; gap: var(--space-xs);">
+                    ${unconfiguredPhotons.map(
+                      (p) =>
+                        html`<button
+                          style="padding: 4px 10px; background: var(--bg-glass); border: 1px solid hsl(45,80%,50%,0.4); border-radius: var(--radius-sm); color: var(--t-secondary); font-size: 0.82rem; cursor: pointer; font-family: monospace; transition: border-color 0.15s;"
+                          @click=${() => {
+                            this._selectedPhoton = p;
+                            this._view = 'config';
+                          }}
+                        >
+                          ⚠ ${p.name}
+                        </button>`
+                    )}
+                  </div>
+                </div>
+              `
+            : ''}
+
+          <div
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-xl);"
+          >
+            ${configuredPhotons.slice(0, 6).map(
+              (p) => html`
+                <button
+                  class="glass-panel"
+                  style="padding: var(--space-md); text-align: left; cursor: pointer; border: 1px solid var(--border-glass); transition: border-color 0.15s, background 0.15s;"
+                  @mouseenter=${(e: Event) =>
+                    ((e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-primary)')}
+                  @mouseleave=${(e: Event) =>
+                    ((e.currentTarget as HTMLElement).style.borderColor = 'var(--border-glass)')}
+                  @click=${() =>
+                    this._handlePhotonSelect(new CustomEvent('select', { detail: { photon: p } }))}
+                >
+                  <div style="font-size: 1.4rem; margin-bottom: var(--space-xs);">
+                    ${p.icon || '⚡'}
+                  </div>
+                  <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 2px;">
+                    ${p.name}
+                  </div>
+                  <div style="color: var(--t-muted); font-size: 0.78rem; line-height: 1.4;">
+                    ${p.description
+                      ? p.description.length > 60
+                        ? p.description.slice(0, 60) + '…'
+                        : p.description
+                      : `${p.methods?.length ?? 0} tool${p.methods?.length !== 1 ? 's' : ''}`}
+                  </div>
+                </button>
+              `
+            )}
+            ${configuredPhotons.length > 6
+              ? html`
+                  <div
+                    class="glass-panel"
+                    style="padding: var(--space-md); display: flex; align-items: center; justify-content: center; color: var(--t-muted); font-size: 0.85rem;"
+                  >
+                    +${configuredPhotons.length - 6} more in sidebar
+                  </div>
+                `
+              : ''}
+          </div>
+
+          <div
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-xl);"
+          >
+            <div class="glass-panel" style="padding: var(--space-lg);">
+              <h3
+                style="font-size: 0.85rem; font-weight: 600; color: var(--t-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-sm) 0;"
+              >
+                How it works
+              </h3>
+              <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                <div style="display: flex; gap: var(--space-sm); align-items: flex-start;">
+                  <span
+                    style="font-family: monospace; font-size: 0.75rem; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); padding: 1px 5px; flex-shrink: 0; margin-top: 1px;"
+                    >1</span
+                  >
+                  <span style="font-size: 0.85rem; color: var(--t-secondary); line-height: 1.4;"
+                    >Write a
+                    <code
+                      style="font-size: 0.8rem; background: var(--bg-glass); padding: 1px 4px; border-radius: 3px;"
+                      >.photon.ts</code
+                    >
+                    file with a TypeScript class</span
+                  >
+                </div>
+                <div style="display: flex; gap: var(--space-sm); align-items: flex-start;">
+                  <span
+                    style="font-family: monospace; font-size: 0.75rem; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); padding: 1px 5px; flex-shrink: 0; margin-top: 1px;"
+                    >2</span
+                  >
+                  <span style="font-size: 0.85rem; color: var(--t-secondary); line-height: 1.4;"
+                    >Each public method becomes an MCP tool automatically</span
+                  >
+                </div>
+                <div style="display: flex; gap: var(--space-sm); align-items: flex-start;">
+                  <span
+                    style="font-family: monospace; font-size: 0.75rem; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-xs); padding: 1px 5px; flex-shrink: 0; margin-top: 1px;"
+                    >3</span
+                  >
+                  <span style="font-size: 0.85rem; color: var(--t-secondary); line-height: 1.4;"
+                    >Call tools from Claude Desktop, Cursor, CLI, or right here in Beam</span
+                  >
                 </div>
               </div>
-            `
-          : ''}
+            </div>
+
+            <div class="glass-panel" style="padding: var(--space-lg);">
+              <h3
+                style="font-size: 0.85rem; font-weight: 600; color: var(--t-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-sm) 0;"
+              >
+                Quick actions
+              </h3>
+              <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
+                <button
+                  style="display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); background: none; border: none; color: var(--t-secondary); font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); text-align: left; transition: background 0.12s, color 0.12s; font-family: inherit;"
+                  @mouseenter=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--bg-glass)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-primary)';
+                  }}
+                  @mouseleave=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'none';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-secondary)';
+                  }}
+                  @click=${() => (this._view = 'marketplace')}
+                >
+                  <span style="font-size: 1rem; width: 20px; text-align: center;">📦</span>
+                  Browse Marketplace
+                </button>
+                <button
+                  style="display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); background: none; border: none; color: var(--t-secondary); font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); text-align: left; transition: background 0.12s, color 0.12s; font-family: inherit;"
+                  @mouseenter=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--bg-glass)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-primary)';
+                  }}
+                  @mouseleave=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'none';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-secondary)';
+                  }}
+                  @click=${() =>
+                    this._handleMakerAction(
+                      new CustomEvent('maker-action', { detail: { action: 'wizard' } })
+                    )}
+                >
+                  <span style="font-size: 1rem; width: 20px; text-align: center;">🛠️</span>
+                  Create a Photon
+                </button>
+                <button
+                  style="display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); background: none; border: none; color: var(--t-secondary); font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); text-align: left; transition: background 0.12s, color 0.12s; font-family: inherit;"
+                  @mouseenter=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--bg-glass)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-primary)';
+                  }}
+                  @mouseleave=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'none';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-secondary)';
+                  }}
+                  @click=${this._showHelpModal}
+                >
+                  <span style="font-size: 1rem; width: 20px; text-align: center;">⌨️</span>
+                  Keyboard shortcuts
+                </button>
+                <button
+                  style="display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); background: none; border: none; color: var(--t-secondary); font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); text-align: left; transition: background 0.12s, color 0.12s; font-family: inherit;"
+                  @mouseenter=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--bg-glass)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-primary)';
+                  }}
+                  @mouseleave=${(e: Event) => {
+                    (e.currentTarget as HTMLElement).style.background = 'none';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--t-secondary)';
+                  }}
+                  @click=${() => {
+                    this._view = 'diagnostics';
+                    this._updateHash();
+                  }}
+                >
+                  <span style="font-size: 1rem; width: 20px; text-align: center;">🔍</span>
+                  Diagnostics
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="glass-panel"
+            style="padding: var(--space-md) var(--space-lg); border: 1px solid var(--border-glass);"
+          >
+            <h3
+              style="font-size: 0.85rem; font-weight: 600; color: var(--t-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-sm) 0;"
+            >
+              Ecosystem
+            </h3>
+            <div
+              style="display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; font-size: 0.82rem; color: var(--t-secondary);"
+            >
+              <div
+                style="padding: 4px 10px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); font-family: monospace;"
+              >
+                .photon.ts
+              </div>
+              <span style="color: var(--t-muted);">→</span>
+              <div
+                style="padding: 4px 10px; background: var(--bg-glass); border: 1px solid var(--accent-primary); border-radius: var(--radius-sm);"
+              >
+                ⚡ Photon Runtime
+              </div>
+              <span style="color: var(--t-muted);">→</span>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <span
+                  style="padding: 3px 8px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"
+                  >Beam UI</span
+                >
+                <span
+                  style="padding: 3px 8px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"
+                  >Claude Desktop</span
+                >
+                <span
+                  style="padding: 3px 8px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"
+                  >Cursor</span
+                >
+                <span
+                  style="padding: 3px 8px; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"
+                  >photon CLI</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
       `;
     }
 

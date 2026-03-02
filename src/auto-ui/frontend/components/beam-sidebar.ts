@@ -163,6 +163,13 @@ export class BeamSidebar extends LitElement {
         display: flex;
         align-items: center;
         gap: 8px;
+        cursor: pointer;
+        user-select: none;
+        transition: opacity 0.15s;
+      }
+
+      .logo:hover {
+        opacity: 0.8;
       }
 
       .status-indicator {
@@ -939,7 +946,12 @@ export class BeamSidebar extends LitElement {
       <nav class="sidebar-content" role="navigation" aria-label="Photon navigation">
         <div class="header">
           <div class="header-row">
-            <h2 class="text-gradient logo">
+            <h2
+              class="text-gradient logo"
+              @click=${() =>
+                this.dispatchEvent(new CustomEvent('home', { bubbles: true, composed: true }))}
+              title="Go home"
+            >
               Photon Beam
               <span
                 class="status-indicator ${this.connected
