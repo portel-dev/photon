@@ -249,10 +249,48 @@ Things you don't build because Photon handles them:
 | **Scheduled execution** | `@scheduled` runs any method on a cron schedule |
 | **Webhooks** | `@webhook` exposes any method as an HTTP endpoint |
 | **OAuth** | Built-in OAuth 2.1 flows for Google, GitHub, Microsoft |
-| **Distributed locks** | `@locked` prevents concurrent execution across processes |
+| **Distributed locks** | `@locked` serializes access — one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
-| **Real-time events** | `this.emit()` pushes live updates to Beam and connected clients |
+| **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
 | **Dependency management** | `@dependencies` auto-installs npm packages on first run |
+
+---
+
+## Coordination: Locks + Events
+
+Two primitives. Together they unlock a class of things that are surprisingly hard to build today.
+
+**Locks** serialize access. When a method is marked `@locked`, only one caller can execute it at a time — whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
+
+**Events** push state changes to any browser UI in real time. `this.emit('name', data)` in your method fires `window.photon.on('name', handler)` in your custom UI. No WebSockets to configure. No polling. The data marshalling and delivery is handled by the system.
+
+Together: **turn-based coordination with live state**.
+
+```typescript
+export default class Chess {
+  /** Make a move. Locks ensure human and AI alternate turns. */
+  /** @locked */
+  async move(params: { from: string; to: string }) {
+    const result = await this.applyMove(params.from, params.to);
+
+    // Browser UI updates instantly — no polling needed
+    this.emit('board-updated', result.board);
+    this.emit('turn-changed', { next: result.nextPlayer });
+
+    return result;
+  }
+}
+```
+
+```javascript
+// In your custom UI (ui/chess.html)
+window.photon.on('board-updated', board => renderBoard(board));
+window.photon.on('turn-changed', ({ next }) => showTurn(next));
+```
+
+A human moves through Beam. Claude is configured with the MCP server. The lock ensures they truly alternate. Events keep the board live on both sides. That's a fully functional turn-based chess game — human vs AI — in about 50 lines of application logic.
+
+The same pattern applies beyond games: approval workflows where a human reviews before AI continues, collaborative tools where edits from any source appear instantly, simulations where steps must execute in strict sequence, any system where **who acts next matters**.
 
 ---
 
