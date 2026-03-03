@@ -2669,8 +2669,8 @@ Run: photon mcp ${mcpName} --config
    */
   private static extractParamNames(fn: (...args: any[]) => any): string[] {
     const fnStr = fn.toString();
-    // Match the parameter list: function(...) or (...) =>
-    const match = fnStr.match(/(?:function)?\s*\(?([^)]*)\)?/);
+    // Match parameters inside parentheses: ( ... )
+    const match = fnStr.match(/\(([^)]*)\)/);
     if (!match?.[1]) {
       return [];
     }
@@ -2678,7 +2678,6 @@ Run: photon mcp ${mcpName} --config
     return match[1]
       .split(',')
       .map((param) => {
-        // Remove default values, whitespace, destructuring
         const cleaned = param
           .trim()
           .split('=')[0] // Remove default value
