@@ -957,6 +957,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             }
           }
 
+          // Ghost event: watcher fired for a new photon but the file doesn't exist.
+          // This happens on macOS FSEvents spurious events or create-then-delete races.
+          // Nothing to load — ignore silently.
+          if (isNewPhoton && !existsSync(photonPath)) {
+            logger.debug(`👻 Ghost event for ${photonName}: file not found, skipping`);
+            return;
+          }
+
           logger.info(
             isNewPhoton
               ? `✨ New photon detected: ${photonName}`
