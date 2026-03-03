@@ -1933,7 +1933,7 @@ export class BeamApp extends LitElement {
     document.addEventListener('click', this._handleDocumentClick);
 
     // Connect via MCP Streamable HTTP (SSE for notifications)
-    this._connectMCP();
+    void this._connectMCP();
 
     window.addEventListener('hashchange', this._handleHashChange);
     window.addEventListener('popstate', this._handlePopState);
@@ -1975,50 +1975,52 @@ export class BeamApp extends LitElement {
 
   private async _connectMCP() {
     try {
-      mcpClient.on('connect', async () => {
-        const isReconnect = this._initialConnectDone;
-        this._mcpReady = true;
-        this._connected = true;
-        this._reconnecting = false;
-        this._reconnectAttempt = 0;
-        console.log(isReconnect ? 'MCP client reconnected' : 'MCP client connected');
+      mcpClient.on('connect', () => {
+        void (async () => {
+          const isReconnect = this._initialConnectDone;
+          this._mcpReady = true;
+          this._connected = true;
+          this._reconnecting = false;
+          this._reconnectAttempt = 0;
+          console.log(isReconnect ? 'MCP client reconnected' : 'MCP client connected');
 
-        // Load/refresh photon list
-        const tools = await mcpClient.listTools();
-        const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
-        this._photons = photons;
-        this._externalMCPs = externalMCPs;
+          // Load/refresh photon list
+          const tools = await mcpClient.listTools();
+          const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+          this._photons = photons;
+          this._externalMCPs = externalMCPs;
 
-        // Add unconfigured photons from configuration schema
-        this._addUnconfiguredPhotons();
+          // Add unconfigured photons from configuration schema
+          this._addUnconfiguredPhotons();
 
-        if (isReconnect) {
-          // Reconnect: update selected photon reference but do NOT re-invoke main()
-          // Re-invoking would blank the app UI that's already displaying content
-          if (this._selectedPhoton) {
-            const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
-            if (updated) this._selectedPhoton = updated;
+          if (isReconnect) {
+            // Reconnect: update selected photon reference but do NOT re-invoke main()
+            // Re-invoking would blank the app UI that's already displaying content
+            if (this._selectedPhoton) {
+              const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
+              if (updated) this._selectedPhoton = updated;
+            }
+            // Restore instance for stateful photons (daemon may have restarted)
+            if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
+              void this._restoreInstance(this._selectedPhoton.name);
+            }
+            return;
           }
-          // Restore instance for stateful photons (daemon may have restarted)
-          if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
-            this._restoreInstance(this._selectedPhoton.name);
+
+          this._initialConnectDone = true;
+
+          // Check for available updates in background
+          void this._checkForUpdates();
+
+          // Restore state from hash or select first photon
+          if (window.location.hash) {
+            void this._handleHashChange();
+          } else if (!this._selectedPhoton && this._photons.length > 0) {
+            const firstUserPhoton = this._photons.find((p) => !p.internal);
+            if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
+            this._updateHash(true);
           }
-          return;
-        }
-
-        this._initialConnectDone = true;
-
-        // Check for available updates in background
-        this._checkForUpdates();
-
-        // Restore state from hash or select first photon
-        if (window.location.hash) {
-          this._handleHashChange();
-        } else if (!this._selectedPhoton && this._photons.length > 0) {
-          const firstUserPhoton = this._photons.find((p) => !p.internal);
-          if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
-          this._updateHash(true);
-        }
+        })();
       });
 
       mcpClient.on('disconnect', () => {
@@ -2030,29 +2032,31 @@ export class BeamApp extends LitElement {
         showToast('Connection lost. Reconnecting...', 'warning');
       });
 
-      mcpClient.on('tools-changed', async () => {
-        const tools = await mcpClient.listTools();
-        const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
-        // Capture prevNames AFTER the await — _photons may have been updated by
-        // a concurrent SSE 'photons' event while we were waiting for listTools().
-        const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
-        this._photons = photons;
-        this._externalMCPs = externalMCPs;
-        // Re-add unconfigured photons from configuration schema
-        this._addUnconfiguredPhotons();
-        // Auto-select newly added user photon (welcome wizard flow)
-        // Skip if user is intentionally on the home page
-        if (!this._selectedPhoton && window.location.hash !== '#home') {
-          const newUserPhoton = this._photons.find(
-            (p) => !p.internal && p.configured && !prevNames.has(p.name)
-          );
-          if (newUserPhoton) {
-            this._selectedPhoton = newUserPhoton;
-            this._welcomePhase = 'welcome';
-            this._view = 'list';
-            this._updateHash(true);
+      mcpClient.on('tools-changed', () => {
+        void (async () => {
+          const tools = await mcpClient.listTools();
+          const { photons, externalMCPs } = mcpClient.toolsToPhotons(tools);
+          // Capture prevNames AFTER the await — _photons may have been updated by
+          // a concurrent SSE 'photons' event while we were waiting for listTools().
+          const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
+          this._photons = photons;
+          this._externalMCPs = externalMCPs;
+          // Re-add unconfigured photons from configuration schema
+          this._addUnconfiguredPhotons();
+          // Auto-select newly added user photon (welcome wizard flow)
+          // Skip if user is intentionally on the home page
+          if (!this._selectedPhoton && window.location.hash !== '#home') {
+            const newUserPhoton = this._photons.find(
+              (p) => !p.internal && p.configured && !prevNames.has(p.name)
+            );
+            if (newUserPhoton) {
+              this._selectedPhoton = newUserPhoton;
+              this._welcomePhase = 'welcome';
+              this._view = 'list';
+              this._updateHash(true);
+            }
           }
-        }
+        })();
       });
 
       // Handle configuration schema for unconfigured photons
@@ -2273,14 +2277,14 @@ export class BeamApp extends LitElement {
           data?.photon === this._selectedPhoton?.name &&
           data.board !== this._currentInstance
         ) {
-          this._handleInstanceChange(
+          void this._handleInstanceChange(
             new CustomEvent('instance-change', { detail: { instance: data.board } })
           );
         }
 
         // Keep instance list fresh when new boards appear
         if (data?.photon === this._selectedPhoton?.name) {
-          this._fetchInstances(data.photon);
+          void this._fetchInstances(data.photon);
         }
       });
 
@@ -2318,16 +2322,18 @@ export class BeamApp extends LitElement {
           !this._isExecuting &&
           !hasRequiredParams
         ) {
-          this._silentRefresh();
+          void this._silentRefresh();
         }
       });
 
       // Restore instance after SSE reconnection (daemon restart, network recovery, etc.)
-      mcpClient.on('reconnect', async () => {
-        this._log('info', 'Connection restored');
-        if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
-          await this._restoreInstance(this._selectedPhoton.name);
-        }
+      mcpClient.on('reconnect', () => {
+        void (async () => {
+          this._log('info', 'Connection restored');
+          if (this._selectedPhoton?.stateful && this._selectedPhoton.configured) {
+            await this._restoreInstance(this._selectedPhoton.name);
+          }
+        })();
       });
 
       // MCP Apps standard: forward ui/notifications/tool-result to iframes as JSON-RPC
@@ -2380,7 +2386,9 @@ export class BeamApp extends LitElement {
         this._reconnecting = true;
         this._reconnectAttempt = this._connectRetries;
         // Retry with exponential backoff
-        setTimeout(() => this._connectMCP(), MCP_RECONNECT_DELAY_MS * this._connectRetries);
+        setTimeout(() => {
+          void this._connectMCP();
+        }, MCP_RECONNECT_DELAY_MS * this._connectRetries);
       } else {
         // Give up — show static disconnected banner, no more toasts
         this._reconnecting = false;
@@ -2388,108 +2396,110 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleHashChange = async () => {
-    const fullHash = window.location.hash.slice(1);
-    // Parse hash format: photon/method?param1=value1&param2=value2
-    const [pathPart, queryPart] = fullHash.split('?');
-    const [photonName, methodName] = pathPart.split('/');
+  private _handleHashChange = () => {
+    void (async () => {
+      const fullHash = window.location.hash.slice(1);
+      // Parse hash format: photon/method?param1=value1&param2=value2
+      const [pathPart, queryPart] = fullHash.split('?');
+      const [photonName, methodName] = pathPart.split('/');
 
-    // Parse query parameters for shared links
-    let sharedParams: Record<string, any> = {};
-    if (queryPart) {
-      const params = new URLSearchParams(queryPart);
-      // Focus mode: hide sidebar and photon header, expand main area to full width
-      if (params.has('focus')) {
-        this._focusMode = true;
-        this.classList.add('focus-mode');
-      }
-      for (const [key, value] of params) {
-        if (key === 'focus') continue; // UI mode flag, not a shared param
-        // Try to parse JSON values (objects, arrays, numbers, booleans)
-        try {
-          sharedParams[key] = JSON.parse(value);
-        } catch {
-          sharedParams[key] = value;
+      // Parse query parameters for shared links
+      let sharedParams: Record<string, any> = {};
+      if (queryPart) {
+        const params = new URLSearchParams(queryPart);
+        // Focus mode: hide sidebar and photon header, expand main area to full width
+        if (params.has('focus')) {
+          this._focusMode = true;
+          this.classList.add('focus-mode');
+        }
+        for (const [key, value] of params) {
+          if (key === 'focus') continue; // UI mode flag, not a shared param
+          // Try to parse JSON values (objects, arrays, numbers, booleans)
+          try {
+            sharedParams[key] = JSON.parse(value);
+          } catch {
+            sharedParams[key] = value;
+          }
         }
       }
-    }
 
-    if (!photonName || photonName === 'home') {
-      this._selectedPhoton = null;
-      this._selectedMethod = null;
-      this._lastResult = null;
-      return;
-    }
-
-    if (photonName) {
-      // Look in both photons and external MCPs
-      let photon = this._photons.find((p) => p.name === photonName);
-      if (!photon) {
-        photon = this._externalMCPs.find((p) => p.name === photonName);
-      }
-
-      if (photon) {
-        this._selectedPhoton = photon;
+      if (!photonName || photonName === 'home') {
+        this._selectedPhoton = null;
+        this._selectedMethod = null;
         this._lastResult = null;
+        return;
+      }
 
-        // Restore saved instance for stateful photons (survives tab refresh)
-        if (photon.stateful && photon.configured) {
-          await this._restoreInstance(photon.name);
+      if (photonName) {
+        // Look in both photons and external MCPs
+        let photon = this._photons.find((p) => p.name === photonName);
+        if (!photon) {
+          photon = this._externalMCPs.find((p) => p.name === photonName);
         }
 
-        // Fetch available instances for stateful photons (populates instance panel)
-        if (photon.stateful) {
-          await this._fetchInstances(photon.name);
-        }
+        if (photon) {
+          this._selectedPhoton = photon;
+          this._lastResult = null;
 
-        // Handle external MCPs with MCP Apps
-        if (photon.isExternalMCP && photon.hasMcpApp) {
-          this._selectedMethod = null;
-          this._view = 'mcp-app';
-          return;
-        }
+          // Restore saved instance for stateful photons (survives tab refresh)
+          if (photon.stateful && photon.configured) {
+            await this._restoreInstance(photon.name);
+          }
 
-        if (methodName && photon.methods) {
-          const method = photon.methods.find((m: any) => m.name === methodName);
-          if (method) {
-            // Store shared params to pre-populate form
-            if (Object.keys(sharedParams).length > 0) {
-              this._sharedFormParams = sharedParams;
-            } else {
-              // Set _isExecuting BEFORE setting state to prevent iframe from rendering
-              // before the tool call starts (which would bypass elicitation)
-              if (this._willAutoInvoke(method)) {
-                this._isExecuting = true;
+          // Fetch available instances for stateful photons (populates instance panel)
+          if (photon.stateful) {
+            await this._fetchInstances(photon.name);
+          }
+
+          // Handle external MCPs with MCP Apps
+          if (photon.isExternalMCP && photon.hasMcpApp) {
+            this._selectedMethod = null;
+            this._view = 'mcp-app';
+            return;
+          }
+
+          if (methodName && photon.methods) {
+            const method = photon.methods.find((m: any) => m.name === methodName);
+            if (method) {
+              // Store shared params to pre-populate form
+              if (Object.keys(sharedParams).length > 0) {
+                this._sharedFormParams = sharedParams;
+              } else {
+                // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+                // before the tool call starts (which would bypass elicitation)
+                if (this._willAutoInvoke(method)) {
+                  this._isExecuting = true;
+                }
+              }
+              this._selectedMethod = method;
+              this._view = 'form';
+              // Auto-invoke if no shared params provided
+              if (Object.keys(sharedParams).length === 0) {
+                this._maybeAutoInvoke(method);
               }
             }
-            this._selectedMethod = method;
-            this._view = 'form';
-            // Auto-invoke if no shared params provided
-            if (Object.keys(sharedParams).length === 0) {
-              this._maybeAutoInvoke(method);
+          } else if (photon.isApp && photon.appEntry) {
+            // For Apps without method specified, auto-select main
+            // Set _isExecuting BEFORE setting state to prevent iframe from rendering
+            // before the tool call starts (which would bypass elicitation)
+            if (this._willAutoInvoke(photon.appEntry)) {
+              this._isExecuting = true;
             }
+            this._selectedMethod = photon.appEntry;
+            this._view = 'form';
+            // Auto-invoke app entry if it has no required params
+            this._maybeAutoInvoke(photon.appEntry);
+          } else {
+            this._selectedMethod = null;
+            this._view = 'list';
           }
-        } else if (photon.isApp && photon.appEntry) {
-          // For Apps without method specified, auto-select main
-          // Set _isExecuting BEFORE setting state to prevent iframe from rendering
-          // before the tool call starts (which would bypass elicitation)
-          if (this._willAutoInvoke(photon.appEntry)) {
-            this._isExecuting = true;
-          }
-          this._selectedMethod = photon.appEntry;
-          this._view = 'form';
-          // Auto-invoke app entry if it has no required params
-          this._maybeAutoInvoke(photon.appEntry);
-        } else {
-          this._selectedMethod = null;
-          this._view = 'list';
         }
       }
-    }
+    })();
   };
 
   private _handlePopState = () => {
-    this._handleHashChange();
+    void this._handleHashChange();
   };
 
   private _updateHash(replace = false) {
@@ -2689,7 +2699,7 @@ export class BeamApp extends LitElement {
 
   private _renderDiagnostics() {
     if (!this._diagnosticsData) {
-      this._fetchDiagnostics();
+      void this._fetchDiagnostics();
       return html`<div style="color: var(--t-muted);">Loading diagnostics...</div>`;
     }
 
@@ -2846,7 +2856,7 @@ export class BeamApp extends LitElement {
           class="btn-sm"
           @click=${() => {
             this._diagnosticsData = null;
-            this._fetchDiagnostics();
+            void this._fetchDiagnostics();
           }}
         >
           ${refresh} Refresh
@@ -2992,7 +3002,7 @@ export class BeamApp extends LitElement {
               <button
                 @click=${() => {
                   this._connectRetries = 0;
-                  this._connectMCP();
+                  void this._connectMCP();
                 }}
               >
                 Retry Now
@@ -3006,7 +3016,7 @@ export class BeamApp extends LitElement {
       <!-- Mobile Menu Button -->
       <button
         class="mobile-menu-btn ${this._sidebarVisible ? 'open' : ''}"
-        @click=${this._toggleSidebar}
+        @click=${() => this._toggleSidebar()}
         aria-label="${this._sidebarVisible ? 'Close menu' : 'Open menu'}"
       >
         ${this._sidebarVisible ? xMark : menu}
@@ -3015,7 +3025,7 @@ export class BeamApp extends LitElement {
       <!-- Sidebar Overlay (mobile) -->
       <div
         class="sidebar-overlay ${this._sidebarVisible ? 'visible' : ''}"
-        @click=${this._closeSidebar}
+        @click=${() => this._closeSidebar()}
         aria-hidden="true"
       ></div>
 
@@ -3033,12 +3043,14 @@ export class BeamApp extends LitElement {
           .reconnecting=${this._reconnecting}
           .updatesAvailable=${this._updatesAvailable.length}
           @home=${this._goHome}
-          @select=${this._handlePhotonSelectMobile}
-          @marketplace=${this._handleMarketplaceMobile}
+          @select=${(e: Event) => this._handlePhotonSelectMobile(e as CustomEvent)}
+          @marketplace=${() => this._handleMarketplaceMobile()}
           @theme-change=${this._handleThemeChange}
           @open-theme-settings=${() => (this._showThemeSettings = true)}
           @show-shortcuts=${this._showHelpModal}
-          @reconnect-mcp=${this._handleReconnectMCP}
+          @reconnect-mcp=${(e: Event) => {
+            void this._handleReconnectMCP(e as CustomEvent);
+          }}
           @diagnostics=${() => {
             this._view = 'diagnostics';
             this._updateHash();
@@ -3210,8 +3222,8 @@ export class BeamApp extends LitElement {
           : ''}
 
         <marketplace-view
-          @install=${this._handleInstall}
-          @maker-action=${this._handleMakerAction}
+          @install=${(e: Event) => this._handleInstall(e as CustomEvent)}
+          @maker-action=${(e: Event) => this._handleMakerAction(e as CustomEvent)}
           @fork-photon=${this._handleForkFromMarketplace}
         ></marketplace-view>
       `;
@@ -3239,8 +3251,8 @@ export class BeamApp extends LitElement {
               Discover and install a photon to get started.
             </p>
             <marketplace-view
-              @install=${this._handleInstall}
-              @maker-action=${this._handleMakerAction}
+              @install=${(e: Event) => this._handleInstall(e as CustomEvent)}
+              @maker-action=${(e: Event) => this._handleMakerAction(e as CustomEvent)}
               @fork-photon=${this._handleForkFromMarketplace}
             ></marketplace-view>
           `;
@@ -3597,9 +3609,9 @@ export class BeamApp extends LitElement {
     // Show load error view for photons that failed to load
     if (
       this._selectedPhoton.configured === false &&
-      (this._selectedPhoton as any).errorReason === 'load-error'
+      this._selectedPhoton.errorReason === 'load-error'
     ) {
-      const photon = this._selectedPhoton as any;
+      const photon = this._selectedPhoton;
       return html`
         <div
           class="glass-panel"
@@ -3660,7 +3672,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <photon-config
             .photon=${this._selectedPhoton}
             .mode=${this._selectedPhoton.configured === false ? 'initial' : this._configMode}
-            @configure=${this._handleConfigure}
+            @configure=${(e: Event) => {
+              void this._handleConfigure(e as CustomEvent);
+            }}
           ></photon-config>
         </div>
       `;
@@ -3815,7 +3829,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
         // External MCPs use mcp-app-renderer (MCP Apps Extension protocol)
         // Internal photons use custom-ui-renderer (photon bridge protocol)
-        const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
+        const isExternalMCP = this._selectedPhoton.isExternalMCP;
 
         // Don't render the iframe until main() completes — this prevents the
         // iframe from loading data independently while an elicitation is pending
@@ -3886,7 +3900,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                               <method-card
                                 .method=${method}
                                 .photonName=${this._selectedPhoton.name}
-                                @select=${this._handleMethodSelect}
+                                @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
                                 @update-metadata=${this._handleMethodMetadataUpdate}
                               ></method-card>
                             `
@@ -3996,7 +4010,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     <method-card
                       .method=${method}
                       .photonName=${this._selectedPhoton.name}
-                      @select=${this._handleMethodSelect}
+                      @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
                       @update-metadata=${this._handleMethodMetadataUpdate}
                     ></method-card>
                   `
@@ -4063,7 +4077,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _handlePhotonSelectMobile(e: CustomEvent) {
     this._closeSidebar();
-    this._handlePhotonSelect(e);
+    void this._handlePhotonSelect(e);
   }
 
   private _handleMarketplaceMobile() {
@@ -4229,7 +4243,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       sessionStorage.setItem(`photon-instance:${photonName}`, target);
       // Re-invoke main() to load the new board
       if (this._selectedMethod) {
-        this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+        void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
       }
     } catch {
       showToast('Failed to switch board', 'error');
@@ -4295,11 +4309,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
    * Trigger teardown on any active custom-ui-renderer before switching methods
    */
   private _teardownActiveCustomUI(): void {
-    const customRenderer = this.shadowRoot?.querySelector('custom-ui-renderer') as any;
+    const customRenderer = this.shadowRoot?.querySelector('custom-ui-renderer');
     if (customRenderer?.teardown) {
       customRenderer.teardown().catch(() => {});
     }
-    const mcpAppRenderer = this.shadowRoot?.querySelector('mcp-app-renderer') as any;
+    const mcpAppRenderer = this.shadowRoot?.querySelector('mcp-app-renderer');
     if (mcpAppRenderer?.teardown) {
       mcpAppRenderer.teardown().catch(() => {});
     }
@@ -4363,7 +4377,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .resultKey=${this._selectedPhoton && this._selectedMethod
               ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
               : undefined}
-            @share=${this._handleShareResult}
+            @share=${() => this._handleShareResult()}
           ></result-viewer>
         </div>
       `;
@@ -4381,7 +4395,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
           .methodName=${this._selectedMethod.name}
           .rememberValues=${this._rememberFormValues}
           .sharedValues=${this._sharedFormParams}
-          @submit=${this._handleExecute}
+          @submit=${(e: Event) => {
+            void this._handleExecute(e as CustomEvent);
+          }}
           @cancel=${() => this._handleBackFromMethod()}
         ></invoke-form>
 
@@ -4420,7 +4436,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 .resultKey=${this._selectedPhoton && this._selectedMethod
                   ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
                   : undefined}
-                @share=${this._handleShareResult}
+                @share=${() => this._handleShareResult()}
               ></result-viewer>
             `
           : html`
@@ -4453,12 +4469,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _maybeAutoInvoke(method: any) {
     if (!this._willAutoInvoke(method)) return;
     // Auto-invoke with empty args
-    this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+    void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
   }
 
   private _handleBackFromMethod() {
     // Check for unsaved form changes
-    const form = this.shadowRoot?.querySelector('invoke-form') as any;
+    const form = this.shadowRoot?.querySelector('invoke-form');
     if (form?.isDirty && !confirm('You have unsaved changes. Discard them?')) {
       return;
     }
@@ -4469,7 +4485,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       this._updateHash(true);
 
       // Scroll to methods section after render
-      this.updateComplete.then(() => {
+      void this.updateComplete.then(() => {
         setTimeout(() => {
           const mainArea = this.shadowRoot?.querySelector('.main-area');
           if (mainArea) {
@@ -4751,7 +4767,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     const currentName = this._selectedPhoton?.name || '';
     const newName = prompt(`Enter new name for "${currentName}":`, currentName);
     if (newName && newName !== currentName) {
-      this._invokeMakerMethod('rename', { name: newName });
+      void this._invokeMakerMethod('rename', { name: newName });
     }
   };
 
@@ -4838,7 +4854,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
               await mcpClient.callTool(`${photonName}/_use`, { name: target });
               this._setCurrentInstance(photonName, target);
               if (this._selectedMethod) {
-                this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+                void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
               }
             } catch {
               showToast('Failed to switch to auto instance', 'error');
@@ -4857,7 +4873,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           showToast(`Switched to: ${target === 'default' ? '(default)' : target}`, 'success');
           // Re-invoke current method to refresh data
           if (this._selectedMethod) {
-            this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+            void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
           }
         } catch {
           showToast('Failed to switch instance', 'error');
@@ -4959,7 +4975,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         `Are you sure you want to delete "${this._selectedPhoton?.name}"? This cannot be undone.`
       )
     ) {
-      this._invokeMakerMethod('delete');
+      void this._invokeMakerMethod('delete');
     }
   };
 
@@ -5040,7 +5056,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           this._log('success', 'Execution completed', false, execDuration);
 
           // Scroll result into view on mobile
-          this.updateComplete.then(() => {
+          void this.updateComplete.then(() => {
             const rv = this.shadowRoot?.querySelector('result-viewer');
             if (rv && window.innerWidth <= 768) {
               rv.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5186,194 +5202,196 @@ ${photon.errorMessage || 'Unknown error'}</pre
     });
   }
 
-  private _handleBridgeMessage = async (event: MessageEvent) => {
-    // Only accept messages from same origin (srcdoc iframes) or null (about:srcdoc)
-    if (event.origin !== window.location.origin && event.origin !== 'null') return;
-    const msg = event.data;
-    if (!msg || typeof msg !== 'object') return;
+  private _handleBridgeMessage = (event: MessageEvent) => {
+    void (async () => {
+      // Only accept messages from same origin (srcdoc iframes) or null (about:srcdoc)
+      if (event.origin !== window.location.origin && event.origin !== 'null') return;
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
 
-    // Skip JSON-RPC messages for external MCPs — handled by AppBridge in mcp-app-renderer
-    if (msg?.jsonrpc === '2.0' && (this._selectedPhoton as any)?.isExternalMCP) return;
+      // Skip JSON-RPC messages for external MCPs — handled by AppBridge in mcp-app-renderer
+      if (msg?.jsonrpc === '2.0' && this._selectedPhoton?.isExternalMCP) return;
 
-    // MCP Apps standard: JSON-RPC tools/call from iframes
-    if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
-      if (this._selectedPhoton && this._mcpReady) {
-        // Pass args through as-is — _targetInstance is extracted by the transport layer
-        const toolName = `${this._selectedPhoton.name}/${msg.params?.name}`;
-        try {
-          const mcpResult = await mcpClient.callTool(toolName, msg.params?.arguments || {});
-          if (mcpResult.isError) {
-            const errorText =
-              mcpResult.content?.find((c) => c.type === 'text')?.text || 'Tool call failed';
+      // MCP Apps standard: JSON-RPC tools/call from iframes
+      if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+        if (this._selectedPhoton && this._mcpReady) {
+          // Pass args through as-is — _targetInstance is extracted by the transport layer
+          const toolName = `${this._selectedPhoton.name}/${msg.params?.name}`;
+          try {
+            const mcpResult = await mcpClient.callTool(toolName, msg.params?.arguments || {});
+            if (mcpResult.isError) {
+              const errorText =
+                mcpResult.content?.find((c) => c.type === 'text')?.text || 'Tool call failed';
+              if (event.source) {
+                (event.source as Window).postMessage(
+                  { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: errorText } },
+                  '*'
+                );
+              }
+            } else {
+              // For external MCPs (MCP Apps Extension), return full CallToolResult format
+              // For internal photons with custom UI, parse to just the data for backwards compatibility
+              const isExternalMCP = this._selectedPhoton.isExternalMCP;
+              const result = isExternalMCP
+                ? {
+                    content: mcpResult.content || [],
+                    structuredContent: mcpResult.structuredContent,
+                    isError: mcpResult.isError ?? false,
+                  }
+                : mcpClient.parseToolResult(mcpResult);
+
+              if (event.source) {
+                (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result }, '*');
+              }
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             if (event.source) {
               (event.source as Window).postMessage(
-                { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: errorText } },
+                {
+                  jsonrpc: '2.0',
+                  id: msg.id,
+                  error: { code: -32000, message: errorMessage },
+                },
                 '*'
               );
             }
-          } else {
-            // For external MCPs (MCP Apps Extension), return full CallToolResult format
-            // For internal photons with custom UI, parse to just the data for backwards compatibility
-            const isExternalMCP = (this._selectedPhoton as any).isExternalMCP;
-            const result = isExternalMCP
-              ? {
-                  content: mcpResult.content || [],
-                  structuredContent: mcpResult.structuredContent,
-                  isError: mcpResult.isError ?? false,
-                }
-              : mcpClient.parseToolResult(mcpResult);
-
-            if (event.source) {
-              (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result }, '*');
-            }
           }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          if (event.source) {
+        }
+      }
+
+      // MCP Apps standard: JSON-RPC ui/update-model-context from iframes
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/update-model-context' && msg.id != null) {
+        // Store model context for future conversation turns
+        this._modelContext = msg.params || null;
+        if (event.source) {
+          (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result: {} }, '*');
+        }
+      }
+
+      // MCP Apps standard: JSON-RPC ui/ready from iframes (acknowledgement)
+      if (msg.jsonrpc === '2.0' && msg.method === 'ui/ready') {
+        // iframe bridge is ready — no action needed
+      }
+
+      // Handle app state persistence
+      if (msg.type === 'photon:set-state') {
+        if (this._selectedPhoton && this._selectedMethod) {
+          const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
+          try {
+            localStorage.setItem(stateKey, JSON.stringify(msg.state));
+          } catch (e) {
+            console.warn('Failed to persist app state:', e);
+          }
+        }
+      }
+
+      // Handle request for persisted state
+      if (msg.type === 'photon:get-state') {
+        if (this._selectedPhoton && this._selectedMethod && event.source) {
+          const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
+          try {
+            const savedState = localStorage.getItem(stateKey);
+            const state = savedState ? JSON.parse(savedState) : null;
             (event.source as Window).postMessage(
               {
-                jsonrpc: '2.0',
-                id: msg.id,
-                error: { code: -32000, message: errorMessage },
+                type: 'photon:init-state',
+                state,
               },
               '*'
             );
+          } catch (e) {
+            console.warn('Failed to load app state:', e);
           }
         }
       }
-    }
 
-    // MCP Apps standard: JSON-RPC ui/update-model-context from iframes
-    if (msg.jsonrpc === '2.0' && msg.method === 'ui/update-model-context' && msg.id != null) {
-      // Store model context for future conversation turns
-      this._modelContext = msg.params || null;
-      if (event.source) {
-        (event.source as Window).postMessage({ jsonrpc: '2.0', id: msg.id, result: {} }, '*');
-      }
-    }
-
-    // MCP Apps standard: JSON-RPC ui/ready from iframes (acknowledgement)
-    if (msg.jsonrpc === '2.0' && msg.method === 'ui/ready') {
-      // iframe bridge is ready — no action needed
-    }
-
-    // Handle app state persistence
-    if (msg.type === 'photon:set-state') {
-      if (this._selectedPhoton && this._selectedMethod) {
-        const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
-        try {
-          localStorage.setItem(stateKey, JSON.stringify(msg.state));
-        } catch (e) {
-          console.warn('Failed to persist app state:', e);
+      // Handle custom UI notifying what resource it's viewing
+      // This enables on-demand channel subscriptions
+      // photonId: hash of photon path (from selected photon)
+      // itemId: whatever the photon uses to identify the item (e.g., board name)
+      if (msg.type === 'photon:viewing') {
+        const photonId = this._selectedPhoton?.id;
+        const itemId = msg.itemId || msg.board; // Support both new and legacy field names
+        if (photonId && itemId) {
+          void mcpClient.notifyViewing(photonId, itemId);
         }
       }
-    }
 
-    // Handle request for persisted state
-    if (msg.type === 'photon:get-state') {
-      if (this._selectedPhoton && this._selectedMethod && event.source) {
-        const stateKey = `beam-app-state:${this._selectedPhoton.name}:${this._selectedMethod.name}`;
-        try {
-          const savedState = localStorage.getItem(stateKey);
-          const state = savedState ? JSON.parse(savedState) : null;
+      // ChatGPT Apps SDK: uploadFile
+      if (msg.type === 'photon:upload-file' && event.source) {
+        const callId = msg.callId;
+        const fileId = `file_${++this._fileIdCounter}_${Date.now()}`;
+
+        // Store the file data
+        this._uploadedFiles.set(fileId, {
+          data: msg.data,
+          fileName: msg.fileName,
+          fileType: msg.fileType,
+        });
+
+        // Send response
+        (event.source as Window).postMessage(
+          { type: 'photon:upload-file-response', callId, fileId },
+          '*'
+        );
+      }
+
+      // ChatGPT Apps SDK: getFileDownloadUrl
+      if (msg.type === 'photon:get-file-url' && event.source) {
+        const callId = msg.callId;
+        const file = this._uploadedFiles.get(msg.fileId);
+
+        if (file) {
+          // The file.data is already a data URL from FileReader.readAsDataURL
           (event.source as Window).postMessage(
-            {
-              type: 'photon:init-state',
-              state,
-            },
+            { type: 'photon:get-file-url-response', callId, url: file.data },
             '*'
           );
-        } catch (e) {
-          console.warn('Failed to load app state:', e);
+        } else {
+          (event.source as Window).postMessage(
+            { type: 'photon:get-file-url-response', callId, error: 'File not found' },
+            '*'
+          );
         }
       }
-    }
 
-    // Handle custom UI notifying what resource it's viewing
-    // This enables on-demand channel subscriptions
-    // photonId: hash of photon path (from selected photon)
-    // itemId: whatever the photon uses to identify the item (e.g., board name)
-    if (msg.type === 'photon:viewing') {
-      const photonId = this._selectedPhoton?.id;
-      const itemId = msg.itemId || msg.board; // Support both new and legacy field names
-      if (photonId && itemId) {
-        mcpClient.notifyViewing(photonId, itemId);
+      // ChatGPT Apps SDK: requestModal
+      if (msg.type === 'photon:request-modal' && event.source) {
+        const callId = msg.callId;
+
+        // For now, show a simple elicitation modal with the template as message
+        // In the future, this could render custom modal templates
+        this._elicitationData = {
+          type: 'confirm',
+          message: msg.template || 'Modal Request',
+          elicitationId: callId,
+          ...msg.params,
+        } as ElicitationData;
+        this._showElicitation = true;
+
+        // Store the source window to respond later
+        this._pendingBridgeCalls.set(callId, event.source as Window);
       }
-    }
 
-    // ChatGPT Apps SDK: uploadFile
-    if (msg.type === 'photon:upload-file' && event.source) {
-      const callId = msg.callId;
-      const fileId = `file_${++this._fileIdCounter}_${Date.now()}`;
-
-      // Store the file data
-      this._uploadedFiles.set(fileId, {
-        data: msg.data,
-        fileName: msg.fileName,
-        fileType: msg.fileType,
-      });
-
-      // Send response
-      (event.source as Window).postMessage(
-        { type: 'photon:upload-file-response', callId, fileId },
-        '*'
-      );
-    }
-
-    // ChatGPT Apps SDK: getFileDownloadUrl
-    if (msg.type === 'photon:get-file-url' && event.source) {
-      const callId = msg.callId;
-      const file = this._uploadedFiles.get(msg.fileId);
-
-      if (file) {
-        // The file.data is already a data URL from FileReader.readAsDataURL
-        (event.source as Window).postMessage(
-          { type: 'photon:get-file-url-response', callId, url: file.data },
-          '*'
-        );
-      } else {
-        (event.source as Window).postMessage(
-          { type: 'photon:get-file-url-response', callId, error: 'File not found' },
-          '*'
-        );
+      // ChatGPT Apps SDK: setOpenInAppUrl
+      if (msg.type === 'photon:set-open-in-app-url') {
+        this._openInAppUrl = msg.href;
+        this._log('info', `Open-in-app URL set: ${msg.href}`);
       }
-    }
 
-    // ChatGPT Apps SDK: requestModal
-    if (msg.type === 'photon:request-modal' && event.source) {
-      const callId = msg.callId;
+      // Handle display mode request
+      if (msg.type === 'photon:request-display-mode') {
+        // For now, just log it - could implement fullscreen/pip in future
+        this._log('info', `Display mode requested: ${msg.mode}`);
+      }
 
-      // For now, show a simple elicitation modal with the template as message
-      // In the future, this could render custom modal templates
-      this._elicitationData = {
-        type: 'confirm',
-        message: msg.template || 'Modal Request',
-        elicitationId: callId,
-        ...msg.params,
-      } as ElicitationData;
-      this._showElicitation = true;
-
-      // Store the source window to respond later
-      this._pendingBridgeCalls.set(callId, event.source as Window);
-    }
-
-    // ChatGPT Apps SDK: setOpenInAppUrl
-    if (msg.type === 'photon:set-open-in-app-url') {
-      this._openInAppUrl = msg.href;
-      this._log('info', `Open-in-app URL set: ${msg.href}`);
-    }
-
-    // Handle display mode request
-    if (msg.type === 'photon:request-display-mode') {
-      // For now, just log it - could implement fullscreen/pip in future
-      this._log('info', `Display mode requested: ${msg.mode}`);
-    }
-
-    // Handle height notification
-    if (msg.type === 'photon:notify-height') {
-      // Could be used to adjust iframe height dynamically
-      this._log('debug', `Custom UI height notification: ${msg.height}px`);
-    }
+      // Handle height notification
+      if (msg.type === 'photon:notify-height') {
+        // Could be used to adjust iframe height dynamically
+        this._log('debug', `Custom UI height notification: ${msg.height}px`);
+      }
+    })();
   };
 
   // ===== Share Result Link =====
@@ -5613,7 +5631,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
       if (this._selectedMethod && this._lastFormParams && !this._isExecuting) {
-        this._handleExecute(new CustomEvent('execute', { detail: { args: this._lastFormParams } }));
+        void this._handleExecute(
+          new CustomEvent('execute', { detail: { args: this._lastFormParams } })
+        );
         showToast('Re-executing with last parameters', 'info');
       }
       return;
@@ -5708,7 +5728,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
       const newPhoton = photons[newIndex];
       if (newPhoton) {
-        this._handlePhotonSelect(new CustomEvent('select', { detail: { photon: newPhoton } }));
+        void this._handlePhotonSelect(new CustomEvent('select', { detail: { photon: newPhoton } }));
         // Scroll sidebar item into view and flash highlight
         this._sidebar?.scrollPhotonIntoView(newPhoton.name);
       }
@@ -5736,7 +5756,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
       this._selectedMethod = methods[newIndex];
       // Scroll method card into view and flash highlight
-      this.updateComplete.then(() => {
+      void this.updateComplete.then(() => {
         const cards = this.shadowRoot?.querySelectorAll('method-card');
         const card = cards?.[newIndex] as HTMLElement | undefined;
         if (card) {
@@ -5763,7 +5783,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._lastFormParams &&
         !this._isExecuting
       ) {
-        this._handleExecute(new CustomEvent('execute', { detail: { args: this._lastFormParams } }));
+        void this._handleExecute(
+          new CustomEvent('execute', { detail: { args: this._lastFormParams } })
+        );
         showToast('Re-executing with last parameters', 'info');
       }
       return;
@@ -6198,22 +6220,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
         break;
       case 'view-source':
-        this._handleViewSourceInline();
+        void this._handleViewSourceInline();
         break;
       case 'open-settings':
         this._handleOpenSettings();
         break;
       case 'instance-action':
-        this._handleInstanceAction(e.detail.instanceDetail);
+        void this._handleInstanceAction(e.detail.instanceDetail);
         break;
       case 'configure':
         this._handleReconfigure();
         break;
       case 'copy-config':
-        this._handleCopyMCPConfig();
+        void this._handleCopyMCPConfig();
         break;
       case 'upgrade':
-        this._handleUpgrade();
+        void this._handleUpgrade();
         break;
       case 'select-method': {
         const method = this._selectedPhoton?.methods?.find(
@@ -6229,16 +6251,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
         break;
       case 'update-description':
         this._editedDescription = e.detail.description || '';
-        this._saveDescription();
+        void this._saveDescription();
         break;
       case 'overflow': {
         const { id } = e.detail;
         switch (id) {
           case 'refresh':
-            this._handleRefresh();
+            void this._handleRefresh();
             break;
           case 'run-tests':
-            this._runTests();
+            void this._runTests();
             break;
           case 'remember-values':
             this._toggleRememberValues();
@@ -6250,28 +6272,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
             this._handleRenamePhoton();
             break;
           case 'view-source':
-            this._handleViewSource();
+            void this._handleViewSource();
             break;
           case 'edit':
             if (this._selectedPhoton) this._view = 'studio';
             break;
           case 'upgrade':
-            this._handleUpgrade();
+            void this._handleUpgrade();
             break;
           case 'fork':
-            this._handleFork();
+            void this._handleFork();
             break;
           case 'contribute':
-            this._handleContribute();
+            void this._handleContribute();
             break;
           case 'delete':
             this._handleDeletePhoton();
             break;
           case 'remove':
-            this._handleRemove();
+            void this._handleRemove();
             break;
           case 'help':
-            this._showPhotonHelpModal();
+            void this._showPhotonHelpModal();
             break;
           case 'fullscreen':
             this._handleFullscreen();
@@ -6393,7 +6415,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 title="Click to copy: ${this._selectedPhoton.path}"
                 aria-label="Copy path to clipboard"
                 @click=${() => {
-                  navigator.clipboard.writeText(this._selectedPhoton!.path);
+                  void navigator.clipboard.writeText(this._selectedPhoton!.path);
                   showToast('Path copied to clipboard');
                 }}
               >
@@ -6429,7 +6451,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleDescriptionKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      this._saveDescription();
+      void this._saveDescription();
     } else if (e.key === 'Escape') {
       this._editingDescription = false;
     }
@@ -6965,7 +6987,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <button
             class="btn-primary"
             style="width: 100%; margin-top: var(--space-md);"
-            @click=${this._closeHelp}
+            @click=${() => this._closeHelp()}
           >
             Close
           </button>
@@ -7051,7 +7073,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             <button
               class="btn-secondary"
               style="padding: 6px 12px; font-size: 0.85rem;"
-              @click=${this._closePhotonHelp}
+              @click=${() => this._closePhotonHelp()}
               aria-label="Close help"
             >
               ${xMark}

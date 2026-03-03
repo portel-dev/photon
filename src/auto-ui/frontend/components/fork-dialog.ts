@@ -220,11 +220,11 @@ export class ForkDialog extends LitElement {
         </div>
 
         <div class="actions">
-          <button class="btn" @click=${this._cancel}>Cancel</button>
+          <button class="btn" @click=${() => this._cancel()}>Cancel</button>
           <button
             class="btn btn-primary"
             ?disabled=${this._selectedTarget === 'create' && !this._newRepoName.trim()}
-            @click=${this._confirm}
+            @click=${() => this._confirm()}
           >
             Fork
           </button>

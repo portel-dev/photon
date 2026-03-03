@@ -290,7 +290,9 @@ export class McpAppRenderer extends LitElement {
     if (changedProperties.has('mcpName') || changedProperties.has('appUri')) {
       // Debounce: properties may arrive in separate Lit update cycles
       if (this._loadTimer) clearTimeout(this._loadTimer);
-      this._loadTimer = setTimeout(() => this._loadContent(), 0);
+      this._loadTimer = setTimeout(() => {
+        void this._loadContent();
+      }, 0);
     }
 
     // When _srcDoc is ready, mount the iframe using a blob URL.
@@ -456,7 +458,7 @@ export class McpAppRenderer extends LitElement {
     }
 
     // Set up message handler for platform bridge communication (JSON-RPC tools/call)
-    this._messageHandler = async (event: MessageEvent) => {
+    const asyncMessageHandler = async (event: MessageEvent) => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') return;
 
@@ -542,6 +544,9 @@ export class McpAppRenderer extends LitElement {
         }
       }
     };
+    this._messageHandler = (event: MessageEvent) => {
+      void asyncMessageHandler(event);
+    };
     window.addEventListener('message', this._messageHandler);
 
     // Create AppBridge for MCP Apps protocol (some external MCPs may use it)
@@ -580,7 +585,7 @@ export class McpAppRenderer extends LitElement {
     // Auto-invoke linked tool when the app signals it's initialized (MCP Apps protocol)
     this._bridge.oninitialized = () => {
       if (this.linkedTool) {
-        this._autoInvokeLinkedTool();
+        void this._autoInvokeLinkedTool();
       }
     };
 
@@ -596,7 +601,7 @@ export class McpAppRenderer extends LitElement {
     // auto-invoke the linked tool after a short delay to let the iframe initialize
     if (this.linkedTool) {
       setTimeout(() => {
-        this._autoInvokeLinkedTool();
+        void this._autoInvokeLinkedTool();
       }, 200);
     }
   }
@@ -621,7 +626,7 @@ export class McpAppRenderer extends LitElement {
    */
   sendToolResult(toolName: string, result: any) {
     if (!this._bridge) return;
-    this._bridge.sendToolResult({
+    void this._bridge.sendToolResult({
       content: result.content || [],
       structuredContent: result.structuredContent,
       isError: result.isError ?? false,
@@ -698,7 +703,14 @@ export class McpAppRenderer extends LitElement {
         ? html`<div class="error-container">
             <div class="error-icon">⚠️</div>
             <div class="error-message">${this._error}</div>
-            <button class="retry-btn" @click=${this._loadContent}>Retry</button>
+            <button
+              class="retry-btn"
+              @click=${() => {
+                void this._loadContent();
+              }}
+            >
+              Retry
+            </button>
           </div>`
         : this._loading
           ? html`<div class="loading">Loading MCP App...</div>`

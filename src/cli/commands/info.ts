@@ -186,12 +186,12 @@ export function registerInfoCommand(program: Command): void {
           } else {
             if (isInstalled) {
               const { PhotonDocExtractor } = await import('../../photon-doc-extractor.js');
-              const extractor = new PhotonDocExtractor(filePath!);
+              const extractor = new PhotonDocExtractor(filePath);
               const photonMetadata = await extractor.extractFullMetadata();
               const fileName = `${name}.photon.ts`;
               const metadata = await manager.getPhotonInstallMetadata(fileName);
               const isModified = metadata
-                ? await manager.isPhotonModified(filePath!, fileName)
+                ? await manager.isPhotonModified(filePath, fileName)
                 : false;
 
               const installDetails: string[] = [

@@ -105,28 +105,30 @@ Press Ctrl+C to stop
 
         // Simple HTTP server
         const http = await import('http');
-        const server = http.createServer(async (req, res) => {
-          const url = req.url || '/';
-          const method = req.method || 'GET';
-          const headers: Record<string, string> = {};
-          for (const [key, value] of Object.entries(req.headers)) {
-            if (typeof value === 'string') headers[key] = value;
-          }
+        const server = http.createServer((req, res) => {
+          void (async () => {
+            const url = req.url || '/';
+            const method = req.method || 'GET';
+            const headers: Record<string, string> = {};
+            for (const [key, value] of Object.entries(req.headers)) {
+              if (typeof value === 'string') headers[key] = value;
+            }
 
-          // Read body if present
-          let body = '';
-          if (method === 'POST') {
-            body = await new Promise((resolve) => {
-              let data = '';
-              req.on('data', (chunk) => (data += chunk));
-              req.on('end', () => resolve(data));
-            });
-          }
+            // Read body if present
+            let body = '';
+            if (method === 'POST') {
+              body = await new Promise((resolve) => {
+                let data = '';
+                req.on('data', (chunk) => (data += chunk));
+                req.on('end', () => resolve(data));
+              });
+            }
 
-          const result = await serv.handleRequest(method, url, headers, body);
+            const result = await serv.handleRequest(method, url, headers, body);
 
-          res.writeHead(result.status, result.headers);
-          res.end(result.body);
+            res.writeHead(result.status, result.headers);
+            res.end(result.body);
+          })();
         });
 
         server.listen(availablePort);
@@ -139,8 +141,12 @@ Press Ctrl+C to stop
           process.exit(0);
         };
 
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', () => {
+          void shutdown();
+        });
+        process.on('SIGTERM', () => {
+          void shutdown();
+        });
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);

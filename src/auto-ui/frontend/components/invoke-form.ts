@@ -643,10 +643,18 @@ export class InvokeForm extends LitElement {
       return html`
         <div class="form-container">
           <div class="actions no-params">
-            <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
+            <button
+              class="btn-secondary"
+              @click=${() => this._handleCancel()}
+              ?disabled=${this.loading}
+            >
               Cancel
             </button>
-            <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
+            <button
+              class="btn-primary"
+              @click=${() => this._handleSubmit()}
+              ?disabled=${this.loading}
+            >
               ${this.loading
                 ? html`<span class="btn-loading"
                     ><span class="spinner"></span>Executing${this._elapsedMs >= 1000
@@ -692,10 +700,18 @@ export class InvokeForm extends LitElement {
         ${this._viewMode === 'form' ? this._renderFields() : this._renderJsonEditor()}
 
         <div class="actions">
-          <button class="btn-secondary" @click=${this._handleCancel} ?disabled=${this.loading}>
+          <button
+            class="btn-secondary"
+            @click=${() => this._handleCancel()}
+            ?disabled=${this.loading}
+          >
             Cancel
           </button>
-          <button class="btn-primary" @click=${this._handleSubmit} ?disabled=${this.loading}>
+          <button
+            class="btn-primary"
+            @click=${() => this._handleSubmit()}
+            ?disabled=${this.loading}
+          >
             ${this.loading
               ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
               : 'Execute'}
@@ -1077,7 +1093,7 @@ export class InvokeForm extends LitElement {
 
   /** Detect if a schema/key should render as a date/time input */
   private _isDateTimeFormat(key: string, schema: any): boolean {
-    const fmt = (schema as any).format;
+    const fmt = schema.format;
     if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
       return true;
     }
@@ -1108,7 +1124,7 @@ export class InvokeForm extends LitElement {
 
   /** Determine the effective date/time format from schema and key heuristics */
   private _getDateTimeFormat(key: string, schema: any): string {
-    const fmt = (schema as any).format;
+    const fmt = schema.format;
     if (fmt && ['date', 'date-time', 'time', 'date-range', 'datetime-range'].includes(fmt)) {
       return fmt;
     }
@@ -1289,7 +1305,7 @@ export class InvokeForm extends LitElement {
           <button
             class="cli-preview-copy"
             @click=${() => {
-              navigator.clipboard.writeText(cmd);
+              void navigator.clipboard.writeText(cmd);
               showToast('Command copied', 'success');
             }}
           >
@@ -1355,8 +1371,8 @@ export class InvokeForm extends LitElement {
 
   /** Render an object parameter with sub-fields for each property */
   private _renderObjectFields(key: string, schema: any, _hasError: boolean) {
-    const properties = (schema as any).properties || {};
-    const requiredList = (schema as any).required || [];
+    const properties = schema.properties || {};
+    const requiredList = schema.required || [];
     const currentObj = (this._values[key] as Record<string, any>) || {};
 
     const handleFieldChange = (propKey: string, newValue: any) => {
@@ -1785,7 +1801,7 @@ export class InvokeForm extends LitElement {
     const items = [...(this._values[key] || [])];
     // Create empty item with default values based on schema
     const newItem: Record<string, any> = {};
-    for (const [propKey, propSchema] of Object.entries(itemProperties) as [string, any][]) {
+    for (const [propKey, propSchema] of Object.entries(itemProperties)) {
       if (propSchema.type === 'array') {
         newItem[propKey] = [];
       } else if (propSchema.type === 'boolean') {
@@ -1869,7 +1885,7 @@ export class InvokeForm extends LitElement {
       this._errors = errors;
       showToast('Please fix the validation errors', 'warning');
       // Scroll to first error field
-      this.updateComplete.then(() => {
+      void this.updateComplete.then(() => {
         const firstError = this.shadowRoot?.querySelector('.error-text');
         firstError?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });

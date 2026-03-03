@@ -897,7 +897,7 @@ const handlers: Record<string, RequestHandler> = {
             (args || {}) as Record<string, any>,
             sendOpts
           );
-          session.instanceName = String(args?.name || '');
+          session.instanceName = typeof args?.name === 'string' ? args.name : '';
           broadcastToBeam('photon/state-changed', {
             photon: photonName,
             method: '_use',

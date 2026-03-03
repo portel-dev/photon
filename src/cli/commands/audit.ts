@@ -294,39 +294,41 @@ async function tailAuditLog(filters: { photon?: string; client?: string }): Prom
     // File may not exist yet
   }
 
-  watchFile(AUDIT_FILE_PATH, { interval: 500 }, async () => {
-    try {
-      const content = await readFile(AUDIT_FILE_PATH, 'utf-8');
-      const currentSize = Buffer.byteLength(content);
-      if (currentSize <= fileSize) {
-        // File was rotated (smaller now) — reset offset
-        fileSize = 0;
-        if (currentSize === 0) return;
-      }
-
-      // Read new content
-      const newContent = Buffer.from(content).subarray(fileSize).toString();
-      fileSize = currentSize;
-
-      const lines = newContent.split('\n').filter((l) => l.trim());
-      for (const line of lines) {
-        try {
-          const entry: AuditEntry = JSON.parse(line);
-          if (matchesFilters(entry, filters)) {
-            const time = new Date(entry.ts).toLocaleTimeString();
-            const dur = entry.durationMs != null ? ` ${entry.durationMs}ms` : '';
-            const err = entry.error ? ` ERROR: ${entry.error}` : '';
-            console.log(
-              `${time}  ${entry.event}  ${entry.photon || '-'}/${entry.method || '-'}  [${entry.client || '-'}]${dur}${err}`
-            );
-          }
-        } catch {
-          // Skip malformed
+  watchFile(AUDIT_FILE_PATH, { interval: 500 }, () => {
+    void (async () => {
+      try {
+        const content = await readFile(AUDIT_FILE_PATH, 'utf-8');
+        const currentSize = Buffer.byteLength(content);
+        if (currentSize <= fileSize) {
+          // File was rotated (smaller now) — reset offset
+          fileSize = 0;
+          if (currentSize === 0) return;
         }
+
+        // Read new content
+        const newContent = Buffer.from(content).subarray(fileSize).toString();
+        fileSize = currentSize;
+
+        const lines = newContent.split('\n').filter((l) => l.trim());
+        for (const line of lines) {
+          try {
+            const entry: AuditEntry = JSON.parse(line);
+            if (matchesFilters(entry, filters)) {
+              const time = new Date(entry.ts).toLocaleTimeString();
+              const dur = entry.durationMs != null ? ` ${entry.durationMs}ms` : '';
+              const err = entry.error ? ` ERROR: ${entry.error}` : '';
+              console.log(
+                `${time}  ${entry.event}  ${entry.photon || '-'}/${entry.method || '-'}  [${entry.client || '-'}]${dur}${err}`
+              );
+            }
+          } catch {
+            // Skip malformed
+          }
+        }
+      } catch {
+        // Ignore read errors
       }
-    } catch {
-      // Ignore read errors
-    }
+    })();
   });
 
   // Keep process alive

@@ -211,14 +211,14 @@ export class FilePicker extends LitElement {
           type="text"
           class="${this.hasError ? 'error' : ''}"
           .value=${this.value}
-          @input=${this._handleInput}
+          @input=${(e: Event) => this._handleInput(e)}
           placeholder="${this.placeholder ||
           (this.mode === 'directory' ? '/path/to/folder' : '/path/to/file')}"
         />
         <button
           class="btn-secondary"
           style="height: auto; white-space: nowrap;"
-          @click=${this._toggleBrowser}
+          @click=${() => this._toggleBrowser()}
         >
           ${this._isOpen ? 'Close' : 'Browse'}
         </button>
@@ -231,7 +231,7 @@ export class FilePicker extends LitElement {
                 <button
                   class="btn-secondary"
                   style="padding: 2px 6px; font-size: 0.7rem;"
-                  @click=${this._goUp}
+                  @click=${() => this._goUp()}
                   ?disabled=${!!(this.root && this._currentPath === this.root)}
                 >
                   ↑
@@ -286,7 +286,7 @@ export class FilePicker extends LitElement {
   private _toggleBrowser() {
     this._isOpen = !this._isOpen;
     if (this._isOpen) {
-      this._loadPath(this._currentPath || '');
+      void this._loadPath(this._currentPath || '');
     }
   }
 
@@ -326,7 +326,7 @@ export class FilePicker extends LitElement {
         this._isOpen = false;
       } else {
         // In file mode, clicking a directory navigates into it
-        this._loadPath(item.path);
+        void this._loadPath(item.path);
       }
     } else {
       if (this.mode === 'directory') return; // Ignore file clicks in directory mode
@@ -339,7 +339,7 @@ export class FilePicker extends LitElement {
   private _goUp() {
     // Don't navigate above root
     if (this.root && this._currentPath === this.root) return;
-    this._loadPath(this._currentPath + '/..');
+    void this._loadPath(this._currentPath + '/..');
   }
 
   // Binary/non-text extensions that are useless to read as text

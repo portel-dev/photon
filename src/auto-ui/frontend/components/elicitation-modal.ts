@@ -471,7 +471,7 @@ export class ElicitationModal extends LitElement {
     }
     if (changedProperties.has('open')) {
       if (this.open) {
-        this.updateComplete.then(() => {
+        void this.updateComplete.then(() => {
           const content = this.shadowRoot?.querySelector('.modal-content') as HTMLElement;
           if (content) {
             this._releaseFocusTrap = trapFocus(content);
@@ -555,13 +555,13 @@ export class ElicitationModal extends LitElement {
           .value=${this._inputValue}
           placeholder=${this.data?.placeholder || ''}
           @input=${(e: Event) => (this._inputValue = (e.target as HTMLInputElement).value)}
-          @keydown=${this._handleKeydown}
+          @keydown=${(e: Event) => this._handleKeydown(e as KeyboardEvent)}
           autofocus
         />
       </div>
       <div class="actions">
-        <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-        <button class="btn-primary" @click=${this._submit}>Submit</button>
+        <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+        <button class="btn-primary" @click=${() => this._submit()}>Submit</button>
       </div>
     `;
   }
@@ -613,7 +613,7 @@ export class ElicitationModal extends LitElement {
               @input=${(e: Event) => {
                 this._inputValue = Number((e.target as HTMLInputElement).value);
               }}
-              @keydown=${this._handleKeydown}
+              @keydown=${(e: Event) => this._handleKeydown(e as KeyboardEvent)}
               autofocus
             />
           </div>
@@ -624,8 +624,8 @@ export class ElicitationModal extends LitElement {
         </div>
       </div>
       <div class="actions">
-        <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-        <button class="btn-primary" @click=${this._submit}>Submit</button>
+        <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+        <button class="btn-primary" @click=${() => this._submit()}>Submit</button>
       </div>
     `;
   }
@@ -649,8 +649,8 @@ export class ElicitationModal extends LitElement {
           </select>
         </div>
         <div class="actions">
-          <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-          <button class="btn-primary" @click=${this._submit}>Submit</button>
+          <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+          <button class="btn-primary" @click=${() => this._submit()}>Submit</button>
         </div>
       `;
     }
@@ -687,8 +687,8 @@ export class ElicitationModal extends LitElement {
         )}
       </div>
       <div class="actions">
-        <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-        <button class="btn-primary" @click=${this._submitSelect}>Submit</button>
+        <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+        <button class="btn-primary" @click=${() => this._submitSelect()}>Submit</button>
       </div>
     `;
   }
@@ -738,8 +738,10 @@ export class ElicitationModal extends LitElement {
         <p class="oauth-message">Authorization is required to access ${provider}.</p>
         <p class="oauth-scopes">Requested permissions: ${scopes}</p>
         <div class="actions" style="justify-content: center;">
-          <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-          <button class="btn-primary" @click=${this._startOAuth}>Authorize ${provider}</button>
+          <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+          <button class="btn-primary" @click=${() => this._startOAuth()}>
+            Authorize ${provider}
+          </button>
         </div>
       </div>
     `;
@@ -798,8 +800,8 @@ export class ElicitationModal extends LitElement {
         )}
       </div>
       <div class="actions">
-        <button class="btn-secondary" @click=${this._cancel}>Cancel</button>
-        <button class="btn-primary" @click=${this._submitForm}>Submit</button>
+        <button class="btn-secondary" @click=${() => this._cancel()}>Cancel</button>
+        <button class="btn-primary" @click=${() => this._submitForm()}>Submit</button>
       </div>
     `;
   }

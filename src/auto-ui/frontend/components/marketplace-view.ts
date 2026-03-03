@@ -950,10 +950,9 @@ export class MarketplaceView extends LitElement {
   @state()
   private _repoInput = '';
 
-  async connectedCallback() {
+  connectedCallback() {
     super.connectedCallback();
-    await this._fetchSources();
-    await this._fetchItems();
+    void this._fetchSources().then(() => this._fetchItems());
   }
 
   disconnectedCallback() {
@@ -967,7 +966,7 @@ export class MarketplaceView extends LitElement {
       <div class="actions-toolbar">
         <div class="toolbar-section">
           <span class="toolbar-section-title">Create</span>
-          <button class="toolbar-btn" @click=${this._createNew} title="Create a new photon">
+          <button class="toolbar-btn" @click=${() => this._createNew()} title="Create a new photon">
             <span class="icon">${sparkle}</span>
             <span>New Photon</span>
           </button>
@@ -985,7 +984,13 @@ export class MarketplaceView extends LitElement {
             <span class="icon">+</span>
             <span>Add Marketplace</span>
           </button>
-          <button class="toolbar-btn" @click=${this._syncPhotons} title="Sync marketplace cache">
+          <button
+            class="toolbar-btn"
+            @click=${() => {
+              void this._syncPhotons();
+            }}
+            title="Sync marketplace cache"
+          >
             <span class="icon">${refreshIcon}</span>
             <span>Sync</span>
           </button>
@@ -995,7 +1000,11 @@ export class MarketplaceView extends LitElement {
 
         <div class="toolbar-section">
           <span class="toolbar-section-title">Tools</span>
-          <button class="toolbar-btn" @click=${this._validatePhotons} title="Validate all photons">
+          <button
+            class="toolbar-btn"
+            @click=${() => this._validatePhotons()}
+            title="Validate all photons"
+          >
             <span class="icon">${check}</span>
             <span>Validate</span>
           </button>
@@ -1004,7 +1013,11 @@ export class MarketplaceView extends LitElement {
 
       <div class="toolbar">
         <div class="search-box">
-          <input type="text" placeholder="Search photons..." @input=${this._handleSearch} />
+          <input
+            type="text"
+            placeholder="Search photons..."
+            @input=${(e: Event) => this._handleSearch(e)}
+          />
         </div>
       </div>
 
@@ -1032,7 +1045,7 @@ export class MarketplaceView extends LitElement {
                   class="remove-btn"
                   @click=${(e: Event) => {
                     e.stopPropagation();
-                    this._removeSource(source.name);
+                    void this._removeSource(source.name);
                   }}
                   title="Remove marketplace"
                   aria-label="Remove marketplace"
@@ -1258,7 +1271,7 @@ export class MarketplaceView extends LitElement {
               .value=${this._repoInput}
               @input=${(e: Event) => (this._repoInput = (e.target as HTMLInputElement).value)}
               @keydown=${(e: KeyboardEvent) => {
-                if (e.key === 'Enter') this._addRepository();
+                if (e.key === 'Enter') void this._addRepository();
               }}
               autofocus
             />
@@ -1291,7 +1304,14 @@ export class MarketplaceView extends LitElement {
             <button class="toolbar-btn" @click=${() => (this._showAddRepoModal = false)}>
               Cancel
             </button>
-            <button class="toolbar-btn primary" @click=${this._addRepository}>Add</button>
+            <button
+              class="toolbar-btn primary"
+              @click=${() => {
+                void this._addRepository();
+              }}
+            >
+              Add
+            </button>
           </div>
         </div>
       </div>
@@ -1527,7 +1547,7 @@ export class MarketplaceView extends LitElement {
     const query = (e.target as HTMLInputElement).value;
     clearTimeout(this._searchTimeout);
     this._searchTimeout = setTimeout(() => {
-      this._fetchItems(query);
+      void this._fetchItems(query);
     }, 300);
   }
 
@@ -1664,7 +1684,9 @@ export class MarketplaceView extends LitElement {
       })
     );
     // Re-fetch items after sync to pick up update info from fresh manifests
-    setTimeout(() => this._fetchItems(), 2000);
+    setTimeout(() => {
+      void this._fetchItems();
+    }, 2000);
   }
 
   private _validatePhotons() {

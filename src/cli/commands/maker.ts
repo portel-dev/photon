@@ -531,13 +531,13 @@ export function registerMakerCommands(program: Command): void {
           });
         }
 
-        console.error(`Validating ${path.basename(filePath!)}...\n`);
+        console.error(`Validating ${path.basename(filePath)}...\n`);
 
         // Import loader and try to load
         const { PhotonLoader } = await import('../../loader.js');
         const loader = new PhotonLoader(false); // quiet mode for inspection
 
-        const mcp = await loader.loadFile(filePath!);
+        const mcp = await loader.loadFile(filePath);
 
         console.error(`✅ Valid Photon`);
         console.error(`Name: ${mcp.name}`);

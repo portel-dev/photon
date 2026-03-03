@@ -974,15 +974,15 @@ export class BeamSidebar extends LitElement {
               type="search"
               placeholder="Search photons... (⌘K)"
               .value=${this._searchQuery}
-              @input=${this._handleSearch}
-              @keydown=${this._handleSearchKeydown}
+              @input=${(e: Event) => this._handleSearch(e)}
+              @keydown=${(e: Event) => this._handleSearchKeydown(e as KeyboardEvent)}
               aria-label="Search photons"
             />
           </div>
           <div class="filter-row" role="group" aria-label="Filter options">
             <button
               class="filter-btn ${this._showFavoritesOnly ? 'active' : ''}"
-              @click=${this._toggleFavoritesFilter}
+              @click=${() => this._toggleFavoritesFilter()}
               title="Show favorites only (f)"
               aria-pressed="${this._showFavoritesOnly}"
               aria-label="Filter by favorites"
@@ -1096,7 +1096,7 @@ export class BeamSidebar extends LitElement {
         </button>
         <button
           class="footer-link"
-          @click=${this._showShortcuts}
+          @click=${() => this._showShortcuts()}
           title="Shortcuts"
           aria-label="Show keyboard shortcuts"
         >
@@ -1438,7 +1438,7 @@ export class BeamSidebar extends LitElement {
   }
 
   scrollPhotonIntoView(name: string) {
-    this.updateComplete.then(() => {
+    void this.updateComplete.then(() => {
       const items = this.shadowRoot?.querySelectorAll('.photon-item');
       if (!items) return;
       for (const item of items) {

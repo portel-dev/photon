@@ -68,7 +68,9 @@ async function connectHTTPClient(url: string, mcpName: string): Promise<Client> 
     logger.debug(`Connected to ${url} via Streamable HTTP`);
     return sdkClient;
   } catch (streamableError) {
-    logger.debug(`Streamable HTTP failed for ${url}, trying legacy SSE: ${streamableError}`);
+    logger.debug(
+      `Streamable HTTP failed for ${url}, trying legacy SSE: ${String(streamableError)}`
+    );
   }
 
   // Fallback: legacy SSE transport

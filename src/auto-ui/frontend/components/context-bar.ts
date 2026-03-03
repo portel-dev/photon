@@ -480,7 +480,7 @@ export class ContextBar extends LitElement {
                     : this._hasMethodDropdown()
                       ? html`<span
                           class="current has-dropdown"
-                          @click=${this._toggleMethodDropdown}
+                          @click=${(e: Event) => this._toggleMethodDropdown(e)}
                         >
                           ${crumb.label}<svg
                             class="chevron ${this._methodDropdownOpen ? 'open' : ''}"
@@ -526,8 +526,8 @@ export class ContextBar extends LitElement {
                           @input=${(e: Event) => {
                             this._editedName = (e.target as HTMLInputElement).value;
                           }}
-                          @blur=${this._saveName}
-                          @keydown=${this._handleNameKeydown}
+                          @blur=${() => this._saveName()}
+                          @keydown=${(e: Event) => this._handleNameKeydown(e as KeyboardEvent)}
                           autofocus
                         />`
                       : html`<span class="editable">
@@ -537,7 +537,7 @@ export class ContextBar extends LitElement {
                                 class="edit-pencil"
                                 role="button"
                                 tabindex="0"
-                                @click=${this._startEditingName}
+                                @click=${() => this._startEditingName()}
                                 @keydown=${(e: KeyboardEvent) =>
                                   (e.key === 'Enter' || e.key === ' ') &&
                                   (e.preventDefault(), this._startEditingName())}
@@ -558,8 +558,9 @@ export class ContextBar extends LitElement {
                             this._editedDescription = (e.target as HTMLInputElement).value;
                           }}
                           placeholder="Add a description..."
-                          @blur=${this._saveDescription}
-                          @keydown=${this._handleDescriptionKeydown}
+                          @blur=${() => this._saveDescription()}
+                          @keydown=${(e: Event) =>
+                            this._handleDescriptionKeydown(e as KeyboardEvent)}
                           autofocus
                         />`
                       : html`<span class="editable" style="flex:1;min-width:0;">
@@ -573,7 +574,7 @@ export class ContextBar extends LitElement {
                             class="edit-pencil"
                             role="button"
                             tabindex="0"
-                            @click=${this._startEditingDescription}
+                            @click=${() => this._startEditingDescription()}
                             @keydown=${(e: KeyboardEvent) =>
                               (e.key === 'Enter' || e.key === ' ') &&
                               (e.preventDefault(), this._startEditingDescription())}
@@ -731,7 +732,7 @@ export class ContextBar extends LitElement {
   private _startEditingName() {
     this._editedName = this.photon?.name || '';
     this._editingName = true;
-    this.updateComplete.then(() => {
+    void this.updateComplete.then(() => {
       const input = this.shadowRoot?.querySelector('input') as HTMLInputElement;
       input?.focus();
       input?.select();
@@ -759,7 +760,7 @@ export class ContextBar extends LitElement {
     const isGeneric = desc.endsWith(' MCP') || desc === 'Photon tool';
     this._editedDescription = isGeneric ? '' : desc;
     this._editingDescription = true;
-    this.updateComplete.then(() => {
+    void this.updateComplete.then(() => {
       const input = this.shadowRoot?.querySelector('input');
       input?.focus();
     });

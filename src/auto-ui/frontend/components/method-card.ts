@@ -471,8 +471,8 @@ export class MethodCard extends LitElement {
         aria-label="${this.method.name}${hasDescription
           ? ': ' + this._renderDescription(this.method.description)
           : ''}"
-        @click=${this._handleCardClick}
-        @keydown=${this._handleCardKeydown}
+        @click=${(e: Event) => this._handleCardClick(e)}
+        @keydown=${(e: Event) => this._handleCardKeydown(e as KeyboardEvent)}
       >
         <div>
           <div class="header">
@@ -481,7 +481,7 @@ export class MethodCard extends LitElement {
                 ? html`
                     <div
                       class="method-icon"
-                      @click=${this._handleIconClick}
+                      @click=${(e: Event) => this._handleIconClick(e)}
                       title="Click to set icon"
                     >
                       ${this.method.icon}
@@ -497,7 +497,7 @@ export class MethodCard extends LitElement {
                   class="edit-pencil"
                   role="button"
                   tabindex="0"
-                  @click=${this._handleNameEditClick}
+                  @click=${(e: Event) => this._handleNameEditClick(e)}
                   @keydown=${(e: KeyboardEvent) =>
                     (e.key === 'Enter' || e.key === ' ') &&
                     (e.preventDefault(), this._handleNameEditClick(e))}
@@ -556,8 +556,8 @@ export class MethodCard extends LitElement {
                     maxlength="500"
                     @input=${(e: Event) =>
                       (this._editedDescription = (e.target as HTMLTextAreaElement).value)}
-                    @blur=${this._saveDescription}
-                    @keydown=${this._handleDescriptionKeydown}
+                    @blur=${() => this._saveDescription()}
+                    @keydown=${(e: Event) => this._handleDescriptionKeydown(e as KeyboardEvent)}
                     @click=${(e: Event) => e.stopPropagation()}
                   ></textarea>
                   <span class="char-counter">${this._editedDescription.length}/500</span>
@@ -574,7 +574,7 @@ export class MethodCard extends LitElement {
                     class="edit-pencil"
                     role="button"
                     tabindex="0"
-                    @click=${this._handleDescriptionEditClick}
+                    @click=${(e: Event) => this._handleDescriptionEditClick(e)}
                     @keydown=${(e: KeyboardEvent) =>
                       (e.key === 'Enter' || e.key === ' ') &&
                       (e.preventDefault(), this._handleDescriptionEditClick(e))}
@@ -787,7 +787,7 @@ export class MethodCard extends LitElement {
     this._editingDescription = true;
 
     // Focus the textarea after render
-    this.updateComplete.then(() => {
+    void this.updateComplete.then(() => {
       const textarea = this.shadowRoot?.querySelector('.description-input') as HTMLTextAreaElement;
       textarea?.focus();
       textarea?.select();
