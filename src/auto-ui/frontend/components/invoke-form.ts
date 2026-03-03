@@ -390,6 +390,7 @@ export class InvokeForm extends LitElement {
         text-align: right;
         font-size: var(--text-sm);
         padding: 4px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
       }
 
       .range-labels {
