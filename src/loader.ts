@@ -637,6 +637,12 @@ export class PhotonLoader {
         await this.injectMCPDependencies(instance, tsContent, name);
       }
 
+      // Auto-wrap public methods in @stateful classes to emit events
+      // All method calls automatically produce events with params, result, timestamp
+      if (tsContent) {
+        this.wrapStatefulMethods(instance, tsContent);
+      }
+
       // Inject MCP client factory if available (enables this.mcp() calls)
       const setMCPFactory = instance.setMCPFactory;
       if (this.mcpClientFactory && typeof setMCPFactory === 'function') {
@@ -2579,6 +2585,108 @@ Run: photon mcp ${mcpName} --config
         this.log(`Wired ${ctorName}: ${key}`);
       }
     }
+  }
+
+  /**
+   * Wrap all public methods in @stateful classes to automatically emit events
+   *
+   * Event structure: { method, params, result, timestamp, instance }
+   * Every public method call produces an event with the method name, input parameters,
+   * return value, and timestamp. This enables real-time UI sync and event-driven architectures.
+   */
+  private wrapStatefulMethods(instance: Record<string, unknown>, source: string): void {
+    // Check if this class has @stateful decorator
+    if (!/@stateful\b/i.test(source)) {
+      return; // Not a @stateful class
+    }
+
+    // Get the emit function if available
+    const emit =
+      typeof instance.emit === 'function'
+        ? (instance.emit as (eventName: string, data: unknown) => void).bind(instance)
+        : null;
+
+    if (!emit) {
+      return; // No emit function, can't wrap methods
+    }
+
+    // Get all public method names from the instance
+    const proto = Object.getPrototypeOf(instance);
+    const methodNames = Object.getOwnPropertyNames(proto).filter((name) => {
+      // Skip constructor and private/protected methods
+      if (name === 'constructor' || name.startsWith('_')) {
+        return false;
+      }
+
+      const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+      return descriptor && typeof descriptor.value === 'function';
+    });
+
+    if (methodNames.length === 0) {
+      return; // No public methods to wrap
+    }
+
+    const photonName = (instance._photonName as string) || 'photon';
+    this.log(`📡 Wrapping ${methodNames.length} methods in @stateful ${photonName}`);
+
+    // Wrap each public method
+    for (const methodName of methodNames) {
+      const original = instance[methodName] as any;
+      if (typeof original !== 'function') continue;
+
+      instance[methodName] = function (...args: any[]) {
+        // Extract parameter names and map arguments to them
+        const paramNames = PhotonLoader.extractParamNames(original);
+        const params = Object.fromEntries(paramNames.map((name, i) => [name, args[i]]));
+
+        // Call the original method
+        const result = original.apply(this, args);
+
+        // Emit event with complete context
+        const eventData: Record<string, any> = {
+          method: methodName,
+          params,
+          result,
+          timestamp: new Date().toISOString(),
+        };
+        if (this.instanceName) {
+          eventData.instance = this.instanceName;
+        }
+        emit(methodName, eventData);
+
+        return result;
+      };
+    }
+  }
+
+  /**
+   * Extract parameter names from a function by parsing its signature
+   *
+   * Examples:
+   * - (text, priority = 'medium') => ['text', 'priority']
+   * - (id) => ['id']
+   * - () => []
+   */
+  private static extractParamNames(fn: (...args: any[]) => any): string[] {
+    const fnStr = fn.toString();
+    // Match the parameter list: function(...) or (...) =>
+    const match = fnStr.match(/(?:function)?\s*\(?([^)]*)\)?/);
+    if (!match?.[1]) {
+      return [];
+    }
+
+    return match[1]
+      .split(',')
+      .map((param) => {
+        // Remove default values, whitespace, destructuring
+        const cleaned = param
+          .trim()
+          .split('=')[0] // Remove default value
+          .split(':')[0] // Remove type annotations
+          .trim();
+        return cleaned;
+      })
+      .filter((name) => name && name !== 'this');
   }
 
   /**
