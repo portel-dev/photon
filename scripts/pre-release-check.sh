@@ -116,7 +116,7 @@ sleep 6
 kill $BEAM_PID 2>/dev/null || true
 wait $BEAM_PID 2>/dev/null || true
 
-if grep -q "photons ready" "$BEAM_LOG"; then
+if grep -q "⚡ Photon Beam" "$BEAM_LOG"; then
   echo "  ✓ Beam starts successfully"
 else
   echo "  ✗ FAIL: Beam did not start"
