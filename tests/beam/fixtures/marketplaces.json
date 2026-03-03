@@ -1,0 +1,13 @@
+{
+  "marketplaces": [
+    {
+      "name": "photons",
+      "repo": "portel-dev/photons",
+      "url": "https://raw.githubusercontent.com/portel-dev/photons/main",
+      "sourceType": "github",
+      "source": "portel-dev/photons",
+      "enabled": true,
+      "lastUpdated": "2026-02-28T23:52:16.022Z"
+    }
+  ]
+}
