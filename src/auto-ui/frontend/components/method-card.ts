@@ -21,6 +21,8 @@ interface MethodInfo {
   debounced?: { delay: number };
   queued?: { concurrency: number };
   deprecated?: string | true;
+  emitsEvent?: boolean;
+  eventName?: string;
 }
 
 @customElement('method-card')
@@ -446,6 +448,7 @@ export class MethodCard extends LitElement {
     const isThrottled = !!this.method.throttled;
     const isDebounced = !!this.method.debounced;
     const isQueued = !!this.method.queued;
+    const emitsEvent = !!this.method.emitsEvent;
     const isTyped = isAutorun || isWebhook || isCron || isLocked || isDeprecated;
 
     // Determine accent color for typed methods
@@ -540,6 +543,14 @@ export class MethodCard extends LitElement {
                   class="badge"
                   style="background:hsla(200,70%,50%,0.15);color:hsl(200,70%,60%)"
                   >Queued</span
+                >`
+              : ''}
+            ${emitsEvent
+              ? html`<span
+                  class="badge"
+                  style="background:hsla(100,70%,50%,0.15);color:hsl(100,70%,60%)"
+                  title="Automatically emits event: ${this.method.eventName}"
+                  >📡 Event</span
                 >`
               : ''}
           </div>
