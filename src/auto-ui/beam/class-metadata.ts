@@ -158,7 +158,10 @@ export function backfillEnvDefaults(
     if (!process.env[param.envVar] && param.hasDefault) {
       const value = (instance as Record<string, unknown>)[param.name];
       if (value !== undefined && value !== null) {
-        process.env[param.envVar] = String(value);
+        process.env[param.envVar] =
+          typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value as string | number | boolean | bigint | symbol | null | undefined);
       }
     }
   }

@@ -337,32 +337,34 @@ SEE ALSO:
     });
 
   // Handle unknown commands with "did you mean" suggestions
-  program.on('command:*', async (operands) => {
-    const { printError, printInfo } = await import('../../cli-formatter.js');
-    const unknownCommand = operands[0];
+  program.on('command:*', (operands) => {
+    void (async () => {
+      const { printError, printInfo } = await import('../../cli-formatter.js');
+      const unknownCommand = operands[0];
 
-    printError(`Unknown command: ${unknownCommand}`);
+      printError(`Unknown command: ${unknownCommand}`);
 
-    // Check if it's a subcommand typo for a known parent
-    const args = process.argv.slice(2);
-    const parentIndex = args.findIndex((arg) => knownSubcommands[arg]);
+      // Check if it's a subcommand typo for a known parent
+      const args = process.argv.slice(2);
+      const parentIndex = args.findIndex((arg) => knownSubcommands[arg]);
 
-    if (parentIndex !== -1 && parentIndex < args.indexOf(unknownCommand)) {
-      const parent = args[parentIndex];
-      const suggestion = findClosestCommand(unknownCommand, knownSubcommands[parent]);
-      if (suggestion) {
-        printInfo(`Did you mean: photon ${parent} ${suggestion}`);
+      if (parentIndex !== -1 && parentIndex < args.indexOf(unknownCommand)) {
+        const parent = args[parentIndex];
+        const suggestion = findClosestCommand(unknownCommand, knownSubcommands[parent]);
+        if (suggestion) {
+          printInfo(`Did you mean: photon ${parent} ${suggestion}`);
+        }
+      } else {
+        // Check for top-level command typo
+        const suggestion = findClosestCommand(unknownCommand, knownCommands);
+        if (suggestion) {
+          printInfo(`Did you mean: photon ${suggestion}`);
+        }
       }
-    } else {
-      // Check for top-level command typo
-      const suggestion = findClosestCommand(unknownCommand, knownCommands);
-      if (suggestion) {
-        printInfo(`Did you mean: photon ${suggestion}`);
-      }
-    }
 
-    console.log('');
-    printInfo(`Run 'photon --help' for usage`);
-    process.exit(1);
+      console.log('');
+      printInfo(`Run 'photon --help' for usage`);
+      process.exit(1);
+    })();
   });
 }

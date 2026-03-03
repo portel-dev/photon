@@ -694,7 +694,8 @@ export class PhotonServer {
       );
       // Track instance name after successful _use
       if (toolName === '_use') {
-        ctx.setInstanceName(String((args as Record<string, unknown> | undefined)?.name || ''));
+        const nameVal = (args as Record<string, unknown> | undefined)?.name;
+        ctx.setInstanceName(typeof nameVal === 'string' ? nameVal : '');
       }
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -1352,7 +1353,7 @@ export class PhotonServer {
   private async attemptConfigElicitation(
     toolName: string,
     args: Record<string, unknown>
-  ): Promise<any | null> {
+  ): Promise<unknown> {
     try {
       // Extract constructor params to build form
       const params = await this.loader.extractConstructorParams(this.options.filePath);
@@ -1421,7 +1422,7 @@ export class PhotonServer {
         }
       };
 
-      const retryResult = await this.loader.executeTool(this.mcp!, toolName, args, {
+      const retryResult = await this.loader.executeTool(this.mcp, toolName, args, {
         inputProvider,
         outputHandler,
       });
@@ -1537,7 +1538,7 @@ export class PhotonServer {
         this.daemonName,
         `${this.daemonName}:*`,
         (message: unknown) => {
-          this.handleChannelMessage(message);
+          void this.handleChannelMessage(message);
         },
         { workingDir: this.options.workingDir }
       );
@@ -1634,300 +1635,307 @@ export class PhotonServer {
     const ssePath = '/mcp';
     const messagesPath = '/mcp/messages';
 
-    this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Security: set standard security headers on all responses
-      setSecurityHeaders(res);
-      if (!req.url) {
-        res.writeHead(400).end('Missing URL');
-        return;
-      }
-
-      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-
-      // Handle CORS preflight
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        });
-        res.end();
-        return;
-      }
-
-      // SSE connection endpoint
-      if (req.method === 'GET' && url.pathname === ssePath) {
-        await this.handleSSEConnection(res, messagesPath);
-        return;
-      }
-
-      // Message posting endpoint
-      if (req.method === 'POST' && url.pathname === messagesPath) {
-        await this.handleSSEMessage(req, res, url);
-        return;
-      }
-
-      // Health check / info endpoint
-      if (req.method === 'GET' && url.pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        const endpoints: Record<string, string> = {
-          sse: `http://localhost:${port}${ssePath}`,
-          messages: `http://localhost:${port}${messagesPath}`,
-        };
-        if (this.devMode) {
-          endpoints.playground = `http://localhost:${port}/playground`;
-        }
-        res.end(
-          JSON.stringify({
-            name: this.mcp?.name || 'photon-mcp',
-            transport: 'sse',
-            endpoints,
-            tools: this.mcp?.tools.length || 0,
-            assets: this.mcp?.assets
-              ? {
-                  ui: this.mcp.assets.ui.length,
-                  prompts: this.mcp.assets.prompts.length,
-                  resources: this.mcp.assets.resources.length,
-                }
-              : null,
-          })
-        );
-        return;
-      }
-
-      // Playground and API endpoints - only in dev mode
-      if (this.devMode) {
-        if (req.method === 'GET' && url.pathname === '/playground') {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(await this.getPlaygroundHTML(port));
+    this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void (async () => {
+        // Security: set standard security headers on all responses
+        setSecurityHeaders(res);
+        if (!req.url) {
+          res.writeHead(400).end('Missing URL');
           return;
         }
 
-        // API: List all photons
-        if (req.method === 'GET' && url.pathname === '/api/photons') {
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+        // Handle CORS preflight
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
           });
-          try {
-            const photons = await this.listAllPhotons();
-            res.end(JSON.stringify({ photons }));
-          } catch (error) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: getErrorMessage(error) }));
+          res.end();
+          return;
+        }
+
+        // SSE connection endpoint
+        if (req.method === 'GET' && url.pathname === ssePath) {
+          await this.handleSSEConnection(res, messagesPath);
+          return;
+        }
+
+        // Message posting endpoint
+        if (req.method === 'POST' && url.pathname === messagesPath) {
+          await this.handleSSEMessage(req, res, url);
+          return;
+        }
+
+        // Health check / info endpoint
+        if (req.method === 'GET' && url.pathname === '/') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          const endpoints: Record<string, string> = {
+            sse: `http://localhost:${port}${ssePath}`,
+            messages: `http://localhost:${port}${messagesPath}`,
+          };
+          if (this.devMode) {
+            endpoints.playground = `http://localhost:${port}/playground`;
           }
-          return;
-        }
-
-        // API: List tools (for compatibility, now returns current photon)
-        if (req.method === 'GET' && url.pathname === '/api/tools') {
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          });
-          const tools =
-            this.mcp?.tools.map((tool) => {
-              const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
-              return {
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-                ui: linkedUI
-                  ? { id: linkedUI.id, uri: `ui://${this.mcp!.name}/${linkedUI.id}` }
-                  : null,
-              };
-            }) || [];
-          res.end(JSON.stringify({ tools }));
-          return;
-        }
-
-        if (req.method === 'GET' && url.pathname === '/api/status') {
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          });
-          res.end(JSON.stringify(this.buildStatusSnapshot()));
-          return;
-        }
-
-        if (req.method === 'GET' && url.pathname === '/api/status-stream') {
-          this.handleStatusStream(req, res);
-          return;
-        }
-      }
-
-      // API: Call tool
-      if (req.method === 'POST' && url.pathname === '/api/call') {
-        // Security: restrict CORS to localhost and require local request
-        res.setHeader(
-          'Access-Control-Allow-Origin',
-          `http://localhost:${this.options.port || 3000}`
-        );
-        res.setHeader('Content-Type', 'application/json');
-
-        if (!isLocalRequest(req)) {
-          res.writeHead(403);
-          res.end(JSON.stringify({ success: false, error: 'Forbidden: non-local request' }));
-          return;
-        }
-
-        if (!this.mcp) {
-          res.writeHead(503);
-          res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
-          return;
-        }
-
-        try {
-          const body = await readBody(req);
-          const { tool, args } = JSON.parse(body);
-          const result = await this.loader.executeTool(this.mcp, tool, args || {});
-          const isStateful = result && typeof result === 'object' && result._stateful === true;
-          res.writeHead(200);
           res.end(
             JSON.stringify({
-              success: true,
-              data: isStateful ? result.result : result,
+              name: this.mcp?.name || 'photon-mcp',
+              transport: 'sse',
+              endpoints,
+              tools: this.mcp?.tools.length || 0,
+              assets: this.mcp?.assets
+                ? {
+                    ui: this.mcp.assets.ui.length,
+                    prompts: this.mcp.assets.prompts.length,
+                    resources: this.mcp.assets.resources.length,
+                  }
+                : null,
             })
           );
-        } catch (error: any) {
-          const status = error.message?.includes('too large') ? 413 : 500;
-          res.writeHead(status);
-          res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
-        }
-        return;
-      }
-
-      // API: Call tool with streaming progress (SSE)
-      if (req.method === 'POST' && url.pathname === '/api/call-stream') {
-        res.setHeader(
-          'Access-Control-Allow-Origin',
-          `http://localhost:${this.options.port || 3000}`
-        );
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-
-        if (!this.mcp) {
-          res.writeHead(503, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
           return;
         }
 
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
-          let requestId = `run_${Date.now()}`;
-
-          const sendMessage = (message: Record<string, any>) => {
-            res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
-          };
-
-          try {
-            const payload = JSON.parse(body || '{}');
-            const tool = payload.tool;
-            if (!tool) {
-              throw new Error('Tool name is required');
-            }
-            const args = payload.args || {};
-            const progressToken = payload.progressToken ?? `progress_${Date.now()}`;
-            requestId = payload.requestId || requestId;
-
-            const sendNotification = (method: string, params: Record<string, any>) => {
-              sendMessage({ jsonrpc: '2.0', method, params });
-            };
-
-            const reportProgress = (emit: any) => {
-              const rawValue = typeof emit?.value === 'number' ? emit.value : 0;
-              const percent = rawValue <= 1 ? rawValue * 100 : rawValue;
-              sendNotification('notifications/progress', {
-                progressToken,
-                progress: percent,
-                total: 100,
-                message: emit?.message || null,
-              });
-            };
-
-            const outputHandler = (emit: any) => {
-              if (!emit) return;
-              if (emit.emit === 'progress') {
-                reportProgress(emit);
-              } else if (emit.emit === 'status') {
-                sendNotification('notifications/status', {
-                  type: emit.type || 'info',
-                  message: emit.message || '',
-                });
-              } else {
-                sendNotification('notifications/emit', { event: emit });
-              }
-              // Forward channel events to daemon for cross-process pub/sub
-              if (this.daemonName && emit.channel) {
-                publishToChannel(
-                  this.daemonName,
-                  emit.channel,
-                  emit,
-                  this.options.workingDir
-                ).catch(() => {
-                  // Ignore publish errors - daemon may not be running
-                });
-              }
-            };
-
-            sendNotification('notifications/status', {
-              type: 'info',
-              message: `Starting ${tool}`,
-            });
-
-            const result = await this.loader.executeTool(this.mcp!, tool, args, { outputHandler });
-            const isStateful = result && typeof result === 'object' && result._stateful === true;
-
-            sendMessage({
-              jsonrpc: '2.0',
-              id: requestId,
-              result: {
-                success: true,
-                data: isStateful ? result.result : result,
-              },
-            });
-            res.end();
-          } catch (error) {
-            const message = getErrorMessage(error);
-            const errorPayload: Record<string, any> = {
-              jsonrpc: '2.0',
-              error: { code: -32000, message },
-            };
-            if (requestId) {
-              errorPayload.id = requestId;
-            }
-            sendMessage(errorPayload);
-            res.end();
+        // Playground and API endpoints - only in dev mode
+        if (this.devMode) {
+          if (req.method === 'GET' && url.pathname === '/playground') {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(await this.getPlaygroundHTML(port));
+            return;
           }
-        });
-        return;
-      }
 
-      // API: Get UI template
-      if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
-        const uiId = url.pathname.replace('/api/ui/', '');
-        const ui = this.mcp?.assets?.ui.find((u) => u.id === uiId);
-
-        if (ui?.resolvedPath) {
-          try {
-            const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+          // API: List all photons
+          if (req.method === 'GET' && url.pathname === '/api/photons') {
             res.writeHead(200, {
-              'Content-Type': 'text/html',
+              'Content-Type': 'application/json',
               'Access-Control-Allow-Origin': '*',
             });
-            res.end(content);
+            try {
+              const photons = await this.listAllPhotons();
+              res.end(JSON.stringify({ photons }));
+            } catch (error) {
+              res.writeHead(500);
+              res.end(JSON.stringify({ error: getErrorMessage(error) }));
+            }
             return;
-          } catch {
-            // Fall through to 404
+          }
+
+          // API: List tools (for compatibility, now returns current photon)
+          if (req.method === 'GET' && url.pathname === '/api/tools') {
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            });
+            const tools =
+              this.mcp?.tools.map((tool) => {
+                const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+                return {
+                  name: tool.name,
+                  description: tool.description,
+                  inputSchema: tool.inputSchema,
+                  ui: linkedUI
+                    ? { id: linkedUI.id, uri: `ui://${this.mcp!.name}/${linkedUI.id}` }
+                    : null,
+                };
+              }) || [];
+            res.end(JSON.stringify({ tools }));
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname === '/api/status') {
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            });
+            res.end(JSON.stringify(this.buildStatusSnapshot()));
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname === '/api/status-stream') {
+            this.handleStatusStream(req, res);
+            return;
           }
         }
-        res.writeHead(404).end('UI not found');
-        return;
-      }
 
-      res.writeHead(404).end('Not Found');
+        // API: Call tool
+        if (req.method === 'POST' && url.pathname === '/api/call') {
+          // Security: restrict CORS to localhost and require local request
+          res.setHeader(
+            'Access-Control-Allow-Origin',
+            `http://localhost:${this.options.port || 3000}`
+          );
+          res.setHeader('Content-Type', 'application/json');
+
+          if (!isLocalRequest(req)) {
+            res.writeHead(403);
+            res.end(JSON.stringify({ success: false, error: 'Forbidden: non-local request' }));
+            return;
+          }
+
+          if (!this.mcp) {
+            res.writeHead(503);
+            res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
+            return;
+          }
+
+          try {
+            const body = await readBody(req);
+            const { tool, args } = JSON.parse(body);
+            const result = await this.loader.executeTool(this.mcp, tool, args || {});
+            const isStateful = result && typeof result === 'object' && result._stateful === true;
+            res.writeHead(200);
+            res.end(
+              JSON.stringify({
+                success: true,
+                data: isStateful ? result.result : result,
+              })
+            );
+          } catch (error: any) {
+            const status = error.message?.includes('too large') ? 413 : 500;
+            res.writeHead(status);
+            res.end(JSON.stringify({ success: false, error: getErrorMessage(error) }));
+          }
+          return;
+        }
+
+        // API: Call tool with streaming progress (SSE)
+        if (req.method === 'POST' && url.pathname === '/api/call-stream') {
+          res.setHeader(
+            'Access-Control-Allow-Origin',
+            `http://localhost:${this.options.port || 3000}`
+          );
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+
+          if (!this.mcp) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Photon not loaded' }));
+            return;
+          }
+
+          let body = '';
+          req.on('data', (chunk) => (body += chunk));
+          req.on('end', () => {
+            void (async () => {
+              let requestId = `run_${Date.now()}`;
+
+              const sendMessage = (message: Record<string, any>) => {
+                res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+              };
+
+              try {
+                const payload = JSON.parse(body || '{}');
+                const tool = payload.tool;
+                if (!tool) {
+                  throw new Error('Tool name is required');
+                }
+                const args = payload.args || {};
+                const progressToken = payload.progressToken ?? `progress_${Date.now()}`;
+                requestId = payload.requestId || requestId;
+
+                const sendNotification = (method: string, params: Record<string, any>) => {
+                  sendMessage({ jsonrpc: '2.0', method, params });
+                };
+
+                const reportProgress = (emit: any) => {
+                  const rawValue = typeof emit?.value === 'number' ? emit.value : 0;
+                  const percent = rawValue <= 1 ? rawValue * 100 : rawValue;
+                  sendNotification('notifications/progress', {
+                    progressToken,
+                    progress: percent,
+                    total: 100,
+                    message: emit?.message || null,
+                  });
+                };
+
+                const outputHandler = (emit: any) => {
+                  if (!emit) return;
+                  if (emit.emit === 'progress') {
+                    reportProgress(emit);
+                  } else if (emit.emit === 'status') {
+                    sendNotification('notifications/status', {
+                      type: emit.type || 'info',
+                      message: emit.message || '',
+                    });
+                  } else {
+                    sendNotification('notifications/emit', { event: emit });
+                  }
+                  // Forward channel events to daemon for cross-process pub/sub
+                  if (this.daemonName && emit.channel) {
+                    publishToChannel(
+                      this.daemonName,
+                      emit.channel,
+                      emit,
+                      this.options.workingDir
+                    ).catch(() => {
+                      // Ignore publish errors - daemon may not be running
+                    });
+                  }
+                };
+
+                sendNotification('notifications/status', {
+                  type: 'info',
+                  message: `Starting ${tool}`,
+                });
+
+                const result = await this.loader.executeTool(this.mcp!, tool, args, {
+                  outputHandler,
+                });
+                const isStateful =
+                  result && typeof result === 'object' && result._stateful === true;
+
+                sendMessage({
+                  jsonrpc: '2.0',
+                  id: requestId,
+                  result: {
+                    success: true,
+                    data: isStateful ? result.result : result,
+                  },
+                });
+                res.end();
+              } catch (error) {
+                const message = getErrorMessage(error);
+                const errorPayload: Record<string, any> = {
+                  jsonrpc: '2.0',
+                  error: { code: -32000, message },
+                };
+                if (requestId) {
+                  errorPayload.id = requestId;
+                }
+                sendMessage(errorPayload);
+                res.end();
+              }
+            })();
+          });
+          return;
+        }
+
+        // API: Get UI template
+        if (req.method === 'GET' && url.pathname.startsWith('/api/ui/')) {
+          const uiId = url.pathname.replace('/api/ui/', '');
+          const ui = this.mcp?.assets?.ui.find((u) => u.id === uiId);
+
+          if (ui?.resolvedPath) {
+            try {
+              const content = await fs.readFile(ui.resolvedPath, 'utf-8');
+              res.writeHead(200, {
+                'Content-Type': 'text/html',
+                'Access-Control-Allow-Origin': '*',
+              });
+              res.end(content);
+              return;
+            } catch {
+              // Fall through to 404
+            }
+          }
+          res.writeHead(404).end('UI not found');
+          return;
+        }
+
+        res.writeHead(404).end('Not Found');
+      })();
     });
 
     this.httpServer.on('clientError', (err: Error, socket) => {
@@ -2035,16 +2043,18 @@ export class PhotonServer {
     // Clean up on close (guard against recursive close:
     // onclose → sessionServer.close() → transport.close() → onclose)
     let closing = false;
-    transport.onclose = async () => {
+    transport.onclose = () => {
       if (closing) return;
       closing = true;
       this.sseSessions.delete(sessionId);
       this.log('info', 'SSE client disconnected', { sessionId });
-      try {
-        await sessionServer.close();
-      } catch {
-        // Ignore errors during cleanup (transport already closed)
-      }
+      void (async () => {
+        try {
+          await sessionServer.close();
+        } catch {
+          // Ignore errors during cleanup (transport already closed)
+        }
+      })();
     };
 
     transport.onerror = (error) => {

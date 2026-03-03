@@ -39,7 +39,9 @@ export class CardComponent implements UIComponent {
     Object.entries(data).forEach(([key, value]) => {
       const formattedKey = chalk.cyan(key + ':');
       const formattedValue =
-        typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+        typeof value === 'object' && value !== null
+          ? JSON.stringify(value, null, 2)
+          : String(value as string | number | boolean | bigint | symbol | null | undefined);
       lines.push(`${formattedKey} ${formattedValue}`);
     });
 

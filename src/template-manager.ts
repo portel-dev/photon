@@ -188,6 +188,7 @@ export class TemplateManager {
     const values = keys.map((k) => context[k]);
     try {
       // Shadow dangerous globals to prevent access even if identifiers sneak through
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const fn = new Function(
         ...keys,
         'process',

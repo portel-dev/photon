@@ -21,7 +21,7 @@ export interface KVNamespace {
     key: string,
     options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }
   ): Promise<string | null>;
-  get(key: string, options: { type: 'json' }): Promise<unknown | null>;
+  get(key: string, options: { type: 'json' }): Promise<unknown>;
   put(
     key: string,
     value: string,

@@ -309,7 +309,7 @@ export class ActivityLog extends LitElement {
                 ${this.filter}
               </button>`
             : ''}
-          <button class="clear-btn" @click=${this._clear}>Clear</button>
+          <button class="clear-btn" @click=${() => this._clear()}>Clear</button>
         </div>
       </div>
 

@@ -187,7 +187,9 @@ export class CustomUiRenderer extends LitElement {
     ) {
       // Debounce: properties may arrive in separate Lit update cycles
       if (this._loadTimer) clearTimeout(this._loadTimer);
-      this._loadTimer = setTimeout(() => this._loadContent(), 0);
+      this._loadTimer = setTimeout(() => {
+        void this._loadContent();
+      }, 0);
     }
 
     // When _srcDoc is ready, mount the iframe using a blob URL.
@@ -404,7 +406,14 @@ export class CustomUiRenderer extends LitElement {
         ? html`<div class="error-container">
             <div class="error-icon">⚠️</div>
             <div class="error-message">${this._error}</div>
-            <button class="retry-btn" @click=${this._loadContent}>Retry</button>
+            <button
+              class="retry-btn"
+              @click=${() => {
+                void this._loadContent();
+              }}
+            >
+              Retry
+            </button>
           </div>`
         : this._loading
           ? html`<div class="loading">

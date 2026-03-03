@@ -228,7 +228,7 @@ class MCPClientService {
       this.lastMessageTime = Date.now();
       this.startHeartbeatCheck();
       // Process any queued operations
-      this.processQueue();
+      void this.processQueue();
       // Notify listeners if we recovered from a disconnect
       if (wasDisconnected) {
         this.emit('reconnect');

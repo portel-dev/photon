@@ -427,8 +427,12 @@ export function registerMCPCommand(program: Command): void {
           process.exit(0);
         };
 
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', () => {
+          void shutdown();
+        });
+        process.on('SIGTERM', () => {
+          void shutdown();
+        });
 
         // Start the server
         await server.start();
@@ -439,11 +443,11 @@ export function registerMCPCommand(program: Command): void {
           watcher.start();
 
           // Clean up watcher on shutdown
-          process.on('SIGINT', async () => {
-            await watcher.stop();
+          process.on('SIGINT', () => {
+            void watcher.stop();
           });
-          process.on('SIGTERM', async () => {
-            await watcher.stop();
+          process.on('SIGTERM', () => {
+            void watcher.stop();
           });
         }
       } catch (error) {

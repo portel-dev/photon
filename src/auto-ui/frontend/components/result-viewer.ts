@@ -2508,7 +2508,10 @@ export class ResultViewer extends LitElement {
       for (const field of ResultViewer._TIMESTAMP_FIELDS) {
         const val = rec[field];
         if (val !== undefined && val !== null) {
-          const parsed = typeof val === 'number' ? val : new Date(String(val)).getTime();
+          const parsed =
+            typeof val === 'number'
+              ? val
+              : new Date(typeof val === 'string' ? val : String(val as never)).getTime();
           if (!isNaN(parsed)) {
             timestamp = parsed;
             break;
@@ -2693,8 +2696,8 @@ export class ResultViewer extends LitElement {
               class="filter-input"
               placeholder="Filter results..."
               .value=${this._filterQuery}
-              @input=${this._handleFilterInput}
-              @keydown=${this._handleFilterKeydown}
+              @input=${(e: Event) => this._handleFilterInput(e)}
+              @keydown=${(e: Event) => this._handleFilterKeydown(e as KeyboardEvent)}
             />
             ${isFiltered
               ? html` <span class="filter-count filtered">${filteredCount} / ${totalCount}</span> `
@@ -2702,15 +2705,17 @@ export class ResultViewer extends LitElement {
           </div>
           <div class="actions">
             ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
-            <button @click=${this._copy}>Copy</button>
+            <button @click=${() => this._copy()}>Copy</button>
             <button @click=${() => this._downloadSmart(layout)}>
               ↓ ${this._getDownloadLabel(layout)}
             </button>
             ${this._isTabularData()
               ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
               : ''}
-            <button @click=${this._share} title="Share link to this result">${link} Share</button>
-            <button @click=${this._fullscreen} title="Full screen result">${expand}</button>
+            <button @click=${() => this._share()} title="Share link to this result">
+              ${link} Share
+            </button>
+            <button @click=${() => this._fullscreen()} title="Full screen result">${expand}</button>
           </div>
         </div>
         <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
@@ -2726,21 +2731,29 @@ export class ResultViewer extends LitElement {
                   <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
                 </div>
                 <div class="fullscreen-toolbar-center">
-                  <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">
+                  <button
+                    class="fullscreen-btn"
+                    @click=${() => this._zoomOut()}
+                    title="Zoom out (-)"
+                  >
                     −
                   </button>
                   <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
-                  <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">
+                  <button class="fullscreen-btn" @click=${() => this._zoomIn()} title="Zoom in (+)">
                     +
                   </button>
-                  <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">
+                  <button
+                    class="fullscreen-btn"
+                    @click=${() => this._resetZoom()}
+                    title="Reset zoom (0)"
+                  >
                     ⟲
                   </button>
                 </div>
                 <div class="fullscreen-toolbar-right">
                   <button
                     class="fullscreen-btn close-btn"
-                    @click=${this._closeFullscreen}
+                    @click=${() => this._closeFullscreen()}
                     title="Close (Esc)"
                   >
                     ✕
@@ -2777,21 +2790,29 @@ export class ResultViewer extends LitElement {
                   <span class="fullscreen-hint">Scroll to zoom • Drag to pan • Esc to close</span>
                 </div>
                 <div class="fullscreen-toolbar-center">
-                  <button class="fullscreen-btn" @click=${this._zoomOut} title="Zoom out (-)">
+                  <button
+                    class="fullscreen-btn"
+                    @click=${() => this._zoomOut()}
+                    title="Zoom out (-)"
+                  >
                     −
                   </button>
                   <span class="zoom-level">${Math.round(this._zoomLevel * 100)}%</span>
-                  <button class="fullscreen-btn" @click=${this._zoomIn} title="Zoom in (+)">
+                  <button class="fullscreen-btn" @click=${() => this._zoomIn()} title="Zoom in (+)">
                     +
                   </button>
-                  <button class="fullscreen-btn" @click=${this._resetZoom} title="Reset zoom (0)">
+                  <button
+                    class="fullscreen-btn"
+                    @click=${() => this._resetZoom()}
+                    title="Reset zoom (0)"
+                  >
                     ⟲
                   </button>
                 </div>
                 <div class="fullscreen-toolbar-right">
                   <button
                     class="fullscreen-btn close-btn"
-                    @click=${this._closeFullscreen}
+                    @click=${() => this._closeFullscreen()}
                     title="Close (Esc)"
                   >
                     ✕
@@ -2831,7 +2852,7 @@ export class ResultViewer extends LitElement {
                 <div class="fullscreen-toolbar-right">
                   <button
                     class="fullscreen-btn close-btn"
-                    @click=${this._closeFullscreen}
+                    @click=${() => this._closeFullscreen()}
                     title="Close (Esc)"
                   >
                     ✕
@@ -3145,7 +3166,7 @@ export class ResultViewer extends LitElement {
       data &&
       typeof data === 'object' &&
       !Array.isArray(data) &&
-      typeof (data as any)._photonType === 'string'
+      typeof data._photonType === 'string'
     ) {
       // Fallback: shouldn't normally reach here since updated() handles unwrapping
       return 'json';
@@ -3986,7 +4007,7 @@ export class ResultViewer extends LitElement {
       this.result &&
       typeof this.result === 'object' &&
       !Array.isArray(this.result) &&
-      typeof (this.result as any)._photonType === 'string'
+      typeof this.result._photonType === 'string'
     ) {
       const data = this.result as Record<string, any>;
       const photonType = data._photonType as string;
@@ -4066,7 +4087,7 @@ export class ResultViewer extends LitElement {
     if (this._pendingMermaidBlocks.length > 0 && (window as any).mermaid) {
       const blocks = this._pendingMermaidBlocks;
       this._pendingMermaidBlocks = []; // Clear before async render to prevent re-entry
-      this._renderMermaidBlocks(blocks);
+      void this._renderMermaidBlocks(blocks);
     }
 
     // Highlight code blocks with Prism after DOM update
@@ -4224,7 +4245,7 @@ export class ResultViewer extends LitElement {
         target.replaceWith(wrapper);
       } catch (e) {
         console.error('Mermaid render error:', e);
-        target.innerHTML = `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e}\n\n${code}</pre>`;
+        target.innerHTML = `<pre style="color: #ff6b6b; background: rgba(255,0,0,0.1); padding: 8px; border-radius: var(--radius-xs);">Mermaid Error: ${e instanceof Error ? e.message : String(e as never)}\n\n${code}</pre>`;
       }
     }
   }
@@ -4232,14 +4253,16 @@ export class ResultViewer extends LitElement {
   private _openMermaidFullscreen(code: string, id: string) {
     this._resetZoom();
     this._fullscreenMermaid = code;
-    setTimeout(async () => {
-      const fc = this.shadowRoot?.querySelector('#fullscreen-mermaid');
-      const m = (window as any).mermaid;
-      if (fc && m) {
-        const { svg } = await m.render(`fs-${id}-svg`, code);
-        fc.innerHTML = svg;
-        this._autoFitFullscreen();
-      }
+    setTimeout(() => {
+      void (async () => {
+        const fc = this.shadowRoot?.querySelector('#fullscreen-mermaid');
+        const m = (window as any).mermaid;
+        if (fc && m) {
+          const { svg } = await m.render(`fs-${id}-svg`, code);
+          fc.innerHTML = svg;
+          this._autoFitFullscreen();
+        }
+      })();
     }, 50);
   }
 
@@ -4487,7 +4510,11 @@ export class ResultViewer extends LitElement {
                   style="color:var(--t-muted);font-size:0.75rem;white-space:nowrap;min-width:4em;"
                   >${this._formatColumnName(k)}</span
                 >
-                <span>${typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                <span
+                  >${typeof v === 'object' && v !== null
+                    ? JSON.stringify(v)
+                    : String(v as never)}</span
+                >
               </div>`
           )}
         </div>`;
@@ -4649,7 +4676,7 @@ ${str}</pre
     const text =
       typeof this.result === 'object' ? JSON.stringify(this.result, null, 2) : String(this.result);
 
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     showToast('Copied to clipboard', 'success');
   }
 
@@ -4666,9 +4693,9 @@ ${str}</pre
     const container = this.shadowRoot?.querySelector('.container') as HTMLElement;
     if (!container) return;
     if (document.fullscreenElement) {
-      document.exitFullscreen();
+      void document.exitFullscreen();
     } else {
-      container.requestFullscreen();
+      void container.requestFullscreen();
     }
   }
 
@@ -4807,7 +4834,7 @@ ${str}</pre
     const canvasId = `chart-${Math.random().toString(36).slice(2, 9)}`;
 
     // Schedule chart creation after render
-    this.updateComplete.then(() => this._initChart(data, canvasId));
+    void this.updateComplete.then(() => this._initChart(data, canvasId));
 
     return html`
       <div class="chart-container">
@@ -5358,7 +5385,7 @@ ${str}</pre
       if (this._isChartShaped(value)) {
         // Inline chart for dashboard panel
         const canvasId = `dash-chart-${Math.random().toString(36).slice(2, 9)}`;
-        this.updateComplete.then(async () => {
+        void this.updateComplete.then(async () => {
           const Chart = await loadChartJS();
           const canvas = this.shadowRoot?.querySelector<HTMLCanvasElement>(`#${canvasId}`);
           if (!canvas) return;
@@ -5498,7 +5525,7 @@ ${str}</pre
       // Collect non-items numeric fields as summary
       for (const [key, value] of Object.entries(data)) {
         if (key !== 'items' && typeof value === 'number') {
-          summary[key] = value as number;
+          summary[key] = value;
         }
       }
     }

@@ -526,7 +526,7 @@ export class PhotonLoader {
         }
 
         await this.ensureDependenciesWithHash(
-          cacheKey!,
+          cacheKey,
           mcpName,
           dependencies,
           sourceHash,
@@ -1734,7 +1734,9 @@ export class PhotonLoader {
         return await this.resolveNpmPhoton(dep);
 
       default:
-        throw new Error(`Unknown Photon source type: ${dep.sourceType}`);
+        throw new Error(
+          `Unknown Photon source type: ${String((dep as { sourceType: string }).sourceType)}`
+        );
     }
   }
 
@@ -2327,7 +2329,13 @@ Run: photon mcp ${mcpName} --config
       }
       let generatorFn = isStatic
         ? () => method.call(null, ...args)
-        : () => executionContext.run({ outputHandler }, () => method.call(mcp.instance, ...args));
+        : () =>
+            executionContext.run(
+              { outputHandler: outputHandler as ((data: unknown) => void) | undefined },
+              () => {
+                return method.call(mcp.instance, ...args) as unknown;
+              }
+            );
 
       // Apply functional tag middleware if any tags present
       if (hasFunctionalTags) {

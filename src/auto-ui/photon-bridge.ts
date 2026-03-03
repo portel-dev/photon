@@ -238,17 +238,17 @@ export function createPhotonBridge(): PhotonBridge {
         emitListeners.forEach((cb) => cb(emitEvent));
 
         if (emitEvent.emit === 'progress') {
-          progressListeners.forEach((cb) => cb(emitEvent as ProgressEvent));
+          progressListeners.forEach((cb) => cb(emitEvent));
         } else if (emitEvent.emit === 'status') {
-          statusListeners.forEach((cb) => cb(emitEvent as StatusEvent));
+          statusListeners.forEach((cb) => cb(emitEvent));
         } else if (emitEvent.emit === 'stream') {
-          streamListeners.forEach((cb) => cb(emitEvent as StreamEvent));
+          streamListeners.forEach((cb) => cb(emitEvent));
         }
         break;
 
       case 'photon:ask':
         if (elicitationHandler) {
-          elicitationHandler(msg.event).then((value) => {
+          void elicitationHandler(msg.event).then((value) => {
             window.parent.postMessage(
               {
                 type: 'photon:ask-response',

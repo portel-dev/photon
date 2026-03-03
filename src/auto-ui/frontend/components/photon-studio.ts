@@ -271,7 +271,7 @@ export class PhotonStudio extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     if (this.photonName) {
-      this._loadSource();
+      void this._loadSource();
     }
   }
 
@@ -287,7 +287,7 @@ export class PhotonStudio extends LitElement {
 
   updated(changed: Map<string, any>) {
     if (changed.has('photonName') && this.photonName && !changed.has('_loading')) {
-      this._loadSource();
+      void this._loadSource();
     }
     if (changed.has('theme') && this._editorView) {
       // Rebuild editor with new theme
@@ -311,7 +311,7 @@ export class PhotonStudio extends LitElement {
       await this.updateComplete;
       this._initEditor();
       // Auto-parse on load
-      this._parse();
+      void this._parse();
     } catch (err: any) {
       this._error = err.message || 'Failed to load source';
       this._loading = false;
@@ -379,7 +379,7 @@ export class PhotonStudio extends LitElement {
           {
             key: 'Mod-s',
             run: () => {
-              this._save();
+              void this._save();
               return true;
             },
           },
@@ -406,7 +406,7 @@ export class PhotonStudio extends LitElement {
     }
     this._parseDebounceTimer = setTimeout(() => {
       this._parseDebounceTimer = null;
-      this._parse();
+      void this._parse();
     }, PhotonStudio.PARSE_DEBOUNCE_MS);
   }
 
@@ -485,7 +485,7 @@ export class PhotonStudio extends LitElement {
       return html`
         <div class="toolbar">
           <span class="toolbar-title">Studio</span>
-          <button class="close-btn" @click=${this._close}>&times;</button>
+          <button class="close-btn" @click=${() => this._close()}>&times;</button>
         </div>
         <div class="loading-state">Loading source...</div>
       `;
@@ -495,11 +495,18 @@ export class PhotonStudio extends LitElement {
       return html`
         <div class="toolbar">
           <span class="toolbar-title">Studio</span>
-          <button class="close-btn" @click=${this._close}>&times;</button>
+          <button class="close-btn" @click=${() => this._close()}>&times;</button>
         </div>
         <div class="error-state">
           <span>${this._error}</span>
-          <button class="toolbar-btn" @click=${this._loadSource}>Retry</button>
+          <button
+            class="toolbar-btn"
+            @click=${() => {
+              void this._loadSource();
+            }}
+          >
+            Retry
+          </button>
         </div>
       `;
     }
@@ -517,14 +524,18 @@ export class PhotonStudio extends LitElement {
 
         <button
           class="toolbar-btn primary"
-          @click=${this._save}
+          @click=${() => {
+            void this._save();
+          }}
           ?disabled=${!this._dirty || this._saving}
           title="Save (Cmd+S)"
         >
           ${this._saving ? 'Saving...' : 'Save'}
         </button>
 
-        <button class="close-btn" @click=${this._close} title="Close Studio">&times;</button>
+        <button class="close-btn" @click=${() => this._close()} title="Close Studio">
+          &times;
+        </button>
       </div>
 
       <div class="studio-body">

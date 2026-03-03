@@ -331,7 +331,7 @@ export async function updateMetadataViaMCP(
       return { success: false, error: 'Photon is not configured or has no methods' };
     }
 
-    const method = photons[photonIndex].methods!.find((m: any) => m.name === methodName);
+    const method = photons[photonIndex].methods.find((m: any) => m.name === methodName);
     if (!method) {
       return { success: false, error: `Method not found: ${methodName}` };
     }

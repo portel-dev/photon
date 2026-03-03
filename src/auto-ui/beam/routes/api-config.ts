@@ -80,8 +80,7 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
 
     // Look up injected photons for this photon
     const photon = state.photons.find((p) => p.name === photonName);
-    const injectedPhotonsList =
-      photon && photon.configured && (photon as PhotonInfo).injectedPhotons;
+    const injectedPhotonsList = photon && photon.configured && photon.injectedPhotons;
 
     const { generateBridgeScript } = await import('../../bridge/index.js');
     const script = generateBridgeScript({
@@ -111,10 +110,8 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       const photonStatus = state.photons.map((p) => ({
         name: p.name,
         status: p.configured ? 'loaded' : 'unconfigured',
-        methods: p.configured
-          ? Math.max(0, (p as PhotonInfo).methods.length - ((p as PhotonInfo).promptCount || 0))
-          : 0,
-        error: !p.configured ? (p as UnconfiguredPhotonInfo).errorMessage : undefined,
+        methods: p.configured ? Math.max(0, p.methods.length - (p.promptCount || 0)) : 0,
+        error: !p.configured ? p.errorMessage : undefined,
         internal: (p as any).internal || undefined,
         path: p.path || undefined,
       }));
@@ -210,153 +207,155 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return new Promise<boolean>((resolve) => {
       let body = '';
       req.on('data', (chunk) => (body += chunk));
-      req.on('end', async () => {
-        res.setHeader('Content-Type', 'application/json');
+      req.on('end', () => {
+        void (async () => {
+          res.setHeader('Content-Type', 'application/json');
 
-        try {
-          const { photon: photonName, test: testName, mode = 'direct' } = JSON.parse(body);
-
-          // Find the photon
-          const photon = state.photons.find((p) => p.name === photonName);
-          if (!photon) {
-            res.writeHead(404);
-            res.end(JSON.stringify({ passed: false, error: 'Photon not found', mode }));
-            resolve(true);
-            return;
-          }
-
-          // Get the MCP instance
-          const mcp = state.photonMCPs.get(photonName);
-          if (!mcp || !mcp.instance) {
-            res.writeHead(404);
-            res.end(JSON.stringify({ passed: false, error: 'Photon not loaded', mode }));
-            resolve(true);
-            return;
-          }
-
-          // Run the test method
-          const start = Date.now();
           try {
-            let result: any;
+            const { photon: photonName, test: testName, mode = 'direct' } = JSON.parse(body);
 
-            if (mode === 'mcp') {
-              // MCP mode: use executeTool to simulate MCP protocol
-              // This tests the full tool execution path
-              result = await state.loader.executeTool(mcp, testName, {}, {});
-            } else if (mode === 'cli') {
-              // CLI mode: spawn subprocess to test CLI interface
-              const cliPath = path.resolve(__dirname, '..', '..', '..', 'cli.js');
-              const args = ['cli', photonName, testName, '--json'];
-
-              result = await new Promise((resolveProc) => {
-                const proc = spawn('node', [cliPath, ...args], {
-                  cwd: state.workingDir,
-                  timeout: 30000,
-                  env: { ...process.env, PHOTON_DIR: state.workingDir },
-                });
-
-                let stdout = '';
-                let stderr = '';
-
-                proc.stdout.on('data', (data: Buffer) => (stdout += data.toString()));
-                proc.stderr.on('data', (data: Buffer) => (stderr += data.toString()));
-
-                proc.on('close', (code: number | null) => {
-                  const output = stdout.trim() || stderr.trim();
-                  const hasOutput = output.length > 0;
-                  const infraErrors = [
-                    'Photon not found',
-                    'command not found',
-                    'Cannot find module',
-                    'ENOENT',
-                  ];
-                  const isInfraError = infraErrors.some((e) => (stdout + stderr).includes(e));
-
-                  if (hasOutput && !isInfraError) {
-                    // CLI interface worked - transport successful
-                    resolveProc({ passed: true, message: 'CLI interface test passed' });
-                  } else if (isInfraError) {
-                    resolveProc({ passed: false, error: `CLI infrastructure error: ${output}` });
-                  } else {
-                    resolveProc({
-                      passed: false,
-                      error: `CLI test failed with code ${code}: no output`,
-                    });
-                  }
-                });
-
-                proc.on('error', (err: Error) => {
-                  resolveProc({ passed: false, error: `CLI spawn error: ${err.message}` });
-                });
-              });
-            } else {
-              // Direct mode: call instance method directly
-              result = await mcp.instance[testName]();
+            // Find the photon
+            const photon = state.photons.find((p) => p.name === photonName);
+            if (!photon) {
+              res.writeHead(404);
+              res.end(JSON.stringify({ passed: false, error: 'Photon not found', mode }));
+              resolve(true);
+              return;
             }
 
-            const duration = Date.now() - start;
+            // Get the MCP instance
+            const mcp = state.photonMCPs.get(photonName);
+            if (!mcp || !mcp.instance) {
+              res.writeHead(404);
+              res.end(JSON.stringify({ passed: false, error: 'Photon not loaded', mode }));
+              resolve(true);
+              return;
+            }
 
-            // Check result
-            if (result && typeof result === 'object') {
-              if (result.skipped === true) {
-                res.writeHead(200);
-                res.end(
-                  JSON.stringify({
-                    passed: true,
-                    skipped: true,
-                    message: result.reason || 'Skipped',
-                    duration,
-                    mode,
-                  })
-                );
-              } else if (result.passed === false) {
-                res.writeHead(200);
-                res.end(
-                  JSON.stringify({
-                    passed: false,
-                    error: result.error || result.message || 'Test failed',
-                    duration,
-                    mode,
-                  })
-                );
+            // Run the test method
+            const start = Date.now();
+            try {
+              let result: any;
+
+              if (mode === 'mcp') {
+                // MCP mode: use executeTool to simulate MCP protocol
+                // This tests the full tool execution path
+                result = await state.loader.executeTool(mcp, testName, {}, {});
+              } else if (mode === 'cli') {
+                // CLI mode: spawn subprocess to test CLI interface
+                const cliPath = path.resolve(__dirname, '..', '..', '..', 'cli.js');
+                const args = ['cli', photonName, testName, '--json'];
+
+                result = await new Promise((resolveProc) => {
+                  const proc = spawn('node', [cliPath, ...args], {
+                    cwd: state.workingDir,
+                    timeout: 30000,
+                    env: { ...process.env, PHOTON_DIR: state.workingDir },
+                  });
+
+                  let stdout = '';
+                  let stderr = '';
+
+                  proc.stdout.on('data', (data: Buffer) => (stdout += data.toString()));
+                  proc.stderr.on('data', (data: Buffer) => (stderr += data.toString()));
+
+                  proc.on('close', (code: number | null) => {
+                    const output = stdout.trim() || stderr.trim();
+                    const hasOutput = output.length > 0;
+                    const infraErrors = [
+                      'Photon not found',
+                      'command not found',
+                      'Cannot find module',
+                      'ENOENT',
+                    ];
+                    const isInfraError = infraErrors.some((e) => (stdout + stderr).includes(e));
+
+                    if (hasOutput && !isInfraError) {
+                      // CLI interface worked - transport successful
+                      resolveProc({ passed: true, message: 'CLI interface test passed' });
+                    } else if (isInfraError) {
+                      resolveProc({ passed: false, error: `CLI infrastructure error: ${output}` });
+                    } else {
+                      resolveProc({
+                        passed: false,
+                        error: `CLI test failed with code ${code}: no output`,
+                      });
+                    }
+                  });
+
+                  proc.on('error', (err: Error) => {
+                    resolveProc({ passed: false, error: `CLI spawn error: ${err.message}` });
+                  });
+                });
+              } else {
+                // Direct mode: call instance method directly
+                result = await mcp.instance[testName]();
+              }
+
+              const duration = Date.now() - start;
+
+              // Check result
+              if (result && typeof result === 'object') {
+                if (result.skipped === true) {
+                  res.writeHead(200);
+                  res.end(
+                    JSON.stringify({
+                      passed: true,
+                      skipped: true,
+                      message: result.reason || 'Skipped',
+                      duration,
+                      mode,
+                    })
+                  );
+                } else if (result.passed === false) {
+                  res.writeHead(200);
+                  res.end(
+                    JSON.stringify({
+                      passed: false,
+                      error: result.error || result.message || 'Test failed',
+                      duration,
+                      mode,
+                    })
+                  );
+                } else {
+                  res.writeHead(200);
+                  res.end(
+                    JSON.stringify({
+                      passed: true,
+                      message: result?.message,
+                      duration,
+                      mode,
+                    })
+                  );
+                }
               } else {
                 res.writeHead(200);
                 res.end(
                   JSON.stringify({
                     passed: true,
-                    message: result?.message,
                     duration,
                     mode,
                   })
                 );
               }
-            } else {
+            } catch (testError: any) {
+              const duration = Date.now() - start;
               res.writeHead(200);
               res.end(
                 JSON.stringify({
-                  passed: true,
+                  passed: false,
+                  error: testError.message || String(testError),
                   duration,
                   mode,
                 })
               );
             }
-          } catch (testError: any) {
-            const duration = Date.now() - start;
-            res.writeHead(200);
-            res.end(
-              JSON.stringify({
-                passed: false,
-                error: testError.message || String(testError),
-                duration,
-                mode,
-              })
-            );
+          } catch {
+            res.writeHead(400);
+            res.end(JSON.stringify({ passed: false, error: 'Invalid request' }));
           }
-        } catch {
-          res.writeHead(400);
-          res.end(JSON.stringify({ passed: false, error: 'Invalid request' }));
-        }
-        resolve(true);
+          resolve(true);
+        })();
       });
     });
   }

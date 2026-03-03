@@ -109,7 +109,7 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
     const schema = tool.inputSchema;
 
     if (schema?.properties) {
-      for (const [name, prop] of Object.entries(schema.properties) as [string, any][]) {
+      for (const [name, prop] of Object.entries(schema.properties)) {
         // Resolve type from anyOf/oneOf union schemas (e.g. number | string)
         let type = prop.type;
         if (!type && (prop.anyOf || prop.oneOf)) {
@@ -707,7 +707,7 @@ function parseInlineFormat(value: string): { format?: OutputFormat; text: string
   }
 
   return {
-    format: candidate as OutputFormat,
+    format: candidate,
     text: value.slice(match[0].length),
   };
 }
@@ -1547,14 +1547,14 @@ export async function runMethod(
   } catch (error) {
     // Check for custom user-facing message from photon
     // Photons can throw: throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
-    const userMessage =
-      (error && typeof error === 'object' && 'userMessage' in error && String(error.userMessage)) ||
-      getErrorMessage(error) ||
-      'Unknown error occurred';
-    const hint =
+    const userMessage: string =
+      error && typeof error === 'object' && 'userMessage' in error
+        ? String(error.userMessage)
+        : getErrorMessage(error) || 'Unknown error occurred';
+    const hint: string | undefined =
       error && typeof error === 'object' && 'hint' in error ? String(error.hint) : undefined;
 
-    exitWithError(String(userMessage), {
+    exitWithError(userMessage, {
       suggestion: hint ? String(hint) : undefined,
     });
   }

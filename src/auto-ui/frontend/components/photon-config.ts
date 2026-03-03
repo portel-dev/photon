@@ -236,7 +236,7 @@ export class PhotonConfig extends LitElement {
           type="button"
           class="submit-btn"
           ?disabled=${this._loading}
-          @click=${this._handleSubmit}
+          @click=${() => this._handleSubmit()}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path

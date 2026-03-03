@@ -139,64 +139,69 @@ async function sendCommandDirect(
       client.write(JSON.stringify(request) + '\n');
     });
 
-    client.on('data', async (chunk) => {
-      buffer += chunk.toString();
+    client.on('data', (chunk) => {
+      void (async () => {
+        buffer += chunk.toString();
 
-      // Process complete JSON messages (newline-delimited)
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        // Process complete JSON messages (newline-delimited)
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-        try {
-          const response: DaemonResponse = JSON.parse(line);
+          try {
+            const response: DaemonResponse = JSON.parse(line);
 
-          if (response.id === requestId) {
-            // Handle prompt request from daemon
-            if (response.type === 'prompt' && response.prompt) {
-              // Reset timeout while waiting for user input
-              clearTimeout(currentTimeout);
+            if (response.id === requestId) {
+              // Handle prompt request from daemon
+              if (response.type === 'prompt' && response.prompt) {
+                // Reset timeout while waiting for user input
+                clearTimeout(currentTimeout);
 
-              // Get user input via readline
-              const userInput = await promptUser(response.prompt.message, response.prompt.default);
+                // Get user input via readline
+                const userInput = await promptUser(
+                  response.prompt.message,
+                  response.prompt.default
+                );
 
-              // Send prompt response back to daemon
-              const promptResponse: DaemonRequest = {
-                type: 'prompt_response',
-                id: requestId,
-                promptValue: userInput,
-              };
+                // Send prompt response back to daemon
+                const promptResponse: DaemonRequest = {
+                  type: 'prompt_response',
+                  id: requestId,
+                  promptValue: userInput,
+                };
 
-              client.write(JSON.stringify(promptResponse) + '\n');
+                client.write(JSON.stringify(promptResponse) + '\n');
 
-              // Restart timeout for next response — store handle so it can be cleared
-              currentTimeout = setTimeout(() => {
-                if (!responseReceived) {
-                  client.destroy();
-                  reject(new Error('Request timeout'));
-                }
-              }, 120000);
+                // Restart timeout for next response — store handle so it can be cleared
+                currentTimeout = setTimeout(() => {
+                  if (!responseReceived) {
+                    client.destroy();
+                    reject(new Error('Request timeout'));
+                  }
+                }, 120000);
+              }
+              // Handle final result
+              else if (response.type === 'result') {
+                responseReceived = true;
+                clearTimeout(currentTimeout);
+                client.destroy();
+                resolve(response.data);
+              }
+              // Handle error
+              else if (response.type === 'error') {
+                responseReceived = true;
+                clearTimeout(currentTimeout);
+                client.destroy();
+                reject(new Error(response.error || 'Unknown error'));
+              }
             }
-            // Handle final result
-            else if (response.type === 'result') {
-              responseReceived = true;
-              clearTimeout(currentTimeout);
-              client.destroy();
-              resolve(response.data);
-            }
-            // Handle error
-            else if (response.type === 'error') {
-              responseReceived = true;
-              clearTimeout(currentTimeout);
-              client.destroy();
-              reject(new Error(response.error || 'Unknown error'));
-            }
+          } catch (error) {
+            logger.warn('Failed to parse daemon response', { error: getErrorMessage(error) });
           }
-        } catch (error) {
-          logger.warn('Failed to parse daemon response', { error: getErrorMessage(error) });
         }
-      }
+      })();
     });
 
     client.on('error', (error) => {
@@ -373,21 +378,23 @@ export async function subscribeChannel(
       logger.debug(`Reconnecting ${channel} in ${delay}ms (attempt ${reconnectAttempts})`);
     }
 
-    setTimeout(async () => {
-      if (cancelled) return;
-      try {
-        // Try reconnecting to existing daemon first; only start if it's down
-        await ensureDaemon();
-        await connect();
-        reconnectAttempts = 0;
-        logger.debug(`Reconnected subscription for ${channel}`);
-        options?.onReconnect?.();
-      } catch (e) {
-        logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
-          error: getErrorMessage(e),
-        });
-        if (!cancelled) scheduleReconnect();
-      }
+    setTimeout(() => {
+      void (async () => {
+        if (cancelled) return;
+        try {
+          // Try reconnecting to existing daemon first; only start if it's down
+          await ensureDaemon();
+          await connect();
+          reconnectAttempts = 0;
+          logger.debug(`Reconnected subscription for ${channel}`);
+          options?.onReconnect?.();
+        } catch (e) {
+          logger.debug(`Reconnect attempt ${reconnectAttempts} failed for ${channel}`, {
+            error: getErrorMessage(e),
+          });
+          if (!cancelled) scheduleReconnect();
+        }
+      })();
     }, delay);
   };
 

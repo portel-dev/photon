@@ -276,7 +276,7 @@ export function createTokenVault(options: CreateTokenVaultOptions): TokenVault {
       });
 
     default:
-      throw new Error(`Unknown token vault type: ${options.type}`);
+      throw new Error(`Unknown token vault type: ${String((options as { type: string }).type)}`);
   }
 }
 

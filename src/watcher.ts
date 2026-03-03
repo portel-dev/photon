@@ -92,18 +92,20 @@ export class FileWatcher {
       clearTimeout(this.reloadTimeout);
     }
 
-    this.reloadTimeout = setTimeout(async () => {
-      try {
-        await this.server.reload();
-        this.logger.info('Hot reload complete');
-      } catch (error: any) {
-        if (error instanceof HotReloadDisabledError) {
-          this.logger.error(error.message);
-          await this.stop();
-        } else {
-          this.logger.error(`Hot reload failed: ${error.message}`);
+    this.reloadTimeout = setTimeout(() => {
+      void (async () => {
+        try {
+          await this.server.reload();
+          this.logger.info('Hot reload complete');
+        } catch (error: any) {
+          if (error instanceof HotReloadDisabledError) {
+            this.logger.error(error.message);
+            await this.stop();
+          } else {
+            this.logger.error(`Hot reload failed: ${error.message}`);
+          }
         }
-      }
+      })();
     }, 200);
   }
 

@@ -145,7 +145,7 @@ export function registerSSECommand(program: Command): void {
 
         // Start SSE server
         const server = new PhotonServer({
-          filePath: filePath!,
+          filePath: filePath,
           devMode: options.dev,
           transport: 'sse',
           port,
@@ -160,22 +160,26 @@ export function registerSSECommand(program: Command): void {
           process.exit(0);
         };
 
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', () => {
+          void shutdown();
+        });
+        process.on('SIGTERM', () => {
+          void shutdown();
+        });
 
         // Start the server
         await server.start();
 
         // Start file watcher in dev mode
         if (options.dev) {
-          const watcher = new FileWatcher(server, filePath!, server.createScopedLogger('watcher'));
+          const watcher = new FileWatcher(server, filePath, server.createScopedLogger('watcher'));
           watcher.start();
 
-          process.on('SIGINT', async () => {
-            await watcher.stop();
+          process.on('SIGINT', () => {
+            void watcher.stop();
           });
-          process.on('SIGTERM', async () => {
-            await watcher.stop();
+          process.on('SIGTERM', () => {
+            void watcher.stop();
           });
         }
       } catch (error) {
@@ -277,8 +281,12 @@ export function registerBeamCommand(program: Command): void {
           process.exit(0);
         };
 
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', () => {
+          void shutdown();
+        });
+        process.on('SIGTERM', () => {
+          void shutdown();
+        });
       } catch (error) {
         logger.error(`Error: ${getErrorMessage(error)}`);
         process.exit(1);

@@ -383,7 +383,9 @@ function scheduleJob(job: ScheduledJob & { photonName: string; workingDir?: stri
   }
 
   const delay = nextRun - Date.now();
-  const timer = setTimeout(() => runJob(job.id), delay);
+  const timer = setTimeout(() => {
+    void runJob(job.id);
+  }, delay);
   jobTimers.set(job.id, timer);
 
   logger.info('Job scheduled', {
@@ -465,137 +467,142 @@ const webhookRateLimiter = new SimpleRateLimiter(30, 60_000);
 function startWebhookServer(port: number): void {
   if (port <= 0) return;
 
-  webhookServer = http.createServer(async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Webhook-Secret, X-Photon-Name');
+  webhookServer = http.createServer((req, res) => {
+    void (async () => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, X-Webhook-Secret, X-Photon-Name'
+      );
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    // Security: rate limiting
-    const clientKey = req.socket?.remoteAddress || 'unknown';
-    if (!webhookRateLimiter.isAllowed(clientKey)) {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Too many requests' }));
-      return;
-    }
-
-    // Parse URL: /webhook/{photonName}/{method}
-    const url = new URL(req.url || '/', `http://localhost:${port}`);
-    const pathParts = url.pathname.split('/').filter(Boolean);
-
-    if (pathParts[0] !== 'webhook' || !pathParts[1] || !pathParts[2]) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found. Use /webhook/{photonName}/{method}' }));
-      return;
-    }
-
-    const photonName = pathParts[1];
-    const method = pathParts[2];
-
-    const expectedSecret = process.env.PHOTON_WEBHOOK_SECRET;
-    if (expectedSecret) {
-      const providedSecret = req.headers['x-webhook-secret'];
-      if (
-        !providedSecret ||
-        typeof providedSecret !== 'string' ||
-        !timingSafeEqual(providedSecret, expectedSecret)
-      ) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid webhook secret' }));
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
         return;
       }
-    } else if (!process.env.PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED) {
-      // Security: require explicit opt-in for unauthenticated webhooks
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error:
-            'Webhook secret not configured. Set PHOTON_WEBHOOK_SECRET or PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED=true',
-        })
-      );
-      return;
-    }
 
-    let args: Record<string, unknown> = {};
-
-    try {
-      const body = await readBody(req);
-      if (body) {
-        args = JSON.parse(body);
+      // Security: rate limiting
+      const clientKey = req.socket?.remoteAddress || 'unknown';
+      if (!webhookRateLimiter.isAllowed(clientKey)) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Too many requests' }));
+        return;
       }
-      args._webhook = {
-        method: req.method,
-        headers: req.headers,
-        query: Object.fromEntries(url.searchParams),
-        timestamp: Date.now(),
-      };
-    } catch (err: any) {
-      const status = err.message?.includes('too large') ? 413 : 400;
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invalid JSON body' })
-      );
-      return;
-    }
 
-    const sessionManager = sessionManagers.get(photonName);
-    if (!sessionManager) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
-      return;
-    }
+      // Parse URL: /webhook/{photonName}/{method}
+      const url = new URL(req.url || '/', `http://localhost:${port}`);
+      const pathParts = url.pathname.split('/').filter(Boolean);
 
-    // Resolve method from webhook route map (if routes are registered)
-    let resolvedMethod = method;
-    const routes = webhookRoutes.get(photonName);
-    if (routes && routes.size > 0) {
-      // Only allow methods that have @webhook tag
-      const mapped = routes.get(method);
-      if (!mapped) {
+      if (pathParts[0] !== 'webhook' || !pathParts[1] || !pathParts[2]) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not found. Use /webhook/{photonName}/{method}' }));
+        return;
+      }
+
+      const photonName = pathParts[1];
+      const method = pathParts[2];
+
+      const expectedSecret = process.env.PHOTON_WEBHOOK_SECRET;
+      if (expectedSecret) {
+        const providedSecret = req.headers['x-webhook-secret'];
+        if (
+          !providedSecret ||
+          typeof providedSecret !== 'string' ||
+          !timingSafeEqual(providedSecret, expectedSecret)
+        ) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid webhook secret' }));
+          return;
+        }
+      } else if (!process.env.PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED) {
+        // Security: require explicit opt-in for unauthenticated webhooks
+        res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            error: `No webhook route '${method}' on photon '${photonName}'`,
-            availableRoutes: [...routes.keys()],
+            error:
+              'Webhook secret not configured. Set PHOTON_WEBHOOK_SECRET or PHOTON_WEBHOOK_ALLOW_UNAUTHENTICATED=true',
           })
         );
         return;
       }
-      resolvedMethod = mapped;
-    }
 
-    try {
-      const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
-      const result = await sessionManager.loader.executeTool(
-        session.instance,
-        resolvedMethod,
-        args
-      );
+      let args: Record<string, unknown> = {};
 
-      logger.info('Webhook executed', { photon: photonName, method });
+      try {
+        const body = await readBody(req);
+        if (body) {
+          args = JSON.parse(body);
+        }
+        args._webhook = {
+          method: req.method,
+          headers: req.headers,
+          query: Object.fromEntries(url.searchParams),
+          timestamp: Date.now(),
+        };
+      } catch (err: any) {
+        const status = err.message?.includes('too large') ? 413 : 400;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({ error: status === 413 ? 'Request body too large' : 'Invalid JSON body' })
+        );
+        return;
+      }
 
-      publishToChannel(`webhooks:${photonName}`, {
-        event: 'webhook-received',
-        method,
-        timestamp: Date.now(),
-      });
+      const sessionManager = sessionManagers.get(photonName);
+      if (!sessionManager) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Photon '${photonName}' not initialized` }));
+        return;
+      }
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: result }));
-    } catch (error) {
-      logger.error('Webhook execution failed', {
-        photon: photonName,
-        method,
-        error: getErrorMessage(error),
-      });
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: getErrorMessage(error) }));
-    }
+      // Resolve method from webhook route map (if routes are registered)
+      let resolvedMethod = method;
+      const routes = webhookRoutes.get(photonName);
+      if (routes && routes.size > 0) {
+        // Only allow methods that have @webhook tag
+        const mapped = routes.get(method);
+        if (!mapped) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: `No webhook route '${method}' on photon '${photonName}'`,
+              availableRoutes: [...routes.keys()],
+            })
+          );
+          return;
+        }
+        resolvedMethod = mapped;
+      }
+
+      try {
+        const session = await sessionManager.getOrCreateSession('webhook', 'webhook');
+        const result = await sessionManager.loader.executeTool(
+          session.instance,
+          resolvedMethod,
+          args
+        );
+
+        logger.info('Webhook executed', { photon: photonName, method });
+
+        publishToChannel(`webhooks:${photonName}`, {
+          event: 'webhook-received',
+          method,
+          timestamp: Date.now(),
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: result }));
+      } catch (error) {
+        logger.error('Webhook execution failed', {
+          photon: photonName,
+          method,
+          error: getErrorMessage(error),
+        });
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: getErrorMessage(error) }));
+      }
+    })();
   });
 
   webhookServer.listen(port, () => {
@@ -735,7 +742,7 @@ async function getOrCreateSessionManager(
 
     // Auto-register scheduled jobs and webhook routes from tool metadata
     // Do this lazily on first session creation
-    autoRegisterFromMetadata(key, manager);
+    void autoRegisterFromMetadata(key, manager);
 
     return manager;
   } catch (error) {
@@ -1380,7 +1387,11 @@ async function handleRequest(
     }
   }
 
-  return { type: 'error', id: request.id, error: `Unknown request type: ${request.type}` };
+  return {
+    type: 'error',
+    id: request.id,
+    error: `Unknown request type: ${String((request as { type: string }).type)}`,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1502,44 +1513,46 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
 
       watchDebounce.set(
         watchPath,
-        setTimeout(async () => {
-          watchDebounce.delete(watchPath);
+        setTimeout(() => {
+          void (async () => {
+            watchDebounce.delete(watchPath);
 
-          // On macOS, editors like sed -i and some IDEs replace the file (new inode),
-          // which kills the watcher. Re-watch via original path (symlink) so we
-          // re-resolve to the new real path. Don't return — fall through to reload,
-          // because the new watcher won't fire (file was already written before it was set up).
-          if (eventType === 'rename') {
-            unwatchPhotonFile(watchPath);
-            if (fs.existsSync(photonPath)) {
-              watchPhotonFile(photonName, photonPath);
-            } else {
-              // Photon file deleted (uninstalled) — unload all session managers for it
-              logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
-              // Collect keys first — mutating Maps during a live async iterator is unsafe
-              const keysToDelete = Array.from(photonPaths.entries())
-                .filter(([, storedPath]) => storedPath === photonPath)
-                .map(([key]) => key);
-              for (const key of keysToDelete) {
-                const manager = sessionManagers.get(key);
-                if (manager) await manager.clearInstances();
-                sessionManagers.delete(key);
-                photonPaths.delete(key);
-                workingDirs.delete(key);
+            // On macOS, editors like sed -i and some IDEs replace the file (new inode),
+            // which kills the watcher. Re-watch via original path (symlink) so we
+            // re-resolve to the new real path. Don't return — fall through to reload,
+            // because the new watcher won't fire (file was already written before it was set up).
+            if (eventType === 'rename') {
+              unwatchPhotonFile(watchPath);
+              if (fs.existsSync(photonPath)) {
+                watchPhotonFile(photonName, photonPath);
+              } else {
+                // Photon file deleted (uninstalled) — unload all session managers for it
+                logger.info('Photon file deleted — unloading', { photonName, path: photonPath });
+                // Collect keys first — mutating Maps during a live async iterator is unsafe
+                const keysToDelete = Array.from(photonPaths.entries())
+                  .filter(([, storedPath]) => storedPath === photonPath)
+                  .map(([key]) => key);
+                for (const key of keysToDelete) {
+                  const manager = sessionManagers.get(key);
+                  if (manager) await manager.clearInstances();
+                  sessionManagers.delete(key);
+                  photonPaths.delete(key);
+                  workingDirs.delete(key);
+                }
+                stateKeysCache.delete(photonName);
+                return;
               }
-              stateKeysCache.delete(photonName);
-              return;
             }
-          }
 
-          if (!fs.existsSync(photonPath)) return;
+            if (!fs.existsSync(photonPath)) return;
 
-          logger.info('File changed, auto-reloading', { photonName, path: photonPath });
+            logger.info('File changed, auto-reloading', { photonName, path: photonPath });
 
-          // Invalidate cached state keys so they're re-extracted from fresh source
-          stateKeysCache.delete(photonName);
+            // Invalidate cached state keys so they're re-extracted from fresh source
+            stateKeysCache.delete(photonName);
 
-          await reloadPhoton(photonName, photonPath);
+            await reloadPhoton(photonName, photonPath);
+          })();
         }, 100)
       );
     });
@@ -1650,58 +1663,60 @@ function watchWorkingDir(workingDir: string): void {
 
       watchDebounce.set(
         debounceKey,
-        setTimeout(async () => {
-          watchDebounce.delete(debounceKey);
+        setTimeout(() => {
+          void (async () => {
+            watchDebounce.delete(debounceKey);
 
-          if (fs.existsSync(workingDir)) {
-            // Still exists — record updated inode in case it was recreated
-            try {
-              workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
-            } catch {
-              /* stat may fail if dir was just recreated */
-            }
-            return;
-          }
-
-          const renamedTo = detectRenameOrDelete(workingDir);
-
-          if (renamedTo) {
-            // RENAME: data is intact at the new path.
-            // Migrate each session manager's loader baseDir to the new path so
-            // subsequent loadFile calls set PHOTON_DIR correctly — photon
-            // module-level constants (STATE_DIR, etc.) pick up the new location
-            // on the next fresh import (loader uses ?t=Date.now() cache busting).
-            logger.info('workingDir renamed — migrating sessions', {
-              from: workingDir,
-              to: renamedTo,
-            });
-            for (const [key, dir] of workingDirs.entries()) {
-              if (dir !== workingDir) continue;
-              workingDirs.set(key, renamedTo);
-              const manager = sessionManagers.get(key);
-              if (manager) {
-                await manager.migrateBaseDir(renamedTo);
+            if (fs.existsSync(workingDir)) {
+              // Still exists — record updated inode in case it was recreated
+              try {
+                workingDirInodes.set(workingDir, fs.statSync(workingDir).ino);
+              } catch {
+                /* stat may fail if dir was just recreated */
               }
+              return;
             }
-            workingDirInodes.delete(workingDir);
-            workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
-          } else {
-            // DELETE: data is gone — clear all in-memory instances so stale
-            // state isn't replayed into a fresh directory.
-            logger.info('workingDir deleted — clearing all instances', { workingDir });
-            // Collect keys first to avoid async mutation of live iterators
-            const deletedDirKeys = Array.from(workingDirs.entries())
-              .filter(([, dir]) => dir === workingDir)
-              .map(([key]) => key);
-            for (const key of deletedDirKeys) {
-              const manager = sessionManagers.get(key);
-              if (manager) await manager.clearInstances();
-              sessionManagers.delete(key);
-              photonPaths.delete(key);
-              workingDirs.delete(key);
+
+            const renamedTo = detectRenameOrDelete(workingDir);
+
+            if (renamedTo) {
+              // RENAME: data is intact at the new path.
+              // Migrate each session manager's loader baseDir to the new path so
+              // subsequent loadFile calls set PHOTON_DIR correctly — photon
+              // module-level constants (STATE_DIR, etc.) pick up the new location
+              // on the next fresh import (loader uses ?t=Date.now() cache busting).
+              logger.info('workingDir renamed — migrating sessions', {
+                from: workingDir,
+                to: renamedTo,
+              });
+              for (const [key, dir] of workingDirs.entries()) {
+                if (dir !== workingDir) continue;
+                workingDirs.set(key, renamedTo);
+                const manager = sessionManagers.get(key);
+                if (manager) {
+                  await manager.migrateBaseDir(renamedTo);
+                }
+              }
+              workingDirInodes.delete(workingDir);
+              workingDirInodes.set(renamedTo, fs.statSync(renamedTo).ino);
+            } else {
+              // DELETE: data is gone — clear all in-memory instances so stale
+              // state isn't replayed into a fresh directory.
+              logger.info('workingDir deleted — clearing all instances', { workingDir });
+              // Collect keys first to avoid async mutation of live iterators
+              const deletedDirKeys = Array.from(workingDirs.entries())
+                .filter(([, dir]) => dir === workingDir)
+                .map(([key]) => key);
+              for (const key of deletedDirKeys) {
+                const manager = sessionManagers.get(key);
+                if (manager) await manager.clearInstances();
+                sessionManagers.delete(key);
+                photonPaths.delete(key);
+                workingDirs.delete(key);
+              }
+              workingDirInodes.delete(workingDir);
             }
-            workingDirInodes.delete(workingDir);
-          }
+          })();
         }, 150)
       );
     });
@@ -1749,22 +1764,24 @@ function watchStateDir(workingDir: string): void {
 
       watchDebounce.set(
         debounceKey,
-        setTimeout(async () => {
-          watchDebounce.delete(debounceKey);
+        setTimeout(() => {
+          void (async () => {
+            watchDebounce.delete(debounceKey);
 
-          const photonStateDir = path.join(stateDir, filename);
-          if (fs.existsSync(photonStateDir)) return; // Still there — not a deletion
+            const photonStateDir = path.join(stateDir, filename);
+            if (fs.existsSync(photonStateDir)) return; // Still there — not a deletion
 
-          // A photon's state subdir was deleted — clear its instances
-          logger.info('Photon state dir deleted — clearing instances', {
-            photon: filename,
-            workingDir,
-          });
-          const key = compositeKey(filename, workingDir);
-          const manager = sessionManagers.get(key);
-          if (manager) {
-            await manager.clearInstances();
-          }
+            // A photon's state subdir was deleted — clear its instances
+            logger.info('Photon state dir deleted — clearing instances', {
+              photon: filename,
+              workingDir,
+            });
+            const key = compositeKey(filename, workingDir);
+            const manager = sessionManagers.get(key);
+            if (manager) {
+              await manager.clearInstances();
+            }
+          })();
         }, 150)
       );
     });
@@ -1818,10 +1835,10 @@ async function reloadPhoton(
         // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
         if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
           for (const key of Object.keys(oldMcp.instance)) {
-            const value = (oldMcp.instance as any)[key];
+            const value = oldMcp.instance[key];
             if (typeof value !== 'function' && key !== 'constructor') {
               try {
-                (newMcp.instance as any)[key] = value;
+                newMcp.instance[key] = value;
               } catch {
                 // Some properties may be read-only
               }
@@ -1942,39 +1959,41 @@ function startServer(): void {
 
     let buffer = '';
 
-    socket.on('data', async (chunk) => {
-      buffer += chunk.toString();
+    socket.on('data', (chunk) => {
+      void (async () => {
+        buffer += chunk.toString();
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-        try {
-          const parsed = JSON.parse(line);
+          try {
+            const parsed = JSON.parse(line);
 
-          if (!isValidDaemonRequest(parsed)) {
+            if (!isValidDaemonRequest(parsed)) {
+              socket.write(
+                JSON.stringify({ type: 'error', id: 'unknown', error: 'Invalid request format' }) +
+                  '\n'
+              );
+              continue;
+            }
+
+            const request: DaemonRequest = parsed;
+            const response = await handleRequest(request, socket);
+
+            if (response !== null) {
+              socket.write(JSON.stringify(response) + '\n');
+            }
+          } catch (error) {
+            logger.error('Error processing request', { error: getErrorMessage(error) });
             socket.write(
-              JSON.stringify({ type: 'error', id: 'unknown', error: 'Invalid request format' }) +
-                '\n'
+              JSON.stringify({ type: 'error', id: 'unknown', error: getErrorMessage(error) }) + '\n'
             );
-            continue;
           }
-
-          const request: DaemonRequest = parsed;
-          const response = await handleRequest(request, socket);
-
-          if (response !== null) {
-            socket.write(JSON.stringify(response) + '\n');
-          }
-        } catch (error) {
-          logger.error('Error processing request', { error: getErrorMessage(error) });
-          socket.write(
-            JSON.stringify({ type: 'error', id: 'unknown', error: getErrorMessage(error) }) + '\n'
-          );
         }
-      }
+      })();
     });
 
     socket.on('end', () => {

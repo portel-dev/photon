@@ -397,7 +397,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       // Extract schema for UI — reuse source read from above
       const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
       const { tools: schemas, templates } = extractor.extractAllFromSource(schemaSource);
-      (mcp as any).schemas = schemas;
+      mcp.schemas = schemas;
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
@@ -468,7 +468,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const cspData = extractCspFromSource(schemaSource);
       if (cspData['__class__'] && mcp.assets?.ui) {
         for (const uiAsset of mcp.assets.ui) {
-          (uiAsset as any).csp = cspData['__class__'];
+          uiAsset.csp = cspData['__class__'];
         }
       }
 
@@ -621,173 +621,175 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   };
 
   // Create HTTP server
-  const server = http.createServer(async (req, res) => {
-    const reqStart = Date.now();
-    // Security: set standard security headers on all responses
-    setSecurityHeaders(res);
-    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const server = http.createServer((req, res) => {
+    void (async () => {
+      const reqStart = Date.now();
+      // Security: set standard security headers on all responses
+      setSecurityHeaders(res);
+      const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
-    // Access logging for API and MCP routes (debug-level to avoid noise)
-    res.on('finish', () => {
-      if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') {
-        const duration = Date.now() - reqStart;
-        logger.debug(`${req.method} ${url.pathname} ${res.statusCode} ${duration}ms`);
-      }
-    });
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // MCP Streamable HTTP Transport (standard MCP clients like Claude Desktop)
-    // Endpoint: /mcp (POST for requests, GET for SSE notifications)
-    // ══════════════════════════════════════════════════════════════════════════
-    if (url.pathname === '/mcp') {
-      const handled = await handleStreamableHTTP(req, res, {
-        photons, // Pass all photons including unconfigured for configurationSchema
-        photonMCPs,
-        externalMCPs,
-        externalMCPClients,
-        externalMCPSDKClients, // SDK clients for tool calls with structuredContent
-        reconnectExternalMCP,
-        loadUIAsset,
-        workingDir,
-        configurePhoton: async (photonName: string, config: Record<string, any>) => {
-          return configurePhotonViaMCP(
-            photonName,
-            config,
-            photons,
-            photonMCPs,
-            loader,
-            savedConfig,
-            workingDir,
-            activeLoads
-          );
-        },
-        reloadPhoton: async (photonName: string) => {
-          return reloadPhotonViaMCP(
-            photonName,
-            photons,
-            photonMCPs,
-            loader,
-            savedConfig,
-            broadcastPhotonChange,
-            activeLoads
-          );
-        },
-        removePhoton: async (photonName: string) => {
-          return removePhotonViaMCP(
-            photonName,
-            photons,
-            photonMCPs,
-            savedConfig,
-            broadcastPhotonChange,
-            workingDir
-          );
-        },
-        updateMetadata: async (
-          photonName: string,
-          methodName: string | null,
-          metadata: Record<string, any>
-        ) => {
-          return updateMetadataViaMCP(photonName, methodName, metadata, photons);
-        },
-        generatePhotonHelp: async (photonName: string) => {
-          return generatePhotonHelpMarkdown(photonName, photons);
-        },
-        loader, // Pass loader for proper execution context (this.emit() support)
-        subscriptionManager, // For on-demand channel subscriptions
-        broadcast: (message: object) => {
-          const msg = message as {
-            type?: string;
-            photon?: string;
-            board?: string;
-            channel?: string;
-            event?: string;
-            data?: any;
-            jsonrpc?: string;
-            method?: string;
-            params?: any;
-          };
-
-          // Forward JSON-RPC notifications (progress, status, etc.)
-          if (msg.jsonrpc === '2.0' && msg.method) {
-            broadcastNotification(msg.method, msg.params || {});
-          }
-          // Forward channel events (task-moved, task-updated, etc.) with delta
-          else if (msg.type === 'channel-event') {
-            const params = {
-              photon: msg.photon,
-              channel: msg.channel,
-              event: msg.event,
-              data: msg.data,
-            };
-            // Buffer event for replay - find photonId from name for consistent channel key
-            const photon = photons.find((p) => p.name === msg.photon);
-            if (photon && msg.channel) {
-              const [, itemId] = msg.channel.split(':');
-              const bufferChannel = `${photon.id}:${itemId}`;
-              const eventId = bufferEvent(bufferChannel, 'photon/channel-event', {
-                ...params,
-                photonId: photon.id,
-              });
-              broadcastToBeam('photon/channel-event', {
-                ...params,
-                photonId: photon.id,
-                _eventId: eventId,
-              });
-            } else {
-              broadcastToBeam('photon/channel-event', params);
-            }
-          }
-          // Forward board-update for backwards compatibility
-          else if (msg.type === 'board-update') {
-            broadcastToBeam('photon/board-update', {
-              photon: msg.photon,
-              board: msg.board,
-            });
-          }
-        },
+      // Access logging for API and MCP routes (debug-level to avoid noise)
+      res.on('finish', () => {
+        if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') {
+          const duration = Date.now() - reqStart;
+          logger.debug(`${req.method} ${url.pathname} ${res.statusCode} ${duration}ms`);
+        }
       });
-      if (handled) return;
-    }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // REST API routes (extracted modules)
-    // ══════════════════════════════════════════════════════════════════════════
-    if (url.pathname.startsWith('/api/')) {
-      if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
-      if (await handleBrowseRoutes(req, res, url, beamState)) return;
-      if (await handleConfigRoutes(req, res, url, beamState)) return;
-    }
+      // ══════════════════════════════════════════════════════════════════════════
+      // MCP Streamable HTTP Transport (standard MCP clients like Claude Desktop)
+      // Endpoint: /mcp (POST for requests, GET for SSE notifications)
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/mcp') {
+        const handled = await handleStreamableHTTP(req, res, {
+          photons, // Pass all photons including unconfigured for configurationSchema
+          photonMCPs,
+          externalMCPs,
+          externalMCPClients,
+          externalMCPSDKClients, // SDK clients for tool calls with structuredContent
+          reconnectExternalMCP,
+          loadUIAsset,
+          workingDir,
+          configurePhoton: async (photonName: string, config: Record<string, any>) => {
+            return configurePhotonViaMCP(
+              photonName,
+              config,
+              photons,
+              photonMCPs,
+              loader,
+              savedConfig,
+              workingDir,
+              activeLoads
+            );
+          },
+          reloadPhoton: async (photonName: string) => {
+            return reloadPhotonViaMCP(
+              photonName,
+              photons,
+              photonMCPs,
+              loader,
+              savedConfig,
+              broadcastPhotonChange,
+              activeLoads
+            );
+          },
+          removePhoton: async (photonName: string) => {
+            return removePhotonViaMCP(
+              photonName,
+              photons,
+              photonMCPs,
+              savedConfig,
+              broadcastPhotonChange,
+              workingDir
+            );
+          },
+          updateMetadata: async (
+            photonName: string,
+            methodName: string | null,
+            metadata: Record<string, any>
+          ) => {
+            return updateMetadataViaMCP(photonName, methodName, metadata, photons);
+          },
+          generatePhotonHelp: async (photonName: string) => {
+            return generatePhotonHelpMarkdown(photonName, photons);
+          },
+          loader, // Pass loader for proper execution context (this.emit() support)
+          subscriptionManager, // For on-demand channel subscriptions
+          broadcast: (message: object) => {
+            const msg = message as {
+              type?: string;
+              photon?: string;
+              board?: string;
+              channel?: string;
+              event?: string;
+              data?: any;
+              jsonrpc?: string;
+              method?: string;
+              params?: any;
+            };
 
-    // Serve static frontend bundle
-    if (url.pathname === '/beam.bundle.js') {
-      try {
-        const bundlePath = path.join(__dirname, '../../dist/beam.bundle.js');
-        const content = await fs.readFile(bundlePath, 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'text/javascript' });
-        res.end(content);
-      } catch {
-        res.writeHead(404);
-        res.end('Bundle not found. Run npm run build:beam first.');
+            // Forward JSON-RPC notifications (progress, status, etc.)
+            if (msg.jsonrpc === '2.0' && msg.method) {
+              broadcastNotification(msg.method, msg.params || {});
+            }
+            // Forward channel events (task-moved, task-updated, etc.) with delta
+            else if (msg.type === 'channel-event') {
+              const params = {
+                photon: msg.photon,
+                channel: msg.channel,
+                event: msg.event,
+                data: msg.data,
+              };
+              // Buffer event for replay - find photonId from name for consistent channel key
+              const photon = photons.find((p) => p.name === msg.photon);
+              if (photon && msg.channel) {
+                const [, itemId] = msg.channel.split(':');
+                const bufferChannel = `${photon.id}:${itemId}`;
+                const eventId = bufferEvent(bufferChannel, 'photon/channel-event', {
+                  ...params,
+                  photonId: photon.id,
+                });
+                broadcastToBeam('photon/channel-event', {
+                  ...params,
+                  photonId: photon.id,
+                  _eventId: eventId,
+                });
+              } else {
+                broadcastToBeam('photon/channel-event', params);
+              }
+            }
+            // Forward board-update for backwards compatibility
+            else if (msg.type === 'board-update') {
+              broadcastToBeam('photon/board-update', {
+                photon: msg.photon,
+                board: msg.board,
+              });
+            }
+          },
+        });
+        if (handled) return;
       }
-      return;
-    }
 
-    // Default route: Serve Lit App
-    if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
-      try {
-        const indexPath = path.join(__dirname, 'frontend/index.html');
-        const content = await fs.readFile(indexPath, 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(content);
-      } catch (err) {
-        res.writeHead(500);
-        res.end('Error serving UI: ' + String(err));
+      // ══════════════════════════════════════════════════════════════════════════
+      // REST API routes (extracted modules)
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname.startsWith('/api/')) {
+        if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
+        if (await handleBrowseRoutes(req, res, url, beamState)) return;
+        if (await handleConfigRoutes(req, res, url, beamState)) return;
       }
-      return;
-    }
 
-    res.writeHead(404);
-    res.end('Not Found');
+      // Serve static frontend bundle
+      if (url.pathname === '/beam.bundle.js') {
+        try {
+          const bundlePath = path.join(__dirname, '../../dist/beam.bundle.js');
+          const content = await fs.readFile(bundlePath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/javascript' });
+          res.end(content);
+        } catch {
+          res.writeHead(404);
+          res.end('Bundle not found. Run npm run build:beam first.');
+        }
+        return;
+      }
+
+      // Default route: Serve Lit App
+      if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
+        try {
+          const indexPath = path.join(__dirname, 'frontend/index.html');
+          const content = await fs.readFile(indexPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(content);
+        } catch (err) {
+          res.writeHead(500);
+          res.end('Error serving UI: ' + String(err));
+        }
+        return;
+      }
+
+      res.writeHead(404);
+      res.end('Not Found');
+    })();
   });
 
   // Broadcast photon changes to all connected clients via MCP SSE
@@ -824,7 +826,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       try {
         const srcDirWatcher = watch(realDir, (eventType, filename) => {
           if (filename === realFileName) {
-            handleFileChange(photonName);
+            void handleFileChange(photonName);
           }
         });
         srcDirWatcher.on('error', () => {});
@@ -848,7 +850,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 return;
               }
               logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
-              handleFileChange(photonName);
+              void handleFileChange(photonName);
             }
           });
           assetWatcher.on('error', (err) => {
@@ -903,285 +905,100 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     // Debounce - wait 100ms for batch saves
     pendingReloads.set(
       photonName,
-      setTimeout(async () => {
-        pendingReloads.delete(photonName);
+      setTimeout(() => {
+        void (async () => {
+          pendingReloads.delete(photonName);
 
-        // Skip if already loading this photon — but mark it so we re-run after the active load
-        // finishes. Without this, file changes that arrive mid-load are silently dropped.
-        if (activeLoads.has(photonName)) {
-          pendingAfterLoad.add(photonName);
-          return;
-        }
-        activeLoads.add(photonName);
-
-        try {
-          const photonIndex = photons.findIndex((p) => p.name === photonName);
-          const isNewPhoton = photonIndex === -1;
-          const photonPath = isNewPhoton
-            ? path.join(workingDir, `${photonName}.photon.ts`)
-            : photons[photonIndex].path;
-          const previouslyConfigured = !isNewPhoton && photons[photonIndex]?.configured === true;
-
-          // Handle file deletion - if file no longer exists and photon is in list, remove it
-          if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
-            // For symlinks, `ln -sf` causes a transient gap between unlink and create.
-            // Retry once after a short delay before treating it as a real deletion.
-            let isTransientSymlinkReplacement = false;
-            try {
-              const stat = lstatSync(photonPath);
-              if (stat.isSymbolicLink()) {
-                await new Promise((r) => setTimeout(r, 200));
-                if (existsSync(photonPath)) {
-                  isTransientSymlinkReplacement = true;
-                }
-              }
-            } catch {
-              // lstat failed — symlink inode itself is gone, proceed with removal
-            }
-
-            if (isTransientSymlinkReplacement) {
-              logger.info(`🔗 Symlink replaced: ${photonName}, treating as change`);
-              // Fall through to reload logic below
-            } else {
-              logger.info(`🗑️ Photon file deleted: ${photonName}`);
-              photons.splice(photonIndex, 1);
-              photonMCPs.delete(photonName);
-              // Also remove from saved config
-              if (savedConfig.photons[photonName]) {
-                delete savedConfig.photons[photonName];
-                await saveConfig(savedConfig, workingDir);
-              }
-              broadcastPhotonChange();
-              broadcastToBeam('beam/photon-removed', { name: photonName });
-              return;
-            }
-          }
-
-          // Ghost event: watcher fired for a new photon but the file doesn't exist.
-          // This happens on macOS FSEvents spurious events or create-then-delete races.
-          // Nothing to load — ignore silently.
-          if (isNewPhoton && !existsSync(photonPath)) {
-            logger.debug(`👻 Ghost event for ${photonName}: file not found, skipping`);
+          // Skip if already loading this photon — but mark it so we re-run after the active load
+          // finishes. Without this, file changes that arrive mid-load are silently dropped.
+          if (activeLoads.has(photonName)) {
+            pendingAfterLoad.add(photonName);
             return;
           }
-
-          logger.info(
-            isNewPhoton
-              ? `✨ New photon detected: ${photonName}`
-              : `🔄 File change detected, reloading ${photonName}...`
-          );
-
-          // Auto-scaffold empty photon files with a starter template
-          if (isNewPhoton) {
-            try {
-              const rawContent = await fs.readFile(photonPath, 'utf-8');
-              if (rawContent.trim().length === 0) {
-                const className = photonName
-                  .split(/[-_]/)
-                  .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-                  .join('');
-                const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
-                await fs.writeFile(photonPath, scaffold, 'utf-8');
-                logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
-                // The write triggers another watcher event which will load the scaffolded photon
-                return;
-              }
-            } catch {
-              // File read failed, continue with normal load attempt
-            }
-          }
-
-          // For new photons, check if configuration is needed first
-          if (isNewPhoton) {
-            const extractor = new SchemaExtractor();
-            let constructorParams: ConfigParam[] = [];
-
-            try {
-              const source = await fs.readFile(photonPath, 'utf-8');
-              const params = extractor.extractConstructorParams(source);
-              constructorParams = params
-                .filter((p: ConstructorParam) => p.isPrimitive)
-                .map((p: ConstructorParam) => ({
-                  name: p.name,
-                  envVar: toEnvVarName(photonName, p.name),
-                  type: p.type,
-                  isOptional: p.isOptional,
-                  hasDefault: p.hasDefault,
-                  defaultValue: p.defaultValue,
-                }));
-            } catch {
-              // Can't extract params, try to load anyway
-            }
-
-            // Check if any required params are missing
-            const missingRequired = constructorParams.filter(
-              (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
-            );
-
-            if (missingRequired.length > 0 && constructorParams.length > 0) {
-              // Add as unconfigured photon
-              const targetPhoton: UnconfiguredPhotonInfo = {
-                id: generatePhotonId(photonPath),
-                name: photonName,
-                path: photonPath,
-                configured: false,
-                requiredParams: constructorParams,
-                errorReason: 'missing-config',
-                errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
-              };
-              if (!photons.find((p) => p.name === photonName)) {
-                photons.push(targetPhoton);
-                broadcastPhotonChange();
-                logger.info(`⚙️ ${photonName} added (needs configuration)`);
-              }
-              return;
-            }
-          }
+          activeLoads.add(photonName);
 
           try {
-            // Load or reload the photon
-            const mcp = isNewPhoton
-              ? await loader.loadFile(photonPath)
-              : await loader.reloadFile(photonPath);
-            if (!mcp.instance) throw new Error('Failed to create instance');
+            const photonIndex = photons.findIndex((p) => p.name === photonName);
+            const isNewPhoton = photonIndex === -1;
+            const photonPath = isNewPhoton
+              ? path.join(workingDir, `${photonName}.photon.ts`)
+              : photons[photonIndex].path;
+            const previouslyConfigured = !isNewPhoton && photons[photonIndex]?.configured === true;
 
-            photonMCPs.set(photonName, mcp);
-
-            // Re-extract schema - use extractAllFromSource to get both tools and templates
-            const extractor = new SchemaExtractor();
-            const reloadSource = await fs.readFile(photonPath, 'utf-8');
-            const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
-            (mcp as any).schemas = schemas; // Store schemas for result rendering
-
-            const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
-            const uiAssets = mcp.assets?.ui || [];
-            const methods: MethodInfo[] = schemas
-              .filter((schema: any) => !lifecycleMethods.includes(schema.name))
-              .map((schema: any) => {
-                const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
-                return {
-                  name: schema.name,
-                  description: schema.description || '',
-                  params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
-                  returns: { type: 'object' },
-                  autorun: schema.autorun || false,
-                  outputFormat: schema.outputFormat,
-                  layoutHints: schema.layoutHints,
-                  buttonLabel: schema.buttonLabel,
-                  icon: schema.icon,
-                  linkedUi: linkedAsset?.id,
-                };
-              });
-
-            // Add templates as methods
-            templates.forEach((template: any) => {
-              if (!lifecycleMethods.includes(template.name)) {
-                methods.push({
-                  name: template.name,
-                  description: template.description || '',
-                  params: template.inputSchema || { type: 'object', properties: {}, required: [] },
-                  returns: { type: 'object' },
-                  isTemplate: true,
-                  outputFormat: 'markdown',
-                });
+            // Handle file deletion - if file no longer exists and photon is in list, remove it
+            if (!isNewPhoton && photonPath && !existsSync(photonPath)) {
+              // For symlinks, `ln -sf` causes a transient gap between unlink and create.
+              // Retry once after a short delay before treating it as a real deletion.
+              let isTransientSymlinkReplacement = false;
+              try {
+                const stat = lstatSync(photonPath);
+                if (stat.isSymbolicLink()) {
+                  await new Promise((r) => setTimeout(r, 200));
+                  if (existsSync(photonPath)) {
+                    isTransientSymlinkReplacement = true;
+                  }
+                }
+              } catch {
+                // lstat failed — symlink inode itself is gone, proceed with removal
               }
-            });
 
-            // Add auto-generated settings tool if the photon has `protected settings`
-            if (mcp.settingsSchema?.hasSettings) {
-              const settingsTool = mcp.tools.find((t: any) => t.name === 'settings');
-              if (settingsTool) {
-                methods.push({
-                  name: 'settings',
-                  description: settingsTool.description || 'Board settings',
-                  params: settingsTool.inputSchema || { type: 'object', properties: {} },
-                  returns: { type: 'object' },
-                });
+              if (isTransientSymlinkReplacement) {
+                logger.info(`🔗 Symlink replaced: ${photonName}, treating as change`);
+                // Fall through to reload logic below
+              } else {
+                logger.info(`🗑️ Photon file deleted: ${photonName}`);
+                photons.splice(photonIndex, 1);
+                photonMCPs.delete(photonName);
+                // Also remove from saved config
+                if (savedConfig.photons[photonName]) {
+                  delete savedConfig.photons[photonName];
+                  await saveConfig(savedConfig, workingDir);
+                }
+                broadcastPhotonChange();
+                broadcastToBeam('beam/photon-removed', { name: photonName });
+                return;
               }
             }
 
-            // Apply @visibility annotations
-            applyMethodVisibility(reloadSource, methods);
-
-            // Check if this is an App (has main() method with @ui)
-            const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
-
-            // Extract class metadata from source
-            const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
-
-            // Extract constructor params for reconfiguration support
-            let reloadConstructorParams: ConfigParam[] = [];
-            try {
-              const reloadParams = extractor.extractConstructorParams(reloadSource);
-              reloadConstructorParams = reloadParams
-                .filter((p: ConstructorParam) => p.isPrimitive)
-                .map((p: ConstructorParam) => ({
-                  name: p.name,
-                  envVar: toEnvVarName(photonName, p.name),
-                  type: p.type,
-                  isOptional: p.isOptional,
-                  hasDefault: p.hasDefault,
-                  defaultValue: p.defaultValue,
-                }));
-            } catch {
-              // Can't extract params
+            // Ghost event: watcher fired for a new photon but the file doesn't exist.
+            // This happens on macOS FSEvents spurious events or create-then-delete races.
+            // Nothing to load — ignore silently.
+            if (isNewPhoton && !existsSync(photonPath)) {
+              logger.debug(`👻 Ghost event for ${photonName}: file not found, skipping`);
+              return;
             }
 
-            backfillEnvDefaults(mcp.instance, reloadConstructorParams);
+            logger.info(
+              isNewPhoton
+                ? `✨ New photon detected: ${photonName}`
+                : `🔄 File change detected, reloading ${photonName}...`
+            );
 
-            const isStateful = /@stateful\b/.test(reloadSource);
-            const reloadedPhoton: PhotonInfo = {
-              id: generatePhotonId(photonPath),
-              name: photonName,
-              path: photonPath,
-              configured: true,
-              methods,
-              isApp: !!mainMethod,
-              appEntry: mainMethod,
-              description: reloadClassMeta.description,
-              icon: reloadClassMeta.icon,
-              internal: reloadClassMeta.internal,
-              ...(isStateful && { stateful: true }),
-              ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
-              ...(reloadConstructorParams.length > 0 && {
-                requiredParams: reloadConstructorParams,
-              }),
-              ...(mcp.injectedPhotons &&
-                mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
-            };
-
-            // Re-find the index — it may have shifted during the async work above
-            const currentIndex = photons.findIndex((p) => p.name === photonName);
+            // Auto-scaffold empty photon files with a starter template
             if (isNewPhoton) {
-              if (currentIndex === -1) {
-                photons.push(reloadedPhoton);
-                broadcastPhotonChange();
-                logger.info(`✅ ${photonName} added`);
+              try {
+                const rawContent = await fs.readFile(photonPath, 'utf-8');
+                if (rawContent.trim().length === 0) {
+                  const className = photonName
+                    .split(/[-_]/)
+                    .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                    .join('');
+                  const scaffold = `/**\n * ${className} Photon\n */\n\nexport default class ${className} {\n  /**\n   * Example tool\n   * @param message Message to echo\n   */\n  async echo(params: { message: string }) {\n    return \`Echo: \${params.message}\`;\n  }\n}\n`;
+                  await fs.writeFile(photonPath, scaffold, 'utf-8');
+                  logger.info(`📝 Scaffolded empty file: ${photonName}.photon.ts`);
+                  // The write triggers another watcher event which will load the scaffolded photon
+                  return;
+                }
+              } catch {
+                // File read failed, continue with normal load attempt
               }
-              // else: another async path already added it — skip duplicate push
-            } else {
-              if (currentIndex !== -1) {
-                photons[currentIndex] = reloadedPhoton;
-                logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
-                broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
-                broadcastPhotonChange();
-                logger.info(`✅ ${photonName} hot reloaded`);
-              }
-              // else: photon was removed while we were reloading — discard result
             }
 
-            // If this photon is symlinked and was previously errored (or new), set up
-            // source-directory watchers that may have been skipped at startup.
-            if (isNewPhoton || !previouslyConfigured) {
-              setupSymlinkWatcher(photonName, reloadedPhoton.path);
-            }
-          } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-
-            // For new photons that fail to load, add as unconfigured
+            // For new photons, check if configuration is needed first
             if (isNewPhoton) {
               const extractor = new SchemaExtractor();
               let constructorParams: ConfigParam[] = [];
+
               try {
                 const source = await fs.readFile(photonPath, 'utf-8');
                 const params = extractor.extractConstructorParams(source);
@@ -1196,43 +1013,234 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                     defaultValue: p.defaultValue,
                   }));
               } catch {
-                // Ignore extraction errors
+                // Can't extract params, try to load anyway
               }
 
-              const targetPhoton: UnconfiguredPhotonInfo = {
+              // Check if any required params are missing
+              const missingRequired = constructorParams.filter(
+                (p) => !p.isOptional && !p.hasDefault && !process.env[p.envVar]
+              );
+
+              if (missingRequired.length > 0 && constructorParams.length > 0) {
+                // Add as unconfigured photon
+                const targetPhoton: UnconfiguredPhotonInfo = {
+                  id: generatePhotonId(photonPath),
+                  name: photonName,
+                  path: photonPath,
+                  configured: false,
+                  requiredParams: constructorParams,
+                  errorReason: 'missing-config',
+                  errorMessage: `Missing required: ${missingRequired.map((p) => p.name).join(', ')}`,
+                };
+                if (!photons.find((p) => p.name === photonName)) {
+                  photons.push(targetPhoton);
+                  broadcastPhotonChange();
+                  logger.info(`⚙️ ${photonName} added (needs configuration)`);
+                }
+                return;
+              }
+            }
+
+            try {
+              // Load or reload the photon
+              const mcp = isNewPhoton
+                ? await loader.loadFile(photonPath)
+                : await loader.reloadFile(photonPath);
+              if (!mcp.instance) throw new Error('Failed to create instance');
+
+              photonMCPs.set(photonName, mcp);
+
+              // Re-extract schema - use extractAllFromSource to get both tools and templates
+              const extractor = new SchemaExtractor();
+              const reloadSource = await fs.readFile(photonPath, 'utf-8');
+              const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
+              (mcp as any).schemas = schemas; // Store schemas for result rendering
+
+              const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
+              const uiAssets = mcp.assets?.ui || [];
+              const methods: MethodInfo[] = schemas
+                .filter((schema: any) => !lifecycleMethods.includes(schema.name))
+                .map((schema: any) => {
+                  const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+                  return {
+                    name: schema.name,
+                    description: schema.description || '',
+                    params: schema.inputSchema || { type: 'object', properties: {}, required: [] },
+                    returns: { type: 'object' },
+                    autorun: schema.autorun || false,
+                    outputFormat: schema.outputFormat,
+                    layoutHints: schema.layoutHints,
+                    buttonLabel: schema.buttonLabel,
+                    icon: schema.icon,
+                    linkedUi: linkedAsset?.id,
+                  };
+                });
+
+              // Add templates as methods
+              templates.forEach((template: any) => {
+                if (!lifecycleMethods.includes(template.name)) {
+                  methods.push({
+                    name: template.name,
+                    description: template.description || '',
+                    params: template.inputSchema || {
+                      type: 'object',
+                      properties: {},
+                      required: [],
+                    },
+                    returns: { type: 'object' },
+                    isTemplate: true,
+                    outputFormat: 'markdown',
+                  });
+                }
+              });
+
+              // Add auto-generated settings tool if the photon has `protected settings`
+              if (mcp.settingsSchema?.hasSettings) {
+                const settingsTool = mcp.tools.find((t: any) => t.name === 'settings');
+                if (settingsTool) {
+                  methods.push({
+                    name: 'settings',
+                    description: settingsTool.description || 'Board settings',
+                    params: settingsTool.inputSchema || { type: 'object', properties: {} },
+                    returns: { type: 'object' },
+                  });
+                }
+              }
+
+              // Apply @visibility annotations
+              applyMethodVisibility(reloadSource, methods);
+
+              // Check if this is an App (has main() method with @ui)
+              const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+
+              // Extract class metadata from source
+              const reloadClassMeta = extractClassMetadataFromSource(reloadSource);
+
+              // Extract constructor params for reconfiguration support
+              let reloadConstructorParams: ConfigParam[] = [];
+              try {
+                const reloadParams = extractor.extractConstructorParams(reloadSource);
+                reloadConstructorParams = reloadParams
+                  .filter((p: ConstructorParam) => p.isPrimitive)
+                  .map((p: ConstructorParam) => ({
+                    name: p.name,
+                    envVar: toEnvVarName(photonName, p.name),
+                    type: p.type,
+                    isOptional: p.isOptional,
+                    hasDefault: p.hasDefault,
+                    defaultValue: p.defaultValue,
+                  }));
+              } catch {
+                // Can't extract params
+              }
+
+              backfillEnvDefaults(mcp.instance, reloadConstructorParams);
+
+              const isStateful = /@stateful\b/.test(reloadSource);
+              const reloadedPhoton: PhotonInfo = {
                 id: generatePhotonId(photonPath),
                 name: photonName,
                 path: photonPath,
-                configured: false,
-                requiredParams: constructorParams,
-                errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
-                errorMessage: errorMsg.slice(0, 200),
+                configured: true,
+                methods,
+                isApp: !!mainMethod,
+                appEntry: mainMethod,
+                description: reloadClassMeta.description,
+                icon: reloadClassMeta.icon,
+                internal: reloadClassMeta.internal,
+                ...(isStateful && { stateful: true }),
+                ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
+                ...(reloadConstructorParams.length > 0 && {
+                  requiredParams: reloadConstructorParams,
+                }),
+                ...(mcp.injectedPhotons &&
+                  mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
               };
-              if (!photons.find((p) => p.name === photonName)) {
-                photons.push(targetPhoton);
-                broadcastPhotonChange();
-                logger.info(
-                  `⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`
-                );
-              }
-              return;
-            }
 
-            logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
-            broadcastToBeam('beam/error', {
-              type: 'hot-reload-error',
-              photon: photonName,
-              message: errorMsg.slice(0, 200),
-            });
+              // Re-find the index — it may have shifted during the async work above
+              const currentIndex = photons.findIndex((p) => p.name === photonName);
+              if (isNewPhoton) {
+                if (currentIndex === -1) {
+                  photons.push(reloadedPhoton);
+                  broadcastPhotonChange();
+                  logger.info(`✅ ${photonName} added`);
+                }
+                // else: another async path already added it — skip duplicate push
+              } else {
+                if (currentIndex !== -1) {
+                  photons[currentIndex] = reloadedPhoton;
+                  logger.info(`📡 Broadcasting hot-reload for ${photonName}`);
+                  broadcastToBeam('beam/hot-reload', { photon: reloadedPhoton });
+                  broadcastPhotonChange();
+                  logger.info(`✅ ${photonName} hot reloaded`);
+                }
+                // else: photon was removed while we were reloading — discard result
+              }
+
+              // If this photon is symlinked and was previously errored (or new), set up
+              // source-directory watchers that may have been skipped at startup.
+              if (isNewPhoton || !previouslyConfigured) {
+                setupSymlinkWatcher(photonName, reloadedPhoton.path);
+              }
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+
+              // For new photons that fail to load, add as unconfigured
+              if (isNewPhoton) {
+                const extractor = new SchemaExtractor();
+                let constructorParams: ConfigParam[] = [];
+                try {
+                  const source = await fs.readFile(photonPath, 'utf-8');
+                  const params = extractor.extractConstructorParams(source);
+                  constructorParams = params
+                    .filter((p: ConstructorParam) => p.isPrimitive)
+                    .map((p: ConstructorParam) => ({
+                      name: p.name,
+                      envVar: toEnvVarName(photonName, p.name),
+                      type: p.type,
+                      isOptional: p.isOptional,
+                      hasDefault: p.hasDefault,
+                      defaultValue: p.defaultValue,
+                    }));
+                } catch {
+                  // Ignore extraction errors
+                }
+
+                const targetPhoton: UnconfiguredPhotonInfo = {
+                  id: generatePhotonId(photonPath),
+                  name: photonName,
+                  path: photonPath,
+                  configured: false,
+                  requiredParams: constructorParams,
+                  errorReason: constructorParams.length > 0 ? 'missing-config' : 'load-error',
+                  errorMessage: errorMsg.slice(0, 200),
+                };
+                if (!photons.find((p) => p.name === photonName)) {
+                  photons.push(targetPhoton);
+                  broadcastPhotonChange();
+                  logger.info(
+                    `⚙️ ${photonName} added (needs attention: ${targetPhoton.errorReason})`
+                  );
+                }
+                return;
+              }
+
+              logger.error(`Hot reload failed for ${photonName}: ${errorMsg}`);
+              broadcastToBeam('beam/error', {
+                type: 'hot-reload-error',
+                photon: photonName,
+                message: errorMsg.slice(0, 200),
+              });
+            }
+          } finally {
+            activeLoads.delete(photonName);
+            // If another file change arrived while we were loading, process it now
+            if (pendingAfterLoad.has(photonName)) {
+              pendingAfterLoad.delete(photonName);
+              void handleFileChange(photonName);
+            }
           }
-        } finally {
-          activeLoads.delete(photonName);
-          // If another file change arrived while we were loading, process it now
-          if (pendingAfterLoad.has(photonName)) {
-            pendingAfterLoad.delete(photonName);
-            handleFileChange(photonName);
-          }
-        }
+        })();
       }, 100)
     );
   };
@@ -1246,7 +1254,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       const photonName = getPhotonForPath(fullPath);
       if (photonName) {
         logger.info(`📁 Change detected: ${filename} → ${photonName}`);
-        handleFileChange(photonName);
+        void handleFileChange(photonName);
       }
     });
     // Handle watcher errors (e.g., EMFILE: too many open files)
@@ -1261,7 +1269,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     watchers.push(watcher);
     logger.info(`👀 Watching for changes in ${workingDir}`);
   } catch (error) {
-    logger.warn(`File watching not available: ${error}`);
+    logger.warn(`File watching not available: ${String(error)}`);
   }
 
   // Symlinked and bundled photon watchers are set up after photon loading (see below)
@@ -1468,7 +1476,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             const srcFileName = path.basename(photon.path);
             const srcDirWatcher = watch(photonDir, (eventType, filename) => {
               if (filename === srcFileName) {
-                handleFileChange(photon.name);
+                void handleFileChange(photon.name);
               }
             });
             srcDirWatcher.on('error', () => {});
@@ -1489,7 +1497,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                       return;
                     }
                     logger.info(`📁 Asset change detected: ${photon.name}/${filename}`);
-                    handleFileChange(photon.name);
+                    void handleFileChange(photon.name);
                   }
                 }
               );
@@ -1503,7 +1511,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         }
       }
     } catch (err) {
-      logger.debug(`⏭️ Skipping ${photon.name}: ${err instanceof Error ? err.message : err}`);
+      logger.debug(
+        `⏭️ Skipping ${photon.name}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -1523,7 +1533,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     try {
       const photonWatcher = watch(photonPath, (eventType) => {
         if (eventType === 'change') {
-          handleFileChange(photonName);
+          void handleFileChange(photonName);
         }
       });
       photonWatcher.on('error', (e) => {
@@ -1551,7 +1561,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             return;
           }
           logger.info(`📁 Asset change detected: ${photonName}/${filename}`);
-          handleFileChange(photonName);
+          void handleFileChange(photonName);
         }
       });
       assetWatcher.on('error', () => {});
@@ -1579,114 +1589,116 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (filename !== 'config.json') return;
 
       if (configDebounce) clearTimeout(configDebounce);
-      configDebounce = setTimeout(async () => {
-        configDebounce = null;
+      configDebounce = setTimeout(() => {
+        void (async () => {
+          configDebounce = null;
 
-        let newConfig: PhotonConfig;
-        try {
-          const data = await fs.readFile(configFile, 'utf-8');
-          newConfig = migrateConfig(JSON.parse(data));
-        } catch (err) {
-          logger.warn(
-            `⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : err}`
-          );
-          return;
-        }
-
-        const oldServers = savedConfig.mcpServers || {};
-        const newServers = newConfig.mcpServers || {};
-        const oldKeys = new Set(Object.keys(oldServers));
-        const newKeys = new Set(Object.keys(newServers));
-
-        const added = [...newKeys].filter((k) => !oldKeys.has(k));
-        const removed = [...oldKeys].filter((k) => !newKeys.has(k));
-        const kept = [...newKeys].filter((k) => oldKeys.has(k));
-        const modified = kept.filter(
-          (k) => JSON.stringify(oldServers[k]) !== JSON.stringify(newServers[k])
-        );
-
-        if (added.length === 0 && removed.length === 0 && modified.length === 0) {
-          // Also sync photon config changes (env vars etc.)
-          savedConfig.photons = newConfig.photons || {};
-          return;
-        }
-
-        logger.info(
-          `🔧 config.json changed — added: [${added}], removed: [${removed}], modified: [${modified}]`
-        );
-
-        // Remove MCPs — do all synchronous Map mutations first, then close async
-        const removedSdkClients: Array<{ name: string; client: any }> = [];
-        for (const name of removed) {
-          const idx = externalMCPs.findIndex((m) => m.name === name);
-          if (idx !== -1) externalMCPs.splice(idx, 1);
-
-          const sdkClient = externalMCPSDKClients.get(name);
-          if (sdkClient) removedSdkClients.push({ name, client: sdkClient });
-          externalMCPSDKClients.delete(name);
-          externalMCPClients.delete(name);
-
-          logger.info(`🔌 Removed external MCP: ${name}`);
-        }
-        // Close SDK clients after all Maps are consistent
-        for (const { name, client } of removedSdkClients) {
+          let newConfig: PhotonConfig;
           try {
-            await client.close();
-          } catch {
-            /* ignore */
-          }
-        }
-
-        // Add new MCPs
-        if (added.length > 0) {
-          const addConfig: PhotonConfig = {
-            photons: {},
-            mcpServers: Object.fromEntries(added.map((k) => [k, newServers[k]])),
-          };
-          const newMCPs = await loadExternalMCPs(addConfig);
-          externalMCPs.push(...newMCPs);
-          for (const m of newMCPs) {
-            logger.info(
-              `🔌 Added external MCP: ${m.name} (${m.connected ? m.methods.length + ' tools' : 'failed'})`
+            const data = await fs.readFile(configFile, 'utf-8');
+            newConfig = migrateConfig(JSON.parse(data));
+          } catch (err) {
+            logger.warn(
+              `⚠️ Failed to parse config.json: ${err instanceof Error ? err.message : String(err)}`
             );
+            return;
           }
-        }
 
-        // Reconnect modified MCPs — synchronous cleanup first, then async reconnect
-        const modifiedSdkClients: Array<{ name: string; client: any }> = [];
-        for (const name of modified) {
-          const idx = externalMCPs.findIndex((m) => m.name === name);
-          if (idx !== -1) externalMCPs.splice(idx, 1);
+          const oldServers = savedConfig.mcpServers || {};
+          const newServers = newConfig.mcpServers || {};
+          const oldKeys = new Set(Object.keys(oldServers));
+          const newKeys = new Set(Object.keys(newServers));
 
-          const sdkClient = externalMCPSDKClients.get(name);
-          if (sdkClient) modifiedSdkClients.push({ name, client: sdkClient });
-          externalMCPSDKClients.delete(name);
-          externalMCPClients.delete(name);
-        }
-        // Close old SDK clients
-        for (const { client } of modifiedSdkClients) {
-          try {
-            await client.close();
-          } catch {
-            /* ignore */
+          const added = [...newKeys].filter((k) => !oldKeys.has(k));
+          const removed = [...oldKeys].filter((k) => !newKeys.has(k));
+          const kept = [...newKeys].filter((k) => oldKeys.has(k));
+          const modified = kept.filter(
+            (k) => JSON.stringify(oldServers[k]) !== JSON.stringify(newServers[k])
+          );
+
+          if (added.length === 0 && removed.length === 0 && modified.length === 0) {
+            // Also sync photon config changes (env vars etc.)
+            savedConfig.photons = newConfig.photons || {};
+            return;
           }
-        }
-        // Reconnect all modified MCPs
-        for (const name of modified) {
-          const modConfig: PhotonConfig = {
-            photons: {},
-            mcpServers: { [name]: newServers[name] },
-          };
-          const reconnected = await loadExternalMCPs(modConfig);
-          externalMCPs.push(...reconnected);
-          logger.info(`🔌 Reconnected external MCP: ${name}`);
-        }
 
-        // Update savedConfig
-        savedConfig.mcpServers = newConfig.mcpServers || {};
-        savedConfig.photons = newConfig.photons || {};
+          logger.info(
+            `🔧 config.json changed — added: [${added.join(', ')}], removed: [${removed.join(', ')}], modified: [${modified.join(', ')}]`
+          );
 
-        broadcastPhotonChange();
+          // Remove MCPs — do all synchronous Map mutations first, then close async
+          const removedSdkClients: Array<{ name: string; client: any }> = [];
+          for (const name of removed) {
+            const idx = externalMCPs.findIndex((m) => m.name === name);
+            if (idx !== -1) externalMCPs.splice(idx, 1);
+
+            const sdkClient = externalMCPSDKClients.get(name);
+            if (sdkClient) removedSdkClients.push({ name, client: sdkClient });
+            externalMCPSDKClients.delete(name);
+            externalMCPClients.delete(name);
+
+            logger.info(`🔌 Removed external MCP: ${name}`);
+          }
+          // Close SDK clients after all Maps are consistent
+          for (const { name, client } of removedSdkClients) {
+            try {
+              await client.close();
+            } catch {
+              /* ignore */
+            }
+          }
+
+          // Add new MCPs
+          if (added.length > 0) {
+            const addConfig: PhotonConfig = {
+              photons: {},
+              mcpServers: Object.fromEntries(added.map((k) => [k, newServers[k]])),
+            };
+            const newMCPs = await loadExternalMCPs(addConfig);
+            externalMCPs.push(...newMCPs);
+            for (const m of newMCPs) {
+              logger.info(
+                `🔌 Added external MCP: ${m.name} (${m.connected ? m.methods.length + ' tools' : 'failed'})`
+              );
+            }
+          }
+
+          // Reconnect modified MCPs — synchronous cleanup first, then async reconnect
+          const modifiedSdkClients: Array<{ name: string; client: any }> = [];
+          for (const name of modified) {
+            const idx = externalMCPs.findIndex((m) => m.name === name);
+            if (idx !== -1) externalMCPs.splice(idx, 1);
+
+            const sdkClient = externalMCPSDKClients.get(name);
+            if (sdkClient) modifiedSdkClients.push({ name, client: sdkClient });
+            externalMCPSDKClients.delete(name);
+            externalMCPClients.delete(name);
+          }
+          // Close old SDK clients
+          for (const { client } of modifiedSdkClients) {
+            try {
+              await client.close();
+            } catch {
+              /* ignore */
+            }
+          }
+          // Reconnect all modified MCPs
+          for (const name of modified) {
+            const modConfig: PhotonConfig = {
+              photons: {},
+              mcpServers: { [name]: newServers[name] },
+            };
+            const reconnected = await loadExternalMCPs(modConfig);
+            externalMCPs.push(...reconnected);
+            logger.info(`🔌 Reconnected external MCP: ${name}`);
+          }
+
+          // Update savedConfig
+          savedConfig.mcpServers = newConfig.mcpServers || {};
+          savedConfig.photons = newConfig.photons || {};
+
+          broadcastPhotonChange();
+        })();
       }, 500);
     });
 
@@ -1699,7 +1711,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       logger.info(`👀 Watching config.json for external MCP changes`);
     }
   } catch (error) {
-    logger.warn(`Config watching not available: ${error}`);
+    logger.warn(`Config watching not available: ${String(error)}`);
   }
 }
 

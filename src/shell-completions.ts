@@ -95,7 +95,7 @@ export async function generateCompletionCache(baseDir?: string): Promise<string>
         // Param entries
         const schema = tool.inputSchema;
         if (schema?.properties) {
-          for (const [paramName, prop] of Object.entries(schema.properties) as [string, any][]) {
+          for (const [paramName, prop] of Object.entries(schema.properties)) {
             const required = schema.required?.includes(paramName) ? '1' : '0';
             const type = prop.type || 'any';
             lines.push(`param:${name}:${tool.name}:${paramName}:${type}:${required}`);

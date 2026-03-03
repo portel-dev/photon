@@ -318,7 +318,7 @@ export class StudioPreview extends LitElement {
                   ([name, schema]) => html`
                     <div class="param-item">
                       <span class="param-name">${name}</span>
-                      <span class="param-type">${(schema as any).type || 'any'}</span>
+                      <span class="param-type">${schema.type || 'any'}</span>
                       ${required.includes(name)
                         ? html`<span class="param-required">required</span>`
                         : ''}

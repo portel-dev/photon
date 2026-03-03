@@ -379,21 +379,23 @@ export class RedisSessionStore implements SessionStore {
   private startCleanup(): void {
     // Redis handles TTL-based cleanup automatically
     // We just periodically clean up stale user session references
-    this.cleanupTimer = setInterval(async () => {
-      try {
-        const userKeys = await this.redis.keys(`${this.keyPrefix}user:*`);
-        for (const userKey of userKeys) {
-          const sessionIds = await this.redis.smembers(userKey);
-          for (const id of sessionIds) {
-            const exists = await this.redis.get(this.sessionKey(id));
-            if (!exists) {
-              await this.redis.srem(userKey, id);
+    this.cleanupTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const userKeys = await this.redis.keys(`${this.keyPrefix}user:*`);
+          for (const userKey of userKeys) {
+            const sessionIds = await this.redis.smembers(userKey);
+            for (const id of sessionIds) {
+              const exists = await this.redis.get(this.sessionKey(id));
+              if (!exists) {
+                await this.redis.srem(userKey, id);
+              }
             }
           }
+        } catch (err) {
+          console.error('Session cleanup error:', err);
         }
-      } catch (err) {
-        console.error('Session cleanup error:', err);
-      }
+      })();
     }, this.config.cleanupIntervalMs);
   }
 }
@@ -427,6 +429,6 @@ export function createSessionStore(options: CreateSessionStoreOptions): SessionS
       // KV store is imported separately to avoid bundling Cloudflare types
       throw new Error('Use KVSessionStore directly from session/kv-store.ts');
     default:
-      throw new Error(`Unknown session store type: ${options.type}`);
+      throw new Error(`Unknown session store type: ${String((options as { type: string }).type)}`);
   }
 }

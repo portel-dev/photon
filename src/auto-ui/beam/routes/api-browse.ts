@@ -284,9 +284,9 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         res.end(Buffer.from(contentBlob, 'base64'));
       }
     } catch (error) {
-      logger.error(`Failed to read MCP App resource: ${error}`);
+      logger.error(`Failed to read MCP App resource: ${String(error)}`);
       res.writeHead(500);
-      res.end(JSON.stringify({ error: `Failed to read resource: ${error}` }));
+      res.end(JSON.stringify({ error: `Failed to read resource: ${String(error)}` }));
     }
     return true;
   }
@@ -310,7 +310,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     }
 
     // Use provided path or photon's templatePath
-    const templateFile = templatePathParam || (photon as PhotonInfo).templatePath;
+    const templateFile = templatePathParam || photon.templatePath;
     if (!templateFile) {
       res.writeHead(400);
       res.end(JSON.stringify({ error: 'No template path specified' }));

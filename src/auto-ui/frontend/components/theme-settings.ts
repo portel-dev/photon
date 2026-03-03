@@ -493,7 +493,7 @@ export class ThemeSettings extends LitElement {
             max="360"
             step="1"
             .value=${String(this._hue)}
-            @input=${this._handleHue}
+            @input=${(e: Event) => this._handleHue(e)}
           />
         </div>
 
@@ -509,7 +509,7 @@ export class ThemeSettings extends LitElement {
             max="0.3"
             step="0.01"
             .value=${String(this._chroma)}
-            @input=${this._handleChroma}
+            @input=${(e: Event) => this._handleChroma(e)}
           />
         </div>
 
@@ -525,7 +525,7 @@ export class ThemeSettings extends LitElement {
             max="0.85"
             step="0.01"
             .value=${String(this._lightness)}
-            @input=${this._handleLightness}
+            @input=${(e: Event) => this._handleLightness(e)}
           />
         </div>
       </div>
@@ -571,8 +571,8 @@ export class ThemeSettings extends LitElement {
 
       <!-- Actions -->
       <div style="display: flex; gap: var(--space-sm);">
-        <button class="reset-btn" @click=${this._revert}>Revert Changes</button>
-        <button class="reset-btn" @click=${this._reset}>Reset to Default</button>
+        <button class="reset-btn" @click=${() => this._revert()}>Revert Changes</button>
+        <button class="reset-btn" @click=${() => this._reset()}>Reset to Default</button>
       </div>
     `;
   }

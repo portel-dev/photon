@@ -120,48 +120,50 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
     req.on('data', (chunk) => {
       body += chunk;
     });
-    req.on('end', async () => {
-      try {
-        const { name } = JSON.parse(body);
-        if (!name) {
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Missing photon name' }));
-          return;
-        }
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { name } = JSON.parse(body);
+          if (!name) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing photon name' }));
+            return;
+          }
 
-        // Fetch the photon from marketplace
-        const result = await state.marketplace.fetchMCP(name);
-        if (!result) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: `Photon '${name}' not found in marketplace` }));
-          return;
-        }
+          // Fetch the photon from marketplace
+          const result = await state.marketplace.fetchMCP(name);
+          if (!result) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Photon '${name}' not found in marketplace` }));
+            return;
+          }
 
-        // Write file + save metadata + download assets (canonical install path)
-        const { photonPath: targetPath, assetsInstalled } = await state.marketplace.installPhoton(
-          result,
-          name,
-          state.workingDir
-        );
-
-        // Trigger immediate load so the photon appears in the sidebar right away
-        // (don't wait for the file watcher which has debounce delay)
-        state.actions.handleFileChange(name);
-
-        res.writeHead(200);
-        res.end(
-          JSON.stringify({
-            success: true,
+          // Write file + save metadata + download assets (canonical install path)
+          const { photonPath: targetPath, assetsInstalled } = await state.marketplace.installPhoton(
+            result,
             name,
-            path: targetPath,
-            version: result.metadata?.version,
-            assetsInstalled,
-          })
-        );
-      } catch {
-        res.writeHead(500);
-        res.end(JSON.stringify({ error: 'Failed to add photon' }));
-      }
+            state.workingDir
+          );
+
+          // Trigger immediate load so the photon appears in the sidebar right away
+          // (don't wait for the file watcher which has debounce delay)
+          void state.actions.handleFileChange(name);
+
+          res.writeHead(200);
+          res.end(
+            JSON.stringify({
+              success: true,
+              name,
+              path: targetPath,
+              version: result.metadata?.version,
+              assetsInstalled,
+            })
+          );
+        } catch {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: 'Failed to add photon' }));
+        }
+      })();
     });
     return true;
   }
@@ -345,34 +347,36 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
     req.on('data', (chunk) => {
       body += chunk;
     });
-    req.on('end', async () => {
-      try {
-        const { source } = JSON.parse(body);
-        if (!source) {
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { source } = JSON.parse(body);
+          if (!source) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing source parameter' }));
+            return;
+          }
+
+          const result = await state.marketplace.add(source);
+
+          // Update cache for the new marketplace
+          if (result.added) {
+            await state.marketplace.updateMarketplaceCache(result.marketplace.name);
+          }
+
+          res.writeHead(200);
+          res.end(
+            JSON.stringify({
+              success: true,
+              name: result.marketplace.name,
+              added: result.added,
+            })
+          );
+        } catch (err) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Missing source parameter' }));
-          return;
+          res.end(JSON.stringify({ error: (err as Error).message }));
         }
-
-        const result = await state.marketplace.add(source);
-
-        // Update cache for the new marketplace
-        if (result.added) {
-          await state.marketplace.updateMarketplaceCache(result.marketplace.name);
-        }
-
-        res.writeHead(200);
-        res.end(
-          JSON.stringify({
-            success: true,
-            name: result.marketplace.name,
-            added: result.added,
-          })
-        );
-      } catch (err) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+      })();
     });
     return true;
   }
@@ -385,28 +389,30 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
     req.on('data', (chunk) => {
       body += chunk;
     });
-    req.on('end', async () => {
-      try {
-        const { name } = JSON.parse(body);
-        if (!name) {
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { name } = JSON.parse(body);
+          if (!name) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing name parameter' }));
+            return;
+          }
+
+          const removed = await state.marketplace.remove(name);
+          if (!removed) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
+            return;
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Missing name parameter' }));
-          return;
+          res.end(JSON.stringify({ error: (err as Error).message }));
         }
-
-        const removed = await state.marketplace.remove(name);
-        if (!removed) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
-          return;
-        }
-
-        res.writeHead(200);
-        res.end(JSON.stringify({ success: true }));
-      } catch (err) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+      })();
     });
     return true;
   }
@@ -419,28 +425,30 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
     req.on('data', (chunk) => {
       body += chunk;
     });
-    req.on('end', async () => {
-      try {
-        const { name, enabled } = JSON.parse(body);
-        if (!name || typeof enabled !== 'boolean') {
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Missing name or enabled parameter' }));
-          return;
-        }
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { name, enabled } = JSON.parse(body);
+          if (!name || typeof enabled !== 'boolean') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing name or enabled parameter' }));
+            return;
+          }
 
-        const success = await state.marketplace.setEnabled(name, enabled);
-        if (!success) {
-          res.writeHead(404);
-          res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
-          return;
-        }
+          const success = await state.marketplace.setEnabled(name, enabled);
+          if (!success) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Marketplace '${name}' not found` }));
+            return;
+          }
 
-        res.writeHead(200);
-        res.end(JSON.stringify({ success: true }));
-      } catch (err) {
-        res.writeHead(500);
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      })();
     });
     return true;
   }
@@ -453,29 +461,31 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
     req.on('data', (chunk) => {
       body += chunk;
     });
-    req.on('end', async () => {
-      try {
-        const { name } = JSON.parse(body || '{}');
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { name } = JSON.parse(body || '{}');
 
-        if (name) {
-          // Refresh specific marketplace
-          const success = await state.marketplace.updateMarketplaceCache(name);
-          res.writeHead(200);
-          res.end(JSON.stringify({ success, updated: success ? [name] : [] }));
-        } else {
-          // Refresh all enabled marketplaces
-          const results = await state.marketplace.updateAllCaches();
-          const updated = Array.from(results.entries())
-            .filter(([, success]) => success)
-            .map(([name]) => name);
+          if (name) {
+            // Refresh specific marketplace
+            const success = await state.marketplace.updateMarketplaceCache(name);
+            res.writeHead(200);
+            res.end(JSON.stringify({ success, updated: success ? [name] : [] }));
+          } else {
+            // Refresh all enabled marketplaces
+            const results = await state.marketplace.updateAllCaches();
+            const updated = Array.from(results.entries())
+              .filter(([, success]) => success)
+              .map(([name]) => name);
 
-          res.writeHead(200);
-          res.end(JSON.stringify({ success: true, updated }));
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, updated }));
+          }
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
         }
-      } catch (err) {
-        res.writeHead(500);
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
+      })();
     });
     return true;
   }

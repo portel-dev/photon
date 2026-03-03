@@ -203,11 +203,11 @@ export class SubscriptionManager {
     // Subscribe to new item
     const channel = `${photonId}:${itemId}`;
     this.sessionViewState.set(sessionId, { photonId, itemId });
-    this.subscribeToChannel(channel);
+    void this.subscribeToChannel(channel);
 
     // Delta sync missed events if lastTimestamp is provided
     if (lastTimestamp !== undefined) {
-      this.replayEventsToSession(sessionId, channel, lastTimestamp);
+      void this.replayEventsToSession(sessionId, channel, lastTimestamp);
     }
   }
 

@@ -77,7 +77,9 @@ export const expect = {
    */
   equal<T>(actual: T, expected: T, message?: string): void {
     if (actual !== expected) {
-      throw new Error(message || `Expected ${expected}, got ${actual}`);
+      throw new Error(
+        message || `Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+      );
     }
   },
 
@@ -113,7 +115,7 @@ export const expect = {
   /**
    * Assert function throws
    */
-  async throws(fn: () => Promise<any> | any, message?: string): Promise<void> {
+  async throws(fn: () => unknown, message?: string): Promise<void> {
     try {
       await fn();
       throw new Error(message || 'Expected function to throw');
@@ -130,7 +132,7 @@ export const expect = {
    */
   contains<T>(array: T[], value: T, message?: string): void {
     if (!array.includes(value)) {
-      throw new Error(message || `Expected array to contain ${value}`);
+      throw new Error(message || `Expected array to contain ${JSON.stringify(value)}`);
     }
   },
 
