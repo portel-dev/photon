@@ -138,7 +138,7 @@ export class InstancePanel extends LitElement {
     return html`
       <button
         class="instance-pill"
-        @click=${() => this._toggle()}
+        @click=${(e: Event) => this._toggle(e)}
         title="Instances are separate data containers — like multiple accounts in the same app. Click to switch."
         aria-label="Current instance: ${display}"
         aria-haspopup="true"
