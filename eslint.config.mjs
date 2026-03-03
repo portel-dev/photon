@@ -1,5 +1,6 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
+import prettierConfig from 'eslint-config-prettier';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -86,4 +87,6 @@ export default [
       ...commonOverrides,
     },
   },
+  // Disable rules that conflict with Prettier formatting
+  prettierConfig,
 ];
