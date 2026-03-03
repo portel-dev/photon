@@ -1,7 +1,5 @@
 {
   "entry": [
-    "src/cli.ts",
-    "src/index.ts",
     "src/server.ts",
     "src/auto-ui/beam.ts",
     "src/auto-ui/index.ts",
@@ -11,17 +9,13 @@
   ],
   "project": ["src/**/*.ts"],
   "ignore": [
-    "src/auto-ui/frontend/**",
-    "src/photons/**"
+    "src/auto-ui/frontend/**"
   ],
   "ignoreDependencies": [
     "@codemirror/*",
     "lit",
     "codemirror",
     "autocannon",
-    "@playwright/test",
-    "playwright",
-    "c8",
     "openapi-types",
     "chart.js",
     "@modelcontextprotocol/ext-apps"
