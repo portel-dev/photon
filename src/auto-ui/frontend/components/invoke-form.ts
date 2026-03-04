@@ -340,8 +340,8 @@ export class InvokeForm extends LitElement {
 
       .slider-row input[type='range'] {
         flex: 1;
-        height: 6px;
-        border-radius: 3px;
+        height: 4px;
+        border-radius: var(--radius-full, 9999px);
         -webkit-appearance: none;
         cursor: pointer;
         margin: 8px 0;
@@ -379,16 +379,16 @@ export class InvokeForm extends LitElement {
       }
 
       .slider-row input[type='range']::-moz-range-track {
-        height: 6px;
+        height: 4px;
         background: rgba(255, 255, 255, 0.1);
-        border-radius: 3px;
+        border-radius: var(--radius-full, 9999px);
         border: none;
       }
 
       .slider-row input[type='range']::-moz-range-progress {
-        height: 6px;
+        height: 4px;
         background: var(--accent-primary);
-        border-radius: 3px 0 0 3px;
+        border-radius: var(--radius-full, 9999px);
       }
 
       .slider-row input[type='range']::-moz-range-thumb {
