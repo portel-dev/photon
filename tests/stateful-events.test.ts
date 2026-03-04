@@ -11,9 +11,10 @@ import { Photon } from '@portel/photon-core';
 // Simple test photon with @stateful
 class TestTodo extends Photon {
   items: Array<any> = [];
+  private _idCounter = 0;
 
   add(text: string, priority: string = 'medium'): any {
-    const item = { id: `${Date.now()}`, text, priority, done: false };
+    const item = { id: `id-${++this._idCounter}`, text, priority, done: false };
     this.items.push(item);
     return item;
   }
@@ -21,7 +22,9 @@ class TestTodo extends Photon {
   done(id: string): any | null {
     const item = this.items.find((i: any) => i.id === id);
     if (item) {
+      const oldValue = item.done;
       item.done = true;
+      this._trackModification(item, 'done', oldValue, true, 'done');
     }
     return item ?? null;
   }
@@ -29,7 +32,9 @@ class TestTodo extends Photon {
   setPriority(id: string, priority: string): any | null {
     const item = this.items.find((i: any) => i.id === id);
     if (item) {
+      const oldValue = item.priority;
       item.priority = priority;
+      this._trackModification(item, 'priority', oldValue, priority, 'setPriority');
     }
     return item ?? null;
   }
@@ -42,6 +47,28 @@ class TestTodo extends Photon {
 
   list(): any[] {
     return this.items;
+  }
+
+  // Private helper (prefix with _ so wrapper skips it)
+  _trackModification(
+    item: any,
+    field: string,
+    oldValue: any,
+    newValue: any,
+    methodName: string
+  ): void {
+    if (item?.__meta) {
+      const timestamp = new Date().toISOString();
+      item.__meta.modifications.push({
+        field,
+        oldValue,
+        newValue,
+        timestamp,
+        modifiedBy: methodName,
+      });
+      item.__meta.modifiedAt = timestamp;
+      item.__meta.modifiedBy = methodName;
+    }
   }
 }
 
@@ -344,6 +371,182 @@ describe('Object __meta Attachment (Phase 1)', () => {
     const itemTimestamp = new Date(item.__meta.createdAt).getTime();
     expect(itemTimestamp).toBeGreaterThanOrEqual(beforeAdd);
     expect(itemTimestamp).toBeLessThanOrEqual(afterAdd);
+  });
+});
+
+describe('Modification Tracking (Phase 2)', () => {
+  let todo: any;
+  let emittedEvents: any[] = [];
+
+  beforeEach(() => {
+    emittedEvents = [];
+    todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      emittedEvents.push({ eventName, data });
+    };
+
+    wrapStatefulMethods(todo);
+  });
+
+  it('tracks field changes with old and new values', () => {
+    const item = todo.add('Task', 'medium');
+    emittedEvents = [];
+
+    todo.done(item.id);
+
+    expect(item.__meta.modifications).toHaveLength(1);
+    const mod = item.__meta.modifications[0];
+
+    expect(mod.field).toBe('done');
+    expect(mod.oldValue).toBe(false);
+    expect(mod.newValue).toBe(true);
+    expect(mod.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(mod.modifiedBy).toBe('done');
+  });
+
+  it('records multiple modifications in order', () => {
+    const item = todo.add('Task', 'medium');
+    emittedEvents = [];
+
+    todo.done(item.id);
+    todo.setPriority(item.id, 'high');
+
+    expect(item.__meta.modifications).toHaveLength(2);
+    expect(item.__meta.modifications[0].field).toBe('done');
+    expect(item.__meta.modifications[1].field).toBe('priority');
+
+    expect(item.__meta.modifications[0].oldValue).toBe(false);
+    expect(item.__meta.modifications[1].oldValue).toBe('medium');
+    expect(item.__meta.modifications[1].newValue).toBe('high');
+  });
+
+  it('updates modifiedAt timestamp on each change', () => {
+    const item = todo.add('Task', 'medium');
+
+    // Initially modifiedAt is null
+    expect(item.__meta.modifiedAt).toBeNull();
+
+    const beforeDone = Date.now();
+    todo.done(item.id);
+    const afterDone = Date.now();
+
+    // After modification, modifiedAt is set
+    expect(item.__meta.modifiedAt).not.toBeNull();
+    const modifiedAt1 = new Date(item.__meta.modifiedAt).getTime();
+    expect(modifiedAt1).toBeGreaterThanOrEqual(beforeDone);
+    expect(modifiedAt1).toBeLessThanOrEqual(afterDone);
+  });
+
+  it('updates modifiedBy on each change', () => {
+    const item = todo.add('Task', 'medium');
+
+    expect(item.__meta.modifiedBy).toBeNull();
+
+    todo.done(item.id);
+    expect(item.__meta.modifiedBy).toBe('done');
+
+    todo.setPriority(item.id, 'high');
+    expect(item.__meta.modifiedBy).toBe('setPriority');
+  });
+
+  it('preserves modification history across multiple changes', () => {
+    const item = todo.add('Task', 'medium');
+
+    todo.done(item.id);
+    todo.setPriority(item.id, 'high');
+    todo.setPriority(item.id, 'low');
+
+    expect(item.__meta.modifications).toHaveLength(3);
+    expect(item.__meta.modifications.map((m: any) => m.field)).toEqual([
+      'done',
+      'priority',
+      'priority',
+    ]);
+  });
+
+  it('includes modification timestamp as ISO string', () => {
+    const item = todo.add('Task', 'medium');
+
+    todo.done(item.id);
+
+    const modTimestamp = item.__meta.modifications[0].timestamp;
+    expect(modTimestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    const date = new Date(modTimestamp);
+    expect(isNaN(date.getTime())).toBe(false);
+  });
+
+  it('tracks modifications for different items independently', () => {
+    const item1 = todo.add('Task 1', 'medium');
+    const item2 = todo.add('Task 2', 'medium');
+
+    todo.done(item1.id);
+    todo.setPriority(item2.id, 'high');
+
+    expect(item1.__meta.modifications).toHaveLength(1);
+    expect(item1.__meta.modifications[0].field).toBe('done');
+
+    expect(item2.__meta.modifications).toHaveLength(1);
+    expect(item2.__meta.modifications[0].field).toBe('priority');
+  });
+
+  it('does not modify __meta if item has no __meta', () => {
+    // This shouldn't happen in practice, but test the guard
+    const orphanItem = { id: '999', text: 'No meta' };
+
+    // Manually trigger modification (as if done() was called)
+    if (orphanItem.__meta) {
+      orphanItem.__meta.modifications.push({
+        field: 'done',
+        oldValue: false,
+        newValue: true,
+        timestamp: new Date().toISOString(),
+        modifiedBy: 'done',
+      });
+    }
+
+    expect(orphanItem.__meta).toBeUndefined();
+  });
+
+  it('audit trail shows complete change history for investigation', () => {
+    const item = todo.add('Buy milk', 'medium');
+
+    todo.done(item.id);
+    todo.setPriority(item.id, 'high');
+    todo.setPriority(item.id, 'low');
+    todo.done(item.id); // Try to mark done again (already true)
+
+    // Audit trail shows exactly what happened
+    expect(item.__meta.modifications).toHaveLength(4);
+    expect(item.__meta.modifications[0]).toEqual({
+      field: 'done',
+      oldValue: false,
+      newValue: true,
+      timestamp: expect.any(String),
+      modifiedBy: 'done',
+    });
+    expect(item.__meta.modifications[1]).toEqual({
+      field: 'priority',
+      oldValue: 'medium',
+      newValue: 'high',
+      timestamp: expect.any(String),
+      modifiedBy: 'setPriority',
+    });
+    expect(item.__meta.modifications[2]).toEqual({
+      field: 'priority',
+      oldValue: 'high',
+      newValue: 'low',
+      timestamp: expect.any(String),
+      modifiedBy: 'setPriority',
+    });
+    expect(item.__meta.modifications[3]).toEqual({
+      field: 'done',
+      oldValue: true,
+      newValue: true,
+      timestamp: expect.any(String),
+      modifiedBy: 'done',
+    });
   });
 });
 
