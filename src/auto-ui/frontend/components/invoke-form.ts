@@ -961,7 +961,7 @@ export class InvokeForm extends LitElement {
                 .value=${String(currentValue)}
                 @input=${(e: Event) => {
                   const el = e.target as HTMLInputElement;
-                  const v = Number(el.value);
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
                   el.style.cssText = this._sliderFillStyle(v, min, max);
                   this._handleChange(key, v);
                 }}
@@ -975,7 +975,14 @@ export class InvokeForm extends LitElement {
                 step="${step}"
                 .value=${displayValue}
                 @input=${(e: Event) => {
-                  const v = Number((e.target as HTMLInputElement).value);
+                  const raw = (e.target as HTMLInputElement).value;
+                  if (raw === '' || raw === '-') return;
+                  this._handleChange(key, Number(raw));
+                }}
+                @change=${(e: Event) => {
+                  const el = e.target as HTMLInputElement;
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
+                  el.value = String(v);
                   this._handleChange(key, v);
                 }}
               />
@@ -1328,6 +1335,23 @@ export class InvokeForm extends LitElement {
   private _sliderFillStyle(value: number, min: number, max: number): string {
     const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
     return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+  }
+
+  /** Clamp to [min, max] and round to nearest step (integer-safe). */
+  private _sanitizeSliderValue(raw: number, min: number, max: number, step: number): number {
+    let v = Number.isFinite(raw) ? raw : min;
+    v = Math.min(max, Math.max(min, v));
+    // Snap to step grid anchored at min
+    if (step > 0) {
+      v = min + Math.round((v - min) / step) * step;
+      // Guard against floating-point drift pushing past max
+      if (v > max) v = max;
+    }
+    // For integer steps, ensure no fractional residue
+    if (Number.isInteger(step) && step >= 1) {
+      v = Math.round(v);
+    }
+    return v;
   }
 
   private _handleChange(key: string, value: any) {
