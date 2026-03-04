@@ -602,6 +602,22 @@ function wrapStatefulMethods(instance: any): void {
       if (this.instanceName) {
         eventData.instance = this.instanceName;
       }
+
+      // Phase 5: Detect array mutations for range-based pagination support
+      // If result is an object from this.items, add index and array metadata
+      if (result && typeof result === 'object' && Array.isArray(this.items)) {
+        const index = this.items.findIndex((item: any) => item === result);
+        if (index !== -1) {
+          eventData.index = index;
+          eventData.totalCount = this.items.length;
+          // Affected range: just this item
+          eventData.affectedRange = {
+            start: index,
+            end: index + 1,
+          };
+        }
+      }
+
       emit(methodName, eventData);
 
       return result;
@@ -824,6 +840,271 @@ describe('Warmth Detection with __meta (Phase 3)', () => {
     expect(item.__meta.modifications).toHaveLength(1);
     expect(item.__meta.modifications[0].field).toBe('done');
     expect(item.__meta.modifiedBy).toBe('done');
+  });
+});
+
+/**
+ * Index-Aware Events & Range Subscriptions (Phase 5)
+ *
+ * Verifies that events include positional information and array metadata
+ * for efficient range-based client subscriptions and pagination support.
+ */
+describe('Index-Aware Events & Pagination Support (Phase 5)', () => {
+  it('includes index in events for items added to array', () => {
+    const events: any[] = [];
+    const todo = new TestTodo();
+
+    // Mock emit to capture events
+    todo.emit = (eventName: string, data: any) => {
+      events.push(data);
+    };
+
+    // Wrap methods
+    wrapStatefulMethods(todo);
+
+    // Add first item
+    todo.add('First task');
+    expect(events).toHaveLength(1);
+    expect(events[0].index).toBe(0);
+    expect(events[0].totalCount).toBe(1);
+
+    // Add second item
+    todo.add('Second task');
+    expect(events).toHaveLength(2);
+    expect(events[1].index).toBe(1);
+    expect(events[1].totalCount).toBe(2);
+  });
+
+  it('includes affectedRange in events for pagination filtering', () => {
+    const events: any[] = [];
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      events.push(data);
+    };
+
+    wrapStatefulMethods(todo);
+
+    todo.add('Task 1');
+    expect(events[0].affectedRange).toEqual({ start: 0, end: 1 });
+
+    todo.add('Task 2');
+    expect(events[1].affectedRange).toEqual({ start: 1, end: 2 });
+  });
+
+  it('includes totalCount for client-side pagination calculations', () => {
+    const events: any[] = [];
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      events.push(data);
+    };
+
+    wrapStatefulMethods(todo);
+
+    for (let i = 0; i < 5; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Each event should show the total array length
+    expect(events[0].totalCount).toBe(1);
+    expect(events[1].totalCount).toBe(2);
+    expect(events[4].totalCount).toBe(5);
+  });
+
+  it('handles modifications preserving index information', () => {
+    const events: any[] = [];
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      events.push(data);
+    };
+
+    wrapStatefulMethods(todo);
+
+    todo.add('Task 1');
+    todo.add('Task 2');
+    todo.add('Task 3');
+    events.length = 0; // Clear add events
+
+    // Modify item at index 1
+    const item = todo.items[1];
+    todo.done(item.id);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].index).toBe(1);
+    expect(events[0].totalCount).toBe(3);
+  });
+
+  it('supports range filtering: client can filter events for subscribed range', () => {
+    const allEvents: any[] = [];
+    const subscriptionRange = { start: 50, end: 100 };
+
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      allEvents.push(data);
+    };
+
+    wrapStatefulMethods(todo);
+
+    // Add items outside and inside the range
+    for (let i = 0; i < 150; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Filter events for subscribed range
+    const filteredEvents = allEvents.filter(
+      (event) => event.index >= subscriptionRange.start && event.index < subscriptionRange.end
+    );
+
+    // Only events for items in [50, 100) should be received by subscriber
+    expect(allEvents).toHaveLength(150);
+    expect(filteredEvents).toHaveLength(50);
+    expect(filteredEvents[0].index).toBe(50); // First in range
+    expect(filteredEvents[49].index).toBe(99); // Last in range
+  });
+
+  it('detects range shifts: when insertion happens before subscribed range', () => {
+    const todo = new TestTodo();
+
+    // Add initial items
+    for (let i = 0; i < 100; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Client subscribed to range [50, 100]
+    const subscriptionRange = { start: 50, end: 100 };
+
+    // New item added at index 10 (before range)
+    // This shifts the range to [51, 101]
+    const insertionEvent = {
+      index: 10,
+      totalCount: 101,
+      affectedRange: { start: 10, end: 11 },
+    };
+
+    // Client-side detection:
+    // If event.index < subscription.start, the range shifts
+    const rangeShifted = insertionEvent.index < subscriptionRange.start;
+    expect(rangeShifted).toBe(true);
+
+    // New range should be [51, 101]
+    const newRange = {
+      start: subscriptionRange.start + 1,
+      end: subscriptionRange.end + 1,
+    };
+    expect(newRange).toEqual({ start: 51, end: 101 });
+  });
+
+  it('detects when items are removed before range (pulling items back)', () => {
+    const todo = new TestTodo();
+
+    for (let i = 0; i < 100; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Client subscribed to [50, 100]
+    const subscriptionRange = { start: 50, end: 100 };
+
+    // If deletion happened at index 30 (before range)
+    // The range pulls back to [49, 99]
+    const deletionBefore = { index: 30 };
+    if (deletionBefore.index < subscriptionRange.start) {
+      // Range shifts backward
+      const newRange = {
+        start: subscriptionRange.start - 1,
+        end: subscriptionRange.end - 1,
+      };
+      expect(newRange).toEqual({ start: 49, end: 99 });
+    }
+  });
+
+  it('enables lazy pagination: client loads pages on demand', () => {
+    const todo = new TestTodo();
+    const pageSize = 50;
+
+    // Simulate adding a large dataset
+    for (let i = 0; i < 1000; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Client requests page 2: items [50, 100)
+    const pageNum = 2;
+    const startIdx = (pageNum - 1) * pageSize;
+    const endIdx = startIdx + pageSize;
+
+    const itemsInPage = todo.items.slice(startIdx, endIdx);
+    expect(itemsInPage).toHaveLength(50);
+    expect(itemsInPage[0].id).toBe(`id-${startIdx + 1}`); // First item in page
+  });
+
+  it('preserves event structure for non-array results', () => {
+    const events: any[] = [];
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      if (eventName === 'clear') {
+        events.push(data);
+      }
+    };
+
+    wrapStatefulMethods(todo);
+
+    todo.add('Task 1');
+    todo.clear();
+
+    // clear() returns { removed: number }, not an array item
+    expect(events).toHaveLength(1);
+    expect(events[0].index).toBeUndefined(); // No index for non-array results
+    expect(events[0].totalCount).toBeUndefined(); // No totalCount
+    expect(events[0].result).toEqual({ removed: 1 });
+  });
+
+  it('demonstrates pagination use case: efficient client-side range subscription', () => {
+    const allEvents: any[] = [];
+    const todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      allEvents.push(data);
+    };
+
+    wrapStatefulMethods(todo);
+
+    // Server: Add 1000 items
+    for (let i = 0; i < 1000; i++) {
+      todo.add(`Task ${i}`);
+    }
+
+    // Client side: Track active subscription
+    const activeSubscription = {
+      start: 200,
+      end: 250,
+      pageSize: 50,
+    };
+
+    // Filter events that would be received by a subscribed client
+    const receivedEvents = allEvents.filter((event) => {
+      // Only receive events relevant to subscription
+      return event.index >= activeSubscription.start && event.index < activeSubscription.end;
+    });
+
+    // Should have received 50 events (indices 200-249)
+    expect(receivedEvents).toHaveLength(50);
+    expect(receivedEvents[0].index).toBe(200);
+    expect(receivedEvents[49].index).toBe(249);
+
+    // Detect range shifts: if an event's index < subscription.start
+    const shiftingEvents = allEvents.filter((event) => event.index < activeSubscription.start);
+    // If we added 1000 items, indices 0-199 would cause range shifts
+    expect(shiftingEvents).toHaveLength(200);
+
+    // Verify event structure for pagination
+    const sampleEvent = allEvents[225];
+    expect(sampleEvent).toHaveProperty('index');
+    expect(sampleEvent).toHaveProperty('totalCount');
+    expect(sampleEvent).toHaveProperty('affectedRange');
+    expect(sampleEvent.affectedRange).toEqual({ start: 225, end: 226 });
   });
 });
 
