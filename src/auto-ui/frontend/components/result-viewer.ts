@@ -2497,6 +2497,7 @@ export class ResultViewer extends LitElement {
   /**
    * Get the warmth class based on recency heat.
    * Reads timestamp from item data first (survives refresh), falls back to in-memory map.
+   * Prioritizes __meta timestamps (most recent), then standard timestamp fields.
    */
   private _getItemWarmthClass(item: unknown): string {
     const idField = this._activeIdField;
@@ -2505,16 +2506,33 @@ export class ResultViewer extends LitElement {
     // Try to read timestamp from item data (persisted, survives refresh)
     if (item && typeof item === 'object') {
       const rec = item as Record<string, unknown>;
-      for (const field of ResultViewer._TIMESTAMP_FIELDS) {
-        const val = rec[field];
-        if (val !== undefined && val !== null) {
-          const parsed =
-            typeof val === 'number'
-              ? val
-              : new Date(typeof val === 'string' ? val : String(val as never)).getTime();
-          if (!isNaN(parsed)) {
-            timestamp = parsed;
-            break;
+
+      // Check __meta object first (highest priority — most recent change)
+      const meta = (rec as any).__meta;
+      if (meta && typeof meta === 'object') {
+        // Prefer modifiedAt (most recent change) over createdAt
+        if (meta.modifiedAt) {
+          const parsed = new Date(meta.modifiedAt).getTime();
+          if (!isNaN(parsed)) timestamp = parsed;
+        } else if (meta.createdAt) {
+          const parsed = new Date(meta.createdAt).getTime();
+          if (!isNaN(parsed)) timestamp = parsed;
+        }
+      }
+
+      // Fall back to standard timestamp fields if __meta not found
+      if (timestamp === undefined) {
+        for (const field of ResultViewer._TIMESTAMP_FIELDS) {
+          const val = rec[field];
+          if (val !== undefined && val !== null) {
+            const parsed =
+              typeof val === 'number'
+                ? val
+                : new Date(typeof val === 'string' ? val : String(val as never)).getTime();
+            if (!isNaN(parsed)) {
+              timestamp = parsed;
+              break;
+            }
           }
         }
       }

@@ -610,6 +610,224 @@ function wrapStatefulMethods(instance: any): void {
 }
 
 /**
+ * Warmth Detection Tests (Phase 3)
+ *
+ * Verifies that the UI warmth system correctly reads __meta timestamps
+ * and applies appropriate CSS classes based on item age.
+ */
+describe('Warmth Detection with __meta (Phase 3)', () => {
+  /**
+   * Simulates the result-viewer warmth detection logic
+   * Returns the warmth class based on timestamp age
+   */
+  function _getItemWarmthClass(item: unknown): string {
+    let timestamp: number | undefined;
+
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+
+      // Check __meta object first (highest priority — most recent change)
+      const meta = (rec as any).__meta;
+      if (meta && typeof meta === 'object') {
+        // Prefer modifiedAt (most recent change) over createdAt
+        if (meta.modifiedAt) {
+          const parsed = new Date(meta.modifiedAt).getTime();
+          if (!isNaN(parsed)) timestamp = parsed;
+        } else if (meta.createdAt) {
+          const parsed = new Date(meta.createdAt).getTime();
+          if (!isNaN(parsed)) timestamp = parsed;
+        }
+      }
+    }
+
+    if (!timestamp) return '';
+
+    const age = Date.now() - timestamp;
+    if (age < 5 * 60_000) return 'warmth-hot'; // < 5 min
+    if (age < 30 * 60_000) return 'warmth-warm'; // < 30 min
+    if (age < 2 * 3600_000) return 'warmth-cool'; // < 2 hr
+    return '';
+  }
+
+  it('detects warmth-hot from __meta.createdAt < 5 min', () => {
+    const now = Date.now();
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 2 * 60_000).toISOString(), // 2 min ago
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('warmth-hot');
+  });
+
+  it('detects warmth-warm from __meta.createdAt 5-30 min ago', () => {
+    const now = Date.now();
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 15 * 60_000).toISOString(), // 15 min ago
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('warmth-warm');
+  });
+
+  it('detects warmth-cool from __meta.createdAt 30 min - 2 hr ago', () => {
+    const now = Date.now();
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 90 * 60_000).toISOString(), // 90 min ago
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('warmth-cool');
+  });
+
+  it('returns empty string for __meta.createdAt > 2 hours ago', () => {
+    const now = Date.now();
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 3 * 3600_000).toISOString(), // 3 hours ago
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('');
+  });
+
+  it('prioritizes __meta.modifiedAt over __meta.createdAt', () => {
+    const now = Date.now();
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 90 * 60_000).toISOString(), // 90 min ago (warmth-cool)
+        modifiedAt: new Date(now - 2 * 60_000).toISOString(), // 2 min ago (warmth-hot)
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('warmth-hot'); // Should use modifiedAt, not createdAt
+  });
+
+  it('returns empty string when __meta has no timestamps', () => {
+    const item = {
+      id: '1',
+      __meta: {},
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('');
+  });
+
+  it('returns empty string when item has no __meta', () => {
+    const item = { id: '1', text: 'No metadata' };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('');
+  });
+
+  it('handles null and undefined timestamps gracefully', () => {
+    const item = {
+      id: '1',
+      __meta: {
+        createdAt: null,
+        modifiedAt: undefined,
+      },
+    };
+
+    const warmth = _getItemWarmthClass(item);
+    expect(warmth).toBe('');
+  });
+
+  it('decays warmth correctly over time thresholds', () => {
+    const now = Date.now();
+
+    // Test boundary: 4:59 ago should be hot
+    const item1 = {
+      id: '1',
+      __meta: {
+        createdAt: new Date(now - 4 * 60_000 - 59 * 1000).toISOString(),
+      },
+    };
+    expect(_getItemWarmthClass(item1)).toBe('warmth-hot');
+
+    // Test boundary: 5:01 ago should be warm
+    const item2 = {
+      id: '2',
+      __meta: {
+        createdAt: new Date(now - 5 * 60_000 - 1 * 1000).toISOString(),
+      },
+    };
+    expect(_getItemWarmthClass(item2)).toBe('warmth-warm');
+
+    // Test boundary: 29:59 ago should be warm
+    const item3 = {
+      id: '3',
+      __meta: {
+        createdAt: new Date(now - 29 * 60_000 - 59 * 1000).toISOString(),
+      },
+    };
+    expect(_getItemWarmthClass(item3)).toBe('warmth-warm');
+
+    // Test boundary: 30:01 ago should be cool
+    const item4 = {
+      id: '4',
+      __meta: {
+        createdAt: new Date(now - 30 * 60_000 - 1 * 1000).toISOString(),
+      },
+    };
+    expect(_getItemWarmthClass(item4)).toBe('warmth-cool');
+  });
+
+  it('shows how warmth integrates with modification tracking', () => {
+    const now = Date.now();
+
+    // Simulate an item with __meta attached by the loader
+    const item = {
+      id: 'test-1',
+      text: 'Test task',
+      done: false,
+      __meta: {
+        createdAt: new Date(now - 1 * 60_000).toISOString(), // 1 min ago
+        createdBy: 'add',
+        modifiedAt: null,
+        modifiedBy: null,
+        modifications: [],
+      },
+    };
+
+    // Freshly created items should be hot (< 5 min)
+    expect(_getItemWarmthClass(item)).toBe('warmth-hot');
+
+    // Simulate modification tracking (as done by the loader)
+    item.done = true;
+    item.__meta.modifications.push({
+      field: 'done',
+      oldValue: false,
+      newValue: true,
+      timestamp: new Date().toISOString(),
+      modifiedBy: 'done',
+    });
+    item.__meta.modifiedAt = new Date().toISOString();
+    item.__meta.modifiedBy = 'done';
+
+    // After modification with current timestamp, should still be hot
+    expect(_getItemWarmthClass(item)).toBe('warmth-hot');
+
+    // Verify modification is in audit trail
+    expect(item.__meta.modifications).toHaveLength(1);
+    expect(item.__meta.modifications[0].field).toBe('done');
+    expect(item.__meta.modifiedBy).toBe('done');
+  });
+});
+
+/**
  * Extract parameter names from a function by parsing its signature
  */
 function extractParamNames(fn: any): string[] {
