@@ -2603,7 +2603,7 @@ Run: photon mcp ${mcpName} --config
     // Get the emit function if available
     const emit =
       typeof instance.emit === 'function'
-        ? (instance.emit as (eventName: string, data: unknown) => void).bind(instance)
+        ? (instance.emit as (data: unknown) => void).bind(instance)
         : null;
 
     if (!emit) {
@@ -2685,7 +2685,17 @@ Run: photon mcp ${mcpName} --config
           }
         }
 
-        emit(methodName, eventData);
+        // Add channel for daemon pub/sub broadcasting to other clients
+        // Format: photon-name:method-name (for routing to interested subscribers)
+        eventData.channel = `${photonName}:${methodName}`;
+
+        // Emit the complete event data object
+        // Photon.emit(data) signature accepts a single data object that may contain:
+        // - channel: for daemon pub/sub routing
+        // - method, params, result, timestamp: event metadata
+        // - __meta on result: audit trail with creation/modification info
+        // - index, totalCount, affectedRange: for pagination support
+        emit(eventData);
 
         return result;
       };
