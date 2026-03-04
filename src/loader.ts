@@ -2642,6 +2642,23 @@ Run: photon mcp ${mcpName} --config
         // Call the original method
         const result = original.apply(this, args);
 
+        // Attach __meta to returned objects for audit trail
+        if (result && typeof result === 'object' && !Array.isArray(result) && !result.__meta) {
+          const timestamp = new Date().toISOString();
+          Object.defineProperty(result, '__meta', {
+            value: {
+              createdAt: timestamp,
+              createdBy: methodName,
+              modifiedAt: null,
+              modifiedBy: null,
+              modifications: [],
+            },
+            enumerable: false,
+            writable: true,
+            configurable: true,
+          });
+        }
+
         // Emit event with complete context
         const eventData: Record<string, any> = {
           method: methodName,

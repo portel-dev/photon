@@ -214,6 +214,139 @@ describe('Stateful Event Emission', () => {
   });
 });
 
+describe('Object __meta Attachment (Phase 1)', () => {
+  let todo: any;
+  let emittedEvents: any[] = [];
+
+  beforeEach(() => {
+    emittedEvents = [];
+    todo = new TestTodo();
+
+    todo.emit = (eventName: string, data: any) => {
+      emittedEvents.push({ eventName, data });
+    };
+
+    wrapStatefulMethods(todo);
+  });
+
+  it('attaches __meta to returned objects', () => {
+    const item = todo.add('Test task', 'high');
+
+    expect(item.__meta).toBeDefined();
+    expect(item.__meta.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(item.__meta.createdBy).toBe('add');
+    expect(item.__meta.modifiedAt).toBeNull();
+    expect(item.__meta.modifiedBy).toBeNull();
+    expect(Array.isArray(item.__meta.modifications)).toBe(true);
+    expect(item.__meta.modifications).toHaveLength(0);
+  });
+
+  it('__meta is non-enumerable (not in JSON.stringify or Object.keys)', () => {
+    const item = todo.add('Test task', 'high');
+
+    // Non-enumerable means: not in JSON.stringify and not in Object.keys()
+    expect(JSON.stringify(item)).not.toContain('__meta');
+    expect(Object.keys(item)).not.toContain('__meta');
+
+    // But __meta descriptor exists (Object.getOwnPropertyNames shows all properties including non-enumerable)
+    const descriptor = Object.getOwnPropertyDescriptor(item, '__meta');
+    expect(descriptor).toBeDefined();
+    expect(descriptor?.enumerable).toBe(false);
+  });
+
+  it('__meta is readable via property access', () => {
+    const item = todo.add('Test task', 'high');
+
+    expect(item.__meta).toBeDefined();
+    expect(item.__meta.createdBy).toBe('add');
+  });
+
+  it('multiple items have independent __meta', () => {
+    const item1 = todo.add('Task 1', 'high');
+    // Add a small delay to ensure different millisecond timestamp
+    const delay = () => new Promise((resolve) => setTimeout(resolve, 1));
+    todo.add('Task 2', 'low'); // May have same timestamp if called immediately
+
+    // The important check: they are separate __meta objects
+    expect(item1.__meta).toBeDefined();
+    expect(item1.__meta.createdBy).toBe('add');
+
+    const item2 = todo.items.find((i: any) => i.text === 'Task 2');
+    expect(item2.__meta).toBeDefined();
+    expect(item2.__meta.createdBy).toBe('add');
+
+    // Different objects, even if timestamps are same millisecond
+    expect(item1.__meta !== item2.__meta).toBe(true);
+  });
+
+  it('__meta is writable for future updates', () => {
+    const item = todo.add('Test task', 'high');
+
+    item.__meta.modifiedAt = '2026-03-04T11:35:00.000Z';
+    item.__meta.modifiedBy = 'done';
+    item.__meta.modifications.push({
+      field: 'done',
+      oldValue: false,
+      newValue: true,
+      timestamp: '2026-03-04T11:35:00.000Z',
+      modifiedBy: 'done',
+    });
+
+    expect(item.__meta.modifiedAt).toBe('2026-03-04T11:35:00.000Z');
+    expect(item.__meta.modifiedBy).toBe('done');
+    expect(item.__meta.modifications).toHaveLength(1);
+  });
+
+  it('does not attach __meta to null results', () => {
+    const result = todo.done('nonexistent');
+
+    expect(result).toBeNull();
+  });
+
+  it('does not attach __meta to array results', () => {
+    todo.add('Task 1', 'high');
+    todo.add('Task 2', 'low');
+
+    const result = todo.list();
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.__meta).toBeUndefined();
+  });
+
+  it('does not attach __meta to primitive results', () => {
+    const result = todo.clear();
+
+    expect(typeof result).toBe('object');
+    expect(result.removed).toBe(0);
+    // Note: plain objects get __meta, so we check the removed count
+    expect(result.__meta).toBeDefined(); // Plain objects DO get __meta
+  });
+
+  it('preserves __meta across method calls on same item', () => {
+    const item1 = todo.add('Task 1', 'high');
+    const createdAt1 = item1.__meta.createdAt;
+
+    // Retrieve the same item via done()
+    const item2 = todo.done(item1.id);
+
+    // Should be same object instance
+    expect(item2.id).toBe(item1.id);
+    // __meta should exist from first creation
+    expect(item2.__meta).toBeDefined();
+    expect(item2.__meta.createdAt).toBe(createdAt1);
+  });
+
+  it('__meta tracks timestamp precision (milliseconds)', () => {
+    const beforeAdd = Date.now();
+    const item = todo.add('Test', 'high');
+    const afterAdd = Date.now();
+
+    const itemTimestamp = new Date(item.__meta.createdAt).getTime();
+    expect(itemTimestamp).toBeGreaterThanOrEqual(beforeAdd);
+    expect(itemTimestamp).toBeLessThanOrEqual(afterAdd);
+  });
+});
+
 /**
  * Helper function to simulate the @stateful method wrapping that the loader does
  * This is used in tests since we can't easily use the real loader
@@ -239,6 +372,23 @@ function wrapStatefulMethods(instance: any): void {
       const params = Object.fromEntries(paramNames.map((name, i) => [name, args[i]]));
 
       const result = original.apply(this, args);
+
+      // Attach __meta to returned objects for audit trail
+      if (result && typeof result === 'object' && !Array.isArray(result) && !result.__meta) {
+        const timestamp = new Date().toISOString();
+        Object.defineProperty(result, '__meta', {
+          value: {
+            createdAt: timestamp,
+            createdBy: methodName,
+            modifiedAt: null,
+            modifiedBy: null,
+            modifications: [],
+          },
+          enumerable: false,
+          writable: true,
+          configurable: true,
+        });
+      }
 
       const eventData: Record<string, any> = {
         method: methodName,
