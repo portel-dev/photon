@@ -2669,6 +2669,22 @@ Run: photon mcp ${mcpName} --config
         if (this.instanceName) {
           eventData.instance = this.instanceName;
         }
+
+        // Detect array mutations for range-based pagination support (Phase 5)
+        // If result is an object from this.items, add index and array metadata
+        if (result && typeof result === 'object' && Array.isArray(this.items)) {
+          const index = this.items.findIndex((item: any) => item === result);
+          if (index !== -1) {
+            eventData.index = index;
+            eventData.totalCount = this.items.length;
+            // Affected range: just this item
+            eventData.affectedRange = {
+              start: index,
+              end: index + 1,
+            };
+          }
+        }
+
         emit(methodName, eventData);
 
         return result;
