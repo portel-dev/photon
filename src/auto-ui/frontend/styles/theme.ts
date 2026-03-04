@@ -145,8 +145,12 @@ export const theme = css`
     bottom: 0;
     background-color: var(--bg-glass);
     border: 1px solid var(--border-glass);
-    transition: 0.4s;
+    transition: 0.2s;
     border-radius: var(--radius-full);
+  }
+
+  .slider:hover {
+    border-color: var(--accent-secondary);
   }
 
   .slider:before {
@@ -157,7 +161,7 @@ export const theme = css`
     left: 2px;
     bottom: 2px;
     background-color: var(--t-muted);
-    transition: 0.4s;
+    transition: 0.2s;
     border-radius: 50%;
   }
 

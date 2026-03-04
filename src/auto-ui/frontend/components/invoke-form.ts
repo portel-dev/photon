@@ -249,6 +249,7 @@ export class InvokeForm extends LitElement {
         font-size: var(--text-xs);
         padding: 2px 6px;
         border-radius: var(--radius-xs);
+        transition: background 0.15s ease;
       }
 
       .array-item-remove:hover {
@@ -325,6 +326,12 @@ export class InvokeForm extends LitElement {
         margin-top: var(--space-xs);
       }
 
+      .hint {
+        font-size: var(--text-xs);
+        color: var(--t-muted);
+        margin-top: 2px;
+      }
+
       /* Slider-First Numeric Input */
       .slider-group {
         display: flex;
@@ -348,7 +355,7 @@ export class InvokeForm extends LitElement {
         border: none;
         outline: none;
         /* Default unfilled track — overridden by inline style for fill effect */
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-glass);
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
@@ -356,7 +363,7 @@ export class InvokeForm extends LitElement {
         width: 16px;
         height: 16px;
         background: var(--accent-primary);
-        border: 2px solid var(--bg-primary, #1a1a2e);
+        border: 2px solid var(--bg-panel, var(--bg-glass));
         border-radius: 50%;
         cursor: pointer;
         box-shadow:
@@ -380,7 +387,7 @@ export class InvokeForm extends LitElement {
 
       .slider-row input[type='range']::-moz-range-track {
         height: 4px;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-glass);
         border-radius: var(--radius-full, 9999px);
         border: none;
       }
@@ -395,7 +402,7 @@ export class InvokeForm extends LitElement {
         width: 12px;
         height: 12px;
         background: var(--accent-primary);
-        border: 2px solid var(--bg-primary, #1a1a2e);
+        border: 2px solid var(--bg-panel, var(--bg-glass));
         border-radius: 50%;
         cursor: pointer;
         box-shadow:
@@ -882,9 +889,7 @@ export class InvokeForm extends LitElement {
               this._handleChange(key, arr.length > 0 ? arr : raw);
             }}
           />
-          <div class="hint" style="font-size:0.75rem;color:var(--t-muted);margin-top:2px;">
-            Comma-separated values
-          </div>
+          <div class="hint">Comma-separated values</div>
         </div>
       `;
     }
@@ -1334,7 +1339,7 @@ export class InvokeForm extends LitElement {
 
   private _sliderFillStyle(value: number, min: number, max: number): string {
     const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
-    return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+    return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, var(--border-glass) ${pct}%)`;
   }
 
   /** Clamp to [min, max] and round to nearest step (integer-safe). */
@@ -1507,7 +1512,9 @@ export class InvokeForm extends LitElement {
         >
           <option value="">Select...</option>
           ${schema.enum.map(
-            (opt: string) => html` <option value=${opt} ?selected=${opt === value}>${opt}</option> `
+            (opt: string) => html`
+              <option value=${opt} ?selected=${opt === value}>${capitalizeEnumValue(opt)}</option>
+            `
           )}
         </select>
       `;
@@ -1546,9 +1553,14 @@ export class InvokeForm extends LitElement {
                 min="${min}"
                 max="${max}"
                 step="${step}"
+                style="${this._sliderFillStyle(Number(currentVal), min, max)}"
                 .value=${String(currentVal)}
-                @input=${(e: Event) =>
-                  onChange(propKey, Number((e.target as HTMLInputElement).value))}
+                @input=${(e: Event) => {
+                  const el = e.target as HTMLInputElement;
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
+                  el.style.cssText = this._sliderFillStyle(v, min, max);
+                  onChange(propKey, v);
+                }}
               />
               <input
                 type="number"
@@ -1557,8 +1569,17 @@ export class InvokeForm extends LitElement {
                 max="${max}"
                 step="${step}"
                 .value=${displayVal}
-                @input=${(e: Event) =>
-                  onChange(propKey, Number((e.target as HTMLInputElement).value))}
+                @input=${(e: Event) => {
+                  const raw = (e.target as HTMLInputElement).value;
+                  if (raw === '' || raw === '-') return;
+                  onChange(propKey, Number(raw));
+                }}
+                @change=${(e: Event) => {
+                  const el = e.target as HTMLInputElement;
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
+                  el.value = String(v);
+                  onChange(propKey, v);
+                }}
               />
             </div>
             <div class="range-labels">
@@ -1748,7 +1769,9 @@ export class InvokeForm extends LitElement {
         >
           <option value="">Select...</option>
           ${schema.enum.map(
-            (opt: string) => html` <option value=${opt} ?selected=${opt === value}>${opt}</option> `
+            (opt: string) => html`
+              <option value=${opt} ?selected=${opt === value}>${capitalizeEnumValue(opt)}</option>
+            `
           )}
         </select>
       `;
@@ -1757,11 +1780,14 @@ export class InvokeForm extends LitElement {
     // Handle boolean
     if (schema.type === 'boolean') {
       return html`
-        <input
-          type="checkbox"
-          .checked=${!!value}
-          @change=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).checked)}
-        />
+        <label class="switch">
+          <input
+            type="checkbox"
+            .checked=${!!value}
+            @change=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).checked)}
+          />
+          <span class="slider"></span>
+        </label>
       `;
     }
 
@@ -1788,9 +1814,14 @@ export class InvokeForm extends LitElement {
                 min="${min}"
                 max="${max}"
                 step="${step}"
+                style="${this._sliderFillStyle(Number(currentVal), min, max)}"
                 .value=${String(currentVal)}
-                @input=${(e: Event) =>
-                  handleNestedChange(Number((e.target as HTMLInputElement).value))}
+                @input=${(e: Event) => {
+                  const el = e.target as HTMLInputElement;
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
+                  el.style.cssText = this._sliderFillStyle(v, min, max);
+                  handleNestedChange(v);
+                }}
               />
               <input
                 type="number"
@@ -1799,8 +1830,17 @@ export class InvokeForm extends LitElement {
                 max="${max}"
                 step="${step}"
                 .value=${displayVal}
-                @input=${(e: Event) =>
-                  handleNestedChange(Number((e.target as HTMLInputElement).value))}
+                @input=${(e: Event) => {
+                  const raw = (e.target as HTMLInputElement).value;
+                  if (raw === '' || raw === '-') return;
+                  handleNestedChange(Number(raw));
+                }}
+                @change=${(e: Event) => {
+                  const el = e.target as HTMLInputElement;
+                  const v = this._sanitizeSliderValue(Number(el.value), min, max, step);
+                  el.value = String(v);
+                  handleNestedChange(v);
+                }}
               />
             </div>
             <div class="range-labels">
