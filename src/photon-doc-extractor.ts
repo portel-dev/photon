@@ -513,6 +513,27 @@ export class PhotonDocExtractor {
   }
 
   /**
+   * Strip JSDoc tags from description text.
+   * Removes @emits, @internal, @deprecated, @format, and other @ tags that leak into user-facing descriptions.
+   * These should only appear in structured metadata, not in the description shown to users.
+   */
+  private stripJSDocTagsFromDescription(description: string): string {
+    if (!description) return description;
+
+    // Remove lines that start with @ tags (e.g., @emits, @internal, @format)
+    // This handles cases where JSDoc tags appear as continuation lines in descriptions
+    const lines = description.split('\n');
+    const cleanLines = lines.filter((line) => !line.trim().startsWith('@'));
+    const cleaned = cleanLines.join('\n').trim();
+
+    // Also remove inline @ tags that might appear mid-sentence
+    // Pattern: @ followed by word characters and the rest of the text
+    // e.g., "@emits items:cleared — when" → "" (removes @ and everything after)
+    // This is more aggressive but ensures tags don't leak through
+    return cleaned.replace(/\s*@\w+.*$/gm, '').trim();
+  }
+
+  /**
    * Parse a single tool method from its JSDoc content
    */
   private parseToolMethodFromJSDoc(
@@ -548,6 +569,9 @@ export class PhotonDocExtractor {
         prevWasBlank = false;
       }
       description = parts.join('').trim();
+      // Strip JSDoc tags from description (e.g., @emits, @internal, @deprecated)
+      // These should only appear in structured metadata, not user-facing descriptions
+      description = this.stripJSDocTagsFromDescription(description);
     }
 
     // Extract type map from method signature (e.g. "path: string, recursive?: boolean")
