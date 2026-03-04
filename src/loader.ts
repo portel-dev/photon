@@ -2316,36 +2316,79 @@ Run: photon mcp ${mcpName} --config
             }
 
             // Construct event data with full context for transmission
-            const eventData: Record<string, any> = {
+            // CRITICAL: emit() expects { channel, event, data } structure for daemon pub/sub routing
+            const eventPayload: Record<string, any> = {
               method: toolName,
               params: parameters,
               result,
               timestamp: new Date().toISOString(),
-              channel: `${photonName}:${toolName}`, // For daemon pub/sub routing
             };
 
             // Add instance name if available
             if (mcp.instance.instanceName) {
-              eventData.instance = mcp.instance.instanceName;
+              eventPayload.instance = mcp.instance.instanceName;
             }
 
             // Add index/pagination info if result is from items array
             if (result && typeof result === 'object' && Array.isArray(mcp.instance.items)) {
               const index = mcp.instance.items.findIndex((item: any) => item === result);
               if (index !== -1) {
-                eventData.index = index;
-                eventData.totalCount = mcp.instance.items.length;
-                eventData.affectedRange = {
+                eventPayload.index = index;
+                eventPayload.totalCount = mcp.instance.items.length;
+                eventPayload.affectedRange = {
                   start: index,
                   end: index + 1,
                 };
               }
             }
 
-            // Emit the event for real-time transmission to other clients
-            mcp.instance.emit(eventData);
+            // Wrap in daemon pub/sub format: { channel, event, data }
+            const eventData = {
+              channel: `${photonName}:${toolName}`, // For daemon pub/sub routing
+              event: 'tool-executed',
+              data: eventPayload,
+            };
+
+            // Send event through outputHandler for daemon pub/sub routing
+            // This is the critical path that routes events to subscribers through the daemon
+            if (options?.outputHandler) {
+              try {
+                if (process.env.PHOTON_DEBUG_EMIT === '1') {
+                  console.error(
+                    `[EMIT-DEBUG] Sending event: method=${eventPayload.method}, channel=${eventData.channel}, hasMeta=${!!result?.__meta}`
+                  );
+                }
+                // Cast to any - outputHandler is flexible and routes any object with channel property
+                void Promise.resolve(options.outputHandler(eventData as any)).catch(() => {
+                  // Ignore output handler errors - don't break tool execution
+                });
+                if (process.env.PHOTON_DEBUG_EMIT === '1') {
+                  console.error(`[EMIT-DEBUG] Event transmitted to outputHandler`);
+                }
+              } catch (e) {
+                console.error(
+                  `[EMIT-ERROR] Failed to send event through outputHandler: ${e instanceof Error ? e.message : String(e)}`
+                );
+              }
+            } else if (mcp.instance && typeof mcp.instance.emit === 'function') {
+              // Fallback for cases where outputHandler isn't available
+              // (this path won't route to daemon pub/sub, but at least calls emit)
+              try {
+                if (process.env.PHOTON_DEBUG_EMIT === '1') {
+                  console.error(`[EMIT-DEBUG] No outputHandler, falling back to instance.emit`);
+                }
+                mcp.instance.emit(eventData);
+              } catch (e) {
+                console.error(
+                  `[EMIT-ERROR] Failed to emit: ${e instanceof Error ? e.message : String(e)}`
+                );
+              }
+            }
           } catch (e) {
-            // Silent fail on emit - don't break tool execution if emit fails
+            // Log emit errors but don't break tool execution
+            console.error(
+              `[EMIT-ERROR] Failed to emit @stateful event: ${e instanceof Error ? e.message : String(e)}`
+            );
             this.logger.debug(
               `Failed to emit @stateful event: ${e instanceof Error ? e.message : String(e)}`
             );
