@@ -2792,17 +2792,15 @@ Run: photon mcp ${mcpName} --config
           }
         }
 
-        // Add channel for daemon pub/sub broadcasting to other clients
-        // Format: photon-name:method-name (for routing to interested subscribers)
-        eventData.channel = `${photonName}:${methodName}`;
-
-        // Emit the complete event data object
-        // Photon.emit(data) signature accepts a single data object that may contain:
-        // - channel: for daemon pub/sub routing
-        // - method, params, result, timestamp: event metadata
-        // - __meta on result: audit trail with creation/modification info
-        // - index, totalCount, affectedRange: for pagination support
-        emit(eventData);
+        // NOTE: Don't emit here - the real emission happens at executeTool level
+        // (line 2362 via outputHandler). This method wrapper is only called during
+        // direct instantiation testing, not in actual MCP execution paths where executeTool
+        // is the proper routing point.
+        //
+        // If we emit here too, we get duplicate messages:
+        // 1. This wrapper emits directly: emit(eventData)
+        // 2. executeTool emits via outputHandler: outputHandler(eventData)
+        // Both route to daemon, causing double notifications.
 
         return result;
       };
