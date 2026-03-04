@@ -1563,6 +1563,13 @@ export class PhotonServer {
 
     const msg = message as Record<string, unknown>;
 
+    // Debug logging for cross-client event transmission
+    if (process.env.PHOTON_DEBUG_EVENTS === '1') {
+      console.error(
+        `[PHOTON-SERVER] Received daemon message on ${String(msg.channel)}: event=${String(msg.event)}`
+      );
+    }
+
     // Use STANDARD notification with embedded photon data
     // Claude Desktop will forward this (it's a standard notification)
     // Our bridge extracts _photon and routes to the appropriate event handler
@@ -1580,8 +1587,15 @@ export class PhotonServer {
     };
 
     try {
+      if (process.env.PHOTON_DEBUG_EVENTS === '1') {
+        console.error(`[PHOTON-SERVER] Sending notification to MCP clients...`);
+      }
       await this.server.notification(payload);
+      if (process.env.PHOTON_DEBUG_EVENTS === '1') {
+        console.error(`[PHOTON-SERVER] Notification sent successfully`);
+      }
     } catch (e) {
+      console.error(`[PHOTON-SERVER-ERROR] Notification send failed: ${getErrorMessage(e)}`);
       this.log('debug', 'Notification send failed', { error: getErrorMessage(e) });
     }
 
