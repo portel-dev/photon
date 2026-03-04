@@ -2143,6 +2143,9 @@ export class ResultViewer extends LitElement {
   private _itemHeatTimestamps = new Map<string, number>();
   private _warmthTimer: number | undefined;
 
+  // Audit trail expansion state: track which items have expanded audit trails
+  private _expandedAuditTrails = new Set<string>();
+
   // The detected ID field for the current result (shared across diff, animation, warmth)
   private _activeIdField = 'id';
 
@@ -3714,6 +3717,158 @@ export class ResultViewer extends LitElement {
           </div>
         `
       )}
+      ${this._renderAuditTrail(data)}
+    `;
+  }
+
+  /**
+   * Render audit trail from __meta object if present
+   */
+  private _renderAuditTrail(data: any): TemplateResult | string {
+    if (!data || typeof data !== 'object') return '';
+
+    const meta = data.__meta;
+    if (!meta || typeof meta !== 'object') return '';
+
+    // Create a unique key for this audit trail (use object reference if no ID)
+    const idField = this._activeIdField;
+    const itemId = data[idField] ? String(data[idField]) : Math.random().toString(36);
+    const auditKey = `audit-${itemId}`;
+    const isExpanded = this._expandedAuditTrails.has(auditKey);
+
+    // Format timestamps to readable strings
+    const formatTime = (isoString: string | null): string => {
+      if (!isoString) return 'N/A';
+      const date = new Date(isoString);
+      return date.toLocaleString();
+    };
+
+    const createdAt = formatTime(meta.createdAt);
+    const modifiedAt = meta.modifiedAt ? formatTime(meta.modifiedAt) : null;
+
+    return html`
+      <div
+        style="margin-top: var(--space-md); border-top: 1px solid var(--border-glass); padding-top: var(--space-md);"
+      >
+        <details
+          ?open="${isExpanded}"
+          @toggle="${(e: Event) => {
+            const detail = e.target as HTMLDetailsElement;
+            if (detail.open) {
+              this._expandedAuditTrails.add(auditKey);
+            } else {
+              this._expandedAuditTrails.delete(auditKey);
+            }
+          }}"
+        >
+          <summary
+            style="cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: var(--space-sm);"
+          >
+            <span
+              style="display: inline-block; width: 0.5em; height: 0.5em; border-radius: 50%; background: var(--text-secondary); margin-right: var(--space-xs);"
+            ></span>
+            Audit Trail
+            ${meta.modifications?.length
+              ? html`<span style="font-size: 0.85em; color: var(--text-secondary);"
+                  >(${meta.modifications.length} changes)</span
+                >`
+              : ''}
+          </summary>
+
+          <div
+            style="margin-top: var(--space-md); padding: var(--space-sm) var(--space-md); background: var(--bg-secondary); border-radius: var(--radius-sm);"
+          >
+            <table style="width: 100%; font-size: 0.9em;">
+              <tbody>
+                <tr style="border-bottom: 1px solid var(--border-subtle);">
+                  <td
+                    style="padding: var(--space-xs); color: var(--text-secondary); font-weight: 500;"
+                  >
+                    Created
+                  </td>
+                  <td style="padding: var(--space-xs);">${createdAt}</td>
+                  ${meta.createdBy
+                    ? html`<td
+                        style="padding: var(--space-xs); color: var(--text-secondary); font-size: 0.85em;"
+                      >
+                        (by: ${meta.createdBy})
+                      </td>`
+                    : ''}
+                </tr>
+                ${modifiedAt
+                  ? html`
+                      <tr style="border-bottom: 1px solid var(--border-subtle);">
+                        <td
+                          style="padding: var(--space-xs); color: var(--text-secondary); font-weight: 500;"
+                        >
+                          Modified
+                        </td>
+                        <td style="padding: var(--space-xs);">${modifiedAt}</td>
+                        ${meta.modifiedBy
+                          ? html`<td
+                              style="padding: var(--space-xs); color: var(--text-secondary); font-size: 0.85em;"
+                            >
+                              (by: ${meta.modifiedBy})
+                            </td>`
+                          : ''}
+                      </tr>
+                    `
+                  : ''}
+              </tbody>
+            </table>
+
+            ${meta.modifications &&
+            Array.isArray(meta.modifications) &&
+            meta.modifications.length > 0
+              ? html`
+                  <div style="margin-top: var(--space-md);">
+                    <div
+                      style="font-weight: 500; margin-bottom: var(--space-sm); color: var(--text-secondary);"
+                    >
+                      Changes
+                    </div>
+                    <ul style="list-style: none; padding: 0; margin: 0;">
+                      ${meta.modifications.map(
+                        (mod: any, idx: number) => html`
+                          <li
+                            key="${idx}"
+                            style="padding: var(--space-xs) var(--space-sm); margin-bottom: var(--space-xs); background: var(--bg-hover); border-left: 3px solid var(--primary); border-radius: 2px; font-size: 0.9em;"
+                          >
+                            <div style="margin-bottom: 2px;">
+                              <span style="font-weight: 500; color: var(--text-primary);"
+                                >${mod.field}</span
+                              >
+                              <span style="color: var(--text-secondary); margin: 0 var(--space-xs);"
+                                >→</span
+                              >
+                              <span style="color: var(--text-secondary); font-size: 0.85em;"
+                                >${formatTime(mod.timestamp || new Date().toISOString())}</span
+                              >
+                            </div>
+                            <div
+                              style="font-family: monospace; font-size: 0.85em; color: var(--text-secondary); margin-left: var(--space-sm);"
+                            >
+                              <span style="color: #d87070;">${JSON.stringify(mod.oldValue)}</span>
+                              <span style="margin: 0 4px;">→</span>
+                              <span style="color: #7cb342;">${JSON.stringify(mod.newValue)}</span>
+                            </div>
+                            ${mod.modifiedBy
+                              ? html`<div
+                                  style="font-size: 0.8em; color: var(--text-secondary); margin-top: 2px;"
+                                >
+                                  <em>by: ${mod.modifiedBy}</em>
+                                </div>`
+                              : ''}
+                          </li>
+                        `
+                      )}
+                    </ul>
+                  </div>
+                `
+              : ''}
+          </div>
+        </details>
+      </div>
     `;
   }
 
