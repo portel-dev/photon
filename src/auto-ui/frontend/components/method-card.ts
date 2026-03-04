@@ -54,7 +54,7 @@ export class MethodCard extends LitElement {
 
       .card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         border-left-color: var(--accent-primary);
       }
 
@@ -232,7 +232,7 @@ export class MethodCard extends LitElement {
         font-size: var(--text-xs);
         padding: 2px 8px;
         border-radius: var(--radius-md);
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
         color: var(--t-muted);
         flex-shrink: 0;
       }
@@ -240,6 +240,37 @@ export class MethodCard extends LitElement {
       .badge.prompt {
         background: hsla(45, 80%, 50%, 0.15);
         color: hsl(45, 80%, 60%);
+      }
+
+      .badge.scheduled {
+        background: hsla(215, 80%, 60%, 0.15);
+        color: hsl(215, 80%, 65%);
+      }
+
+      .badge.deprecated {
+        background: hsla(0, 0%, 50%, 0.15);
+        color: hsl(0, 0%, 60%);
+        text-decoration: line-through;
+      }
+
+      .badge.cached {
+        background: hsla(280, 60%, 50%, 0.15);
+        color: hsl(280, 60%, 65%);
+      }
+
+      .badge.throttled {
+        background: hsla(30, 80%, 50%, 0.15);
+        color: hsl(30, 80%, 60%);
+      }
+
+      .badge.queued {
+        background: hsla(200, 70%, 50%, 0.15);
+        color: hsl(200, 70%, 60%);
+      }
+
+      .badge.event {
+        background: hsla(100, 70%, 50%, 0.15);
+        color: hsl(100, 70%, 60%);
       }
 
       .param-tags {
@@ -255,9 +286,9 @@ export class MethodCard extends LitElement {
         font-size: var(--text-xs);
         padding: 4px 10px;
         border-radius: var(--radius-xs);
-        background: hsla(260, 60%, 50%, 0.12);
-        color: var(--t-primary);
-        border: 1px solid hsla(260, 60%, 50%, 0.2);
+        background: var(--param-tag-bg, hsla(260, 60%, 50%, 0.12));
+        color: var(--param-tag-color, var(--t-primary));
+        border: 1px solid var(--param-tag-border, hsla(260, 60%, 50%, 0.2));
         font-weight: 500;
       }
 
@@ -266,8 +297,8 @@ export class MethodCard extends LitElement {
         min-width: 20px;
         height: 20px;
         border-radius: var(--radius-sm);
-        background: hsla(45, 80%, 50%, 0.2);
-        color: hsl(45, 80%, 60%);
+        background: var(--color-warning-bg, hsla(45, 80%, 50%, 0.2));
+        color: var(--color-warning, hsl(45, 80%, 60%));
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -297,7 +328,7 @@ export class MethodCard extends LitElement {
         align-items: center;
         justify-content: center;
         border-radius: var(--radius-sm);
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
       }
 
       .card:hover .action-icon {
@@ -312,7 +343,7 @@ export class MethodCard extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
         padding: var(--space-sm);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         z-index: 100;
         display: grid;
         grid-template-columns: repeat(6, 1fr);
@@ -511,44 +542,18 @@ export class MethodCard extends LitElement {
             ${this.method.isTemplate ? html`<span class="badge prompt">Prompt</span>` : ''}
             ${isCron
               ? html`<span
-                  class="badge"
-                  style="background:hsla(215,80%,60%,0.15);color:hsl(215,80%,65%)"
+                  class="badge scheduled"
                   title="Runs automatically on schedule: ${this.method.scheduled}"
                   >⏱ Scheduled</span
                 >`
               : ''}
-            ${isDeprecated
-              ? html`<span
-                  class="badge"
-                  style="background:hsla(0,0%,50%,0.15);color:hsl(0,0%,60%);text-decoration:line-through"
-                  >Deprecated</span
-                >`
-              : ''}
-            ${isCached
-              ? html`<span
-                  class="badge"
-                  style="background:hsla(280,60%,50%,0.15);color:hsl(280,60%,65%)"
-                  >Cached</span
-                >`
-              : ''}
-            ${isThrottled
-              ? html`<span
-                  class="badge"
-                  style="background:hsla(30,80%,50%,0.15);color:hsl(30,80%,60%)"
-                  >Throttled</span
-                >`
-              : ''}
-            ${isQueued
-              ? html`<span
-                  class="badge"
-                  style="background:hsla(200,70%,50%,0.15);color:hsl(200,70%,60%)"
-                  >Queued</span
-                >`
-              : ''}
+            ${isDeprecated ? html`<span class="badge deprecated">Deprecated</span>` : ''}
+            ${isCached ? html`<span class="badge cached">Cached</span>` : ''}
+            ${isThrottled ? html`<span class="badge throttled">Throttled</span>` : ''}
+            ${isQueued ? html`<span class="badge queued">Queued</span>` : ''}
             ${emitsEvent
               ? html`<span
-                  class="badge"
-                  style="background:hsla(100,70%,50%,0.15);color:hsl(100,70%,60%)"
+                  class="badge event"
                   title="Automatically emits event: ${this.method.eventName}"
                   >📡 Event</span
                 >`

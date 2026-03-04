@@ -1260,7 +1260,7 @@ export class BeamApp extends LitElement {
         min-width: 120px;
         font-family: var(--font-mono);
         font-size: var(--text-md);
-        color: hsl(45, 80%, 60%);
+        color: var(--color-warning);
       }
 
       .variable-input input {
@@ -1449,7 +1449,7 @@ export class BeamApp extends LitElement {
 
       .progress-bar-wrapper {
         height: 8px;
-        background: rgba(0, 0, 0, 0.2);
+        background: var(--bg-glass);
         border-radius: var(--radius-xs);
         overflow: hidden;
       }
