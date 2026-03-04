@@ -2288,6 +2288,70 @@ Run: photon mcp ${mcpName} --config
         const result = await executeBase();
         this.progressRenderer.done();
         auditFinish(result);
+
+        // CRITICAL FIX: Emit @stateful events at executeTool level
+        // The method wrapper approach is bypassed by Photon.executeTool(),
+        // so we must emit events here where ALL tool executions are guaranteed to pass through
+        if (mcp.instance && typeof mcp.instance.emit === 'function') {
+          try {
+            // Check if this is a @stateful photon by looking for emit method and @stateful tag
+            const photonName = mcp.name;
+            const hasStatefulTag = mcp.tools.some((t: any) => t.name === toolName); // Assume @stateful if loaded
+
+            // Attach __meta to result if it's an object and doesn't already have it
+            if (result && typeof result === 'object' && !Array.isArray(result) && !result.__meta) {
+              const timestamp = new Date().toISOString();
+              Object.defineProperty(result, '__meta', {
+                value: {
+                  createdAt: timestamp,
+                  createdBy: toolName,
+                  modifiedAt: null,
+                  modifiedBy: null,
+                  modifications: [],
+                },
+                enumerable: false,
+                writable: true,
+                configurable: true,
+              });
+            }
+
+            // Construct event data with full context for transmission
+            const eventData: Record<string, any> = {
+              method: toolName,
+              params: parameters,
+              result,
+              timestamp: new Date().toISOString(),
+              channel: `${photonName}:${toolName}`, // For daemon pub/sub routing
+            };
+
+            // Add instance name if available
+            if (mcp.instance.instanceName) {
+              eventData.instance = mcp.instance.instanceName;
+            }
+
+            // Add index/pagination info if result is from items array
+            if (result && typeof result === 'object' && Array.isArray(mcp.instance.items)) {
+              const index = mcp.instance.items.findIndex((item: any) => item === result);
+              if (index !== -1) {
+                eventData.index = index;
+                eventData.totalCount = mcp.instance.items.length;
+                eventData.affectedRange = {
+                  start: index,
+                  end: index + 1,
+                };
+              }
+            }
+
+            // Emit the event for real-time transmission to other clients
+            mcp.instance.emit(eventData);
+          } catch (e) {
+            // Silent fail on emit - don't break tool execution if emit fails
+            this.logger.debug(
+              `Failed to emit @stateful event: ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
+        }
+
         return result;
       }
 
