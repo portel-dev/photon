@@ -215,7 +215,7 @@ export class ElicitationModal extends LitElement {
       .slider-group {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 4px;
       }
 
       .slider-row {
@@ -227,46 +227,103 @@ export class ElicitationModal extends LitElement {
       .slider-row input[type='range'] {
         flex: 1;
         height: 6px;
-        background: rgba(255, 255, 255, 0.12);
-        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 3px;
         -webkit-appearance: none;
         cursor: pointer;
         margin: 8px 0;
+        border: none;
+        outline: none;
+        background: rgba(255, 255, 255, 0.1);
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        height: 16px;
         background: var(--accent-primary);
+        border: 2px solid var(--bg-primary, #1a1a2e);
         border-radius: 50%;
         cursor: pointer;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+        box-shadow:
+          0 0 0 2px var(--accent-primary),
+          0 1px 4px rgba(0, 0, 0, 0.3);
+        transition:
+          box-shadow 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .slider-row input[type='range']::-webkit-slider-thumb:hover {
+        box-shadow:
+          0 0 0 3px var(--accent-primary),
+          0 0 8px var(--glow-primary);
+        transform: scale(1.1);
+      }
+
+      .slider-row input[type='range']:active::-webkit-slider-thumb {
+        transform: scale(0.95);
       }
 
       .slider-row input[type='range']::-moz-range-track {
         height: 6px;
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.1);
         border-radius: 3px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: none;
+      }
+
+      .slider-row input[type='range']::-moz-range-progress {
+        height: 6px;
+        background: var(--accent-primary);
+        border-radius: 3px 0 0 3px;
       }
 
       .slider-row input[type='range']::-moz-range-thumb {
-        width: 20px;
-        height: 20px;
+        width: 12px;
+        height: 12px;
         background: var(--accent-primary);
+        border: 2px solid var(--bg-primary, #1a1a2e);
         border-radius: 50%;
         cursor: pointer;
-        border: none;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+        box-shadow:
+          0 0 0 2px var(--accent-primary),
+          0 1px 4px rgba(0, 0, 0, 0.3);
+        transition:
+          box-shadow 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .slider-row input[type='range']::-moz-range-thumb:hover {
+        box-shadow:
+          0 0 0 3px var(--accent-primary),
+          0 0 8px var(--glow-primary);
       }
 
       .slider-number-input {
-        width: 80px;
-        text-align: right;
+        width: 64px;
+        text-align: center;
         font-size: var(--text-sm);
-        padding: 4px 8px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        padding: 4px 6px;
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass) !important;
+        border-radius: var(--radius-sm);
+        color: var(--t-primary);
+        -moz-appearance: textfield;
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .slider-number-input::-webkit-outer-spin-button,
+      .slider-number-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .slider-number-input:focus-visible {
+        outline: none;
+        border-color: var(--accent-primary) !important;
+        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .range-labels {
@@ -598,9 +655,13 @@ export class ElicitationModal extends LitElement {
               min="${min}"
               max="${max}"
               step="${step}"
+              style="${this._sliderFillStyle(Number(currentValue), min, max)}"
               .value=${String(currentValue)}
               @input=${(e: Event) => {
-                this._inputValue = Number((e.target as HTMLInputElement).value);
+                const el = e.target as HTMLInputElement;
+                const v = Number(el.value);
+                el.style.cssText = this._sliderFillStyle(v, min, max);
+                this._inputValue = v;
               }}
             />
             <input
@@ -902,9 +963,13 @@ export class ElicitationModal extends LitElement {
               min="${min}"
               max="${max}"
               step="${step}"
+              style="${this._sliderFillStyle(Number(currentValue), min, max)}"
               .value=${String(currentValue)}
               @input=${(e: Event) => {
-                this._updateFormValue(field.name, Number((e.target as HTMLInputElement).value));
+                const el = e.target as HTMLInputElement;
+                const v = Number(el.value);
+                el.style.cssText = this._sliderFillStyle(v, min, max);
+                this._updateFormValue(field.name, v);
               }}
             />
             <input
@@ -938,6 +1003,11 @@ export class ElicitationModal extends LitElement {
           this._updateFormValue(field.name, (e.target as HTMLInputElement).value)}
       />
     `;
+  }
+
+  private _sliderFillStyle(value: number, min: number, max: number): string {
+    const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
   }
 
   private _updateFormValue(name: string, value: any) {
