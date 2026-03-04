@@ -46,7 +46,7 @@ export class ToastManager extends LitElement {
         pointer-events: auto;
         animation: slideIn 0.3s ease-out;
         max-width: 350px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
       }
 
       .toast.exiting {
@@ -124,7 +124,7 @@ export class ToastManager extends LitElement {
 
       .close:hover {
         color: var(--t-primary);
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
       }
 
       .toast-action {

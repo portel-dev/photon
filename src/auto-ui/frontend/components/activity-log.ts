@@ -44,7 +44,7 @@ export class ActivityLog extends LitElement {
         font-size: var(--text-sm);
         text-transform: uppercase;
         letter-spacing: 0.1em;
-        color: var(--t-secondary); /* Brighter */
+        color: var(--t-primary);
         font-weight: 600;
       }
 
@@ -59,7 +59,7 @@ export class ActivityLog extends LitElement {
       }
 
       .clear-btn:hover {
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
         color: var(--t-primary);
       }
 
@@ -78,14 +78,14 @@ export class ActivityLog extends LitElement {
       }
 
       .filter-btn:hover {
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
         color: var(--t-primary);
       }
 
       .filter-btn.active {
         border-color: var(--accent-secondary);
         color: var(--accent-secondary);
-        background: hsla(210, 80%, 65%, 0.08);
+        background: var(--bg-glass);
       }
 
       .visually-hidden {
@@ -145,7 +145,7 @@ export class ActivityLog extends LitElement {
         display: inline-block;
         font-size: var(--text-xs);
         color: var(--t-muted);
-        background: hsla(220, 10%, 80%, 0.08);
+        background: var(--bg-glass);
         padding: 1px 6px;
         border-radius: var(--radius-full);
         margin-left: var(--space-sm);

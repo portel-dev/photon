@@ -3,7 +3,7 @@ import { css } from 'lit';
 export const badges = css`
   .type-badge {
     display: inline-block;
-    font-size: 0.65rem;
+    font-size: var(--text-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -37,7 +37,7 @@ export const badges = css`
   }
 
   .param-tag {
-    font-size: 0.65rem;
+    font-size: var(--text-2xs);
     padding: 1px 6px;
     border-radius: var(--radius-xs);
     background: var(--param-tag-bg, hsla(220, 10%, 80%, 0.08));

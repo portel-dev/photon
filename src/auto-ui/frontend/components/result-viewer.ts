@@ -190,7 +190,7 @@ export class ResultViewer extends LitElement {
       }
 
       button:hover {
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
         color: var(--t-primary);
       }
 
@@ -341,7 +341,7 @@ export class ResultViewer extends LitElement {
       }
 
       .smart-table tr:hover td {
-        background: hsla(220, 10%, 80%, 0.05);
+        background: var(--bg-glass);
       }
 
       /* Key-Value Table (single object) */
@@ -1028,7 +1028,7 @@ export class ResultViewer extends LitElement {
       }
 
       .tree-item:hover {
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
       }
 
       .tree-toggle {
@@ -1057,16 +1057,16 @@ export class ResultViewer extends LitElement {
       }
 
       .tree-value.string {
-        color: #a5d6ff;
+        color: var(--syntax-string);
       }
       .tree-value.number {
-        color: #ff9e64;
+        color: var(--syntax-number);
       }
       .tree-value.boolean {
-        color: #ff007c;
+        color: var(--syntax-boolean);
       }
       .tree-value.null {
-        color: #79c0ff;
+        color: var(--syntax-null);
       }
 
       .tree-type {
@@ -1328,9 +1328,9 @@ export class ResultViewer extends LitElement {
       }
 
       .expand-btn:hover {
-        background: var(--primary);
+        background: var(--accent-primary);
         color: white;
-        border-color: var(--primary);
+        border-color: var(--accent-primary);
       }
 
       /* Markdown items (array rendering with filter transitions) */
@@ -1568,13 +1568,13 @@ export class ResultViewer extends LitElement {
       }
 
       .metric-delta.up {
-        color: #16a34a;
-        background: rgba(22, 163, 74, 0.12);
+        color: var(--color-success);
+        background: var(--color-success-bg);
       }
 
       .metric-delta.down {
-        color: #dc2626;
-        background: rgba(220, 38, 38, 0.12);
+        color: var(--color-error);
+        background: var(--color-error-bg);
       }
 
       .metric-delta.neutral {
@@ -1709,7 +1709,7 @@ export class ResultViewer extends LitElement {
 
       .timeline-description {
         font-size: var(--text-md);
-        color: var(--t-secondary);
+        color: var(--t-muted);
         margin-top: 2px;
         line-height: 1.4;
       }
@@ -1856,7 +1856,7 @@ export class ResultViewer extends LitElement {
         justify-content: space-between;
         padding: 4px 0;
         font-size: var(--text-md);
-        color: var(--t-secondary);
+        color: var(--t-muted);
       }
 
       .cart-summary-row.total {

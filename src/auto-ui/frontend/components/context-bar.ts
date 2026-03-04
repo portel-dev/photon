@@ -292,7 +292,7 @@ export class ContextBar extends LitElement {
         backdrop-filter: blur(20px);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-md);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-lg);
         padding: 4px;
         z-index: 100;
       }
@@ -303,7 +303,7 @@ export class ContextBar extends LitElement {
         padding: 6px 10px;
         border: none;
         background: none;
-        color: var(--t-secondary);
+        color: var(--t-muted);
         font-size: var(--text-sm);
         font-family: inherit;
         text-align: left;
@@ -329,7 +329,7 @@ export class ContextBar extends LitElement {
         font-size: var(--text-2xs);
         font-weight: 700;
         letter-spacing: 0.08em;
-        color: #4ade80;
+        color: var(--color-success);
         text-transform: uppercase;
         margin-left: auto;
       }
@@ -338,8 +338,8 @@ export class ContextBar extends LitElement {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #4ade80;
-        box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+        background: var(--color-success);
+        box-shadow: 0 0 6px 2px var(--color-success-glow);
         animation: live-pulse 2s ease-in-out infinite;
       }
 
@@ -347,11 +347,11 @@ export class ContextBar extends LitElement {
         0%,
         100% {
           opacity: 1;
-          box-shadow: 0 0 6px 2px rgba(74, 222, 128, 0.6);
+          box-shadow: 0 0 6px 2px var(--color-success-glow);
         }
         50% {
           opacity: 0.5;
-          box-shadow: 0 0 3px 1px rgba(74, 222, 128, 0.3);
+          box-shadow: 0 0 3px 1px var(--color-success-glow);
         }
       }
 

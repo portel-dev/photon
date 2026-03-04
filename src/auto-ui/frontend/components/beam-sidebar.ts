@@ -279,7 +279,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .section-header:hover {
-        color: var(--t-secondary);
+        color: var(--t-primary);
         background: var(--bg-panel);
       }
 
@@ -341,7 +341,7 @@ export class BeamSidebar extends LitElement {
       }
 
       .photon-item:hover {
-        background: hsla(220, 10%, 80%, 0.1);
+        background: var(--bg-glass);
       }
 
       .photon-item.active {
@@ -355,7 +355,7 @@ export class BeamSidebar extends LitElement {
 
       @keyframes flash-highlight {
         0% {
-          background: hsla(260, 100%, 65%, 0.2);
+          background: var(--glow-primary);
         }
         100% {
           background: transparent;
@@ -452,7 +452,7 @@ export class BeamSidebar extends LitElement {
         gap: 3px;
         font-size: var(--text-2xs);
         padding: 2px 5px;
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-full);
         font-weight: 500;
@@ -535,7 +535,7 @@ export class BeamSidebar extends LitElement {
       .marketplace-btn:hover {
         background: var(--bg-panel);
         border-color: var(--accent-secondary);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-sm);
         transform: translateY(-1px);
       }
 
