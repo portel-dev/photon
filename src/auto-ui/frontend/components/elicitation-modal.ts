@@ -101,9 +101,17 @@ export class ElicitationModal extends LitElement {
         color: white;
       }
 
+      .btn-success:hover {
+        filter: brightness(1.1);
+      }
+
       .btn-danger {
         background: var(--color-error);
         color: white;
+      }
+
+      .btn-danger:hover {
+        filter: brightness(1.1);
       }
 
       /* Confirm buttons */
@@ -233,7 +241,7 @@ export class ElicitationModal extends LitElement {
         margin: 8px 0;
         border: none;
         outline: none;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-glass);
       }
 
       .slider-row input[type='range']::-webkit-slider-thumb {
@@ -241,7 +249,7 @@ export class ElicitationModal extends LitElement {
         width: 16px;
         height: 16px;
         background: var(--accent-primary);
-        border: 2px solid var(--bg-primary, #1a1a2e);
+        border: 2px solid var(--bg-panel, var(--bg-glass));
         border-radius: 50%;
         cursor: pointer;
         box-shadow:
@@ -265,7 +273,7 @@ export class ElicitationModal extends LitElement {
 
       .slider-row input[type='range']::-moz-range-track {
         height: 4px;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-glass);
         border-radius: var(--radius-full, 9999px);
         border: none;
       }
@@ -280,7 +288,7 @@ export class ElicitationModal extends LitElement {
         width: 12px;
         height: 12px;
         background: var(--accent-primary);
-        border: 2px solid var(--bg-primary, #1a1a2e);
+        border: 2px solid var(--bg-panel, var(--bg-glass));
         border-radius: 50%;
         cursor: pointer;
         box-shadow:
@@ -382,7 +390,13 @@ export class ElicitationModal extends LitElement {
         background: var(--bg-glass-strong);
         border-radius: 12px;
         cursor: pointer;
-        transition: background 0.2s;
+        transition:
+          background 0.2s,
+          box-shadow 0.2s;
+      }
+
+      .toggle-track:hover {
+        background: var(--bg-glass);
       }
 
       .toggle-track::after {
@@ -399,6 +413,14 @@ export class ElicitationModal extends LitElement {
 
       .toggle-switch input:checked + .toggle-track {
         background: var(--accent-primary);
+      }
+
+      .toggle-switch input:checked + .toggle-track:hover {
+        background: var(--accent-secondary);
+      }
+
+      .toggle-switch input:focus-visible + .toggle-track {
+        box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
       .toggle-switch input:checked + .toggle-track::after {
@@ -1023,7 +1045,7 @@ export class ElicitationModal extends LitElement {
 
   private _sliderFillStyle(value: number, min: number, max: number): string {
     const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
-    return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+    return `background: linear-gradient(to right, var(--accent-primary) ${pct}%, var(--border-glass) ${pct}%)`;
   }
 
   /** Clamp to [min, max] and round to nearest step (integer-safe). */

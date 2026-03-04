@@ -33,7 +33,8 @@ export const buttons = css`
     color: var(--t-primary);
   }
 
-  .btn-primary:disabled {
+  .btn-primary:disabled,
+  .btn-secondary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
     transform: none;
