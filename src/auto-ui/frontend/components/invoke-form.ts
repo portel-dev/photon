@@ -1283,9 +1283,18 @@ export class InvokeForm extends LitElement {
    */
   private _cleanDescription(desc: string, schema: any): string {
     if (!desc) return desc;
+
+    // Remove JSDoc tags that might leak from documentation (@emits, @internal, @deprecated, etc.)
+    let cleaned = desc;
+    // Remove lines starting with @ tags
+    const lines = cleaned.split('\n').filter((line) => !line.trim().startsWith('@'));
+    cleaned = lines.join('\n').trim();
+    // Remove inline @ tags
+    cleaned = cleaned.replace(/\s*@\w+[\s\S]*?(?=[.!?\n]|$)/g, '').trim();
+
     // Remove quoted-value union patterns with optional parenthetical descriptions:
     // 'a' | 'b' | 'c'  OR  'a' (desc) | 'b' (desc) | 'c' (desc)
-    let cleaned = desc.replace(
+    cleaned = cleaned.replace(
       /['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?(?:\|\s*['"][\w-]+['"]\s*(?:\([^)]*\)\s*)?)+/g,
       ''
     );
