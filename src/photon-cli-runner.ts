@@ -79,6 +79,22 @@ interface MarkdownBlock {
 }
 
 /**
+ * Strip JSDoc tags from descriptions (e.g., @emits, @internal, @deprecated)
+ */
+function stripJSDocTags(description: string | undefined): string {
+  if (!description) return '';
+  // Remove lines that start with @ (full line removal)
+  let cleaned = description
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('@'))
+    .join('\n')
+    .trim();
+  // Also remove inline @ tags (e.g., "text @emits ... " at end of line)
+  cleaned = cleaned.replace(/\s*@\w+.*$/gm, '').trim();
+  return cleaned;
+}
+
+/**
  * Extract all public async methods from a photon file
  */
 async function extractMethods(filePath: string): Promise<MethodInfo[]> {
@@ -86,7 +102,11 @@ async function extractMethods(filePath: string): Promise<MethodInfo[]> {
   const extractor = new SchemaExtractor();
   const metadata = extractor.extractAllFromSource(source);
 
-  const toolsToConvert = [...metadata.tools];
+  // Clean JSDoc tags from all tool descriptions
+  const toolsToConvert = metadata.tools.map((t) => ({
+    ...t,
+    description: stripJSDocTags(t.description),
+  }));
 
   // Add auto-generated settings tool if the photon has `protected settings`
   if (metadata.settingsSchema?.hasSettings) {

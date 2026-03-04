@@ -1065,6 +1065,28 @@ export class PhotonLoader {
   }
 
   /**
+   * Strip JSDoc tags from descriptions (e.g., @emits, @internal, @deprecated)
+   */
+  private stripJSDocTags(description: string | undefined): string {
+    if (!description) return '';
+    if (description.includes('@emits') && process.env.PHOTON_DEBUG_EXTRACT) {
+      console.log(`[stripJSDocTags] Input: "${description}"`);
+    }
+    // Remove lines that start with @ (full line removal)
+    let cleaned = description
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('@'))
+      .join('\n')
+      .trim();
+    // Also remove inline @ tags (e.g., "text @emits ... " at end of line)
+    cleaned = cleaned.replace(/\s*@\w+.*$/gm, '').trim();
+    if (description.includes('@emits') && process.env.PHOTON_DEBUG_EXTRACT) {
+      console.log(`[stripJSDocTags] Output: "${cleaned}"`);
+    }
+    return cleaned;
+  }
+
+  /**
    * Extract tools, templates, and statics from a class
    */
   private async extractTools(
@@ -1132,6 +1154,13 @@ export class PhotonLoader {
         this.log(
           `Loaded ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from .schema.json override`
         );
+        // Clean JSDoc tags from descriptions
+        tools = tools.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
+        templates = templates.map((t) => ({
+          ...t,
+          description: this.stripJSDocTags(t.description),
+        }));
+        statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
         return { tools, templates, statics };
       } catch (jsonError: unknown) {
         // .schema.json doesn't exist, try extracting from .ts source
@@ -1152,6 +1181,27 @@ export class PhotonLoader {
           this.log(
             `Extracted ${tools.length} tools, ${templates.length} templates, ${statics.length} statics from source`
           );
+          // Clean JSDoc tags from descriptions
+          if (process.env.PHOTON_DEBUG_EXTRACT) {
+            tools.forEach((t) => {
+              if (t.description?.includes('@')) {
+                console.log(`[EXTRACTOR] Before clean: ${t.name}: "${t.description}"`);
+              }
+            });
+          }
+          tools = tools.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
+          templates = templates.map((t) => ({
+            ...t,
+            description: this.stripJSDocTags(t.description),
+          }));
+          statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
+          if (process.env.PHOTON_DEBUG_EXTRACT) {
+            tools.forEach((t) => {
+              if (t.name === 'clear') {
+                console.log(`[EXTRACTOR] After clean: ${t.name}: "${t.description}"`);
+              }
+            });
+          }
           return { tools, templates, statics, settingsSchema: metadata.settingsSchema };
         }
         throw jsonError;
@@ -1174,6 +1224,10 @@ export class PhotonLoader {
       }
     }
 
+    // Clean JSDoc tags from all descriptions (final safety net)
+    tools = tools.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
+    templates = templates.map((t) => ({ ...t, description: this.stripJSDocTags(t.description) }));
+    statics = statics.map((s) => ({ ...s, description: this.stripJSDocTags(s.description) }));
     return { tools, templates, statics };
   }
 
