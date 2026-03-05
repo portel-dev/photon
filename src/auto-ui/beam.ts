@@ -1270,15 +1270,34 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
     }
 
-    // Load the @ui template into a full-viewport iframe with platform bridge
+    // Load the @ui template into a full-viewport iframe with platform bridge.
+    // Discovers template URL client-side: tries class-level @ui first (/api/template),
+    // then falls back to method-level @ui by querying diagnostics for the app entry's linkedUi.
     async function loadApp() {
       try {
-        const [templateRes, bridgeRes] = await Promise.all([
-          fetch('/api/template?photon=' + encodeURIComponent(PHOTON)),
-          fetch('/api/platform-bridge?photon=' + encodeURIComponent(PHOTON) + '&method=main&theme=dark')
-        ]);
+        // Step 1: Discover the template URL
+        let templateUrl = '/api/template?photon=' + encodeURIComponent(PHOTON);
+        let bridgeMethod = 'main';
 
-        if (!templateRes.ok) throw new Error('Template not available');
+        // Try class-level @ui first
+        let templateRes = await fetch(templateUrl);
+        if (!templateRes.ok) {
+          // Fall back: query diagnostics for this photon's appEntry linkedUi
+          const diagRes = await fetch('/api/diagnostics');
+          if (diagRes.ok) {
+            const diag = await diagRes.json();
+            const photonInfo = (diag.photons || []).find(function(p) { return p.name === PHOTON; });
+            if (photonInfo && photonInfo.appEntry && photonInfo.appEntry.linkedUi) {
+              templateUrl = '/api/ui?photon=' + encodeURIComponent(PHOTON) + '&id=' + encodeURIComponent(photonInfo.appEntry.linkedUi);
+              bridgeMethod = photonInfo.appEntry.name || 'main';
+              templateRes = await fetch(templateUrl);
+            }
+          }
+          if (!templateRes.ok) throw new Error('Template not available');
+        }
+
+        // Step 2: Fetch platform bridge script
+        const bridgeRes = await fetch('/api/platform-bridge?photon=' + encodeURIComponent(PHOTON) + '&method=' + encodeURIComponent(bridgeMethod) + '&theme=dark');
 
         let templateHtml = await templateRes.text();
         const bridgeScript = bridgeRes.ok ? await bridgeRes.text() : '';
