@@ -2034,7 +2034,27 @@ export class BeamApp extends LitElement {
     }
     appleTitleMeta.content = photonName;
 
+    // Pre-warm the service worker icon cache so Chrome's install dialog
+    // shows the rendered emoji icon instead of the fallback solid-color PNG.
+    // The SW intercepts /api/pwa/icon-png requests and renders the SVG via
+    // OffscreenCanvas, then caches the result. Fetching here triggers that
+    // rendering before the user clicks install.
+    this._prewarmIconCache(photonName);
+
     this._log('info', `PWA manifest set for "${photonName}"`, true);
+  }
+
+  /**
+   * Pre-warm the service worker icon cache by fetching the PNG icon URLs.
+   * This ensures the rendered emoji icons are cached before the user
+   * attempts to install the PWA, improving the install dialog appearance.
+   */
+  private _prewarmIconCache(photonName: string) {
+    const sizes = [192, 512];
+    sizes.forEach((size) => {
+      const url = `/api/pwa/icon-png?photon=${encodeURIComponent(photonName)}&size=${size}`;
+      fetch(url, { mode: 'no-cors' }).catch(() => {});
+    });
   }
 
   private _handleDocumentClick = (e: MouseEvent) => {
