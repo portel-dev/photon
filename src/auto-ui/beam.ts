@@ -200,6 +200,220 @@ const extractClassMetadataFromSource = extractClassMetadataFromModule;
 const applyMethodVisibility = applyMethodVisibilityFromModule;
 const extractCspFromSource = extractCspFromModule;
 
+/**
+ * Generate the service worker JS that validates the Beam backend
+ * on PWA launch and shows a diagnostic page if something is wrong.
+ */
+function generateServiceWorker(workingDir: string): string {
+  return `
+// Photon Beam Service Worker
+// Validates the backend is running and healthy before serving the app.
+const CACHE_NAME = 'photon-pwa-v1';
+const EXPECTED_WORKING_DIR = ${JSON.stringify(workingDir)};
+const HEALTH_ENDPOINT = '/api/diagnostics';
+
+// Cache the boot page on install
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.put('/_pwa_boot', new Response(BOOT_PAGE, {
+      headers: { 'Content-Type': 'text/html' }
+    }))).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Only intercept navigation requests (page loads, not API/asset fetches)
+  if (event.request.mode !== 'navigate') return;
+
+  // For the PWA app page, serve through the health-check boot page
+  if (url.pathname.startsWith('/api/pwa/app')) {
+    event.respondWith(handlePWANavigation(event.request));
+    return;
+  }
+});
+
+async function handlePWANavigation(request) {
+  try {
+    // Try to reach the backend
+    const healthRes = await fetch(HEALTH_ENDPOINT, { signal: AbortSignal.timeout(3000) });
+    if (!healthRes.ok) throw new Error('Health check failed');
+
+    const health = await healthRes.json();
+
+    // Validate this is actually Beam serving the expected directory
+    if (!health.photonVersion) {
+      return serveBoot('wrong-service', JSON.stringify(health));
+    }
+    if (health.workingDir !== EXPECTED_WORKING_DIR) {
+      return serveBoot('wrong-directory', JSON.stringify({
+        expected: EXPECTED_WORKING_DIR,
+        actual: health.workingDir
+      }));
+    }
+
+    // Backend is healthy and correct — serve the real page
+    return fetch(request);
+  } catch (err) {
+    // Backend is unreachable
+    return serveBoot('not-running', err.message);
+  }
+}
+
+async function serveBoot(reason, detail) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match('/_pwa_boot');
+  if (cached) {
+    const html = await cached.text();
+    const injected = html
+      .replace('__BOOT_REASON__', reason)
+      .replace('__BOOT_DETAIL__', detail || '')
+      .replace('__EXPECTED_DIR__', EXPECTED_WORKING_DIR);
+    return new Response(injected, { headers: { 'Content-Type': 'text/html' } });
+  }
+  return new Response('Photon Beam is not available. Run: photon beam', {
+    status: 503, headers: { 'Content-Type': 'text/plain' }
+  });
+}
+
+const BOOT_PAGE = \`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photon Beam</title>
+  <meta name="theme-color" content="#1a1a1a">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #1a1a1a; color: #e5e5e5; font-family: system-ui, -apple-system, sans-serif;
+    }
+    .container { text-align: center; padding: 40px; max-width: 500px; }
+    .icon { font-size: 56px; margin-bottom: 24px; }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+    .message { font-size: 15px; line-height: 1.6; color: #999; margin-bottom: 28px; }
+    .command {
+      display: inline-block; background: #2a2a2a; border: 1px solid #333;
+      padding: 10px 20px; border-radius: 8px; font-family: 'JetBrains Mono', monospace;
+      font-size: 14px; color: #4ade80; margin-bottom: 20px; user-select: all;
+    }
+    .detail {
+      font-size: 12px; color: #666; font-family: 'JetBrains Mono', monospace;
+      background: #222; border-radius: 6px; padding: 10px; margin-bottom: 20px;
+      word-break: break-all; display: none;
+    }
+    .detail.show { display: block; }
+    .retry {
+      padding: 10px 24px; background: #333; border: 1px solid #444; border-radius: 8px;
+      color: #fff; cursor: pointer; font-size: 14px; transition: background 0.2s;
+    }
+    .retry:hover { background: #444; }
+    .spinner {
+      display: none; width: 20px; height: 20px; border: 2px solid #444;
+      border-top-color: #4ade80; border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    .spinner.show { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner" id="spinner"></div>
+    <div id="content">
+      <div class="icon" id="icon"></div>
+      <h1 id="title"></h1>
+      <p class="message" id="message"></p>
+      <div class="detail" id="detail"></div>
+      <code class="command" id="command" style="display:none"></code>
+      <br><br>
+      <button class="retry" onclick="checkAndRetry()">Retry</button>
+    </div>
+  </div>
+  <script>
+    const reason = '__BOOT_REASON__';
+    const detail = '__BOOT_DETAIL__';
+    const expectedDir = '__EXPECTED_DIR__';
+
+    const states = {
+      'not-running': {
+        icon: '\\u26a1',
+        title: 'Beam is not running',
+        message: 'Start Photon Beam to use this app:',
+        command: 'photon beam'
+      },
+      'wrong-service': {
+        icon: '\\u26a0\\ufe0f',
+        title: 'Port is in use by another service',
+        message: 'Something else is running on this port. Stop the other service or reconfigure Beam:',
+        command: 'photon beam --port <available-port>',
+        showDetail: true
+      },
+      'wrong-directory': {
+        icon: '\\ud83d\\udcc1',
+        title: 'Beam is serving a different project',
+        message: 'Beam is running but pointing to a different directory. Start it with the correct path:',
+        command: 'photon beam ' + expectedDir,
+        showDetail: true
+      }
+    };
+
+    function render() {
+      const s = states[reason] || states['not-running'];
+      document.getElementById('icon').textContent = s.icon;
+      document.getElementById('title').textContent = s.title;
+      document.getElementById('message').textContent = s.message;
+      const cmdEl = document.getElementById('command');
+      cmdEl.textContent = s.command;
+      cmdEl.style.display = 'inline-block';
+      if (s.showDetail && detail) {
+        const el = document.getElementById('detail');
+        el.textContent = detail;
+        el.classList.add('show');
+      }
+    }
+
+    async function checkAndRetry() {
+      document.getElementById('content').style.display = 'none';
+      document.getElementById('spinner').classList.add('show');
+      try {
+        const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const h = await res.json();
+          if (h.photonVersion && h.workingDir === expectedDir) {
+            location.reload();
+            return;
+          }
+        }
+      } catch {}
+      document.getElementById('spinner').classList.remove('show');
+      document.getElementById('content').style.display = '';
+      render();
+    }
+
+    render();
+    // Auto-retry every 5 seconds
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          const h = await res.json();
+          if (h.photonVersion && h.workingDir === expectedDir) location.reload();
+        }
+      } catch {}
+    }, 5000);
+  </script>
+</body>
+</html>\`;
+`;
+}
+
 export async function startBeam(rawWorkingDir: string, port: number): Promise<void> {
   const workingDir = path.resolve(rawWorkingDir);
   const { PHOTON_VERSION } = await import('../version.js');
@@ -757,6 +971,17 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         if (await handleMarketplaceRoutes(req, res, url, beamState)) return;
         if (await handleBrowseRoutes(req, res, url, beamState)) return;
         if (await handleConfigRoutes(req, res, url, beamState)) return;
+      }
+
+      // Service worker for PWA support
+      if (url.pathname === '/sw.js') {
+        res.writeHead(200, {
+          'Content-Type': 'application/javascript',
+          'Service-Worker-Allowed': '/',
+          'Cache-Control': 'no-cache',
+        });
+        res.end(generateServiceWorker(beamState.workingDir));
+        return;
       }
 
       // Serve static frontend bundle

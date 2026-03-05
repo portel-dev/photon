@@ -481,6 +481,29 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       font-size: 14px;
     }
     .offline .retry:hover { background: #444; }
+
+    #install-btn {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #4ade80;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+      box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
+      z-index: 1000;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #install-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4); }
+    #install-btn svg { width: 16px; height: 16px; }
   </style>
 </head>
 <body>
@@ -494,6 +517,11 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   <div class="app-container" id="app-container" style="display:none">
     <iframe id="app"></iframe>
   </div>
+
+  <button id="install-btn" aria-label="Install as App">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 11-5 5-5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+    Install App
+  </button>
 
   <script>
     const iframe = document.getElementById('app');
@@ -574,6 +602,55 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       };
     }
 
+    // --- Service Worker Registration ---
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(reg => console.log('[PWA] SW registered:', reg.scope))
+        .catch(err => console.warn('[PWA] SW registration failed:', err));
+    }
+
+    // --- PWA Install Prompt ---
+    let installPrompt = null;
+    const installBtn = document.getElementById('install-btn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      if (installBtn) installBtn.style.display = 'flex';
+    });
+
+    window.addEventListener('appinstalled', () => {
+      installPrompt = null;
+      if (installBtn) installBtn.style.display = 'none';
+      console.log('[PWA] App installed');
+    });
+
+    async function handleInstall() {
+      if (!installPrompt) return;
+      // Configure daemon auto-start before prompting install
+      try {
+        await fetch('/api/pwa/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photon: photonName, port: location.port || '4100' }),
+        });
+      } catch (e) {
+        console.warn('[PWA] configure failed (non-fatal):', e);
+      }
+      const result = await installPrompt.prompt();
+      console.log('[PWA] Install prompt result:', result?.outcome);
+      installPrompt = null;
+      if (installBtn) installBtn.style.display = 'none';
+    }
+
+    if (installBtn) installBtn.addEventListener('click', handleInstall);
+
+    // Check if already installed (standalone mode) — hide install button
+    if (window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true) {
+      if (installBtn) installBtn.style.display = 'none';
+    }
+
     loadApp();
   </script>
 </body>
@@ -582,6 +659,77 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     res.setHeader('Content-Type', 'text/html');
     res.writeHead(200);
     res.end(pwaHost);
+    return true;
+  }
+
+  // PWA Configure — Set up daemon auto-start for this Beam instance
+  if (url.pathname === '/api/pwa/configure' && req.method === 'POST') {
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = '';
+        req.on('data', (chunk: Buffer) => (data += chunk.toString()));
+        req.on('end', () => resolve(data));
+        req.on('error', reject);
+      });
+      const { photon: photonName, port: requestedPort } = JSON.parse(body);
+      const port = parseInt(requestedPort || process.env.BEAM_PORT || '4100', 10);
+
+      // Read or create the PWA config in ~/.photon/pwa.json
+      const os = await import('os');
+      const homePhotonDir = (await import('path')).join(os.default.homedir(), '.photon');
+      const pwaConfigPath = (await import('path')).join(homePhotonDir, 'pwa.json');
+
+      let pwaConfig: {
+        instances: Array<{ port: number; dir: string; photon?: string; createdAt: string }>;
+      } = { instances: [] };
+      try {
+        const existing = await fs.readFile(pwaConfigPath, 'utf-8');
+        pwaConfig = JSON.parse(existing);
+        if (!Array.isArray(pwaConfig.instances)) pwaConfig.instances = [];
+      } catch {
+        // File doesn't exist yet
+      }
+
+      // Check if this instance already exists
+      const existingIdx = pwaConfig.instances.findIndex(
+        (i) => i.port === port && i.dir === state.workingDir
+      );
+      if (existingIdx === -1) {
+        pwaConfig.instances.push({
+          port,
+          dir: state.workingDir,
+          photon: photonName || undefined,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      // Write the config
+      await fs.mkdir(homePhotonDir, { recursive: true });
+      await fs.writeFile(pwaConfigPath, JSON.stringify(pwaConfig, null, 2));
+
+      // Ensure daemon is running and set up as a login item
+      try {
+        const { ensureDaemon } = await import('../../../daemon/manager.js');
+        await ensureDaemon();
+      } catch {
+        // Daemon setup is best-effort
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      res.end(
+        JSON.stringify({
+          success: true,
+          port,
+          dir: state.workingDir,
+          photon: photonName || null,
+          message: 'PWA configured. Beam will auto-start on login.',
+        })
+      );
+    } catch (error: any) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: error?.message || 'Failed to configure PWA' }));
+    }
     return true;
   }
 

@@ -14,7 +14,10 @@ import * as net from 'net';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { SessionManager } from './session-manager.js';
 import {
   DaemonRequest,
@@ -29,6 +32,10 @@ import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
 import { audit } from '../shared/audit.js';
+
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
@@ -2048,6 +2055,16 @@ function shutdown(): void {
   }
   sessionManagers.clear();
 
+  // Stop auto-started Beam instances
+  for (const [pid, child] of beamChildren) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // Already dead
+    }
+  }
+  beamChildren.clear();
+
   if (webhookServer) {
     webhookServer.close();
   }
@@ -2063,10 +2080,89 @@ function shutdown(): void {
   process.exit(0);
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// PWA BEAM AUTO-START — Spawns Beam instances configured via /api/pwa/configure
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** Track spawned Beam child processes for cleanup on shutdown */
+const beamChildren: Map<number, import('child_process').ChildProcess> = new Map();
+
+function startPwaBeamInstances(): void {
+  const ctx = getDefaultContext();
+  const pwaConfigPath = path.join(ctx.baseDir, 'pwa.json');
+
+  if (!fs.existsSync(pwaConfigPath)) return;
+
+  let config: { instances?: Array<{ port: number; dir: string; photon?: string }> };
+  try {
+    config = JSON.parse(fs.readFileSync(pwaConfigPath, 'utf-8'));
+  } catch (err) {
+    logger.warn('Failed to read pwa.json', { error: getErrorMessage(err) });
+    return;
+  }
+
+  if (!config.instances || !Array.isArray(config.instances) || config.instances.length === 0) {
+    return;
+  }
+
+  // Resolve the photon CLI binary — same approach as DaemonManager.resolveDaemonScript
+  const cliScript = path.resolve(__dirname, '..', 'cli.js');
+  const resolvedCli = fs.existsSync(cliScript)
+    ? cliScript
+    : cliScript.replace(`${path.sep}src${path.sep}`, `${path.sep}dist${path.sep}`);
+
+  if (!fs.existsSync(resolvedCli)) {
+    logger.warn('Cannot find CLI script for Beam auto-start', { tried: resolvedCli });
+    return;
+  }
+
+  for (const instance of config.instances) {
+    const { port, dir } = instance;
+    if (!port || !dir) continue;
+
+    // Resolve ~ in directory path
+    const resolvedDir = dir.startsWith('~') ? path.join(os.homedir(), dir.slice(1)) : dir;
+
+    if (!fs.existsSync(resolvedDir)) {
+      logger.warn('PWA Beam dir does not exist, skipping', { dir: resolvedDir, port });
+      continue;
+    }
+
+    try {
+      const logFile = path.join(ctx.baseDir, `beam-${port}.log`);
+      const logFd = fs.openSync(logFile, 'a');
+
+      const child = spawn(process.execPath, [resolvedCli, 'beam', '--port', String(port)], {
+        cwd: resolvedDir,
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: {
+          ...process.env,
+          BEAM_PORT: String(port),
+          PHOTON_DIR: resolvedDir,
+        },
+      });
+
+      child.unref();
+      if (child.pid) {
+        beamChildren.set(child.pid, child);
+        logger.info('PWA Beam auto-started', { port, dir: resolvedDir, pid: child.pid });
+      }
+    } catch (err) {
+      logger.warn('Failed to auto-start Beam instance', {
+        port,
+        dir: resolvedDir,
+        error: getErrorMessage(err),
+      });
+    }
+  }
+}
+
 // Main execution
 (() => {
   startupWatchPhotons();
   startServer();
   startWebhookServer(WEBHOOK_PORT);
+  startPwaBeamInstances();
   startIdleTimer();
 })();
