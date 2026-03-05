@@ -154,6 +154,7 @@ export async function configurePhotonViaMCP(
     const methods = buildMethodList(schemas, templates, configSource, uiAssets);
 
     const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+    const classMeta = extractClassMetadataFromSource(configSource);
 
     const configuredPhoton: PhotonInfo = {
       id: generatePhotonId(targetPhoton.path),
@@ -164,6 +165,10 @@ export async function configurePhotonViaMCP(
       isApp: !!mainMethod,
       appEntry: mainMethod,
       assets: mcp.assets,
+      description: classMeta.description,
+      icon: classMeta.icon,
+      label: classMeta.label,
+      internal: classMeta.internal,
       ...(mcp.injectedPhotons &&
         mcp.injectedPhotons.length > 0 && { injectedPhotons: mcp.injectedPhotons }),
     };

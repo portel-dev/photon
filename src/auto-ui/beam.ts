@@ -284,13 +284,25 @@ async function handleIconPng(url) {
   if (cached) return cached;
 
   try {
-    // Fetch the SVG icon from the server
-    const svgRes = await fetch('/api/pwa/icon?photon=' + encodeURIComponent(photon));
-    if (!svgRes.ok) throw new Error('Icon fetch failed: ' + svgRes.status);
+    // Fetch the icon from the server (may be SVG, PNG, JPEG, etc.)
+    const iconRes = await fetch('/api/pwa/icon?photon=' + encodeURIComponent(photon));
+    if (!iconRes.ok) throw new Error('Icon fetch failed: ' + iconRes.status);
 
-    const svgText = await svgRes.text();
-    const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
-    const bmp = await createImageBitmap(svgBlob, { resizeWidth: size, resizeHeight: size });
+    const contentType = (iconRes.headers.get('Content-Type') || '').toLowerCase();
+
+    // For raster images (PNG, JPEG, WebP), resize via OffscreenCanvas if needed
+    // For SVG or emoji-generated SVG, render to canvas at target size
+    let bmp;
+    if (contentType.includes('svg')) {
+      // SVG (emoji-generated or file) — parse as text, create bitmap
+      const svgText = await iconRes.text();
+      const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+      bmp = await createImageBitmap(svgBlob, { resizeWidth: size, resizeHeight: size });
+    } else {
+      // Raster image (PNG, JPEG, WebP) — decode directly
+      const imgBlob = await iconRes.blob();
+      bmp = await createImageBitmap(imgBlob, { resizeWidth: size, resizeHeight: size });
+    }
 
     const canvas = new OffscreenCanvas(size, size);
     const ctx = canvas.getContext('2d');
@@ -326,7 +338,7 @@ async function handleIconPng(url) {
     await cache.put(cacheKey, pngResponse.clone());
     return pngResponse;
   } catch (err) {
-    // Fallback: generate a simple colored square with text
+    // Fallback: generate a simple colored square with initial letter
     const canvas = new OffscreenCanvas(size, size);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#1a1a1a';
