@@ -427,6 +427,20 @@ const handlers: Record<string, RequestHandler> = {
         'x-photon-id': photon.id,
         'x-photon-internal': true,
       });
+      tools.push({
+        name: `${photon.name}/_undo`,
+        description: `Undo the last state mutation on ${photon.name}. Reverts the most recent change.`,
+        inputSchema: { type: 'object', properties: {} },
+        'x-photon-id': photon.id,
+        'x-photon-internal': true,
+      });
+      tools.push({
+        name: `${photon.name}/_redo`,
+        description: `Redo the last undone mutation on ${photon.name}. Re-applies a previously undone change.`,
+        inputSchema: { type: 'object', properties: {} },
+        'x-photon-id': photon.id,
+        'x-photon-internal': true,
+      });
     }
 
     // Add external MCP tools (from mcpServers in config.json)
