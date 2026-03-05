@@ -527,13 +527,26 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   </style>
 </head>
 <body>
-  <!-- State: Beam not running -->
+  <!-- State: Service not available -->
   <div id="not-running" class="status-page">
     <h1>${emoji}</h1>
-    <h2>Starting ${displayName}...</h2>
-    <p>Waiting for Photon Beam to start on port <strong id="nr-port"></strong>.</p>
-    <p>If it doesn't start automatically, run:</p>
-    <code>photon beam --port <span id="nr-port2"></span></code>
+    <h2 id="nr-title">Service Unavailable</h2>
+    <p id="nr-message"></p>
+    <div id="nr-local" style="display:none">
+      <p>If it doesn't start automatically, run:</p>
+      <code>photon beam --port <span id="nr-port2"></span></code>
+    </div>
+    <div id="nr-remote" style="display:none">
+      <div class="conflict-detail">
+        <dl>
+          <dt>Application</dt>
+          <dd>${displayName}</dd>
+          <dt>Expected service</dt>
+          <dd id="nr-url"></dd>
+        </dl>
+      </div>
+      <p>Please contact the application provider to ensure the service is running.</p>
+    </div>
     <button class="retry" onclick="checkAndLoad()">Retry Now</button>
     <div class="auto-retry">Retrying automatically every 3 seconds...</div>
   </div>
@@ -542,19 +555,24 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   <div id="port-conflict" class="status-page">
     <h1>⚠️</h1>
     <h2>Port Conflict</h2>
-    <p>Port <strong id="pc-port"></strong> is being used by another service, not Photon Beam. ${displayName} cannot start.</p>
+    <p>Port <strong id="pc-port"></strong> is responding, but it is not running Photon Beam. ${displayName} cannot load.</p>
     <div class="conflict-detail">
       <dl>
         <dt>Expected</dt>
-        <dd>Photon Beam serving this directory</dd>
+        <dd>Photon Beam</dd>
         <dt>Found</dt>
         <dd id="pc-found">Unknown service</dd>
         <dt>Port</dt>
         <dd id="pc-port2"></dd>
       </dl>
     </div>
-    <p>To free this port, stop the other service, then reopen this app.</p>
-    <code>lsof -ti:<span id="pc-port3"></span> | xargs kill</code>
+    <div id="pc-local" style="display:none">
+      <p>To free this port, stop the other service, then retry.</p>
+      <code>lsof -ti:<span id="pc-port3"></span> | xargs kill</code>
+    </div>
+    <div id="pc-remote" style="display:none">
+      <p>Another service is using this port. Please contact the application provider.</p>
+    </div>
     <button class="retry" onclick="checkAndLoad()">Retry</button>
   </div>
 
@@ -575,14 +593,29 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const photonName = '${photonName}';
     const uiId = '${uiId}';
     const expectedPort = location.port || '4100';
+    const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+    const serviceUrl = location.origin;
     let retryTimer = null;
 
     // Fill port numbers into status pages
-    document.getElementById('nr-port').textContent = expectedPort;
     document.getElementById('nr-port2').textContent = expectedPort;
+    document.getElementById('nr-url').textContent = serviceUrl;
     document.getElementById('pc-port').textContent = expectedPort;
     document.getElementById('pc-port2').textContent = expectedPort;
     document.getElementById('pc-port3').textContent = expectedPort;
+
+    // Configure not-running page based on local vs remote
+    if (isLocal) {
+      document.getElementById('nr-title').textContent = 'Starting ${displayName}...';
+      document.getElementById('nr-message').textContent = 'Waiting for Photon Beam to start on port ' + expectedPort + '.';
+      document.getElementById('nr-local').style.display = 'block';
+      document.getElementById('pc-local').style.display = 'block';
+    } else {
+      document.getElementById('nr-title').textContent = 'Service Unavailable';
+      document.getElementById('nr-message').textContent = '${displayName} requires a backend service that is not currently reachable.';
+      document.getElementById('nr-remote').style.display = 'block';
+      document.getElementById('pc-remote').style.display = 'block';
+    }
 
     function hideAllStates() {
       notRunning.classList.remove('show');
