@@ -2123,7 +2123,20 @@ export class BeamApp extends LitElement {
             void this._handleRouteChange();
           } else if (!this._selectedPhoton && this._photons.length > 0) {
             const firstUserPhoton = this._photons.find((p) => !p.internal);
-            if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
+            if (firstUserPhoton) {
+              this._selectedPhoton = firstUserPhoton;
+              // For apps, auto-select main method and invoke — same as _handleRouteChange
+              if (firstUserPhoton.isApp && firstUserPhoton.appEntry) {
+                if (this._willAutoInvoke(firstUserPhoton.appEntry)) {
+                  this._isExecuting = true;
+                }
+                this._selectedMethod = firstUserPhoton.appEntry;
+                this._view = 'form';
+                this._maybeAutoInvoke(firstUserPhoton.appEntry);
+              } else {
+                this._view = 'list';
+              }
+            }
             this._updateRoute(true);
           }
         })();
