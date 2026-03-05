@@ -1776,7 +1776,7 @@ export class BeamApp extends LitElement {
     if (method) {
       this._selectedMethod = method;
       this._view = 'form';
-      this._updateHash();
+      this._updateRoute();
       this._log('info', `Starting ${targetName}/${action}...`);
       showToast(`Starting ${action}...`, 'info');
     } else {
@@ -1813,7 +1813,7 @@ export class BeamApp extends LitElement {
     }
     this._selectedMethod = method;
     this._view = 'form';
-    this._updateHash();
+    this._updateRoute();
     this._maybeAutoInvoke(method);
   }
 
@@ -1934,16 +1934,14 @@ export class BeamApp extends LitElement {
     // Connect via MCP Streamable HTTP (SSE for notifications)
     void this._connectMCP();
 
-    window.addEventListener('hashchange', this._handleHashChange);
-    window.addEventListener('popstate', this._handlePopState);
+    window.addEventListener('popstate', this._handleRouteChange);
     window.addEventListener('message', this._handleBridgeMessage);
     window.addEventListener('keydown', this._handleKeydown);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    window.removeEventListener('hashchange', this._handleHashChange);
-    window.removeEventListener('popstate', this._handlePopState);
+    window.removeEventListener('popstate', this._handleRouteChange);
     window.removeEventListener('message', this._handleBridgeMessage);
     window.removeEventListener('keydown', this._handleKeydown);
     document.removeEventListener('click', this._handleDocumentClick);
@@ -2011,13 +2009,13 @@ export class BeamApp extends LitElement {
           // Check for available updates in background
           void this._checkForUpdates();
 
-          // Restore state from hash or select first photon
-          if (window.location.hash) {
-            void this._handleHashChange();
+          // Restore state from URL path or select first photon
+          if (window.location.pathname !== '/') {
+            void this._handleRouteChange();
           } else if (!this._selectedPhoton && this._photons.length > 0) {
             const firstUserPhoton = this._photons.find((p) => !p.internal);
             if (firstUserPhoton) this._selectedPhoton = firstUserPhoton;
-            this._updateHash(true);
+            this._updateRoute(true);
           }
         })();
       });
@@ -2044,7 +2042,7 @@ export class BeamApp extends LitElement {
           this._addUnconfiguredPhotons();
           // Auto-select newly added user photon (welcome wizard flow)
           // Skip if user is intentionally on the home page
-          if (!this._selectedPhoton && window.location.hash !== '#home') {
+          if (!this._selectedPhoton && window.location.pathname !== '/') {
             const newUserPhoton = this._photons.find(
               (p) => !p.internal && p.configured && !prevNames.has(p.name)
             );
@@ -2052,7 +2050,7 @@ export class BeamApp extends LitElement {
               this._selectedPhoton = newUserPhoton;
               this._welcomePhase = 'welcome';
               this._view = 'list';
-              this._updateHash(true);
+              this._updateRoute(true);
             }
           }
         })();
@@ -2136,7 +2134,7 @@ export class BeamApp extends LitElement {
           } else {
             // Auto-select newly added user photon (welcome wizard flow)
             // Skip if user is intentionally on the home page
-            if (window.location.hash === '#home') return;
+            if (window.location.pathname === '/') return;
             const newUserPhoton = this._photons.find(
               (p) => !p.internal && p.configured && !prevNames.has(p.name)
             );
@@ -2166,7 +2164,7 @@ export class BeamApp extends LitElement {
               } else {
                 this._view = 'list';
               }
-              this._updateHash(true);
+              this._updateRoute(true);
             }
           }
         }
@@ -2231,7 +2229,7 @@ export class BeamApp extends LitElement {
             } else {
               this._view = 'list';
             }
-            this._updateHash(true);
+            this._updateRoute(true);
           }
         }
       });
@@ -2395,12 +2393,12 @@ export class BeamApp extends LitElement {
     }
   }
 
-  private _handleHashChange = () => {
+  private _handleRouteChange = () => {
     void (async () => {
-      const fullHash = window.location.hash.slice(1);
-      // Parse hash format: photon/method?param1=value1&param2=value2
-      const [pathPart, queryPart] = fullHash.split('?');
-      const [photonName, methodName] = pathPart.split('/');
+      const fullPath = window.location.pathname.slice(1); // "/boards/main" → "boards/main"
+      const queryPart = window.location.search.slice(1); // "?focus=1&key=val" → "focus=1&key=val"
+      // Parse path format: /photon/method with query ?param1=value1&param2=value2
+      const [photonName, methodName] = fullPath.split('/');
 
       // Parse query parameters for shared links
       let sharedParams: Record<string, any> = {};
@@ -2497,25 +2495,21 @@ export class BeamApp extends LitElement {
     })();
   };
 
-  private _handlePopState = () => {
-    void this._handleHashChange();
-  };
-
-  private _updateHash(replace = false) {
-    let hash: string;
+  private _updateRoute(replace = false) {
+    let path: string;
     if (!this._selectedPhoton) {
-      hash = 'home';
+      path = '/';
     } else {
-      hash = this._selectedPhoton.name;
+      path = '/' + this._selectedPhoton.name;
       if (this._selectedMethod) {
-        hash += `/${this._selectedMethod.name}`;
+        path += `/${this._selectedMethod.name}`;
       }
     }
     // Push state for browser back/forward navigation
     if (replace) {
-      history.replaceState(null, '', `#${hash}`);
+      history.replaceState(null, '', path);
     } else {
-      history.pushState(null, '', `#${hash}`);
+      history.pushState(null, '', path);
     }
   }
 
@@ -2523,7 +2517,7 @@ export class BeamApp extends LitElement {
     this._selectedPhoton = null;
     this._selectedMethod = null;
     this._lastResult = null;
-    this._updateHash();
+    this._updateRoute();
   };
 
   /**
@@ -3052,7 +3046,7 @@ export class BeamApp extends LitElement {
           }}
           @diagnostics=${() => {
             this._view = 'diagnostics';
-            this._updateHash();
+            this._updateRoute();
           }}
           @open-studio=${(e: CustomEvent) => {
             const photon = this._photons.find((p: any) => p.name === e.detail.photonName);
@@ -3547,7 +3541,7 @@ export class BeamApp extends LitElement {
                   }}
                   @click=${() => {
                     this._view = 'diagnostics';
-                    this._updateHash();
+                    this._updateRoute();
                   }}
                 >
                   <span style="font-size: 1rem; width: 20px; text-align: center;">🔍</span>
@@ -3803,7 +3797,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                         @select=${(e: CustomEvent) => {
                           this._selectedMethod = e.detail.method;
                           this._view = 'form';
-                          this._updateHash();
+                          this._updateRoute();
                         }}
                       ></method-card>
                     `
@@ -4144,14 +4138,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // For unconfigured photons, show configuration view
     if (this._selectedPhoton.configured === false) {
       this._view = 'config';
-      this._updateHash();
+      this._updateRoute();
       return;
     }
 
     // For external MCPs with MCP Apps, show the MCP App
     if (this._selectedPhoton.isExternalMCP && this._selectedPhoton.hasMcpApp) {
       this._view = 'mcp-app';
-      this._updateHash();
+      this._updateRoute();
       return;
     }
 
@@ -4193,14 +4187,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
       this._selectedMethod = this._selectedPhoton.appEntry;
       this._view = 'form';
-      this._updateHash();
+      this._updateRoute();
       // Auto-invoke to load initial data (e.g., kanban board)
       this._maybeAutoInvoke(this._selectedPhoton.appEntry);
       return;
     } else {
       this._view = 'list';
     }
-    this._updateHash();
+    this._updateRoute();
   }
 
   /** Fetch available instances for a stateful photon from the server */
@@ -4294,7 +4288,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._selectedMethod = e.detail.method;
     this._lastResult = null;
     this._view = 'form';
-    this._updateHash();
+    this._updateRoute();
 
     // Auto-invoke if method has autorun or has no required parameters
     this._maybeAutoInvoke(e.detail.method);
@@ -4481,7 +4475,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       // For Apps, go back to the main Custom UI and scroll to methods
       this._selectedMethod = this._selectedPhoton.appEntry;
       this._view = 'form';
-      this._updateHash(true);
+      this._updateRoute(true);
 
       // Scroll to methods section after render
       void this.updateComplete.then(() => {
@@ -4499,12 +4493,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
       this._selectedPhoton = null;
       this._welcomePhase = 'welcome';
       this._view = 'list';
-      this._updateHash(true);
+      this._updateRoute(true);
     } else {
       // For regular photons, go back to methods list
       this._view = 'list';
       this._selectedMethod = null;
-      this._updateHash(true);
+      this._updateRoute(true);
     }
   }
 
@@ -4737,7 +4731,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
 
     this._view = 'config';
-    this._updateHash();
+    this._updateRoute();
   };
 
   private _toggleRememberValues = () => {
@@ -5400,9 +5394,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       return;
     }
 
-    // Build shareable URL with hash and query params
-    const baseUrl = window.location.origin + window.location.pathname;
-    const hash = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
+    // Build shareable URL with path and query params
+    const pathSegment = `${this._selectedPhoton.name}/${this._selectedMethod.name}`;
 
     // Encode form parameters as query string
     const params = new URLSearchParams();
@@ -5417,7 +5410,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
     }
 
-    let shareUrl = `${baseUrl}#${hash}`;
+    let shareUrl = `${window.location.origin}/${pathSegment}`;
     if (params.toString()) {
       shareUrl += `?${params.toString()}`;
     }
@@ -5770,7 +5763,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Enter to select highlighted method
     if (e.key === 'Enter' && this._selectedMethod && this._view === 'list') {
       this._view = 'form';
-      this._updateHash();
+      this._updateRoute();
       return;
     }
 
@@ -5975,14 +5968,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._focusMode = !this._focusMode;
     if (this._focusMode) {
       this.classList.add('focus-mode');
-      // Add ?focus=1 to the current hash without triggering hashchange
-      const hash = window.location.hash.replace(/\?focus=1/, '');
-      history.replaceState(null, '', hash + '?focus=1');
+      // Add ?focus=1 to the current path without triggering navigation
+      const path = window.location.pathname;
+      history.replaceState(null, '', path + '?focus=1');
     } else {
       this.classList.remove('focus-mode');
-      // Remove ?focus=1 from the hash
-      const hash = window.location.hash.replace(/\?focus=1/, '');
-      history.replaceState(null, '', hash || '#');
+      // Remove query string, keep path only
+      const path = window.location.pathname;
+      history.replaceState(null, '', path);
     }
   };
 
