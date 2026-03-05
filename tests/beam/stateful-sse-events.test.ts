@@ -316,6 +316,29 @@ async function testStatefulToolEmitsChangeset() {
       assert(false, 'Expected remove changeset event (not found)');
     }
   }
+
+  // ── Phase 1: Verify JSON Patch fields ──
+  if (addEvent) {
+    const p = addEvent.params;
+    assert(globalThis.Array.isArray(p.patch), 'Changeset has patch array');
+    assert(globalThis.Array.isArray(p.inversePatch), 'Changeset has inversePatch array');
+    assert(p.patch.length > 0, `Patch has ${p.patch.length} operation(s)`);
+    assert(p.inversePatch.length > 0, `InversePatch has ${p.inversePatch.length} operation(s)`);
+
+    // Verify patch op structure (RFC 6902)
+    const firstOp = p.patch[0];
+    assert(
+      ['add', 'remove', 'replace'].includes(firstOp?.op),
+      `Patch op is valid RFC 6902: ${firstOp?.op}`
+    );
+    assert(typeof firstOp?.path === 'string', `Patch op has path: ${firstOp?.path}`);
+
+    // URI should be present
+    assert(typeof p.uri === 'string' && p.uri.startsWith('photon://'), `Event has uri: ${p.uri}`);
+
+    console.log(`     → patch ops: ${JSON.stringify(p.patch).slice(0, 200)}`);
+    console.log(`     → inversePatch ops: ${JSON.stringify(p.inversePatch).slice(0, 200)}`);
+  }
 }
 
 async function testToolCallReturnsResult() {
