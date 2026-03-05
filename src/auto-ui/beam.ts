@@ -1161,16 +1161,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
     .status-page .retry-btn:hover { background: #444; }
 
-    #install-btn {
-      display: none; position: fixed; bottom: 20px; right: 20px;
-      align-items: center; gap: 8px; padding: 10px 20px;
-      background: #4ade80; color: #111; border: none; border-radius: 8px;
-      cursor: pointer; font-size: 14px; font-weight: 600; font-family: system-ui, sans-serif;
-      box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3); z-index: 1000;
-      transition: transform 0.15s, box-shadow 0.15s;
-    }
-    #install-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4); }
-    #install-btn svg { width: 16px; height: 16px; }
   </style>
 </head>
 <body>
@@ -1201,12 +1191,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   <!-- App container with iframe -->
   <div id="app" style="display:none"></div>
-
-  <!-- Install button -->
-  <button id="install-btn" aria-label="Install as App">
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 11-5 5-5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-    Install App
-  </button>
 
   <script>
     const PHOTON = ${JSON.stringify(photonName)};
@@ -1317,7 +1301,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
         appEl.innerHTML = '';
         appEl.appendChild(iframe);
-        initBridge(iframe);
+        initBridge(iframe, bridgeMethod);
       } catch (err) {
         appEl.innerHTML = '<div class="status-page show"><div class="icon">⚠️</div>'
           + '<h2>Failed to load</h2><p>' + err.message + '</p>'
@@ -1326,10 +1310,25 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     }
 
     // postMessage bridge: relays JSON-RPC tools/call from iframe to /api/invoke
-    function initBridge(iframe) {
+    function initBridge(iframe, bridgeMethod) {
       window.addEventListener('message', async (e) => {
         const msg = e.data;
         if (!msg || typeof msg !== 'object') return;
+
+        // Handle MCP Apps ui/initialize request — respond so bridge sends initialized
+        if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
+          iframe.contentWindow.postMessage({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              protocolVersion: '2026-01-26',
+              hostInfo: { name: 'photon-pwa', version: '1.0.0' },
+              hostCapabilities: {},
+              hostContext: { theme: 'dark' },
+            },
+          }, '*');
+          return;
+        }
 
         // Handle JSON-RPC tools/call from iframe
         if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
@@ -1365,6 +1364,40 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           context: { photon: PHOTON, theme: 'dark', displayMode: 'standalone' }
         }, '*');
       };
+
+      // Wait for bridge ready signal, then auto-invoke main() and deliver result
+      var bridgeReady = false;
+      window.addEventListener('message', async function onReady(e) {
+        if (bridgeReady) return;
+        var msg = e.data;
+        if (!msg || typeof msg !== 'object') return;
+        // Bridge sends both legacy photon:ready and MCP Apps ui/notifications/initialized
+        var isReady = msg.type === 'photon:ready' ||
+          (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/initialized');
+        if (!isReady) return;
+        bridgeReady = true;
+        window.removeEventListener('message', onReady);
+
+        try {
+          var invokeRes = await fetch('/api/invoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ photon: PHOTON, method: bridgeMethod, args: {} }),
+            signal: AbortSignal.timeout(30000),
+          });
+          var data = await invokeRes.json();
+          if (!data.error) {
+            // Send via MCP Apps protocol — this triggers photon:data-ready in the bridge
+            iframe.contentWindow.postMessage({
+              jsonrpc: '2.0',
+              method: 'ui/notifications/tool-result',
+              params: { result: data.result !== undefined ? data.result : data },
+            }, '*');
+          }
+        } catch (err) {
+          console.warn('[PWA] Auto-invoke failed:', err.message);
+        }
+      });
     }
 
     // --- Service Worker Registration ---
@@ -1372,40 +1405,6 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(reg => console.log('[PWA] SW registered:', reg.scope))
         .catch(err => console.warn('[PWA] SW registration failed:', err));
-    }
-
-    // --- PWA Install Prompt ---
-    let installPrompt = null;
-    const installBtn = document.getElementById('install-btn');
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      installPrompt = e;
-      if (installBtn) installBtn.style.display = 'flex';
-    });
-
-    window.addEventListener('appinstalled', () => {
-      installPrompt = null;
-      if (installBtn) installBtn.style.display = 'none';
-    });
-
-    if (installBtn) installBtn.addEventListener('click', async () => {
-      if (!installPrompt) return;
-      try {
-        await fetch('/api/pwa/configure', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ photon: PHOTON, port: location.port || '4100' }),
-        });
-      } catch { /* non-fatal */ }
-      const result = await installPrompt.prompt();
-      installPrompt = null;
-      if (installBtn) installBtn.style.display = 'none';
-    });
-
-    // Hide install button if already in standalone mode
-    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
-      if (installBtn) installBtn.style.display = 'none';
     }
 
     // Start the diagnostics-first loading flow

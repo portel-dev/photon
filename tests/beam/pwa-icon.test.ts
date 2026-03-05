@@ -252,10 +252,10 @@ async function testAppRouteLoads() {
   assert(body.includes('initBridge'), 'Has postMessage bridge');
   assert(body.includes('photon:init'), 'Has photon:init message');
   assert(body.includes("register('/sw.js'"), 'Has service worker registration');
-  assert(body.includes('beforeinstallprompt'), 'Has install prompt handling');
-  assert(body.includes('/api/pwa/configure'), 'Has PWA configure call');
   assert(body.includes('/api/diagnostics'), 'Has diagnostics endpoint reference');
-  assert(body.includes('install-btn'), 'Has install button');
+  assert(body.includes('ui/initialize'), 'Has MCP Apps protocol handshake');
+  assert(body.includes('ui/notifications/tool-result'), 'Has auto-invoke result delivery');
+  assert(body.includes('/api/invoke'), 'Has invoke endpoint for bridge relay');
 }
 
 // ── Main ──
