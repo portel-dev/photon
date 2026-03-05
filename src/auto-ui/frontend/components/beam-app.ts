@@ -6070,6 +6070,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       showRunTests?: boolean;
       showRemove?: boolean;
       showFullscreen?: boolean;
+      showInstallApp?: boolean;
     } = {}
   ): import('./overflow-menu.js').OverflowMenuItem[] {
     const {
@@ -6085,6 +6086,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       showRunTests = this._getTestMethods().length > 0,
       showRemove = false,
       showFullscreen = false,
+      showInstallApp = true,
     } = opts;
 
     const items: import('./overflow-menu.js').OverflowMenuItem[] = [];
@@ -6131,6 +6133,13 @@ ${photon.errorMessage || 'Unknown error'}</pre
       toggle: true,
       toggleActive: this._verboseLogging,
     });
+    if (showInstallApp) {
+      items.push({
+        id: 'install-app',
+        label: 'Install as App',
+        iconSvg: iconSvgString(iconPaths.installApp),
+      });
+    }
     if (showRename || showViewSource || showFork || showContribute || showDelete || showRemove) {
       const first = [
         showRename,
@@ -6296,6 +6305,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
             break;
           case 'fullscreen':
             this._handleFullscreen();
+            break;
+          case 'install-app':
+            this._launchAsApp();
             break;
         }
         break;

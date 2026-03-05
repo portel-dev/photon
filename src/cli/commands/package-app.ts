@@ -47,7 +47,7 @@ for port in $(seq $START_PORT $END_PORT); do
 done
 
 # No existing beam found — start one
-npx @portel/photon beam --port=$START_PORT &
+photon beam --port=$START_PORT &
 BEAM_PID=$!
 
 # Poll until beam is ready (up to 30s)
@@ -117,7 +117,7 @@ for /L %%p in (%START_PORT%,1,%END_PORT%) do (
 )
 
 REM No existing beam found — start one
-start /b npx @portel/photon beam --port=%START_PORT%
+start /b photon beam --port=%START_PORT%
 
 REM Poll until beam is ready (up to 30s)
 set WAITED=0
@@ -233,6 +233,39 @@ export function registerPackageAppCommand(program: Command): void {
       console.log(`   ✓ macOS    ${macAppPath}`);
       console.log(`   ✓ Linux    ${linuxShPath}, ${path.basename(linuxDesktopPath)}`);
       console.log(`   ✓ Windows  ${winBatPath}`);
+
+      // Write pwa.json so daemon auto-starts Beam on login
+      try {
+        const pwaConfigPath = path.join(workingDir, 'pwa.json');
+        let config: {
+          instances: Array<{ port: number; dir: string; photon: string; createdAt: string }>;
+        } = { instances: [] };
+        try {
+          const raw = await fs.readFile(pwaConfigPath, 'utf-8');
+          config = JSON.parse(raw);
+          if (!Array.isArray(config.instances)) config.instances = [];
+        } catch {
+          // File doesn't exist yet — use default
+        }
+
+        // Deduplicate by port+dir
+        const exists = config.instances.some((i) => i.port === startPort && i.dir === workingDir);
+        if (!exists) {
+          config.instances.push({
+            port: startPort,
+            dir: workingDir,
+            photon: name,
+            createdAt: new Date().toISOString(),
+          });
+          await fs.writeFile(pwaConfigPath, JSON.stringify(config, null, 2));
+          console.log(`   ✓ pwa.json  Beam auto-start configured (port ${startPort})`);
+        } else {
+          console.log(`   ✓ pwa.json  Already configured`);
+        }
+      } catch (err: any) {
+        console.error(`   ⚠ pwa.json  ${err.message || 'Failed to write'}`);
+      }
+
       console.log();
     });
 }
