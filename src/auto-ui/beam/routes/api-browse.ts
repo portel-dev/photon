@@ -449,7 +449,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     .app-frame { flex: 1; min-height: 80vh; }
     iframe { width: 100%; height: 100%; min-height: 80vh; border: none; }
 
-    .offline {
+    .status-page {
       display: none;
       height: 100vh;
       flex-direction: column;
@@ -459,18 +459,21 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       text-align: center;
       padding: 40px;
     }
-    .offline.show { display: flex; }
-    .offline h1 { font-size: 48px; margin-bottom: 20px; }
-    .offline p { font-size: 18px; margin-bottom: 30px; max-width: 400px; line-height: 1.6; }
-    .offline code {
+    .status-page.show { display: flex; }
+    .status-page h1 { font-size: 48px; margin-bottom: 20px; }
+    .status-page h2 { font-size: 20px; color: #e5e5e5; margin-bottom: 12px; }
+    .status-page p { font-size: 16px; margin-bottom: 20px; max-width: 480px; line-height: 1.6; }
+    .status-page code {
+      display: block;
       background: #2a2a2a;
       padding: 12px 24px;
       border-radius: 8px;
-      font-size: 16px;
+      font-size: 14px;
       color: #4ade80;
       font-family: monospace;
+      margin: 8px 0;
     }
-    .offline .retry {
+    .status-page .retry {
       margin-top: 20px;
       padding: 10px 20px;
       background: #333;
@@ -480,7 +483,24 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       cursor: pointer;
       font-size: 14px;
     }
-    .offline .retry:hover { background: #444; }
+    .status-page .retry:hover { background: #444; }
+    .status-page .auto-retry {
+      font-size: 13px;
+      color: #666;
+      margin-top: 12px;
+    }
+    .status-page .conflict-detail {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px 24px;
+      margin: 16px 0;
+      text-align: left;
+      max-width: 480px;
+    }
+    .status-page .conflict-detail dt { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 8px; }
+    .status-page .conflict-detail dt:first-child { margin-top: 0; }
+    .status-page .conflict-detail dd { color: #e5e5e5; font-size: 14px; margin: 2px 0 0 0; font-family: monospace; }
 
     #install-btn {
       display: none;
@@ -507,11 +527,35 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   </style>
 </head>
 <body>
-  <div id="offline" class="offline">
+  <!-- State: Beam not running -->
+  <div id="not-running" class="status-page">
     <h1>${emoji}</h1>
-    <p>Server is not running. Start Photon to use ${displayName}:</p>
-    <code>photon</code>
-    <button class="retry" onclick="location.reload()">Retry</button>
+    <h2>Starting ${displayName}...</h2>
+    <p>Waiting for Photon Beam to start on port <strong id="nr-port"></strong>.</p>
+    <p>If it doesn't start automatically, run:</p>
+    <code>photon beam --port <span id="nr-port2"></span></code>
+    <button class="retry" onclick="checkAndLoad()">Retry Now</button>
+    <div class="auto-retry">Retrying automatically every 3 seconds...</div>
+  </div>
+
+  <!-- State: Port occupied by another service -->
+  <div id="port-conflict" class="status-page">
+    <h1>⚠️</h1>
+    <h2>Port Conflict</h2>
+    <p>Port <strong id="pc-port"></strong> is being used by another service, not Photon Beam. ${displayName} cannot start.</p>
+    <div class="conflict-detail">
+      <dl>
+        <dt>Expected</dt>
+        <dd>Photon Beam serving this directory</dd>
+        <dt>Found</dt>
+        <dd id="pc-found">Unknown service</dd>
+        <dt>Port</dt>
+        <dd id="pc-port2"></dd>
+      </dl>
+    </div>
+    <p>To free this port, stop the other service, then reopen this app.</p>
+    <code>lsof -ti:<span id="pc-port3"></span> | xargs kill</code>
+    <button class="retry" onclick="checkAndLoad()">Retry</button>
   </div>
 
   <div class="app-container" id="app-container" style="display:none">
@@ -525,38 +569,89 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
   <script>
     const iframe = document.getElementById('app');
-    const offline = document.getElementById('offline');
     const appContainer = document.getElementById('app-container');
+    const notRunning = document.getElementById('not-running');
+    const portConflict = document.getElementById('port-conflict');
     const photonName = '${photonName}';
     const uiId = '${uiId}';
+    const expectedPort = location.port || '4100';
+    let retryTimer = null;
+
+    // Fill port numbers into status pages
+    document.getElementById('nr-port').textContent = expectedPort;
+    document.getElementById('nr-port2').textContent = expectedPort;
+    document.getElementById('pc-port').textContent = expectedPort;
+    document.getElementById('pc-port2').textContent = expectedPort;
+    document.getElementById('pc-port3').textContent = expectedPort;
+
+    function hideAllStates() {
+      notRunning.classList.remove('show');
+      portConflict.classList.remove('show');
+      appContainer.style.display = 'none';
+    }
+
+    // Check /api/diagnostics to determine what's running on this port
+    async function checkAndLoad() {
+      if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+      hideAllStates();
+
+      try {
+        const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(3000) });
+        if (!res.ok) throw new Error('bad status');
+        const diag = await res.json();
+
+        // Valid Beam response must have photonVersion
+        if (diag && diag.photonVersion) {
+          // This is a Photon Beam — load the app
+          await loadApp();
+          return;
+        }
+
+        // Got a response but not from Beam — port conflict
+        showPortConflict(JSON.stringify(diag).slice(0, 120));
+      } catch (e) {
+        // Network error or timeout — nothing running on this port
+        showNotRunning();
+      }
+    }
+
+    function showNotRunning() {
+      hideAllStates();
+      notRunning.classList.add('show');
+      retryTimer = setInterval(checkAndLoad, 3000);
+    }
+
+    function showPortConflict(detail) {
+      hideAllStates();
+      document.getElementById('pc-found').textContent = detail || 'Unknown service';
+      portConflict.classList.add('show');
+      // Don't auto-retry for conflicts — user must take action
+    }
 
     // Load UI with platform bridge injected
     async function loadApp() {
       try {
-        // Fetch UI template and platform bridge
         const [uiRes, bridgeRes] = await Promise.all([
           fetch('/api/ui?photon=' + encodeURIComponent(photonName) + '&id=' + encodeURIComponent(uiId)),
           fetch('/api/platform-bridge?photon=' + encodeURIComponent(photonName) + '&method=' + encodeURIComponent(uiId) + '&theme=dark')
         ]);
 
         if (!uiRes.ok) {
-          offline.classList.add('show');
+          showNotRunning();
           return;
         }
 
         let html = await uiRes.text();
         const bridge = bridgeRes.ok ? await bridgeRes.text() : '';
-
-        // Inject platform bridge before </head>
         html = html.replace('</head>', bridge + '</head>');
 
-        // Create blob URL and load in iframe
         const blob = new Blob([html], { type: 'text/html' });
         iframe.src = URL.createObjectURL(blob);
+        hideAllStates();
         appContainer.style.display = 'flex';
         initBridge();
       } catch (e) {
-        offline.classList.add('show');
+        showNotRunning();
       }
     }
 
@@ -627,12 +722,12 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
     async function handleInstall() {
       if (!installPrompt) return;
-      // Configure daemon auto-start before prompting install
+      // Record config before prompting install
       try {
         await fetch('/api/pwa/configure', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ photon: photonName, port: location.port || '4100' }),
+          body: JSON.stringify({ photon: photonName, port: expectedPort }),
         });
       } catch (e) {
         console.warn('[PWA] configure failed (non-fatal):', e);
@@ -651,7 +746,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       if (installBtn) installBtn.style.display = 'none';
     }
 
-    loadApp();
+    checkAndLoad();
   </script>
 </body>
 </html>`;
@@ -662,7 +757,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
-  // PWA Configure — Set up daemon auto-start for this Beam instance
+  // PWA Configure — Record the port + PHOTON_DIR for this PWA instance
   if (url.pathname === '/api/pwa/configure' && req.method === 'POST') {
     try {
       const body = await new Promise<string>((resolve, reject) => {
@@ -674,13 +769,14 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       const { photon: photonName, port: requestedPort } = JSON.parse(body);
       const port = parseInt(requestedPort || process.env.BEAM_PORT || '4100', 10);
 
-      // Read or create the PWA config in ~/.photon/pwa.json
+      // PHOTON_DIR is the env override or ~/.photon/ — this is what the launcher needs
       const os = await import('os');
-      const homePhotonDir = (await import('path')).join(os.default.homedir(), '.photon');
-      const pwaConfigPath = (await import('path')).join(homePhotonDir, 'pwa.json');
+      const pathMod = await import('path');
+      const photonDir = process.env.PHOTON_DIR || pathMod.join(os.default.homedir(), '.photon');
+      const pwaConfigPath = pathMod.join(photonDir, 'pwa.json');
 
       let pwaConfig: {
-        instances: Array<{ port: number; dir: string; photon?: string; createdAt: string }>;
+        instances: Array<{ port: number; photonDir: string; photon?: string; createdAt: string }>;
       } = { instances: [] };
       try {
         const existing = await fs.readFile(pwaConfigPath, 'utf-8');
@@ -690,30 +786,20 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         // File doesn't exist yet
       }
 
-      // Check if this instance already exists
-      const existingIdx = pwaConfig.instances.findIndex(
-        (i) => i.port === port && i.dir === state.workingDir
-      );
-      if (existingIdx === -1) {
+      // Deduplicate by port + photonDir
+      const exists = pwaConfig.instances.some((i) => i.port === port && i.photonDir === photonDir);
+      if (!exists) {
         pwaConfig.instances.push({
           port,
-          dir: state.workingDir,
+          photonDir,
           photon: photonName || undefined,
           createdAt: new Date().toISOString(),
         });
       }
 
       // Write the config
-      await fs.mkdir(homePhotonDir, { recursive: true });
+      await fs.mkdir(photonDir, { recursive: true });
       await fs.writeFile(pwaConfigPath, JSON.stringify(pwaConfig, null, 2));
-
-      // Ensure daemon is running and set up as a login item
-      try {
-        const { ensureDaemon } = await import('../../../daemon/manager.js');
-        await ensureDaemon();
-      } catch {
-        // Daemon setup is best-effort
-      }
 
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(200);
@@ -721,9 +807,8 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         JSON.stringify({
           success: true,
           port,
-          dir: state.workingDir,
+          photonDir,
           photon: photonName || null,
-          message: 'PWA configured. Beam will auto-start on login.',
         })
       );
     } catch (error: any) {
