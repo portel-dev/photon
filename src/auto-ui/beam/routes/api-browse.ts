@@ -9,8 +9,8 @@
  *   /api/mcp-app         – Serve MCP App HTML from external MCPs
  *   /api/template        – Serve @ui template files (class-level custom UI)
  *   /api/pwa/manifest.json – Auto-generated PWA manifest
- *   /api/pwa/icon.svg    – Auto-generated SVG icon from photon emoji
- *   /api/pwa/app         – PWA app entry with bridge injection
+ *   /api/pwa/icon         – PWA icon (file from assets, or auto-generated SVG from emoji)
+ *   /api/pwa/app          – PWA app entry with bridge injection + client-side PNG generation
  */
 
 import * as fs from 'fs/promises';
@@ -350,6 +350,11 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   }
 
   // PWA Manifest - Auto-generated for any photon
+  // NOTE: The initial manifest contains only the SVG icon. The PWA host page
+  // performs client-side canvas rendering to generate 192x192 and 512x512 PNG
+  // icons, then replaces <link rel="manifest"> with a blob URL manifest that
+  // includes the raster PNGs. This satisfies Chrome's installability criteria
+  // without requiring any server-side image processing dependencies.
   if (url.pathname === '/api/pwa/manifest.json') {
     const photonName = url.searchParams.get('photon');
     if (!photonName) {
@@ -361,19 +366,20 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const photon = state.photons.find((p) => p.name === photonName);
     const displayName = photon?.name || photonName;
     const description = (photon as any)?.description || `${displayName} - Photon App`;
+    const encodedName = encodeURIComponent(photonName);
 
     const manifest = {
       name: displayName,
       short_name: displayName,
       description,
-      start_url: `/api/pwa/app?photon=${encodeURIComponent(photonName)}`,
+      start_url: `/api/pwa/app?photon=${encodedName}`,
       display: 'standalone',
       background_color: '#1a1a1a',
       theme_color: '#1a1a1a',
       orientation: 'any',
       icons: [
         {
-          src: `/api/pwa/icon.svg?photon=${encodeURIComponent(photonName)}`,
+          src: `/api/pwa/icon?photon=${encodedName}`,
           sizes: 'any',
           type: 'image/svg+xml',
           purpose: 'any',
@@ -388,18 +394,62 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
-  // PWA Icon - Auto-generated SVG from photon emoji
-  if (url.pathname === '/api/pwa/icon.svg') {
+  // PWA Icon - Serves the photon icon from one of three sources:
+  //   1. PNG/SVG file from the photon's asset folder (@icon my-icon.png)
+  //   2. Auto-generated SVG from an emoji (@icon 📦, or default)
+  if (url.pathname === '/api/pwa/icon') {
     const photonName = url.searchParams.get('photon');
     const photon = state.photons.find((p) => p.name === photonName);
-    const emoji = (photon as any)?.icon || '📦';
+    const iconValue = (photon as any)?.icon || '📦';
 
+    // Check if icon is a file path (has a file extension)
+    const isFilePath = /\.\w{2,4}$/.test(iconValue);
+
+    if (isFilePath && photon?.path) {
+      // Resolve icon file from photon's asset folder: {dir}/{photonName}/{iconValue}
+      const photonDir = path.dirname(photon.path);
+      const photonBasename = path.basename(photon.path, '.photon.ts');
+      const iconPath = path.resolve(photonDir, photonBasename, iconValue);
+
+      // Security: ensure the resolved path is within the photon directory
+      if (!isPathWithin(iconPath, photonDir)) {
+        res.writeHead(403);
+        res.end('Icon path escapes photon directory');
+        return true;
+      }
+
+      try {
+        const iconBuffer = await fs.readFile(iconPath);
+        const ext = path.extname(iconPath).toLowerCase();
+        const mimeTypes: Record<string, string> = {
+          '.png': 'image/png',
+          '.svg': 'image/svg+xml',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.writeHead(200);
+        res.end(iconBuffer);
+        return true;
+      } catch {
+        // File not found — fall through to emoji SVG generation
+        logger.warn(`PWA icon file not found: ${iconPath}, falling back to emoji`);
+      }
+    }
+
+    // Emoji-based SVG icon (default fallback)
+    const emoji = isFilePath ? '📦' : iconValue;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect width="100" height="100" rx="20" fill="#1a1a1a"/>
   <text x="50" y="50" font-size="50" text-anchor="middle" dominant-baseline="central">${emoji}</text>
 </svg>`;
 
     res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
     res.writeHead(200);
     res.end(svg);
     return true;
@@ -441,7 +491,7 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="${displayName}">
-  <link rel="apple-touch-icon" href="/api/pwa/icon.svg?photon=${encodeURIComponent(photonName)}">
+  <link rel="apple-touch-icon" href="/api/pwa/icon?photon=${encodeURIComponent(photonName)}">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { min-height: 100%; background: #1a1a1a; font-family: system-ui, sans-serif; color: #e5e5e5; }
@@ -524,6 +574,44 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     }
     #install-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4); }
     #install-btn svg { width: 16px; height: 16px; }
+
+    #safari-install-hint {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      max-width: 320px;
+      padding: 14px 18px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 10px;
+      color: #e5e5e5;
+      font-size: 13px;
+      font-family: system-ui, sans-serif;
+      line-height: 1.5;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      z-index: 1000;
+    }
+    #safari-install-hint .hint-title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    #safari-install-hint .hint-steps { color: #aaa; }
+    #safari-install-hint .hint-steps strong { color: #e5e5e5; }
+    #safari-install-hint .hint-dismiss {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 12px;
+      background: #333;
+      border: 1px solid #555;
+      border-radius: 5px;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #safari-install-hint .hint-dismiss:hover { background: #444; }
   </style>
 </head>
 <body>
@@ -584,6 +672,12 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 11-5 5-5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
     Install App
   </button>
+
+  <div id="safari-install-hint">
+    <div class="hint-title">Install as App</div>
+    <div class="hint-steps" id="safari-steps"></div>
+    <span class="hint-dismiss" onclick="document.getElementById('safari-install-hint').style.display='none'">Got it</span>
+  </div>
 
   <script>
     const iframe = document.getElementById('app');
@@ -737,6 +831,127 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
         .catch(err => console.warn('[PWA] SW registration failed:', err));
     }
 
+    // --- Client-side PNG icon generation for PWA installability ---
+    // Chrome requires raster PNG icons (192x192, 512x512) in the manifest.
+    // We fetch the icon source (SVG or PNG from /api/pwa/icon), render it
+    // onto a <canvas>, export as PNG data URIs, build a new manifest with
+    // those PNGs, and replace the <link rel="manifest"> href with a blob URL.
+    // This avoids needing any server-side image processing dependencies.
+    async function generatePngManifest() {
+      try {
+        const iconUrl = '/api/pwa/icon?photon=' + encodeURIComponent(photonName);
+        const iconRes = await fetch(iconUrl);
+        if (!iconRes.ok) throw new Error('Icon fetch failed: ' + iconRes.status);
+
+        const contentType = iconRes.headers.get('content-type') || '';
+        const iconBlob = await iconRes.blob();
+        const sizes = [192, 512];
+        const pngDataUris = [];
+
+        for (const size of sizes) {
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+          // Fill dark background (matches theme)
+          ctx.fillStyle = '#1a1a1a';
+          ctx.beginPath();
+          // Rounded rect for visual consistency
+          const r = size * 0.2;
+          ctx.moveTo(r, 0);
+          ctx.lineTo(size - r, 0);
+          ctx.quadraticCurveTo(size, 0, size, r);
+          ctx.lineTo(size, size - r);
+          ctx.quadraticCurveTo(size, size, size - r, size);
+          ctx.lineTo(r, size);
+          ctx.quadraticCurveTo(0, size, 0, size - r);
+          ctx.lineTo(0, r);
+          ctx.quadraticCurveTo(0, 0, r, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          if (contentType.includes('svg') || contentType.includes('xml')) {
+            // SVG → draw via Image element with blob URL
+            const svgBlobUrl = URL.createObjectURL(iconBlob);
+            await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => {
+                ctx.drawImage(img, 0, 0, size, size);
+                URL.revokeObjectURL(svgBlobUrl);
+                resolve(null);
+              };
+              img.onerror = () => {
+                URL.revokeObjectURL(svgBlobUrl);
+                reject(new Error('SVG image load failed'));
+              };
+              img.src = svgBlobUrl;
+            });
+          } else {
+            // Raster image (PNG/JPEG/WebP) — draw directly
+            const bitmapUrl = URL.createObjectURL(iconBlob);
+            await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => {
+                // Center the image, maintaining aspect ratio
+                const scale = Math.min(size / img.width, size / img.height);
+                const w = img.width * scale;
+                const h = img.height * scale;
+                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                URL.revokeObjectURL(bitmapUrl);
+                resolve(null);
+              };
+              img.onerror = () => {
+                URL.revokeObjectURL(bitmapUrl);
+                reject(new Error('Image load failed'));
+              };
+              img.src = bitmapUrl;
+            });
+          }
+
+          pngDataUris.push(canvas.toDataURL('image/png'));
+        }
+
+        // Build manifest with raster PNG icons
+        const manifest = {
+          name: '${displayName}',
+          short_name: '${displayName}',
+          description: '${(photon as any)?.description?.replace(/'/g, "\\'") || displayName + ' - Photon App'}',
+          start_url: '/api/pwa/app?photon=' + encodeURIComponent(photonName),
+          display: 'standalone',
+          background_color: '#1a1a1a',
+          theme_color: '#1a1a1a',
+          orientation: 'any',
+          icons: [
+            { src: pngDataUris[0], sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: pngDataUris[1], sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/api/pwa/icon?photon=' + encodeURIComponent(photonName), sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          ],
+          categories: ['developer', 'utilities'],
+        };
+
+        const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+        const manifestUrl = URL.createObjectURL(manifestBlob);
+
+        // Replace the <link rel="manifest"> with the PNG-enhanced version
+        const manifestLink = document.querySelector('link[rel="manifest"]');
+        if (manifestLink) manifestLink.href = manifestUrl;
+
+        // Also update apple-touch-icon with the 192px PNG
+        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        if (appleIcon) appleIcon.href = pngDataUris[0];
+
+        console.log('[PWA] PNG manifest generated — installability criteria met');
+      } catch (err) {
+        console.warn('[PWA] PNG manifest generation failed (install icon may not appear):', err);
+        // Non-fatal — the SVG-only manifest is still linked as fallback
+      }
+    }
+
+    // Generate PNG manifest immediately (before Chrome evaluates installability)
+    generatePngManifest();
+
     // --- PWA Install Prompt ---
     let installPrompt = null;
     const installBtn = document.getElementById('install-btn');
@@ -773,10 +988,33 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
 
     if (installBtn) installBtn.addEventListener('click', handleInstall);
 
-    // Check if already installed (standalone mode) — hide install button
+    // Check if already installed (standalone mode) — hide install UI
     if (window.matchMedia('(display-mode: standalone)').matches ||
         window.navigator.standalone === true) {
       if (installBtn) installBtn.style.display = 'none';
+      const safariHint = document.getElementById('safari-install-hint');
+      if (safariHint) safariHint.style.display = 'none';
+    }
+
+    // --- Safari / non-Chromium install guidance ---
+    // Safari doesn't fire beforeinstallprompt, so we show manual instructions.
+    // Detect: Safari on macOS → File > Add to Dock; Safari on iOS → Share > Add to Home Screen
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+    if ((isSafari || isIOS) && !isStandalone) {
+      const safariHint = document.getElementById('safari-install-hint');
+      const safariSteps = document.getElementById('safari-steps');
+      if (safariHint && safariSteps) {
+        if (isIOS) {
+          safariSteps.innerHTML = 'Tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>.';
+        } else {
+          safariSteps.innerHTML = 'Use <strong>File &rarr; Add to Dock</strong> to install this app.';
+        }
+        // Show after a short delay so the app loads first
+        setTimeout(() => { safariHint.style.display = 'block'; }, 2000);
+      }
     }
 
     checkAndLoad();
