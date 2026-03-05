@@ -228,6 +228,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // PWA icon PNG generation — intercept /api/pwa/icon-png requests and render
+  // the SVG icon onto OffscreenCanvas, returning a real PNG response that
+  // satisfies Chrome's installability requirement for raster icons.
+  if (url.pathname === '/api/pwa/icon-png') {
+    event.respondWith(handleIconPng(url));
+    return;
+  }
+
   // Only intercept navigation requests (page loads, not API/asset fetches)
   if (event.request.mode !== 'navigate') return;
 
@@ -262,6 +270,76 @@ async function handlePWANavigation(request) {
   } catch (err) {
     // Backend is unreachable
     return serveBoot('not-running', err.message);
+  }
+}
+
+async function handleIconPng(url) {
+  const photon = url.searchParams.get('photon') || '';
+  const size = parseInt(url.searchParams.get('size') || '192', 10);
+  const cacheKey = '/_pwa_icon_' + photon + '_' + size;
+
+  // Check cache first
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  try {
+    // Fetch the SVG icon from the server
+    const svgRes = await fetch('/api/pwa/icon?photon=' + encodeURIComponent(photon));
+    if (!svgRes.ok) throw new Error('Icon fetch failed: ' + svgRes.status);
+
+    const svgText = await svgRes.text();
+    const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+    const bmp = await createImageBitmap(svgBlob, { resizeWidth: size, resizeHeight: size });
+
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+
+    // Dark rounded-rect background
+    ctx.fillStyle = '#1a1a1a';
+    const r = size * 0.2;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(size - r, 0);
+    ctx.quadraticCurveTo(size, 0, size, r);
+    ctx.lineTo(size, size - r);
+    ctx.quadraticCurveTo(size, size, size - r, size);
+    ctx.lineTo(r, size);
+    ctx.quadraticCurveTo(0, size, 0, size - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw the icon
+    ctx.drawImage(bmp, 0, 0, size, size);
+
+    const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
+    const pngResponse = new Response(pngBlob, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400'
+      }
+    });
+
+    // Cache the generated PNG
+    await cache.put(cacheKey, pngResponse.clone());
+    return pngResponse;
+  } catch (err) {
+    // Fallback: generate a simple colored square with text
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#4ade80';
+    ctx.font = (size * 0.4) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(photon.charAt(0).toUpperCase() || 'P', size / 2, size / 2);
+    const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
+    return new Response(pngBlob, {
+      headers: { 'Content-Type': 'image/png' }
+    });
   }
 }
 
