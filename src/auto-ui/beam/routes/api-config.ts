@@ -58,7 +58,20 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         return true;
       }
 
-      const result = await mcp.instance[method](args || {});
+      let result = await mcp.instance[method](args || {});
+
+      // Handle async generators: iterate to get the final return value
+      if (result && typeof result[Symbol.asyncIterator] === 'function') {
+        let iterResult = await result.next();
+        let lastYielded = iterResult.value;
+        while (!iterResult.done) {
+          lastYielded = iterResult.value;
+          iterResult = await result.next();
+        }
+        // iterResult.value is the return value (from `return X`), lastYielded is the last yield
+        result = iterResult.value !== undefined ? iterResult.value : lastYielded;
+      }
+
       res.setHeader('Content-Type', 'application/json');
       res.writeHead(200);
       res.end(JSON.stringify({ result }));
