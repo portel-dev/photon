@@ -231,11 +231,11 @@ self.addEventListener('fetch', (event) => {
   // Only intercept navigation requests (page loads, not API/asset fetches)
   if (event.request.mode !== 'navigate') return;
 
-  // For the PWA app page, serve through the health-check boot page
-  if (url.pathname.startsWith('/api/pwa/app')) {
-    event.respondWith(handlePWANavigation(event.request));
-    return;
-  }
+  // Skip API routes and static assets — let them pass through
+  if (url.pathname.startsWith('/api/') || url.pathname === '/sw.js' || url.pathname === '/beam.bundle.js') return;
+
+  // All navigation requests go through health check
+  event.respondWith(handlePWANavigation(event.request));
 });
 
 async function handlePWANavigation(request) {

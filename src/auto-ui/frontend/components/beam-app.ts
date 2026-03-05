@@ -1888,6 +1888,11 @@ export class BeamApp extends LitElement {
   // Deep link URL for setOpenInAppUrl
   private _openInAppUrl: string | null = null;
 
+  // PWA install state
+  private _pwaInstallPrompt: any = null;
+  private _pwaIsStandalone = false;
+  private _pwaCurrentPhoton: string | null = null;
+
   connectedCallback() {
     super.connectedCallback();
 
@@ -1937,6 +1942,9 @@ export class BeamApp extends LitElement {
     window.addEventListener('popstate', this._handleRouteChange);
     window.addEventListener('message', this._handleBridgeMessage);
     window.addEventListener('keydown', this._handleKeydown);
+
+    // PWA: Register service worker and install prompt listener
+    this._initPWA();
   }
 
   disconnectedCallback() {
@@ -1946,6 +1954,204 @@ export class BeamApp extends LitElement {
     window.removeEventListener('keydown', this._handleKeydown);
     document.removeEventListener('click', this._handleDocumentClick);
     this._cleanupCollectionSubscriptions();
+  }
+
+  willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
+    super.willUpdate(changedProperties);
+    if (changedProperties.has('_selectedPhoton')) {
+      const name = this._selectedPhoton?.name || null;
+      if (name !== this._pwaCurrentPhoton) {
+        this._pwaCurrentPhoton = name;
+        if (name) {
+          this._setupPWAManifest(name);
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PWA — Progressive Web App support
+  // ---------------------------------------------------------------------------
+
+  private _initPWA() {
+    // Detect if already running as an installed PWA
+    this._pwaIsStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+
+    // Register the service worker (provides offline boot page & health checks)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js', { scope: '/' })
+        .then((reg) => this._log('info', `PWA SW registered: ${reg.scope}`, true))
+        .catch((err) => this._log('warn', `PWA SW registration failed: ${err}`, true));
+    }
+
+    // Chrome/Edge fire this when the page meets installability criteria
+    window.addEventListener('beforeinstallprompt', (e: any) => {
+      this._pwaInstallPrompt = e;
+    });
+
+    window.addEventListener('appinstalled', () => {
+      this._pwaInstallPrompt = null;
+      this._log('info', 'PWA app installed');
+    });
+  }
+
+  /**
+   * Set up the PWA manifest & icons for the currently selected photon.
+   * Called whenever the selected photon changes. Uses client-side canvas
+   * rendering to produce 192x192 and 512x512 PNG icons that satisfy
+   * Chrome's installability criteria — no server-side image deps needed.
+   */
+  private _setupPWAManifest(photonName: string) {
+    // Update (or create) <link rel="manifest">
+    let manifestLink = document.head.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!manifestLink) {
+      manifestLink = document.createElement('link');
+      manifestLink.rel = 'manifest';
+      document.head.appendChild(manifestLink);
+    }
+    manifestLink.href = `/api/pwa/manifest.json?photon=${encodeURIComponent(photonName)}`;
+
+    // Update (or create) <link rel="apple-touch-icon">
+    let appleIcon = document.head.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (!appleIcon) {
+      appleIcon = document.createElement('link');
+      appleIcon.rel = 'apple-touch-icon';
+      document.head.appendChild(appleIcon);
+    }
+    appleIcon.href = `/api/pwa/icon?photon=${encodeURIComponent(photonName)}`;
+
+    // Update <meta name="apple-mobile-web-app-title">
+    let appleTitleMeta = document.head.querySelector<HTMLMetaElement>(
+      'meta[name="apple-mobile-web-app-title"]'
+    );
+    if (!appleTitleMeta) {
+      appleTitleMeta = document.createElement('meta');
+      appleTitleMeta.name = 'apple-mobile-web-app-title';
+      document.head.appendChild(appleTitleMeta);
+    }
+    appleTitleMeta.content = photonName;
+
+    // Client-side canvas PNG generation — satisfies Chrome's raster icon requirement
+    void this._generatePngManifest(photonName);
+  }
+
+  /**
+   * Fetch the photon icon (SVG or raster), render onto <canvas> at 192 and
+   * 512 px, export as PNG data URIs, build a blob-URL manifest, and replace
+   * the <link rel="manifest"> href. Non-fatal on failure — the SVG-only
+   * server manifest remains as fallback.
+   */
+  private async _generatePngManifest(photonName: string) {
+    try {
+      const iconUrl = `/api/pwa/icon?photon=${encodeURIComponent(photonName)}`;
+      const iconRes = await fetch(iconUrl);
+      if (!iconRes.ok) throw new Error(`Icon fetch failed: ${iconRes.status}`);
+
+      const contentType = iconRes.headers.get('content-type') || '';
+      const iconBlob = await iconRes.blob();
+      const sizes = [192, 512];
+      const pngDataUris: string[] = [];
+
+      for (const size of sizes) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+        // Dark rounded-rect background
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath();
+        const r = size * 0.2;
+        ctx.moveTo(r, 0);
+        ctx.lineTo(size - r, 0);
+        ctx.quadraticCurveTo(size, 0, size, r);
+        ctx.lineTo(size, size - r);
+        ctx.quadraticCurveTo(size, size, size - r, size);
+        ctx.lineTo(r, size);
+        ctx.quadraticCurveTo(0, size, 0, size - r);
+        ctx.lineTo(0, r);
+        ctx.quadraticCurveTo(0, 0, r, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        const isSvg = contentType.includes('svg') || contentType.includes('xml');
+        const blobUrl = URL.createObjectURL(iconBlob);
+        await new Promise<void>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            if (isSvg) {
+              ctx.drawImage(img, 0, 0, size, size);
+            } else {
+              // Center raster image, maintaining aspect ratio
+              const scale = Math.min(size / img.width, size / img.height);
+              const w = img.width * scale;
+              const h = img.height * scale;
+              ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+            }
+            URL.revokeObjectURL(blobUrl);
+            resolve();
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(blobUrl);
+            reject(new Error('Image load failed'));
+          };
+          img.src = blobUrl;
+        });
+
+        pngDataUris.push(canvas.toDataURL('image/png'));
+      }
+
+      // Find the current photon for display name / description
+      const photon = this._selectedPhoton;
+      const displayName = photon?.name || photonName;
+      const description = photon?.description || `${displayName} - Photon App`;
+
+      const manifest = {
+        name: displayName,
+        short_name: displayName,
+        description,
+        start_url: `/${encodeURIComponent(photonName)}`,
+        display: 'standalone',
+        background_color: '#1a1a1a',
+        theme_color: '#1a1a1a',
+        orientation: 'any',
+        icons: [
+          { src: pngDataUris[0], sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: pngDataUris[1], sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            src: `/api/pwa/icon?photon=${encodeURIComponent(photonName)}`,
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+        ],
+        categories: ['developer', 'utilities'],
+      };
+
+      const manifestBlob = new Blob([JSON.stringify(manifest)], {
+        type: 'application/manifest+json',
+      });
+      const manifestUrl = URL.createObjectURL(manifestBlob);
+
+      // Replace <link rel="manifest"> with the PNG-enhanced blob URL
+      const manifestLink = document.head.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+      if (manifestLink) manifestLink.href = manifestUrl;
+
+      // Update apple-touch-icon with the 192px PNG
+      const appleIcon = document.head.querySelector<HTMLLinkElement>(
+        'link[rel="apple-touch-icon"]'
+      );
+      if (appleIcon) appleIcon.href = pngDataUris[0];
+
+      this._log('info', `PWA manifest ready for "${displayName}"`, true);
+    } catch (err) {
+      this._log('warn', `PWA PNG manifest generation failed: ${String(err)}`, true);
+      // Non-fatal — SVG-only manifest from server remains as fallback
+    }
   }
 
   private _handleDocumentClick = (e: MouseEvent) => {
@@ -4524,8 +4730,42 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
   private _launchAsApp = () => {
     this._closeSettingsMenu();
-    if (this._selectedPhoton) {
-      window.open(`/api/pwa/app?photon=${encodeURIComponent(this._selectedPhoton.name)}`, '_blank');
+    if (!this._selectedPhoton) return;
+
+    if (this._pwaInstallPrompt) {
+      // Chrome/Edge — trigger the native install prompt
+      void (async () => {
+        try {
+          await fetch('/api/pwa/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              photon: this._selectedPhoton!.name,
+              port: location.port || '4100',
+            }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch {
+          // Non-fatal — configure is best-effort
+        }
+        const result = await this._pwaInstallPrompt.prompt();
+        this._log('info', `PWA install prompt result: ${result?.outcome}`);
+        this._pwaInstallPrompt = null;
+      })();
+    } else {
+      // Safari / non-Chromium — show install guidance
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      const isIOS =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isSafari || isIOS) {
+        const hint = isIOS
+          ? 'Tap the Share button, then "Add to Home Screen"'
+          : 'Use File > Add to Dock to install this app';
+        showToast(hint, 'info');
+      } else {
+        showToast('Install option not available — try Chrome or Edge', 'info');
+      }
     }
   };
 
@@ -6079,7 +6319,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       showRunTests = this._getTestMethods().length > 0,
       showRemove = false,
       showFullscreen = false,
-      showInstallApp = true,
+      showInstallApp = !this._pwaIsStandalone,
     } = opts;
 
     const items: import('./overflow-menu.js').OverflowMenuItem[] = [];
