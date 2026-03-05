@@ -83,7 +83,7 @@ export class OverflowMenu extends LitElement {
     return html`
       <button
         class="trigger"
-        @click=${() => this._toggle()}
+        @click=${(e: Event) => this._toggle(e)}
         title="More actions"
         aria-label="More actions"
       >
