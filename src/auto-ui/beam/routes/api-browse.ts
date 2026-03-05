@@ -357,34 +357,49 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   // without requiring any server-side image processing dependencies.
   if (url.pathname === '/api/pwa/manifest.json') {
     const photonName = url.searchParams.get('photon');
-    if (!photonName) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: 'Missing photon parameter' }));
-      return true;
-    }
 
-    const photon = state.photons.find((p) => p.name === photonName);
-    const displayName = photon?.name || photonName;
-    const description = (photon as any)?.description || `${displayName} - Photon App`;
-    const encodedName = encodeURIComponent(photonName);
+    // Without a photon param, return a generic Beam manifest (allows Chrome
+    // to evaluate installability before a specific photon is selected)
+    const displayName = photonName
+      ? state.photons.find((p) => p.name === photonName)?.name || photonName
+      : 'Photon Beam';
+    const description = photonName
+      ? (state.photons.find((p) => p.name === photonName) as any)?.description ||
+        `${displayName} - Photon App`
+      : 'Photon MCP Runtime';
+    const startUrl = photonName ? `/${encodeURIComponent(photonName)}` : '/';
+    const encodedIcon = photonName ? encodeURIComponent(photonName) : '';
 
     const manifest = {
       name: displayName,
       short_name: displayName,
       description,
-      start_url: `/${encodedName}`,
-      display: 'standalone',
+      start_url: startUrl,
+      display: 'standalone' as const,
       background_color: '#1a1a1a',
       theme_color: '#1a1a1a',
       orientation: 'any',
-      icons: [
-        {
-          src: `/api/pwa/icon?photon=${encodedName}`,
-          sizes: 'any',
-          type: 'image/svg+xml',
-          purpose: 'any',
-        },
-      ],
+      icons: photonName
+        ? [
+            {
+              src: `/api/pwa/icon?photon=${encodedIcon}`,
+              sizes: 'any',
+              type: 'image/svg+xml',
+              purpose: 'any',
+            },
+          ]
+        : [
+            {
+              src:
+                'data:image/svg+xml,' +
+                encodeURIComponent(
+                  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="102" fill="#1a1a1a"/><text x="256" y="340" text-anchor="middle" font-size="280" fill="white">⚡</text></svg>'
+                ),
+              sizes: 'any',
+              type: 'image/svg+xml',
+              purpose: 'any',
+            },
+          ],
       categories: ['developer', 'utilities'],
     };
 
