@@ -2000,9 +2000,9 @@ export class BeamApp extends LitElement {
 
   /**
    * Set up the PWA manifest & icons for the currently selected photon.
-   * Called whenever the selected photon changes. Uses client-side canvas
-   * rendering to produce 192x192 and 512x512 PNG icons that satisfy
-   * Chrome's installability criteria — no server-side image deps needed.
+   * Called whenever the selected photon changes. The manifest points to
+   * /api/pwa/icon-png URLs which the service worker intercepts and renders
+   * as real PNGs via OffscreenCanvas — no client-side blob URL needed.
    */
   private _setupPWAManifest(photonName: string) {
     // Update (or create) <link rel="manifest">
@@ -2034,124 +2034,7 @@ export class BeamApp extends LitElement {
     }
     appleTitleMeta.content = photonName;
 
-    // Client-side canvas PNG generation — satisfies Chrome's raster icon requirement
-    void this._generatePngManifest(photonName);
-  }
-
-  /**
-   * Fetch the photon icon (SVG or raster), render onto <canvas> at 192 and
-   * 512 px, export as PNG data URIs, build a blob-URL manifest, and replace
-   * the <link rel="manifest"> href. Non-fatal on failure — the SVG-only
-   * server manifest remains as fallback.
-   */
-  private async _generatePngManifest(photonName: string) {
-    try {
-      const iconUrl = `/api/pwa/icon?photon=${encodeURIComponent(photonName)}`;
-      const iconRes = await fetch(iconUrl);
-      if (!iconRes.ok) throw new Error(`Icon fetch failed: ${iconRes.status}`);
-
-      const contentType = iconRes.headers.get('content-type') || '';
-      const iconBlob = await iconRes.blob();
-      const sizes = [192, 512];
-      const pngDataUris: string[] = [];
-
-      for (const size of sizes) {
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error('Canvas 2D context unavailable');
-
-        // Dark rounded-rect background
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        const r = size * 0.2;
-        ctx.moveTo(r, 0);
-        ctx.lineTo(size - r, 0);
-        ctx.quadraticCurveTo(size, 0, size, r);
-        ctx.lineTo(size, size - r);
-        ctx.quadraticCurveTo(size, size, size - r, size);
-        ctx.lineTo(r, size);
-        ctx.quadraticCurveTo(0, size, 0, size - r);
-        ctx.lineTo(0, r);
-        ctx.quadraticCurveTo(0, 0, r, 0);
-        ctx.closePath();
-        ctx.fill();
-
-        const isSvg = contentType.includes('svg') || contentType.includes('xml');
-        const blobUrl = URL.createObjectURL(iconBlob);
-        await new Promise<void>((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => {
-            if (isSvg) {
-              ctx.drawImage(img, 0, 0, size, size);
-            } else {
-              // Center raster image, maintaining aspect ratio
-              const scale = Math.min(size / img.width, size / img.height);
-              const w = img.width * scale;
-              const h = img.height * scale;
-              ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-            }
-            URL.revokeObjectURL(blobUrl);
-            resolve();
-          };
-          img.onerror = () => {
-            URL.revokeObjectURL(blobUrl);
-            reject(new Error('Image load failed'));
-          };
-          img.src = blobUrl;
-        });
-
-        pngDataUris.push(canvas.toDataURL('image/png'));
-      }
-
-      // Find the current photon for display name / description
-      const photon = this._selectedPhoton;
-      const displayName = photon?.name || photonName;
-      const description = photon?.description || `${displayName} - Photon App`;
-
-      const manifest = {
-        name: displayName,
-        short_name: displayName,
-        description,
-        start_url: `/${encodeURIComponent(photonName)}`,
-        display: 'standalone',
-        background_color: '#1a1a1a',
-        theme_color: '#1a1a1a',
-        orientation: 'any',
-        icons: [
-          { src: pngDataUris[0], sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: pngDataUris[1], sizes: '512x512', type: 'image/png', purpose: 'any' },
-          {
-            src: `/api/pwa/icon?photon=${encodeURIComponent(photonName)}`,
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any',
-          },
-        ],
-        categories: ['developer', 'utilities'],
-      };
-
-      const manifestBlob = new Blob([JSON.stringify(manifest)], {
-        type: 'application/manifest+json',
-      });
-      const manifestUrl = URL.createObjectURL(manifestBlob);
-
-      // Replace <link rel="manifest"> with the PNG-enhanced blob URL
-      const manifestLink = document.head.querySelector<HTMLLinkElement>('link[rel="manifest"]');
-      if (manifestLink) manifestLink.href = manifestUrl;
-
-      // Update apple-touch-icon with the 192px PNG
-      const appleIcon = document.head.querySelector<HTMLLinkElement>(
-        'link[rel="apple-touch-icon"]'
-      );
-      if (appleIcon) appleIcon.href = pngDataUris[0];
-
-      this._log('info', `PWA manifest ready for "${displayName}"`, true);
-    } catch (err) {
-      this._log('warn', `PWA PNG manifest generation failed: ${String(err)}`, true);
-      // Non-fatal — SVG-only manifest from server remains as fallback
-    }
+    this._log('info', `PWA manifest set for "${photonName}"`, true);
   }
 
   private _handleDocumentClick = (e: MouseEvent) => {
@@ -4764,7 +4647,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
           : 'Use File > Add to Dock to install this app';
         showToast(hint, 'info');
       } else {
-        showToast('Install option not available — try Chrome or Edge', 'info');
+        // Chrome/Edge without beforeinstallprompt — installability criteria not met yet
+        showToast(
+          'Install not ready yet — the service worker needs a moment to generate icons. Try again in a few seconds.',
+          'info'
+        );
       }
     }
   };

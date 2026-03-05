@@ -16,10 +16,75 @@
 import * as fs from 'fs/promises';
 import { lstatSync, realpathSync } from 'fs';
 import * as path from 'path';
+import { deflateSync } from 'zlib';
 import { isPathWithin } from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
 import type { PhotonInfo } from '../../types.js';
 import type { BeamState, RouteHandler } from '../types.js';
+
+/**
+ * Generate a minimal valid PNG file with a solid RGB fill.
+ * Uses zlib deflate for the IDAT chunk — no external image deps.
+ */
+function generateSolidPng(w: number, h: number, r: number, g: number, b: number): Buffer {
+  // Build raw image data: each row starts with filter byte 0 (None), then RGB triplets
+  const rowLen = 1 + w * 3; // filter byte + w pixels * 3 bytes
+  const raw = Buffer.alloc(rowLen * h);
+  for (let y = 0; y < h; y++) {
+    const off = y * rowLen;
+    raw[off] = 0; // filter: None
+    for (let x = 0; x < w; x++) {
+      const px = off + 1 + x * 3;
+      raw[px] = r;
+      raw[px + 1] = g;
+      raw[px + 2] = b;
+    }
+  }
+
+  const compressed = deflateSync(raw);
+
+  // PNG file structure: signature + IHDR + IDAT + IEND
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  // IHDR chunk
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0); // data length
+  ihdr.write('IHDR', 4);
+  ihdr.writeUInt32BE(w, 8); // width
+  ihdr.writeUInt32BE(h, 12); // height
+  ihdr[16] = 8; // bit depth
+  ihdr[17] = 2; // color type: RGB
+  ihdr[18] = 0; // compression
+  ihdr[19] = 0; // filter
+  ihdr[20] = 0; // interlace
+  const ihdrCrc = crc32(ihdr.subarray(4, 21));
+  ihdr.writeUInt32BE(ihdrCrc >>> 0, 21);
+
+  // IDAT chunk
+  const idat = Buffer.alloc(12 + compressed.length);
+  idat.writeUInt32BE(compressed.length, 0);
+  idat.write('IDAT', 4);
+  compressed.copy(idat, 8);
+  const idatCrc = crc32(Buffer.concat([Buffer.from('IDAT'), compressed]));
+  idat.writeUInt32BE(idatCrc >>> 0, 8 + compressed.length);
+
+  // IEND chunk
+  const iend = Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+
+  return Buffer.concat([sig, ihdr, idat, iend]);
+}
+
+/** CRC-32 for PNG chunks (ITU-T V.42 polynomial) */
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
 export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => {
   // File browser API
@@ -350,11 +415,10 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   }
 
   // PWA Manifest - Auto-generated for any photon
-  // NOTE: The initial manifest contains only the SVG icon. The PWA host page
-  // performs client-side canvas rendering to generate 192x192 and 512x512 PNG
-  // icons, then replaces <link rel="manifest"> with a blob URL manifest that
-  // includes the raster PNGs. This satisfies Chrome's installability criteria
-  // without requiring any server-side image processing dependencies.
+  // NOTE: The manifest declares PNG icon URLs at /api/pwa/icon-png which are
+  // intercepted by the service worker. The SW renders the SVG icon onto
+  // OffscreenCanvas and returns a real PNG response, satisfying Chrome's
+  // installability requirement for raster icons at 192x192 and 512x512.
   if (url.pathname === '/api/pwa/manifest.json') {
     const photonName = url.searchParams.get('photon');
 
@@ -381,6 +445,18 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
       orientation: 'any',
       icons: photonName
         ? [
+            {
+              src: `/api/pwa/icon-png?photon=${encodedIcon}&size=192`,
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: `/api/pwa/icon-png?photon=${encodedIcon}&size=512`,
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
             {
               src: `/api/pwa/icon?photon=${encodedIcon}`,
               sizes: 'any',
@@ -470,577 +546,18 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
-  // PWA App Entry - Serves the photon UI with PWA tags injected
-  if (url.pathname === '/api/pwa/app') {
-    const photonName = url.searchParams.get('photon');
-
-    if (!photonName) {
-      res.writeHead(400);
-      res.end('Missing photon parameter');
-      return true;
-    }
-
-    const photon = state.photons.find((p) => p.name === photonName);
-    if (!photon) {
-      res.writeHead(404);
-      res.end(`Photon not found: ${photonName}`);
-      return true;
-    }
-
-    const displayName = photon.name;
-    const emoji = (photon as any)?.icon || '📦';
-    const uiAssets = (photon as any).assets?.ui || [];
-    const asset = uiAssets.find((u: any) => u.linkedTool === 'main') || uiAssets[0];
-    const uiId = asset?.id || 'main';
-
-    // PWA Host page - embeds photon UI in iframe, handles postMessage
-    const pwaHost = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${emoji} ${displayName}</title>
-  <link rel="manifest" href="/api/pwa/manifest.json?photon=${encodeURIComponent(photonName)}">
-  <meta name="theme-color" content="#1a1a1a">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="${displayName}">
-  <link rel="apple-touch-icon" href="/api/pwa/icon?photon=${encodeURIComponent(photonName)}">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { min-height: 100%; background: #1a1a1a; font-family: system-ui, sans-serif; color: #e5e5e5; }
-    .app-container { display: flex; flex-direction: column; min-height: 100vh; }
-    .app-frame { flex: 1; min-height: 80vh; }
-    iframe { width: 100%; height: 100%; min-height: 80vh; border: none; }
-
-    .status-page {
-      display: none;
-      height: 100vh;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #888;
-      text-align: center;
-      padding: 40px;
-    }
-    .status-page.show { display: flex; }
-    .status-page h1 { font-size: 48px; margin-bottom: 20px; }
-    .status-page h2 { font-size: 20px; color: #e5e5e5; margin-bottom: 12px; }
-    .status-page p { font-size: 16px; margin-bottom: 20px; max-width: 480px; line-height: 1.6; }
-    .status-page code {
-      display: block;
-      background: #2a2a2a;
-      padding: 12px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      color: #4ade80;
-      font-family: monospace;
-      margin: 8px 0;
-    }
-    .status-page .retry {
-      margin-top: 20px;
-      padding: 10px 20px;
-      background: #333;
-      border: none;
-      border-radius: 6px;
-      color: #fff;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    .status-page .retry:hover { background: #444; }
-    .status-page .auto-retry {
-      font-size: 13px;
-      color: #666;
-      margin-top: 12px;
-    }
-    .status-page .conflict-detail {
-      background: #1e1e1e;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 16px 24px;
-      margin: 16px 0;
-      text-align: left;
-      max-width: 480px;
-    }
-    .status-page .conflict-detail dt { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 8px; }
-    .status-page .conflict-detail dt:first-child { margin-top: 0; }
-    .status-page .conflict-detail dd { color: #e5e5e5; font-size: 14px; margin: 2px 0 0 0; font-family: monospace; }
-
-    #install-btn {
-      display: none;
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      background: #4ade80;
-      color: #111;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: system-ui, sans-serif;
-      box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
-      z-index: 1000;
-      transition: transform 0.15s, box-shadow 0.15s;
-    }
-    #install-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4); }
-    #install-btn svg { width: 16px; height: 16px; }
-
-    #safari-install-hint {
-      display: none;
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      max-width: 320px;
-      padding: 14px 18px;
-      background: #2a2a2a;
-      border: 1px solid #444;
-      border-radius: 10px;
-      color: #e5e5e5;
-      font-size: 13px;
-      font-family: system-ui, sans-serif;
-      line-height: 1.5;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      z-index: 1000;
-    }
-    #safari-install-hint .hint-title {
-      font-weight: 600;
-      font-size: 14px;
-      margin-bottom: 6px;
-      color: #fff;
-    }
-    #safari-install-hint .hint-steps { color: #aaa; }
-    #safari-install-hint .hint-steps strong { color: #e5e5e5; }
-    #safari-install-hint .hint-dismiss {
-      display: inline-block;
-      margin-top: 10px;
-      padding: 4px 12px;
-      background: #333;
-      border: 1px solid #555;
-      border-radius: 5px;
-      color: #ccc;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    #safari-install-hint .hint-dismiss:hover { background: #444; }
-  </style>
-</head>
-<body>
-  <!-- State: Service not available -->
-  <div id="not-running" class="status-page">
-    <h1>${emoji}</h1>
-    <h2 id="nr-title">Service Unavailable</h2>
-    <p id="nr-message"></p>
-    <div id="nr-local" style="display:none">
-      <p>If it doesn't start automatically, run:</p>
-      <code>photon beam --port <span id="nr-port2"></span></code>
-    </div>
-    <div id="nr-remote" style="display:none">
-      <div class="conflict-detail">
-        <dl>
-          <dt>Application</dt>
-          <dd>${displayName}</dd>
-          <dt>Expected service</dt>
-          <dd id="nr-url"></dd>
-        </dl>
-      </div>
-      <p>Please contact the application provider to ensure the service is running.</p>
-    </div>
-    <button class="retry" onclick="checkAndLoad()">Retry Now</button>
-    <div class="auto-retry">Retrying automatically every 3 seconds...</div>
-  </div>
-
-  <!-- State: Port occupied by another service -->
-  <div id="port-conflict" class="status-page">
-    <h1>⚠️</h1>
-    <h2>Port Conflict</h2>
-    <p>Port <strong id="pc-port"></strong> is responding, but it is not running Photon Beam. ${displayName} cannot load.</p>
-    <div class="conflict-detail">
-      <dl>
-        <dt>Expected</dt>
-        <dd>Photon Beam</dd>
-        <dt>Found</dt>
-        <dd id="pc-found">Unknown service</dd>
-        <dt>Port</dt>
-        <dd id="pc-port2"></dd>
-      </dl>
-    </div>
-    <div id="pc-local" style="display:none">
-      <p>To free this port, stop the other service, then retry.</p>
-      <code>lsof -ti:<span id="pc-port3"></span> | xargs kill</code>
-    </div>
-    <div id="pc-remote" style="display:none">
-      <p>Another service is using this port. Please contact the application provider.</p>
-    </div>
-    <button class="retry" onclick="checkAndLoad()">Retry</button>
-  </div>
-
-  <div class="app-container" id="app-container" style="display:none">
-    <iframe id="app"></iframe>
-  </div>
-
-  <button id="install-btn" aria-label="Install as App">
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 11-5 5-5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-    Install App
-  </button>
-
-  <div id="safari-install-hint">
-    <div class="hint-title">Install as App</div>
-    <div class="hint-steps" id="safari-steps"></div>
-    <span class="hint-dismiss" onclick="document.getElementById('safari-install-hint').style.display='none'">Got it</span>
-  </div>
-
-  <script>
-    const iframe = document.getElementById('app');
-    const appContainer = document.getElementById('app-container');
-    const notRunning = document.getElementById('not-running');
-    const portConflict = document.getElementById('port-conflict');
-    const photonName = '${photonName}';
-    const uiId = '${uiId}';
-    const expectedPort = location.port || '4100';
-    const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-    const serviceUrl = location.origin;
-    let retryTimer = null;
-
-    // Fill port numbers into status pages
-    document.getElementById('nr-port2').textContent = expectedPort;
-    document.getElementById('nr-url').textContent = serviceUrl;
-    document.getElementById('pc-port').textContent = expectedPort;
-    document.getElementById('pc-port2').textContent = expectedPort;
-    document.getElementById('pc-port3').textContent = expectedPort;
-
-    // Configure not-running page based on local vs remote
-    if (isLocal) {
-      document.getElementById('nr-title').textContent = 'Starting ${displayName}...';
-      document.getElementById('nr-message').textContent = 'Waiting for Photon Beam to start on port ' + expectedPort + '.';
-      document.getElementById('nr-local').style.display = 'block';
-      document.getElementById('pc-local').style.display = 'block';
-    } else {
-      document.getElementById('nr-title').textContent = 'Service Unavailable';
-      document.getElementById('nr-message').textContent = '${displayName} requires a backend service that is not currently reachable.';
-      document.getElementById('nr-remote').style.display = 'block';
-      document.getElementById('pc-remote').style.display = 'block';
-    }
-
-    function hideAllStates() {
-      notRunning.classList.remove('show');
-      portConflict.classList.remove('show');
-      appContainer.style.display = 'none';
-    }
-
-    // Check /api/diagnostics to determine what's running on this port
-    async function checkAndLoad() {
-      if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
-      hideAllStates();
-
-      try {
-        const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(3000) });
-        if (!res.ok) throw new Error('bad status');
-        const diag = await res.json();
-
-        // Valid Beam response must have photonVersion
-        if (diag && diag.photonVersion) {
-          // This is a Photon Beam — load the app
-          await loadApp();
-          return;
-        }
-
-        // Got a response but not from Beam — port conflict
-        showPortConflict(JSON.stringify(diag).slice(0, 120));
-      } catch (e) {
-        // Network error or timeout — nothing running on this port
-        showNotRunning();
-      }
-    }
-
-    function showNotRunning() {
-      hideAllStates();
-      notRunning.classList.add('show');
-      retryTimer = setInterval(checkAndLoad, 3000);
-    }
-
-    function showPortConflict(detail) {
-      hideAllStates();
-      document.getElementById('pc-found').textContent = detail || 'Unknown service';
-      portConflict.classList.add('show');
-      // Don't auto-retry for conflicts — user must take action
-    }
-
-    // Load UI with platform bridge injected
-    async function loadApp() {
-      try {
-        const [uiRes, bridgeRes] = await Promise.all([
-          fetch('/api/ui?photon=' + encodeURIComponent(photonName) + '&id=' + encodeURIComponent(uiId)),
-          fetch('/api/platform-bridge?photon=' + encodeURIComponent(photonName) + '&method=' + encodeURIComponent(uiId) + '&theme=dark')
-        ]);
-
-        if (!uiRes.ok) {
-          showNotRunning();
-          return;
-        }
-
-        let html = await uiRes.text();
-        const bridge = bridgeRes.ok ? await bridgeRes.text() : '';
-        html = html.replace('</head>', bridge + '</head>');
-
-        const blob = new Blob([html], { type: 'text/html' });
-        iframe.src = URL.createObjectURL(blob);
-        hideAllStates();
-        appContainer.style.display = 'flex';
-        initBridge();
-      } catch (e) {
-        showNotRunning();
-      }
-    }
-
-    function initBridge() {
-      // Listen for messages from iframe
-      window.addEventListener('message', async (e) => {
-        const msg = e.data;
-        if (!msg || typeof msg !== 'object') return;
-
-        // Handle JSON-RPC tools/call from iframe
-        if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
-          const { name: toolName, arguments: toolArgs } = msg.params || {};
-          try {
-            const res = await fetch('/api/invoke', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ photon: photonName, method: toolName, args: toolArgs || {} }),
-              signal: AbortSignal.timeout(60000), // 60s for method calls
-            });
-            const data = await res.json();
-            iframe.contentWindow.postMessage({
-              jsonrpc: '2.0',
-              id: msg.id,
-              result: data.error ? undefined : (data.result !== undefined ? data.result : data),
-              error: data.error ? { code: -32000, message: data.error } : undefined,
-            }, '*');
-          } catch (err) {
-            iframe.contentWindow.postMessage({
-              jsonrpc: '2.0',
-              id: msg.id,
-              error: { code: -32000, message: err.message },
-            }, '*');
-          }
-        }
-      });
-
-      // Send init message to iframe once loaded
-      iframe.onload = () => {
-        iframe.contentWindow.postMessage({
-          type: 'photon:init',
-          context: { photon: photonName, theme: 'dark', displayMode: 'fullscreen' }
-        }, '*');
-      };
-    }
-
-    // --- Service Worker Registration ---
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(reg => console.log('[PWA] SW registered:', reg.scope))
-        .catch(err => console.warn('[PWA] SW registration failed:', err));
-    }
-
-    // --- Client-side PNG icon generation for PWA installability ---
-    // Chrome requires raster PNG icons (192x192, 512x512) in the manifest.
-    // We fetch the icon source (SVG or PNG from /api/pwa/icon), render it
-    // onto a <canvas>, export as PNG data URIs, build a new manifest with
-    // those PNGs, and replace the <link rel="manifest"> href with a blob URL.
-    // This avoids needing any server-side image processing dependencies.
-    async function generatePngManifest() {
-      try {
-        const iconUrl = '/api/pwa/icon?photon=' + encodeURIComponent(photonName);
-        const iconRes = await fetch(iconUrl);
-        if (!iconRes.ok) throw new Error('Icon fetch failed: ' + iconRes.status);
-
-        const contentType = iconRes.headers.get('content-type') || '';
-        const iconBlob = await iconRes.blob();
-        const sizes = [192, 512];
-        const pngDataUris = [];
-
-        for (const size of sizes) {
-          const canvas = document.createElement('canvas');
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Canvas 2D context unavailable');
-
-          // Fill dark background (matches theme)
-          ctx.fillStyle = '#1a1a1a';
-          ctx.beginPath();
-          // Rounded rect for visual consistency
-          const r = size * 0.2;
-          ctx.moveTo(r, 0);
-          ctx.lineTo(size - r, 0);
-          ctx.quadraticCurveTo(size, 0, size, r);
-          ctx.lineTo(size, size - r);
-          ctx.quadraticCurveTo(size, size, size - r, size);
-          ctx.lineTo(r, size);
-          ctx.quadraticCurveTo(0, size, 0, size - r);
-          ctx.lineTo(0, r);
-          ctx.quadraticCurveTo(0, 0, r, 0);
-          ctx.closePath();
-          ctx.fill();
-
-          if (contentType.includes('svg') || contentType.includes('xml')) {
-            // SVG → draw via Image element with blob URL
-            const svgBlobUrl = URL.createObjectURL(iconBlob);
-            await new Promise((resolve, reject) => {
-              const img = new Image();
-              img.onload = () => {
-                ctx.drawImage(img, 0, 0, size, size);
-                URL.revokeObjectURL(svgBlobUrl);
-                resolve(null);
-              };
-              img.onerror = () => {
-                URL.revokeObjectURL(svgBlobUrl);
-                reject(new Error('SVG image load failed'));
-              };
-              img.src = svgBlobUrl;
-            });
-          } else {
-            // Raster image (PNG/JPEG/WebP) — draw directly
-            const bitmapUrl = URL.createObjectURL(iconBlob);
-            await new Promise((resolve, reject) => {
-              const img = new Image();
-              img.onload = () => {
-                // Center the image, maintaining aspect ratio
-                const scale = Math.min(size / img.width, size / img.height);
-                const w = img.width * scale;
-                const h = img.height * scale;
-                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-                URL.revokeObjectURL(bitmapUrl);
-                resolve(null);
-              };
-              img.onerror = () => {
-                URL.revokeObjectURL(bitmapUrl);
-                reject(new Error('Image load failed'));
-              };
-              img.src = bitmapUrl;
-            });
-          }
-
-          pngDataUris.push(canvas.toDataURL('image/png'));
-        }
-
-        // Build manifest with raster PNG icons
-        const manifest = {
-          name: '${displayName}',
-          short_name: '${displayName}',
-          description: '${(photon as any)?.description?.replace(/'/g, "\\'") || displayName + ' - Photon App'}',
-          start_url: '/' + encodeURIComponent(photonName),
-          display: 'standalone',
-          background_color: '#1a1a1a',
-          theme_color: '#1a1a1a',
-          orientation: 'any',
-          icons: [
-            { src: pngDataUris[0], sizes: '192x192', type: 'image/png', purpose: 'any' },
-            { src: pngDataUris[1], sizes: '512x512', type: 'image/png', purpose: 'any' },
-            { src: '/api/pwa/icon?photon=' + encodeURIComponent(photonName), sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          ],
-          categories: ['developer', 'utilities'],
-        };
-
-        const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-        const manifestUrl = URL.createObjectURL(manifestBlob);
-
-        // Replace the <link rel="manifest"> with the PNG-enhanced version
-        const manifestLink = document.querySelector('link[rel="manifest"]');
-        if (manifestLink) manifestLink.href = manifestUrl;
-
-        // Also update apple-touch-icon with the 192px PNG
-        const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
-        if (appleIcon) appleIcon.href = pngDataUris[0];
-
-        console.log('[PWA] PNG manifest generated — installability criteria met');
-      } catch (err) {
-        console.warn('[PWA] PNG manifest generation failed (install icon may not appear):', err);
-        // Non-fatal — the SVG-only manifest is still linked as fallback
-      }
-    }
-
-    // Generate PNG manifest immediately (before Chrome evaluates installability)
-    generatePngManifest();
-
-    // --- PWA Install Prompt ---
-    let installPrompt = null;
-    const installBtn = document.getElementById('install-btn');
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      // Do NOT call e.preventDefault() — let Chrome show the address bar install icon.
-      // We still capture the prompt for our custom install button.
-      installPrompt = e;
-      if (installBtn) installBtn.style.display = 'flex';
-    });
-
-    window.addEventListener('appinstalled', () => {
-      installPrompt = null;
-      if (installBtn) installBtn.style.display = 'none';
-      console.log('[PWA] App installed');
-    });
-
-    async function handleInstall() {
-      if (!installPrompt) return;
-      // Record config before prompting install
-      try {
-        await fetch('/api/pwa/configure', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ photon: photonName, port: expectedPort }),
-        });
-      } catch (e) {
-        console.warn('[PWA] configure failed (non-fatal):', e);
-      }
-      const result = await installPrompt.prompt();
-      console.log('[PWA] Install prompt result:', result?.outcome);
-      installPrompt = null;
-      if (installBtn) installBtn.style.display = 'none';
-    }
-
-    if (installBtn) installBtn.addEventListener('click', handleInstall);
-
-    // Check if already installed (standalone mode) — hide install UI
-    if (window.matchMedia('(display-mode: standalone)').matches ||
-        window.navigator.standalone === true) {
-      if (installBtn) installBtn.style.display = 'none';
-      const safariHint = document.getElementById('safari-install-hint');
-      if (safariHint) safariHint.style.display = 'none';
-    }
-
-    // --- Safari / non-Chromium install guidance ---
-    // Safari doesn't fire beforeinstallprompt, so we show manual instructions.
-    // Detect: Safari on macOS → File > Add to Dock; Safari on iOS → Share > Add to Home Screen
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-    if ((isSafari || isIOS) && !isStandalone) {
-      const safariHint = document.getElementById('safari-install-hint');
-      const safariSteps = document.getElementById('safari-steps');
-      if (safariHint && safariSteps) {
-        if (isIOS) {
-          safariSteps.innerHTML = 'Tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>.';
-        } else {
-          safariSteps.innerHTML = 'Use <strong>File &rarr; Add to Dock</strong> to install this app.';
-        }
-        // Show after a short delay so the app loads first
-        setTimeout(() => { safariHint.style.display = 'block'; }, 2000);
-      }
-    }
-
-    checkAndLoad();
-  </script>
-</body>
-</html>`;
-
-    res.setHeader('Content-Type', 'text/html');
+  // PWA PNG Icon — Server-side raster icon generation using a pure-JS minimal
+  // PNG encoder. Produces a solid #1a1a1a icon at the requested size. The
+  // service worker will overlay the actual SVG icon via OffscreenCanvas, but
+  // this server route ensures Chrome can fetch a valid PNG even before the SW
+  // is active (critical for the first-visit installability check).
+  if (url.pathname === '/api/pwa/icon-png') {
+    const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '192', 10), 16), 1024);
+    const png = generateSolidPng(size, size, 0x1a, 0x1a, 0x1a);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
     res.writeHead(200);
-    res.end(pwaHost);
+    res.end(png);
     return true;
   }
 
