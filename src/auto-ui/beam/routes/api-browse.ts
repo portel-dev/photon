@@ -957,7 +957,8 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     const installBtn = document.getElementById('install-btn');
 
     window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
+      // Do NOT call e.preventDefault() — let Chrome show the address bar install icon.
+      // We still capture the prompt for our custom install button.
       installPrompt = e;
       if (installBtn) installBtn.style.display = 'flex';
     });
