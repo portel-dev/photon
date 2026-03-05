@@ -1292,7 +1292,8 @@ async function handleRequest(
           {
             event: 'state-changed',
             method: request.method,
-            instance: targetName,
+            params: request.args || {},
+            instance: targetName || 'default',
             data: result,
           },
           socket
@@ -1361,6 +1362,8 @@ async function handleRequest(
         {
           event: 'state-changed',
           method: request.method,
+          params: request.args || {},
+          instance: session.instanceName || 'default',
           data: result,
         },
         socket

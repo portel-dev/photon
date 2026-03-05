@@ -1233,9 +1233,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           return;
         }
 
-        // Server is healthy — load the app
+        // Server is healthy — establish MCP session then load the app
         hideAll();
         appEl.style.display = 'block';
+        await connectSSE();
         await loadApp();
       } catch (err) {
         // Server unreachable — show offline state with auto-retry
@@ -1309,7 +1310,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
     }
 
-    // postMessage bridge: relays JSON-RPC tools/call from iframe to /api/invoke
+    // postMessage bridge: relays JSON-RPC from iframe through MCP for full event pipeline
+    var mcpSessionId = null;
+    var mcpCallId = 100;
+
     function initBridge(iframe, bridgeMethod) {
       window.addEventListener('message', async (e) => {
         const msg = e.data;
@@ -1330,27 +1334,44 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           return;
         }
 
-        // Handle JSON-RPC tools/call from iframe
+        // Handle JSON-RPC tools/call from iframe — route through MCP for event broadcasting
         if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
           const { name: toolName, arguments: toolArgs } = msg.params || {};
+          // Prefix with photon name if not already prefixed (bridge sends bare method names)
+          var fullToolName = toolName.includes('/') ? toolName : PHOTON + '/' + toolName;
           try {
-            const res = await fetch('/api/invoke', {
+            var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
+            var mcpRes = await fetch('/mcp', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ photon: PHOTON, method: toolName, args: toolArgs || {} }),
+              headers: headers,
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: mcpCallId++,
+                method: 'tools/call',
+                params: { name: fullToolName, arguments: toolArgs || {} },
+              }),
               signal: AbortSignal.timeout(60000),
             });
-            const data = await res.json();
+            var mcpData = await mcpRes.json();
+            // Extract result from MCP response (content array → structured or text)
+            var result = undefined;
+            var error = undefined;
+            if (mcpData.error) {
+              error = { code: mcpData.error.code || -32000, message: mcpData.error.message || 'Unknown error' };
+            } else if (mcpData.result) {
+              var content = mcpData.result.content || [];
+              var textParts = content.filter(function(c) { return c.type === 'text'; });
+              if (textParts.length > 0) {
+                try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
+              }
+              if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+            }
             iframe.contentWindow.postMessage({
-              jsonrpc: '2.0',
-              id: msg.id,
-              result: data.error ? undefined : (data.result !== undefined ? data.result : data),
-              error: data.error ? { code: -32000, message: data.error } : undefined,
+              jsonrpc: '2.0', id: msg.id, result: result, error: error,
             }, '*');
           } catch (err) {
             iframe.contentWindow.postMessage({
-              jsonrpc: '2.0',
-              id: msg.id,
+              jsonrpc: '2.0', id: msg.id,
               error: { code: -32000, message: err.message },
             }, '*');
           }
@@ -1379,20 +1400,34 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         window.removeEventListener('message', onReady);
 
         try {
-          var invokeRes = await fetch('/api/invoke', {
+          var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+          if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
+          var invokeRes = await fetch('/mcp', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ photon: PHOTON, method: bridgeMethod, args: {} }),
+            headers: headers,
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: mcpCallId++,
+              method: 'tools/call',
+              params: { name: PHOTON + '/' + bridgeMethod, arguments: {} },
+            }),
             signal: AbortSignal.timeout(30000),
           });
-          var data = await invokeRes.json();
-          if (!data.error) {
-            // Send via MCP Apps protocol — this triggers photon:data-ready in the bridge
-            iframe.contentWindow.postMessage({
-              jsonrpc: '2.0',
-              method: 'ui/notifications/tool-result',
-              params: { result: data.result !== undefined ? data.result : data },
-            }, '*');
+          var mcpData = await invokeRes.json();
+          if (!mcpData.error && mcpData.result) {
+            var content = mcpData.result.content || [];
+            var textParts = content.filter(function(c) { return c.type === 'text'; });
+            var result = undefined;
+            if (textParts.length > 0) {
+              try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
+            }
+            if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+            if (result !== undefined) {
+              iframe.contentWindow.postMessage({
+                jsonrpc: '2.0',
+                method: 'ui/notifications/tool-result',
+                params: { result: result },
+              }, '*');
+            }
           }
         } catch (err) {
           console.warn('[PWA] Auto-invoke failed:', err.message);
@@ -1405,6 +1440,96 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(reg => console.log('[PWA] SW registered:', reg.scope))
         .catch(err => console.warn('[PWA] SW registration failed:', err));
+    }
+
+    // --- Real-time SSE subscription for cross-client sync ---
+    async function connectSSE() {
+      try {
+        // Step 1: Initialize MCP session as beam client to get session ID
+        var initRes = await fetch('/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'initialize',
+            params: {
+              protocolVersion: '2025-03-26',
+              clientInfo: { name: 'beam', version: '1.0.0' },
+              capabilities: {}
+            }
+          })
+        });
+        var sessionId = initRes.headers.get('mcp-session-id');
+        if (!sessionId) return;
+        mcpSessionId = sessionId;
+
+        // Step 2: Open SSE on the same session
+        var sseUrl = '/mcp?sessionId=' + encodeURIComponent(sessionId);
+        var es = new EventSource(sseUrl);
+        es.onmessage = function(event) {
+          try {
+            var msg = JSON.parse(event.data);
+            if (msg.type === 'keepalive') return;
+            var iframe = document.querySelector('iframe');
+            if (!iframe || !iframe.contentWindow) return;
+
+            // Handle @stateful state-changed events — re-invoke main() to refresh UI
+            if (msg.method === 'photon/state-changed' && msg.params?.photon === PHOTON) {
+              // Re-fetch data by calling main() and delivering result to iframe
+              var refreshHeaders = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+              if (mcpSessionId) refreshHeaders['Mcp-Session-Id'] = mcpSessionId;
+              fetch('/mcp', {
+                method: 'POST',
+                headers: refreshHeaders,
+                body: JSON.stringify({
+                  jsonrpc: '2.0', id: mcpCallId++,
+                  method: 'tools/call',
+                  params: { name: PHOTON + '/' + bridgeMethod, arguments: {} },
+                }),
+                signal: AbortSignal.timeout(15000),
+              }).then(function(r) { return r.json(); }).then(function(mcpData) {
+                if (!mcpData.error && mcpData.result) {
+                  var content = mcpData.result.content || [];
+                  var textParts = content.filter(function(c) { return c.type === 'text'; });
+                  var result = undefined;
+                  if (textParts.length > 0) {
+                    try { result = JSON.parse(textParts[0].text); } catch(e) { result = textParts[0].text; }
+                  }
+                  if (mcpData.result.structuredContent) result = mcpData.result.structuredContent;
+                  if (result !== undefined) {
+                    iframe.contentWindow.postMessage({
+                      jsonrpc: '2.0',
+                      method: 'ui/notifications/tool-result',
+                      params: { result: result },
+                    }, '*');
+                  }
+                }
+              }).catch(function() {});
+              return;
+            }
+
+            // Forward other events to iframe
+            if (msg.method === 'photon/board-update') {
+              iframe.contentWindow.postMessage({
+                jsonrpc: '2.0',
+                method: 'photon/notifications/emit',
+                params: { emit: 'board-update', ...msg.params },
+              }, '*');
+            } else if (msg.method === 'photon/channel-event') {
+              iframe.contentWindow.postMessage({
+                jsonrpc: '2.0',
+                method: 'photon/notifications/emit',
+                params: msg.params,
+              }, '*');
+            }
+          } catch (e) {}
+        };
+        es.onerror = function() {
+          es.close();
+          setTimeout(connectSSE, 5000);
+        };
+      } catch (e) {
+        setTimeout(connectSSE, 5000);
+      }
     }
 
     // Start the diagnostics-first loading flow
@@ -2070,6 +2195,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             broadcastToBeam('photon/state-changed', {
               photon: photonName,
               method: message?.method,
+              params: message?.params,
+              instance: message?.instance,
               data: message?.data,
             });
           },
