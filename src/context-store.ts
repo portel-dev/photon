@@ -257,6 +257,16 @@ export function getInstanceStatePath(
   return path.join(dir, 'state', photonName, `${name}.json`);
 }
 
+/**
+ * Get the event log path for a photon instance.
+ * Path: ~/.photon/state/{photon}/{instance}.log
+ */
+export function getInstanceLogPath(photonName: string, instance: string, baseDir?: string): string {
+  const name = instance || 'default';
+  const dir = baseDir || getDefaultContext().baseDir;
+  return path.join(dir, 'state', photonName, `${name}.log`);
+}
+
 export function getEnvParams(params: ConstructorParam[]): ConstructorParam[] {
   return params.filter((p) => p.isPrimitive && !p.hasDefault);
 }

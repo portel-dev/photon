@@ -2198,6 +2198,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               params: message?.params,
               instance: message?.instance,
               data: message?.data,
+              ...(message?.patch && { patch: message.patch }),
+              ...(message?.inversePatch && { inversePatch: message.inversePatch }),
+              ...(message?.uri && { uri: message.uri }),
             });
           },
           {

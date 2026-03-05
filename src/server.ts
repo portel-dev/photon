@@ -591,6 +591,16 @@ export class PhotonServer {
         description: `List all available instances.`,
         inputSchema: { type: 'object', properties: {} },
       });
+      tools.push({
+        name: '_undo',
+        description: `Undo the last state mutation. Reverts the most recent tool call's changes.`,
+        inputSchema: { type: 'object', properties: {} },
+      });
+      tools.push({
+        name: '_redo',
+        description: `Redo the last undone mutation. Re-applies a previously undone change.`,
+        inputSchema: { type: 'object', properties: {} },
+      });
     }
 
     return { tools };
@@ -603,8 +613,14 @@ export class PhotonServer {
 
     const { name: toolName, arguments: args } = request.params;
 
-    // Route _use and _instances through daemon for stateful photons
-    if (this.daemonName && (toolName === '_use' || toolName === '_instances')) {
+    // Route _use, _instances, _undo, _redo through daemon for stateful photons
+    if (
+      this.daemonName &&
+      (toolName === '_use' ||
+        toolName === '_instances' ||
+        toolName === '_undo' ||
+        toolName === '_redo')
+    ) {
       const { sendCommand } = await import('./daemon/client.js');
       const sendOpts = {
         photonPath: this.options.filePath,

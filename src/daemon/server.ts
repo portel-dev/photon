@@ -29,6 +29,9 @@ import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
 import { audit } from '../shared/audit.js';
+import fastJsonPatch, { type Operation } from 'fast-json-patch';
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const jsonPatchCompare = fastJsonPatch.compare;
 
 // Command line args: socketPath (global daemon only needs socket path)
 const socketPath = process.argv[2];
@@ -731,6 +734,10 @@ async function getOrCreateSessionManager(
 
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
+    // Also store under bare photonName so snapshotState/persistInstanceState can find it
+    if (!photonPaths.has(photonName)) {
+      photonPaths.set(photonName, pathToUse);
+    }
     if (workingDir) {
       workingDirs.set(key, workingDir);
       watchWorkingDir(workingDir);
@@ -1231,6 +1238,88 @@ async function handleRequest(
           data: { instances, current, autoInstance, metadata },
         };
       }
+
+      // ── Undo / Redo ──────────────────────────────────────────────
+      if (request.method === '_undo' || request.method === '_redo') {
+        const isUndo = request.method === '_undo';
+        const instanceLabel = session.instanceName || 'default';
+        const key = undoKey(photonName, instanceLabel);
+        const source = isUndo ? undoPast.get(key) : undoFuture.get(key);
+        const dest = isUndo ? undoFuture : undoPast;
+
+        if (!source || source.length === 0) {
+          return {
+            type: 'result',
+            id: request.id,
+            success: true,
+            data: { error: `Nothing to ${isUndo ? 'undo' : 'redo'}` },
+          };
+        }
+
+        const entry = source.pop()!;
+        const opsToApply = isUndo ? entry.inversePatch : entry.patch;
+
+        // Apply patch to live instance
+        await applyPatchToInstance(session.instance, photonName, opsToApply);
+
+        // Persist the new state
+        await persistInstanceState(
+          session.instance,
+          photonName,
+          session.instanceName,
+          request.workingDir
+        );
+
+        // Push to opposite stack
+        let destStack = dest.get(key);
+        if (!destStack) {
+          destStack = [];
+          dest.set(key, destStack);
+        }
+        destStack.push(entry);
+
+        // Generate the resulting patch for this undo/redo action
+        const actionPatch = isUndo ? entry.inversePatch : entry.patch;
+        const actionInverse = isUndo ? entry.patch : entry.inversePatch;
+
+        const stateChangedPayload = {
+          event: 'state-changed',
+          method: request.method,
+          params: { undoneMethod: entry.method },
+          instance: instanceLabel,
+          data: { method: entry.method, action: isUndo ? 'undo' : 'redo' },
+          ...(actionPatch.length > 0 && { patch: actionPatch }),
+          ...(actionInverse.length > 0 && { inversePatch: actionInverse }),
+          uri: `photon://${photonName}/${instanceLabel}`,
+        };
+
+        publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+
+        // Log undo/redo to event log
+        await appendEventLog(
+          photonName,
+          instanceLabel,
+          {
+            method: request.method,
+            params: { undoneMethod: entry.method },
+            instance: instanceLabel,
+            patch: actionPatch,
+            inversePatch: actionInverse,
+          },
+          request.workingDir
+        );
+
+        return {
+          type: 'result',
+          id: request.id,
+          success: true,
+          data: {
+            action: isUndo ? 'undo' : 'redo',
+            method: entry.method,
+            message: `${isUndo ? 'Undid' : 'Redid'} "${entry.method}"`,
+          },
+        };
+      }
       // ─────────────────────────────────────────────────────────────
 
       // ── Instance-scoped execution (one-shot, no session mutation) ──
@@ -1254,6 +1343,9 @@ async function handleRequest(
             publishToChannel(emit.channel, emit, socket);
           }
         };
+
+        // Snapshot state before execution for JSON Patch diffing
+        const preSnapshot = await snapshotState(targetInst, photonName);
 
         const startTime = Date.now();
         const result = await sessionManager.loader.executeTool(
@@ -1287,17 +1379,51 @@ async function handleRequest(
 
         await persistInstanceState(targetInst, photonName, targetName, request.workingDir);
 
-        publishToChannel(
-          `${photonName}:state-changed`,
-          {
-            event: 'state-changed',
+        // Generate JSON Patch (RFC 6902) forward + inverse ops
+        const postSnapshot = preSnapshot ? await snapshotState(targetInst, photonName) : null;
+        const patch: Operation[] =
+          preSnapshot && postSnapshot ? jsonPatchCompare(preSnapshot, postSnapshot) : [];
+        const inversePatch: Operation[] =
+          preSnapshot && postSnapshot ? jsonPatchCompare(postSnapshot, preSnapshot) : [];
+
+        const instanceLabel = targetName || 'default';
+        const stateChangedPayload = {
+          event: 'state-changed',
+          method: request.method,
+          params: request.args || {},
+          instance: instanceLabel,
+          data: result,
+          ...(patch.length > 0 && { patch }),
+          ...(inversePatch.length > 0 && { inversePatch }),
+          uri: `photon://${photonName}/${instanceLabel}`,
+        };
+
+        publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+
+        // Append to event log
+        if (patch.length > 0) {
+          await appendEventLog(
+            photonName,
+            instanceLabel,
+            {
+              method: request.method,
+              params: request.args || {},
+              instance: instanceLabel,
+              patch,
+              inversePatch,
+            },
+            request.workingDir
+          );
+        }
+
+        // Track for undo/redo
+        if (patch.length > 0) {
+          pushUndoEntry(photonName, instanceLabel, {
             method: request.method,
-            params: request.args || {},
-            instance: targetName || 'default',
-            data: result,
-          },
-          socket
-        );
+            patch,
+            inversePatch,
+          });
+        }
 
         return { type: 'result', id: request.id, success: true, data: result, durationMs };
       }
@@ -1317,6 +1443,9 @@ async function handleRequest(
           logger.debug('Published to channel', { channel: emit.channel });
         }
       };
+
+      // Snapshot state before execution for JSON Patch diffing
+      const preSnapshot = await snapshotState(session.instance, photonName);
 
       const startTime = Date.now();
       const result = await sessionManager.loader.executeTool(
@@ -1356,18 +1485,52 @@ async function handleRequest(
         request.workingDir
       );
 
+      // Generate JSON Patch (RFC 6902) forward + inverse ops
+      const postSnapshot = preSnapshot ? await snapshotState(session.instance, photonName) : null;
+      const patch: Operation[] =
+        preSnapshot && postSnapshot ? jsonPatchCompare(preSnapshot, postSnapshot) : [];
+      const inversePatch: Operation[] =
+        preSnapshot && postSnapshot ? jsonPatchCompare(postSnapshot, preSnapshot) : [];
+
+      const instanceLabel = session.instanceName || 'default';
+      const stateChangedPayload = {
+        event: 'state-changed',
+        method: request.method,
+        params: request.args || {},
+        instance: instanceLabel,
+        data: result,
+        ...(patch.length > 0 && { patch }),
+        ...(inversePatch.length > 0 && { inversePatch }),
+        uri: `photon://${photonName}/${instanceLabel}`,
+      };
+
       // Notify subscribers that state may have changed
-      publishToChannel(
-        `${photonName}:state-changed`,
-        {
-          event: 'state-changed',
+      publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+
+      // Append to event log
+      if (patch.length > 0) {
+        await appendEventLog(
+          photonName,
+          instanceLabel,
+          {
+            method: request.method,
+            params: request.args || {},
+            instance: instanceLabel,
+            patch,
+            inversePatch,
+          },
+          request.workingDir
+        );
+      }
+
+      // Track for undo/redo
+      if (patch.length > 0) {
+        pushUndoEntry(photonName, instanceLabel, {
           method: request.method,
-          params: request.args || {},
-          instance: session.instanceName || 'default',
-          data: result,
-        },
-        socket
-      );
+          patch,
+          inversePatch,
+        });
+      }
 
       return { type: 'result', id: request.id, success: true, data: result, durationMs };
     } catch (error) {
@@ -1440,6 +1603,36 @@ async function getStateKeys(photonName: string, photonPath: string): Promise<str
 }
 
 /**
+ * Capture a JSON-serializable snapshot of a photon instance's state.
+ * Returns null for non-stateful photons (no state keys).
+ * Used for JSON Patch diffing (pre/post execution).
+ */
+async function snapshotState(
+  instance: any,
+  photonName: string
+): Promise<Record<string, any> | null> {
+  const photonPath = photonPaths.get(photonName);
+  if (!photonPath) return null;
+
+  const keys = await getStateKeys(photonName, photonPath);
+  if (keys.length === 0) return null;
+
+  const target = instance?.instance ?? instance;
+  const snapshot: Record<string, any> = {};
+  for (const key of keys) {
+    const value = target[key];
+    if (value === undefined) continue;
+    if (value && typeof value === 'object' && value._propertyName) {
+      snapshot[key] = value.toJSON ? value.toJSON() : globalThis.Array.from(value);
+    } else {
+      snapshot[key] = value;
+    }
+  }
+  // Deep-clone to freeze the snapshot (avoid reference sharing with live state)
+  return JSON.parse(JSON.stringify(snapshot));
+}
+
+/**
  * Persist reactive collection state to disk after each tool call.
  * Only persists properties identified as 'state' injection type
  * (non-primitive constructor params with defaults on @stateful photons).
@@ -1487,6 +1680,173 @@ async function persistInstanceState(
       photon: photonName,
       error: getErrorMessage(error),
     });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// EVENT LOG (JSONL append-only per instance)
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** Monotonically increasing sequence number per photon:instance */
+const eventLogSeq = new Map<string, number>();
+
+const EVENT_LOG_MAX_SIZE =
+  parseInt(process.env.PHOTON_EVENT_LOG_MAX_SIZE || '', 10) || 10 * 1024 * 1024; // 10MB default
+
+/**
+ * Get the event log path for a photon instance.
+ * Co-located with state file: ~/.photon/state/{photon}/{instance}.log
+ */
+function getInstanceLogPath(photonName: string, instanceName: string, baseDir?: string): string {
+  const name = instanceName || 'default';
+  const dir = baseDir || getDefaultContext().baseDir;
+  return path.join(dir, 'state', photonName, `${name}.log`);
+}
+
+/**
+ * Append an event entry to the JSONL event log.
+ * Handles log rotation when file exceeds EVENT_LOG_MAX_SIZE.
+ */
+async function appendEventLog(
+  photonName: string,
+  instanceName: string,
+  entry: {
+    method: string;
+    params: Record<string, any>;
+    instance: string;
+    patch: Operation[];
+    inversePatch: Operation[];
+  },
+  workingDir?: string
+): Promise<void> {
+  try {
+    const logPath = getInstanceLogPath(photonName, instanceName, workingDir);
+    const fsPromises = await import('fs/promises');
+    await fsPromises.mkdir(path.dirname(logPath), { recursive: true });
+
+    // Get next sequence number
+    const seqKey = `${photonName}:${instanceName}`;
+    const seq = (eventLogSeq.get(seqKey) || 0) + 1;
+    eventLogSeq.set(seqKey, seq);
+
+    const logEntry = {
+      seq,
+      timestamp: new Date().toISOString(),
+      method: entry.method,
+      params: entry.params,
+      instance: entry.instance,
+      patch: entry.patch,
+      inversePatch: entry.inversePatch,
+    };
+
+    const line = JSON.stringify(logEntry) + '\n';
+
+    // Check rotation before appending
+    try {
+      const stat = await fsPromises.stat(logPath);
+      if (stat.size >= EVENT_LOG_MAX_SIZE) {
+        const rotatedPath = logPath + '.1';
+        await fsPromises.rename(logPath, rotatedPath).catch(() => {});
+        logger.debug('Rotated event log', { photon: photonName, instance: instanceName });
+      }
+    } catch {
+      // File doesn't exist yet — that's fine
+    }
+
+    await fsPromises.appendFile(logPath, line);
+    logger.debug('Appended event log', { photon: photonName, instance: instanceName, seq });
+  } catch (error) {
+    logger.error('Failed to append event log', {
+      photon: photonName,
+      error: getErrorMessage(error),
+    });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// UNDO / REDO STACKS
+// ════════════════════════════════════════════════════════════════════════════════
+
+interface UndoEntry {
+  method: string;
+  patch: Operation[];
+  inversePatch: Operation[];
+}
+
+/** past stack per photon:instance */
+const undoPast = new Map<string, UndoEntry[]>();
+/** future stack per photon:instance */
+const undoFuture = new Map<string, UndoEntry[]>();
+const UNDO_STACK_LIMIT = 100;
+
+function undoKey(photonName: string, instance: string): string {
+  return `${photonName}:${instance || 'default'}`;
+}
+
+function pushUndoEntry(photonName: string, instance: string, entry: UndoEntry): void {
+  const key = undoKey(photonName, instance);
+  let past = undoPast.get(key);
+  if (!past) {
+    past = [];
+    undoPast.set(key, past);
+  }
+  past.push(entry);
+  if (past.length > UNDO_STACK_LIMIT) past.shift();
+  // New mutation clears the redo future
+  undoFuture.set(key, []);
+}
+
+/**
+ * Apply a JSON Patch to a live photon instance's state.
+ * Snapshots state as plain JSON, applies patch, then rehydrates instance properties.
+ */
+async function applyPatchToInstance(
+  instance: any,
+  photonName: string,
+  ops: Operation[]
+): Promise<void> {
+  // Use the already-imported fastJsonPatch module
+  const applyPatch = fastJsonPatch.applyPatch.bind(fastJsonPatch);
+  const photonPath = photonPaths.get(photonName);
+  if (!photonPath) return;
+
+  const keys = await getStateKeys(photonName, photonPath);
+  if (keys.length === 0) return;
+
+  // Get current state as plain JSON
+  const snapshot = await snapshotState(instance, photonName);
+  if (!snapshot) return;
+
+  // Apply patch operations
+  applyPatch(snapshot, ops, true, true);
+
+  // Rehydrate instance properties from patched snapshot
+  const target = instance?.instance ?? instance;
+  for (const key of keys) {
+    if (!(key in snapshot)) continue;
+    const current = target[key];
+    const patched = snapshot[key];
+
+    if (current && typeof current === 'object' && current._propertyName) {
+      // ReactiveArray — clear and replace contents
+      if (typeof current.splice === 'function') {
+        current.splice(0, current.length, ...patched);
+      } else if (current instanceof Map || (current.clear && current.set)) {
+        current.clear();
+        for (const [k, v] of Object.entries(patched)) current.set(k, v);
+      } else if (current instanceof Set || (current.clear && current.add)) {
+        current.clear();
+        for (const v of patched) current.add(v);
+      }
+    } else if (globalThis.Array.isArray(current)) {
+      current.splice(0, current.length, ...patched);
+    } else if (typeof current === 'object' && current !== null) {
+      // Plain object — replace properties
+      for (const k of Object.keys(current)) delete current[k];
+      Object.assign(current, patched);
+    } else {
+      target[key] = patched;
+    }
   }
 }
 
