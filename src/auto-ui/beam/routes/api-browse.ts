@@ -10,81 +10,15 @@
  *   /api/template        – Serve @ui template files (class-level custom UI)
  *   /api/pwa/manifest.json – Auto-generated PWA manifest
  *   /api/pwa/icon         – PWA icon (file from assets, or auto-generated SVG from emoji)
- *   /api/pwa/app          – PWA app entry with bridge injection + client-side PNG generation
  */
 
 import * as fs from 'fs/promises';
 import { lstatSync, realpathSync } from 'fs';
 import * as path from 'path';
-import { deflateSync } from 'zlib';
 import { isPathWithin } from '../../../shared/security.js';
 import { logger } from '../../../shared/logger.js';
 import type { PhotonInfo } from '../../types.js';
 import type { BeamState, RouteHandler } from '../types.js';
-
-/**
- * Generate a minimal valid PNG file with a solid RGB fill.
- * Uses zlib deflate for the IDAT chunk — no external image deps.
- */
-function generateSolidPng(w: number, h: number, r: number, g: number, b: number): Buffer {
-  // Build raw image data: each row starts with filter byte 0 (None), then RGB triplets
-  const rowLen = 1 + w * 3; // filter byte + w pixels * 3 bytes
-  const raw = Buffer.alloc(rowLen * h);
-  for (let y = 0; y < h; y++) {
-    const off = y * rowLen;
-    raw[off] = 0; // filter: None
-    for (let x = 0; x < w; x++) {
-      const px = off + 1 + x * 3;
-      raw[px] = r;
-      raw[px + 1] = g;
-      raw[px + 2] = b;
-    }
-  }
-
-  const compressed = deflateSync(raw);
-
-  // PNG file structure: signature + IHDR + IDAT + IEND
-  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-
-  // IHDR chunk
-  const ihdr = Buffer.alloc(25);
-  ihdr.writeUInt32BE(13, 0); // data length
-  ihdr.write('IHDR', 4);
-  ihdr.writeUInt32BE(w, 8); // width
-  ihdr.writeUInt32BE(h, 12); // height
-  ihdr[16] = 8; // bit depth
-  ihdr[17] = 2; // color type: RGB
-  ihdr[18] = 0; // compression
-  ihdr[19] = 0; // filter
-  ihdr[20] = 0; // interlace
-  const ihdrCrc = crc32(ihdr.subarray(4, 21));
-  ihdr.writeUInt32BE(ihdrCrc >>> 0, 21);
-
-  // IDAT chunk
-  const idat = Buffer.alloc(12 + compressed.length);
-  idat.writeUInt32BE(compressed.length, 0);
-  idat.write('IDAT', 4);
-  compressed.copy(idat, 8);
-  const idatCrc = crc32(Buffer.concat([Buffer.from('IDAT'), compressed]));
-  idat.writeUInt32BE(idatCrc >>> 0, 8 + compressed.length);
-
-  // IEND chunk
-  const iend = Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
-
-  return Buffer.concat([sig, ihdr, idat, iend]);
-}
-
-/** CRC-32 for PNG chunks (ITU-T V.42 polynomial) */
-function crc32(buf: Buffer): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) {
-    crc ^= buf[i];
-    for (let j = 0; j < 8; j++) {
-      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
 
 export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => {
   // File browser API
@@ -545,21 +479,6 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.writeHead(200);
     res.end(svg);
-    return true;
-  }
-
-  // PWA PNG Icon — Server-side raster icon generation using a pure-JS minimal
-  // PNG encoder. Produces a solid #1a1a1a icon at the requested size. The
-  // service worker will overlay the actual SVG icon via OffscreenCanvas, but
-  // this server route ensures Chrome can fetch a valid PNG even before the SW
-  // is active (critical for the first-visit installability check).
-  if (url.pathname === '/api/pwa/icon-png') {
-    const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '192', 10), 16), 1024);
-    const png = generateSolidPng(size, size, 0x1a, 0x1a, 0x1a);
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.writeHead(200);
-    res.end(png);
     return true;
   }
 

@@ -1077,7 +1077,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // Standalone PWA app route: /app/{photonName}
-      // Serves a minimal full-screen shell that renders only the @ui template content
+      // Full-featured PWA host shell with diagnostics, postMessage bridge, service worker, and install prompt
       const appMatch = url.pathname.match(/^\/app\/([^/]+)$/);
       if (appMatch) {
         const photonName = appMatch[1];
@@ -1087,80 +1087,301 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end(`Photon not found: ${photonName}`);
           return;
         }
-        const label = (photon as any)?.label || photonName;
+        const label =
+          (photon as any)?.label ||
+          photonName.charAt(0).toUpperCase() + photonName.slice(1).replace(/-/g, ' ');
         const description = (photon as any)?.description || `${label} - Photon App`;
-        const html =
-          '<!DOCTYPE html>\n' +
-          '<html lang="en">\n' +
-          '<head>\n' +
-          '  <meta charset="UTF-8">\n' +
-          '  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n' +
-          '  <title>' +
-          label +
-          '</title>\n' +
-          '  <meta name="description" content="' +
-          description +
-          '">\n' +
-          '  <meta name="theme-color" content="#1a1a1a">\n' +
-          '  <meta name="apple-mobile-web-app-capable" content="yes">\n' +
-          '  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n' +
-          '  <link rel="manifest" href="/api/pwa/manifest.json?photon=' +
-          encodeURIComponent(photonName) +
-          '">\n' +
-          '  <style>\n' +
-          '    * { margin: 0; padding: 0; box-sizing: border-box; }\n' +
-          '    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; }\n' +
-          '    #app { width: 100%; height: 100%; }\n' +
-          '    iframe { width: 100%; height: 100%; border: none; display: block; }\n' +
-          '    .loading {\n' +
-          '      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;\n' +
-          '      color: #666; font-family: system-ui, -apple-system, sans-serif; font-size: 14px;\n' +
-          '    }\n' +
-          '  </style>\n' +
-          '</head>\n' +
-          '<body>\n' +
-          '  <div id="app"><div class="loading">Loading ' +
-          label +
-          '...</div></div>\n' +
-          '  <script type="module">\n' +
-          '    const PHOTON = ' +
-          JSON.stringify(photonName) +
-          ';\n' +
-          '    const app = document.getElementById("app");\n' +
-          '\n' +
-          '    async function load() {\n' +
-          '      try {\n' +
-          '        const templateRes = await fetch("/api/template?photon=" + encodeURIComponent(PHOTON));\n' +
-          '        if (!templateRes.ok) throw new Error("Template not found");\n' +
-          '        let templateHtml = await templateRes.text();\n' +
-          '\n' +
-          '        const bridgeRes = await fetch("/api/platform-bridge?photon=" + encodeURIComponent(PHOTON) + "&method=main");\n' +
-          '        if (!bridgeRes.ok) throw new Error("Bridge not found");\n' +
-          '        const bridgeScript = await bridgeRes.text();\n' +
-          '\n' +
-          '        if (templateHtml.includes("</head>")) {\n' +
-          '          templateHtml = templateHtml.replace("</head>", bridgeScript + "</head>");\n' +
-          '        } else {\n' +
-          '          templateHtml = "<html><head>" + bridgeScript + "</head><body>" + templateHtml + "</body></html>";\n' +
-          '        }\n' +
-          '\n' +
-          '        const iframe = document.createElement("iframe");\n' +
-          '        iframe.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-popups allow-modals");\n' +
-          '\n' +
-          '        const blob = new Blob([templateHtml], { type: "text/html" });\n' +
-          '        iframe.src = URL.createObjectURL(blob);\n' +
-          '\n' +
-          '        app.innerHTML = "";\n' +
-          '        app.appendChild(iframe);\n' +
-          '      } catch (err) {\n' +
-          '        app.innerHTML = "<div class=\\"loading\\" style=\\"color:#f55;\\">Error: " + err.message + "</div>";\n' +
-          '      }\n' +
-          '    }\n' +
-          '\n' +
-          '    load();\n' +
-          '  </script>\n' +
-          '</body>\n' +
-          '</html>';
+        const iconValue = (photon as any)?.icon || '📦';
+        const encodedName = encodeURIComponent(photonName);
+
+        // Sanitize strings for safe embedding in HTML
+        const safeLabel = label.replace(
+          /[&<>"']/g,
+          (c: string) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c
+        );
+        const safeDesc = description.replace(
+          /[&<>"']/g,
+          (c: string) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c
+        );
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>${safeLabel}</title>
+  <meta name="description" content="${safeDesc}">
+  <meta name="theme-color" content="#1a1a1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="${safeLabel}">
+  <link rel="manifest" href="/api/pwa/manifest.json?photon=${encodedName}">
+  <link rel="apple-touch-icon" href="/api/pwa/icon?photon=${encodedName}">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; font-family: system-ui, -apple-system, sans-serif; color: #e5e5e5; }
+    #app { width: 100%; height: 100vh; }
+    iframe { width: 100%; height: 100vh; border: none; display: block; }
+
+    .status-page {
+      display: none; width: 100%; height: 100vh;
+      flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 40px;
+    }
+    .status-page.show { display: flex; }
+    .status-page .icon { font-size: 64px; margin-bottom: 24px; }
+    .status-page h2 { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #e5e5e5; }
+    .status-page p { font-size: 14px; color: #888; max-width: 400px; line-height: 1.6; margin-bottom: 8px; }
+    .status-page code {
+      display: inline-block; background: #2a2a2a; padding: 8px 16px; border-radius: 6px;
+      font-size: 13px; color: #4ade80; font-family: 'SF Mono', Monaco, monospace; margin-top: 8px;
+    }
+    .status-page .spinner {
+      width: 24px; height: 24px; border: 2px solid #333; border-top-color: #4ade80;
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-page .retry-btn {
+      margin-top: 16px; padding: 8px 20px; background: #333; border: 1px solid #444;
+      border-radius: 6px; color: #e5e5e5; cursor: pointer; font-size: 13px; font-family: inherit;
+    }
+    .status-page .retry-btn:hover { background: #444; }
+
+    #install-btn {
+      display: none; position: fixed; bottom: 20px; right: 20px;
+      align-items: center; gap: 8px; padding: 10px 20px;
+      background: #4ade80; color: #111; border: none; border-radius: 8px;
+      cursor: pointer; font-size: 14px; font-weight: 600; font-family: system-ui, sans-serif;
+      box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3); z-index: 1000;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #install-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4); }
+    #install-btn svg { width: 16px; height: 16px; }
+  </style>
+</head>
+<body>
+  <!-- Status: Starting (shown while waiting for Beam) -->
+  <div id="status-starting" class="status-page">
+    <div class="spinner"></div>
+    <h2>Starting ${safeLabel}...</h2>
+    <p>Waiting for Beam server</p>
+  </div>
+
+  <!-- Status: Not running (shown when Beam is down) -->
+  <div id="status-offline" class="status-page">
+    <div class="icon">${iconValue}</div>
+    <h2>${safeLabel}</h2>
+    <p>Server is not running. Start Photon to use this app:</p>
+    <code>photon beam</code>
+    <button class="retry-btn" onclick="checkAndLoad()">Retry</button>
+  </div>
+
+  <!-- Status: Port conflict -->
+  <div id="status-conflict" class="status-page">
+    <div class="icon">⚠️</div>
+    <h2>Port Conflict</h2>
+    <p id="conflict-msg">Another process is using the required port.</p>
+    <code id="conflict-cmd"></code>
+    <button class="retry-btn" onclick="checkAndLoad()">Retry</button>
+  </div>
+
+  <!-- App container with iframe -->
+  <div id="app" style="display:none"></div>
+
+  <!-- Install button -->
+  <button id="install-btn" aria-label="Install as App">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 11-5 5-5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+    Install App
+  </button>
+
+  <script>
+    const PHOTON = ${JSON.stringify(photonName)};
+    const appEl = document.getElementById('app');
+    const statusStarting = document.getElementById('status-starting');
+    const statusOffline = document.getElementById('status-offline');
+    const statusConflict = document.getElementById('status-conflict');
+    let retryTimer = null;
+
+    function hideAll() {
+      statusStarting.classList.remove('show');
+      statusOffline.classList.remove('show');
+      statusConflict.classList.remove('show');
+      appEl.style.display = 'none';
+    }
+
+    // Diagnostics-first loading: check server health before loading the app
+    async function checkAndLoad() {
+      if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+      hideAll();
+      statusStarting.classList.add('show');
+
+      try {
+        const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('Server error');
+        const diag = await res.json();
+
+        // Check for port conflicts
+        if (diag.portConflict) {
+          hideAll();
+          statusConflict.classList.add('show');
+          const conflictMsg = document.getElementById('conflict-msg');
+          const conflictCmd = document.getElementById('conflict-cmd');
+          if (diag.portConflict.port) {
+            conflictMsg.textContent = 'Port ' + diag.portConflict.port + ' is in use by another process.';
+          }
+          if (diag.portConflict.pid) {
+            conflictCmd.textContent = 'kill ' + diag.portConflict.pid;
+          }
+          return;
+        }
+
+        // Server is healthy — load the app
+        hideAll();
+        appEl.style.display = 'block';
+        await loadApp();
+      } catch (err) {
+        // Server unreachable — show offline state with auto-retry
+        hideAll();
+        statusOffline.classList.add('show');
+        retryTimer = setInterval(async () => {
+          try {
+            const res = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(3000) });
+            if (res.ok) {
+              clearInterval(retryTimer);
+              retryTimer = null;
+              checkAndLoad();
+            }
+          } catch { /* still offline */ }
+        }, 3000);
+      }
+    }
+
+    // Load the @ui template into a full-viewport iframe with platform bridge
+    async function loadApp() {
+      try {
+        const [templateRes, bridgeRes] = await Promise.all([
+          fetch('/api/template?photon=' + encodeURIComponent(PHOTON)),
+          fetch('/api/platform-bridge?photon=' + encodeURIComponent(PHOTON) + '&method=main&theme=dark')
+        ]);
+
+        if (!templateRes.ok) throw new Error('Template not available');
+
+        let templateHtml = await templateRes.text();
+        const bridgeScript = bridgeRes.ok ? await bridgeRes.text() : '';
+
+        // Inject platform bridge before </head>
+        if (templateHtml.includes('</head>')) {
+          templateHtml = templateHtml.replace('</head>', bridgeScript + '</head>');
+        } else {
+          templateHtml = '<html><head>' + bridgeScript + '</head><body>' + templateHtml + '</body></html>';
+        }
+
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-popups allow-modals');
+
+        const blob = new Blob([templateHtml], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+
+        appEl.innerHTML = '';
+        appEl.appendChild(iframe);
+        initBridge(iframe);
+      } catch (err) {
+        appEl.innerHTML = '<div class="status-page show"><div class="icon">⚠️</div>'
+          + '<h2>Failed to load</h2><p>' + err.message + '</p>'
+          + '<button class="retry-btn" onclick="checkAndLoad()">Retry</button></div>';
+      }
+    }
+
+    // postMessage bridge: relays JSON-RPC tools/call from iframe to /api/invoke
+    function initBridge(iframe) {
+      window.addEventListener('message', async (e) => {
+        const msg = e.data;
+        if (!msg || typeof msg !== 'object') return;
+
+        // Handle JSON-RPC tools/call from iframe
+        if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+          const { name: toolName, arguments: toolArgs } = msg.params || {};
+          try {
+            const res = await fetch('/api/invoke', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ photon: PHOTON, method: toolName, args: toolArgs || {} }),
+              signal: AbortSignal.timeout(60000),
+            });
+            const data = await res.json();
+            iframe.contentWindow.postMessage({
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: data.error ? undefined : (data.result !== undefined ? data.result : data),
+              error: data.error ? { code: -32000, message: data.error } : undefined,
+            }, '*');
+          } catch (err) {
+            iframe.contentWindow.postMessage({
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: err.message },
+            }, '*');
+          }
+        }
+      });
+
+      // Send photon:init context to iframe once loaded
+      iframe.onload = () => {
+        iframe.contentWindow.postMessage({
+          type: 'photon:init',
+          context: { photon: PHOTON, theme: 'dark', displayMode: 'standalone' }
+        }, '*');
+      };
+    }
+
+    // --- Service Worker Registration ---
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(reg => console.log('[PWA] SW registered:', reg.scope))
+        .catch(err => console.warn('[PWA] SW registration failed:', err));
+    }
+
+    // --- PWA Install Prompt ---
+    let installPrompt = null;
+    const installBtn = document.getElementById('install-btn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      if (installBtn) installBtn.style.display = 'flex';
+    });
+
+    window.addEventListener('appinstalled', () => {
+      installPrompt = null;
+      if (installBtn) installBtn.style.display = 'none';
+    });
+
+    if (installBtn) installBtn.addEventListener('click', async () => {
+      if (!installPrompt) return;
+      try {
+        await fetch('/api/pwa/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photon: PHOTON, port: location.port || '4100' }),
+        });
+      } catch { /* non-fatal */ }
+      const result = await installPrompt.prompt();
+      installPrompt = null;
+      if (installBtn) installBtn.style.display = 'none';
+    });
+
+    // Hide install button if already in standalone mode
+    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+      if (installBtn) installBtn.style.display = 'none';
+    }
+
+    // Start the diagnostics-first loading flow
+    checkAndLoad();
+  </script>
+</body>
+</html>`;
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html);
         return;
