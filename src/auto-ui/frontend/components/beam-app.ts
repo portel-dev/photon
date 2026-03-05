@@ -2149,17 +2149,51 @@ export class BeamApp extends LitElement {
           this._externalMCPs = externalMCPs;
           // Re-add unconfigured photons from configuration schema
           this._addUnconfiguredPhotons();
-          // Auto-select newly added user photon (welcome wizard flow)
-          // Skip if user is intentionally on the home page
+
+          // Update selected photon reference if it exists in the new list.
+          // This handles the case where photon loading completes AFTER initial
+          // page load — the photon may have gained isApp/appEntry/linkedUi since
+          // the first listTools() call. Without this, the stale reference shows
+          // the method list instead of auto-invoking the app entry.
+          if (this._selectedPhoton) {
+            const updated = this._photons.find((p) => p.name === this._selectedPhoton?.name);
+            if (updated) {
+              const wasApp = this._selectedPhoton.isApp;
+              this._selectedPhoton = updated;
+              // If photon just became an app (e.g., main method's linkedUi resolved),
+              // switch to app view and auto-invoke
+              if (!wasApp && updated.isApp && updated.appEntry && this._view === 'list') {
+                if (this._willAutoInvoke(updated.appEntry)) {
+                  this._isExecuting = true;
+                }
+                this._selectedMethod = updated.appEntry;
+                this._view = 'form';
+                this._updateRoute(true);
+                this._maybeAutoInvoke(updated.appEntry);
+              }
+            }
+          }
+
+          // No photon selected — either re-try URL route or auto-select new photon
           if (!this._selectedPhoton && window.location.pathname !== '/') {
-            const newUserPhoton = this._photons.find(
-              (p) => !p.internal && p.configured && !prevNames.has(p.name)
-            );
-            if (newUserPhoton) {
-              this._selectedPhoton = newUserPhoton;
-              this._welcomePhase = 'welcome';
-              this._view = 'list';
-              this._updateRoute(true);
+            const pathPhotonName = window.location.pathname.slice(1).split('/')[0];
+            const routePhoton = pathPhotonName
+              ? this._photons.find((p) => p.name === pathPhotonName)
+              : null;
+            if (routePhoton) {
+              // URL points to a photon that's now available — re-run route handling
+              void this._handleRouteChange();
+            } else {
+              // Auto-select newly added user photon (welcome wizard flow)
+              const newUserPhoton = this._photons.find(
+                (p) => !p.internal && p.configured && !prevNames.has(p.name)
+              );
+              if (newUserPhoton) {
+                this._selectedPhoton = newUserPhoton;
+                this._welcomePhase = 'welcome';
+                this._view = 'list';
+                this._updateRoute(true);
+              }
             }
           }
         })();
