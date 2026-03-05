@@ -114,6 +114,10 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         error: !p.configured ? p.errorMessage : undefined,
         internal: (p as any).internal || undefined,
         path: p.path || undefined,
+        isApp: (p as any).isApp || undefined,
+        appEntry: (p as any).appEntry
+          ? { name: (p as any).appEntry.name, linkedUi: (p as any).appEntry.linkedUi }
+          : undefined,
       }));
 
       // Query daemon health (non-blocking, returns null if daemon unavailable)
