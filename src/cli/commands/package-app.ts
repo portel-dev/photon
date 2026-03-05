@@ -234,11 +234,16 @@ export function registerPackageAppCommand(program: Command): void {
       console.log(`   ✓ Linux    ${linuxShPath}, ${path.basename(linuxDesktopPath)}`);
       console.log(`   ✓ Windows  ${winBatPath}`);
 
-      // Write pwa.json so daemon auto-starts Beam on login
+      // Write pwa.json to record this PWA instance configuration
       try {
         const pwaConfigPath = path.join(workingDir, 'pwa.json');
         let config: {
-          instances: Array<{ port: number; dir: string; photon: string; createdAt: string }>;
+          instances: Array<{
+            port: number;
+            photonDir: string;
+            photon: string;
+            createdAt: string;
+          }>;
         } = { instances: [] };
         try {
           const raw = await fs.readFile(pwaConfigPath, 'utf-8');
@@ -248,17 +253,22 @@ export function registerPackageAppCommand(program: Command): void {
           // File doesn't exist yet — use default
         }
 
-        // Deduplicate by port+dir
-        const exists = config.instances.some((i) => i.port === startPort && i.dir === workingDir);
+        // photonDir is the PHOTON_DIR env or the resolved workingDir
+        const resolvedPhotonDir = process.env.PHOTON_DIR || workingDir;
+
+        // Deduplicate by port + photonDir
+        const exists = config.instances.some(
+          (i) => i.port === startPort && i.photonDir === resolvedPhotonDir
+        );
         if (!exists) {
           config.instances.push({
             port: startPort,
-            dir: workingDir,
+            photonDir: resolvedPhotonDir,
             photon: name,
             createdAt: new Date().toISOString(),
           });
           await fs.writeFile(pwaConfigPath, JSON.stringify(config, null, 2));
-          console.log(`   ✓ pwa.json  Beam auto-start configured (port ${startPort})`);
+          console.log(`   ✓ pwa.json  PWA configured (port ${startPort})`);
         } else {
           console.log(`   ✓ pwa.json  Already configured`);
         }
