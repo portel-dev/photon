@@ -1076,6 +1076,96 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
+      // Standalone PWA app route: /app/{photonName}
+      // Serves a minimal full-screen shell that renders only the @ui template content
+      const appMatch = url.pathname.match(/^\/app\/([^/]+)$/);
+      if (appMatch) {
+        const photonName = appMatch[1];
+        const photon = beamState.photons.find((p) => p.name === photonName);
+        if (!photon) {
+          res.writeHead(404);
+          res.end(`Photon not found: ${photonName}`);
+          return;
+        }
+        const label = (photon as any)?.label || photonName;
+        const description = (photon as any)?.description || `${label} - Photon App`;
+        const html =
+          '<!DOCTYPE html>\n' +
+          '<html lang="en">\n' +
+          '<head>\n' +
+          '  <meta charset="UTF-8">\n' +
+          '  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\n' +
+          '  <title>' +
+          label +
+          '</title>\n' +
+          '  <meta name="description" content="' +
+          description +
+          '">\n' +
+          '  <meta name="theme-color" content="#1a1a1a">\n' +
+          '  <meta name="apple-mobile-web-app-capable" content="yes">\n' +
+          '  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n' +
+          '  <link rel="manifest" href="/api/pwa/manifest.json?photon=' +
+          encodeURIComponent(photonName) +
+          '">\n' +
+          '  <style>\n' +
+          '    * { margin: 0; padding: 0; box-sizing: border-box; }\n' +
+          '    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; }\n' +
+          '    #app { width: 100%; height: 100%; }\n' +
+          '    iframe { width: 100%; height: 100%; border: none; display: block; }\n' +
+          '    .loading {\n' +
+          '      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;\n' +
+          '      color: #666; font-family: system-ui, -apple-system, sans-serif; font-size: 14px;\n' +
+          '    }\n' +
+          '  </style>\n' +
+          '</head>\n' +
+          '<body>\n' +
+          '  <div id="app"><div class="loading">Loading ' +
+          label +
+          '...</div></div>\n' +
+          '  <script type="module">\n' +
+          '    const PHOTON = ' +
+          JSON.stringify(photonName) +
+          ';\n' +
+          '    const app = document.getElementById("app");\n' +
+          '\n' +
+          '    async function load() {\n' +
+          '      try {\n' +
+          '        const templateRes = await fetch("/api/template?photon=" + encodeURIComponent(PHOTON));\n' +
+          '        if (!templateRes.ok) throw new Error("Template not found");\n' +
+          '        let templateHtml = await templateRes.text();\n' +
+          '\n' +
+          '        const bridgeRes = await fetch("/api/platform-bridge?photon=" + encodeURIComponent(PHOTON) + "&method=main");\n' +
+          '        if (!bridgeRes.ok) throw new Error("Bridge not found");\n' +
+          '        const bridgeScript = await bridgeRes.text();\n' +
+          '\n' +
+          '        if (templateHtml.includes("</head>")) {\n' +
+          '          templateHtml = templateHtml.replace("</head>", bridgeScript + "</head>");\n' +
+          '        } else {\n' +
+          '          templateHtml = "<html><head>" + bridgeScript + "</head><body>" + templateHtml + "</body></html>";\n' +
+          '        }\n' +
+          '\n' +
+          '        const iframe = document.createElement("iframe");\n' +
+          '        iframe.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-popups allow-modals");\n' +
+          '\n' +
+          '        const blob = new Blob([templateHtml], { type: "text/html" });\n' +
+          '        iframe.src = URL.createObjectURL(blob);\n' +
+          '\n' +
+          '        app.innerHTML = "";\n' +
+          '        app.appendChild(iframe);\n' +
+          '      } catch (err) {\n' +
+          '        app.innerHTML = "<div class=\\"loading\\" style=\\"color:#f55;\\">Error: " + err.message + "</div>";\n' +
+          '      }\n' +
+          '    }\n' +
+          '\n' +
+          '    load();\n' +
+          '  </script>\n' +
+          '</body>\n' +
+          '</html>';
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(html);
+        return;
+      }
+
       // Default route: Serve Lit App
       if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
         try {

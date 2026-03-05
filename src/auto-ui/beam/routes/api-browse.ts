@@ -422,16 +422,18 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
   if (url.pathname === '/api/pwa/manifest.json') {
     const photonName = url.searchParams.get('photon');
 
-    // Without a photon param, return a generic Beam manifest (allows Chrome
-    // to evaluate installability before a specific photon is selected)
-    const displayName = photonName
-      ? state.photons.find((p) => p.name === photonName)?.name || photonName
-      : 'Photon Beam';
-    const description = photonName
-      ? (state.photons.find((p) => p.name === photonName) as any)?.description ||
-        `${displayName} - Photon App`
-      : 'Photon MCP Runtime';
-    const startUrl = photonName ? `/${encodeURIComponent(photonName)}` : '/';
+    // Find the photon - use label for display name, fallback to name
+    const photon = photonName ? state.photons.find((p) => p.name === photonName) : null;
+
+    // Use label (from @label tag) for display name, fallback to capitalized name, or "Photon Beam"
+    const rawName = photon?.name || photonName || '';
+    const displayName =
+      (photon as any)?.label ||
+      (rawName
+        ? rawName.charAt(0).toUpperCase() + rawName.slice(1).replace(/-/g, ' ')
+        : 'Photon Beam');
+    const description = (photon as any)?.description || `${displayName} - Photon App`;
+    const startUrl = photonName ? `/app/${encodeURIComponent(photonName)}` : '/';
     const encodedIcon = photonName ? encodeURIComponent(photonName) : '';
 
     const manifest = {
