@@ -1811,6 +1811,10 @@ export class BeamApp extends LitElement {
    */
   private _handleGlobalMethodSelect(photon: any, method: any) {
     this._teardownActiveCustomUI();
+    // Clear split view when switching to a different photon
+    if (this._selectedPhoton?.name !== photon.name) {
+      this._closeSecondPanel();
+    }
     this._selectedPhoton = photon;
     // Set _isExecuting BEFORE setting state to prevent iframe from rendering
     // before the tool call starts (which would bypass elicitation)
@@ -4181,7 +4185,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
           .instances=${this._instances}
           @context-action=${this._handleContextAction}
         ></context-bar>
-        ${this._renderMethodContent()}
+        <!-- Method Selector Bar for Split View -->
+        ${this._renderMethodSelectorBar()} ${this._renderMethodContent()}
       `;
     }
 
@@ -4337,6 +4342,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
   }
 
   private async _handlePhotonSelect(e: CustomEvent) {
+    // Clear split view when switching to a different photon
+    this._closeSecondPanel();
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
     this._lastResult = null;
@@ -4538,6 +4545,61 @@ ${photon.errorMessage || 'Unknown error'}</pre
   /**
    * Render the method content - either as a minimal HTML UI or full form
    */
+  /** Render method selector bar with split view controls */
+  private _renderMethodSelectorBar() {
+    if (!this._selectedMethod) return '';
+
+    return html`
+      <div
+        style="display: flex; gap: 12px; align-items: center; padding: 12px 24px; background: var(--bg-glass); border-bottom: 1px solid var(--border-glass); margin-bottom: 12px;"
+      >
+        <!-- Left method indicator -->
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="color: var(--t-muted); font-size: 12px;">Method:</span>
+          <span
+            style="padding: 4px 8px; background: var(--bg-panel); border-radius: 3px; font-size: 13px; font-weight: 500;"
+          >
+            ${this._selectedMethod.name}
+          </span>
+        </div>
+
+        <!-- Add method button -->
+        ${this._selectedPhoton?.methods &&
+        this._selectedPhoton.methods.length > 1 &&
+        !this._splitViewEnabled
+          ? html`
+              <button
+                @click=${() => this._showMethodPicker()}
+                style="padding: 4px 8px; background: var(--accent-secondary); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;"
+              >
+                + Add Method
+              </button>
+            `
+          : ''}
+
+        <!-- Right method selector (when split view enabled) -->
+        ${this._splitViewEnabled && this._secondPanelMethod
+          ? html`
+              <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
+                <span style="color: var(--t-muted); font-size: 12px;">Split:</span>
+                <span
+                  style="padding: 4px 8px; background: var(--bg-panel); border-radius: 3px; font-size: 13px; font-weight: 500;"
+                >
+                  ${this._secondPanelMethod.name}
+                </span>
+                <button
+                  @click=${() => this._closeSecondPanel()}
+                  style="padding: 4px 8px; background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 500;"
+                >
+                  ✕ Close
+                </button>
+              </div>
+            `
+          : ''}
+      </div>
+    `;
+  }
+
   private _renderDescription(description?: string) {
     if (!description) return html``;
     // Strip docblock directive tags (@template, @internal, etc.) that may leak into descriptions.
@@ -4624,21 +4686,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Standard form mode (single panel)
     return html`
       <div class="glass-panel method-detail">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;"
-        >
-          <h2 style="margin: 0;">${this._selectedMethod.name}</h2>
-          ${this._selectedPhoton?.methods && this._selectedPhoton.methods.length > 0
-            ? html`
-                <button
-                  @click=${() => this._showMethodPicker()}
-                  style="padding: 6px 12px; background: var(--accent-secondary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
-                >
-                  + Add Method
-                </button>
-              `
-            : ''}
-        </div>
+        <h2>${this._selectedMethod.name}</h2>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
