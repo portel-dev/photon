@@ -200,6 +200,17 @@ const extractClassMetadataFromSource = extractClassMetadataFromModule;
 const applyMethodVisibility = applyMethodVisibilityFromModule;
 const extractCspFromSource = extractCspFromModule;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NOTIFICATION SUBSCRIPTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Map to store notification subscriptions per photon
+ * Key: photon name, Value: list of event types this photon cares about
+ * Example: { "chat": ["mentions", "direct-messages"], "tasks": ["deadline", "assigned-to-me"] }
+ */
+const photonNotificationSubscriptions = new Map<string, string[]>();
+
 /**
  * Generate the service worker JS that validates the Beam backend
  * on PWA launch and shows a diagnostic page if something is wrong.
@@ -700,8 +711,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Extract schema for UI — reuse source read from above
       const schemaSource = source || (await fs.readFile(photonPath, 'utf-8'));
-      const { tools: schemas, templates } = extractor.extractAllFromSource(schemaSource);
+      const metadata = extractor.extractAllFromSource(schemaSource);
+      const schemas = metadata.tools;
+      const templates = metadata.templates;
       mcp.schemas = schemas;
+
+      // Store notification subscriptions per photon
+      if (metadata.notificationSubscriptions?.watchFor) {
+        photonNotificationSubscriptions.set(name, metadata.notificationSubscriptions.watchFor);
+      } else {
+        // Clear previous subscription if photon no longer has @notify-on
+        photonNotificationSubscriptions.delete(name);
+      }
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
@@ -1822,8 +1843,20 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Re-extract schema - use extractAllFromSource to get both tools and templates
               const extractor = new SchemaExtractor();
               const reloadSource = await fs.readFile(photonPath, 'utf-8');
-              const { tools: schemas, templates } = extractor.extractAllFromSource(reloadSource);
+              const reloadMetadata = extractor.extractAllFromSource(reloadSource);
+              const schemas = reloadMetadata.tools;
+              const templates = reloadMetadata.templates;
               (mcp as any).schemas = schemas; // Store schemas for result rendering
+
+              // Update notification subscriptions for reloaded photon
+              if (reloadMetadata.notificationSubscriptions?.watchFor) {
+                photonNotificationSubscriptions.set(
+                  photonName,
+                  reloadMetadata.notificationSubscriptions.watchFor
+                );
+              } else {
+                photonNotificationSubscriptions.delete(photonName);
+              }
 
               const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
               const uiAssets = mcp.assets?.ui || [];
@@ -2235,6 +2268,67 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
     } catch (err) {
       logger.warn(`Failed to start daemon for stateful photons: ${getErrorMessage(err)}`);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // NOTIFICATION SUBSCRIPTIONS - Subscribe to all photon notification channels
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // Unlike state-changed (active photon only), notifications are always subscribed
+  // but filtered server-side based on each photon's @notify-on declarations
+  if (statefulPhotons.length > 0) {
+    try {
+      for (const photon of statefulPhotons) {
+        const photonName = photon.name;
+        const instanceName = 'default'; // TODO: support multi-instance notifications
+
+        // Subscribe to notifications channel (always-on, not just active)
+        const notificationChannel = `${photonName}:${instanceName}:notifications`;
+
+        // Get this photon's notification subscriptions from @notify-on tags
+        const watchFor = photonNotificationSubscriptions.get(photonName);
+
+        subscribeChannel(
+          photonName,
+          notificationChannel,
+          (message: any) => {
+            // Check if this photon cares about this notification type
+            if (!watchFor || !watchFor.includes(message?.type)) {
+              logger.debug(
+                `📡 Notification filtered: ${photonName} doesn't care about "${message?.type}"`
+              );
+              return; // Don't broadcast notifications this photon doesn't care about
+            }
+
+            // Only broadcast relevant notifications
+            logger.debug(`📡 Broadcasting notification: ${photonName} [${message?.type}]`);
+            broadcastNotification('photon/notification', {
+              photon: photonName,
+              type: message?.type,
+              priority: message?.priority || 'info',
+              message: message?.message,
+              ...(message?.action && { action: message.action }),
+              ...(message?.sound && { sound: message.sound }),
+              ...(message?.data && { data: message.data }),
+            });
+          },
+          {
+            reconnect: true,
+            workingDir,
+            onReconnect: () => logger.debug(`📡 Reconnected ${notificationChannel} subscription`),
+          }
+        )
+          .then(() => {
+            logger.info(
+              `📡 Subscribed to ${notificationChannel} for notifications${watchFor ? ` (watching: ${watchFor.join(', ')})` : ''}`
+            );
+          })
+          .catch((err) => {
+            logger.warn(`Failed to subscribe to ${notificationChannel}: ${getErrorMessage(err)}`);
+          });
+      }
+    } catch (err) {
+      logger.warn(`Failed to set up notification subscriptions: ${getErrorMessage(err)}`);
     }
   }
 

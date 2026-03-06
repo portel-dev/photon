@@ -89,7 +89,7 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "@portel/photon-core": "^2.9.3",
+    "@portel/photon-core": "file:../photon-core",
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "chart.js": "^4.5.1",
