@@ -4624,7 +4624,21 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Standard form mode (single panel)
     return html`
       <div class="glass-panel method-detail">
-        <h2>${this._selectedMethod.name}</h2>
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;"
+        >
+          <h2 style="margin: 0;">${this._selectedMethod.name}</h2>
+          ${this._selectedPhoton?.methods && this._selectedPhoton.methods.length > 0
+            ? html`
+                <button
+                  @click=${() => this._showMethodPicker()}
+                  style="padding: 6px 12px; background: var(--accent-secondary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                >
+                  + Add Method
+                </button>
+              `
+            : ''}
+        </div>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
@@ -4775,6 +4789,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelExecuting = false;
     this._secondPanelProgress = null;
     this._secondPanelFormParams = {};
+  }
+
+  /** Show method picker to select which method to open in split view */
+  private _showMethodPicker() {
+    if (!this._selectedPhoton?.methods) return;
+
+    const methods = this._getVisibleMethods();
+    if (methods.length === 0) {
+      showToast('No methods available');
+      return;
+    }
+
+    // Simple approach: show a native select or alert
+    // For now, just open the first different method
+    const otherMethods = methods.filter((m: any) => m.name !== this._selectedMethod.name);
+    if (otherMethods.length === 0) {
+      showToast('No other methods available', { type: 'info' });
+      return;
+    }
+
+    // Open first other method in split view
+    this._openInSecondPanel(this._selectedPhoton, otherMethods[0]);
   }
 
   /** Execute method in second panel */
