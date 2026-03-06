@@ -4155,38 +4155,90 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const isExternalMCP = this._selectedPhoton.isExternalMCP;
 
       return html`
-        <context-bar
-          .photon=${this._selectedPhoton}
-          .breadcrumbs=${[
-            {
-              label:
-                this._currentInstance !== 'default'
-                  ? `${this._selectedPhoton.name}:${this._currentInstance}`
-                  : this._selectedPhoton.name,
-              action: 'back',
-            },
-            { label: this._selectedMethod.name },
-          ]}
-          .live=${this._currentCollectionName !== null}
-          .showEdit=${false}
-          .showConfigure=${false}
-          .showCopyConfig=${false}
-          .overflowItems=${this._buildOverflowItems({
-            showRefresh: !isExternalMCP,
-            showRename: false,
-            showViewSource: false,
-            showDelete: false,
-            showHelp: !isExternalMCP,
-          })}
-          .instanceSelectorMode=${this._instanceSelectorMode}
-          .autoInstance=${this._autoInstance}
-          .isStateful=${this._selectedPhoton?.stateful}
-          .instanceName=${this._currentInstance}
-          .instances=${this._instances}
-          @context-action=${this._handleContextAction}
-        ></context-bar>
-        <!-- Method Selector Bar for Split View -->
-        ${this._renderMethodSelectorBar()} ${this._renderMethodContent()}
+        <div style="display: flex; align-items: center;">
+          <context-bar
+            .photon=${this._selectedPhoton}
+            .breadcrumbs=${[
+              {
+                label:
+                  this._currentInstance !== 'default'
+                    ? `${this._selectedPhoton.name}:${this._currentInstance}`
+                    : this._selectedPhoton.name,
+                action: 'back',
+              },
+              { label: this._selectedMethod.name },
+            ]}
+            .live=${this._currentCollectionName !== null}
+            .showEdit=${false}
+            .showConfigure=${false}
+            .showCopyConfig=${false}
+            .overflowItems=${this._buildOverflowItems({
+              showRefresh: !isExternalMCP,
+              showRename: false,
+              showViewSource: false,
+              showDelete: false,
+              showHelp: !isExternalMCP,
+            })}
+            .instanceSelectorMode=${this._instanceSelectorMode}
+            .autoInstance=${this._autoInstance}
+            .isStateful=${this._selectedPhoton?.stateful}
+            .instanceName=${this._currentInstance}
+            .instances=${this._instances}
+            @context-action=${this._handleContextAction}
+            style="flex: 1;"
+          ></context-bar>
+          <!-- Split View + Button -->
+          ${this._selectedPhoton?.methods &&
+          this._selectedPhoton.methods.length > 1 &&
+          !this._splitViewEnabled
+            ? html`
+                <button
+                  @click=${() => this._showMethodPicker()}
+                  style="padding: 8px 12px; margin-right: 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;"
+                  title="Add another method in split view"
+                >
+                  +
+                </button>
+              `
+            : ''}
+          <!-- Split View Dropdown + - Button -->
+          ${this._splitViewEnabled && this._secondPanelMethod
+            ? html`
+                <select
+                  @change=${(e: Event) => {
+                    const selected = (e.target as HTMLSelectElement).value;
+                    const method = this._selectedPhoton.methods.find(
+                      (m: any) => m.name === selected
+                    );
+                    if (method) {
+                      this._secondPanelMethod = method;
+                      this._secondPanelResult = null;
+                    }
+                  }}
+                  style="padding: 6px 8px; margin-right: 8px; background: var(--bg-glass); color: var(--t-primary); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 13px; cursor: pointer;"
+                >
+                  <option value=${this._secondPanelMethod.name}>
+                    ${this._secondPanelMethod.name}
+                  </option>
+                  ${this._selectedPhoton.methods
+                    .filter(
+                      (m: any) =>
+                        m.name !== this._selectedMethod.name &&
+                        m.name !== this._secondPanelMethod.name
+                    )
+                    .map((m: any) => html` <option value=${m.name}>${m.name}</option> `)}
+                </select>
+                <button
+                  @click=${() => this._closeSecondPanel()}
+                  style="padding: 8px 12px; margin-right: 12px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;"
+                  title="Remove split view"
+                >
+                  −
+                </button>
+              `
+            : ''}
+        </div>
+        ${this._renderMethodContent()}
       `;
     }
 
@@ -4545,61 +4597,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
   /**
    * Render the method content - either as a minimal HTML UI or full form
    */
-  /** Render method selector bar with split view controls */
-  private _renderMethodSelectorBar() {
-    if (!this._selectedMethod) return '';
-
-    return html`
-      <div
-        style="display: flex; gap: 12px; align-items: center; padding: 12px 24px; background: var(--bg-glass); border-bottom: 1px solid var(--border-glass); margin-bottom: 12px;"
-      >
-        <!-- Left method indicator -->
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <span style="color: var(--t-muted); font-size: 12px;">Method:</span>
-          <span
-            style="padding: 4px 8px; background: var(--bg-panel); border-radius: 3px; font-size: 13px; font-weight: 500;"
-          >
-            ${this._selectedMethod.name}
-          </span>
-        </div>
-
-        <!-- Add method button -->
-        ${this._selectedPhoton?.methods &&
-        this._selectedPhoton.methods.length > 1 &&
-        !this._splitViewEnabled
-          ? html`
-              <button
-                @click=${() => this._showMethodPicker()}
-                style="padding: 4px 8px; background: var(--accent-secondary); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;"
-              >
-                + Add Method
-              </button>
-            `
-          : ''}
-
-        <!-- Right method selector (when split view enabled) -->
-        ${this._splitViewEnabled && this._secondPanelMethod
-          ? html`
-              <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
-                <span style="color: var(--t-muted); font-size: 12px;">Split:</span>
-                <span
-                  style="padding: 4px 8px; background: var(--bg-panel); border-radius: 3px; font-size: 13px; font-weight: 500;"
-                >
-                  ${this._secondPanelMethod.name}
-                </span>
-                <button
-                  @click=${() => this._closeSecondPanel()}
-                  style="padding: 4px 8px; background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 500;"
-                >
-                  ✕ Close
-                </button>
-              </div>
-            `
-          : ''}
-      </div>
-    `;
-  }
-
   private _renderDescription(description?: string) {
     if (!description) return html``;
     // Strip docblock directive tags (@template, @internal, etc.) that may leak into descriptions.
