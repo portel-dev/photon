@@ -457,7 +457,9 @@ export class InvokeForm extends LitElement {
         border: 1px solid var(--border-glass);
         border-radius: var(--radius-sm);
         color: var(--t-primary);
+        appearance: none;
         -moz-appearance: textfield;
+        -webkit-appearance: none;
         transition:
           border-color 0.15s ease,
           box-shadow 0.15s ease;
@@ -466,6 +468,8 @@ export class InvokeForm extends LitElement {
       .number-input-clean::-webkit-outer-spin-button,
       .number-input-clean::-webkit-inner-spin-button {
         -webkit-appearance: none;
+        appearance: none;
+        display: none;
         margin: 0;
       }
 
