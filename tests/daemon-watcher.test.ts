@@ -443,8 +443,8 @@ async function testCrossClientSync() {
   console.log('\nCross-Client State Sync (pub/sub):');
 
   await test('state-changed event published when tool executes', async () => {
-    // Subscribe to state-changed channel
-    const sub = await subscribeToChannel('test-watcher:state-changed', 'test-watcher');
+    // Subscribe to state-changed channel (instance-scoped: photon:instance:state-changed)
+    const sub = await subscribeToChannel('test-watcher:default:state-changed', 'test-watcher');
 
     // Execute a tool via a different "client"
     await sendRequest({
@@ -464,7 +464,7 @@ async function testCrossClientSync() {
     sub.unsubscribe();
 
     const stateChangedEvents = sub.messages.filter(
-      (m) => m.type === 'channel_message' && m.channel === 'test-watcher:state-changed'
+      (m) => m.type === 'channel_message' && m.channel === 'test-watcher:default:state-changed'
     );
     assert.ok(
       stateChangedEvents.length > 0,
@@ -480,7 +480,7 @@ async function testCrossClientSync() {
   });
 
   await test('subscriber receives events from other clients in real-time', async () => {
-    const sub = await subscribeToChannel('test-watcher:state-changed', 'test-watcher');
+    const sub = await subscribeToChannel('test-watcher:default:state-changed', 'test-watcher');
 
     // Simulate two different CLI clients making changes
     await sendRequest({
@@ -611,9 +611,9 @@ async function testEventReplayAfterRestart() {
       args: { text: 'replay-item-2' },
     });
 
-    // Now subscribe with the timestamp from before the events
+    // Now subscribe with the timestamp from before the events (instance-scoped channel)
     const sub = await subscribeWithLastEventId(
-      'test-watcher:state-changed',
+      'test-watcher:default:state-changed',
       'test-watcher',
       String(beforeTimestamp)
     );
