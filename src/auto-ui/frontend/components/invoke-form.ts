@@ -48,6 +48,49 @@ function singularize(word: string): string {
   return word;
 }
 
+/** Determine if a character is valid for a given format */
+function isValidCharForFormat(char: string, format?: string, position?: number): boolean {
+  if (!format) return true; // No format restriction
+
+  switch (format.toLowerCase()) {
+    case 'email':
+      // Allow: letters, digits, @, ., -, _, +
+      return /[a-zA-Z0-9@.\-_+]/.test(char);
+
+    case 'url':
+    case 'uri':
+      // Allow: letters, digits, :, /, -, _, ., ?, =, &, #, %, @, +, ~, ;, ,, !
+      return /[a-zA-Z0-9:\/\-_.?=&#%@+~;,!]/.test(char);
+
+    case 'uuid':
+      // Allow: hex digits (0-9, a-f, A-F) and hyphens
+      return /[0-9a-fA-F\-]/.test(char);
+
+    case 'ipv4':
+      // Allow: digits and dots
+      return /[0-9.]/.test(char);
+
+    case 'ipv6':
+      // Allow: hex digits, colons
+      return /[0-9a-fA-F:]/.test(char);
+
+    case 'slug':
+      // Allow: lowercase letters, digits, hyphens
+      return /[a-z0-9\-]/.test(char);
+
+    case 'hex':
+      // Allow: hex digits and #
+      return position === 0 && char === '#' ? true : /[0-9a-fA-F]/.test(char);
+
+    case 'phone':
+      // Allow: digits, +, -, (, ), space
+      return /[0-9+\-() ]/.test(char);
+
+    default:
+      return true;
+  }
+}
+
 interface MethodParam {
   type: string;
   description?: string;
@@ -1202,6 +1245,9 @@ export class InvokeForm extends LitElement {
     // Default -> Text Input
     const defaultVal = (schema as any).default;
     const placeholder = defaultVal != null ? String(defaultVal) : '';
+    const format = (schema as any).format;
+    const pattern = (schema as any).pattern; // Regex pattern from {@pattern} tag
+
     return html`
       <input
         id=${ifDefined(inputId)}
@@ -1209,6 +1255,27 @@ export class InvokeForm extends LitElement {
         class="${errorClass}"
         placeholder="${placeholder}"
         .value=${this._values[key] || ''}
+        @keypress=${(e: KeyboardEvent) => {
+          // Apply format-based character restrictions
+          if (!isValidCharForFormat(e.key, format)) {
+            e.preventDefault();
+            return;
+          }
+
+          // Apply custom regex pattern if specified
+          if (pattern) {
+            try {
+              const currentValue = (e.target as HTMLInputElement).value;
+              const newValue = currentValue + e.key;
+              const regex = new RegExp(pattern);
+              if (!regex.test(newValue)) {
+                e.preventDefault();
+              }
+            } catch (err) {
+              // Invalid regex, skip validation
+            }
+          }
+        }}
         @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
       />
     `;
