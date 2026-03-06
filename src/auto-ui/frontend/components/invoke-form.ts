@@ -1051,6 +1051,17 @@ export class InvokeForm extends LitElement {
           ${hasMin ? `min="${(schema as any).minimum}"` : ''}
           placeholder="${defaultVal}"
           .value=${displayValue}
+          @keypress=${(e: KeyboardEvent) => {
+            const char = e.key;
+            const isDigit = /\d/.test(char);
+            const isMinus = char === '-';
+            const isDecimal = char === '.' && !isInteger;
+
+            // Allow: digits, minus at start, decimal (for floats)
+            if (!isDigit && !isMinus && !isDecimal) {
+              e.preventDefault();
+            }
+          }}
           @input=${(e: Event) => {
             let text = (e.target as HTMLInputElement).value;
 
