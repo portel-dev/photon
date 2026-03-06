@@ -2662,7 +2662,9 @@ export class BeamApp extends LitElement {
           }
 
           if (methodName && photon.methods) {
-            const method = photon.methods.find((m: any) => m.name === methodName);
+            // Handle split view format: "method1+method2"
+            const [firstMethodName, secondMethodName] = methodName.split('+');
+            const method = photon.methods.find((m: any) => m.name === firstMethodName);
             if (method) {
               // Store shared params to pre-populate form
               if (Object.keys(sharedParams).length > 0) {
@@ -2676,6 +2678,21 @@ export class BeamApp extends LitElement {
               }
               this._selectedMethod = method;
               this._view = 'form';
+
+              // Handle split view if second method is in URL
+              if (secondMethodName) {
+                const secondMethod = photon.methods.find((m: any) => m.name === secondMethodName);
+                if (secondMethod) {
+                  // Restore split view with second method
+                  this._splitViewEnabled = true;
+                  this._secondPanelPhoton = photon;
+                  this._secondPanelMethod = secondMethod;
+                  this._secondPanelResult = null;
+                  this._secondPanelExecuting = false;
+                  this._secondPanelFormParams = {};
+                }
+              }
+
               // Auto-invoke if no shared params provided
               if (Object.keys(sharedParams).length === 0) {
                 this._maybeAutoInvoke(method);
@@ -2709,6 +2726,10 @@ export class BeamApp extends LitElement {
       path = '/' + this._selectedPhoton.name;
       if (this._selectedMethod) {
         path += `/${this._selectedMethod.name}`;
+        // Add second method to URL for split view: /list/get+add
+        if (this._splitViewEnabled && this._secondPanelMethod) {
+          path += `+${this._secondPanelMethod.name}`;
+        }
       }
     }
     // Push state for browser back/forward navigation
@@ -4155,88 +4176,42 @@ ${photon.errorMessage || 'Unknown error'}</pre
       const isExternalMCP = this._selectedPhoton.isExternalMCP;
 
       return html`
-        <div style="display: flex; align-items: center;">
-          <context-bar
-            .photon=${this._selectedPhoton}
-            .breadcrumbs=${[
-              {
-                label:
-                  this._currentInstance !== 'default'
-                    ? `${this._selectedPhoton.name}:${this._currentInstance}`
-                    : this._selectedPhoton.name,
-                action: 'back',
-              },
-              { label: this._selectedMethod.name },
-            ]}
-            .live=${this._currentCollectionName !== null}
-            .showEdit=${false}
-            .showConfigure=${false}
-            .showCopyConfig=${false}
-            .overflowItems=${this._buildOverflowItems({
-              showRefresh: !isExternalMCP,
-              showRename: false,
-              showViewSource: false,
-              showDelete: false,
-              showHelp: !isExternalMCP,
-            })}
-            .instanceSelectorMode=${this._instanceSelectorMode}
-            .autoInstance=${this._autoInstance}
-            .isStateful=${this._selectedPhoton?.stateful}
-            .instanceName=${this._currentInstance}
-            .instances=${this._instances}
-            @context-action=${this._handleContextAction}
-          ></context-bar>
-          <!-- Split View + Button (right next to method dropdown) -->
-          ${this._selectedPhoton?.methods &&
+        <context-bar
+          .photon=${this._selectedPhoton}
+          .breadcrumbs=${[
+            {
+              label:
+                this._currentInstance !== 'default'
+                  ? `${this._selectedPhoton.name}:${this._currentInstance}`
+                  : this._selectedPhoton.name,
+              action: 'back',
+            },
+            { label: this._selectedMethod.name },
+          ]}
+          .live=${this._currentCollectionName !== null}
+          .showEdit=${false}
+          .showConfigure=${false}
+          .showCopyConfig=${false}
+          .showSplitViewButton=${this._selectedPhoton?.methods &&
           this._selectedPhoton.methods.length > 1 &&
-          !this._splitViewEnabled
-            ? html`
-                <button
-                  @click=${() => this._showMethodPicker()}
-                  style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
-                  title="Add another method in split view"
-                >
-                  +
-                </button>
-              `
-            : ''}
-          <!-- Split View Dropdown + - Button (right next to +) -->
-          ${this._splitViewEnabled && this._secondPanelMethod
-            ? html`
-                <select
-                  @change=${(e: Event) => {
-                    const selected = (e.target as HTMLSelectElement).value;
-                    const method = this._selectedPhoton.methods.find(
-                      (m: any) => m.name === selected
-                    );
-                    if (method) {
-                      this._secondPanelMethod = method;
-                      this._secondPanelResult = null;
-                    }
-                  }}
-                  style="padding: 4px 6px; margin-left: 2px; background: var(--bg-glass); color: var(--t-primary); border: 1px solid var(--border-glass); border-radius: 3px; font-size: 12px; cursor: pointer;"
-                >
-                  <option value=${this._secondPanelMethod.name}>
-                    ${this._secondPanelMethod.name}
-                  </option>
-                  ${this._selectedPhoton.methods
-                    .filter(
-                      (m: any) =>
-                        m.name !== this._selectedMethod.name &&
-                        m.name !== this._secondPanelMethod.name
-                    )
-                    .map((m: any) => html` <option value=${m.name}>${m.name}</option> `)}
-                </select>
-                <button
-                  @click=${() => this._closeSecondPanel()}
-                  style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
-                  title="Remove split view"
-                >
-                  −
-                </button>
-              `
-            : ''}
-        </div>
+          !this._splitViewEnabled}
+          .showSplitViewDropdown=${this._splitViewEnabled && this._secondPanelMethod}
+          .splitViewMethods=${this._selectedPhoton?.methods || []}
+          .splitViewSelectedMethod=${this._secondPanelMethod}
+          .overflowItems=${this._buildOverflowItems({
+            showRefresh: !isExternalMCP,
+            showRename: false,
+            showViewSource: false,
+            showDelete: false,
+            showHelp: !isExternalMCP,
+          })}
+          .instanceSelectorMode=${this._instanceSelectorMode}
+          .autoInstance=${this._autoInstance}
+          .isStateful=${this._selectedPhoton?.stateful}
+          .instanceName=${this._currentInstance}
+          .instances=${this._instances}
+          @context-action=${this._handleContextAction}
+        ></context-bar>
         ${this._renderMethodContent()}
       `;
     }
@@ -7043,6 +7018,20 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
         break;
       }
+      case 'split-view:add':
+        this._showMethodPicker();
+        break;
+      case 'split-view:change': {
+        const method = this._selectedPhoton?.methods?.find((m: any) => m.name === e.detail.method);
+        if (method) {
+          this._secondPanelMethod = method;
+          this._secondPanelResult = null;
+        }
+        break;
+      }
+      case 'split-view:remove':
+        this._closeSecondPanel();
+        break;
     }
   };
 
