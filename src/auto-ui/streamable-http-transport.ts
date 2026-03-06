@@ -888,7 +888,7 @@ const handlers: Record<string, RequestHandler> = {
           const useResult = await sendCommand(photonName, '_use', { name: selectedName }, sendOpts);
           session.instanceName = selectedName;
           // Notify UI to refresh after instance switch
-          broadcastToBeam('photon/state-changed', {
+          broadcastToBeam('state-changed', {
             photon: photonName,
             method: '_use',
             data: { instance: selectedName },
@@ -912,7 +912,7 @@ const handlers: Record<string, RequestHandler> = {
             sendOpts
           );
           session.instanceName = typeof args?.name === 'string' ? args.name : '';
-          broadcastToBeam('photon/state-changed', {
+          broadcastToBeam('state-changed', {
             photon: photonName,
             method: '_use',
             data: { instance: args?.name || 'default' },

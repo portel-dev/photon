@@ -1494,7 +1494,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             if (!iframe || !iframe.contentWindow) return;
 
             // Handle @stateful state-changed events — re-invoke main() to refresh UI
-            if (msg.method === 'photon/state-changed' && msg.params?.photon === PHOTON) {
+            if (msg.method === 'state-changed' && msg.params?.photon === PHOTON) {
               // Re-fetch data by calling main() and delivering result to iframe
               var refreshHeaders = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
               if (mcpSessionId) refreshHeaders['Mcp-Session-Id'] = mcpSessionId;
@@ -2233,7 +2233,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Only broadcast if instance matches (prevents cross-instance leakage)
               if (message?.instance === instanceName || !message?.instance) {
                 // Minimal transmission: instance is implicit in channel subscription, uri is redundant
-                broadcastNotification('photon/state-changed', {
+                broadcastNotification('state-changed', {
                   photon: photonName,
                   method: message?.method,
                   params: message?.params,
@@ -2251,7 +2251,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               onRefreshNeeded: () => {
                 logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
                 // Broadcast minimal refresh signal to all clients
-                broadcastNotification('photon/state-changed', {
+                broadcastNotification('state-changed', {
                   photon: photonName,
                   method: '_refresh',
                 });
