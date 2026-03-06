@@ -362,6 +362,21 @@ export class BeamSidebar extends LitElement {
         }
       }
 
+      .photon-item.warmth {
+        animation: warmth-fade 5s ease-out forwards;
+      }
+
+      @keyframes warmth-fade {
+        0% {
+          background: var(--color-warning);
+          opacity: 0.15;
+        }
+        100% {
+          background: var(--color-warning);
+          opacity: 0;
+        }
+      }
+
       .photon-icon {
         width: 28px;
         height: 28px;
@@ -768,6 +783,9 @@ export class BeamSidebar extends LitElement {
 
   @state()
   private _recentPhotons: string[] = [];
+
+  @state()
+  private _notificationWarmth: Map<string, number> = new Map();
 
   connectedCallback() {
     super.connectedCallback();
@@ -1218,7 +1236,7 @@ export class BeamSidebar extends LitElement {
       <li
         class="photon-item ${this.selectedPhoton === photon.name ? 'active' : ''} ${photon.internal
           ? 'internal'
-          : ''}"
+          : ''} ${this._isPhotonWarm(photon.name) ? 'warmth' : ''}"
         role="option"
         aria-selected="${this.selectedPhoton === photon.name}"
         tabindex="0"
@@ -1451,5 +1469,32 @@ export class BeamSidebar extends LitElement {
         }
       }
     });
+  }
+
+  /**
+   * Check if a photon currently has a warmth indicator (notification received within last 5 seconds)
+   */
+  private _isPhotonWarm(photonName: string): boolean {
+    const lastNotificationTime = this._notificationWarmth.get(photonName);
+    if (!lastNotificationTime) return false;
+    return Date.now() - lastNotificationTime < 5000;
+  }
+
+  /**
+   * Update the warmth indicator for a photon when a notification arrives
+   */
+  updatePhotonWarmth(photonName: string) {
+    this._notificationWarmth.set(photonName, Date.now());
+    this.requestUpdate();
+  }
+
+  /**
+   * Check if a notification type is watched by a photon
+   * This will be called by beam-app to determine if window.focus() should be triggered
+   */
+  isNotificationWatched(photonName: string, notificationType: string): boolean {
+    // TODO: Once photon metadata is available in the sidebar, check the @notify-on subscriptions
+    // For now, return true for any notification from any photon to always bring window to focus
+    return true;
   }
 }

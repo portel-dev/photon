@@ -1939,6 +1939,9 @@ export class BeamApp extends LitElement {
     // Connect via MCP Streamable HTTP (SSE for notifications)
     void this._connectMCP();
 
+    // Set up notification handlers
+    this._setupNotificationHandlers();
+
     window.addEventListener('popstate', this._handleRouteChange);
     window.addEventListener('message', this._handleBridgeMessage);
     window.addEventListener('keydown', this._handleKeydown);
@@ -1995,6 +1998,34 @@ export class BeamApp extends LitElement {
     window.addEventListener('appinstalled', () => {
       this._pwaInstallPrompt = null;
       this._log('info', 'PWA app installed');
+    });
+  }
+
+  /**
+   * Set up notification handlers for photon notifications.
+   * When a notification arrives for a photon that cares about that event type,
+   * bring the window to focus (especially important for PWAs/background tabs).
+   */
+  private _setupNotificationHandlers() {
+    mcpClient.on('photon-notification', (notification: any) => {
+      const { photon, type, priority } = notification;
+      if (!photon || !type) return;
+
+      // Check if this photon cares about this notification type
+      // This information comes from @notify-on tags in the photon source
+      const sidebarElement = this.querySelector('beam-sidebar');
+      if (sidebarElement && sidebarElement.isNotificationWatched) {
+        const isWatched = sidebarElement.isNotificationWatched(photon, type);
+
+        // Only bring window to focus if photon explicitly cares about this event
+        if (isWatched) {
+          window.focus();
+          console.log(`📡 Window focused for ${photon} notification: ${type}`);
+
+          // Optional: update sidebar warmth
+          sidebarElement.updatePhotonWarmth?.(photon);
+        }
+      }
     });
   }
 

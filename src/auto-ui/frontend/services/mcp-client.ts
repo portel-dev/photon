@@ -1045,6 +1045,10 @@ class MCPClientService {
         this.emit('state-changed', notification.params);
         break;
 
+      case 'photon/notification':
+        this.emit('photon-notification', notification.params);
+        break;
+
       // MCP Apps standard notifications
       case 'ui/notifications/tool-result':
         this.emit('ui-tool-result', notification.params);
