@@ -5,17 +5,17 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  PhotonInstanceProxy,
-  GlobalInstanceManager,
-  initializeGlobalPhotonInstance,
-  getGlobalInstanceManager,
+  PhotonSessionProxy,
+  GlobalSessionManager,
+  initializeGlobalPhotonSession,
+  getGlobalSessionManager,
 } from '../src/auto-ui/frontend/services/photon-instance-manager.js';
 
-describe('PhotonInstanceProxy', () => {
-  let proxy: PhotonInstanceProxy;
+describe('PhotonSessionProxy', () => {
+  let proxy: PhotonSessionProxy;
 
   beforeEach(() => {
-    proxy = new PhotonInstanceProxy({
+    proxy = new PhotonSessionProxy({
       name: 'TestPhoton',
       initialState: {
         items: [],
@@ -58,7 +58,7 @@ describe('PhotonInstanceProxy', () => {
   });
 
   it('applies remove patch to array', async () => {
-    proxy = new PhotonInstanceProxy({
+    proxy = new PhotonSessionProxy({
       name: 'TestPhoton',
       initialState: {
         items: [{ id: 1 }, { id: 2 }, { id: 3 }],
@@ -125,7 +125,7 @@ describe('PhotonInstanceProxy', () => {
   });
 
   it('unescapes JSON Pointer paths', async () => {
-    proxy = new PhotonInstanceProxy({
+    proxy = new PhotonSessionProxy({
       name: 'TestPhoton',
       initialState: {
         'key/with/slashes': 'value',
@@ -179,7 +179,7 @@ describe('PhotonInstanceProxy', () => {
   });
 
   it('handles copy patch operation', async () => {
-    proxy = new PhotonInstanceProxy({
+    proxy = new PhotonSessionProxy({
       name: 'TestPhoton',
       initialState: {
         items: [{ id: 1, name: 'Original' }],
@@ -215,41 +215,41 @@ describe('PhotonInstanceProxy', () => {
   });
 });
 
-describe('GlobalInstanceManager', () => {
-  let manager: GlobalInstanceManager;
+describe('GlobalSessionManager', () => {
+  let manager: GlobalSessionManager;
 
   beforeEach(() => {
-    manager = new GlobalInstanceManager();
+    manager = new GlobalSessionManager();
   });
 
   it('creates new instance', () => {
-    const instance = manager.createOrGetInstance('TestPhoton', { items: [] });
+    const instance = manager.createOrGetSession('TestPhoton', { items: [] });
 
     expect(instance.name).toBe('TestPhoton');
     expect(instance.state).toEqual({ items: [] });
   });
 
   it('returns existing instance on subsequent calls', () => {
-    const instance1 = manager.createOrGetInstance('TestPhoton', { items: [] });
-    const instance2 = manager.createOrGetInstance('TestPhoton', { items: [1, 2, 3] });
+    const instance1 = manager.createOrGetSession('TestPhoton', { items: [] });
+    const instance2 = manager.createOrGetSession('TestPhoton', { items: [1, 2, 3] });
 
     expect(instance1).toBe(instance2);
     expect(instance1.state).toEqual({ items: [] }); // Original state preserved
   });
 
   it('retrieves instance by name', () => {
-    const created = manager.createOrGetInstance('TestPhoton', { items: [] });
-    const retrieved = manager.getInstance('TestPhoton');
+    const created = manager.createOrGetSession('TestPhoton', { items: [] });
+    const retrieved = manager.getSession('TestPhoton');
 
     expect(retrieved).toBe(created);
   });
 
   it('returns undefined for non-existent instance', () => {
-    expect(manager.getInstance('NonExistent')).toBeUndefined();
+    expect(manager.getSession('NonExistent')).toBeUndefined();
   });
 
   it('applies patches to instance', () => {
-    const instance = manager.createOrGetInstance('TestPhoton', { items: [] });
+    const instance = manager.createOrGetSession('TestPhoton', { items: [] });
     instance.makeProperty('items');
 
     const result = manager.applyPatches('TestPhoton', [
@@ -268,19 +268,19 @@ describe('GlobalInstanceManager', () => {
   });
 
   it('removes instance', () => {
-    manager.createOrGetInstance('TestPhoton', { items: [] });
-    expect(manager.getInstance('TestPhoton')).toBeDefined();
+    manager.createOrGetSession('TestPhoton', { items: [] });
+    expect(manager.getSession('TestPhoton')).toBeDefined();
 
-    manager.removeInstance('TestPhoton');
-    expect(manager.getInstance('TestPhoton')).toBeUndefined();
+    manager.removeSession('TestPhoton');
+    expect(manager.getSession('TestPhoton')).toBeUndefined();
   });
 
   it('lists all instance names', () => {
-    manager.createOrGetInstance('Photon1', { items: [] });
-    manager.createOrGetInstance('Photon2', { items: [] });
-    manager.createOrGetInstance('Photon3', { items: [] });
+    manager.createOrGetSession('Photon1', { items: [] });
+    manager.createOrGetSession('Photon2', { items: [] });
+    manager.createOrGetSession('Photon3', { items: [] });
 
-    const names = manager.getInstanceNames();
+    const names = manager.getSessionNames();
 
     expect(names).toContain('Photon1');
     expect(names).toContain('Photon2');
@@ -291,8 +291,8 @@ describe('GlobalInstanceManager', () => {
 
 describe('Global Instance Manager Singleton', () => {
   it('returns same instance on multiple calls', () => {
-    const manager1 = getGlobalInstanceManager();
-    const manager2 = getGlobalInstanceManager();
+    const manager1 = getGlobalSessionManager();
+    const manager2 = getGlobalSessionManager();
 
     expect(manager1).toBe(manager2);
   });
@@ -300,18 +300,18 @@ describe('Global Instance Manager Singleton', () => {
 
 describe('Global Photon Instance Initialization', () => {
   it('initializes global instance with correct name', () => {
-    const instance = initializeGlobalPhotonInstance('TestPhoton', { items: [] });
+    const instance = initializeGlobalPhotonSession('TestPhoton', { items: [] });
 
     expect(instance.name).toBe('TestPhoton');
   });
 
   it('makes properties accessible after initialization', () => {
-    const instance = initializeGlobalPhotonInstance('TestPhoton2', {
+    const instance = initializeGlobalPhotonSession('TestPhoton2', {
       items: [],
       count: 0,
     });
 
-    // initializeGlobalPhotonInstance auto-makes properties
+    // initializeGlobalPhotonSession auto-makes properties
     expect(instance.getProperties()).toContain('items');
     expect(instance.getProperties()).toContain('count');
     expect(instance.items).toEqual([]);
