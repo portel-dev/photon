@@ -1061,7 +1061,11 @@ export class InvokeForm extends LitElement {
               text = cleaned.match(/-.*-/) ? cleaned.replace(/-/g, '').replace(/^/, '-') : cleaned;
             }
 
-            const v = text === '' || text === '-' ? 0 : Number(text);
+            let v = text === '' || text === '-' ? defaultVal : Number(text);
+            // If parsing resulted in NaN, use the default value
+            if (isNaN(v)) {
+              v = defaultVal;
+            }
             this._handleChange(key, v);
           }}
         />
