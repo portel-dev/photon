@@ -34,6 +34,10 @@ import {
 } from '../../design-system/tokens.js';
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
+import {
+  initializeGlobalPhotonInstance,
+  getGlobalInstanceManager,
+} from '../services/photon-instance-manager.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -5273,6 +5277,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
           this._lastResult = mcpClient.parseToolResult(result);
           this._log('success', 'Execution completed', false, execDuration);
 
+          // Initialize global photon instance for @stateful photons
+          if (
+            this._selectedPhoton?.stateful &&
+            this._lastResult != null &&
+            typeof this._lastResult === 'object'
+          ) {
+            this._initializeGlobalInstance(this._selectedPhoton.name, this._lastResult);
+          }
+
           // Scroll result into view on mobile
           void this.updateComplete.then(() => {
             const rv = this.shadowRoot?.querySelector('result-viewer');
@@ -5321,6 +5334,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
       if (!result.isError) {
         this._lastResult = mcpClient.parseToolResult(result);
+
+        // Reinitialize global instance on silent refresh
+        if (
+          this._selectedPhoton.stateful &&
+          this._lastResult != null &&
+          typeof this._lastResult === 'object'
+        ) {
+          this._initializeGlobalInstance(this._selectedPhoton.name, this._lastResult);
+        }
       }
     } catch {
       // Silent refresh failure is not critical - user can manually re-execute
@@ -5387,6 +5409,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
     this._collectionUnsubscribes = [];
     this._currentCollectionName = null;
+  }
+
+  /**
+   * Initialize global photon instance for @stateful photons
+   * Makes the photon instance available as window.{photonName}
+   * and keeps it in sync with server state via state-changed patches
+   */
+  private _initializeGlobalInstance(photonName: string, initialState: Record<string, any>): void {
+    try {
+      const instance = initializeGlobalPhotonInstance(photonName, initialState);
+      if (this._verboseLogging) {
+        this._log('info', `📡 Global instance initialized: window.${photonName.toLowerCase()}`);
+      }
+    } catch (error) {
+      console.error('Failed to initialize global photon instance', error);
+    }
   }
 
   private async _handleConfigure(e: CustomEvent) {
