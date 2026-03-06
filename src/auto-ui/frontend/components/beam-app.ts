@@ -4860,7 +4860,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         }
       );
 
-      this._secondPanelResult = result;
+      this._secondPanelResult = mcpClient.parseToolResult(result);
     } catch (error: any) {
       showToast(`Error: ${error.message}`, { type: 'error' });
       this._secondPanelResult = { error: error.message };
