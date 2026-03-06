@@ -5513,8 +5513,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
       // Detect paginated properties (those with _pagination metadata)
       const paginatedProps = this._detectPaginatedProperties(initialState);
 
-      // Initialize global instance
-      const instance = initializeGlobalPhotonInstance(photonName, initialState);
+      // Initialize global session
+      const instance = initializeGlobalPhotonSession(photonName, initialState);
 
       // Wrap paginated arrays with ViewportAwareProxy
       for (const [propName, paginationMeta] of Object.entries(paginatedProps)) {
