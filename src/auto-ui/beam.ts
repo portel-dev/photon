@@ -2187,44 +2187,54 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       for (const photon of statefulPhotons) {
         const photonName = photon.name;
-        const channel = `${photonName}:state-changed`;
-        subscribeChannel(
-          photonName,
-          channel,
-          (message: any) => {
-            // Broadcast to ALL clients (not just Beam UI) for multi-client synchronization
-            broadcastNotification('photon/state-changed', {
-              photon: photonName,
-              method: message?.method,
-              params: message?.params,
-              instance: message?.instance,
-              data: message?.data,
-              ...(message?.patch && { patch: message.patch }),
-              ...(message?.inversePatch && { inversePatch: message.inversePatch }),
-              ...(message?.uri && { uri: message.uri }),
-            });
-          },
-          {
-            reconnect: true,
-            workingDir,
-            onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
-            onRefreshNeeded: () => {
-              logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
-              // Broadcast refresh to all clients
-              broadcastNotification('photon/state-changed', {
-                photon: photonName,
-                method: '_refresh',
-                data: {},
-              });
+        // Subscribe to 'default' instance + any other instances that appear
+        const instanceNames = ['default'];
+
+        for (const instanceName of instanceNames) {
+          // Channel is now instance-specific: photon:instance:state-changed
+          const channel = `${photonName}:${instanceName}:state-changed`;
+          subscribeChannel(
+            photonName,
+            channel,
+            (message: any) => {
+              // Only broadcast if instance matches (prevents cross-instance leakage)
+              if (message?.instance === instanceName || !message?.instance) {
+                // Broadcast to ALL clients for multi-client synchronization
+                broadcastNotification('photon/state-changed', {
+                  photon: photonName,
+                  method: message?.method,
+                  params: message?.params,
+                  instance: message?.instance || instanceName,
+                  data: message?.data,
+                  ...(message?.patch && { patch: message.patch }),
+                  ...(message?.inversePatch && { inversePatch: message.inversePatch }),
+                  ...(message?.uri && { uri: message.uri }),
+                });
+              }
             },
-          }
-        )
-          .then(() => {
-            logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
-          })
-          .catch((err) => {
-            logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
-          });
+            {
+              reconnect: true,
+              workingDir,
+              onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
+              onRefreshNeeded: () => {
+                logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
+                // Broadcast refresh to all clients
+                broadcastNotification('photon/state-changed', {
+                  photon: photonName,
+                  instance: instanceName,
+                  method: '_refresh',
+                  data: {},
+                });
+              },
+            }
+          )
+            .then(() => {
+              logger.info(`📡 Subscribed to ${channel} for cross-client sync`);
+            })
+            .catch((err) => {
+              logger.warn(`Failed to subscribe to ${channel}: ${getErrorMessage(err)}`);
+            });
+        }
       }
     } catch (err) {
       logger.warn(`Failed to start daemon for stateful photons: ${getErrorMessage(err)}`);
