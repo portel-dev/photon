@@ -16,14 +16,7 @@
  */
 
 import type { MCPClientService } from './mcp-client.js';
-
-export interface PaginationMetadata {
-  totalCount: number;
-  start: number;
-  end: number;
-  hasMore: boolean;
-  hasMoreBefore?: boolean;
-}
+import type { PaginationMetadata } from '@portel/photon-core';
 
 export interface ViewportRange {
   start: number;
