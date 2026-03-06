@@ -1,263 +1,227 @@
 /**
- * Viewport Manager for Automatic Scroll Detection
+ * ViewportManager - Tracks visible viewport for smart pagination
  *
- * Automatically tracks which items are visible on screen using IntersectionObserver.
- * Reports viewport changes to ViewportAwareProxy for smart fetching.
+ * Monitors which items are currently visible on screen using IntersectionObserver.
+ * Calculates visible range and maintains padding cushion for smooth scrolling.
  *
- * Usage:
- * ```typescript
- * const viewportMgr = new ViewportManager(proxy, {
- *   container: listElement,
- *   itemSelector: '.list-item',
- *   pageSize: 20,
- *   bufferSize: 5
- * });
- * viewportMgr.start();
- * ```
+ * Used by SmartFetcher to decide when to load more data.
  */
 
-import type { ViewportAwareProxy } from './viewport-aware-proxy.js';
+export interface VisibleRange {
+  start: number;
+  end: number;
+}
 
-export interface ViewportManagerOptions {
-  container: HTMLElement;
-  itemSelector: string;
-  pageSize?: number;
-  bufferSize?: number;
-  threshold?: number | number[];
-  rootMargin?: string;
+export interface ViewportConfig {
+  element: HTMLElement;
+  pageSize: number;
+  paddingAbove?: number; // Extra items to keep loaded above visible area
+  paddingBelow?: number; // Extra items to keep loaded below visible area
+  debug?: boolean;
+}
+
+export interface ViewportChangeEvent {
+  visibleRange: VisibleRange;
+  bufferRange: VisibleRange; // Range to keep in memory (visible + padding)
+  scrollDirection: 'up' | 'down' | 'none';
+  timestamp: number;
 }
 
 /**
- * Manages viewport tracking using IntersectionObserver
- * Automatically updates ViewportAwareProxy with visible range
+ * Utility function to get optimal page size for current client
+ */
+export function getPageSizeForClient(): number {
+  // Mobile: smaller pages for faster rendering
+  if (typeof window !== 'undefined' && window.innerWidth < 600) {
+    return 10;
+  }
+  // Tablet: medium pages
+  if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+    return 25;
+  }
+  // Desktop: larger pages (or default in non-browser)
+  return 50;
+}
+
+/**
+ * Tracks visible item range using IntersectionObserver
+ *
+ * Works by:
+ * 1. Creating sentinel elements for each item in the list
+ * 2. Observing which sentinels are visible
+ * 3. Calculating the visible range from first/last visible sentinel
+ * 4. Adding padding to determine what data to keep loaded
  */
 export class ViewportManager {
-  private _proxy: ViewportAwareProxy;
-  private _options: Required<ViewportManagerOptions>;
-  private _observer: IntersectionObserver | null = null;
-  private _visibleItems: Set<number> = new Set();
-  private _allItems: HTMLElement[] = [];
-  private _updateTimeout: ReturnType<typeof setTimeout> | null = null;
-  private _isActive: boolean = false;
+  private element: HTMLElement;
+  private pageSize: number;
+  private paddingAbove: number;
+  private paddingBelow: number;
+  private debug: boolean;
 
-  constructor(proxy: ViewportAwareProxy, options: ViewportManagerOptions) {
-    this._proxy = proxy;
-    this._options = {
-      pageSize: options.pageSize ?? 20,
-      bufferSize: options.bufferSize ?? 5,
-      threshold: options.threshold ?? 0.1,
-      rootMargin: options.rootMargin ?? '50px',
-      ...options,
-    };
-  }
+  private observer: IntersectionObserver | null = null;
+  private visibleSentinels = new Set<number>();
+  private lastVisibleRange: VisibleRange = { start: 0, end: 0 };
+  private lastScrollDirection: 'up' | 'down' | 'none' = 'none';
+  private changeCallbacks: ((event: ViewportChangeEvent) => void)[] = [];
 
-  /**
-   * Start observing viewport changes
-   */
-  start(): void {
-    if (this._isActive) return;
+  constructor(config: ViewportConfig) {
+    this.element = config.element;
+    this.pageSize = config.pageSize;
+    this.paddingAbove = config.paddingAbove ?? this.pageSize;
+    this.paddingBelow = config.paddingBelow ?? this.pageSize * 2;
+    this.debug = config.debug ?? false;
 
-    this._isActive = true;
-    this._collectItems();
-    this._createObserver();
-    this._observeItems();
-
-    // Initial viewport update
-    void this._updateViewport();
-  }
-
-  /**
-   * Stop observing viewport changes
-   */
-  stop(): void {
-    if (!this._isActive) return;
-
-    this._isActive = false;
-    if (this._observer) {
-      this._observer.disconnect();
-      this._observer = null;
-    }
-    if (this._updateTimeout) {
-      clearTimeout(this._updateTimeout);
-      this._updateTimeout = null;
-    }
-    this._visibleItems.clear();
-    this._allItems = [];
-  }
-
-  /**
-   * Get current visible range
-   */
-  getVisibleRange(): { start: number; end: number } | null {
-    if (this._visibleItems.size === 0) {
-      return null;
-    }
-
-    const indices = Array.from(this._visibleItems).sort((a, b) => a - b);
-    const start = indices[0];
-    const end = indices[indices.length - 1] + 1;
-
-    return { start, end };
-  }
-
-  /**
-   * Collect all items in container
-   */
-  private _collectItems(): void {
-    const items = this._options.container.querySelectorAll(this._options.itemSelector);
-
-    this._allItems = Array.from(items).filter((el): el is HTMLElement => el instanceof HTMLElement);
-  }
-
-  /**
-   * Create IntersectionObserver for scroll tracking
-   */
-  private _createObserver(): void {
-    this._observer = new IntersectionObserver((entries) => this._onIntersection(entries), {
-      root: null,
-      threshold: this._options.threshold,
-      rootMargin: this._options.rootMargin,
+    this.log('ViewportManager initialized', {
+      pageSize: this.pageSize,
+      paddingAbove: this.paddingAbove,
+      paddingBelow: this.paddingBelow,
     });
+    this.initializeObserver();
   }
 
-  /**
-   * Observe all items in list
-   */
-  private _observeItems(): void {
-    if (!this._observer) return;
+  private initializeObserver() {
+    const options: IntersectionObserverInit = {
+      root: null,
+      rootMargin: '100px',
+      threshold: 0,
+    };
 
-    for (const item of this._allItems) {
-      this._observer.observe(item);
-    }
-  }
-
-  /**
-   * Handle intersection changes
-   */
-  private _onIntersection(entries: IntersectionObserverEntry[]): void {
-    for (const entry of entries) {
-      const index = this._getItemIndex(entry.target as HTMLElement);
-      if (index < 0) continue;
-
-      if (entry.isIntersecting) {
-        this._visibleItems.add(index);
-      } else {
-        this._visibleItems.delete(index);
+    this.observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const index = this.getSentinelIndex(entry.target);
+        if (index !== null) {
+          if (entry.isIntersecting) {
+            this.visibleSentinels.add(index);
+          } else {
+            this.visibleSentinels.delete(index);
+          }
+        }
       }
-    }
-
-    // Debounce viewport updates
-    if (this._updateTimeout) {
-      clearTimeout(this._updateTimeout);
-    }
-
-    this._updateTimeout = setTimeout(() => {
-      void this._updateViewport();
-    }, 50);
+      this.updateVisibleRange();
+    }, options);
   }
 
-  /**
-   * Get index of item element
-   */
-  private _getItemIndex(element: HTMLElement): number {
-    const indexAttr = element.getAttribute('data-index');
-    if (indexAttr) {
-      return parseInt(indexAttr, 10);
-    }
-
-    // Fallback: find by position in list
-    return this._allItems.indexOf(element);
+  createSentinel(index: number): HTMLElement {
+    const sentinel = document.createElement('div');
+    sentinel.setAttribute('data-viewport-sentinel', String(index));
+    sentinel.style.height = '0px';
+    sentinel.style.overflow = 'hidden';
+    return sentinel;
   }
 
-  /**
-   * Update viewport in proxy based on visible items
-   */
-  private async _updateViewport(): Promise<void> {
-    const range = this.getVisibleRange();
+  observeSentinel(sentinel: HTMLElement) {
+    if (this.observer) {
+      this.observer.observe(sentinel);
+    }
+  }
 
-    if (!range) {
-      // No visible items, use default
-      await this._proxy.setViewport(0, this._options.pageSize);
+  unobserveSentinel(sentinel: HTMLElement) {
+    if (this.observer) {
+      this.observer.unobserve(sentinel);
+    }
+  }
+
+  private getSentinelIndex(element: Element): number | null {
+    const attr = element.getAttribute('data-viewport-sentinel');
+    return attr !== null ? parseInt(attr, 10) : null;
+  }
+
+  private updateVisibleRange() {
+    if (this.visibleSentinels.size === 0) {
       return;
     }
 
-    // Expand viewport with buffer
-    const start = Math.max(0, range.start - this._options.bufferSize);
-    const end = range.end + this._options.bufferSize;
+    const indices = Array.from(this.visibleSentinels).sort((a, b) => a - b);
+    const visibleStart = indices[0];
+    const visibleEnd = indices[indices.length - 1] + 1;
 
-    await this._proxy.setViewport(start, end);
+    const direction = this.determineScrollDirection(visibleStart);
+    const bufferStart = Math.max(
+      0,
+      visibleStart - Math.ceil(this.paddingAbove / this.pageSize) * this.pageSize
+    );
+    const bufferEnd = visibleEnd + Math.ceil(this.paddingBelow / this.pageSize) * this.pageSize;
+
+    const rangeChanged =
+      visibleStart !== this.lastVisibleRange.start || visibleEnd !== this.lastVisibleRange.end;
+
+    if (rangeChanged) {
+      this.lastVisibleRange = { start: visibleStart, end: visibleEnd };
+      this.lastScrollDirection = direction;
+
+      const event: ViewportChangeEvent = {
+        visibleRange: { start: visibleStart, end: visibleEnd },
+        bufferRange: { start: bufferStart, end: bufferEnd },
+        scrollDirection: direction,
+        timestamp: Date.now(),
+      };
+
+      this.log('Viewport changed', event);
+
+      for (const callback of this.changeCallbacks) {
+        callback(event);
+      }
+    }
   }
 
-  /**
-   * Check if manager is active
-   */
-  get isActive(): boolean {
-    return this._isActive;
+  private determineScrollDirection(newStart: number): 'up' | 'down' | 'none' {
+    if (newStart < this.lastVisibleRange.start) {
+      return 'up';
+    } else if (newStart > this.lastVisibleRange.start) {
+      return 'down';
+    }
+    return 'none';
   }
 
-  /**
-   * Get collected items count
-   */
-  get itemCount(): number {
-    return this._allItems.length;
+  getVisibleRange(): VisibleRange {
+    return this.lastVisibleRange;
   }
 
-  /**
-   * Get visible items count
-   */
-  get visibleCount(): number {
-    return this._visibleItems.size;
-  }
-}
-
-/**
- * Auto-create and attach viewport manager to a proxy
- * Useful for quick initialization with standard settings
- */
-export function attachViewportManager(
-  proxy: ViewportAwareProxy,
-  containerSelector: string,
-  itemSelector: string = '[data-index]',
-  options?: Partial<ViewportManagerOptions>
-): ViewportManager | null {
-  const container = document.querySelector(containerSelector) as HTMLElement;
-  if (!container) {
-    console.warn(`Container not found: ${containerSelector}`);
-    return null;
+  getBufferRange(totalItems: number): VisibleRange {
+    const { start, end } = this.lastVisibleRange;
+    const bufferStart = Math.max(0, start - this.paddingAbove);
+    const bufferEnd = Math.min(totalItems, end + this.paddingBelow);
+    return { start: bufferStart, end: bufferEnd };
   }
 
-  const manager = new ViewportManager(proxy, {
-    container,
-    itemSelector,
-    ...options,
-  });
-
-  manager.start();
-  return manager;
-}
-
-/**
- * Detect client type and return appropriate page size
- */
-export function getPageSizeForClient(): number {
-  // Mobile
-  if (navigator.devicePixelRatio < 2 && window.innerWidth < 768) {
-    return 10;
+  getScrollDirection(): 'up' | 'down' | 'none' {
+    return this.lastScrollDirection;
   }
 
-  // Tablet
-  if (window.innerWidth < 1024) {
-    return 50;
+  getPageSize(): number {
+    return this.pageSize;
   }
 
-  // Desktop
-  return 100;
-}
+  onChange(callback: (event: ViewportChangeEvent) => void) {
+    this.changeCallbacks.push(callback);
+  }
 
-/**
- * Detect if running on mobile
- */
-export function isMobileDevice(): boolean {
-  const userAgent = navigator.userAgent.toLowerCase();
-  return /mobile|android|iphone|ipad|phone/i.test(userAgent);
+  offChange(callback: (event: ViewportChangeEvent) => void) {
+    this.changeCallbacks = this.changeCallbacks.filter((cb) => cb !== callback);
+  }
+
+  setPageSize(newPageSize: number) {
+    if (newPageSize !== this.pageSize) {
+      this.pageSize = newPageSize;
+      this.log('Page size updated', { newPageSize });
+      this.updateVisibleRange();
+    }
+  }
+
+  destroy() {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    this.changeCallbacks = [];
+    this.visibleSentinels.clear();
+    this.log('ViewportManager destroyed');
+  }
+
+  private log(message: string, data?: any) {
+    if (this.debug) {
+      console.log(`[ViewportManager] ${message}`, data);
+    }
+  }
 }
