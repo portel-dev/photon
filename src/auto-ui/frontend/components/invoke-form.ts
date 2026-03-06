@@ -448,6 +448,37 @@ export class InvokeForm extends LitElement {
         box-shadow: 0 0 0 2px var(--glow-primary);
       }
 
+      /* Clean numeric input — no spinner, mouse wheel support */
+      .number-input-clean {
+        width: 100%;
+        padding: 8px 12px;
+        font-size: var(--text-md);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-sm);
+        color: var(--t-primary);
+        -moz-appearance: textfield;
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .number-input-clean::-webkit-outer-spin-button,
+      .number-input-clean::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .number-input-clean:hover {
+        border-color: var(--accent-primary);
+      }
+
+      .number-input-clean:focus-visible {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px var(--glow-primary);
+      }
+
       .range-labels {
         display: flex;
         justify-content: space-between;
@@ -1011,7 +1042,7 @@ export class InvokeForm extends LitElement {
         <input
           id=${ifDefined(inputId)}
           type="number"
-          class="${errorClass}"
+          class="number-input-clean ${errorClass}"
           ${hasMin ? `min="${(schema as any).minimum}"` : ''}
           step="${step}"
           placeholder="${defaultVal}"
@@ -1019,6 +1050,17 @@ export class InvokeForm extends LitElement {
           @input=${(e: Event) => {
             const v = Number((e.target as HTMLInputElement).value);
             this._handleChange(key, v);
+          }}
+          @wheel=${(e: WheelEvent) => {
+            e.preventDefault();
+            const input = e.target as HTMLInputElement;
+            const current = Number(input.value) || 0;
+            const delta = e.deltaY > 0 ? -step : step;
+            const newValue = current + delta;
+            const min = hasMin ? (schema as any).minimum : -Infinity;
+            const clamped = Math.max(min, newValue);
+            input.value = String(clamped);
+            this._handleChange(key, clamped);
           }}
         />
       `;
