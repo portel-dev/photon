@@ -4797,6 +4797,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelExecuting = false;
     this._secondPanelProgress = null;
     this._secondPanelFormParams = {};
+    this._updateRoute();
   }
 
   /** Open a method in the second panel */
@@ -4808,6 +4809,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelExecuting = false;
     this._secondPanelProgress = null;
     this._secondPanelFormParams = {};
+    this._updateRoute();
   }
 
   /** Show method picker to select which method to open in split view */
@@ -7026,6 +7028,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         if (method) {
           this._secondPanelMethod = method;
           this._secondPanelResult = null;
+          this._updateRoute();
         }
         break;
       }
