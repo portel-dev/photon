@@ -5277,6 +5277,20 @@ ${photon.errorMessage || 'Unknown error'}</pre
           }
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
+
+          // Auto-wrap array results with pagination metadata if needed
+          if (
+            this._selectedPhoton?.stateful &&
+            Array.isArray(this._lastResult) &&
+            this._selectedMethod
+          ) {
+            this._lastResult = this._autoWrapPaginationIfNeeded(
+              this._lastResult,
+              this._selectedPhoton.name,
+              this._selectedMethod
+            );
+          }
+
           this._log('success', 'Execution completed', false, execDuration);
 
           // Initialize global photon instance for @stateful photons
@@ -5336,6 +5350,19 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
       if (!result.isError) {
         this._lastResult = mcpClient.parseToolResult(result);
+
+        // Auto-wrap array results with pagination metadata if needed
+        if (
+          this._selectedPhoton.stateful &&
+          Array.isArray(this._lastResult) &&
+          this._selectedMethod
+        ) {
+          this._lastResult = this._autoWrapPaginationIfNeeded(
+            this._lastResult,
+            this._selectedPhoton.name,
+            this._selectedMethod
+          );
+        }
 
         // Reinitialize global instance on silent refresh
         if (
@@ -5419,6 +5446,68 @@ ${photon.errorMessage || 'Unknown error'}</pre
    * and keeps it in sync with server state via state-changed patches
    * Wraps paginated array properties with ViewportAwareProxy for smart fetching
    */
+  /**
+   * Auto-wrap array results with pagination metadata for @stateful photons
+   * If method has (start, limit) parameters, detect them and use global instance
+   * to calculate pagination metadata from the full array
+   */
+  private _autoWrapPaginationIfNeeded(items: unknown[], photonName: string, method: any): unknown {
+    // Check if method signature includes start/limit parameters
+    const hasStartLimitParams = method.parameters?.some(
+      (p: any) => (p.name === 'start' || p.name === 'limit') && p.required !== true
+    );
+
+    if (!hasStartLimitParams || items.length === 0) {
+      return items; // No pagination, return array as-is
+    }
+
+    // Try to get the full array from global instance
+    try {
+      const manager = getGlobalInstanceManager();
+      const instance = manager.getInstance(photonName);
+
+      if (!instance) {
+        return items; // Instance not found, return array as-is
+      }
+
+      // Look for array property (likely "items")
+      const arrayProp = Object.keys(instance).find((key) => {
+        const value = instance[key];
+        return Array.isArray(value) && value.length > 0;
+      });
+
+      if (!arrayProp) {
+        return items; // No array property found, return array as-is
+      }
+
+      const fullArray = instance[arrayProp] as unknown[];
+
+      // Calculate pagination metadata based on position of returned items in full array
+      // The returned items are a subset, so find their position
+      const totalCount = fullArray.length;
+      const start = 0; // Default assumption - returned from beginning
+      const end = items.length;
+
+      // Return wrapped response with pagination metadata
+      return {
+        items,
+        _pagination: {
+          totalCount,
+          start,
+          end,
+          hasMore: end < totalCount,
+        },
+      };
+    } catch (error) {
+      // If anything goes wrong, just return the array as-is
+      if (this._verboseLogging) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        this._log('warn', `Could not auto-wrap pagination: ${msg}`);
+      }
+      return items;
+    }
+  }
+
   private _initializeGlobalInstance(photonName: string, initialState: Record<string, any>): void {
     try {
       // Detect paginated properties (those with _pagination metadata)
