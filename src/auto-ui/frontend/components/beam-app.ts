@@ -39,6 +39,7 @@ import {
   getGlobalInstanceManager,
 } from '../services/photon-instance-manager.js';
 import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
+import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -5468,13 +5469,16 @@ ${photon.errorMessage || 'Unknown error'}</pre
    */
   private _wrapWithViewportProxy(instance: any, propertyName: string, paginationMeta: any): void {
     try {
+      // Determine page size based on device type
+      const pageSize = getPageSizeForClient();
+
       // Create viewport-aware proxy
       const proxy = new ViewportAwareProxy(
         this._selectedPhoton?.name || 'unknown',
         this._selectedMethod?.name || propertyName,
         mcpClient,
         {
-          pageSize: 20, // Default page size
+          pageSize,
           bufferSize: 5, // Items to buffer above/below viewport
           maxCacheSize: 500, // Max items to keep in cache
         }
@@ -5511,8 +5515,40 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
       instance.on('state-changed', patchHandler);
 
+      // Set up automatic viewport tracking
+      // Use microtask to ensure DOM is ready
+      queueMicrotask(() => {
+        try {
+          // Find the result viewer container that will host the paginated list
+          const resultViewer = this._resultViewer;
+          if (resultViewer?.shadowRoot) {
+            // Look for a scrollable container within result viewer
+            const scrollContainer = resultViewer.shadowRoot.querySelector(
+              '.result-content'
+            ) as HTMLElement;
+            if (scrollContainer) {
+              const manager = new ViewportManager(proxy, {
+                container: scrollContainer,
+                itemSelector: '[data-index]',
+                pageSize,
+                bufferSize: 5,
+              });
+              manager.start();
+            }
+          }
+        } catch (error) {
+          // Fallback: just use the proxy without automatic viewport tracking
+          if (this._verboseLogging) {
+            this._log('warn', `Could not set up automatic viewport tracking for ${propertyName}`);
+          }
+        }
+      });
+
       if (this._verboseLogging) {
-        this._log('info', `✨ Paginated proxy enabled for ${propertyName}`);
+        this._log(
+          'info',
+          `✨ Paginated proxy enabled for ${propertyName} (page size: ${pageSize})`
+        );
       }
     } catch (error) {
       console.error(`Failed to wrap ${propertyName} with ViewportAwareProxy`, error);
