@@ -1502,7 +1502,7 @@ export class InvokeForm extends LitElement {
   }
 
   private _buildCliCommand(): string {
-    const parts = ['photon', 'cli', this.photonName, this.methodName];
+    const parts = [this.photonName, this.methodName];
     for (const [key, value] of Object.entries(this._values)) {
       if (value === undefined || value === null || value === '') continue;
       // Serialize objects and arrays as JSON
