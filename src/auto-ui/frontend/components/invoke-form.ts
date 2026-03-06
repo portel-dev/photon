@@ -1045,14 +1045,23 @@ export class InvokeForm extends LitElement {
       return html`
         <input
           id=${ifDefined(inputId)}
-          type="number"
+          type="text"
           class="number-input-clean ${errorClass}"
+          inputmode=${isInteger ? 'numeric' : 'decimal'}
           ${hasMin ? `min="${(schema as any).minimum}"` : ''}
-          step="${step}"
           placeholder="${defaultVal}"
           .value=${displayValue}
           @input=${(e: Event) => {
-            const v = Number((e.target as HTMLInputElement).value);
+            let text = (e.target as HTMLInputElement).value;
+
+            if (isInteger) {
+              // Remove all non-digit, non-minus characters for integers
+              const cleaned = text.replace(/[^\d-]/g, '');
+              // Fix multiple minus signs (only allow at start)
+              text = cleaned.match(/-.*-/) ? cleaned.replace(/-/g, '').replace(/^/, '-') : cleaned;
+            }
+
+            const v = text === '' || text === '-' ? 0 : Number(text);
             this._handleChange(key, v);
           }}
         />
