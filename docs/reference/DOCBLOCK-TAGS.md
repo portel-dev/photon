@@ -609,16 +609,26 @@ When no `@format` is specified, the auto-UI detects visualization types from dat
 
 The `{@format}` inline tag on parameters controls validation and Auto UI:
 
-| Value | Description |
-|-------|-------------|
-| `email` | Email input with validation |
-| `url` / `uri` | URL input with validation |
-| `date` | Date picker |
-| `date-time` | Date and time picker |
-| `time` | Time picker |
-| `password` | Password input (masked) |
-| `textarea` / `multiline` | Multi-line text area |
-| `uuid` | UUID validation |
+| Value | Description | Character Restrictions |
+|-------|-------------|------------------------|
+| `email` | Email input with validation | Letters, digits, @, ., -, _, + |
+| `url` / `uri` | URL input with validation | Letters, digits, :, /, -, _, ., ?, =, &, #, %, @, +, ~, ;, ,, ! |
+| `uuid` | UUID validation | Hex digits and hyphens (0-9a-f, -) |
+| `ipv4` | IPv4 address validation | Digits and dots |
+| `ipv6` | IPv6 address validation | Hex digits and colons |
+| `slug` | URL slug format | Lowercase letters, digits, hyphens |
+| `hex` | Hexadecimal color/code | Hex digits and # prefix |
+| `phone` | Phone number validation | Digits, +, -, (, ), space |
+| `date` | Date picker | Date format based on locale |
+| `date-time` | Date and time picker | DateTime format based on locale |
+| `time` | Time picker | Time format based on locale |
+| `password` | Password input (masked) | Any characters (not validated) |
+| `textarea` / `multiline` | Multi-line text area | Any characters |
+
+**Custom Patterns:** Use `{@pattern regex}` for custom validation:
+```typescript
+@param code Product code {@pattern ^[A-Z]{3}\d{3}$}
+```
 
 ## Field Types
 
