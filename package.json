@@ -34,6 +34,7 @@
     "test:viewport-manager": "npx vitest run tests/viewport-manager.test.ts",
     "test:pagination-integration": "npx vitest run tests/pagination-integration.test.ts",
     "test:pagination-performance": "npx vitest run tests/pagination-performance.test.ts",
+    "test:multi-client-pagination": "npm run build && npx tsx tests/multi-client-pagination.test.ts",
     "test:security": "npx tsx tests/security.test.ts",
     "test:zero-config": "npx tsx tests/zero-config.test.ts",
     "test:mcp-config": "npx tsx tests/mcp-configuration.test.ts",
