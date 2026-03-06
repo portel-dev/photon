@@ -2192,7 +2192,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           photonName,
           channel,
           (message: any) => {
-            broadcastToBeam('photon/state-changed', {
+            // Broadcast to ALL clients (not just Beam UI) for multi-client synchronization
+            broadcastNotification('photon/state-changed', {
               photon: photonName,
               method: message?.method,
               params: message?.params,
@@ -2209,7 +2210,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
             onRefreshNeeded: () => {
               logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
-              broadcastToBeam('photon/state-changed', {
+              // Broadcast refresh to all clients
+              broadcastNotification('photon/state-changed', {
                 photon: photonName,
                 method: '_refresh',
                 data: {},
