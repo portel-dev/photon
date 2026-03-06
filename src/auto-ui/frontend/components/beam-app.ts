@@ -4733,8 +4733,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     panelLabel: string;
   }) {
     return html`
-      <div class="glass-panel method-detail" style="margin: 0; border-radius: 0; height: 100%;">
-        <h2 style="margin-top: 0;">${opts.method.name}</h2>
+      <div class="glass-panel method-detail" style="border-radius: 0; height: 100%;">
+        <h2>${opts.method.name}</h2>
         ${this._renderDescription(opts.method.description)}
         <invoke-form
           .params=${opts.method.params}
