@@ -4185,23 +4185,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .instanceName=${this._currentInstance}
             .instances=${this._instances}
             @context-action=${this._handleContextAction}
-            style="flex: 1;"
           ></context-bar>
-          <!-- Split View + Button -->
+          <!-- Split View + Button (right next to method dropdown) -->
           ${this._selectedPhoton?.methods &&
           this._selectedPhoton.methods.length > 1 &&
           !this._splitViewEnabled
             ? html`
                 <button
                   @click=${() => this._showMethodPicker()}
-                  style="padding: 8px 12px; margin-right: 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;"
+                  style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
                   title="Add another method in split view"
                 >
                   +
                 </button>
               `
             : ''}
-          <!-- Split View Dropdown + - Button -->
+          <!-- Split View Dropdown + - Button (right next to +) -->
           ${this._splitViewEnabled && this._secondPanelMethod
             ? html`
                 <select
@@ -4215,7 +4214,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       this._secondPanelResult = null;
                     }
                   }}
-                  style="padding: 6px 8px; margin-right: 8px; background: var(--bg-glass); color: var(--t-primary); border: 1px solid var(--border-glass); border-radius: 4px; font-size: 13px; cursor: pointer;"
+                  style="padding: 4px 6px; margin-left: 2px; background: var(--bg-glass); color: var(--t-primary); border: 1px solid var(--border-glass); border-radius: 3px; font-size: 12px; cursor: pointer;"
                 >
                   <option value=${this._secondPanelMethod.name}>
                     ${this._secondPanelMethod.name}
@@ -4230,7 +4229,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 </select>
                 <button
                   @click=${() => this._closeSecondPanel()}
-                  style="padding: 8px 12px; margin-right: 12px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;"
+                  style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
                   title="Remove split view"
                 >
                   −
