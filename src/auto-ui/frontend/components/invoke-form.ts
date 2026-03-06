@@ -1051,17 +1051,6 @@ export class InvokeForm extends LitElement {
             const v = Number((e.target as HTMLInputElement).value);
             this._handleChange(key, v);
           }}
-          @wheel=${(e: WheelEvent) => {
-            e.preventDefault();
-            const input = e.target as HTMLInputElement;
-            const current = Number(input.value) || 0;
-            const delta = e.deltaY > 0 ? -step : step;
-            const newValue = current + delta;
-            const min = hasMin ? (schema as any).minimum : -Infinity;
-            const clamped = Math.max(min, newValue);
-            input.value = String(clamped);
-            this._handleChange(key, clamped);
-          }}
         />
       `;
     }
