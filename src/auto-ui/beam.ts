@@ -2232,9 +2232,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             (message: any) => {
               // Only broadcast if instance matches (prevents cross-instance leakage)
               if (message?.instance === instanceName || !message?.instance) {
-                // Minimal transmission: instance is implicit in channel subscription, uri is redundant
+                // Minimal transmission: include instance and patches for global sync
                 broadcastNotification('state-changed', {
                   photon: photonName,
+                  instance: instanceName,
+                  // JSON Patch array for client-side state sync
+                  patches: message?.patches,
+                  // Keep legacy fields for backward compatibility
                   method: message?.method,
                   params: message?.params,
                   data: message?.data,
@@ -2253,7 +2257,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 // Broadcast minimal refresh signal to all clients
                 broadcastNotification('state-changed', {
                   photon: photonName,
+                  instance: instanceName,
                   method: '_refresh',
+                  patches: undefined, // No patches, signal full refresh needed
                 });
               },
             }
