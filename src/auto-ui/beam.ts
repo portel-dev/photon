@@ -2199,16 +2199,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             (message: any) => {
               // Only broadcast if instance matches (prevents cross-instance leakage)
               if (message?.instance === instanceName || !message?.instance) {
-                // Broadcast to ALL clients for multi-client synchronization
+                // Minimal transmission: instance is implicit in channel subscription, uri is redundant
                 broadcastNotification('photon/state-changed', {
                   photon: photonName,
                   method: message?.method,
                   params: message?.params,
-                  instance: message?.instance || instanceName,
                   data: message?.data,
+                  // Optional fields for undo/redo support
                   ...(message?.patch && { patch: message.patch }),
                   ...(message?.inversePatch && { inversePatch: message.inversePatch }),
-                  ...(message?.uri && { uri: message.uri }),
                 });
               }
             },
@@ -2218,12 +2217,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               onReconnect: () => logger.debug(`📡 Reconnected ${channel} subscription`),
               onRefreshNeeded: () => {
                 logger.info(`📡 Refresh needed for ${channel} (events lost during daemon restart)`);
-                // Broadcast refresh to all clients
+                // Broadcast minimal refresh signal to all clients
                 broadcastNotification('photon/state-changed', {
                   photon: photonName,
-                  instance: instanceName,
                   method: '_refresh',
-                  data: {},
                 });
               },
             }
