@@ -1293,7 +1293,12 @@ async function handleRequest(
           uri: `photon://${photonName}/${instanceLabel}`,
         };
 
-        publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+        // Publish to instance-specific channel for multi-instance isolation
+        publishToChannel(
+          `${photonName}:${instanceLabel}:state-changed`,
+          stateChangedPayload,
+          socket
+        );
 
         // Log undo/redo to event log
         await appendEventLog(
@@ -1398,7 +1403,12 @@ async function handleRequest(
           uri: `photon://${photonName}/${instanceLabel}`,
         };
 
-        publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+        // Publish to instance-specific channel for multi-instance isolation
+        publishToChannel(
+          `${photonName}:${instanceLabel}:state-changed`,
+          stateChangedPayload,
+          socket
+        );
 
         // Append to event log
         if (patch.length > 0) {
@@ -1504,8 +1514,9 @@ async function handleRequest(
         uri: `photon://${photonName}/${instanceLabel}`,
       };
 
-      // Notify subscribers that state may have changed
-      publishToChannel(`${photonName}:state-changed`, stateChangedPayload, socket);
+      // Notify subscribers that state may have changed (instance-specific channel)
+      const targetLabel = session.instanceName || 'default';
+      publishToChannel(`${photonName}:${targetLabel}:state-changed`, stateChangedPayload, socket);
 
       // Append to event log
       if (patch.length > 0) {
