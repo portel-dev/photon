@@ -437,6 +437,23 @@ export class ContextBar extends LitElement {
   @property({ type: Boolean })
   hasSettings = false;
 
+  // --- Split View Controls ---
+  /** Show the + button to enable split view */
+  @property({ type: Boolean })
+  showSplitViewButton = false;
+
+  /** Show the split view method dropdown and - button */
+  @property({ type: Boolean })
+  showSplitViewDropdown = false;
+
+  /** Methods for the split view dropdown */
+  @property({ type: Array })
+  splitViewMethods: any[] = [];
+
+  /** Currently selected split view method */
+  @property({ type: Object })
+  splitViewSelectedMethod: any = null;
+
   @state()
   private _methodDropdownOpen = false;
 
@@ -502,6 +519,43 @@ export class ContextBar extends LitElement {
                       : html`<span class="current">${crumb.label}</span>`
                 )}
               </div>
+              <!-- Split View Controls (right after method dropdown) -->
+              ${this.showSplitViewButton
+                ? html`
+                    <button
+                      @click=${() => this._emit('split-view:add')}
+                      style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
+                      title="Add another method in split view"
+                    >
+                      +
+                    </button>
+                  `
+                : ''}
+              ${this.showSplitViewDropdown
+                ? html`
+                    <select
+                      @change=${(e: Event) => {
+                        const selected = (e.target as HTMLSelectElement).value;
+                        this._emit('split-view:change', { method: selected });
+                      }}
+                      style="padding: 4px 6px; margin-left: 2px; background: var(--bg-glass); color: var(--t-primary); border: 1px solid var(--border-glass); border-radius: 3px; font-size: 12px; cursor: pointer;"
+                    >
+                      <option value=${this.splitViewSelectedMethod?.name || ''}>
+                        ${this.splitViewSelectedMethod?.name || ''}
+                      </option>
+                      ${this.splitViewMethods
+                        .filter((m: any) => m.name !== this.splitViewSelectedMethod?.name)
+                        .map((m: any) => html` <option value=${m.name}>${m.name}</option> `)}
+                    </select>
+                    <button
+                      @click=${() => this._emit('split-view:remove')}
+                      style="padding: 4px 8px; margin-left: 2px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 700;"
+                      title="Remove split view"
+                    >
+                      −
+                    </button>
+                  `
+                : ''}
               ${this.live
                 ? html`<span class="live-badge"><span class="live-dot"></span>LIVE</span>`
                 : ''}
