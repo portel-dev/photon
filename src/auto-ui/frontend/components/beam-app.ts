@@ -1874,6 +1874,15 @@ export class BeamApp extends LitElement {
   @state() private _renderedPrompt: string = '';
   @state() private _resourceContent: string = '';
 
+  // Split view state
+  @state() private _splitViewEnabled = false;
+  @state() private _secondPanelPhoton: any = null;
+  @state() private _secondPanelMethod: any = null;
+  @state() private _secondPanelResult: any = null;
+  @state() private _secondPanelExecuting = false;
+  @state() private _secondPanelProgress: { value: number; message: string } | null = null;
+  @state() private _secondPanelFormParams: Record<string, any> = {};
+
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
 
@@ -4575,7 +4584,44 @@ ${photon.errorMessage || 'Unknown error'}</pre
       `;
     }
 
-    // Standard form mode
+    // Split view mode
+    if (this._splitViewEnabled && this._secondPanelMethod) {
+      return html`
+        <div style="display: flex; gap: 1px; height: calc(100vh - 140px); overflow: hidden;">
+          <!-- Left Panel -->
+          <div style="flex: 1; overflow-y: auto; background: var(--bg-panel);">
+            ${this._renderSinglePanel({
+              photon: this._selectedPhoton,
+              method: this._selectedMethod,
+              result: this._lastResult,
+              executing: this._isExecuting,
+              progress: this._progress,
+              formParams: this._lastFormParams,
+              onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
+              onCancel: () => this._handleBackFromMethod(),
+              panelLabel: 'Left',
+            })}
+          </div>
+
+          <!-- Right Panel -->
+          <div style="flex: 1; overflow-y: auto; background: var(--bg-panel);">
+            ${this._renderSinglePanel({
+              photon: this._secondPanelPhoton,
+              method: this._secondPanelMethod,
+              result: this._secondPanelResult,
+              executing: this._secondPanelExecuting,
+              progress: this._secondPanelProgress,
+              formParams: this._secondPanelFormParams,
+              onSubmit: (e: Event) => void this._handleSecondPanelExecute(e as CustomEvent),
+              onCancel: () => this._closeSecondPanel(),
+              panelLabel: 'Right',
+            })}
+          </div>
+        </div>
+      `;
+    }
+
+    // Standard form mode (single panel)
     return html`
       <div class="glass-panel method-detail">
         <h2>${this._selectedMethod.name}</h2>
@@ -4639,6 +4685,132 @@ ${photon.errorMessage || 'Unknown error'}</pre
             `}
       </div>
     `;
+  }
+
+  /** Render a single panel (left or right) in split view */
+  private _renderSinglePanel(opts: {
+    photon: any;
+    method: any;
+    result: any;
+    executing: boolean;
+    progress: any;
+    formParams: Record<string, any>;
+    onSubmit: (e: Event) => void;
+    onCancel: () => void;
+    panelLabel: string;
+  }) {
+    return html`
+      <div class="glass-panel method-detail" style="margin: 0; border-radius: 0; height: 100%;">
+        <h2 style="margin-top: 0;">${opts.method.name}</h2>
+        ${this._renderDescription(opts.method.description)}
+        <invoke-form
+          .params=${opts.method.params}
+          .loading=${opts.executing}
+          .photonName=${opts.photon.name}
+          .methodName=${opts.method.name}
+          .rememberValues=${this._rememberFormValues}
+          .sharedValues=${opts.formParams}
+          @submit=${opts.onSubmit}
+          @cancel=${opts.onCancel}
+        ></invoke-form>
+
+        ${opts.progress
+          ? html`
+              <div class="progress-container">
+                <div class="progress-bar-wrapper">
+                  <div
+                    class="progress-bar ${opts.progress.value < 0 ? 'indeterminate' : ''}"
+                    style="width: ${opts.progress.value < 0
+                      ? '30%'
+                      : Math.round(opts.progress.value * 100) + '%'}"
+                  ></div>
+                </div>
+                <div class="progress-text">
+                  <span>${opts.progress.message}</span>
+                </div>
+              </div>
+            `
+          : ''}
+        ${opts.result !== null
+          ? html`
+              <result-viewer
+                .result=${opts.result}
+                .outputFormat=${opts.method?.outputFormat}
+                .layoutHints=${opts.method?.layoutHints}
+                .theme=${this._theme}
+                .live=${this._currentCollectionName !== null}
+                .resultKey=${opts.photon && opts.method
+                  ? `${opts.photon.name}/${opts.method.name}`
+                  : undefined}
+                @share=${() => this._handleShareResult()}
+              ></result-viewer>
+            `
+          : html`
+              <div class="empty-state-inline result-empty">
+                <span class="empty-state-icon">${play}</span>
+                <span>Run the method to see results here</span>
+              </div>
+            `}
+      </div>
+    `;
+  }
+
+  /** Close the second panel and return to single-panel mode */
+  private _closeSecondPanel() {
+    this._splitViewEnabled = false;
+    this._secondPanelPhoton = null;
+    this._secondPanelMethod = null;
+    this._secondPanelResult = null;
+    this._secondPanelExecuting = false;
+    this._secondPanelProgress = null;
+    this._secondPanelFormParams = {};
+  }
+
+  /** Open a method in the second panel */
+  private _openInSecondPanel(photon: any, method: any) {
+    this._splitViewEnabled = true;
+    this._secondPanelPhoton = photon;
+    this._secondPanelMethod = method;
+    this._secondPanelResult = null;
+    this._secondPanelExecuting = false;
+    this._secondPanelProgress = null;
+    this._secondPanelFormParams = {};
+  }
+
+  /** Execute method in second panel */
+  private async _handleSecondPanelExecute(e: CustomEvent) {
+    const args = e.detail?.args || {};
+    this._secondPanelFormParams = args;
+
+    if (!this._secondPanelPhoton || !this._secondPanelMethod) {
+      showToast('No method selected in second panel');
+      return;
+    }
+
+    this._secondPanelExecuting = true;
+    this._secondPanelResult = null;
+    this._secondPanelProgress = null;
+
+    try {
+      const result = await mcpClient.callTool(
+        this._secondPanelPhoton.name,
+        this._secondPanelMethod.name,
+        args,
+        this._secondPanelMethod.params?.simpleParams ? undefined : undefined,
+        this._currentInstance,
+        (progress: any) => {
+          this._secondPanelProgress = progress;
+        }
+      );
+
+      this._secondPanelResult = result;
+    } catch (error: any) {
+      showToast(`Error: ${error.message}`, { type: 'error' });
+      this._secondPanelResult = { error: error.message };
+    } finally {
+      this._secondPanelExecuting = false;
+      this._secondPanelProgress = null;
+    }
   }
 
   /**
