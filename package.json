@@ -137,7 +137,8 @@
     "minimatch": "^10.2.1"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.0.0",
+    "bun": ">=1.0.0"
   },
   "repository": {
     "type": "git",
