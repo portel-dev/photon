@@ -6,7 +6,7 @@
  * No WebSocket - acts like a standard external MCP client.
  */
 
-import { getGlobalInstanceManager } from './photon-instance-manager.js';
+import { getGlobalSessionManager } from './photon-instance-manager.js';
 
 type JSONRPCMessage = {
   jsonrpc: '2.0';
@@ -1044,14 +1044,14 @@ class MCPClientService {
         break;
 
       case 'state-changed':
-        // Apply patches to global instance if it exists
+        // Apply patches to global session if it exists
         const params = notification.params as { instance?: string; patches?: any[] };
         if (params?.instance && params?.patches) {
           try {
-            const manager = getGlobalInstanceManager();
+            const manager = getGlobalSessionManager();
             manager.applyPatches(params.instance, params.patches);
           } catch (error) {
-            console.error('Failed to apply patches to instance', error);
+            console.error('Failed to apply patches to session', error);
           }
         }
         this.emit('state-changed', notification.params);

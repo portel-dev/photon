@@ -1,9 +1,9 @@
 /**
- * Global Photon Instance Manager
+ * Global Photon Session Manager
  *
- * Manages photon instances available in window scope (e.g., window.boards).
- * Instances are kept in sync with server state via state-changed events,
- * allowing UI to bind directly to global instances and receive automatic updates.
+ * Manages photon sessions available in window scope (e.g., window.boards).
+ * Sessions are kept in sync with server state via state-changed events,
+ * allowing UI to bind directly to global sessions and receive automatic updates.
  */
 
 export interface PaginationState {
@@ -14,7 +14,7 @@ export interface PaginationState {
   isLoading?: boolean;
 }
 
-export interface PhotonInstanceProxyOptions {
+export interface PhotonSessionProxyOptions {
   name: string;
   initialState: Record<string, any>;
   emitStateChanged?: boolean;
@@ -51,20 +51,20 @@ class SimpleEventEmitter {
 }
 
 /**
- * Creates a reactive proxy of a photon instance that:
+ * Creates a reactive proxy of a photon session that:
  * - Applies JSON Patch updates from server
  * - Emits events when state changes
  * - Maintains pagination tracking
- * - Allows UI to bind directly to the instance
+ * - Allows UI to bind directly to the session
  */
-export class PhotonInstanceProxy extends SimpleEventEmitter {
+export class PhotonSessionProxy extends SimpleEventEmitter {
   private _name: string;
   private _state: Record<string, any>;
   private _paginationState: Map<string, PaginationState> = new Map();
   private _pendingPatches: any[] = [];
   private _isApplyingPatches: boolean = false;
 
-  constructor(options: PhotonInstanceProxyOptions) {
+  constructor(options: PhotonSessionProxyOptions) {
     super();
     this._name = options.name;
     this._state = { ...options.initialState };
@@ -307,108 +307,118 @@ export class PhotonInstanceProxy extends SimpleEventEmitter {
 }
 
 /**
- * Global instance manager - maintains all active photon instances
+ * Global session manager - maintains all active photon sessions
  */
-export class GlobalInstanceManager {
-  private _instances: Map<string, PhotonInstanceProxy> = new Map();
+export class GlobalSessionManager {
+  private _sessions: Map<string, PhotonSessionProxy> = new Map();
 
   /**
-   * Create or get a photon instance
+   * Create or get a photon session
    */
-  createOrGetInstance(name: string, initialState: Record<string, any>): PhotonInstanceProxy {
-    if (this._instances.has(name)) {
-      return this._instances.get(name)!;
+  createOrGetSession(name: string, initialState: Record<string, any>): PhotonSessionProxy {
+    if (this._sessions.has(name)) {
+      return this._sessions.get(name)!;
     }
 
-    const instance = new PhotonInstanceProxy({
+    const session = new PhotonSessionProxy({
       name,
       initialState,
     });
 
     // Make all initial properties accessible
     Object.keys(initialState).forEach((key) => {
-      instance.makeProperty(key);
+      session.makeProperty(key);
     });
 
-    this._instances.set(name, instance);
-    return instance;
+    this._sessions.set(name, session);
+    return session;
   }
 
   /**
-   * Get existing instance
+   * Get existing session
    */
-  getInstance(name: string): PhotonInstanceProxy | undefined {
-    return this._instances.get(name);
+  getSession(name: string): PhotonSessionProxy | undefined {
+    return this._sessions.get(name);
   }
 
   /**
-   * Apply patches to an instance
+   * Apply patches to a session
    */
   applyPatches(name: string, patches: any[]): boolean {
-    const instance = this._instances.get(name);
-    if (!instance) {
-      console.warn(`No instance found for: ${name}`);
+    const session = this._sessions.get(name);
+    if (!session) {
+      console.warn(`No session found for: ${name}`);
       return false;
     }
-    instance.applyPatches(patches);
+    session.applyPatches(patches);
     return true;
   }
 
   /**
-   * Remove instance
+   * Remove session
    */
-  removeInstance(name: string): void {
-    this._instances.delete(name);
+  removeSession(name: string): void {
+    this._sessions.delete(name);
   }
 
   /**
-   * Get all instance names
+   * Get all session names
    */
-  getInstanceNames(): string[] {
-    return Array.from(this._instances.keys());
+  getSessionNames(): string[] {
+    return Array.from(this._sessions.keys());
   }
 }
 
 // Global singleton
-let globalManagerInstance: GlobalInstanceManager | null = null;
+let globalSessionManager: GlobalSessionManager | null = null;
 
 /**
- * Get or create the global instance manager
+ * Get or create the global session manager
  */
-export function getGlobalInstanceManager(): GlobalInstanceManager {
-  if (!globalManagerInstance) {
-    globalManagerInstance = new GlobalInstanceManager();
+export function getGlobalSessionManager(): GlobalSessionManager {
+  if (!globalSessionManager) {
+    globalSessionManager = new GlobalSessionManager();
     // Expose on window for debugging
     if (typeof window !== 'undefined') {
-      (window as any).__photonInstanceManager = globalManagerInstance;
+      (window as any).__photonSessionManager = globalSessionManager;
     }
   }
-  return globalManagerInstance;
+  return globalSessionManager;
 }
 
 /**
- * Initialize global photon instance with given initial state
+ * Initialize global photon session with given initial state
  * Typically called from beam-app.ts on startup
  */
-export function initializeGlobalPhotonInstance(
+export function initializeGlobalPhotonSession(
   photonName: string,
   initialState: Record<string, any>
-): PhotonInstanceProxy {
-  const manager = getGlobalInstanceManager();
-  const instance = manager.createOrGetInstance(photonName, initialState);
+): PhotonSessionProxy {
+  const manager = getGlobalSessionManager();
+  const session = manager.createOrGetSession(photonName, initialState);
 
   // Inject into window with camelCase name
   // e.g., 'boards' → window.boards
   if (typeof window !== 'undefined') {
     const varName = photonName.charAt(0).toLocaleLowerCase() + photonName.slice(1);
-    (window as any)[varName] = instance;
+    (window as any)[varName] = session;
 
     // Also expose via common aliases
     if (photonName === 'Boards') {
-      (window as any).boards = instance;
-      (window as any).boardsInstance = instance;
+      (window as any).boards = session;
+      (window as any).boardsSession = session;
     }
   }
 
-  return instance;
+  return session;
 }
+
+/**
+ * DEPRECATED: Use PhotonSessionProxy instead
+ * Kept for backward compatibility
+ */
+export type PhotonInstanceProxy = PhotonSessionProxy;
+export type PhotonInstanceProxyOptions = PhotonSessionProxyOptions;
+export type GlobalInstanceManager = GlobalSessionManager;
+export const getGlobalInstanceManager = getGlobalSessionManager;
+export const initializeGlobalPhotonInstance = initializeGlobalPhotonSession;

@@ -35,8 +35,8 @@ import {
 import type { ElicitationData } from './elicitation-modal.js';
 import { mcpClient } from '../services/mcp-client.js';
 import {
-  initializeGlobalPhotonInstance,
-  getGlobalInstanceManager,
+  initializeGlobalPhotonSession,
+  getGlobalSessionManager,
 } from '../services/photon-instance-manager.js';
 import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 import { ViewportManager, getPageSizeForClient } from '../services/viewport-manager.js';
