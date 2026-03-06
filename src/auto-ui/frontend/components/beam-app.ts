@@ -4124,6 +4124,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .overflowItems=${[]}
             .instanceSelectorMode=${this._instanceSelectorMode}
             .autoInstance=${this._autoInstance}
+            .isStateful=${this._selectedPhoton?.stateful}
+            .instanceName=${this._currentInstance}
+            .instances=${this._instances}
             @context-action=${this._handleContextAction}
           ></context-bar>
           <div
@@ -4164,6 +4167,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
           })}
           .instanceSelectorMode=${this._instanceSelectorMode}
           .autoInstance=${this._autoInstance}
+          .isStateful=${this._selectedPhoton?.stateful}
+          .instanceName=${this._currentInstance}
+          .instances=${this._instances}
           @context-action=${this._handleContextAction}
         ></context-bar>
         ${this._renderMethodContent()}
