@@ -38,6 +38,7 @@ import {
   initializeGlobalPhotonInstance,
   getGlobalInstanceManager,
 } from '../services/photon-instance-manager.js';
+import { ViewportAwareProxy } from '../services/viewport-aware-proxy.js';
 
 const THEME_STORAGE_KEY = 'beam-theme';
 const PROTOCOL_STORAGE_KEY = 'beam-protocol';
@@ -5415,15 +5416,106 @@ ${photon.errorMessage || 'Unknown error'}</pre
    * Initialize global photon instance for @stateful photons
    * Makes the photon instance available as window.{photonName}
    * and keeps it in sync with server state via state-changed patches
+   * Wraps paginated array properties with ViewportAwareProxy for smart fetching
    */
   private _initializeGlobalInstance(photonName: string, initialState: Record<string, any>): void {
     try {
+      // Detect paginated properties (those with _pagination metadata)
+      const paginatedProps = this._detectPaginatedProperties(initialState);
+
+      // Initialize global instance
       const instance = initializeGlobalPhotonInstance(photonName, initialState);
+
+      // Wrap paginated arrays with ViewportAwareProxy
+      for (const [propName, paginationMeta] of Object.entries(paginatedProps)) {
+        this._wrapWithViewportProxy(instance, propName, paginationMeta);
+      }
+
       if (this._verboseLogging) {
-        this._log('info', `📡 Global instance initialized: window.${photonName.toLowerCase()}`);
+        const message =
+          paginatedProps.size > 0
+            ? `📡 Global instance initialized with ${paginatedProps.size} paginated array(s): window.${photonName.toLowerCase()}`
+            : `📡 Global instance initialized: window.${photonName.toLowerCase()}`;
+        this._log('info', message);
       }
     } catch (error) {
       console.error('Failed to initialize global photon instance', error);
+    }
+  }
+
+  /**
+   * Detect which properties have pagination metadata
+   */
+  private _detectPaginatedProperties(initialState: Record<string, any>): Map<string, any> {
+    const paginated = new Map<string, any>();
+
+    if (!initialState || typeof initialState !== 'object') {
+      return paginated;
+    }
+
+    for (const [key, value] of Object.entries(initialState)) {
+      // Check if this property has pagination metadata
+      if (value && typeof value === 'object' && value._pagination) {
+        paginated.set(key, value._pagination);
+      }
+    }
+
+    return paginated;
+  }
+
+  /**
+   * Wrap a property with ViewportAwareProxy for smart pagination
+   */
+  private _wrapWithViewportProxy(instance: any, propertyName: string, paginationMeta: any): void {
+    try {
+      // Create viewport-aware proxy
+      const proxy = new ViewportAwareProxy(
+        this._selectedPhoton?.name || 'unknown',
+        this._selectedMethod?.name || propertyName,
+        mcpClient,
+        {
+          pageSize: 20, // Default page size
+          bufferSize: 5, // Items to buffer above/below viewport
+          maxCacheSize: 500, // Max items to keep in cache
+        }
+      );
+
+      // Initialize with current data
+      proxy.initializeWithResponse({
+        items: instance[propertyName] || [],
+        _pagination: paginationMeta,
+      });
+
+      // Replace the array property with the proxy
+      instance.makeProperty(propertyName);
+      Object.defineProperty(instance, propertyName, {
+        configurable: true,
+        enumerable: true,
+        get: () => proxy.items,
+        set: (value: any) => {
+          // Reset proxy with new data
+          proxy.clearCache();
+          proxy.initializeWithResponse({
+            items: value || [],
+            _pagination: paginationMeta,
+          });
+        },
+      });
+
+      // Listen for patches and apply to proxy
+      const patchHandler = (data: any) => {
+        if (data?.patches) {
+          proxy.applyPatches(data.patches);
+        }
+      };
+
+      instance.on('state-changed', patchHandler);
+
+      if (this._verboseLogging) {
+        this._log('info', `✨ Paginated proxy enabled for ${propertyName}`);
+      }
+    } catch (error) {
+      console.error(`Failed to wrap ${propertyName} with ViewportAwareProxy`, error);
     }
   }
 
