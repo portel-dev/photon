@@ -1,7 +1,7 @@
 /**
  * Phase 5c: Paginated List Manager
  *
- * Integrates ViewportManager and SmartFetcher with PhotonInstanceProxy
+ * Integrates ViewportManager and SmartFetcher with PhotonSessionProxy
  * to provide complete viewport-aware pagination for large datasets.
  *
  * Responsibilities:
@@ -12,13 +12,13 @@
  * - Handle multi-client synchronization
  */
 
-import { PhotonInstanceProxy } from './photon-instance-manager.js';
+import { PhotonSessionProxy } from './photon-instance-manager.js';
 import { ViewportManager } from './viewport-manager.js';
 import { SmartFetcher, type FetchRequest } from './smart-fetcher.js';
 
 export interface PaginatedListManagerOptions {
-  /** The photon instance proxy managing state */
-  instance: PhotonInstanceProxy;
+  /** The photon session proxy managing state */
+  instance: PhotonSessionProxy;
 
   /** Property name holding paginated items (e.g., 'items') */
   listProperty: string;
@@ -37,7 +37,7 @@ export interface PaginatedListManagerOptions {
  * Manages paginated list display with viewport-aware smart fetching
  */
 export class PaginatedListManager {
-  private instance: PhotonInstanceProxy;
+  private instance: PhotonSessionProxy;
   private listProperty: string;
   private viewportManager: ViewportManager;
   private smartFetcher: SmartFetcher;
