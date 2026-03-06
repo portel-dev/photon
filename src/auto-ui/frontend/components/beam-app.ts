@@ -4849,11 +4849,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelProgress = null;
 
     try {
+      const toolName = `${this._secondPanelPhoton.name}/${this._secondPanelMethod.name}`;
       const result = await mcpClient.callTool(
-        this._secondPanelPhoton.name,
-        this._secondPanelMethod.name,
+        toolName,
         args,
-        this._secondPanelMethod.params?.simpleParams ? undefined : undefined,
+        undefined,
         this._currentInstance,
         (progress: any) => {
           this._secondPanelProgress = progress;
