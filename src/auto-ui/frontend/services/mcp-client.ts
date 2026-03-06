@@ -1041,7 +1041,7 @@ class MCPClientService {
         this.emit('refresh-needed', notification.params);
         break;
 
-      case 'photon/state-changed':
+      case 'state-changed':
         this.emit('state-changed', notification.params);
         break;
 

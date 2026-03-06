@@ -4433,7 +4433,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   /**
    * Trigger instance switch via MCP elicitation (calls _use without name).
    * The transport layer shows an elicitation modal with available instances.
-   * After _use succeeds, the transport broadcasts photon/state-changed which
+   * After _use succeeds, the transport broadcasts state-changed which
    * triggers _silentRefresh() to update the result and notifies custom UIs.
    */
   private async _switchInstance() {

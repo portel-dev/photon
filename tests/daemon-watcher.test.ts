@@ -443,7 +443,7 @@ async function testCrossClientSync() {
   console.log('\nCross-Client State Sync (pub/sub):');
 
   await test('state-changed event published when tool executes', async () => {
-    // Subscribe to state-changed channel (instance-scoped: photon:instance:state-changed)
+    // Subscribe to daemon's internal state-changed channel (includes instance for routing)
     const sub = await subscribeToChannel('test-watcher:default:state-changed', 'test-watcher');
 
     // Execute a tool via a different "client"
@@ -522,7 +522,7 @@ async function testEventReplayAfterRestart() {
 
   await test('fresh subscriber (no lastEventId) gets no refresh_needed', async () => {
     // A truly fresh subscriber doesn't send lastEventId at all
-    const sub = await subscribeToChannel('test-watcher:state-changed', 'test-watcher');
+    const sub = await subscribeToChannel('test-watcher:default:state-changed', 'test-watcher');
 
     // Give time for any messages
     await new Promise((r) => setTimeout(r, 100));
