@@ -4479,24 +4479,15 @@ export class ResultViewer extends LitElement {
     }
 
     try {
-      // Dynamically import qrcode library
-      const QRCode = await import('qrcode');
-      const qrDataUrl = await QRCode.toDataURL(text, {
-        errorCorrectionLevel: 'H',
-        type: 'image/png',
-        quality: 0.95,
-        margin: 2,
-        width: 300,
-        color: {
-          dark: this.theme === 'light' ? '#000000' : '#ffffff',
-          light: this.theme === 'light' ? '#ffffff' : '#1e293b',
-        },
-      });
+      // Use QR server API for QR code generation (no dependencies required)
+      const encodedText = encodeURIComponent(text);
+      const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodedText}`;
+
       // Cache the result
-      this._qrCodeCache.set(text, qrDataUrl);
-      return qrDataUrl;
+      this._qrCodeCache.set(text, qrImageUrl);
+      return qrImageUrl;
     } catch (error) {
-      console.error('Failed to generate QR code:', error);
+      console.error('Failed to generate QR code URL:', error);
       throw error;
     }
   }
