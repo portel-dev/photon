@@ -5,6 +5,7 @@ import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
+import * as QRCode from 'qrcode';
 
 type LayoutType =
   | 'table'
@@ -30,7 +31,8 @@ type LayoutType =
   | 'tabs'
   | 'accordion'
   | 'stack'
-  | 'columns';
+  | 'columns'
+  | 'qr';
 
 interface LayoutHints {
   title?: string;
@@ -3411,6 +3413,8 @@ export class ResultViewer extends LitElement {
         return this._renderStack(filteredData);
       case 'columns':
         return this._renderColumns(filteredData);
+      case 'qr':
+        return this._renderQR(filteredData);
       case 'mermaid':
         return this._renderMermaid(filteredData);
       case 'json':
@@ -4463,6 +4467,55 @@ export class ResultViewer extends LitElement {
       data-mermaid-id="${mermaidId}"
       style="position: relative; background: ${bgColor}; border-radius: var(--radius-sm); padding: 16px; margin: 16px 0; min-height: 120px;"
     ></div>`;
+  }
+
+  private _renderQR(data: any): TemplateResult {
+    const text = String(data);
+    const containerId = `qr-container-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Generate QR code asynchronously after render
+    setTimeout(() => {
+      const container = this.shadowRoot?.getElementById(containerId);
+      if (container) {
+        QRCode.toDataURL(text, {
+          errorCorrectionLevel: 'H',
+          type: 'image/png',
+          quality: 0.95,
+          margin: 2,
+          width: 300,
+          color: {
+            dark: this.theme === 'light' ? '#000000' : '#ffffff',
+            light: this.theme === 'light' ? '#ffffff' : '#1e293b',
+          },
+        })
+          .then((qrDataUrl) => {
+            const img = document.createElement('img');
+            img.src = qrDataUrl;
+            img.alt = 'QR Code';
+            img.style.cssText =
+              'max-width: 400px; border-radius: var(--radius-md); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);';
+            container.innerHTML = '';
+            container.appendChild(img);
+
+            const label = document.createElement('div');
+            label.style.cssText =
+              'font-size: 0.875rem; color: var(--t-muted); text-align: center; word-break: break-all; max-width: 400px; margin-top: 16px;';
+            label.textContent = text;
+            container.appendChild(label);
+          })
+          .catch((error) => {
+            console.error('Failed to generate QR code:', error);
+            container.innerHTML = `<div class="empty-state">Failed to generate QR code</div>`;
+          });
+      }
+    }, 0);
+
+    return html`<div
+      id="${containerId}"
+      style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; border-radius: var(--radius-md); background: var(--bg-subtle); min-height: 320px; justify-content: center;"
+    >
+      <div style="color: var(--t-muted);">Generating QR code...</div>
+    </div>`;
   }
 
   private _renderText(data: any): TemplateResult | string {
