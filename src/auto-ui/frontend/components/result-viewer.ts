@@ -2135,7 +2135,7 @@ export class ResultViewer extends LitElement {
   private _internalResult: any = null;
 
   // QR code cache: text → data URL
-  private _qrCodeCache = new Map<string, string>();
+  @query('#qr-container') private _qrContainer?: HTMLElement;
 
   // Layout determined by UI type unwrapping in updated() — consumed once by _selectLayout()
   private _unwrappedLayout: LayoutType | null = null;
@@ -4472,57 +4472,34 @@ export class ResultViewer extends LitElement {
     ></div>`;
   }
 
-  private async _generateQRDataUrl(text: string): Promise<string> {
-    // Check cache first
-    if (this._qrCodeCache.has(text)) {
-      return this._qrCodeCache.get(text)!;
-    }
-
-    try {
-      // Use QR server API for QR code generation (no dependencies required)
-      const encodedText = encodeURIComponent(text);
-      const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodedText}`;
-
-      // Cache the result
-      this._qrCodeCache.set(text, qrImageUrl);
-      return qrImageUrl;
-    } catch (error) {
-      console.error('Failed to generate QR code URL:', error);
-      throw error;
-    }
-  }
-
   private _renderQR(data: any): TemplateResult {
     const text = String(data);
 
-    // Generate QR code asynchronously
-    this._generateQRDataUrl(text)
-      .then((qrDataUrl) => {
-        // Request update to render the cached QR code
-        this.requestUpdate();
-      })
-      .catch((error) => {
-        console.error('QR code generation error:', error);
-      });
-
-    const cached = this._qrCodeCache.get(text);
-
-    if (!cached) {
-      return html`<div
-        style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; gap: 16px; background: var(--bg-subtle); border-radius: var(--radius-md); min-height: 300px; color: var(--t-muted);"
-      >
-        <div style="font-size: 14px;">Generating QR code...</div>
-      </div>`;
-    }
+    // Schedule QR code generation after render
+    setTimeout(() => {
+      if (this._qrContainer) {
+        this._qrContainer.innerHTML = '';
+        try {
+          // Use global QRCode library from CDN
+          new (window as any).QRCode(this._qrContainer, {
+            text: text,
+            width: 300,
+            height: 300,
+            correctLevel: (window as any).QRCode?.CorrectLevel?.H,
+          });
+        } catch (error) {
+          console.error('Failed to generate QR code:', error);
+        }
+      }
+    }, 0);
 
     return html`<div
       style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; border-radius: var(--radius-md); background: var(--bg-subtle);"
     >
-      <img
-        src="${cached}"
-        alt="QR Code"
-        style="max-width: 400px; border-radius: var(--radius-md); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);"
-      />
+      <div
+        id="qr-container"
+        style="display: flex; justify-content: center; align-items: center; min-height: 320px;"
+      ></div>
       <div
         style="font-size: 0.875rem; color: var(--t-muted); text-align: center; word-break: break-all; max-width: 400px;"
       >
