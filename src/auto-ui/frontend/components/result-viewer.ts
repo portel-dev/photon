@@ -5,7 +5,6 @@ import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
-import * as QRCode from 'qrcode';
 
 type LayoutType =
   | 'table'
@@ -2135,6 +2134,9 @@ export class ResultViewer extends LitElement {
   @state()
   private _internalResult: any = null;
 
+  // QR code cache: text → data URL
+  private _qrCodeCache = new Map<string, string>();
+
   // Layout determined by UI type unwrapping in updated() — consumed once by _selectLayout()
   private _unwrappedLayout: LayoutType | null = null;
 
@@ -3174,6 +3176,7 @@ export class ResultViewer extends LitElement {
           'accordion',
           'stack',
           'columns',
+          'qr',
         ].includes(format)
       ) {
         return format as LayoutType;
@@ -4469,52 +4472,71 @@ export class ResultViewer extends LitElement {
     ></div>`;
   }
 
+  private async _generateQRDataUrl(text: string): Promise<string> {
+    // Check cache first
+    if (this._qrCodeCache.has(text)) {
+      return this._qrCodeCache.get(text)!;
+    }
+
+    try {
+      // Dynamically import qrcode library
+      const QRCode = await import('qrcode');
+      const qrDataUrl = await QRCode.toDataURL(text, {
+        errorCorrectionLevel: 'H',
+        type: 'image/png',
+        quality: 0.95,
+        margin: 2,
+        width: 300,
+        color: {
+          dark: this.theme === 'light' ? '#000000' : '#ffffff',
+          light: this.theme === 'light' ? '#ffffff' : '#1e293b',
+        },
+      });
+      // Cache the result
+      this._qrCodeCache.set(text, qrDataUrl);
+      return qrDataUrl;
+    } catch (error) {
+      console.error('Failed to generate QR code:', error);
+      throw error;
+    }
+  }
+
   private _renderQR(data: any): TemplateResult {
     const text = String(data);
-    const containerId = `qr-container-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Generate QR code asynchronously after render
-    setTimeout(() => {
-      const container = this.shadowRoot?.getElementById(containerId);
-      if (container) {
-        QRCode.toDataURL(text, {
-          errorCorrectionLevel: 'H',
-          type: 'image/png',
-          quality: 0.95,
-          margin: 2,
-          width: 300,
-          color: {
-            dark: this.theme === 'light' ? '#000000' : '#ffffff',
-            light: this.theme === 'light' ? '#ffffff' : '#1e293b',
-          },
-        })
-          .then((qrDataUrl) => {
-            const img = document.createElement('img');
-            img.src = qrDataUrl;
-            img.alt = 'QR Code';
-            img.style.cssText =
-              'max-width: 400px; border-radius: var(--radius-md); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);';
-            container.innerHTML = '';
-            container.appendChild(img);
+    // Generate QR code asynchronously
+    this._generateQRDataUrl(text)
+      .then((qrDataUrl) => {
+        // Request update to render the cached QR code
+        this.requestUpdate();
+      })
+      .catch((error) => {
+        console.error('QR code generation error:', error);
+      });
 
-            const label = document.createElement('div');
-            label.style.cssText =
-              'font-size: 0.875rem; color: var(--t-muted); text-align: center; word-break: break-all; max-width: 400px; margin-top: 16px;';
-            label.textContent = text;
-            container.appendChild(label);
-          })
-          .catch((error) => {
-            console.error('Failed to generate QR code:', error);
-            container.innerHTML = `<div class="empty-state">Failed to generate QR code</div>`;
-          });
-      }
-    }, 0);
+    const cached = this._qrCodeCache.get(text);
+
+    if (!cached) {
+      return html`<div
+        style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; gap: 16px; background: var(--bg-subtle); border-radius: var(--radius-md); min-height: 300px; color: var(--t-muted);"
+      >
+        <div style="font-size: 14px;">Generating QR code...</div>
+      </div>`;
+    }
 
     return html`<div
-      id="${containerId}"
-      style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; border-radius: var(--radius-md); background: var(--bg-subtle); min-height: 320px; justify-content: center;"
+      style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; border-radius: var(--radius-md); background: var(--bg-subtle);"
     >
-      <div style="color: var(--t-muted);">Generating QR code...</div>
+      <img
+        src="${cached}"
+        alt="QR Code"
+        style="max-width: 400px; border-radius: var(--radius-md); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);"
+      />
+      <div
+        style="font-size: 0.875rem; color: var(--t-muted); text-align: center; word-break: break-all; max-width: 400px;"
+      >
+        ${text}
+      </div>
     </div>`;
   }
 
