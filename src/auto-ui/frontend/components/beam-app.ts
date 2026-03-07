@@ -1886,6 +1886,7 @@ export class BeamApp extends LitElement {
   @state() private _secondPanelExecuting = false;
   @state() private _secondPanelProgress: { value: number; message: string } | null = null;
   @state() private _secondPanelFormParams: Record<string, any> = {};
+  @state() private _secondPanelInstance = 'default';
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -4633,6 +4634,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
               onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
               onCancel: () => this._handleBackFromMethod(),
               panelLabel: 'Left',
+              instance: this._currentInstance,
+              instances: this._instances,
+              onInstanceChange: (instance: string) => this._handleLeftPanelInstanceChange(instance),
             })}
           </div>
 
@@ -4648,6 +4652,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
               onSubmit: (e: Event) => void this._handleSecondPanelExecute(e as CustomEvent),
               onCancel: () => this._closeSecondPanel(),
               panelLabel: 'Right',
+              instance: this._secondPanelInstance,
+              instances: this._instances,
+              onInstanceChange: (instance: string) =>
+                this._handleRightPanelInstanceChange(instance),
             })}
           </div>
         </div>
@@ -4731,10 +4739,36 @@ ${photon.errorMessage || 'Unknown error'}</pre
     onSubmit: (e: Event) => void;
     onCancel: () => void;
     panelLabel: string;
+    instance?: string;
+    onInstanceChange?: (instance: string) => void;
+    instances?: string[];
   }) {
     return html`
       <div class="glass-panel method-detail" style="border-radius: 0; height: 100%;">
-        <h2>${opts.method.name}</h2>
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px;"
+        >
+          <h2 style="margin: 0; flex: 1;">${opts.method.name}</h2>
+          ${opts.instances && opts.instances.length > 0 && opts.onInstanceChange
+            ? html`
+                <select
+                  .value=${opts.instance || 'default'}
+                  @change=${(e: Event) => {
+                    const instance = (e.target as HTMLSelectElement).value;
+                    opts.onInstanceChange?.(instance);
+                  }}
+                  style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
+                >
+                  ${opts.instances.map(
+                    (inst) =>
+                      html`<option .selected=${inst === (opts.instance || 'default')} value=${inst}>
+                        ${inst}
+                      </option>`
+                  )}
+                </select>
+              `
+            : ''}
+        </div>
         ${this._renderDescription(opts.method.description)}
         <invoke-form
           .params=${opts.method.params}
@@ -4797,7 +4831,23 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelExecuting = false;
     this._secondPanelProgress = null;
     this._secondPanelFormParams = {};
+    this._secondPanelInstance = 'default';
     this._updateRoute();
+  }
+
+  /** Handle instance change for left panel */
+  private _handleLeftPanelInstanceChange(instance: string) {
+    this._currentInstance = instance;
+    sessionStorage.setItem(`photon-instance:${this._selectedPhoton.name}`, instance);
+    // Optionally reset form and result when switching instances
+    this._lastResult = null;
+  }
+
+  /** Handle instance change for right panel */
+  private _handleRightPanelInstanceChange(instance: string) {
+    this._secondPanelInstance = instance;
+    // Optionally reset result when switching instances
+    this._secondPanelResult = null;
   }
 
   /** Open a method in the second panel */
