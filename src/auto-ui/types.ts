@@ -402,7 +402,8 @@ export type UIHint =
   | 'tabs'
   | 'accordion'
   | 'stack'
-  | 'columns';
+  | 'columns'
+  | 'qr';
 
 export type ProgressType = 'spinner' | 'percentage' | 'steps';
 
