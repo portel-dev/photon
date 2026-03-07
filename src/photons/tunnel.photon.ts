@@ -1,7 +1,7 @@
 /**
  * Tunnel - Expose local servers to the internet
  * @description Multi-provider tunneling for remote access to Beam and local services
- * @internal
+ * @icon 🌐
  */
 
 import { spawn, spawnSync, execSync, ChildProcess } from 'child_process';
