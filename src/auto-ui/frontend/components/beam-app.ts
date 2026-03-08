@@ -4665,7 +4665,51 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Standard form mode (single panel)
     return html`
       <div class="glass-panel method-detail">
-        <h2>${this._selectedMethod.name}</h2>
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px;"
+        >
+          <h2 style="margin: 0; flex: 1;">${this._selectedMethod.name}</h2>
+          ${this._selectedPhoton?.stateful && this._instances && this._instances.length > 0
+            ? html`
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    style="flex-shrink: 0; color: var(--t-secondary);"
+                  >
+                    <ellipse cx="12" cy="5" rx="9" ry="3" />
+                    <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+                    <path d="M3 12a9 3 0 0 0 18 0" />
+                  </svg>
+                  <select
+                    .value=${this._currentInstance || 'default'}
+                    @change=${(e: Event) => {
+                      const instance = (e.target as HTMLSelectElement).value;
+                      this._setCurrentInstance(this._selectedPhoton.name, instance);
+                      this._lastResult = null;
+                    }}
+                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
+                  >
+                    ${this._instances.map(
+                      (inst) =>
+                        html`<option
+                          .selected=${inst === (this._currentInstance || 'default')}
+                          value=${inst}
+                        >
+                          ${inst}
+                        </option>`
+                    )}
+                  </select>
+                </div>
+              `
+            : ''}
+        </div>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
           .params=${this._selectedMethod.params}
@@ -4751,21 +4795,41 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <h2 style="margin: 0; flex: 1;">${opts.method.name}</h2>
           ${opts.instances && opts.instances.length > 0 && opts.onInstanceChange
             ? html`
-                <select
-                  .value=${opts.instance || 'default'}
-                  @change=${(e: Event) => {
-                    const instance = (e.target as HTMLSelectElement).value;
-                    opts.onInstanceChange?.(instance);
-                  }}
-                  style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
-                >
-                  ${opts.instances.map(
-                    (inst) =>
-                      html`<option .selected=${inst === (opts.instance || 'default')} value=${inst}>
-                        ${inst}
-                      </option>`
-                  )}
-                </select>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    style="flex-shrink: 0; color: var(--t-secondary);"
+                  >
+                    <ellipse cx="12" cy="5" rx="9" ry="3" />
+                    <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+                    <path d="M3 12a9 3 0 0 0 18 0" />
+                  </svg>
+                  <select
+                    .value=${opts.instance || 'default'}
+                    @change=${(e: Event) => {
+                      const instance = (e.target as HTMLSelectElement).value;
+                      opts.onInstanceChange?.(instance);
+                    }}
+                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
+                  >
+                    ${opts.instances.map(
+                      (inst) =>
+                        html`<option
+                          .selected=${inst === (opts.instance || 'default')}
+                          value=${inst}
+                        >
+                          ${inst}
+                        </option>`
+                    )}
+                  </select>
+                </div>
               `
             : ''}
         </div>
