@@ -1878,16 +1878,24 @@ export class BeamApp extends LitElement {
   @state() private _renderedPrompt: string = '';
   @state() private _resourceContent: string = '';
 
-  // Split view state
-  @state() private _splitViewEnabled = false;
-  @state() private _secondPanelPhoton: any = null;
-  @state() private _secondPanelMethod: any = null;
-  @state() private _secondPanelResult: any = null;
-  @state() private _secondPanelExecuting = false;
-  @state() private _secondPanelProgress: { value: number; message: string } | null = null;
-  @state() private _secondPanelFormParams: Record<string, any> = {};
-  @state() private _secondPanelInstance = 'default';
+  // Split view state — N-panel system (primary panel uses existing state, additional panels here)
+  @state() private _splitPanels: Array<{
+    id: string;
+    type: 'method' | 'source';
+    method?: any;
+    result?: any;
+    executing?: boolean;
+    progress?: { value: number; message: string } | null;
+    formParams?: Record<string, any>;
+    instance?: string;
+  }> = [];
   @state() private _methodPickerOpen = false;
+  @state() private _methodPickerPanelId: string | null = null;
+  private _nextPanelId = 0;
+
+  private get _splitViewEnabled() {
+    return this._splitPanels.length > 0;
+  }
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -2681,17 +2689,26 @@ export class BeamApp extends LitElement {
               this._selectedMethod = method;
               this._view = 'form';
 
-              // Handle split view if second method is in URL
+              // Handle split view if additional methods are in URL
               if (secondMethodName) {
-                const secondMethod = photon.methods.find((m: any) => m.name === secondMethodName);
-                if (secondMethod) {
-                  // Restore split view with second method
-                  this._splitViewEnabled = true;
-                  this._secondPanelPhoton = photon;
-                  this._secondPanelMethod = secondMethod;
-                  this._secondPanelResult = null;
-                  this._secondPanelExecuting = false;
-                  this._secondPanelFormParams = {};
+                // secondMethodName may contain multiple methods separated by +
+                // The URL format is /photon/method+panel1+panel2
+                // But secondMethodName is just the first extra method from URL parsing
+                // We need to restore all panels from the URL
+                const urlPath = location.pathname;
+                const methodPart = urlPath.split('/').pop() || '';
+                const methodNames = methodPart.split('+');
+                // Skip first (primary method), restore the rest as panels
+                for (let i = 1; i < methodNames.length; i++) {
+                  const name = methodNames[i];
+                  if (name === 'source') {
+                    this._addPanel('source');
+                  } else {
+                    const panelMethod = photon.methods.find((m: any) => m.name === name);
+                    if (panelMethod) {
+                      this._addPanel('method', panelMethod);
+                    }
+                  }
                 }
               }
 
@@ -2728,9 +2745,13 @@ export class BeamApp extends LitElement {
       path = '/' + this._selectedPhoton.name;
       if (this._selectedMethod) {
         path += `/${this._selectedMethod.name}`;
-        // Add second method to URL for split view: /list/get+add
-        if (this._splitViewEnabled && this._secondPanelMethod) {
-          path += `+${this._secondPanelMethod.name}`;
+        // Add split panel methods to URL: /list/get+add+remove
+        for (const panel of this._splitPanels) {
+          if (panel.type === 'method' && panel.method) {
+            path += `+${panel.method.name}`;
+          } else if (panel.type === 'source') {
+            path += `+source`;
+          }
         }
       }
     }
@@ -4619,11 +4640,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
       `;
     }
 
-    // Split view mode
-    if (this._splitViewEnabled && this._secondPanelMethod) {
+    // Split view mode — N panels
+    if (this._splitPanels.length > 0) {
       return html`
         <div style="display: flex; gap: 1px; height: 100%; overflow: hidden;">
-          <!-- Left Panel -->
+          <!-- Primary Panel -->
           <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
             ${this._renderSinglePanel({
               photon: this._selectedPhoton,
@@ -4634,39 +4655,49 @@ ${photon.errorMessage || 'Unknown error'}</pre
               formParams: this._lastFormParams,
               onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
               onCancel: () => this._handleBackFromMethod(),
-              panelLabel: 'Left',
+              panelLabel: 'Primary',
               instance: this._currentInstance,
               instances: this._instances,
               onInstanceChange: (instance: string) => this._handleLeftPanelInstanceChange(instance),
               allMethods: this._selectedPhoton?.methods || [],
               onMethodChange: (method: any) => this._handleLeftPanelMethodChange(method),
-              panelSide: 'left',
-              onPanelAction: (action: string) => this._handleLeftPanelAction(action),
+              panelSide: 'primary',
+              onPanelAction: (action: string) => this._handlePrimaryPanelAction(action),
             })}
           </div>
 
-          <!-- Right Panel -->
-          <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
-            ${this._renderSinglePanel({
-              photon: this._secondPanelPhoton,
-              method: this._secondPanelMethod,
-              result: this._secondPanelResult,
-              executing: this._secondPanelExecuting,
-              progress: this._secondPanelProgress,
-              formParams: this._secondPanelFormParams,
-              onSubmit: (e: Event) => void this._handleSecondPanelExecute(e as CustomEvent),
-              onCancel: () => this._closeSecondPanel(),
-              panelLabel: 'Right',
-              instance: this._secondPanelInstance,
-              instances: this._instances,
-              onInstanceChange: (instance: string) =>
-                this._handleRightPanelInstanceChange(instance),
-              allMethods: this._secondPanelPhoton?.methods || [],
-              onMethodChange: (method: any) => this._handleSecondPanelMethodChange(method),
-              panelSide: 'right',
-              onPanelAction: (action: string) => this._handleRightPanelAction(action),
-            })}
-          </div>
+          <!-- Additional Panels -->
+          ${this._splitPanels.map(
+            (panel) => html`
+              <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+                ${panel.type === 'method'
+                  ? this._renderSinglePanel({
+                      photon: this._selectedPhoton,
+                      method: panel.method,
+                      result: panel.result,
+                      executing: panel.executing || false,
+                      progress: panel.progress,
+                      formParams: panel.formParams || {},
+                      onSubmit: (e: Event) => {
+                        const args = (e as CustomEvent).detail?.args || {};
+                        void this._executePanelMethod(panel.id, args);
+                      },
+                      onCancel: () => this._removePanel(panel.id),
+                      panelLabel: panel.id,
+                      instance: panel.instance,
+                      instances: this._instances,
+                      onInstanceChange: (inst: string) => this._changePanelInstance(panel.id, inst),
+                      allMethods: this._selectedPhoton?.methods || [],
+                      onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
+                      panelSide: 'additional',
+                      onPanelAction: (action: string) => {
+                        if (action === 'close') this._removePanel(panel.id);
+                      },
+                    })
+                  : this._renderSourcePanel(panel.id)}
+              </div>
+            `
+          )}
         </div>
       `;
     }
@@ -4797,7 +4828,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     instances?: string[];
     allMethods?: any[];
     onMethodChange?: (method: any) => void;
-    panelSide?: 'left' | 'right';
+    panelSide?: 'primary' | 'additional';
     onPanelAction?: (action: string) => void;
   }) {
     return html`
@@ -4807,7 +4838,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       >
         <!-- Panel Header with Method & Instance Selectors -->
         <div
-          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0; position: relative;"
         >
           <!-- Method Selector -->
           <select
@@ -4870,24 +4901,29 @@ ${photon.errorMessage || 'Unknown error'}</pre
               `
             : ''}
 
-          <!-- Panel Actions: + for left panel, − for right panel -->
-          ${opts.panelSide === 'left'
+          <!-- Panel Actions: + for primary panel, × for additional panels -->
+          ${opts.panelSide === 'primary'
             ? html`
-                <button
-                  @click=${() => opts.onPanelAction?.('toggle-picker')}
-                  style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0; transition: all 0.2s ease;"
-                  title="Add method to second panel"
-                >
-                  +
-                </button>
+                <div style="position: relative; flex-shrink: 0;">
+                  <button
+                    @click=${() => opts.onPanelAction?.('toggle-picker')}
+                    style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
+                    title="Add panel"
+                  >
+                    +
+                  </button>
+                  ${this._methodPickerOpen && this._methodPickerPanelId === null
+                    ? this._renderMethodPickerPopover()
+                    : ''}
+                </div>
               `
             : html`
                 <button
                   @click=${() => opts.onPanelAction?.('close')}
                   style="padding: 4px 8px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0; transition: all 0.2s ease;"
-                  title="Close split view"
+                  title="Close panel"
                 >
-                  −
+                  ×
                 </button>
               `}
         </div>
@@ -4949,110 +4985,116 @@ ${photon.errorMessage || 'Unknown error'}</pre
     `;
   }
 
-  /** Close the second panel and return to single-panel mode */
+  /** Close all split panels and return to single-panel mode */
   private _closeSecondPanel() {
-    this._splitViewEnabled = false;
-    this._secondPanelPhoton = null;
-    this._secondPanelMethod = null;
-    this._secondPanelResult = null;
-    this._secondPanelExecuting = false;
-    this._secondPanelProgress = null;
-    this._secondPanelFormParams = {};
-    this._secondPanelInstance = 'default';
+    this._splitPanels = [];
+    this._methodPickerOpen = false;
+    this._methodPickerPanelId = null;
     this._updateRoute();
   }
 
-  /** Handle instance change for left panel */
+  /** Handle instance change for primary panel */
   private _handleLeftPanelInstanceChange(instance: string) {
     this._currentInstance = instance;
     sessionStorage.setItem(`photon-instance:${this._selectedPhoton.name}`, instance);
-    // Optionally reset form and result when switching instances
     this._lastResult = null;
   }
 
-  /** Handle instance change for right panel */
-  private _handleRightPanelInstanceChange(instance: string) {
-    this._secondPanelInstance = instance;
-    // Optionally reset result when switching instances
-    this._secondPanelResult = null;
-  }
+  /** Add a new split panel */
+  private _addPanel(type: 'method' | 'source', method?: any) {
+    if (this._splitPanels.length >= 2) return; // max 3 total (primary + 2)
+    const panel = {
+      id: `panel-${++this._nextPanelId}`,
+      type,
+      method,
+      result: null as any,
+      executing: false,
+      progress: null as { value: number; message: string } | null,
+      formParams: {} as Record<string, any>,
+      instance: this._currentInstance || 'default',
+    };
+    this._splitPanels = [...this._splitPanels, panel];
 
-  /** Open a method in the second panel */
-  private _openInSecondPanel(photon: any, method: any) {
-    this._splitViewEnabled = true;
-    this._secondPanelPhoton = photon;
-    this._secondPanelMethod = method;
-    this._secondPanelResult = null;
-    this._secondPanelExecuting = false;
-    this._secondPanelProgress = null;
-    this._secondPanelFormParams = {};
+    // Auto-execute zero-param methods
+    if (type === 'method' && method && this._willAutoInvoke(method)) {
+      void this._executePanelMethod(panel.id, {});
+    }
+    this._methodPickerOpen = false;
+    this._methodPickerPanelId = null;
     this._updateRoute();
-
-    // Auto-execute if method has no parameters
-    if (this._willAutoInvoke(method)) {
-      void this._handleSecondPanelExecute(new CustomEvent('execute', { detail: { args: {} } }));
-    }
   }
 
-  /** Show method picker to select which method to open in split view */
-  private _showMethodPicker() {
-    if (!this._selectedPhoton?.methods) return;
-
-    const methods = this._getVisibleMethods();
-    if (methods.length === 0) {
-      showToast('No methods available');
-      return;
-    }
-
-    // Simple approach: show a native select or alert
-    // For now, just open the first different method
-    const otherMethods = methods.filter((m: any) => m.name !== this._selectedMethod.name);
-    if (otherMethods.length === 0) {
-      showToast('No other methods available', { type: 'info' });
-      return;
-    }
-
-    // Open first other method in split view
-    this._openInSecondPanel(this._selectedPhoton, otherMethods[0]);
+  /** Remove a split panel by id */
+  private _removePanel(panelId: string) {
+    this._splitPanels = this._splitPanels.filter((p) => p.id !== panelId);
+    this._updateRoute();
   }
 
-  /** Execute method in second panel */
-  private async _handleSecondPanelExecute(e: CustomEvent) {
-    const args = e.detail?.args || {};
-    this._secondPanelFormParams = args;
+  /** Update a split panel's state */
+  private _updatePanel(panelId: string, updates: Partial<(typeof this._splitPanels)[0]>) {
+    this._splitPanels = this._splitPanels.map((p) => (p.id === panelId ? { ...p, ...updates } : p));
+  }
 
-    if (!this._secondPanelPhoton || !this._secondPanelMethod) {
-      showToast('No method selected in second panel');
-      return;
-    }
+  /** Execute a method in a split panel */
+  private async _executePanelMethod(panelId: string, args: Record<string, any>) {
+    const panel = this._splitPanels.find((p) => p.id === panelId);
+    if (!panel || panel.type !== 'method' || !panel.method) return;
 
-    this._secondPanelExecuting = true;
-    this._secondPanelResult = null;
-    this._secondPanelProgress = null;
+    this._updatePanel(panelId, { executing: true, result: null, progress: null, formParams: args });
 
     try {
-      const toolName = `${this._secondPanelPhoton.name}/${this._secondPanelMethod.name}`;
+      const toolName = `${this._selectedPhoton.name}/${panel.method.name}`;
       const result = await mcpClient.callTool(
         toolName,
         args,
         undefined,
-        this._currentInstance,
+        panel.instance || this._currentInstance,
         (progress: any) => {
-          this._secondPanelProgress = progress;
+          this._updatePanel(panelId, { progress });
         }
       );
 
-      this._secondPanelResult = mcpClient.parseToolResult(result);
+      this._updatePanel(panelId, {
+        result: mcpClient.parseToolResult(result),
+        executing: false,
+        progress: null,
+      });
     } catch (error: any) {
       showToast(`Error: ${error.message}`, { type: 'error' });
-      this._secondPanelResult = { error: error.message };
-    } finally {
-      this._secondPanelExecuting = false;
-      this._secondPanelProgress = null;
+      this._updatePanel(panelId, {
+        result: { error: error.message },
+        executing: false,
+        progress: null,
+      });
     }
   }
 
-  /** Handle method change in left panel */
+  /** Change the method in a split panel */
+  private _changePanelMethod(panelId: string, method: any) {
+    this._updatePanel(panelId, { method, result: null, formParams: {} });
+    if (this._willAutoInvoke(method)) {
+      void this._executePanelMethod(panelId, {});
+    }
+    this._updateRoute();
+  }
+
+  /** Change the instance in a split panel */
+  private _changePanelInstance(panelId: string, instance: string) {
+    this._updatePanel(panelId, { instance, result: null });
+  }
+
+  /** Open a method in a new split panel (backwards-compatible entry point) */
+  private _openInSecondPanel(photon: any, method: any) {
+    this._addPanel('method', method);
+  }
+
+  /** Show method picker popover */
+  private _showMethodPicker() {
+    this._methodPickerOpen = !this._methodPickerOpen;
+    this._methodPickerPanelId = null; // picker for adding new panel
+  }
+
+  /** Handle method change in primary panel */
   private _handleLeftPanelMethodChange(method: any) {
     this._selectedMethod = method;
     this._lastResult = null;
@@ -5060,30 +5102,109 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._updateRoute();
   }
 
-  /** Handle panel action (toggle picker or close) in left panel */
-  private _handleLeftPanelAction(action: string) {
+  /** Handle panel action for primary panel */
+  private _handlePrimaryPanelAction(action: string) {
     if (action === 'toggle-picker') {
       this._methodPickerOpen = !this._methodPickerOpen;
+      this._methodPickerPanelId = null;
     }
   }
 
-  /** Handle method change in right panel */
-  private _handleSecondPanelMethodChange(method: any) {
-    this._secondPanelMethod = method;
-    this._secondPanelResult = null;
-    this._secondPanelFormParams = {};
-
-    // Auto-execute if method has no parameters
-    if (this._willAutoInvoke(method)) {
-      void this._handleSecondPanelExecute(new CustomEvent('execute', { detail: { args: {} } }));
-    }
+  /** Render source panel for split view */
+  private _renderSourcePanel(panelId: string) {
+    return html`
+      <div
+        class="glass-panel method-detail"
+        style="border-radius: 0; height: 100%; display: flex; flex-direction: column;"
+      >
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
+        >
+          <span style="font-size: 12px; font-weight: 500; color: var(--t-secondary);"
+            >&lt;/&gt; Source</span
+          >
+          <button
+            @click=${() => this._removePanel(panelId)}
+            style="padding: 4px 8px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0;"
+          >
+            ×
+          </button>
+        </div>
+        <div style="flex: 1; min-height: 0; overflow: hidden;">
+          <photon-studio
+            .photonName=${this._selectedPhoton?.name}
+            .theme=${this._theme}
+            @studio-saved=${() => (this as any)._handleStudioSaved?.()}
+          ></photon-studio>
+        </div>
+      </div>
+    `;
   }
 
-  /** Handle panel action (close) in right panel */
-  private _handleRightPanelAction(action: string) {
-    if (action === 'close') {
-      this._closeSecondPanel();
+  /** Render the method picker popover for adding new panels */
+  private _renderMethodPickerPopover() {
+    const methods = this._getVisibleMethods();
+    // Filter out methods already open (primary + panels)
+    const openMethodNames = new Set<string>();
+    if (this._selectedMethod) openMethodNames.add(this._selectedMethod.name);
+    for (const p of this._splitPanels) {
+      if (p.type === 'method' && p.method) openMethodNames.add(p.method.name);
     }
+    const availableMethods = methods.filter((m: any) => !openMethodNames.has(m.name));
+    const hasSourcePanel = this._splitPanels.some((p) => p.type === 'source');
+    const canAddMore = this._splitPanels.length < 2;
+
+    if (!canAddMore) return '';
+
+    return html`
+      <div
+        @click=${(e: Event) => {
+          e.stopPropagation();
+          this._methodPickerOpen = false;
+        }}
+        style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99;"
+      ></div>
+      <div
+        style="position: absolute; top: 100%; right: 0; z-index: 100; min-width: 180px; max-height: 300px; overflow-y: auto; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); backdrop-filter: blur(20px); margin-top: 4px;"
+      >
+        ${availableMethods.length > 0
+          ? availableMethods.map(
+              (m: any) => html`
+                <div
+                  @click=${() => this._addPanel('method', m)}
+                  style="padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--t-primary); border-bottom: 1px solid var(--border-glass); transition: background 0.15s ease;"
+                  @mouseenter=${(e: Event) =>
+                    ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
+                  @mouseleave=${(e: Event) =>
+                    ((e.target as HTMLElement).style.background = 'transparent')}
+                >
+                  ${m.name}
+                </div>
+              `
+            )
+          : html`
+              <div
+                style="padding: 8px 12px; font-size: 12px; color: var(--t-tertiary); font-style: italic;"
+              >
+                All methods open
+              </div>
+            `}
+        ${!hasSourcePanel
+          ? html`
+              <div
+                @click=${() => this._addPanel('source')}
+                style="padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--accent-primary); border-top: 1px solid var(--border-glass); transition: background 0.15s ease;"
+                @mouseenter=${(e: Event) =>
+                  ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
+                @mouseleave=${(e: Event) =>
+                  ((e.target as HTMLElement).style.background = 'transparent')}
+              >
+                &lt;/&gt; Source Editor
+              </div>
+            `
+          : ''}
+      </div>
+    `;
   }
 
   /**
@@ -7241,10 +7362,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         break;
       case 'split-view:change': {
         const method = this._selectedPhoton?.methods?.find((m: any) => m.name === e.detail.method);
-        if (method) {
-          this._secondPanelMethod = method;
-          this._secondPanelResult = null;
-          this._updateRoute();
+        if (method && this._splitPanels.length > 0) {
+          this._changePanelMethod(this._splitPanels[0].id, method);
         }
         break;
       }
