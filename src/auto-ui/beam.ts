@@ -296,7 +296,7 @@ async function handleIconPng(url) {
 
   try {
     // Fetch the icon from the server (may be SVG, PNG, JPEG, etc.)
-    const iconRes = await fetch('/api/pwa/icon?photon=' + encodeURIComponent(photon));
+    const iconRes = await fetch('/api/pwa/icon?photon=' + encodeURIComponent(photon), { signal: AbortSignal.timeout(10000) });
     if (!iconRes.ok) throw new Error('Icon fetch failed: ' + iconRes.status);
 
     const contentType = (iconRes.headers.get('Content-Type') || '').toLowerCase();
@@ -1286,24 +1286,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         let bridgeMethod = 'main';
 
         // Try class-level @ui first
-        let templateRes = await fetch(templateUrl);
+        let templateRes = await fetch(templateUrl, { signal: AbortSignal.timeout(10000) });
         if (!templateRes.ok) {
           // Fall back: query diagnostics for this photon's appEntry linkedUi
-          const diagRes = await fetch('/api/diagnostics');
+          const diagRes = await fetch('/api/diagnostics', { signal: AbortSignal.timeout(10000) });
           if (diagRes.ok) {
             const diag = await diagRes.json();
             const photonInfo = (diag.photons || []).find(function(p) { return p.name === PHOTON; });
             if (photonInfo && photonInfo.appEntry && photonInfo.appEntry.linkedUi) {
               templateUrl = '/api/ui?photon=' + encodeURIComponent(PHOTON) + '&id=' + encodeURIComponent(photonInfo.appEntry.linkedUi);
               bridgeMethod = photonInfo.appEntry.name || 'main';
-              templateRes = await fetch(templateUrl);
+              templateRes = await fetch(templateUrl, { signal: AbortSignal.timeout(10000) });
             }
           }
           if (!templateRes.ok) throw new Error('Template not available');
         }
 
         // Step 2: Fetch platform bridge script
-        const bridgeRes = await fetch('/api/platform-bridge?photon=' + encodeURIComponent(PHOTON) + '&method=' + encodeURIComponent(bridgeMethod) + '&theme=dark');
+        const bridgeRes = await fetch('/api/platform-bridge?photon=' + encodeURIComponent(PHOTON) + '&method=' + encodeURIComponent(bridgeMethod) + '&theme=dark', { signal: AbortSignal.timeout(10000) });
 
         let templateHtml = await templateRes.text();
         const bridgeScript = bridgeRes.ok ? await bridgeRes.text() : '';
@@ -1470,6 +1470,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         var initRes = await fetch('/mcp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(10000),
           body: JSON.stringify({
             jsonrpc: '2.0', id: 1, method: 'initialize',
             params: {
