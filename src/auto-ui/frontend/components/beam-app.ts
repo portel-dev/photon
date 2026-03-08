@@ -4116,7 +4116,100 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
         // App-first layout for app main methods
         if (isAppMain) {
+          // Split view: app on one side, additional panels on the other
+          if (this._splitPanels.length > 0) {
+            return html`
+              <div style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden;">
+                <!-- App Panel (primary) -->
+                <div
+                  style="flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;"
+                >
+                  <div
+                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass); flex-shrink: 0;"
+                  >
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 14px;"
+                        >${this._selectedPhoton.appEntry?.icon || '📱'}</span
+                      >
+                      <span style="font-size: 12px; font-weight: 500; color: var(--t-primary);"
+                        >${this._selectedPhoton.name}</span
+                      >
+                    </div>
+                    <div style="position: relative; flex-shrink: 0;">
+                      <button
+                        @click=${() => {
+                          this._methodPickerOpen = !this._methodPickerOpen;
+                          this._methodPickerPanelId = null;
+                        }}
+                        style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
+                        title="Add panel"
+                      >
+                        +
+                      </button>
+                      ${this._methodPickerOpen && this._methodPickerPanelId === null
+                        ? this._renderMethodPickerPopover()
+                        : ''}
+                    </div>
+                  </div>
+                  <div style="flex: 1; min-height: 0; overflow: hidden;">${appRenderer}</div>
+                </div>
+
+                <!-- Additional Panels -->
+                ${this._splitPanels.map(
+                  (panel) => html`
+                    <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+                      ${panel.type === 'method'
+                        ? this._renderSinglePanel({
+                            photon: this._selectedPhoton,
+                            method: panel.method,
+                            result: panel.result,
+                            executing: panel.executing || false,
+                            progress: panel.progress,
+                            formParams: panel.formParams || {},
+                            onSubmit: (e: Event) => {
+                              const args = (e as CustomEvent).detail?.args || {};
+                              void this._executePanelMethod(panel.id, args);
+                            },
+                            onCancel: () => this._removePanel(panel.id),
+                            panelLabel: panel.id,
+                            instance: panel.instance,
+                            instances: this._instances,
+                            onInstanceChange: (inst: string) =>
+                              this._changePanelInstance(panel.id, inst),
+                            allMethods: this._selectedPhoton?.methods || [],
+                            onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
+                            panelSide: 'additional',
+                            onPanelAction: (action: string) => {
+                              if (action === 'close') this._removePanel(panel.id);
+                            },
+                          })
+                        : this._renderSourcePanel(panel.id)}
+                    </div>
+                  `
+                )}
+              </div>
+            `;
+          }
+
           return html`
+            <!-- Floating add-panel button for app view -->
+            <div style="position: relative;">
+              <div style="position: absolute; top: 8px; right: 8px; z-index: 50;">
+                <button
+                  @click=${() => {
+                    this._methodPickerOpen = !this._methodPickerOpen;
+                    this._methodPickerPanelId = null;
+                  }}
+                  style="padding: 4px 8px; background: var(--bg-glass); color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease; backdrop-filter: blur(8px);"
+                  title="Add panel"
+                >
+                  +
+                </button>
+                ${this._methodPickerOpen && this._methodPickerPanelId === null
+                  ? this._renderMethodPickerPopover()
+                  : ''}
+              </div>
+            </div>
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
@@ -4166,6 +4259,76 @@ ${photon.errorMessage || 'Unknown error'}</pre
           `;
         }
 
+        // Non-app linked UI — split view support
+        if (this._splitPanels.length > 0) {
+          return html`
+            <div style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden;">
+              <!-- Linked UI Panel (primary) -->
+              <div
+                style="flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;"
+              >
+                <div
+                  style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass); flex-shrink: 0;"
+                >
+                  <span style="font-size: 12px; font-weight: 500; color: var(--t-primary);"
+                    >${this._selectedMethod.name}</span
+                  >
+                  <div style="position: relative; flex-shrink: 0;">
+                    <button
+                      @click=${() => {
+                        this._methodPickerOpen = !this._methodPickerOpen;
+                        this._methodPickerPanelId = null;
+                      }}
+                      style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
+                      title="Add panel"
+                    >
+                      +
+                    </button>
+                    ${this._methodPickerOpen && this._methodPickerPanelId === null
+                      ? this._renderMethodPickerPopover()
+                      : ''}
+                  </div>
+                </div>
+                <div style="flex: 1; min-height: 0; overflow: hidden;">${appRenderer}</div>
+              </div>
+
+              <!-- Additional Panels -->
+              ${this._splitPanels.map(
+                (panel) => html`
+                  <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+                    ${panel.type === 'method'
+                      ? this._renderSinglePanel({
+                          photon: this._selectedPhoton,
+                          method: panel.method,
+                          result: panel.result,
+                          executing: panel.executing || false,
+                          progress: panel.progress,
+                          formParams: panel.formParams || {},
+                          onSubmit: (e: Event) => {
+                            const args = (e as CustomEvent).detail?.args || {};
+                            void this._executePanelMethod(panel.id, args);
+                          },
+                          onCancel: () => this._removePanel(panel.id),
+                          panelLabel: panel.id,
+                          instance: panel.instance,
+                          instances: this._instances,
+                          onInstanceChange: (inst: string) =>
+                            this._changePanelInstance(panel.id, inst),
+                          allMethods: this._selectedPhoton?.methods || [],
+                          onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
+                          panelSide: 'additional',
+                          onPanelAction: (action: string) => {
+                            if (action === 'close') this._removePanel(panel.id);
+                          },
+                        })
+                      : this._renderSourcePanel(panel.id)}
+                  </div>
+                `
+              )}
+            </div>
+          `;
+        }
+
         // Non-app linked UI — use breadcrumb context bar
         return html`
           <context-bar
@@ -4192,11 +4355,28 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .instances=${this._instances}
             @context-action=${this._handleContextAction}
           ></context-bar>
-          <div
-            class="glass-panel"
-            style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); margin-top: var(--space-md);"
-          >
-            ${appRenderer}
+          <div style="position: relative;">
+            <div style="position: absolute; top: 16px; right: 16px; z-index: 50;">
+              <button
+                @click=${() => {
+                  this._methodPickerOpen = !this._methodPickerOpen;
+                  this._methodPickerPanelId = null;
+                }}
+                style="padding: 4px 8px; background: var(--bg-glass); color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease; backdrop-filter: blur(8px);"
+                title="Add panel"
+              >
+                +
+              </button>
+              ${this._methodPickerOpen && this._methodPickerPanelId === null
+                ? this._renderMethodPickerPopover()
+                : ''}
+            </div>
+            <div
+              class="glass-panel"
+              style="padding: 0; overflow: hidden; min-height: calc(100vh - 80px); margin-top: var(--space-md);"
+            >
+              ${appRenderer}
+            </div>
           </div>
         `;
       }
@@ -4749,6 +4929,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 </div>
               `
             : ''}
+          <!-- Add panel button (enters split view) -->
+          <div style="position: relative; flex-shrink: 0;">
+            <button
+              @click=${() => {
+                this._methodPickerOpen = !this._methodPickerOpen;
+                this._methodPickerPanelId = null;
+              }}
+              style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
+              title="Add panel"
+            >
+              +
+            </button>
+            ${this._methodPickerOpen && this._methodPickerPanelId === null
+              ? this._renderMethodPickerPopover()
+              : ''}
+          </div>
         </div>
         ${this._renderDescription(this._selectedMethod.description)}
         <invoke-form
