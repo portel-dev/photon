@@ -1887,6 +1887,7 @@ export class BeamApp extends LitElement {
   @state() private _secondPanelProgress: { value: number; message: string } | null = null;
   @state() private _secondPanelFormParams: Record<string, any> = {};
   @state() private _secondPanelInstance = 'default';
+  @state() private _methodPickerOpen = false;
 
   @query('beam-sidebar')
   private _sidebar!: BeamSidebar;
@@ -3294,7 +3295,13 @@ export class BeamApp extends LitElement {
         ></beam-sidebar>
       </nav>
 
-      <main class="main-area" id="main-content" tabindex="-1" aria-label="Main content">
+      <main
+        class="main-area"
+        id="main-content"
+        tabindex="-1"
+        aria-label="Main content"
+        style="${this._splitViewEnabled ? 'overflow: hidden !important;' : ''}"
+      >
         ${this._selectedPhoton
           ? html`<button
               class="beam-fullscreen-btn"
@@ -4193,12 +4200,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
           .showEdit=${false}
           .showConfigure=${false}
           .showCopyConfig=${false}
-          .showSplitViewButton=${this._selectedPhoton?.methods &&
-          this._selectedPhoton.methods.length > 1 &&
-          !this._splitViewEnabled}
-          .showSplitViewDropdown=${this._splitViewEnabled && this._secondPanelMethod}
-          .splitViewMethods=${this._selectedPhoton?.methods || []}
-          .splitViewSelectedMethod=${this._secondPanelMethod}
           .overflowItems=${this._buildOverflowItems({
             showRefresh: !isExternalMCP,
             showRename: false,
@@ -4621,9 +4622,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Split view mode
     if (this._splitViewEnabled && this._secondPanelMethod) {
       return html`
-        <div style="display: flex; gap: 1px; height: calc(100vh - 140px); overflow: hidden;">
+        <div style="display: flex; gap: 1px; height: 100%; overflow: hidden;">
           <!-- Left Panel -->
-          <div style="flex: 1; overflow-y: auto; background: var(--bg-panel);">
+          <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
             ${this._renderSinglePanel({
               photon: this._selectedPhoton,
               method: this._selectedMethod,
@@ -4637,11 +4638,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
               instance: this._currentInstance,
               instances: this._instances,
               onInstanceChange: (instance: string) => this._handleLeftPanelInstanceChange(instance),
+              allMethods: this._selectedPhoton?.methods || [],
+              onMethodChange: (method: any) => this._handleLeftPanelMethodChange(method),
+              panelSide: 'left',
+              onPanelAction: (action: string) => this._handleLeftPanelAction(action),
             })}
           </div>
 
           <!-- Right Panel -->
-          <div style="flex: 1; overflow-y: auto; background: var(--bg-panel);">
+          <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
             ${this._renderSinglePanel({
               photon: this._secondPanelPhoton,
               method: this._secondPanelMethod,
@@ -4656,6 +4661,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
               instances: this._instances,
               onInstanceChange: (instance: string) =>
                 this._handleRightPanelInstanceChange(instance),
+              allMethods: this._secondPanelPhoton?.methods || [],
+              onMethodChange: (method: any) => this._handleSecondPanelMethodChange(method),
+              panelSide: 'right',
+              onPanelAction: (action: string) => this._handleRightPanelAction(action),
             })}
           </div>
         </div>
@@ -4786,16 +4795,44 @@ ${photon.errorMessage || 'Unknown error'}</pre
     instance?: string;
     onInstanceChange?: (instance: string) => void;
     instances?: string[];
+    allMethods?: any[];
+    onMethodChange?: (method: any) => void;
+    panelSide?: 'left' | 'right';
+    onPanelAction?: (action: string) => void;
   }) {
     return html`
-      <div class="glass-panel method-detail" style="border-radius: 0; height: 100%;">
+      <div
+        class="glass-panel method-detail"
+        style="border-radius: 0; height: 100%; display: flex; flex-direction: column;"
+      >
+        <!-- Panel Header with Method & Instance Selectors -->
         <div
-          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px;"
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
         >
-          <h2 style="margin: 0; flex: 1;">${opts.method.name}</h2>
+          <!-- Method Selector -->
+          <select
+            .value=${opts.method.name}
+            @change=${(e: Event) => {
+              const methodName = (e.target as HTMLSelectElement).value;
+              const method = opts.allMethods?.find((m: any) => m.name === methodName);
+              if (method && opts.onMethodChange) {
+                opts.onMethodChange(method);
+              }
+            }}
+            style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 12px; font-weight: 500; flex-shrink: 0;"
+          >
+            ${opts.allMethods?.map(
+              (m: any) =>
+                html`<option .selected=${m.name === opts.method.name} value=${m.name}>
+                  ${m.name}
+                </option>`
+            ) || html`<option value=${opts.method.name}>${opts.method.name}</option>`}
+          </select>
+
+          <!-- Instance Selector -->
           ${opts.instances && opts.instances.length > 0 && opts.onInstanceChange
             ? html`
-                <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                   <svg
                     width="14"
                     height="14"
@@ -4817,7 +4854,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                       const instance = (e.target as HTMLSelectElement).value;
                       opts.onInstanceChange?.(instance);
                     }}
-                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
+                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 12px; font-weight: 500; flex-shrink: 0;"
                   >
                     ${opts.instances.map(
                       (inst) =>
@@ -4832,56 +4869,82 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 </div>
               `
             : ''}
-        </div>
-        ${this._renderDescription(opts.method.description)}
-        <invoke-form
-          .params=${opts.method.params}
-          .loading=${opts.executing}
-          .photonName=${opts.photon.name}
-          .methodName=${opts.method.name}
-          .rememberValues=${this._rememberFormValues}
-          .sharedValues=${opts.formParams}
-          @submit=${opts.onSubmit}
-          @cancel=${opts.onCancel}
-        ></invoke-form>
 
-        ${opts.progress
-          ? html`
-              <div class="progress-container">
-                <div class="progress-bar-wrapper">
-                  <div
-                    class="progress-bar ${opts.progress.value < 0 ? 'indeterminate' : ''}"
-                    style="width: ${opts.progress.value < 0
-                      ? '30%'
-                      : Math.round(opts.progress.value * 100) + '%'}"
-                  ></div>
+          <!-- Panel Actions: + for left panel, − for right panel -->
+          ${opts.panelSide === 'left'
+            ? html`
+                <button
+                  @click=${() => opts.onPanelAction?.('toggle-picker')}
+                  style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0; transition: all 0.2s ease;"
+                  title="Add method to second panel"
+                >
+                  +
+                </button>
+              `
+            : html`
+                <button
+                  @click=${() => opts.onPanelAction?.('close')}
+                  style="padding: 4px 8px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0; transition: all 0.2s ease;"
+                  title="Close split view"
+                >
+                  −
+                </button>
+              `}
+        </div>
+        <!-- Panel Content (scrollable) -->
+        <div
+          style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;"
+        >
+          ${this._renderDescription(opts.method.description)}
+          <invoke-form
+            .params=${opts.method.params}
+            .loading=${opts.executing}
+            .photonName=${opts.photon.name}
+            .methodName=${opts.method.name}
+            .rememberValues=${this._rememberFormValues}
+            .sharedValues=${opts.formParams}
+            @submit=${opts.onSubmit}
+            @cancel=${opts.onCancel}
+          ></invoke-form>
+
+          ${opts.progress
+            ? html`
+                <div class="progress-container">
+                  <div class="progress-bar-wrapper">
+                    <div
+                      class="progress-bar ${opts.progress.value < 0 ? 'indeterminate' : ''}"
+                      style="width: ${opts.progress.value < 0
+                        ? '30%'
+                        : Math.round(opts.progress.value * 100) + '%'}"
+                    ></div>
+                  </div>
+                  <div class="progress-text">
+                    <span>${opts.progress.message}</span>
+                  </div>
                 </div>
-                <div class="progress-text">
-                  <span>${opts.progress.message}</span>
+              `
+            : ''}
+          ${opts.result !== null
+            ? html`
+                <result-viewer
+                  .result=${opts.result}
+                  .outputFormat=${opts.method?.outputFormat}
+                  .layoutHints=${opts.method?.layoutHints}
+                  .theme=${this._theme}
+                  .live=${this._currentCollectionName !== null}
+                  .resultKey=${opts.photon && opts.method
+                    ? `${opts.photon.name}/${opts.method.name}`
+                    : undefined}
+                  @share=${() => this._handleShareResult()}
+                ></result-viewer>
+              `
+            : html`
+                <div class="empty-state-inline result-empty">
+                  <span class="empty-state-icon">${play}</span>
+                  <span>Run the method to see results here</span>
                 </div>
-              </div>
-            `
-          : ''}
-        ${opts.result !== null
-          ? html`
-              <result-viewer
-                .result=${opts.result}
-                .outputFormat=${opts.method?.outputFormat}
-                .layoutHints=${opts.method?.layoutHints}
-                .theme=${this._theme}
-                .live=${this._currentCollectionName !== null}
-                .resultKey=${opts.photon && opts.method
-                  ? `${opts.photon.name}/${opts.method.name}`
-                  : undefined}
-                @share=${() => this._handleShareResult()}
-              ></result-viewer>
-            `
-          : html`
-              <div class="empty-state-inline result-empty">
-                <span class="empty-state-icon">${play}</span>
-                <span>Run the method to see results here</span>
-              </div>
-            `}
+              `}
+        </div>
       </div>
     `;
   }
@@ -4924,6 +4987,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._secondPanelProgress = null;
     this._secondPanelFormParams = {};
     this._updateRoute();
+
+    // Auto-execute if method has no parameters
+    if (this._willAutoInvoke(method)) {
+      void this._handleSecondPanelExecute(new CustomEvent('execute', { detail: { args: {} } }));
+    }
   }
 
   /** Show method picker to select which method to open in split view */
@@ -4981,6 +5049,40 @@ ${photon.errorMessage || 'Unknown error'}</pre
     } finally {
       this._secondPanelExecuting = false;
       this._secondPanelProgress = null;
+    }
+  }
+
+  /** Handle method change in left panel */
+  private _handleLeftPanelMethodChange(method: any) {
+    this._selectedMethod = method;
+    this._lastResult = null;
+    this._lastFormParams = {};
+    this._updateRoute();
+  }
+
+  /** Handle panel action (toggle picker or close) in left panel */
+  private _handleLeftPanelAction(action: string) {
+    if (action === 'toggle-picker') {
+      this._methodPickerOpen = !this._methodPickerOpen;
+    }
+  }
+
+  /** Handle method change in right panel */
+  private _handleSecondPanelMethodChange(method: any) {
+    this._secondPanelMethod = method;
+    this._secondPanelResult = null;
+    this._secondPanelFormParams = {};
+
+    // Auto-execute if method has no parameters
+    if (this._willAutoInvoke(method)) {
+      void this._handleSecondPanelExecute(new CustomEvent('execute', { detail: { args: {} } }));
+    }
+  }
+
+  /** Handle panel action (close) in right panel */
+  private _handleRightPanelAction(action: string) {
+    if (action === 'close') {
+      this._closeSecondPanel();
     }
   }
 
