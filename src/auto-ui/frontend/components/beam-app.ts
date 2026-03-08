@@ -211,6 +211,10 @@ export class BeamApp extends LitElement {
         display: none;
       }
 
+      :host(.focus-mode) .main-area {
+        padding: var(--space-sm);
+      }
+
       .main-area {
         flex: 1;
         position: relative;
@@ -2635,6 +2639,11 @@ export class BeamApp extends LitElement {
           }
         }
       }
+
+      // Reset picker and split panels on any route change
+      this._methodPickerOpen = false;
+      this._methodPickerPanelId = null;
+      this._splitPanels = [];
 
       if (!photonName || photonName === 'home') {
         this._selectedPhoton = null;
@@ -5379,6 +5388,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
     if (form?.isDirty && !confirm('You have unsaved changes. Discard them?')) {
       return;
     }
+    // Close all split panels when navigating back
+    this._closeSecondPanel();
     if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
       // For Apps, go back to the main Custom UI and scroll to methods
       this._selectedMethod = this._selectedPhoton.appEntry;
