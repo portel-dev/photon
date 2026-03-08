@@ -4120,69 +4120,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
           if (this._splitPanels.length > 0) {
             return html`
               <div style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden;">
-                <!-- App Panel (primary) -->
-                <div
-                  style="flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;"
-                >
-                  <div
-                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass); flex-shrink: 0;"
-                  >
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <span style="font-size: 14px;"
-                        >${this._selectedPhoton.appEntry?.icon || '📱'}</span
-                      >
-                      <span style="font-size: 12px; font-weight: 500; color: var(--t-primary);"
-                        >${this._selectedPhoton.name}</span
-                      >
-                    </div>
-                    <div style="position: relative; flex-shrink: 0;">
-                      <button
-                        @click=${() => {
-                          this._methodPickerOpen = !this._methodPickerOpen;
-                          this._methodPickerPanelId = null;
-                        }}
-                        style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
-                        title="Add panel"
-                      >
-                        +
-                      </button>
-                      ${this._methodPickerOpen && this._methodPickerPanelId === null
-                        ? this._renderMethodPickerPopover()
-                        : ''}
-                    </div>
-                  </div>
-                  <div style="flex: 1; min-height: 0; overflow: hidden;">${appRenderer}</div>
-                </div>
+                <!-- App Panel (primary) — no title bar, app has its own chrome -->
+                <div style="flex: 1; min-height: 0; overflow: hidden;">${appRenderer}</div>
 
                 <!-- Additional Panels -->
                 ${this._splitPanels.map(
                   (panel) => html`
                     <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
                       ${panel.type === 'method'
-                        ? this._renderSinglePanel({
-                            photon: this._selectedPhoton,
-                            method: panel.method,
-                            result: panel.result,
-                            executing: panel.executing || false,
-                            progress: panel.progress,
-                            formParams: panel.formParams || {},
-                            onSubmit: (e: Event) => {
-                              const args = (e as CustomEvent).detail?.args || {};
-                              void this._executePanelMethod(panel.id, args);
-                            },
-                            onCancel: () => this._removePanel(panel.id),
-                            panelLabel: panel.id,
-                            instance: panel.instance,
-                            instances: this._instances,
-                            onInstanceChange: (inst: string) =>
-                              this._changePanelInstance(panel.id, inst),
-                            allMethods: this._selectedPhoton?.methods || [],
-                            onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
-                            panelSide: 'additional',
-                            onPanelAction: (action: string) => {
-                              if (action === 'close') this._removePanel(panel.id);
-                            },
-                          })
+                        ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                         : this._renderSourcePanel(panel.id)}
                     </div>
                   `
@@ -4192,23 +4138,31 @@ ${photon.errorMessage || 'Unknown error'}</pre
           }
 
           return html`
-            <!-- Floating add-panel button for app view -->
-            <div style="position: relative;">
-              <div style="position: absolute; top: 8px; right: 8px; z-index: 50;">
-                <button
-                  @click=${() => {
-                    this._methodPickerOpen = !this._methodPickerOpen;
-                    this._methodPickerPanelId = null;
-                  }}
-                  style="padding: 4px 8px; background: var(--bg-glass); color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease; backdrop-filter: blur(8px);"
-                  title="Add panel"
-                >
-                  +
-                </button>
-                ${this._methodPickerOpen && this._methodPickerPanelId === null
-                  ? this._renderMethodPickerPopover()
-                  : ''}
-              </div>
+            <!-- Floating add-panel button for app view — sits next to focus button -->
+            <div
+              style="position: sticky; top: calc(-1 * var(--space-lg)); float: right; z-index: 100; margin-top: calc(-1 * var(--space-lg)); margin-right: 6px;"
+            >
+              <button
+                @click=${() => {
+                  this._methodPickerOpen = !this._methodPickerOpen;
+                  this._methodPickerPanelId = null;
+                }}
+                style="width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(8px);"
+                @mouseenter=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
+                }}
+                @mouseleave=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                }}
+                title="Add panel"
+              >
+                +
+              </button>
+              ${this._methodPickerOpen && this._methodPickerPanelId === null
+                ? this._renderMethodPickerPopover()
+                : ''}
             </div>
             <app-layout
               .photonName=${this._selectedPhoton.name}
@@ -4297,30 +4251,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 (panel) => html`
                   <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
                     ${panel.type === 'method'
-                      ? this._renderSinglePanel({
-                          photon: this._selectedPhoton,
-                          method: panel.method,
-                          result: panel.result,
-                          executing: panel.executing || false,
-                          progress: panel.progress,
-                          formParams: panel.formParams || {},
-                          onSubmit: (e: Event) => {
-                            const args = (e as CustomEvent).detail?.args || {};
-                            void this._executePanelMethod(panel.id, args);
-                          },
-                          onCancel: () => this._removePanel(panel.id),
-                          panelLabel: panel.id,
-                          instance: panel.instance,
-                          instances: this._instances,
-                          onInstanceChange: (inst: string) =>
-                            this._changePanelInstance(panel.id, inst),
-                          allMethods: this._selectedPhoton?.methods || [],
-                          onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
-                          panelSide: 'additional',
-                          onPanelAction: (action: string) => {
-                            if (action === 'close') this._removePanel(panel.id);
-                          },
-                        })
+                      ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                       : this._renderSourcePanel(panel.id)}
                   </div>
                 `
@@ -4329,32 +4260,35 @@ ${photon.errorMessage || 'Unknown error'}</pre
           `;
         }
 
-        // Non-app linked UI — use breadcrumb context bar
+        // Non-app linked UI — floating back button + linked UI renderer
         return html`
-          <context-bar
-            .photon=${this._selectedPhoton}
-            .breadcrumbs=${[
-              {
-                label:
-                  this._currentInstance !== 'default'
-                    ? `${this._selectedPhoton.name}:${this._currentInstance}`
-                    : this._selectedPhoton.name,
-                action: 'back',
-              },
-              { label: this._selectedMethod.name },
-            ]}
-            .live=${this._currentCollectionName !== null}
-            .showEdit=${false}
-            .showConfigure=${false}
-            .showCopyConfig=${false}
-            .overflowItems=${[]}
-            .instanceSelectorMode=${this._instanceSelectorMode}
-            .autoInstance=${this._autoInstance}
-            .isStateful=${this._selectedPhoton?.stateful}
-            .instanceName=${this._currentInstance}
-            .instances=${this._instances}
-            @context-action=${this._handleContextAction}
-          ></context-bar>
+          <!-- Floating back button -->
+          <button
+            @click=${() => this._handleBackFromMethod()}
+            style="position: sticky; top: 0; float: left; z-index: 100; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: all 0.2s ease; margin-bottom: -28px;"
+            @mouseenter=${(e: MouseEvent) => {
+              (e.target as HTMLElement).style.color = 'var(--t-primary)';
+              (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+            }}
+            @mouseleave=${(e: MouseEvent) => {
+              (e.target as HTMLElement).style.color = 'var(--t-muted)';
+              (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+            }}
+            title="Back to ${this._selectedPhoton.name}"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
           <div style="position: relative;">
             <div style="position: absolute; top: 16px; right: 16px; z-index: 50;">
               <button
@@ -4381,40 +4315,35 @@ ${photon.errorMessage || 'Unknown error'}</pre
         `;
       }
 
-      // Default Form Interface — use context bar with breadcrumb
-      const isExternalMCP = this._selectedPhoton.isExternalMCP;
-
+      // Default Form Interface — self-contained panel headers, floating back button
       return html`
-        <context-bar
-          .photon=${this._selectedPhoton}
-          .breadcrumbs=${[
-            {
-              label:
-                this._currentInstance !== 'default'
-                  ? `${this._selectedPhoton.name}:${this._currentInstance}`
-                  : this._selectedPhoton.name,
-              action: 'back',
-            },
-            { label: this._selectedMethod.name },
-          ]}
-          .live=${this._currentCollectionName !== null}
-          .showEdit=${false}
-          .showConfigure=${false}
-          .showCopyConfig=${false}
-          .overflowItems=${this._buildOverflowItems({
-            showRefresh: !isExternalMCP,
-            showRename: false,
-            showViewSource: false,
-            showDelete: false,
-            showHelp: !isExternalMCP,
-          })}
-          .instanceSelectorMode=${this._instanceSelectorMode}
-          .autoInstance=${this._autoInstance}
-          .isStateful=${this._selectedPhoton?.stateful}
-          .instanceName=${this._currentInstance}
-          .instances=${this._instances}
-          @context-action=${this._handleContextAction}
-        ></context-bar>
+        <!-- Floating back button -->
+        <button
+          @click=${() => this._handleBackFromMethod()}
+          style="position: sticky; top: 0; float: left; z-index: 100; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: all 0.2s ease; margin-bottom: -28px;"
+          @mouseenter=${(e: MouseEvent) => {
+            (e.target as HTMLElement).style.color = 'var(--t-primary)';
+            (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+          }}
+          @mouseleave=${(e: MouseEvent) => {
+            (e.target as HTMLElement).style.color = 'var(--t-muted)';
+            (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+          }}
+          title="Back to ${this._selectedPhoton.name}"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
         ${this._renderMethodContent()}
       `;
     }
@@ -4843,6 +4772,17 @@ ${photon.errorMessage || 'Unknown error'}</pre
               onMethodChange: (method: any) => this._handleLeftPanelMethodChange(method),
               panelSide: 'primary',
               onPanelAction: (action: string) => this._handlePrimaryPanelAction(action),
+              onInstanceAction: (detail: any) => void this._handleInstanceAction(detail),
+              isStateful: !!this._selectedPhoton?.stateful,
+              isLive: this._currentCollectionName !== null,
+              overflowItems: this._buildOverflowItems({
+                showRefresh: !this._selectedPhoton?.isExternalMCP,
+                showRename: false,
+                showViewSource: false,
+                showDelete: false,
+                showHelp: !this._selectedPhoton?.isExternalMCP,
+              }),
+              onOverflowSelect: (id: string) => this._handleOverflowAction(id),
             })}
           </div>
 
@@ -4851,29 +4791,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             (panel) => html`
               <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
                 ${panel.type === 'method'
-                  ? this._renderSinglePanel({
-                      photon: this._selectedPhoton,
-                      method: panel.method,
-                      result: panel.result,
-                      executing: panel.executing || false,
-                      progress: panel.progress,
-                      formParams: panel.formParams || {},
-                      onSubmit: (e: Event) => {
-                        const args = (e as CustomEvent).detail?.args || {};
-                        void this._executePanelMethod(panel.id, args);
-                      },
-                      onCancel: () => this._removePanel(panel.id),
-                      panelLabel: panel.id,
-                      instance: panel.instance,
-                      instances: this._instances,
-                      onInstanceChange: (inst: string) => this._changePanelInstance(panel.id, inst),
-                      allMethods: this._selectedPhoton?.methods || [],
-                      onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
-                      panelSide: 'additional',
-                      onPanelAction: (action: string) => {
-                        if (action === 'close') this._removePanel(panel.id);
-                      },
-                    })
+                  ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                   : this._renderSourcePanel(panel.id)}
               </div>
             `
@@ -4882,133 +4800,46 @@ ${photon.errorMessage || 'Unknown error'}</pre
       `;
     }
 
-    // Standard form mode (single panel)
-    return html`
-      <div class="glass-panel method-detail">
-        <div
-          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px;"
-        >
-          <h2 style="margin: 0; flex: 1;">${this._selectedMethod.name}</h2>
-          ${this._selectedPhoton?.stateful && this._instances && this._instances.length > 0
-            ? html`
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="flex-shrink: 0; color: var(--t-secondary);"
-                  >
-                    <ellipse cx="12" cy="5" rx="9" ry="3" />
-                    <path d="M3 5v14a9 3 0 0 0 18 0V5" />
-                    <path d="M3 12a9 3 0 0 0 18 0" />
-                  </svg>
-                  <select
-                    .value=${this._currentInstance || 'default'}
-                    @change=${(e: Event) => {
-                      const instance = (e.target as HTMLSelectElement).value;
-                      this._setCurrentInstance(this._selectedPhoton.name, instance);
-                      this._lastResult = null;
-                    }}
-                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--t-primary); font-size: 12px; font-weight: 500;"
-                  >
-                    ${this._instances.map(
-                      (inst) =>
-                        html`<option
-                          .selected=${inst === (this._currentInstance || 'default')}
-                          value=${inst}
-                        >
-                          ${inst}
-                        </option>`
-                    )}
-                  </select>
-                </div>
-              `
-            : ''}
-          <!-- Add panel button (enters split view) -->
-          <div style="position: relative; flex-shrink: 0;">
-            <button
-              @click=${() => {
-                this._methodPickerOpen = !this._methodPickerOpen;
-                this._methodPickerPanelId = null;
-              }}
-              style="padding: 4px 8px; background: none; color: var(--accent-secondary); border: 1px solid var(--accent-secondary); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s ease;"
-              title="Add panel"
-            >
-              +
-            </button>
-            ${this._methodPickerOpen && this._methodPickerPanelId === null
-              ? this._renderMethodPickerPopover()
-              : ''}
-          </div>
-        </div>
-        ${this._renderDescription(this._selectedMethod.description)}
-        <invoke-form
-          .params=${this._selectedMethod.params}
-          .loading=${this._isExecuting}
-          .photonName=${this._selectedPhoton.name}
-          .methodName=${this._selectedMethod.name}
-          .rememberValues=${this._rememberFormValues}
-          .sharedValues=${this._sharedFormParams}
-          @submit=${(e: Event) => {
-            void this._handleExecute(e as CustomEvent);
-          }}
-          @cancel=${() => this._handleBackFromMethod()}
-        ></invoke-form>
-
-        ${this._progress
-          ? html`
-              <div class="progress-container">
-                <div class="progress-bar-wrapper">
-                  <div
-                    class="progress-bar ${this._progress.value < 0 ? 'indeterminate' : ''}"
-                    style="width: ${this._progress.value < 0
-                      ? '30%'
-                      : Math.round(this._progress.value * 100) + '%'}"
-                  ></div>
-                </div>
-                <div class="progress-text">
-                  <span>${this._progress.message}</span>
-                  ${this._progress.value >= 0
-                    ? html`
-                        <span class="progress-percentage"
-                          >${Math.round(this._progress.value * 100)}%</span
-                        >
-                      `
-                    : ''}
-                </div>
-              </div>
-            `
-          : ''}
-        ${this._lastResult !== null
-          ? html`
-              <result-viewer
-                .result=${this._lastResult}
-                .outputFormat=${this._selectedMethod?.outputFormat}
-                .layoutHints=${this._selectedMethod?.layoutHints}
-                .theme=${this._theme}
-                .live=${this._currentCollectionName !== null}
-                .resultKey=${this._selectedPhoton && this._selectedMethod
-                  ? `${this._selectedPhoton.name}/${this._selectedMethod.name}`
-                  : undefined}
-                @share=${() => this._handleShareResult()}
-              ></result-viewer>
-            `
-          : html`
-              <div class="empty-state-inline result-empty">
-                <span class="empty-state-icon">${play}</span>
-                <span>Run the method to see results here</span>
-              </div>
-            `}
-      </div>
-    `;
+    // Standard form mode (single panel) — uses same self-contained panel header
+    return this._renderSinglePanel({
+      photon: this._selectedPhoton,
+      method: this._selectedMethod,
+      result: this._lastResult,
+      executing: this._isExecuting,
+      progress: this._progress,
+      formParams: this._lastFormParams,
+      onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
+      onCancel: () => this._handleBackFromMethod(),
+      panelLabel: 'Primary',
+      instance: this._currentInstance,
+      instances: this._instances,
+      allMethods: this._selectedPhoton?.methods || [],
+      onMethodChange: (method: any) => {
+        this._selectedMethod = method;
+        this._lastResult = null;
+        this._lastFormParams = {};
+        if (this._willAutoInvoke(method)) {
+          void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+        }
+        this._updateRoute();
+      },
+      panelSide: 'primary',
+      onPanelAction: (action: string) => this._handlePrimaryPanelAction(action),
+      onInstanceAction: (detail: any) => void this._handleInstanceAction(detail),
+      isStateful: !!this._selectedPhoton?.stateful,
+      isLive: this._currentCollectionName !== null,
+      overflowItems: this._buildOverflowItems({
+        showRefresh: !this._selectedPhoton?.isExternalMCP,
+        showRename: false,
+        showViewSource: false,
+        showDelete: false,
+        showHelp: !this._selectedPhoton?.isExternalMCP,
+      }),
+      onOverflowSelect: (id: string) => this._handleOverflowAction(id),
+    });
   }
 
-  /** Render a single panel (left or right) in split view */
+  /** Render a single panel with self-contained header */
   private _renderSinglePanel(opts: {
     photon: any;
     method: any;
@@ -5020,23 +4851,44 @@ ${photon.errorMessage || 'Unknown error'}</pre
     onCancel: () => void;
     panelLabel: string;
     instance?: string;
-    onInstanceChange?: (instance: string) => void;
     instances?: string[];
     allMethods?: any[];
     onMethodChange?: (method: any) => void;
     panelSide?: 'primary' | 'additional';
     onPanelAction?: (action: string) => void;
+    onInstanceAction?: (detail: any) => void;
+    isStateful?: boolean;
+    isLive?: boolean;
+    overflowItems?: import('./overflow-menu.js').OverflowMenuItem[];
+    onOverflowSelect?: (id: string) => void;
   }) {
+    const isSplit = this._splitPanels.length > 0;
     return html`
       <div
         class="glass-panel method-detail"
-        style="border-radius: 0; height: 100%; display: flex; flex-direction: column;"
+        style="${isSplit
+          ? 'border-radius: 0; height: 100%;'
+          : ''} display: flex; flex-direction: column;"
       >
-        <!-- Panel Header with Method & Instance Selectors -->
+        <!-- Panel Header: LED + Method ▼ + instance-panel + [+] + [⋯] + [×] -->
         <div
-          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0; position: relative;"
+          style="display: flex; align-items: center; gap: 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0; position: relative;"
         >
-          <!-- Method Selector -->
+          <!-- LED dot (stateful/live indicator) -->
+          ${opts.isStateful
+            ? html`<span
+                style="width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: ${opts.isLive
+                  ? 'var(--color-success, #22c55e)'
+                  : 'var(--t-tertiary, #666)'}; box-shadow: ${opts.isLive
+                  ? '0 0 6px var(--color-success, #22c55e)'
+                  : 'none'};"
+                title="${opts.isLive
+                  ? 'Live — stateful photon with active subscription'
+                  : 'Stateful photon'}"
+              ></span>`
+            : ''}
+
+          <!-- Method Selector (name as dropdown) -->
           <select
             .value=${opts.method.name}
             @change=${(e: Event) => {
@@ -5046,7 +4898,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 opts.onMethodChange(method);
               }
             }}
-            style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 12px; font-weight: 500; flex-shrink: 0;"
+            style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 13px; font-weight: 600; flex-shrink: 0;"
           >
             ${opts.allMethods?.map(
               (m: any) =>
@@ -5056,48 +4908,23 @@ ${photon.errorMessage || 'Unknown error'}</pre
             ) || html`<option value=${opts.method.name}>${opts.method.name}</option>`}
           </select>
 
-          <!-- Instance Selector -->
-          ${opts.instances && opts.instances.length > 0 && opts.onInstanceChange
+          <div style="flex: 1;"></div>
+
+          <!-- Rich Instance Selector -->
+          ${opts.isStateful && opts.instances && opts.instances.length > 0 && opts.onInstanceAction
             ? html`
-                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="flex-shrink: 0; color: var(--t-secondary);"
-                  >
-                    <ellipse cx="12" cy="5" rx="9" ry="3" />
-                    <path d="M3 5v14a9 3 0 0 0 18 0V5" />
-                    <path d="M3 12a9 3 0 0 0 18 0" />
-                  </svg>
-                  <select
-                    .value=${opts.instance || 'default'}
-                    @change=${(e: Event) => {
-                      const instance = (e.target as HTMLSelectElement).value;
-                      opts.onInstanceChange?.(instance);
-                    }}
-                    style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 12px; font-weight: 500; flex-shrink: 0;"
-                  >
-                    ${opts.instances.map(
-                      (inst) =>
-                        html`<option
-                          .selected=${inst === (opts.instance || 'default')}
-                          value=${inst}
-                        >
-                          ${inst}
-                        </option>`
-                    )}
-                  </select>
-                </div>
+                <instance-panel
+                  .instanceName=${opts.instance || 'default'}
+                  .instances=${opts.instances}
+                  .photonName=${opts.photon.name}
+                  .selectorMode=${this._instanceSelectorMode}
+                  .autoInstance=${this._autoInstance}
+                  @instance-action=${(e: CustomEvent) => opts.onInstanceAction?.(e.detail)}
+                ></instance-panel>
               `
             : ''}
 
-          <!-- Panel Actions: + for primary panel, × for additional panels -->
+          <!-- Add panel button (primary only) -->
           ${opts.panelSide === 'primary'
             ? html`
                 <div style="position: relative; flex-shrink: 0;">
@@ -5113,7 +4940,21 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     : ''}
                 </div>
               `
-            : html`
+            : ''}
+
+          <!-- Overflow menu -->
+          ${opts.overflowItems && opts.overflowItems.length > 0
+            ? html`
+                <overflow-menu
+                  .items=${opts.overflowItems}
+                  @menu-select=${(e: CustomEvent) => opts.onOverflowSelect?.(e.detail.id)}
+                ></overflow-menu>
+              `
+            : ''}
+
+          <!-- Close button (additional panels only) -->
+          ${opts.panelSide === 'additional'
+            ? html`
                 <button
                   @click=${() => opts.onPanelAction?.('close')}
                   style="padding: 4px 8px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0; transition: all 0.2s ease;"
@@ -5121,7 +4962,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 >
                   ×
                 </button>
-              `}
+              `
+            : ''}
         </div>
         <!-- Panel Content (scrollable) -->
         <div
@@ -5217,6 +5059,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
     this._methodPickerOpen = false;
     this._methodPickerPanelId = null;
+    this._cleanupPickerDismiss();
     this._updateRoute();
   }
 
@@ -5290,6 +5133,14 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._methodPickerPanelId = null; // picker for adding new panel
   }
 
+  /** Clean up picker dismiss listener */
+  private _cleanupPickerDismiss() {
+    if (this._pickerDismissHandler) {
+      window.removeEventListener('mousedown', this._pickerDismissHandler, true);
+      this._pickerDismissHandler = null;
+    }
+  }
+
   /** Handle method change in primary panel */
   private _handleLeftPanelMethodChange(method: any) {
     this._selectedMethod = method;
@@ -5306,36 +5157,92 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
   }
 
+  /** Build opts for an additional (non-primary) split panel */
+  private _buildAdditionalPanelOpts(panel: (typeof this._splitPanels)[0]) {
+    return {
+      photon: this._selectedPhoton,
+      method: panel.method,
+      result: panel.result,
+      executing: panel.executing || false,
+      progress: panel.progress,
+      formParams: panel.formParams || {},
+      onSubmit: (e: Event) => {
+        const args = (e as CustomEvent).detail?.args || {};
+        void this._executePanelMethod(panel.id, args);
+      },
+      onCancel: () => this._removePanel(panel.id),
+      panelLabel: panel.id,
+      instance: panel.instance,
+      instances: this._instances,
+      onInstanceChange: (inst: string) => this._changePanelInstance(panel.id, inst),
+      allMethods: this._selectedPhoton?.methods || [],
+      onMethodChange: (m: any) => this._changePanelMethod(panel.id, m),
+      panelSide: 'additional' as const,
+      onPanelAction: (action: string) => {
+        if (action === 'close') this._removePanel(panel.id);
+      },
+      onInstanceAction: (detail: any) => {
+        // For additional panels, handle switch/create inline
+        if (detail.action === 'switch') {
+          this._changePanelInstance(panel.id, detail.instance);
+        }
+      },
+      isStateful: !!this._selectedPhoton?.stateful,
+      isLive: this._currentCollectionName !== null,
+      overflowItems: this._buildOverflowItems({
+        showRefresh: false,
+        showRename: false,
+        showViewSource: false,
+        showDelete: false,
+        showHelp: false,
+        showRunTests: false,
+      }),
+      onOverflowSelect: (id: string) => this._handleOverflowAction(id),
+    };
+  }
+
+  /** Handle overflow menu actions from panel headers */
+  private _handleOverflowAction(id: string) {
+    switch (id) {
+      case 'refresh':
+        if (this._selectedMethod && this._willAutoInvoke(this._selectedMethod)) {
+          void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+        }
+        break;
+      case 'remember-values':
+        this._rememberFormValues = !this._rememberFormValues;
+        break;
+      case 'verbose-logging':
+        this._verboseLogging = !this._verboseLogging;
+        break;
+      case 'run-tests':
+        void this._runTests();
+        break;
+      case 'help':
+        this._showPhotonHelp = true;
+        break;
+      default:
+        // Delegate to existing context action handler
+        this._handleContextAction(new CustomEvent('context-action', { detail: { action: id } }));
+        break;
+    }
+  }
+
   /** Render source panel for split view */
   private _renderSourcePanel(panelId: string) {
     return html`
-      <div
-        class="glass-panel method-detail"
-        style="border-radius: 0; height: 100%; display: flex; flex-direction: column;"
-      >
-        <div
-          style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0;"
-        >
-          <span style="font-size: 12px; font-weight: 500; color: var(--t-secondary);"
-            >&lt;/&gt; Source</span
-          >
-          <button
-            @click=${() => this._removePanel(panelId)}
-            style="padding: 4px 8px; background: none; color: var(--color-error); border: 1px solid var(--color-error); border-radius: 3px; cursor: pointer; font-size: 14px; font-weight: 700; flex-shrink: 0;"
-          >
-            ×
-          </button>
-        </div>
-        <div style="flex: 1; min-height: 0; overflow: hidden;">
-          <photon-studio
-            .photonName=${this._selectedPhoton?.name}
-            .theme=${this._theme}
-            @studio-saved=${() => (this as any)._handleStudioSaved?.()}
-          ></photon-studio>
-        </div>
+      <div style="height: 100%; overflow: hidden;">
+        <photon-studio
+          .photonName=${this._selectedPhoton?.name}
+          .theme=${this._theme}
+          @studio-saved=${() => (this as any)._handleStudioSaved?.()}
+          @studio-close=${() => this._removePanel(panelId)}
+        ></photon-studio>
       </div>
     `;
   }
+
+  private _pickerDismissHandler: (() => void) | null = null;
 
   /** Render the method picker popover for adding new panels */
   private _renderMethodPickerPopover() {
@@ -5352,50 +5259,90 @@ ${photon.errorMessage || 'Unknown error'}</pre
 
     if (!canAddMore) return '';
 
+    // Register click-outside dismissal (one-shot, delayed so opening click doesn't fire it)
+    if (!this._pickerDismissHandler) {
+      const handler = (e: MouseEvent) => {
+        // Check if click is inside the popover via composedPath (works across shadow DOM)
+        const path = e.composedPath();
+        const popover = this.renderRoot.querySelector('.method-picker-popover');
+        if (popover && path.includes(popover)) return; // click inside popover — ignore
+        this._methodPickerOpen = false;
+        this._pickerDismissHandler = null;
+        window.removeEventListener('mousedown', handler, true);
+      };
+      this._pickerDismissHandler = handler;
+      setTimeout(() => window.addEventListener('mousedown', handler, true), 0);
+    }
+
     return html`
       <div
-        @click=${(e: Event) => {
-          e.stopPropagation();
-          this._methodPickerOpen = false;
-        }}
-        style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99;"
-      ></div>
-      <div
-        style="position: absolute; top: 100%; right: 0; z-index: 100; min-width: 180px; max-height: 300px; overflow-y: auto; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); backdrop-filter: blur(20px); margin-top: 4px;"
+        class="method-picker-popover"
+        @click=${(e: Event) => e.stopPropagation()}
+        style="position: absolute; top: 100%; right: 0; z-index: 9999; min-width: 200px; max-height: 360px; overflow-y: auto; background: var(--bg-glass); border: 1px solid var(--border-glass); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); backdrop-filter: blur(20px); margin-top: 4px;"
       >
+        <!-- Header -->
+        <div style="padding: 10px 12px 8px; border-bottom: 1px solid var(--border-glass);">
+          <div
+            style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-tertiary);"
+          >
+            Split Pane
+          </div>
+        </div>
+
+        <!-- Methods section -->
         ${availableMethods.length > 0
-          ? availableMethods.map(
-              (m: any) => html`
+          ? html`
+              <div style="padding: 4px 0;">
                 <div
-                  @click=${() => this._addPanel('method', m)}
-                  style="padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--t-primary); border-bottom: 1px solid var(--border-glass); transition: background 0.15s ease;"
+                  style="padding: 4px 12px 2px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-tertiary);"
+                >
+                  Methods
+                </div>
+                ${availableMethods.map(
+                  (m: any) => html`
+                    <div
+                      @click=${() => this._addPanel('method', m)}
+                      style="padding: 6px 12px 6px 16px; cursor: pointer; font-size: 12px; color: var(--t-primary); transition: background 0.15s ease; display: flex; align-items: center; gap: 6px;"
+                      @mouseenter=${(e: Event) =>
+                        ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
+                      @mouseleave=${(e: Event) =>
+                        ((e.target as HTMLElement).style.background = 'transparent')}
+                    >
+                      <span style="color: var(--t-tertiary); font-size: 10px;">&#9656;</span>
+                      ${m.name}
+                    </div>
+                  `
+                )}
+              </div>
+            `
+          : html`
+              <div
+                style="padding: 8px 12px; font-size: 11px; color: var(--t-tertiary); font-style: italic;"
+              >
+                All methods already open
+              </div>
+            `}
+
+        <!-- Tools section -->
+        ${!hasSourcePanel
+          ? html`
+              <div style="border-top: 1px solid var(--border-glass); padding: 4px 0;">
+                <div
+                  style="padding: 4px 12px 2px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--t-tertiary);"
+                >
+                  Tools
+                </div>
+                <div
+                  @click=${() => this._addPanel('source')}
+                  style="padding: 6px 12px 6px 16px; cursor: pointer; font-size: 12px; color: var(--t-primary); transition: background 0.15s ease; display: flex; align-items: center; gap: 6px;"
                   @mouseenter=${(e: Event) =>
                     ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
                   @mouseleave=${(e: Event) =>
                     ((e.target as HTMLElement).style.background = 'transparent')}
                 >
-                  ${m.name}
+                  <span style="font-size: 11px; color: var(--accent-primary);">&lt;/&gt;</span>
+                  Source Editor
                 </div>
-              `
-            )
-          : html`
-              <div
-                style="padding: 8px 12px; font-size: 12px; color: var(--t-tertiary); font-style: italic;"
-              >
-                All methods open
-              </div>
-            `}
-        ${!hasSourcePanel
-          ? html`
-              <div
-                @click=${() => this._addPanel('source')}
-                style="padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--accent-primary); border-top: 1px solid var(--border-glass); transition: background 0.15s ease;"
-                @mouseenter=${(e: Event) =>
-                  ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
-                @mouseleave=${(e: Event) =>
-                  ((e.target as HTMLElement).style.background = 'transparent')}
-              >
-                &lt;/&gt; Source Editor
               </div>
             `
           : ''}
