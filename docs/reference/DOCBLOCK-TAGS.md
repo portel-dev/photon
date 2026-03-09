@@ -117,19 +117,45 @@ remove({ id }: { id: string }) { ... }
 
 ### Structured Output
 
-Use `@returns.field {type}` tags to declare structured output schema. When present, the MCP response includes both text content and a `structuredContent` object matching the schema:
+Photon automatically generates `Tool.outputSchema` from your TypeScript return type — no tags needed:
+
+```typescript
+// Just write TypeScript — schema is auto-inferred
+async create(params: { title: string }): Promise<{ id: string; title: string; done: boolean }> {
+  return { id: 'task-001', title: params.title, done: false };
+}
+```
+
+Named types and interfaces work too:
+
+```typescript
+interface Task { id: string; title: string; done: boolean }
+
+async create(params: { title: string }): Promise<Task> { ... }
+```
+
+When `outputSchema` is present (inferred or explicit), MCP responses include `structuredContent` alongside text content, giving AI clients typed data.
+
+**Adding field descriptions** — use `{@value}` inline tags in `@returns`:
 
 ```typescript
 /**
- * Create a new task
- * @returns.id {string} Task ID
- * @returns.title {string} Task title
- * @returns.done {boolean} Completion status
+ * @returns The created task {@value id string Unique task ID} {@value done boolean Whether complete}
  */
-create({ title }: { title: string }) { ... }
+async create(params: { title: string }) { ... }
 ```
 
-This generates `Tool.outputSchema` in the MCP tool definition and adds `structuredContent` to tool call results when the return value is an object.
+**Legacy syntax** — `@returns.field {type}` tags still work and take priority over inference:
+
+```typescript
+/**
+ * @returns.id {string} Task ID
+ * @returns.done {boolean} Completion status
+ */
+async create(params: { title: string }) { ... }
+```
+
+**Priority:** JSDoc tags > `{@value}` > TypeScript return type > none.
 
 ### Icon Images
 
