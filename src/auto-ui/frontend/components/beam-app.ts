@@ -5461,8 +5461,22 @@ ${photon.errorMessage || 'Unknown error'}</pre
         } catch {
           // Non-fatal — configure is best-effort
         }
+
+        // Prevent Chrome's default behavior of closing this tab when the PWA
+        // launches.  We listen for the `appinstalled` event and open the
+        // standalone app URL ourselves; Chrome sees the app is already open
+        // and leaves the original browser tab alone.
+        const photonName = this._selectedPhoton!.name;
+        const onInstalled = () => {
+          window.open(`/app/${encodeURIComponent(photonName)}`, '_blank');
+        };
+        window.addEventListener('appinstalled', onInstalled, { once: true });
+
         const result = await this._pwaInstallPrompt.prompt();
         this._log('info', `PWA install prompt result: ${result?.outcome}`);
+        if (result?.outcome !== 'accepted') {
+          window.removeEventListener('appinstalled', onInstalled);
+        }
         this._pwaInstallPrompt = null;
       })();
     } else {
@@ -7285,7 +7299,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       showRunTests = this._getTestMethods().length > 0,
       showRemove = false,
       showFullscreen = false,
-      showInstallApp = !this._pwaIsStandalone,
+      showInstallApp = !this._pwaIsStandalone && !!this._selectedPhoton?.isApp,
     } = opts;
 
     const items: import('./overflow-menu.js').OverflowMenuItem[] = [];

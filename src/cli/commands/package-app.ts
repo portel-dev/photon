@@ -20,47 +20,59 @@ function toClassName(name: string): string {
 
 function generateBashLauncherScript(
   name: string,
-  photonDir: string,
+  version: string,
   startPort: number,
   openCmd: string
 ): string {
   const endPort = startPort + 9;
   return `#!/usr/bin/env bash
-# Launcher for ${name} — auto-starts beam and opens PWA
+# Launcher for ${name} — auto-starts beam and opens as PWA
 set -e
 
-PHOTON_DIR="${photonDir}"
+PHOTON="${name}"
+VERSION="${version}"
 START_PORT=${startPort}
 END_PORT=${endPort}
 OPEN_CMD="${openCmd}"
 
-# Scan ports for an existing beam serving this directory
+# Detect package runner: bunx > pnpx > npx
+if command -v bunx &>/dev/null; then
+  RUNNER="bunx @portel/photon@$VERSION"
+elif command -v pnpx &>/dev/null; then
+  RUNNER="pnpx @portel/photon@$VERSION"
+elif command -v npx &>/dev/null; then
+  RUNNER="npx -y @portel/photon@$VERSION"
+else
+  echo "Error: no package runner found (npx, pnpx, or bunx required)"
+  exit 1
+fi
+
+# Scan ports for an existing beam already serving this photon
 for port in $(seq $START_PORT $END_PORT); do
   RESP=$(curl -s --max-time 2 "http://localhost:\${port}/api/diagnostics" 2>/dev/null || true)
   if [ -n "$RESP" ]; then
-    DIR=$(echo "$RESP" | grep -o '"workingDir":"[^"]*"' | cut -d'"' -f4)
-    if [ "$DIR" = "$PHOTON_DIR" ]; then
-      $OPEN_CMD "http://localhost:\${port}"
+    # Check if this beam has our photon loaded
+    echo "$RESP" | grep -q "\\"name\\":\\"$PHOTON\\"" 2>/dev/null && {
+      # Beam already running with this photon — skip browser open (client likely connected)
       exit 0
-    fi
+    }
   fi
 done
 
-# No existing beam found — start one
-photon beam --port=$START_PORT &
+# No existing beam found — start one (--no-open: we handle browser launch ourselves)
+$RUNNER $PHOTON --no-open --port=$START_PORT &
 BEAM_PID=$!
 
-# Poll until beam is ready (up to 30s)
+# Poll until beam is ready (up to 30s), then open browser
 WAITED=0
 while [ $WAITED -lt 30 ]; do
   for port in $(seq $START_PORT $END_PORT); do
     RESP=$(curl -s --max-time 1 "http://localhost:\${port}/api/diagnostics" 2>/dev/null || true)
     if [ -n "$RESP" ]; then
-      DIR=$(echo "$RESP" | grep -o '"workingDir":"[^"]*"' | cut -d'"' -f4)
-      if [ "$DIR" = "$PHOTON_DIR" ]; then
-        $OPEN_CMD "http://localhost:\${port}"
+      echo "$RESP" | grep -q "\\"name\\":\\"$PHOTON\\"" 2>/dev/null && {
+        $OPEN_CMD "http://localhost:\${port}/#$PHOTON?focus=1"
         exit 0
-      fi
+      }
     fi
   done
   sleep 1
@@ -95,31 +107,40 @@ function generateInfoPlist(name: string, className: string): string {
 </plist>`;
 }
 
-function generateWindowsBat(name: string, photonDir: string, startPort: number): string {
+function generateWindowsBat(name: string, version: string, startPort: number): string {
   const endPort = startPort + 9;
   return `@echo off
-REM Launcher for ${name} — auto-starts beam and opens PWA
+REM Launcher for ${name} — auto-starts beam and opens as PWA
 setlocal enabledelayedexpansion
 
-set "PHOTON_DIR=${photonDir}"
+set "PHOTON=${name}"
+set "VERSION=${version}"
 set START_PORT=${startPort}
 set END_PORT=${endPort}
 
-REM Scan ports for an existing beam serving this directory
+REM Detect package runner: bunx > pnpx > npx
+where bunx >nul 2>&1 && set "RUNNER=bunx @portel/photon@%VERSION%" && goto :found_runner
+where pnpx >nul 2>&1 && set "RUNNER=pnpx @portel/photon@%VERSION%" && goto :found_runner
+where npx >nul 2>&1 && set "RUNNER=npx -y @portel/photon@%VERSION%" && goto :found_runner
+echo Error: no package runner found (npx, pnpx, or bunx required)
+exit /b 1
+:found_runner
+
+REM Scan ports for an existing beam serving this photon
 for /L %%p in (%START_PORT%,1,%END_PORT%) do (
   for /f "delims=" %%r in ('curl -s --max-time 2 "http://localhost:%%p/api/diagnostics" 2^>nul') do (
-    echo %%r | findstr /c:"%PHOTON_DIR%" >nul 2>&1
+    echo %%r | findstr /c:"%PHOTON%" >nul 2>&1
     if !errorlevel! equ 0 (
-      start "" "http://localhost:%%p"
+      REM Beam already running with this photon — skip browser open
       exit /b 0
     )
   )
 )
 
 REM No existing beam found — start one
-start /b photon beam --port=%START_PORT%
+start /b %RUNNER% %PHOTON% --no-open --port=%START_PORT%
 
-REM Poll until beam is ready (up to 30s)
+REM Poll until beam is ready (up to 30s), then open browser
 set WAITED=0
 :poll
 if %WAITED% geq 30 (
@@ -128,9 +149,9 @@ if %WAITED% geq 30 (
 )
 for /L %%p in (%START_PORT%,1,%END_PORT%) do (
   for /f "delims=" %%r in ('curl -s --max-time 1 "http://localhost:%%p/api/diagnostics" 2^>nul') do (
-    echo %%r | findstr /c:"%PHOTON_DIR%" >nul 2>&1
+    echo %%r | findstr /c:"%PHOTON%" >nul 2>&1
     if !errorlevel! equ 0 (
-      start "" "http://localhost:%%p"
+      start "" "http://localhost:%%p/#%PHOTON%?focus=1"
       exit /b 0
     )
   )
@@ -144,7 +165,7 @@ goto poll
 async function generateMacOSApp(
   name: string,
   className: string,
-  photonDir: string,
+  version: string,
   startPort: number,
   outputDir: string
 ): Promise<string> {
@@ -154,7 +175,7 @@ async function generateMacOSApp(
 
   await fs.mkdir(macosDir, { recursive: true });
   await fs.writeFile(path.join(contentsDir, 'Info.plist'), generateInfoPlist(name, className));
-  const script = generateBashLauncherScript(name, photonDir, startPort, 'open');
+  const script = generateBashLauncherScript(name, version, startPort, 'open');
   await fs.writeFile(path.join(macosDir, 'launch'), script, { mode: 0o755 });
 
   return appDir;
@@ -162,14 +183,14 @@ async function generateMacOSApp(
 
 async function generateLinuxLauncher(
   name: string,
-  photonDir: string,
+  version: string,
   startPort: number,
   outputDir: string
 ): Promise<[string, string]> {
   const shPath = path.join(outputDir, `${name}.sh`);
   const desktopPath = path.join(outputDir, `${name}.desktop`);
 
-  const script = generateBashLauncherScript(name, photonDir, startPort, 'xdg-open');
+  const script = generateBashLauncherScript(name, version, startPort, 'xdg-open');
   await fs.writeFile(shPath, script, { mode: 0o755 });
 
   const desktop = `[Desktop Entry]
@@ -186,13 +207,33 @@ Categories=Utility;
 
 async function generateWindowsLauncher(
   name: string,
-  photonDir: string,
+  version: string,
   startPort: number,
   outputDir: string
 ): Promise<string> {
   const batPath = path.join(outputDir, `${name}.bat`);
-  await fs.writeFile(batPath, generateWindowsBat(name, photonDir, startPort));
+  await fs.writeFile(batPath, generateWindowsBat(name, version, startPort));
   return batPath;
+}
+
+/**
+ * Check if a photon directory contains an app photon (main() + @ui).
+ * Reads .ts/.js source files and looks for class-level @ui asset declaration
+ * and a main() method linked to that UI.
+ */
+async function checkIsAppPhoton(photonDir: string): Promise<boolean> {
+  const entries = await fs.readdir(photonDir);
+  const sourceFiles = entries.filter((f) => /\.(ts|js)$/.test(f) && !f.endsWith('.d.ts'));
+
+  for (const file of sourceFiles) {
+    const content = await fs.readFile(path.join(photonDir, file), 'utf-8');
+    // Check for class-level @ui asset declaration (e.g. @ui my-view ./ui/view.html)
+    const hasClassUi = /@ui\s+\S+\s+\S+/.test(content);
+    // Check for a main method
+    const hasMain = /(?:async\s+)?main\s*\(/.test(content);
+    if (hasClassUi && hasMain) return true;
+  }
+  return false;
 }
 
 export function registerPackageAppCommand(program: Command): void {
@@ -214,21 +255,40 @@ export function registerPackageAppCommand(program: Command): void {
         process.exit(1);
       }
 
+      // Validate that the photon is an app (has main() method + @ui)
+      const isApp = await checkIsAppPhoton(photonDir);
+      if (!isApp) {
+        console.error(
+          `Error: "${name}" is not an app photon.\n` +
+            `Only photons with a main() method and a linked @ui can be packaged as PWA apps.`
+        );
+        process.exit(1);
+      }
+
+      // Get the current photon runtime version to pin in launchers
+      const { PHOTON_VERSION } = await import('../../version.js');
+
       const className = toClassName(name);
 
-      console.log(`\n📦 Packaging ${name}...\n`);
+      console.log(`\n📦 Packaging ${name} (runtime v${PHOTON_VERSION})...\n`);
 
       await fs.mkdir(outputDir, { recursive: true });
 
       // Generate all platform launchers
-      const macAppPath = await generateMacOSApp(name, className, photonDir, startPort, outputDir);
-      const [linuxShPath, linuxDesktopPath] = await generateLinuxLauncher(
+      const macAppPath = await generateMacOSApp(
         name,
-        photonDir,
+        className,
+        PHOTON_VERSION,
         startPort,
         outputDir
       );
-      const winBatPath = await generateWindowsLauncher(name, photonDir, startPort, outputDir);
+      const [linuxShPath, linuxDesktopPath] = await generateLinuxLauncher(
+        name,
+        PHOTON_VERSION,
+        startPort,
+        outputDir
+      );
+      const winBatPath = await generateWindowsLauncher(name, PHOTON_VERSION, startPort, outputDir);
 
       console.log(`   ✓ macOS    ${macAppPath}`);
       console.log(`   ✓ Linux    ${linuxShPath}, ${path.basename(linuxDesktopPath)}`);
@@ -240,8 +300,8 @@ export function registerPackageAppCommand(program: Command): void {
         let config: {
           instances: Array<{
             port: number;
-            photonDir: string;
             photon: string;
+            version: string;
             createdAt: string;
           }>;
         } = { instances: [] };
@@ -253,18 +313,13 @@ export function registerPackageAppCommand(program: Command): void {
           // File doesn't exist yet — use default
         }
 
-        // photonDir is the PHOTON_DIR env or the resolved workingDir
-        const resolvedPhotonDir = process.env.PHOTON_DIR || workingDir;
-
-        // Deduplicate by port + photonDir
-        const exists = config.instances.some(
-          (i) => i.port === startPort && i.photonDir === resolvedPhotonDir
-        );
+        // Deduplicate by port + photon name
+        const exists = config.instances.some((i) => i.port === startPort && i.photon === name);
         if (!exists) {
           config.instances.push({
             port: startPort,
-            photonDir: resolvedPhotonDir,
             photon: name,
+            version: PHOTON_VERSION,
             createdAt: new Date().toISOString(),
           });
           await fs.writeFile(pwaConfigPath, JSON.stringify(config, null, 2));
