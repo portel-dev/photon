@@ -1,6 +1,6 @@
 # Custom UI Development Guide
 
-Build rich interactive UIs for your photons using the window.photon API.
+Build rich interactive UIs for your photons. A global named after your photon file is auto-injected into the iframe — call methods and subscribe to events directly (e.g., `kanban.onTaskMove(cb)`).
 
 ---
 
@@ -83,17 +83,24 @@ BEAM injects APIs for multiple platforms, so your UI works everywhere:
 
 | Platform | API | Auto-Injected |
 |----------|-----|---------------|
-| BEAM | window.photon | Yes |
-| BEAM | window.openai | Yes |
-| BEAM | window.mcp | Yes |
-| ChatGPT | window.openai | Native |
+| BEAM | `{photonName}` global (e.g., `kanban`, `chess`) | Yes |
+| BEAM | `photon` low-level bridge | Yes |
+| BEAM | `openai` (ChatGPT compat) | Yes |
+| ChatGPT | `openai` | Native |
 | Claude | postMessage | Native |
 
 ---
 
-## Window.photon API
+## Photon Bridge API
 
-The primary API for custom UIs in BEAM.
+Two APIs are injected into your custom UI iframe:
+
+1. **`{photonName}`** (recommended) — A clean global named after your photon file. Call methods and subscribe to events directly: `kanban.taskMove(args)`, `kanban.onTaskMove(cb)`.
+2. **`photon`** — The low-level bridge with full control over tool I/O, progress, streaming, elicitation, and state.
+
+No `window.` prefix needed — both are available as bare globals.
+
+### Low-level bridge (`photon`)
 
 ### Properties
 
@@ -149,13 +156,13 @@ readonly safeAreaInsets: { top: number; bottom: number; left: number; right: num
 > **Note:** State restoration uses a DOM event, not the `window.photon` API:
 > `window.addEventListener('photon:state-restored', (event) => { /* event.detail contains state */ })`
 
-### Direct Window API
+### Photon global (recommended)
 
-Each photon gets a direct object at `window.{photonName}`:
+Each photon gets a global named after the `.photon.ts` file. No `window.` prefix needed:
 
 ```typescript
-// For a photon named "kanban":
-window.kanban = {
+// For kanban.photon.ts:
+kanban = {
   // onEventName → subscribes to 'eventName'
   onTaskMove(cb): () => void,    // subscribes to 'taskMove' event
   onTaskCreate(cb): () => void,  // subscribes to 'taskCreate' event

@@ -1,15 +1,7 @@
 
 <div align="center">
-
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-logo.png" alt="Photon" width="500">
-
-### Define intent once. Deliver everywhere.
-
-Photon turns a single TypeScript file into:
-
-- **an MCP server** for AI agents
-- **a CLI tool** for automation
-- **a web interface** for humans
+</div>
 
 [![npm version](https://img.shields.io/npm/v/@portel/photon?color=cb3837&label=npm)](https://www.npmjs.com/package/@portel/photon)
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon?color=cb3837)](https://www.npmjs.com/package/@portel/photon)
@@ -18,7 +10,13 @@ Photon turns a single TypeScript file into:
 [![Node](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
-</div>
+### Define intent once. Deliver everywhere.
+
+Photon turns a single TypeScript file into:
+
+- **MCP server** for AI agents  
+- **CLI tool** for automation  
+- **Web interface** for humans
 
 Photon is free and open source software released under the [MIT license](./LICENSE).
 
@@ -54,6 +52,7 @@ $ photon mcp hello                          # MCP server for Claude, Cursor, etc
 ```
 
 No decorators. No registration. No server boilerplate.
+Just define the intent.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="One file, three interfaces" width="100%">
@@ -130,7 +129,7 @@ Beam is the web dashboard. Every photon becomes an interactive form. Run `photon
 
 The UI is **fully auto-generated** from your method signatures: field types, validation, defaults, layouts. You never write frontend code. When you add a `{@choice a,b,c}` tag to a parameter, Beam renders a dropdown. When you mark a string as `{@format email}`, the field validates email format. The UI evolves as your code does.
 
-When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. The custom UI receives tool results via `window.photon.onResult()`, a thin bridge with no framework required.
+When forms aren't the right interface for what you're building, you can replace Beam's auto-generated view with your own HTML. A global named after your photon is auto-injected (e.g., `analytics.onResult(data => ...)`) — no framework required.
 
 > Custom UIs follow the [MCP Apps Extension (SEP-1865)](https://github.com/nicolo-ribaudo/modelcontextprotocol/blob/nicolo/sep-1865/docs/specification/draft/extensions/apps.mdx) standard and work across compatible hosts. See the [Custom UI Guide](./docs/guides/CUSTOM-UI.md).
 
@@ -282,7 +281,7 @@ Two primitives. Together they unlock a class of things that are surprisingly har
 
 **Locks** serialize access. When a method is marked `@locked`, only one caller can execute at a time, whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
 
-**Events** push state changes to any browser UI in real time. `this.emit('name', data)` in your method fires `window.photon.on('name', handler)` in your custom UI. No WebSockets to configure. No polling. Events are delivered via SSE through the MCP Streamable HTTP transport.
+**Events** push state changes to any browser UI in real time. `this.emit('boardUpdated', data)` on the server becomes `chess.onBoardUpdated(handler)` in your custom UI — named after your photon file. No WebSockets to configure. No polling. Events are delivered via SSE through the MCP Streamable HTTP transport.
 
 Together: **turn-based coordination with live state**.
 
@@ -294,8 +293,8 @@ export default class Chess {
     const result = await this.applyMove(params.from, params.to);
 
     // Browser UI updates instantly, no polling needed
-    this.emit('board-updated', result.board);
-    this.emit('turn-changed', { next: result.nextPlayer });
+    this.emit('boardUpdated', result.board);
+    this.emit('turnChanged', { next: result.nextPlayer });
 
     return result;
   }
@@ -304,8 +303,12 @@ export default class Chess {
 
 ```javascript
 // In your custom UI (ui/chess.html)
-window.photon.on('board-updated', board => renderBoard(board));
-window.photon.on('turn-changed', ({ next }) => showTurn(next));
+// The global `chess` is auto-injected, named after your photon file
+chess.onBoardUpdated(board => renderBoard(board));
+chess.onTurnChanged(({ next }) => showTurn(next));
+
+// Call server methods directly
+chess.move({ from: 'e2', to: 'e4' });
 ```
 
 A human moves through Beam. Claude is configured with the MCP server. The lock ensures they truly alternate. Events keep the board live on both sides. That's a fully functional turn-based chess game, human vs AI, in about 50 lines of application logic.
@@ -397,7 +400,7 @@ photon test                       # Run tests
 
 | Topic | |
 |---|---|
-| [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with `window.photon` |
+| [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with the photon bridge API |
 | [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.0 with Google, GitHub, Microsoft |
 | [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |

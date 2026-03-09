@@ -652,21 +652,21 @@ Photon implements the **MCP Apps Extension (SEP-1865)**, the official standard f
 
 #### Client APIs
 
-Photon injects three APIs into UI iframes for maximum compatibility:
+Photon injects APIs into UI iframes for maximum compatibility:
 
 ```javascript
-// 1. Photon Bridge (recommended)
-window.photon.callTool('search', { query: 'test' });
-window.photon.onResult(data => console.log(data));
-window.photon.theme; // 'light' | 'dark'
+// 1. Photon global — named after your .photon.ts file (recommended)
+// For search.photon.ts:
+search.onResult(data => console.log(data));
+search.query({ q: 'test' });  // calls the 'query' method
 
-// 2. OpenAI Apps SDK compatible
-window.openai.callTool('search', { query: 'test' });
-window.openai.theme;
-window.openai.setWidgetState({ count: 1 });
+// 2. Low-level bridge — full control over tool I/O
+photon.callTool('query', { q: 'test' });
+photon.onResult(data => console.log(data));
+photon.theme; // 'light' | 'dark'
 
-// 3. Generic MCP Bridge
-window.mcp.requestToolCall('search', { query: 'test' });
+// 3. OpenAI Apps SDK compatible
+openai.callTool('query', { q: 'test' });
 ```
 
 #### Building Compatible UIs
@@ -687,8 +687,9 @@ app.ontoolresult = (result) => {
 Or use Photon's native API:
 
 ```javascript
-// Using Photon Bridge (no external dependency)
-window.photon.onResult(result => {
+// Using the photon global (named after your .photon.ts file)
+// For myTool.photon.ts:
+myTool.onResult(result => {
   document.getElementById('output').textContent = result;
 });
 ```
@@ -1188,16 +1189,16 @@ Every client subscribed to that photon's channel gets the event. If you have Bea
 
 ### Receiving Events in Custom UIs
 
-If your photon has a `@ui` template, the bridge API gives you a callback:
+If your photon has a `@ui` template, use the auto-injected global named after your photon:
 
 ```javascript
-// Inside your @ui HTML template
-window.photon.onEmit((event) => {
-  if (event.emit === 'board:updated') {
-    // Re-render the board with new data
-    renderBoard(event.data);
-  }
-});
+// Inside your @ui HTML template for kanban.photon.ts
+// Subscribe to specific events using on + PascalCase convention
+kanban.onBoardUpdated(data => renderBoard(data));
+kanban.onTaskMoved(data => animateTask(data));
+
+// Or use the low-level bridge for raw event access
+photon.onEmit(event => console.log(event.emit, event.data));
 ```
 
 That is the entire client-side setup. The bridge handles SSE subscription, reconnection, and message parsing.
@@ -1808,7 +1809,7 @@ export default class MyPhoton extends PhotonMCP {
 }
 
 // In Custom UI (via bridge)
-const photonId = window.photon.photonId;
+const photonId = photon.photonId;
 ```
 
 ### Compilation Process
