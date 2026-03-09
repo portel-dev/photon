@@ -75,8 +75,6 @@ export default class Tunnel {
       message: string;
       url: string;
       link: string;
-      provider: string;
-      port: number;
     }
   > {
     // Auto-detect Beam port from environment
@@ -88,11 +86,9 @@ export default class Tunnel {
       // Verify the process is still alive
       if (!existing.process.killed && existing.process.exitCode === null) {
         return {
-          message: `Tunnel already running`,
+          message: `Tunnel already running via ${existing.info.provider}`,
           url: existing.info.url,
           link: existing.info.url,
-          provider: existing.info.provider,
-          port,
         };
       }
       // Process died — clean up and start fresh
@@ -138,11 +134,9 @@ export default class Tunnel {
       activeTunnels.set(port, { process: tunnelProcess, info });
 
       return {
-        message: `Tunnel started successfully`,
+        message: `Tunnel started via ${provider}`,
         url,
         link: url,
-        provider,
-        port,
       };
     } catch (error: any) {
       throw new Error(error.message);

@@ -4499,16 +4499,18 @@ export class ResultViewer extends LitElement {
       href = `tel:${text.replace(/[\s\-().]/g, '')}`;
     }
 
-    // Schedule QR code generation after render
+    // Schedule QR code generation after render — size adapts to container
     setTimeout(() => {
       if (this._qrContainer) {
         this._qrContainer.innerHTML = '';
         try {
-          // Use global QRCode library from CDN
+          // Compute QR size from container width (subtract padding)
+          const containerWidth = this._qrContainer.clientWidth;
+          const qrSize = Math.max(200, Math.min(containerWidth - 48, 400));
           new (window as any).QRCode(this._qrContainer, {
             text: text,
-            width: 240,
-            height: 240,
+            width: qrSize,
+            height: qrSize,
             correctLevel: (window as any).QRCode?.CorrectLevel?.H,
             colorDark: '#000000',
             colorLight: '#ffffff',
@@ -4526,7 +4528,11 @@ export class ResultViewer extends LitElement {
     const extraFields: Array<{ label: string; value: string }> = [];
     if (typeof data === 'object' && data !== null) {
       for (const [k, v] of Object.entries(data)) {
-        if (['url', 'link', 'value', 'message'].includes(k) || v == null || typeof v === 'object')
+        if (
+          ['url', 'link', 'value', 'message', 'port'].includes(k) ||
+          v == null ||
+          typeof v === 'object'
+        )
           continue;
         extraFields.push({ label: k, value: `${v as string | number | boolean}` });
       }
@@ -4537,14 +4543,15 @@ export class ResultViewer extends LitElement {
       display: flex; flex-direction: column; align-items: center; gap: 0;
       padding: 0; border-radius: var(--radius-md);
       border: 1px solid var(--border-glass);
-      background: var(--bg-subtle); overflow: hidden; max-width: 340px;
+      background: var(--bg-subtle); overflow: hidden;
+      width: 40%; min-width: 280px; max-width: 480px;
       margin: 16px auto;
     "
     >
       <div
         id="qr-container"
         style="
-        width: 100%; padding: 16px;
+        width: 100%; padding: 24px;
         display: flex; justify-content: center; align-items: center;
         background: #ffffff; border-radius: var(--radius-md) var(--radius-md) 0 0;
       "
@@ -4576,9 +4583,9 @@ export class ResultViewer extends LitElement {
                 target="_blank"
                 rel="noopener noreferrer"
                 style="
-                  font-size: 0.875rem; color: var(--accent, #3b82f6);
-                  word-break: break-all; text-decoration: none; font-weight: 500;
-                  text-align: center;
+                  font-size: 0.85rem; color: var(--accent, #3b82f6);
+                  text-decoration: none; font-weight: 500;
+                  text-align: center; word-break: break-word;
                 "
                 @mouseenter=${(e: Event) =>
                   ((e.target as HTMLElement).style.textDecoration = 'underline')}

@@ -1100,7 +1100,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         try {
           const bundlePath = path.join(__dirname, '../../dist/beam.bundle.js');
           const content = await fs.readFile(bundlePath, 'utf-8');
-          res.writeHead(200, { 'Content-Type': 'text/javascript' });
+          res.writeHead(200, {
+            'Content-Type': 'text/javascript',
+            'Cache-Control': 'no-cache',
+          });
           res.end(content);
         } catch {
           res.writeHead(404);
