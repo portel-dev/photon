@@ -20,6 +20,8 @@ Photon turns a single TypeScript file into:
 
 </div>
 
+Free and open source under the [MIT license](./LICENSE). Write the intent. Photon handles the interfaces.
+
 ---
 
 ### Example
@@ -46,6 +48,16 @@ No decorators. No registration. No server boilerplate.
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="One file, three interfaces" width="100%">
 </div>
+
+---
+
+## Why Photon Exists
+
+Most software is built around interfaces. We build separate systems for web apps, CLI tools, APIs, and now MCP servers for AI agents. But the underlying logic is often the same.
+
+Photon starts from a different place: capture the intent once in a TypeScript file and let the system expose it through multiple interfaces — CLI tools, web interfaces, and MCP servers.
+
+One definition. Multiple surfaces.
 
 ---
 
@@ -400,10 +412,12 @@ photon test                       # Run tests
 
 ---
 
-## Contributing
+## Open Source
 
-Open an issue or a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+Photon is free and open source under the [MIT license](./LICENSE).
 
-## License
+The project is still evolving and contributions are welcome.
 
-[MIT](./LICENSE).
+- Star the repository if the idea resonates
+- [Report issues](https://github.com/portel-dev/photon/issues)
+- [Submit improvements or examples](./CONTRIBUTING.md)
