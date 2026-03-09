@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { theme, badges } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
-import { pencil, formInput, play } from '../icons.js';
+import { pencil, formInput, play, user, bot, users, sizedIcon } from '../icons.js';
 
 interface MethodInfo {
   name: string;
@@ -23,6 +23,7 @@ interface MethodInfo {
   deprecated?: string | true;
   emitsEvent?: boolean;
   eventName?: string;
+  audience?: ('user' | 'assistant')[];
 }
 
 @customElement('method-card')
@@ -271,6 +272,11 @@ export class MethodCard extends LitElement {
       .badge.event {
         background: hsla(100, 70%, 50%, 0.15);
         color: hsl(100, 70%, 60%);
+      }
+
+      .badge.audience {
+        background: hsla(180, 60%, 50%, 0.15);
+        color: hsl(180, 60%, 65%);
       }
 
       .param-tags {
@@ -556,6 +562,18 @@ export class MethodCard extends LitElement {
                   class="badge event"
                   title="Automatically emits event: ${this.method.eventName}"
                   >📡 Event</span
+                >`
+              : ''}
+            ${this.method.audience
+              ? html`<span
+                  class="badge audience"
+                  title="Target audience: ${this.method.audience.join(', ')}"
+                  >${this.method.audience.includes('user') &&
+                  this.method.audience.includes('assistant')
+                    ? sizedIcon(users, 12)
+                    : this.method.audience.includes('user')
+                      ? sizedIcon(user, 12)
+                      : sizedIcon(bot, 12)}</span
                 >`
               : ''}
           </div>

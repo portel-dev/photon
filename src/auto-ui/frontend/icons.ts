@@ -270,6 +270,23 @@ export const eye = icon(
   `<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>`
 );
 
+// ---------- Audience Indicators ----------
+
+/** User / person (human audience) */
+export const user = icon(
+  `<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`
+);
+
+/** Bot / robot (assistant audience) */
+export const bot = icon(
+  `<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>`
+);
+
+/** Users / people (both audiences) */
+export const users = icon(
+  `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`
+);
+
 // ---------- Raw SVG strings for imperative DOM (overflow menu) ----------
 
 /** Raw SVG path strings keyed by name, for use with iconSvgString() */
@@ -354,6 +371,9 @@ export const icons = {
   scrollText,
   handHelping,
   eye,
+  user,
+  bot,
+  users,
 } as const;
 
 export type IconName = keyof typeof icons;
