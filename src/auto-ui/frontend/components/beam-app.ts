@@ -2840,6 +2840,23 @@ export class BeamApp extends LitElement {
       .map((m: any) => m.name);
   }
 
+  /** Fetch all tests (external .test.ts + inline) from the server */
+  private async _fetchTestList(photonName: string): Promise<string[]> {
+    try {
+      const res = await fetch(`/api/test/list?photon=${encodeURIComponent(photonName)}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return this._getTestMethods();
+      const data = await res.json();
+      if (data.tests && data.tests.length > 0) {
+        return data.tests.map((t: any) => t.name);
+      }
+    } catch {
+      // Fall back to inline test discovery
+    }
+    return this._getTestMethods();
+  }
+
   private _getAllTestMethods(): Array<{ photon: string; method: string }> {
     const results: Array<{ photon: string; method: string }> = [];
     for (const p of this._photons) {
@@ -2855,7 +2872,7 @@ export class BeamApp extends LitElement {
 
   private _runTests = async () => {
     if (!this._selectedPhoton || this._runningTests) return;
-    const testMethods = this._getTestMethods();
+    const testMethods = await this._fetchTestList(this._selectedPhoton.name);
     if (testMethods.length === 0) return;
 
     this._runningTests = true;

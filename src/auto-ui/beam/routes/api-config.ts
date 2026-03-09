@@ -218,6 +218,36 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Test API: List available tests for a photon (external .test.ts + inline test* methods)
+  if (url.pathname === '/api/test/list' && req.method === 'GET') {
+    const photonName = url.searchParams.get('photon');
+    if (!photonName) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'Missing photon query parameter' }));
+      return true;
+    }
+
+    const photon = state.photons.find((p) => p.name === photonName);
+    if (!photon || !photon.path) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: 'Photon not found', tests: [] }));
+      return true;
+    }
+
+    try {
+      const { listTests } = await import('../../../test-runner.js');
+      const mcp = state.photonMCPs.get(photonName);
+      const tests = await listTests(photon.path, mcp?.instance);
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      res.end(JSON.stringify({ tests }));
+    } catch (error: any) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: error.message, tests: [] }));
+    }
+    return true;
+  }
+
   // Test API: Run a single test
   // Supports modes: 'direct' (call instance method), 'mcp' (call via executeTool), 'cli' (spawn subprocess)
   if (url.pathname === '/api/test/run' && req.method === 'POST') {

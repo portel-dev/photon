@@ -1,7 +1,10 @@
 /**
  * Photon Test Runner
  *
- * Discovers and runs test* methods in photons
+ * Discovers and runs tests from:
+ * - External .test.ts files (preferred — companion to .photon.ts)
+ * - Inline test* methods in .photon.ts (legacy, backward compatible)
+ *
  * Supports multiple test modes:
  * - direct: Call methods directly on instance (unit tests)
  * - cli: Call methods via CLI subprocess (integration tests)
@@ -11,13 +14,13 @@
  */
 
 import * as path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { PhotonLoader } from './loader.js';
 import { listPhotonMCPs, resolvePhotonPath } from './path-resolver.js';
 import { logger } from './shared/logger.js';
-import { SchemaExtractor } from '@portel/photon-core';
+import { SchemaExtractor, compilePhotonTS } from '@portel/photon-core';
 import chalk from 'chalk';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,6 +60,402 @@ export interface TestSummary {
 interface MethodSchema {
   name: string;
   params: Array<{ name: string; type: string; required: boolean; example?: string }>;
+}
+
+/** A single external test descriptor discovered from a .test.ts file */
+interface ExternalTestDescriptor {
+  name: string;
+  fn?: (photon: any) => Promise<any>;
+  /** Sequence tests: ordered step functions sharing one instance */
+  steps?: Array<{ name: string; fn: (photon: any) => Promise<any> }>;
+  skip?: string | boolean;
+  only?: boolean;
+}
+
+/** Lifecycle hooks exported from a .test.ts file */
+interface ExternalTestHooks {
+  beforeAll?: (photon: any) => Promise<any>;
+  afterAll?: (photon: any) => Promise<any>;
+  beforeEach?: (photon: any) => Promise<any>;
+  afterEach?: (photon: any) => Promise<any>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTERNAL TEST FILE DISCOVERY & EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve the companion .test.ts path for a photon file.
+ * e.g. /path/to/todo.photon.ts → /path/to/todo.test.ts
+ */
+function resolveTestFilePath(photonPath: string): string | null {
+  const testPath = photonPath.replace(/\.photon\.ts$/, '.test.ts');
+  return existsSync(testPath) ? testPath : null;
+}
+
+/**
+ * Parse JSDoc tags (@skip, @only) from a .test.ts source file.
+ * Returns a map of export name → { skip?, only? }.
+ */
+function parseTestTags(source: string): Map<string, { skip?: string; only?: boolean }> {
+  const tags = new Map<string, { skip?: string; only?: boolean }>();
+
+  // Match JSDoc comment followed by export
+  const pattern = /\/\*\*([\s\S]*?)\*\/\s*export\s+(?:async\s+)?(?:function\s+|const\s+)(\w+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    const comment = match[1];
+    const name = match[2];
+    const entry: { skip?: string; only?: boolean } = {};
+
+    const skipMatch = comment.match(/@skip(?:\s+(.+?))?(?:\n|\*)/);
+    if (skipMatch) {
+      entry.skip = skipMatch[1]?.trim() || 'skipped';
+    }
+
+    if (/@only\b/.test(comment)) {
+      entry.only = true;
+    }
+
+    tags.set(name, entry);
+  }
+
+  return tags;
+}
+
+/**
+ * Discover and compile a .test.ts file, returning test descriptors and hooks.
+ */
+async function discoverExternalTests(
+  testFilePath: string
+): Promise<{ tests: ExternalTestDescriptor[]; hooks: ExternalTestHooks } | null> {
+  try {
+    const source = readFileSync(testFilePath, 'utf-8');
+    const tags = parseTestTags(source);
+
+    // Compile the test file
+    const cacheDir = path.join(path.dirname(testFilePath), '.photon-cache', 'tests');
+    const jsPath = await compilePhotonTS(testFilePath, { cacheDir });
+
+    // Import the compiled module
+    const moduleUrl = pathToFileURL(jsPath).href;
+    const mod = await import(moduleUrl);
+
+    const tests: ExternalTestDescriptor[] = [];
+    const hooks: ExternalTestHooks = {};
+
+    for (const [key, value] of Object.entries(mod)) {
+      // Lifecycle hooks
+      if (key === 'beforeAll' && typeof value === 'function') {
+        hooks.beforeAll = value as any;
+        continue;
+      }
+      if (key === 'afterAll' && typeof value === 'function') {
+        hooks.afterAll = value as any;
+        continue;
+      }
+      if (key === 'beforeEach' && typeof value === 'function') {
+        hooks.beforeEach = value as any;
+        continue;
+      }
+      if (key === 'afterEach' && typeof value === 'function') {
+        hooks.afterEach = value as any;
+        continue;
+      }
+
+      // Test functions
+      if (key.startsWith('test') && typeof value === 'function') {
+        const tagInfo = tags.get(key);
+        tests.push({
+          name: key,
+          fn: value as any,
+          skip: tagInfo?.skip,
+          only: tagInfo?.only,
+        });
+      }
+
+      // Sequence tests (exported arrays of functions)
+      if (key.startsWith('test') && Array.isArray(value)) {
+        const tagInfo = tags.get(key);
+        const steps = (value as any)
+          .filter((fn: any) => typeof fn === 'function')
+          .map((fn: any) => ({ name: fn.name || 'anonymous', fn }));
+
+        if (steps.length > 0) {
+          tests.push({
+            name: key,
+            steps,
+            skip: tagInfo?.skip,
+            only: tagInfo?.only,
+          });
+        }
+      }
+    }
+
+    return { tests, hooks };
+  } catch (error: any) {
+    logger.error(`Failed to discover external tests from ${testFilePath}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Run a single external test function with a fresh photon instance.
+ */
+async function runExternalTest(
+  testFn: (photon: any) => Promise<any>,
+  photonPath: string,
+  photonName: string,
+  testName: string,
+  workingDir: string,
+  hooks?: ExternalTestHooks
+): Promise<TestResult> {
+  const start = Date.now();
+
+  try {
+    // Create a fresh instance for isolation
+    const loader = new PhotonLoader(false);
+    const loaded = await loader.loadFile(photonPath);
+    const instance = loaded.instance;
+
+    // Run beforeEach hook
+    if (hooks?.beforeEach) {
+      await hooks.beforeEach(instance);
+    }
+
+    try {
+      const result = await testFn(instance);
+      const duration = Date.now() - start;
+
+      // Same contract as inline tests: explicit { passed: false } or throw
+      if (result && typeof result === 'object') {
+        if (result.skipped === true) {
+          return {
+            photon: photonName,
+            test: testName,
+            passed: true,
+            skipped: true,
+            duration,
+            message: result.reason || 'Skipped',
+            mode: 'direct',
+          };
+        }
+        if (result.passed === false) {
+          const failResult: TestResult = {
+            photon: photonName,
+            test: testName,
+            passed: false,
+            duration,
+            error: result.error || result.message || 'Test returned passed: false',
+            mode: 'direct',
+          };
+          failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+          return failResult;
+        }
+      }
+
+      return { photon: photonName, test: testName, passed: true, duration, mode: 'direct' };
+    } finally {
+      // Run afterEach hook (always, even on failure)
+      if (hooks?.afterEach) {
+        try {
+          await hooks.afterEach(instance);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  } catch (error: any) {
+    const duration = Date.now() - start;
+    const failResult: TestResult = {
+      photon: photonName,
+      test: testName,
+      passed: false,
+      duration,
+      error: error.message || String(error),
+      mode: 'direct',
+    };
+    failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+    return failResult;
+  }
+}
+
+/**
+ * Run a sequence test: all steps share one photon instance.
+ */
+async function runExternalSequence(
+  steps: Array<{ name: string; fn: (photon: any) => Promise<any> }>,
+  photonPath: string,
+  photonName: string,
+  sequenceName: string,
+  workingDir: string
+): Promise<TestResult[]> {
+  const results: TestResult[] = [];
+
+  try {
+    const loader = new PhotonLoader(false);
+    const loaded = await loader.loadFile(photonPath);
+    const instance = loaded.instance;
+
+    for (const step of steps) {
+      const stepTestName = `${sequenceName}/${step.name}`;
+      const start = Date.now();
+
+      try {
+        await step.fn(instance);
+        results.push({
+          photon: photonName,
+          test: stepTestName,
+          passed: true,
+          duration: Date.now() - start,
+          mode: 'direct',
+        });
+      } catch (error: any) {
+        const failResult: TestResult = {
+          photon: photonName,
+          test: stepTestName,
+          passed: false,
+          duration: Date.now() - start,
+          error: error.message || String(error),
+          mode: 'direct',
+        };
+        failResult.issueUrl = generateIssueUrl(failResult, workingDir);
+        results.push(failResult);
+        // Abort remaining steps on failure
+        for (const remaining of steps.slice(steps.indexOf(step) + 1)) {
+          results.push({
+            photon: photonName,
+            test: `${sequenceName}/${remaining.name}`,
+            passed: false,
+            skipped: true,
+            duration: 0,
+            message: 'Skipped (previous step failed)',
+            mode: 'direct',
+          });
+        }
+        break;
+      }
+    }
+  } catch (error: any) {
+    results.push({
+      photon: photonName,
+      test: `${sequenceName}/*`,
+      passed: false,
+      duration: 0,
+      error: `Failed to load photon: ${error.message}`,
+      mode: 'direct',
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Run all external tests from a .test.ts file.
+ */
+async function runExternalTests(
+  testFilePath: string,
+  photonPath: string,
+  photonName: string,
+  workingDir: string,
+  specificTest?: string
+): Promise<TestResult[]> {
+  const discovered = await discoverExternalTests(testFilePath);
+  if (!discovered || discovered.tests.length === 0) return [];
+
+  const { tests, hooks } = discovered;
+  const results: TestResult[] = [];
+
+  // Filter by specific test name if provided
+  let testsToRun = specificTest
+    ? tests.filter((t) => t.name === specificTest || t.name === `test${specificTest}`)
+    : tests;
+
+  // Handle @only: if any test has @only, run only those
+  const onlyTests = testsToRun.filter((t) => t.only);
+  if (onlyTests.length > 0) {
+    testsToRun = onlyTests;
+  }
+
+  // Run beforeAll hook (with a temporary instance)
+  if (hooks.beforeAll) {
+    try {
+      const loader = new PhotonLoader(false);
+      const loaded = await loader.loadFile(photonPath);
+      await hooks.beforeAll(loaded.instance);
+    } catch (error: any) {
+      return [
+        {
+          photon: photonName,
+          test: 'beforeAll',
+          passed: false,
+          duration: 0,
+          error: `Setup failed: ${error.message}`,
+          mode: 'direct',
+        },
+      ];
+    }
+  }
+
+  for (const test of testsToRun) {
+    // Handle @skip
+    if (test.skip) {
+      results.push({
+        photon: photonName,
+        test: test.name,
+        passed: true,
+        skipped: true,
+        duration: 0,
+        message: typeof test.skip === 'string' ? test.skip : 'Skipped',
+        mode: 'direct',
+      });
+      continue;
+    }
+
+    if (test.steps) {
+      // Sequence test
+      const seqResults = await runExternalSequence(
+        test.steps,
+        photonPath,
+        photonName,
+        test.name,
+        workingDir
+      );
+      results.push(...seqResults);
+    } else if (test.fn) {
+      // Regular test
+      const result = await runExternalTest(
+        test.fn,
+        photonPath,
+        photonName,
+        test.name,
+        workingDir,
+        hooks
+      );
+      results.push(result);
+    }
+  }
+
+  // Run afterAll hook
+  if (hooks.afterAll) {
+    try {
+      const loader = new PhotonLoader(false);
+      const loaded = await loader.loadFile(photonPath);
+      await hooks.afterAll(loaded.instance);
+    } catch (error: any) {
+      results.push({
+        photon: photonName,
+        test: 'afterAll',
+        passed: false,
+        duration: 0,
+        error: `Teardown failed: ${error.message}`,
+        mode: 'direct',
+      });
+    }
+  }
+
+  return results;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -547,7 +946,25 @@ async function runPhotonTests(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DIRECT TESTS (test* methods)
+    // EXTERNAL .test.ts FILE (preferred — runs first)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (mode === 'direct' || mode === 'all') {
+      const testFilePath = resolveTestFilePath(photonPath);
+      if (testFilePath) {
+        const externalResults = await runExternalTests(
+          testFilePath,
+          photonPath,
+          photonName,
+          workingDir,
+          specificTest
+        );
+        results.push(...externalResults);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INLINE test* METHODS (legacy — backward compatible)
     // ─────────────────────────────────────────────────────────────────────────
 
     if (mode === 'direct' || mode === 'all') {
@@ -779,6 +1196,45 @@ function printSummary(summary: TestSummary): void {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * List all tests for a photon (external + inline).
+ * Used by Beam UI to discover available tests.
+ */
+export async function listTests(
+  photonPath: string,
+  instance?: any
+): Promise<Array<{ name: string; source: 'external' | 'inline'; skip?: string | boolean }>> {
+  const tests: Array<{ name: string; source: 'external' | 'inline'; skip?: string | boolean }> = [];
+
+  // External .test.ts tests
+  const testFilePath = resolveTestFilePath(photonPath);
+  if (testFilePath) {
+    const discovered = await discoverExternalTests(testFilePath);
+    if (discovered) {
+      for (const t of discovered.tests) {
+        if (t.steps) {
+          // Sequence: list each step
+          for (const step of t.steps) {
+            tests.push({ name: `${t.name}/${step.name}`, source: 'external', skip: t.skip });
+          }
+        } else {
+          tests.push({ name: t.name, source: 'external', skip: t.skip });
+        }
+      }
+    }
+  }
+
+  // Inline test* methods
+  if (instance) {
+    const inlineMethods = getTestMethods(instance);
+    for (const name of inlineMethods) {
+      tests.push({ name, source: 'inline' });
+    }
+  }
+
+  return tests;
+}
+
+/**
  * Main test runner
  */
 export async function runTests(
@@ -847,18 +1303,22 @@ export async function runTests(
         continue;
       }
 
-      // Check if photon has any test methods before printing header (for direct mode)
+      // Check if photon has any tests (external .test.ts or inline test* methods)
       if (mode === 'direct') {
-        const loader = new PhotonLoader(false);
-        try {
-          const loaded = await loader.loadFile(photonPath);
-          const testMethods = getTestMethods(loaded.instance);
+        const hasExternalTests = resolveTestFilePath(photonPath) !== null;
 
-          if (testMethods.length === 0) {
-            continue; // Skip photons with no tests in direct mode
+        if (!hasExternalTests) {
+          const loader = new PhotonLoader(false);
+          try {
+            const loaded = await loader.loadFile(photonPath);
+            const testMethods = getTestMethods(loaded.instance);
+
+            if (testMethods.length === 0) {
+              continue; // Skip photons with no tests in direct mode
+            }
+          } catch {
+            continue;
           }
-        } catch {
-          continue;
         }
       }
 
