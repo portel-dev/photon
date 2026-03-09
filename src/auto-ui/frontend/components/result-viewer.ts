@@ -4559,7 +4559,7 @@ export class ResultViewer extends LitElement {
 
       <div
         style="
-        width: 100%; padding: 14px 20px;
+        width: 100%; padding: 16px 24px;
         display: flex; flex-direction: column; gap: 10px;
         border-top: 1px solid var(--border-glass);
       "
@@ -4576,7 +4576,7 @@ export class ResultViewer extends LitElement {
           : ''}
         ${href
           ? html`<div
-              style="display: flex; align-items: center; gap: 8px; justify-content: center;"
+              style="display: flex; align-items: center; gap: 10px; justify-content: center;"
             >
               <a
                 href="${href}"
@@ -4585,7 +4585,7 @@ export class ResultViewer extends LitElement {
                 style="
                   font-size: 0.875rem; color: var(--accent, #3b82f6);
                   word-break: break-all; text-decoration: none; font-weight: 500;
-                  flex: 1; text-align: center;
+                  text-align: center;
                 "
                 @mouseenter=${(e: Event) =>
                   ((e.target as HTMLElement).style.textDecoration = 'underline')}
@@ -4596,14 +4596,15 @@ export class ResultViewer extends LitElement {
               <button
                 title="Copy to clipboard"
                 style="
-                  background: none; border: 1px solid var(--border-glass);
-                  border-radius: 4px; padding: 4px 6px; cursor: pointer;
-                  color: var(--t-muted); font-size: 0.75rem; flex-shrink: 0;
-                  transition: color 0.15s, border-color 0.15s;
+                  background: var(--bg-subtle, rgba(255,255,255,0.06));
+                  border: 1px solid var(--border-glass);
+                  border-radius: 6px; padding: 6px 10px; cursor: pointer;
+                  color: var(--t-muted); font-size: 0.85rem; flex-shrink: 0;
+                  transition: all 0.15s; line-height: 1;
                 "
                 @mouseenter=${(e: Event) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--t-primary)';
+                  (e.target as HTMLElement).style.color = 'var(--accent, #3b82f6)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent, #3b82f6)';
                 }}
                 @mouseleave=${(e: Event) => {
                   (e.target as HTMLElement).style.color = 'var(--t-muted)';
@@ -4613,11 +4614,15 @@ export class ResultViewer extends LitElement {
                   void navigator.clipboard.writeText(text);
                   const btn = e.target as HTMLElement;
                   const orig = btn.textContent;
-                  btn.textContent = '✓';
-                  setTimeout(() => (btn.textContent = orig), 1500);
+                  btn.textContent = '✓ Copied';
+                  btn.style.color = 'var(--accent, #3b82f6)';
+                  setTimeout(() => {
+                    btn.textContent = orig;
+                    btn.style.color = 'var(--t-muted)';
+                  }, 1500);
                 }}
               >
-                ⎘
+                Copy
               </button>
             </div>`
           : html`<div
