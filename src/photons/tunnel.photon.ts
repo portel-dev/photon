@@ -4,7 +4,7 @@
  * @icon 🌐
  */
 
-import { spawn, spawnSync, execSync, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess } from 'child_process';
 
 interface TunnelInfo {
   provider: string;
@@ -12,6 +12,7 @@ interface TunnelInfo {
   url: string;
   pid: number;
   startedAt: Date;
+  active: boolean;
 }
 
 // Track active tunnels
@@ -27,26 +28,27 @@ export default class Tunnel {
       name: string;
       available: boolean;
       install?: string;
-      note?: string;
     }>;
     activeTunnels: TunnelInfo[];
   }> {
+    // Check which tunnels are still alive
+    for (const [port, tunnel] of activeTunnels) {
+      if (tunnel.process.killed || tunnel.process.exitCode !== null) {
+        tunnel.info.active = false;
+        activeTunnels.delete(port);
+      }
+    }
+
     const providers = [
       {
-        name: 'localtunnel',
-        available: true, // Always available via npx
-        note: 'Ready (uses npx, no install needed)',
+        name: 'cloudflared',
+        available: this._checkCommand('cloudflared'),
+        install: 'brew install cloudflared',
       },
       {
         name: 'ngrok',
         available: this._checkCommand('ngrok'),
-        install: 'brew install ngrok  OR  https://ngrok.com/download',
-      },
-      {
-        name: 'cloudflared',
-        available: this._checkCommand('cloudflared'),
-        install:
-          'brew install cloudflared  OR  https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation',
+        install: 'brew install ngrok',
       },
     ];
 
@@ -63,10 +65,10 @@ export default class Tunnel {
    * @param provider Tunnel provider to use
    */
   async *start({
-    provider = 'localtunnel',
+    provider = 'cloudflared',
   }: {
-    /** Provider: localtunnel, ngrok, or cloudflared */
-    provider?: 'localtunnel' | 'ngrok' | 'cloudflared';
+    /** Provider: cloudflared or ngrok */
+    provider?: 'cloudflared' | 'ngrok';
   } = {}): AsyncGenerator<
     { emit: string; value?: any; message: string },
     {
@@ -75,75 +77,70 @@ export default class Tunnel {
       link: string;
       provider: string;
       port: number;
-      password?: string;
     }
   > {
     // Auto-detect Beam port from environment
     const port = parseInt(process.env.BEAM_PORT || '3117', 10);
 
     // Check if tunnel already exists for this port
-    if (activeTunnels.has(port)) {
-      const existing = activeTunnels.get(port)!;
-      const publicIp = await this._getPublicIp();
-      return {
-        message: `Tunnel already active on port ${port}`,
-        url: existing.info.url,
-        link: existing.info.url,
-        password: existing.info.provider === 'localtunnel' ? publicIp : undefined,
-        provider: existing.info.provider,
-        port,
-      };
+    const existing = activeTunnels.get(port);
+    if (existing) {
+      // Verify the process is still alive
+      if (!existing.process.killed && existing.process.exitCode === null) {
+        return {
+          message: `Tunnel already running`,
+          url: existing.info.url,
+          link: existing.info.url,
+          provider: existing.info.provider,
+          port,
+        };
+      }
+      // Process died — clean up and start fresh
+      activeTunnels.delete(port);
     }
 
     yield {
       emit: 'status',
       value: { step: 'starting' },
-      message: `Starting ${provider} tunnel for Beam (port ${port})...`,
+      message: `Starting ${provider} tunnel on port ${port}...`,
     };
 
     try {
       let url: string;
-      let process: ChildProcess;
+      let tunnelProcess: ChildProcess;
 
       switch (provider) {
         case 'ngrok':
           if (!this._checkCommand('ngrok')) {
             throw new Error('ngrok not installed. Run: brew install ngrok');
           }
-          ({ url, process } = await this._startNgrok(port));
+          ({ url, process: tunnelProcess } = await this._startNgrok(port));
           break;
 
         case 'cloudflared':
+        default:
           if (!this._checkCommand('cloudflared')) {
             throw new Error('cloudflared not installed. Run: brew install cloudflared');
           }
-          ({ url, process } = await this._startCloudflared(port));
-          break;
-
-        case 'localtunnel':
-        default:
-          ({ url, process } = await this._startLocaltunnel(port));
+          ({ url, process: tunnelProcess } = await this._startCloudflared(port));
           break;
       }
-
-      // Fetch public IP (needed for localtunnel password)
-      const publicIp = await this._getPublicIp();
 
       const info: TunnelInfo = {
         provider,
         port,
         url,
-        pid: process.pid!,
+        pid: tunnelProcess.pid!,
         startedAt: new Date(),
+        active: true,
       };
 
-      activeTunnels.set(port, { process, info });
+      activeTunnels.set(port, { process: tunnelProcess, info });
 
       return {
         message: `Tunnel started successfully`,
         url,
         link: url,
-        password: provider === 'localtunnel' ? publicIp : undefined,
         provider,
         port,
       };
@@ -214,70 +211,6 @@ export default class Tunnel {
     const which = process.platform === 'win32' ? 'where' : 'which';
     const result = spawnSync(which, [cmd], { stdio: 'ignore' });
     return result.status === 0;
-  }
-
-  private async _getPublicIp(): Promise<string> {
-    // Try multiple services in order
-    const services = ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'];
-
-    for (const service of services) {
-      try {
-        const result = execSync(`curl -s --max-time 3 ${service}`, {
-          encoding: 'utf-8',
-          timeout: 5000,
-        });
-        const ip = result.trim();
-        if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
-          return ip;
-        }
-      } catch {
-        continue;
-      }
-    }
-    return 'unknown';
-  }
-
-  private async _startLocaltunnel(port: number): Promise<{ url: string; process: ChildProcess }> {
-    return new Promise((resolve, reject) => {
-      const proc = spawn('npx', ['localtunnel', '--port', String(port)], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      let output = '';
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for localtunnel URL'));
-      }, 30000);
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-        // localtunnel outputs: "your url is: https://xxx.loca.lt"
-        const match = output.match(/your url is: (https?:\/\/[^\s]+)/i);
-        if (match) {
-          clearTimeout(timeout);
-          resolve({ url: match[1], process: proc });
-        }
-      });
-
-      proc.stderr?.on('data', (data) => {
-        const err = data.toString();
-        if (err.includes('error')) {
-          clearTimeout(timeout);
-          reject(new Error(err));
-        }
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-
-      proc.on('close', (code) => {
-        if (code !== 0 && !output.includes('your url is')) {
-          clearTimeout(timeout);
-          reject(new Error(`localtunnel exited with code ${code}`));
-        }
-      });
-    });
   }
 
   private async _startNgrok(port: number): Promise<{ url: string; process: ChildProcess }> {
