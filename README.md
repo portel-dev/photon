@@ -43,7 +43,7 @@ export default class Hello {
 }
 ```
 
-That's a complete photon. From this single file, you get:
+That's a complete photon. From this single file you get:
 
 ```
 $ photon cli hello greet --name Ada        # CLI
@@ -52,7 +52,7 @@ $ photon mcp hello                          # MCP server for Claude, Cursor, etc
 ```
 
 No decorators. No registration. No server boilerplate.
-Just define the intent.
+Just define the intent. Photon handles the rest.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="One file, three interfaces" width="100%">
@@ -62,7 +62,7 @@ Just define the intent.
 
 ## Why Photon Exists
 
-Most software is built around interfaces. We build separate systems for web apps, CLI tools, APIs, and now MCP servers for AI agents. But the underlying logic is often the same.
+Most software is built around interfaces: web apps, CLI tools, APIs, and now MCP servers for AI agents. But the underlying logic is often the same.
 
 Photon starts from a different place: capture the intent once in a TypeScript file and let the system expose it through multiple interfaces — CLI tools, web interfaces, and MCP servers.
 
@@ -121,7 +121,7 @@ When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates
 
 ## Beam: Human Exploration
 
-Beam is the web dashboard. Every photon becomes an interactive form. Run `photon`. That's the whole command.
+Beam is the web dashboard. Every photon becomes an interactive form automatically. Run `photon`. That's the whole command.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/beam-dashboard.png" alt="Beam Dashboard" width="100%">
@@ -166,7 +166,7 @@ When your photon has a custom UI, clients that support the [MCP Apps Extension](
 
 ---
 
-## The Progression
+## How a Photon Evolves
 
 Here is how a photon grows. Each step adds one thing and gets multiple capabilities from it.
 
