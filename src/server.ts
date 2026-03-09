@@ -562,6 +562,19 @@ export class PhotonServer {
         inputSchema: tool.inputSchema,
       };
 
+      // MCP standard annotations (2025-11-25 spec)
+      const schema = tool as any;
+      const annotations: Record<string, unknown> = {};
+      if (schema.title) annotations.title = schema.title;
+      if (schema.readOnlyHint) annotations.readOnlyHint = true;
+      if (schema.destructiveHint) annotations.destructiveHint = true;
+      if (schema.idempotentHint) annotations.idempotentHint = true;
+      if (schema.openWorldHint !== undefined) annotations.openWorldHint = schema.openWorldHint;
+      if (Object.keys(annotations).length > 0) toolDef.annotations = annotations;
+
+      // MCP structured output schema
+      if (schema.outputSchema) toolDef.outputSchema = schema.outputSchema;
+
       const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
       if (linkedUI && this.clientSupportsUI(ctx.server)) {
         toolDef._meta = this.buildUIToolMeta(linkedUI.id);
@@ -757,21 +770,37 @@ export class PhotonServer {
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;
 
-    // Build content with optional mimeType annotation
+    // Build content with optional annotations
     const content: any = {
       type: 'text',
       text: this.formatResult(actualResult),
     };
 
+    // Content annotations: audience and priority from schema, mimeType from format
+    const contentAnnotations: Record<string, unknown> = {};
+    const schema = tool as any;
+    if (schema?.audience) contentAnnotations.audience = schema.audience;
+    if (schema?.contentPriority !== undefined) contentAnnotations.priority = schema.contentPriority;
     if (outputFormat) {
       const { formatToMimeType } = await import('./cli-formatter.js');
       const mimeType = formatToMimeType(outputFormat);
-      if (mimeType) {
-        content.annotations = { mimeType };
-      }
+      if (mimeType) contentAnnotations.mimeType = mimeType;
+    }
+    if (Object.keys(contentAnnotations).length > 0) {
+      content.annotations = contentAnnotations;
     }
 
     const response: any = { content: [content], isError: false };
+
+    // Structured output: include structuredContent when outputSchema is declared
+    if (
+      schema?.outputSchema &&
+      actualResult &&
+      typeof actualResult === 'object' &&
+      !Array.isArray(actualResult)
+    ) {
+      response.structuredContent = actualResult;
+    }
 
     // Add x-output-format for format-aware clients
     if (outputFormat) {
