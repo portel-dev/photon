@@ -223,10 +223,10 @@ export class BeamApp extends LitElement {
         padding: var(--space-lg);
       }
 
+      .beam-back-btn,
       .beam-fullscreen-btn {
         position: sticky;
         top: calc(-1 * var(--space-lg));
-        float: right;
         z-index: 100;
         width: 28px;
         height: 28px;
@@ -240,6 +240,18 @@ export class BeamApp extends LitElement {
         align-items: center;
         justify-content: center;
         transition: all 0.2s ease;
+        backdrop-filter: blur(8px);
+      }
+
+      .beam-back-btn {
+        float: left;
+        margin-top: calc(-1 * var(--space-lg));
+        margin-left: calc(-1 * var(--space-lg) + 1px);
+        margin-bottom: calc(-28px + var(--space-lg));
+      }
+
+      .beam-fullscreen-btn {
+        float: right;
         margin-top: calc(-1 * var(--space-lg));
         margin-right: calc(-1 * var(--space-lg) + 1px);
         margin-bottom: calc(-28px + var(--space-lg));
@@ -1577,6 +1589,25 @@ export class BeamApp extends LitElement {
           padding-top: calc(var(--space-md) + 60px); /* Space for mobile menu button */
         }
 
+        .beam-back-btn,
+        .beam-fullscreen-btn {
+          position: fixed;
+          top: var(--space-md);
+          float: none;
+          margin: 0;
+          width: 44px;
+          height: 44px;
+          box-shadow: var(--shadow-md);
+        }
+
+        .beam-back-btn {
+          left: calc(var(--space-md) + 44px + var(--space-sm));
+        }
+
+        .beam-fullscreen-btn {
+          right: var(--space-md);
+        }
+
         .photon-header {
           flex-direction: column;
           align-items: flex-start;
@@ -1591,10 +1622,9 @@ export class BeamApp extends LitElement {
           grid-template-columns: 1fr;
         }
 
-        /* Touch-friendly targets - min 44px */
+        /* Touch-friendly targets - min 44px (exclude small inline buttons) */
         .asset-card,
         .method-card,
-        button,
         .filter-btn {
           min-height: 44px;
         }
@@ -3349,6 +3379,34 @@ export class BeamApp extends LitElement {
         aria-label="Main content"
         style="${this._splitViewEnabled ? 'overflow: hidden !important;' : ''}"
       >
+        ${this._selectedPhoton && this._selectedMethod
+          ? html`<button
+              class="beam-back-btn"
+              @click=${() => this._handleBackFromMethod()}
+              @mouseenter=${(e: MouseEvent) => {
+                (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+              }}
+              @mouseleave=${(e: MouseEvent) => {
+                (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+              }}
+              title="Back to ${this._selectedPhoton.name}"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>`
+          : ''}
         ${this._selectedPhoton
           ? html`<button
               class="beam-fullscreen-btn"
@@ -4286,35 +4344,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
           `;
         }
 
-        // Non-app linked UI — floating back button + linked UI renderer
+        // Non-app linked UI — linked UI renderer
         return html`
-          <!-- Floating back button -->
-          <button
-            @click=${() => this._handleBackFromMethod()}
-            style="position: sticky; top: 0; float: left; z-index: 100; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: all 0.2s ease; margin-bottom: -28px;"
-            @mouseenter=${(e: MouseEvent) => {
-              (e.target as HTMLElement).style.color = 'var(--t-primary)';
-              (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-            }}
-            @mouseleave=${(e: MouseEvent) => {
-              (e.target as HTMLElement).style.color = 'var(--t-muted)';
-              (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-            }}
-            title="Back to ${this._selectedPhoton.name}"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-          </button>
           <div style="position: relative;">
             <div style="position: absolute; top: 16px; right: 16px; z-index: 50;">
               <button
@@ -4341,37 +4372,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
         `;
       }
 
-      // Default Form Interface — self-contained panel headers, floating back button
-      return html`
-        <!-- Floating back button -->
-        <button
-          @click=${() => this._handleBackFromMethod()}
-          style="position: sticky; top: 0; float: left; z-index: 100; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: all 0.2s ease; margin-bottom: -28px;"
-          @mouseenter=${(e: MouseEvent) => {
-            (e.target as HTMLElement).style.color = 'var(--t-primary)';
-            (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-          }}
-          @mouseleave=${(e: MouseEvent) => {
-            (e.target as HTMLElement).style.color = 'var(--t-muted)';
-            (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-          }}
-          title="Back to ${this._selectedPhoton.name}"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-        ${this._renderMethodContent()}
-      `;
+      // Default Form Interface — back button is now at <main> level
+      return html` ${this._renderMethodContent()} `;
     }
 
     // For external MCPs, hide photon-specific toolbar actions in list view
