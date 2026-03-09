@@ -28,6 +28,14 @@ export interface ViewportChangeEvent {
 }
 
 /**
+ * Utility function to detect if the current device is mobile
+ */
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth < 600;
+}
+
+/**
  * Utility function to get optimal page size for current client
  */
 export function getPageSizeForClient(): number {
@@ -224,4 +232,20 @@ export class ViewportManager {
       console.log(`[ViewportManager] ${message}`, data);
     }
   }
+}
+
+/**
+ * Helper to create and attach a ViewportManager to an element
+ */
+export function attachViewportManager(
+  element: HTMLElement,
+  options?: { pageSize?: number; paddingAbove?: number; paddingBelow?: number; debug?: boolean }
+): ViewportManager {
+  return new ViewportManager({
+    element,
+    pageSize: options?.pageSize ?? getPageSizeForClient(),
+    paddingAbove: options?.paddingAbove,
+    paddingBelow: options?.paddingBelow,
+    debug: options?.debug,
+  });
 }
