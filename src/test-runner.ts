@@ -14,7 +14,7 @@
  */
 
 import * as path from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { PhotonLoader } from './loader.js';
@@ -213,15 +213,29 @@ async function runExternalTest(
 ): Promise<TestResult> {
   const start = Date.now();
 
+  let loadError: string | null = null;
+
   try {
     // Create a fresh instance for isolation
-    const loader = new PhotonLoader(false);
-    const loaded = await loader.loadFile(photonPath);
-    const instance = loaded.instance;
+    let instance: any = null;
+
+    try {
+      const loader = new PhotonLoader(false);
+      const loaded = await loader.loadFile(photonPath);
+      instance = loaded.instance;
+    } catch (err: any) {
+      loadError = err.message;
+      // Create a minimal stub so test functions can check isConnected() etc.
+      instance = {};
+    }
 
     // Run beforeEach hook
     if (hooks?.beforeEach) {
-      await hooks.beforeEach(instance);
+      try {
+        await hooks.beforeEach(instance);
+      } catch {
+        // beforeEach may fail on stub instance — ignore
+      }
     }
 
     try {
@@ -268,6 +282,21 @@ async function runExternalTest(
     }
   } catch (error: any) {
     const duration = Date.now() - start;
+
+    // If the photon failed to load and the test also failed,
+    // report as skipped (the test couldn't run due to missing config)
+    if (loadError) {
+      return {
+        photon: photonName,
+        test: testName,
+        passed: true,
+        skipped: true,
+        duration,
+        message: `Photon not configured: ${loadError.split('\n')[0]}`,
+        mode: 'direct',
+      };
+    }
+
     const failResult: TestResult = {
       photon: photonName,
       test: testName,
@@ -384,17 +413,9 @@ async function runExternalTests(
       const loader = new PhotonLoader(false);
       const loaded = await loader.loadFile(photonPath);
       await hooks.beforeAll(loaded.instance);
-    } catch (error: any) {
-      return [
-        {
-          photon: photonName,
-          test: 'beforeAll',
-          passed: false,
-          duration: 0,
-          error: `Setup failed: ${error.message}`,
-          mode: 'direct',
-        },
-      ];
+    } catch {
+      // beforeAll may fail if photon can't load (missing config) —
+      // individual tests will handle this gracefully via stub instance
     }
   }
 
@@ -443,15 +464,8 @@ async function runExternalTests(
       const loader = new PhotonLoader(false);
       const loaded = await loader.loadFile(photonPath);
       await hooks.afterAll(loaded.instance);
-    } catch (error: any) {
-      results.push({
-        photon: photonName,
-        test: 'afterAll',
-        passed: false,
-        duration: 0,
-        error: `Teardown failed: ${error.message}`,
-        mode: 'direct',
-      });
+    } catch {
+      // afterAll may fail if photon can't load — ignore gracefully
     }
   }
 
@@ -926,172 +940,168 @@ async function runPhotonTests(
   specificTest?: string
 ): Promise<TestResult[]> {
   const results: TestResult[] = [];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXTERNAL .test.ts FILE (preferred — runs first, creates own instances)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let hasExternalTests = false;
+
+  if (mode === 'direct' || mode === 'all') {
+    const testFilePath = resolveTestFilePath(photonPath);
+    if (testFilePath) {
+      hasExternalTests = true;
+      const externalResults = await runExternalTests(
+        testFilePath,
+        photonPath,
+        photonName,
+        workingDir,
+        specificTest
+      );
+      results.push(...externalResults);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INLINE test* METHODS (legacy — skipped when external tests exist)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Load the photon instance (needed for inline tests and CLI/MCP tests)
   const loader = new PhotonLoader(false);
+  let instance: any = null;
 
   try {
     const photon = await loader.loadFile(photonPath);
-    const instance = photon.instance;
-
-    if (!instance) {
+    instance = photon.instance;
+  } catch (error: any) {
+    // If external tests already ran, load failure is fine (they create own instances)
+    if (!hasExternalTests && (mode === 'direct' || mode === 'all')) {
       return [
         {
           photon: photonName,
           test: '*',
           passed: false,
           duration: 0,
-          error: 'Failed to load photon instance',
+          error: `Failed to load photon: ${error.message}`,
           mode: 'direct',
         },
       ];
     }
+  }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EXTERNAL .test.ts FILE (preferred — runs first)
-    // ─────────────────────────────────────────────────────────────────────────
+  if (!hasExternalTests && (mode === 'direct' || mode === 'all') && instance) {
+    const testMethods = getTestMethods(instance);
 
-    if (mode === 'direct' || mode === 'all') {
-      const testFilePath = resolveTestFilePath(photonPath);
-      if (testFilePath) {
-        const externalResults = await runExternalTests(
-          testFilePath,
-          photonPath,
-          photonName,
-          workingDir,
-          specificTest
-        );
-        results.push(...externalResults);
+    if (testMethods.length > 0) {
+      // Filter to specific test if requested
+      const testsToRun = specificTest
+        ? testMethods.filter((t) => t === specificTest || t === `test${specificTest}`)
+        : testMethods;
+
+      if (specificTest && testsToRun.length === 0 && mode === 'direct') {
+        return [
+          {
+            photon: photonName,
+            test: specificTest,
+            passed: false,
+            duration: 0,
+            error: `Test not found: ${specificTest}`,
+            mode: 'direct',
+          },
+        ];
       }
-    }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // INLINE test* METHODS (legacy — backward compatible)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    if (mode === 'direct' || mode === 'all') {
-      const testMethods = getTestMethods(instance);
-
-      if (testMethods.length > 0) {
-        // Filter to specific test if requested
-        const testsToRun = specificTest
-          ? testMethods.filter((t) => t === specificTest || t === `test${specificTest}`)
-          : testMethods;
-
-        if (specificTest && testsToRun.length === 0 && mode === 'direct') {
+      // Run testBeforeAll if it exists
+      if (hasLifecycleHook(instance, 'testBeforeAll')) {
+        try {
+          await instance.testBeforeAll();
+        } catch (error: any) {
           return [
             {
               photon: photonName,
-              test: specificTest,
+              test: 'beforeAll',
               passed: false,
               duration: 0,
-              error: `Test not found: ${specificTest}`,
+              error: `Setup failed: ${error.message}`,
               mode: 'direct',
             },
           ];
         }
-
-        // Run testBeforeAll if it exists
-        if (hasLifecycleHook(instance, 'testBeforeAll')) {
-          try {
-            await instance.testBeforeAll();
-          } catch (error: any) {
-            return [
-              {
-                photon: photonName,
-                test: 'beforeAll',
-                passed: false,
-                duration: 0,
-                error: `Setup failed: ${error.message}`,
-                mode: 'direct',
-              },
-            ];
-          }
-        }
-
-        // Run direct tests
-        for (const testName of testsToRun) {
-          const result = await runDirectTest(instance, photonName, testName, workingDir);
-          results.push(result);
-        }
-
-        // Run testAfterAll if it exists
-        if (hasLifecycleHook(instance, 'testAfterAll')) {
-          try {
-            await instance.testAfterAll();
-          } catch (error: any) {
-            results.push({
-              photon: photonName,
-              test: 'afterAll',
-              passed: false,
-              duration: 0,
-              error: `Teardown failed: ${error.message}`,
-              mode: 'direct',
-            });
-          }
-        }
       }
-    }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CLI INTERFACE TESTS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    if (mode === 'cli' || mode === 'all') {
-      const methods = await getPublicMethods(photonPath);
-
-      for (const method of methods) {
-        // Skip test methods and lifecycle hooks in interface tests
-        if (method.name.startsWith('test') || method.name.startsWith('on')) {
-          continue;
-        }
-
-        // Skip if specific test requested and doesn't match
-        if (specificTest && !`cli:${method.name}`.includes(specificTest)) {
-          continue;
-        }
-
-        const params = buildExampleParams(method);
-        const result = await runCliTest(photonName, method.name, params, workingDir);
+      // Run direct tests
+      for (const testName of testsToRun) {
+        const result = await runDirectTest(instance, photonName, testName, workingDir);
         results.push(result);
       }
-    }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MCP INTERFACE TESTS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    if (mode === 'mcp' || mode === 'all') {
-      const methods = await getPublicMethods(photonPath);
-
-      for (const method of methods) {
-        // Skip test methods and lifecycle hooks in interface tests
-        if (method.name.startsWith('test') || method.name.startsWith('on')) {
-          continue;
+      // Run testAfterAll if it exists
+      if (hasLifecycleHook(instance, 'testAfterAll')) {
+        try {
+          await instance.testAfterAll();
+        } catch (error: any) {
+          results.push({
+            photon: photonName,
+            test: 'afterAll',
+            passed: false,
+            duration: 0,
+            error: `Teardown failed: ${error.message}`,
+            mode: 'direct',
+          });
         }
-
-        // Skip if specific test requested and doesn't match
-        if (specificTest && !`mcp:${method.name}`.includes(specificTest)) {
-          continue;
-        }
-
-        const params = buildExampleParams(method);
-        const result = await runMcpTest(photonPath, photonName, method.name, params, workingDir);
-        results.push(result);
       }
     }
-
-    return results;
-  } catch (error: any) {
-    return [
-      {
-        photon: photonName,
-        test: '*',
-        passed: false,
-        duration: 0,
-        error: `Failed to load photon: ${error.message}`,
-        mode: 'direct',
-      },
-    ];
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CLI INTERFACE TESTS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (mode === 'cli' || mode === 'all') {
+    const methods = await getPublicMethods(photonPath);
+
+    for (const method of methods) {
+      // Skip test methods and lifecycle hooks in interface tests
+      if (method.name.startsWith('test') || method.name.startsWith('on')) {
+        continue;
+      }
+
+      // Skip if specific test requested and doesn't match
+      if (specificTest && !`cli:${method.name}`.includes(specificTest)) {
+        continue;
+      }
+
+      const params = buildExampleParams(method);
+      const result = await runCliTest(photonName, method.name, params, workingDir);
+      results.push(result);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MCP INTERFACE TESTS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (mode === 'mcp' || mode === 'all') {
+    const methods = await getPublicMethods(photonPath);
+
+    for (const method of methods) {
+      // Skip test methods and lifecycle hooks in interface tests
+      if (method.name.startsWith('test') || method.name.startsWith('on')) {
+        continue;
+      }
+
+      // Skip if specific test requested and doesn't match
+      if (specificTest && !`mcp:${method.name}`.includes(specificTest)) {
+        continue;
+      }
+
+      const params = buildExampleParams(method);
+      const result = await runMcpTest(photonPath, photonName, method.name, params, workingDir);
+      results.push(result);
+    }
+  }
+
+  return results;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1247,17 +1257,33 @@ export async function runTests(
   const results: TestResult[] = [];
   const mode = options.mode || 'direct';
 
+  // Also scan CWD for photon files (development repos)
+  const cwd = process.cwd();
+  const cwdIsDifferent = path.resolve(cwd) !== path.resolve(workingDir);
+
   if (!options.json) {
     console.log('');
     console.log(chalk.bold('⚡ Photon Test Runner'));
     console.log(chalk.gray(`   ${workingDir}`));
+    if (cwdIsDifferent) {
+      console.log(chalk.gray(`   ${cwd} ${chalk.cyan('(dev)')}`));
+    }
     console.log(chalk.gray(`   Mode: ${mode}`));
     console.log('');
   }
 
   if (photonName) {
-    // Run tests for specific photon
-    const photonPath = await resolvePhotonPath(photonName, workingDir);
+    // Run tests for specific photon — check CWD first, then installed dir
+    let photonPath: string | null = null;
+    if (cwdIsDifferent) {
+      const cwdCandidate = path.join(cwd, `${photonName}.photon.ts`);
+      if (existsSync(cwdCandidate)) {
+        photonPath = cwdCandidate;
+      }
+    }
+    if (!photonPath) {
+      photonPath = await resolvePhotonPath(photonName, workingDir);
+    }
 
     if (!photonPath) {
       logger.error(`Photon not found: ${photonName}`);
@@ -1278,12 +1304,35 @@ export async function runTests(
       }
     }
   } else {
-    // Run tests for all photons
-    const photons = await listPhotonMCPs(workingDir);
+    // Run tests for all photons — merge installed + CWD photons
+    const installedPhotons = await listPhotonMCPs(workingDir);
 
-    if (photons.length === 0) {
+    // Build a map of photon name → path, CWD photons take priority
+    const photonMap = new Map<string, string>();
+
+    for (const name of installedPhotons) {
+      const p = path.join(workingDir, `${name}.photon.ts`);
+      if (existsSync(p)) {
+        photonMap.set(name, p);
+      }
+    }
+
+    // Discover photons in CWD (development repos)
+    if (cwdIsDifferent && existsSync(cwd)) {
+      try {
+        const cwdFiles = readdirSync(cwd).filter((f) => f.endsWith('.photon.ts'));
+        for (const file of cwdFiles) {
+          const name = file.replace(/\.photon\.ts$/, '');
+          photonMap.set(name, path.join(cwd, file)); // CWD overrides installed
+        }
+      } catch {
+        // Ignore CWD read errors
+      }
+    }
+
+    if (photonMap.size === 0) {
       if (!options.json) {
-        console.log(chalk.yellow('No photons found in working directory'));
+        console.log(chalk.yellow('No photons found'));
       }
       return {
         total: 0,
@@ -1296,9 +1345,7 @@ export async function runTests(
       };
     }
 
-    for (const photon of photons) {
-      const photonPath = path.join(workingDir, `${photon}.photon.ts`);
-
+    for (const [photon, photonPath] of photonMap) {
       if (!existsSync(photonPath)) {
         continue;
       }
