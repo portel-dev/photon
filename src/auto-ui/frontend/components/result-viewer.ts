@@ -4507,8 +4507,8 @@ export class ResultViewer extends LitElement {
           // Use global QRCode library from CDN
           new (window as any).QRCode(this._qrContainer, {
             text: text,
-            width: 256,
-            height: 256,
+            width: 240,
+            height: 240,
             correctLevel: (window as any).QRCode?.CorrectLevel?.H,
             colorDark: '#000000',
             colorLight: '#ffffff',
@@ -4537,29 +4537,22 @@ export class ResultViewer extends LitElement {
       display: flex; flex-direction: column; align-items: center; gap: 0;
       padding: 0; border-radius: var(--radius-md);
       border: 1px solid var(--border-glass);
-      background: var(--bg-subtle); overflow: hidden; max-width: 380px;
+      background: var(--bg-subtle); overflow: hidden; max-width: 340px;
       margin: 16px auto;
     "
     >
       <div
+        id="qr-container"
         style="
-        width: 100%; padding: 24px 24px 20px;
+        width: 100%; padding: 16px;
         display: flex; justify-content: center; align-items: center;
         background: #ffffff; border-radius: var(--radius-md) var(--radius-md) 0 0;
       "
-      >
-        <div
-          id="qr-container"
-          style="
-          display: flex; justify-content: center; align-items: center;
-          padding: 12px; border-radius: 8px; background: #ffffff;
-        "
-        ></div>
-      </div>
+      ></div>
 
       <div
         style="
-        width: 100%; padding: 16px 24px;
+        width: 100%; padding: 16px 20px;
         display: flex; flex-direction: column; gap: 10px;
         border-top: 1px solid var(--border-glass);
       "
