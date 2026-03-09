@@ -50,6 +50,8 @@ export interface MethodInfo {
   description: string;
   /** Icon emoji from @icon tag */
   icon?: string;
+  /** MCP standard icon images (data URIs with metadata) */
+  icons?: Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }>;
   /** JSON Schema for parameters */
   params: Record<string, unknown>;
   /** JSON Schema for return value */
@@ -535,6 +537,11 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   // MCP structured output schema
   if (method.outputSchema) {
     extensions.outputSchema = method.outputSchema;
+  }
+
+  // MCP standard icons (image data URIs)
+  if (method.icons && method.icons.length > 0) {
+    extensions.icons = method.icons;
   }
 
   return extensions;

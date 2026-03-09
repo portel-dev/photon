@@ -25,7 +25,8 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@ui` | Defines a UI template asset for MCP Apps. | `@ui my-view ./ui/view.html` |
 | `@prompt` | Defines a static prompt asset. | `@prompt greet ./prompts/greet.txt` |
 | `@resource` | Defines a static resource asset. | `@resource data ./data.json` |
-| `@icon` | Sets the photon icon (emoji). | `@icon 🔧` |
+| `@icon` | Sets the photon icon (emoji or image path). | `@icon 🔧` or `@icon ./icons/tool.png` |
+| `@icons` | Declares icon image variants with size/theme. | `@icons ./icons/tool-48.png 48x48 dark` |
 | `@tags` | Comma-separated tags for categorization and search. | `@tags database, sql, postgresql` |
 | `@label` | Custom display name for the photon in BEAM sidebar. | `@label My Custom Tool` |
 | `@persist` | Enables settings UI persistence for the photon. | `@persist` |
@@ -53,7 +54,8 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
 | `@format` | Hints the output format for CLI/Web interfaces. | `@format table` |
-| `@icon` | Sets the tool icon (emoji or icon name). | `@icon calculator` or `@icon 🧮` |
+| `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
+| `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
 | `@async` | Run in background, return execution ID immediately. | `@async` |
 | `@ui` | Links a tool to a UI template defined at class level. | `@ui my-view` |
@@ -128,6 +130,25 @@ create({ title }: { title: string }) { ... }
 ```
 
 This generates `Tool.outputSchema` in the MCP tool definition and adds `structuredContent` to tool call results when the return value is an object.
+
+### Icon Images
+
+The `@icon` tag supports both emoji/icon names and image file paths. When a file path is detected (starts with `./` or `../`, or ends with an image extension), Photon reads the file at load time and converts it to a `data:` URI for the MCP `Tool.icons[]` field.
+
+Use `@icons` for explicit size/theme variants:
+
+```typescript
+/**
+ * @icon ./icons/calc.png                  ← single image, auto-detected MIME
+ * @icons ./icons/calc-48.png 48x48        ← explicit size
+ * @icons ./icons/calc-dark.svg dark        ← theme variant
+ * @icons ./icons/calc-96.png 96x96 dark   ← size + theme
+ */
+```
+
+Supported formats: PNG, JPEG, GIF, SVG, WebP, ICO. Paths are resolved relative to the photon file.
+
+Emoji icons (`@icon 🧮`) continue to work as before via `x-icon` for Beam UI backward compatibility.
 
 ### Async Execution
 

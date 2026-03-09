@@ -26,6 +26,57 @@ function generatePhotonId(photonPath: string): string {
   return createHash('sha256').update(photonPath).digest('hex').slice(0, 12);
 }
 
+/**
+ * MIME type map for icon images
+ */
+const ICON_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+};
+
+/**
+ * Resolve raw icon image paths to MCP Icon[] format (data URIs)
+ */
+async function resolveIconImages(
+  iconImages: Array<{ path: string; sizes?: string; theme?: string }> | undefined,
+  photonPath: string
+): Promise<Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }> | undefined> {
+  if (!iconImages || iconImages.length === 0) return undefined;
+
+  const photonDir = path.dirname(photonPath);
+  const icons: Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }> = [];
+
+  for (const entry of iconImages) {
+    try {
+      const resolvedPath = path.resolve(photonDir, entry.path);
+      const ext = path.extname(resolvedPath).toLowerCase();
+      const mimeType = ICON_MIME_TYPES[ext];
+      if (!mimeType) continue;
+
+      const data = await fs.readFile(resolvedPath);
+      const base64 = data.toString('base64');
+      const dataUri = `data:${mimeType};base64,${base64}`;
+
+      const icon: { src: string; mimeType?: string; sizes?: string; theme?: string } = {
+        src: dataUri,
+        mimeType,
+      };
+      if (entry.sizes) icon.sizes = entry.sizes;
+      if (entry.theme) icon.theme = entry.theme;
+      icons.push(icon);
+    } catch {
+      // Skip unreadable icon files silently
+    }
+  }
+
+  return icons.length > 0 ? icons : undefined;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -763,6 +814,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             ...(schema.outputSchema ? { outputSchema: schema.outputSchema } : {}),
           };
         });
+
+      // Resolve icon images (file paths → data URIs) for methods that have them
+      for (const schema of schemas as any[]) {
+        if (!schema.iconImages) continue;
+        const method = methods.find((m) => m.name === schema.name);
+        if (!method) continue;
+        const resolved = await resolveIconImages(schema.iconImages, photonPath);
+        if (resolved) method.icons = resolved;
+      }
 
       // Add templates as methods with isTemplate flag and markdown output format
       templates.forEach((template: any) => {
@@ -1905,6 +1965,15 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                     ...(schema.outputSchema ? { outputSchema: schema.outputSchema } : {}),
                   };
                 });
+
+              // Resolve icon images for hot-reloaded methods
+              for (const schema of schemas as any[]) {
+                if (!schema.iconImages) continue;
+                const method = methods.find((m: MethodInfo) => m.name === schema.name);
+                if (!method) continue;
+                const resolved = await resolveIconImages(schema.iconImages, photonPath);
+                if (resolved) method.icons = resolved;
+              }
 
               // Add templates as methods
               templates.forEach((template: any) => {
