@@ -68,6 +68,8 @@ Four lines of declarations replace fifty lines of infrastructure. The method bod
 
 This isn't configuration. It's **behavior composition**. Each tag is a middleware that wraps the method execution at a specific phase in the pipeline.
 
+> **Note:** There is no `MiddlewareRegistry` class. Middleware is declared via JSDoc tags (`@cached`, `@timeout`, etc.) or by exporting a `middleware` array from your `.photon.ts` file. The runtime discovers and applies them automatically.
+
 ## Eight Real-World Patterns
 
 Every middleware tag addresses one of eight gaps between ideal code and production reality:

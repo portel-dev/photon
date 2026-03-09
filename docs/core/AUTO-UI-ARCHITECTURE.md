@@ -210,9 +210,9 @@ Access via: `photon beam` command, which opens the interactive web UI for all in
 For web-based UIs (like Lumina or NCP Dashboard):
 
 1. **Component Props**: Runtime returns structured UI descriptors
-2. **React/Vue Rendering**: Frontend maps to components
+2. **Lit Web Components**: Beam's frontend uses Lit internally (custom UIs in iframes can use any framework)
 3. **Custom Styling**: CSS injection support
-4. **Real-time Updates**: SSE for progress
+4. **Real-time Updates**: SSE via MCP Streamable HTTP transport
 
 Example component descriptor:
 

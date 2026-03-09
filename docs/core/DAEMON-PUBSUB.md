@@ -214,7 +214,7 @@ import { subscribeChannel } from '../daemon/client.js';
 
 // When a client requests board updates
 const unsubscribe = await subscribeChannel('kanban', `board:${boardName}`, (data) => {
-  // Forward to WebSocket clients
+  // Forward to SSE clients via MCP Streamable HTTP
   broadcast({ type: 'channel', channel: `board:${boardName}`, data });
 });
 ```

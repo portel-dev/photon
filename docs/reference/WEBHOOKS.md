@@ -99,7 +99,7 @@ Requests without a valid secret receive a `401 Unauthorized` response.
 ## Example: Form Submission Handler
 
 ```typescript
-import { Photon } from '@anthropic/photon';
+import { Photon } from '@portel/photon-core';
 
 class FormHandler extends Photon {
   /**

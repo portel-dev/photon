@@ -15,7 +15,7 @@ Photon turns a single TypeScript file into:
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon?color=cb3837)](https://www.npmjs.com/package/@portel/photon)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/portel-dev/photon/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6.svg)](https://www.typescriptlang.org)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-43853d.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-7c3aed.svg)](https://modelcontextprotocol.io)
 
 </div>
@@ -76,7 +76,7 @@ npx @portel/photon maker new my-tool
 npx @portel/photon
 ```
 
-> Requires [Node.js 18+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
+> Requires [Node.js 20+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
 
 <div align="center">
 
@@ -276,7 +276,7 @@ Two primitives. Together they unlock a class of things that are surprisingly har
 
 **Locks** serialize access. When a method is marked `@locked`, only one caller can execute at a time, whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
 
-**Events** push state changes to any browser UI in real time. `this.emit('name', data)` in your method fires `window.photon.on('name', handler)` in your custom UI. No WebSockets to configure. No polling. The data marshalling and delivery is handled by the system.
+**Events** push state changes to any browser UI in real time. `this.emit('name', data)` in your method fires `window.photon.on('name', handler)` in your custom UI. No WebSockets to configure. No polling. Events are delivered via SSE through the MCP Streamable HTTP transport.
 
 Together: **turn-based coordination with live state**.
 

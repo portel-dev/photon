@@ -62,6 +62,18 @@ Photon is an **ecosystem for MCPs and more**:
 | **Marketplace** | Share and discover photons |
 | **PWA Export** | Package as standalone desktop apps |
 
+### What Photon is NOT
+
+To avoid confusion, here is what does **not** exist in the Photon runtime:
+
+- **No configuration file.** There is no `.photonrc.json`, `.photonrc`, or similar. All configuration comes from constructor parameters (mapped to environment variables), JSDoc tags, and file structure.
+- **No `MiddlewareRegistry` class.** Middleware is declared via JSDoc `@use` tags and `defineMiddleware()` exports. There is no programmatic registry.
+- **No `FormGenerator` or `ResultRenderer` class.** UI generation is internal to the Beam runtime and not exposed as a public API.
+- **No subpath exports.** The npm package `@portel/photon` exports a CLI binary only. There are no importable subpath modules like `@portel/photon/server`, `@portel/photon/security`, `@portel/photon/cache`, or `@portel/photon/monitoring`.
+- **No `PhotonServer` class.** The MCP server is managed internally by the runtime. Use `photon mcp <name>` to start it.
+- **No WebSocket.** Beam uses MCP Streamable HTTP (SSE) exclusively. WebSocket is architecturally forbidden in both the server and frontend.
+- **No Jest.** Tests use **vitest** and **tsx**.
+
 ---
 
 ## What is Beam?

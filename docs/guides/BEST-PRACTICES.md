@@ -54,7 +54,7 @@ Every Photon file must include these tags in the class-level JSDoc:
  * @author Portel
  * @license MIT
  * @runtime ^1.4.0
- * @dependencies @portel/photon-core@latest
+ * @dependencies axios@^1.7.0
  * @tags commerce, ai-assistant, elicitation
  */
 ```
@@ -364,7 +364,7 @@ export default class MyPhoton {
  * @author Portel
  * @license MIT
  * @runtime ^1.4.0
- * @dependencies @portel/photon-core@latest
+ * @dependencies axios@^1.7.0
  * @tags category1, category2
  */
 

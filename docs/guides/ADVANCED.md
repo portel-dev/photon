@@ -641,35 +641,27 @@ describe('MyMCP', () => {
 
 ### Integration Testing
 
+Photon uses **vitest** for unit tests and **tsx** for integration tests. Jest is not used.
+
 ```typescript
-// Integration test with actual MCP server
-import { PhotonServer } from '@portel/photon/server';
-import { Client } from '@modelcontextprotocol/sdk/client';
+// Integration test — run with: npx vitest run
+import { describe, it, expect } from 'vitest';
+import { execSync } from 'child_process';
 
 describe('MCP Integration', () => {
-  let server: PhotonServer;
-  let client: Client;
-
-  beforeAll(async () => {
-    server = new PhotonServer({
-      filePath: './my-mcp.photon.ts',
-    });
-    await server.start();
-
-    client = new Client({ name: 'test', version: '1.0.0' }, { capabilities: {} });
-    // Connect client to server...
+  it('should list tools via CLI', () => {
+    const output = execSync('photon cli my-tool --help', { encoding: 'utf-8' });
+    expect(output).toContain('Available methods');
   });
 
-  afterAll(async () => {
-    await server.stop();
-  });
-
-  it('should list tools', async () => {
-    const response = await client.listTools();
-    expect(response.tools).toHaveLength(3);
+  it('should execute a method', () => {
+    const output = execSync('photon cli my-tool greet --name Ada', { encoding: 'utf-8' });
+    expect(output).toContain('Hello, Ada');
   });
 });
 ```
+
+> **Note:** There is no `PhotonServer` class exported for user consumption. The MCP server is managed internally by the runtime via `photon mcp <name>`.
 
 ---
 
