@@ -3,7 +3,13 @@
 
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-logo.png" alt="Photon" width="500">
 
-**Software for humans and AI. Written once.**
+### Define intent once. Deliver everywhere.
+
+Photon turns a single TypeScript file into:
+
+- **an MCP server** for AI agents
+- **a CLI tool** for automation
+- **a web interface** for humans
 
 [![npm version](https://img.shields.io/npm/v/@portel/photon?color=cb3837&label=npm)](https://www.npmjs.com/package/@portel/photon)
 [![npm downloads](https://img.shields.io/npm/dm/@portel/photon?color=cb3837)](https://www.npmjs.com/package/@portel/photon)
@@ -16,17 +22,49 @@
 
 ---
 
-Your tools have two kinds of consumers now. Humans who open a dashboard and explore. AI agents that call your methods through a protocol. Until now, you've been building for one or the other, or building everything twice.
+### Example
 
-Photon is built around a different premise: **write what you mean, and let both consumers figure it out from that**.
+```typescript
+// hello.photon.ts
+export default class Hello {
+  greet(name: string) {
+    return `Hello, ${name}!`;
+  }
+}
+```
 
-You write a TypeScript class. Methods are your capabilities. Types describe what's valid. Comments explain the intent. That's it. Photon reads all of it and generates a web UI for human exploration, a CLI for scripting, and an MCP server for AI agents. Same logic. Same validation. Same data. Three interfaces from one file.
+That's a complete photon. From this single file, you get:
 
 ```
-analytics.photon.ts  →  Web UI (Beam)  ·  CLI  ·  MCP Server for AI
+$ photon cli hello greet --name Ada        # CLI
+$ photon                                    # Web UI at localhost:3008
+$ photon mcp hello                          # MCP server for Claude, Cursor, etc.
 ```
 
-The code stays simple, almost embarrassingly simple, because the complexity isn't in what you write. It's in what Photon derives from it.
+No decorators. No registration. No server boilerplate.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="One file, three interfaces" width="100%">
+</div>
+
+---
+
+### Quick Start
+
+```bash
+npm install -g @portel/photon
+photon maker new my-tool      # Scaffold a new photon
+photon                        # Open Beam, the web UI
+```
+
+Or try without installing:
+
+```bash
+npx @portel/photon maker new my-tool
+npx @portel/photon
+```
+
+> Requires [Node.js 18+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
 
 <div align="center">
 
@@ -38,51 +76,15 @@ The code stays simple, almost embarrassingly simple, because the complexity isn'
 
 ---
 
-## Quick Start
+### How It Works
 
-```bash
-npm install -g @portel/photon
-photon maker new my-tool      # Create a photon
-photon                        # Open Beam, the web UI
+You write a TypeScript class. Methods are your capabilities. Types describe what's valid. Comments explain the intent. Photon reads all of it and generates three interfaces from one file. Same logic. Same validation. Same data.
+
+```
+analytics.photon.ts  →  Web UI (Beam)  ·  CLI  ·  MCP Server for AI
 ```
 
-Or without installing:
-
-```bash
-npx @portel/photon maker new my-tool
-npx @portel/photon
-```
-
-> Requires [Node.js 18+](https://nodejs.org). TypeScript is compiled internally; no `tsconfig.json` needed.
-
----
-
-## What You Actually Write
-
-Here is a complete, working photon:
-
-```typescript
-export default class Analytics {
-  async report(params: { period: string }) {
-    return await db.query(`SELECT * FROM events WHERE period = $1`, [params.period]);
-  }
-}
-```
-
-From this, Photon generates:
-- A web form in Beam with a `period` text input
-- `photon cli analytics report --period 2024-Q4`
-- An MCP tool that Claude or Cursor can invoke
-
-No decorators. No registration. No server boilerplate. You wrote the logic. Photon derived the rest.
-
-The more you express, the more Photon understands.
-
----
-
-## Everything You Add Becomes Something Useful
-
-Photon reads your TypeScript as **intent**. Every construct you'd write anyway carries meaning it can act on.
+The more you express, the more Photon derives:
 
 | What you write | What Photon derives |
 |---|---|
@@ -92,7 +94,7 @@ Photon reads your TypeScript as **intent**. Every construct you'd write anyway c
 | Constructor parameters | Config UI, environment variable mapping |
 | `@tags` | Validation, formatting, scheduling, webhooks |
 
-So when you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation you were going to write anyway, Beam automatically validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
+When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
@@ -150,22 +152,6 @@ When your photon has a custom UI, clients that support the [MCP Apps Extension](
 ## The Progression
 
 Here is how a photon grows. Each step adds one thing and gets multiple capabilities from it.
-
-### Bare method: three interfaces from five lines
-
-```typescript
-export default class Weather {
-  async forecast(params: { city: string }) {
-    return `Weather for ${params.city}: Sunny, 72°F`;
-  }
-}
-```
-
-A text input in Beam. A `--city` flag in the CLI. An MCP input schema. From five lines.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/readme-step-1.png" alt="Step 1" width="100%">
-</div>
 
 ### Add comments: AI understands your intent
 
