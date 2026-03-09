@@ -20,7 +20,17 @@ Photon turns a single TypeScript file into:
 
 </div>
 
-Free and open source under the [MIT license](./LICENSE). Write the intent. Photon handles the interfaces.
+Photon is free and open source software released under the [MIT license](./LICENSE).
+
+*Interfaces are optional. Intent is mandatory.*
+
+---
+
+## One definition. Multiple interfaces.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
+</div>
 
 ---
 
@@ -107,10 +117,6 @@ The more you express, the more Photon derives:
 | `@tags` | Validation, formatting, scheduling, webhooks |
 
 When you add a `@param city {@pattern ^[a-zA-Z\s]+$}` annotation, Beam validates it in the form, the CLI validates it before running, and the MCP schema enforces it for the AI. One annotation. Three consumers.
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/portel-dev/photon/main/assets/photon-ecosystem.png" alt="Photon: one file, three surfaces" width="100%">
-</div>
 
 ---
 
@@ -420,4 +426,4 @@ The project is still evolving and contributions are welcome.
 
 - Star the repository if the idea resonates
 - [Report issues](https://github.com/portel-dev/photon/issues)
-- [Submit improvements or examples](./CONTRIBUTING.md)
+- [Contribute improvements or examples](./CONTRIBUTING.md)
