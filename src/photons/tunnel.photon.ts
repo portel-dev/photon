@@ -59,6 +59,7 @@ export default class Tunnel {
   /**
    * Start a tunnel to expose Beam to the internet
    * @icon 🚀
+   * @format qr
    * @param provider Tunnel provider to use
    */
   async *start({

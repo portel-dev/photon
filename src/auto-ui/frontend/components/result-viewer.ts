@@ -4473,7 +4473,31 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderQR(data: any): TemplateResult {
-    const text = String(data);
+    // If data is an object with a url/link field, use that as the QR text
+    const text =
+      typeof data === 'object' && data !== null
+        ? String(data.url || data.link || data.value || JSON.stringify(data))
+        : String(data);
+
+    // Detect content type for smart linking
+    const isUrl = /^https?:\/\//i.test(text);
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+    const isPhone = /^[+]?[\d\s\-().]{7,}$/.test(text.trim());
+
+    let href = '';
+    let linkLabel = text;
+    if (isUrl) {
+      href = text;
+      try {
+        linkLabel = new URL(text).hostname + new URL(text).pathname;
+      } catch {
+        /* keep full text */
+      }
+    } else if (isEmail) {
+      href = `mailto:${text}`;
+    } else if (isPhone) {
+      href = `tel:${text.replace(/[\s\-().]/g, '')}`;
+    }
 
     // Schedule QR code generation after render
     setTimeout(() => {
@@ -4483,9 +4507,11 @@ export class ResultViewer extends LitElement {
           // Use global QRCode library from CDN
           new (window as any).QRCode(this._qrContainer, {
             text: text,
-            width: 300,
-            height: 300,
+            width: 256,
+            height: 256,
             correctLevel: (window as any).QRCode?.CorrectLevel?.H,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
           });
         } catch (error) {
           console.error('Failed to generate QR code:', error);
@@ -4493,17 +4519,92 @@ export class ResultViewer extends LitElement {
       }
     }, 0);
 
+    // Build extra info from object fields (e.g. tunnel returns provider, password, etc.)
+    const extraFields: Array<{ label: string; value: string }> = [];
+    if (typeof data === 'object' && data !== null) {
+      for (const [k, v] of Object.entries(data)) {
+        if (['url', 'link', 'value'].includes(k) || v == null || typeof v === 'object') continue;
+        extraFields.push({ label: k, value: `${v as string | number | boolean}` });
+      }
+    }
+
     return html`<div
-      style="display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; border-radius: var(--radius-md); background: var(--bg-subtle);"
+      style="
+      display: flex; flex-direction: column; align-items: center; gap: 0;
+      padding: 0; border-radius: var(--radius-md);
+      border: 1px solid var(--border-glass);
+      background: var(--bg-subtle); overflow: hidden; max-width: 380px;
+      margin: 16px auto;
+    "
     >
       <div
-        id="qr-container"
-        style="display: flex; justify-content: center; align-items: center; min-height: 320px;"
-      ></div>
-      <div
-        style="font-size: 0.875rem; color: var(--t-muted); text-align: center; word-break: break-all; max-width: 400px;"
+        style="
+        width: 100%; padding: 24px 24px 20px;
+        display: flex; justify-content: center; align-items: center;
+        background: #ffffff; border-radius: var(--radius-md) var(--radius-md) 0 0;
+      "
       >
-        ${text}
+        <div
+          id="qr-container"
+          style="
+          display: flex; justify-content: center; align-items: center;
+          padding: 12px; border-radius: 8px; background: #ffffff;
+        "
+        ></div>
+      </div>
+
+      <div
+        style="
+        width: 100%; padding: 16px 20px;
+        display: flex; flex-direction: column; gap: 8px;
+        border-top: 1px solid var(--border-glass);
+      "
+      >
+        ${href
+          ? html`<a
+              href="${href}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="
+                font-size: 0.875rem; color: var(--accent, #3b82f6);
+                text-align: center; word-break: break-all;
+                text-decoration: none; font-weight: 500;
+              "
+              @mouseenter=${(e: Event) =>
+                ((e.target as HTMLElement).style.textDecoration = 'underline')}
+              @mouseleave=${(e: Event) => ((e.target as HTMLElement).style.textDecoration = 'none')}
+              >${linkLabel}</a
+            >`
+          : html`<div
+              style="
+              font-size: 0.875rem; color: var(--t-muted);
+              text-align: center; word-break: break-all;
+            "
+            >
+              ${text}
+            </div>`}
+        ${extraFields.length > 0
+          ? html`<div
+              style="
+              display: flex; flex-direction: column; gap: 4px;
+              padding-top: 8px; border-top: 1px solid var(--border-glass);
+              font-size: 0.8rem;
+            "
+            >
+              ${extraFields.map(
+                (f) =>
+                  html`<div style="display: flex; justify-content: space-between; gap: 12px;">
+                    <span style="color: var(--t-muted); text-transform: capitalize;"
+                      >${f.label}</span
+                    >
+                    <span
+                      style="color: var(--t-primary); font-family: var(--font-mono, monospace); word-break: break-all; text-align: right;"
+                      >${f.value}</span
+                    >
+                  </div>`
+              )}
+            </div>`
+          : ''}
       </div>
     </div>`;
   }
