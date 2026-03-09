@@ -76,6 +76,25 @@ export interface MethodInfo {
   scheduled?: string;
   /** Distributed lock name from @locked tag */
   locked?: string | boolean;
+
+  // ═══ MCP STANDARD ANNOTATIONS ═══
+
+  /** Human-readable display name from @title tag → annotations.title */
+  title?: string;
+  /** Tool has no side effects — safe for auto-approval → annotations.readOnlyHint */
+  readOnlyHint?: boolean;
+  /** Tool performs destructive operations → annotations.destructiveHint */
+  destructiveHint?: boolean;
+  /** Tool is safe to retry → annotations.idempotentHint */
+  idempotentHint?: boolean;
+  /** Tool interacts with external world → annotations.openWorldHint */
+  openWorldHint?: boolean;
+  /** Content audience control → content annotations.audience */
+  audience?: ('user' | 'assistant')[];
+  /** Content importance 0.0-1.0 → content annotations.priority */
+  contentPriority?: number;
+  /** JSON Schema for structured output → Tool.outputSchema */
+  outputSchema?: { type: 'object'; properties: Record<string, any>; required?: string[] };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -501,6 +520,23 @@ export function buildToolMetadataExtensions(method: MethodInfo): Record<string, 
   if (method.isTemplate) {
     extensions['x-is-template'] = true;
   }
+
+  // MCP standard annotations (not x-* extensions)
+  const annotations: Record<string, unknown> = {};
+  if (method.title) annotations.title = method.title;
+  if (method.readOnlyHint) annotations.readOnlyHint = true;
+  if (method.destructiveHint) annotations.destructiveHint = true;
+  if (method.idempotentHint) annotations.idempotentHint = true;
+  if (method.openWorldHint !== undefined) annotations.openWorldHint = method.openWorldHint;
+  if (Object.keys(annotations).length > 0) {
+    extensions.annotations = annotations;
+  }
+
+  // MCP structured output schema
+  if (method.outputSchema) {
+    extensions.outputSchema = method.outputSchema;
+  }
+
   return extensions;
 }
 

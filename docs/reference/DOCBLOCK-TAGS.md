@@ -70,6 +70,64 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@deprecated` | **Functional.** Mark tool as deprecated. | `@deprecated Use v2 instead` |
 | `@internal` | Hide method from LLM and sidebar. Still callable by the runtime (e.g. scheduled jobs, system callbacks). | `@internal` |
 | `@use` | **Functional.** Apply custom or built-in middleware with inline config. | `@use audit {@level info}` |
+| `@title` | **MCP.** Human-readable display name for the tool. | `@title Create New Task` |
+| `@readOnly` | **MCP.** Tool has no side effects — safe for auto-approval. | `@readOnly` |
+| `@destructive` | **MCP.** Tool performs destructive operations — requires confirmation. | `@destructive` |
+| `@idempotent` | **MCP.** Tool is safe to retry — multiple calls produce same effect. | `@idempotent` |
+| `@openWorld` | **MCP.** Tool interacts with external systems beyond local data. | `@openWorld` |
+| `@closedWorld` | **MCP.** Tool operates only on local data (sets openWorldHint to false). | `@closedWorld` |
+| `@audience` | **MCP.** Who sees tool results: `user`, `assistant`, or both. | `@audience user` |
+| `@priority` | **MCP.** Content importance hint (0.0-1.0). | `@priority 0.8` |
+
+### MCP Tool Annotations
+
+Tags prefixed with **MCP.** map directly to MCP protocol `Tool.annotations` fields (spec 2025-11-25). These hints help clients make UX decisions:
+
+- **`@readOnly`** → `annotations.readOnlyHint: true` — Client may auto-approve without user confirmation
+- **`@destructive`** → `annotations.destructiveHint: true` — Client should require explicit confirmation
+- **`@idempotent`** → `annotations.idempotentHint: true` — Client may safely retry on failure
+- **`@openWorld`** / **`@closedWorld`** → `annotations.openWorldHint: true/false` — Informs client about external side effects
+- **`@title`** → `annotations.title` — Display name shown in tool selection UI
+- **`@audience`** → Content block `annotations.audience` — Controls who sees results
+- **`@priority`** → Content block `annotations.priority` — Importance weighting for result display
+
+**Note:** Method-level `@readOnly` (no curly braces) is distinct from parameter-level `{@readOnly}` (inside `@param` tags). They serve different purposes and do not conflict.
+
+```typescript
+/**
+ * List all tasks — no side effects, safe to auto-approve
+ * @readOnly
+ * @idempotent
+ * @title List All Tasks
+ * @audience user
+ * @priority 0.9
+ */
+list() { ... }
+
+/**
+ * Permanently delete a task — requires confirmation
+ * @destructive
+ * @openWorld
+ * @title Delete Task
+ */
+remove({ id }: { id: string }) { ... }
+```
+
+### Structured Output
+
+Use `@returns.field {type}` tags to declare structured output schema. When present, the MCP response includes both text content and a `structuredContent` object matching the schema:
+
+```typescript
+/**
+ * Create a new task
+ * @returns.id {string} Task ID
+ * @returns.title {string} Task title
+ * @returns.done {boolean} Completion status
+ */
+create({ title }: { title: string }) { ... }
+```
+
+This generates `Tool.outputSchema` in the MCP tool definition and adds `structuredContent` to tool call results when the return value is an object.
 
 ### Async Execution
 

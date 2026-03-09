@@ -750,6 +750,17 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               ? { scheduled: schema.scheduled || schema.cron }
               : {}),
             ...(schema.locked ? { locked: schema.locked } : {}),
+            // MCP standard annotations
+            ...(schema.title ? { title: schema.title } : {}),
+            ...(schema.readOnlyHint ? { readOnlyHint: true } : {}),
+            ...(schema.destructiveHint ? { destructiveHint: true } : {}),
+            ...(schema.idempotentHint ? { idempotentHint: true } : {}),
+            ...(schema.openWorldHint !== undefined ? { openWorldHint: schema.openWorldHint } : {}),
+            ...(schema.audience ? { audience: schema.audience } : {}),
+            ...(schema.contentPriority !== undefined
+              ? { contentPriority: schema.contentPriority }
+              : {}),
+            ...(schema.outputSchema ? { outputSchema: schema.outputSchema } : {}),
           };
         });
 
@@ -1879,6 +1890,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                     buttonLabel: schema.buttonLabel,
                     icon: schema.icon,
                     linkedUi: linkedAsset?.id,
+                    // MCP standard annotations
+                    ...(schema.title ? { title: schema.title } : {}),
+                    ...(schema.readOnlyHint ? { readOnlyHint: true } : {}),
+                    ...(schema.destructiveHint ? { destructiveHint: true } : {}),
+                    ...(schema.idempotentHint ? { idempotentHint: true } : {}),
+                    ...(schema.openWorldHint !== undefined
+                      ? { openWorldHint: schema.openWorldHint }
+                      : {}),
+                    ...(schema.audience ? { audience: schema.audience } : {}),
+                    ...(schema.contentPriority !== undefined
+                      ? { contentPriority: schema.contentPriority }
+                      : {}),
+                    ...(schema.outputSchema ? { outputSchema: schema.outputSchema } : {}),
                   };
                 });
 

@@ -257,6 +257,50 @@ function formatResultText(result: any): string {
   return String(result);
 }
 
+/**
+ * Build a text content block, optionally with MCP content annotations (audience, priority)
+ */
+function buildTextContent(
+  text: string,
+  methodInfo?: MethodInfo
+): { type: 'text'; text: string; annotations?: Record<string, unknown> } {
+  const block: { type: 'text'; text: string; annotations?: Record<string, unknown> } = {
+    type: 'text',
+    text,
+  };
+  if (methodInfo?.audience || methodInfo?.contentPriority !== undefined) {
+    const annotations: Record<string, unknown> = {};
+    if (methodInfo.audience) annotations.audience = methodInfo.audience;
+    if (methodInfo.contentPriority !== undefined) annotations.priority = methodInfo.contentPriority;
+    block.annotations = annotations;
+  }
+  return block;
+}
+
+/**
+ * Build a tool call result, optionally with structuredContent when outputSchema is declared
+ */
+function buildToolResult(
+  result: any,
+  methodInfo?: MethodInfo
+): { content: any[]; isError: false; structuredContent?: any; [key: string]: unknown } {
+  const text = formatResultText(result);
+  const toolResult: {
+    content: any[];
+    isError: false;
+    structuredContent?: any;
+    [key: string]: unknown;
+  } = {
+    content: [buildTextContent(text, methodInfo)],
+    isError: false,
+  };
+  // When outputSchema is declared and result is an object, include structuredContent
+  if (methodInfo?.outputSchema && result && typeof result === 'object' && !Array.isArray(result)) {
+    toolResult.structuredContent = result;
+  }
+  return toolResult;
+}
+
 const handlers: Record<string, RequestHandler> = {
   // ─────────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -278,7 +322,7 @@ const handlers: Record<string, RequestHandler> = {
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        protocolVersion: '2025-03-26',
+        protocolVersion: '2025-11-25',
         serverInfo: {
           name: 'beam-mcp',
           version: PHOTON_VERSION,
@@ -961,14 +1005,11 @@ const handlers: Record<string, RequestHandler> = {
           durationMs,
         });
 
-        const resultText = formatResultText(result);
-
         return {
           jsonrpc: '2.0',
           id: req.id,
           result: {
-            content: [{ type: 'text', text: resultText }],
-            isError: false,
+            ...buildToolResult(result, methodInfo),
             ...uiMetadata,
           },
         };
@@ -1250,13 +1291,11 @@ const handlers: Record<string, RequestHandler> = {
           durationMs,
         });
 
-        const genResultText = formatResultText(finalResult);
         const genResponse = {
           jsonrpc: '2.0' as const,
           id: req.id,
           result: {
-            content: [{ type: 'text', text: genResultText }],
-            isError: false,
+            ...buildToolResult(finalResult, methodInfo),
             ...uiMetadata,
           },
         };
@@ -1302,14 +1341,11 @@ const handlers: Record<string, RequestHandler> = {
       });
 
       // For void methods, provide a success acknowledgment so the UI shows feedback
-      const resultText = formatResultText(result);
-
       const toolResponse = {
         jsonrpc: '2.0' as const,
         id: req.id,
         result: {
-          content: [{ type: 'text', text: resultText }],
-          isError: false,
+          ...buildToolResult(result, methodInfo),
           ...uiMetadata,
         },
       };
