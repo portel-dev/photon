@@ -18,6 +18,8 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { PhotonLoader } from './loader.js';
@@ -237,6 +239,62 @@ export class PhotonServer {
   private buildUIToolMeta(uiId: string): Record<string, unknown> {
     const uri = this.buildUIResourceUri(uiId);
     return { ui: { resourceUri: uri } };
+  }
+
+  private static readonly ICON_MIME_TYPES: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+  };
+
+  /** Cached resolved icons per tool name */
+  private resolvedIconsCache = new Map<
+    string,
+    Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }>
+  >();
+
+  /**
+   * Resolve raw icon image paths to MCP Icon[] format (data URIs).
+   * Results are cached so file I/O only happens once per tool.
+   */
+  private resolveIconImages(
+    iconImages: Array<{ path: string; sizes?: string; theme?: string }>
+  ): Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }> {
+    const cacheKey = iconImages.map((i) => i.path).join('|');
+    const cached = this.resolvedIconsCache.get(cacheKey);
+    if (cached) return cached;
+
+    const photonDir = path.dirname(this.options.filePath);
+    const icons: Array<{ src: string; mimeType?: string; sizes?: string; theme?: string }> = [];
+
+    for (const entry of iconImages) {
+      try {
+        const resolvedPath = path.resolve(photonDir, entry.path);
+        const ext = path.extname(resolvedPath).toLowerCase();
+        const mimeType = PhotonServer.ICON_MIME_TYPES[ext];
+        if (!mimeType) continue;
+
+        const data = readFileSync(resolvedPath);
+        const dataUri = `data:${mimeType};base64,${data.toString('base64')}`;
+
+        const icon: { src: string; mimeType?: string; sizes?: string; theme?: string } = {
+          src: dataUri,
+          mimeType,
+        };
+        if (entry.sizes) icon.sizes = entry.sizes;
+        if (entry.theme) icon.theme = entry.theme;
+        icons.push(icon);
+      } catch {
+        // Skip unreadable icon files silently
+      }
+    }
+
+    this.resolvedIconsCache.set(cacheKey, icons);
+    return icons;
   }
 
   /**
@@ -574,6 +632,12 @@ export class PhotonServer {
 
       // MCP structured output schema
       if (schema.outputSchema) toolDef.outputSchema = schema.outputSchema;
+
+      // MCP tool icons (resolve image paths to data URIs)
+      if (tool.iconImages && tool.iconImages.length > 0) {
+        const icons = this.resolveIconImages(tool.iconImages);
+        if (icons.length > 0) toolDef.icons = icons;
+      }
 
       const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
       if (linkedUI && this.clientSupportsUI(ctx.server)) {
