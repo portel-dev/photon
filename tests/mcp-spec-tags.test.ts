@@ -127,60 +127,45 @@ function findSchema(name: string) {
 
 // --- Structured Output ---
 
-// Approach 1: JSDoc @returns.field {type} tags (explicit, with descriptions)
+// Inline return type — auto-inferred, no tags needed
 {
   const s = findSchema('createTask');
   ok(!!s, 'createTask schema extracted');
   const out = (s as any)?.outputSchema;
-  ok(!!out, 'createTask: outputSchema present');
+  ok(!!out, 'createTask: outputSchema auto-inferred from return type');
   ok(out?.type === 'object', 'createTask: outputSchema.type = object');
-  ok(!!out?.properties?.id, 'createTask: outputSchema has id property');
   ok(out?.properties?.id?.type === 'string', 'createTask: id type = string');
-  ok(!!out?.properties?.title, 'createTask: outputSchema has title property');
-  ok(!!out?.properties?.done, 'createTask: outputSchema has done property');
+  ok(out?.properties?.title?.type === 'string', 'createTask: title type = string');
   ok(out?.properties?.done?.type === 'boolean', 'createTask: done type = boolean');
-  ok(!!out?.properties?.priority, 'createTask: outputSchema has priority property');
   ok(out?.properties?.priority?.type === 'number', 'createTask: priority type = number');
   ok(
-    out?.properties?.id?.description === 'Unique task identifier',
-    'createTask: id has description'
-  );
-}
-
-// Approach 2: Auto-inferred from TypeScript return type (zero tags)
-{
-  const s = findSchema('inferredTask');
-  ok(!!s, 'inferredTask schema extracted');
-  const out = (s as any)?.outputSchema;
-  ok(!!out, 'inferredTask: outputSchema auto-inferred');
-  ok(out?.type === 'object', 'inferredTask: outputSchema.type = object');
-  ok(out?.properties?.id?.type === 'string', 'inferredTask: id type = string');
-  ok(out?.properties?.title?.type === 'string', 'inferredTask: title type = string');
-  ok(out?.properties?.done?.type === 'boolean', 'inferredTask: done type = boolean');
-  ok(out?.properties?.priority?.type === 'number', 'inferredTask: priority type = number');
-  ok(
     JSON.stringify(out?.required?.sort()) === JSON.stringify(['done', 'id', 'priority', 'title']),
-    'inferredTask: all fields required'
+    'createTask: all fields required'
   );
 }
 
-// Approach 3: {@value} inline syntax (descriptions without per-line tags)
+// Interface return type — descriptions from JSDoc on interface properties
 {
   const s = findSchema('describedTask');
   ok(!!s, 'describedTask schema extracted');
   const out = (s as any)?.outputSchema;
-  ok(!!out, 'describedTask: outputSchema from {@value}');
+  ok(!!out, 'describedTask: outputSchema from interface');
   ok(out?.properties?.id?.type === 'string', 'describedTask: id type = string');
   ok(
     out?.properties?.id?.description === 'Unique task identifier',
-    'describedTask: id has description'
-  );
-  ok(out?.properties?.done?.type === 'boolean', 'describedTask: done type = boolean');
-  ok(
-    out?.properties?.done?.description === 'Whether complete',
-    'describedTask: done has description'
+    'describedTask: id has description from interface'
   );
   ok(out?.properties?.title?.description === 'Task title', 'describedTask: title has description');
+  ok(out?.properties?.done?.type === 'boolean', 'describedTask: done type = boolean');
+  ok(
+    out?.properties?.done?.description === 'Whether the task is complete',
+    'describedTask: done has description'
+  );
+  ok(out?.properties?.priority?.type === 'number', 'describedTask: priority type = number');
+  ok(
+    out?.properties?.priority?.description === 'Priority level 1-5',
+    'describedTask: priority has description'
+  );
 }
 
 // --- Disambiguation ---
@@ -289,14 +274,17 @@ try {
     ok(out?.properties?.done?.type === 'boolean', 'MCP: createTask outputSchema done type');
   }
 
-  // Auto-inferred outputSchema from TypeScript return type
+  // Interface return type with descriptions
   {
-    const t = findTool('inferredTask');
-    ok(!!t, 'MCP: inferredTask tool listed');
+    const t = findTool('describedTask');
+    ok(!!t, 'MCP: describedTask tool listed');
     const out = (t as any)?.outputSchema;
-    ok(!!out, 'MCP: inferredTask has auto-inferred outputSchema');
-    ok(out?.properties?.id?.type === 'string', 'MCP: inferredTask id type = string');
-    ok(out?.properties?.priority?.type === 'number', 'MCP: inferredTask priority type = number');
+    ok(!!out, 'MCP: describedTask has outputSchema from interface');
+    ok(
+      out?.properties?.id?.description === 'Unique task identifier',
+      'MCP: describedTask id description'
+    );
+    ok(out?.properties?.priority?.type === 'number', 'MCP: describedTask priority type = number');
   }
 
   // --- tools/call: content annotations ---
@@ -353,17 +341,17 @@ try {
     ok(sc?.priority === 3, 'MCP call createTask: structuredContent.priority');
   }
 
-  // Auto-inferred structuredContent (no JSDoc tags, just TypeScript return type)
+  // describedTask: interface return type with structuredContent
   {
-    const inferResult = await client.callTool({
-      name: 'inferredTask',
-      arguments: { title: 'Auto test' },
+    const descResult = await client.callTool({
+      name: 'describedTask',
+      arguments: { title: 'Described test' },
     });
-    const sc = (inferResult as any).structuredContent;
-    ok(!!sc, 'MCP call inferredTask: has structuredContent (auto-inferred)');
-    ok(sc?.id === 'task-002', 'MCP call inferredTask: structuredContent.id');
-    ok(sc?.title === 'Auto test', 'MCP call inferredTask: structuredContent.title');
-    ok(sc?.priority === 2, 'MCP call inferredTask: structuredContent.priority');
+    const sc = (descResult as any).structuredContent;
+    ok(!!sc, 'MCP call describedTask: has structuredContent');
+    ok(sc?.id === 'task-002', 'MCP call describedTask: structuredContent.id');
+    ok(sc?.title === 'Described test', 'MCP call describedTask: structuredContent.title');
+    ok(sc?.priority === 2, 'MCP call describedTask: structuredContent.priority');
   }
 
   // --- tools/call: methods without annotations should NOT have annotations ---
