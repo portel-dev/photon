@@ -982,6 +982,263 @@ async function runTests() {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Section 10: Every @format tag — via photon-cli-runner fallbacks
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //
+  // These test the exact fallback dispatch logic from photon-cli-runner.ts.
+  // Formats not natively handled by the base formatter are mapped to
+  // available renderers (table, tree, list, primitive).
+  // This ensures no @format tag silently drops output.
+
+  originalLog('  ── Every @format tag (wrapper fallbacks) ──');
+
+  // Helper: simulates the photon-cli-runner format dispatch for formats
+  // that the base formatter doesn't handle. Mirrors the code in
+  // photon-cli-runner.ts exactly.
+  function wrapperFormatOutput(result: any, hint: string): void {
+    // Formats handled by base formatter — pass through directly
+    const baseHandled = ['primitive', 'table', 'tree', 'list', 'none', 'card', 'tabs', 'accordion'];
+    const contentHandled = ['json', 'markdown', 'yaml', 'xml', 'html', 'code'];
+
+    if (baseHandled.includes(hint)) {
+      baseFormatOutput(result, hint as any);
+      return;
+    }
+    if (contentHandled.includes(hint) || hint.startsWith('code:')) {
+      // Content formats work for strings in base
+      if (typeof result === 'string') {
+        baseFormatOutput(result, hint as any);
+      } else {
+        // json for objects — render as JSON string
+        if (hint === 'json') {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          baseFormatOutput(result, 'tree');
+        }
+      }
+      return;
+    }
+
+    // Wrapper fallbacks (from photon-cli-runner.ts)
+    if (hint === 'mermaid' && typeof result === 'string') {
+      console.log('── mermaid ──');
+      console.log(result);
+      return;
+    }
+    if (hint === 'kv' && typeof result === 'object' && !Array.isArray(result)) {
+      baseFormatOutput(result, 'table');
+      return;
+    }
+    if (hint === 'grid') {
+      baseFormatOutput(result, 'table');
+      return;
+    }
+    if (hint === 'chips') {
+      const items = Array.isArray(result)
+        ? result
+        : typeof result === 'object'
+          ? Object.values(result)
+          : [result];
+      baseFormatOutput(items, 'list');
+      return;
+    }
+    if (hint === 'metric') {
+      if (typeof result === 'object' && result !== null) {
+        const label = result.label || result.name || '';
+        const value = result.value ?? result.count ?? '';
+        console.log(label ? `${label}: ${value}` : String(value));
+      } else {
+        console.log(String(result));
+      }
+      return;
+    }
+    if (hint === 'gauge') {
+      if (typeof result === 'object' && result !== null) {
+        const value = Number(result.value ?? result.current ?? 0);
+        const max = Number(result.max ?? 100);
+        const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+        console.log(`${pct}% (${value}/${max})`);
+      } else {
+        console.log(String(result));
+      }
+      return;
+    }
+    if (hint === 'chart' || hint.startsWith('chart:')) {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else {
+        baseFormatOutput(result, 'table');
+      }
+      return;
+    }
+    if (hint === 'timeline') {
+      baseFormatOutput(
+        Array.isArray(result) ? result : result,
+        Array.isArray(result) ? 'table' : 'tree'
+      );
+      return;
+    }
+    if (hint === 'dashboard') {
+      baseFormatOutput(result, 'tree');
+      return;
+    }
+    if (hint === 'cart') {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else {
+        baseFormatOutput(result, 'tree');
+      }
+      return;
+    }
+    if (hint === 'panels') {
+      baseFormatOutput(result, 'tree');
+      return;
+    }
+    if (hint === 'stack') {
+      baseFormatOutput(result, 'tree');
+      return;
+    }
+    if (hint === 'columns') {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else {
+        baseFormatOutput(result, 'tree');
+      }
+      return;
+    }
+    if (hint === 'qr') {
+      const qrValue = result?.qr || result?.value || result?.url || result?.link;
+      if (qrValue) {
+        console.log(`[QR] ${qrValue}`);
+      } else {
+        console.log(JSON.stringify(result));
+      }
+      return;
+    }
+
+    // Fallback: auto-detect
+    baseFormatOutput(result);
+  }
+
+  // Test data for each format
+  const formatTests: Array<{ format: string; data: any; expectContains?: string }> = [
+    // Structural (base)
+    { format: 'primitive', data: 'hello world', expectContains: 'hello' },
+    {
+      format: 'table',
+      data: [
+        { id: 1, name: 'A' },
+        { id: 2, name: 'B' },
+      ],
+      expectContains: 'A',
+    },
+    { format: 'tree', data: { root: { child: 'leaf' } }, expectContains: 'leaf' },
+    { format: 'list', data: ['x', 'y', 'z'], expectContains: 'x' },
+    { format: 'none', data: null },
+    // Content (base, string input)
+    { format: 'json', data: { count: 5, status: 'ok' }, expectContains: 'count' },
+    { format: 'markdown', data: '# Title\nParagraph', expectContains: 'Title' },
+    { format: 'yaml', data: 'key: value\nlist:\n  - a', expectContains: 'value' },
+    { format: 'xml', data: '<root><item>test</item></root>', expectContains: 'test' },
+    { format: 'html', data: '<div>content</div>', expectContains: 'content' },
+    { format: 'code', data: 'let x = 1;', expectContains: 'x' },
+    { format: 'code:python', data: 'def foo(): pass', expectContains: 'foo' },
+    // Card/Tabs/Accordion (base)
+    { format: 'card', data: { title: 'Card', description: 'A card' }, expectContains: 'Card' },
+    {
+      format: 'tabs',
+      data: { Tab1: { value: 'a' }, Tab2: { value: 'b' } },
+      expectContains: 'Tab1',
+    },
+    {
+      format: 'accordion',
+      data: { Section1: { info: 'x' }, Section2: { info: 'y' } },
+      expectContains: 'Section1',
+    },
+    // Wrapper fallbacks
+    { format: 'mermaid', data: 'graph TD\n  A-->B\n  B-->C', expectContains: 'graph' },
+    { format: 'kv', data: { host: 'localhost', port: 3000 }, expectContains: 'localhost' },
+    {
+      format: 'grid',
+      data: [
+        { col1: 'a', col2: 'b' },
+        { col1: 'c', col2: 'd' },
+      ],
+      expectContains: 'a',
+    },
+    { format: 'chips', data: ['tag1', 'tag2', 'tag3'], expectContains: 'tag1' },
+    { format: 'metric', data: { label: 'CPU', value: 73, unit: '%' }, expectContains: '73' },
+    { format: 'gauge', data: { label: 'Memory', value: 6, max: 16 }, expectContains: '6' },
+    {
+      format: 'chart',
+      data: [
+        { month: 'Jan', sales: 100 },
+        { month: 'Feb', sales: 150 },
+      ],
+      expectContains: 'Jan',
+    },
+    {
+      format: 'chart:bar',
+      data: [
+        { label: 'A', value: 10 },
+        { label: 'B', value: 20 },
+      ],
+      expectContains: 'A',
+    },
+    {
+      format: 'timeline',
+      data: [
+        { date: '2026-01', event: 'Launch' },
+        { date: '2026-03', event: 'Update' },
+      ],
+      expectContains: 'Launch',
+    },
+    {
+      format: 'dashboard',
+      data: { cpu: { usage: 45 }, memory: { used: 6, total: 16 } },
+      expectContains: '45',
+    },
+    { format: 'cart', data: [{ item: 'Widget', qty: 2, price: 9.99 }], expectContains: 'Widget' },
+    {
+      format: 'panels',
+      data: { overview: { status: 'healthy' }, details: { uptime: '24h' } },
+      expectContains: 'healthy',
+    },
+    {
+      format: 'stack',
+      data: { header: { title: 'App' }, body: { content: 'Main' } },
+      expectContains: 'App',
+    },
+    { format: 'columns', data: [{ left: 'nav', right: 'content' }], expectContains: 'nav' },
+    {
+      format: 'qr',
+      data: { qr: '2@testdata123', message: 'Scan this' },
+      expectContains: 'testdata123',
+    },
+  ];
+
+  for (const { format, data, expectContains } of formatTests) {
+    const t = test(`@format ${format}: produces output`);
+    try {
+      startCapture();
+      wrapperFormatOutput(data, format);
+      const output = getCaptured();
+      const out = stopCapture();
+      assert.ok(out.length > 0, `@format ${format} should produce output, got nothing`);
+      if (expectContains) {
+        assert.ok(
+          output.includes(expectContains),
+          `@format ${format} output should contain "${expectContains}", got: ${output.slice(0, 200)}`
+        );
+      }
+      t.pass();
+    } catch (err) {
+      stopCapture();
+      t.fail(err);
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Summary
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

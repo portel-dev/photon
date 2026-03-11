@@ -243,6 +243,142 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
     }
   }
 
+  // Handle formats that the base formatter doesn't support in CLI.
+  // These fall through silently in @portel/cli's formatDataWithHint switch.
+  // We intercept here and render using available primitives.
+  if (hint && result !== undefined && result !== null) {
+    const hintStr = hint as string;
+
+    // mermaid — render as code block (it's a text DSL)
+    if (hintStr === 'mermaid' && typeof result === 'string') {
+      console.log(chalk.dim('── mermaid ──'));
+      console.log(result);
+      console.log(chalk.dim('─'.repeat(40)));
+      return true;
+    }
+
+    // kv — key-value pairs, render as table
+    if (hintStr === 'kv' && typeof result === 'object' && !Array.isArray(result)) {
+      baseFormatOutput(result, 'table');
+      return true;
+    }
+
+    // grid — tabular data, render as table
+    if (hintStr === 'grid') {
+      baseFormatOutput(result, 'table');
+      return true;
+    }
+
+    // chips — tags/labels, render as list
+    if (hintStr === 'chips') {
+      const items = Array.isArray(result)
+        ? result
+        : typeof result === 'object'
+          ? Object.values(result)
+          : [result];
+      baseFormatOutput(items, 'list');
+      return true;
+    }
+
+    // metric — single value with optional label
+    if (hintStr === 'metric') {
+      if (typeof result === 'object' && result !== null) {
+        const label = result.label || result.name || result.title || '';
+        const value = result.value ?? result.count ?? result.total ?? '';
+        const unit = result.unit || '';
+        console.log(
+          label
+            ? `${chalk.dim(label + ':')} ${chalk.bold(String(value))}${unit ? ' ' + unit : ''}`
+            : chalk.bold(String(value))
+        );
+      } else {
+        console.log(chalk.bold(String(result)));
+      }
+      return true;
+    }
+
+    // gauge — like metric with optional range
+    if (hintStr === 'gauge') {
+      if (typeof result === 'object' && result !== null) {
+        const label = result.label || result.name || '';
+        const value = Number(result.value ?? result.current ?? 0);
+        const max = Number(result.max ?? result.total ?? 100);
+        const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+        const barLen = 20;
+        const filled = Math.round((pct / 100) * barLen);
+        const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
+        console.log(`${label ? chalk.dim(label + ': ') : ''}${bar} ${pct}% (${value}/${max})`);
+      } else {
+        console.log(chalk.bold(String(result)));
+      }
+      return true;
+    }
+
+    // chart / chart:* — render data as table with note
+    if (hintStr === 'chart' || hintStr.startsWith('chart:')) {
+      const chartType = hintStr.includes(':') ? hintStr.split(':')[1] : 'chart';
+      console.log(chalk.dim(`── ${chartType} (data) ──`));
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else if (typeof result === 'object') {
+        baseFormatOutput(result, 'table');
+      } else {
+        console.log(String(result));
+      }
+      return true;
+    }
+
+    // timeline — sequential entries, render as table
+    if (hintStr === 'timeline') {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else {
+        baseFormatOutput(result, 'tree');
+      }
+      return true;
+    }
+
+    // dashboard — multi-section view, render as tree
+    if (hintStr === 'dashboard') {
+      baseFormatOutput(result, 'tree');
+      return true;
+    }
+
+    // cart — itemized list, render as table
+    if (hintStr === 'cart') {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else if (typeof result === 'object') {
+        baseFormatOutput(result, 'tree');
+      } else {
+        console.log(String(result));
+      }
+      return true;
+    }
+
+    // panels — sectioned content, render as tree
+    if (hintStr === 'panels') {
+      baseFormatOutput(result, 'tree');
+      return true;
+    }
+
+    // stack — vertical layout, render as tree
+    if (hintStr === 'stack') {
+      baseFormatOutput(result, 'tree');
+      return true;
+    }
+
+    // columns — multi-column layout, render as table
+    if (hintStr === 'columns') {
+      if (Array.isArray(result)) {
+        baseFormatOutput(result, 'table');
+      } else {
+        baseFormatOutput(result, 'tree');
+      }
+      return true;
+    }
+  }
+
   // Handle _photonType structured data (e.g., table, collection)
   if (result && typeof result === 'object' && result._photonType) {
     // If the object has toJSON(), call it to get the plain data (e.g., Table instances have private fields)
