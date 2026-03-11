@@ -506,16 +506,10 @@ export class PhotonLoader {
         const parsed = PhotonLoader.parseDependenciesFromSource(tsContent);
         dependencies = PhotonLoader.mergeDependencySpecs(extracted, parsed);
 
-        // Auto-include @portel/photon-core if imported (it's the runtime, always available)
-        if (
-          tsContent.includes('@portel/photon-core') &&
-          !dependencies.some((d) => d.name === '@portel/photon-core')
-        ) {
-          dependencies.push({
-            name: '@portel/photon-core',
-            version: PHOTON_CORE_VERSION,
-          });
-        }
+        // @portel/photon-core is the runtime itself — never pass it to npm install.
+        // The dependency manager's fixBrokenPhotonCoreLink() handles symlinking it
+        // into the cache's node_modules after install.
+        dependencies = dependencies.filter((d) => d.name !== '@portel/photon-core');
 
         mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
         cacheKey = this.getCacheKey(mcpName, absolutePath);
