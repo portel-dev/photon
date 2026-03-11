@@ -203,6 +203,33 @@ function extractBaseType(typeStr: string): string {
 function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   let hint = formatHint;
 
+  // Handle @format qr — render QR code in terminal
+  if ((hint as string) === 'qr' && result && typeof result === 'object') {
+    const qrValue = result.value || result.url || result.link;
+    if (qrValue && typeof qrValue === 'string') {
+      if (result.message) {
+        console.log(result.message);
+      }
+      import('qrcode')
+        .then((qrcode) => {
+          (
+            qrcode.toString as (
+              text: string,
+              opts: { type: string; small: boolean }
+            ) => Promise<string>
+          )(qrValue, { type: 'terminal', small: true })
+            .then((qrString: string) => console.log('\n' + qrString))
+            .catch(() => console.log(`[QR] ${qrValue}`));
+        })
+        .catch(() => console.log(`[QR] ${qrValue}`));
+      return true;
+    }
+    if (result.message) {
+      console.log(result.message);
+      return true;
+    }
+  }
+
   // Handle _photonType structured data (e.g., table, collection)
   if (result && typeof result === 'object' && result._photonType) {
     // If the object has toJSON(), call it to get the plain data (e.g., Table instances have private fields)

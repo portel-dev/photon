@@ -120,6 +120,23 @@ import { warnIfDangerous } from './shared/security.js';
 /** Cache entry for @cached tag */
 // Old middleware interfaces removed — now in photon-core/src/middleware.ts
 
+/**
+ * Render a QR code in the terminal using Unicode block characters.
+ * Uses the `qrcode` npm package for generation.
+ */
+async function renderTerminalQR(text: string): Promise<void> {
+  try {
+    const qrcode = await import('qrcode');
+    const qrString = await (
+      qrcode.toString as (text: string, opts: { type: string; small: boolean }) => Promise<string>
+    )(text, { type: 'terminal', small: true });
+    console.log('\n' + qrString);
+  } catch {
+    // Fallback: just print the raw text
+    console.log(`\n[QR] ${text}\n`);
+  }
+}
+
 export class PhotonLoader {
   private dependencyManager: DependencyManager;
   private verbose: boolean;
@@ -2683,6 +2700,18 @@ Run: photon mcp ${mcpName} --config
           this.progressRenderer.done();
           this.logger.info(`📦 ${emit.title || emit.type}: ${emit.mimeType}`);
           break;
+
+        case 'qr': {
+          // Render QR code in terminal
+          this.progressRenderer.done();
+          if (emit.message) {
+            this.logger.info(emit.message);
+          }
+          if (emit.value) {
+            void renderTerminalQR(emit.value);
+          }
+          break;
+        }
       }
     };
   }
