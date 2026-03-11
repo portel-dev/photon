@@ -2242,10 +2242,24 @@ async function reloadPhoton(
         }
 
         // Copy state from old CLASS INSTANCE to new CLASS INSTANCE.
-        // session.instance is a PhotonClassExtended = { instance, name, schemas, ... }
-        // We must copy state on the .instance (actual class obj), NOT the descriptor level —
-        // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
-        if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
+        // Skip property copy if the photon has lifecycle hooks — it manages its own
+        // state via onShutdown/onInitialize and this.memory. Blind property copy breaks
+        // photons with runtime resources (sockets, timers, event listeners) that can't
+        // be transferred as plain values.
+        const hasLifecycle =
+          oldMcp?.instance &&
+          typeof oldMcp.instance.onShutdown === 'function' &&
+          typeof oldMcp.instance.onInitialize === 'function';
+
+        if (
+          !hasLifecycle &&
+          oldMcp?.instance &&
+          newMcp?.instance &&
+          typeof oldMcp.instance === 'object'
+        ) {
+          // session.instance is a PhotonClassExtended = { instance, name, schemas, ... }
+          // We must copy state on the .instance (actual class obj), NOT the descriptor level —
+          // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
           for (const key of Object.keys(oldMcp.instance)) {
             const value = oldMcp.instance[key];
             if (typeof value !== 'function' && key !== 'constructor') {
