@@ -205,7 +205,7 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 
   // Handle @format qr — render QR code in terminal
   if ((hint as string) === 'qr' && result && typeof result === 'object') {
-    const qrValue = result.value || result.url || result.link;
+    const qrValue = result.qr || result.value || result.url || result.link;
     if (qrValue && typeof qrValue === 'string') {
       if (result.message) {
         console.log(result.message);
