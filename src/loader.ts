@@ -5,7 +5,8 @@
  */
 
 import * as fs from 'fs/promises';
-import { realpathSync, type Dirent } from 'fs';
+import { realpathSync, existsSync, mkdirSync, symlinkSync, type Dirent } from 'fs';
+import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
@@ -418,6 +419,31 @@ export class PhotonLoader {
       nodeModules = await this.dependencyManager.ensureDependencies(cacheKey, dependencies);
       if (nodeModules) {
         this.log(`📦 Dependencies ready for ${mcpName}`, { nodeModules });
+      }
+    }
+
+    // All photons need @portel/photon-core resolvable from the build cache.
+    // Symlink it into the build dir's node_modules so the compiled ESM import works.
+    {
+      const buildDir = this.getBuildCacheDir(cacheKey);
+      const coreTarget = path.join(buildDir, 'node_modules', '@portel', 'photon-core');
+      if (!existsSync(coreTarget)) {
+        try {
+          const esmRequire = createRequire(import.meta.url);
+          const coreEntry = esmRequire.resolve('@portel/photon-core');
+          let corePath = path.dirname(coreEntry);
+          while (corePath !== path.dirname(corePath)) {
+            if (existsSync(path.join(corePath, 'package.json'))) break;
+            corePath = path.dirname(corePath);
+          }
+          mkdirSync(path.dirname(coreTarget), { recursive: true });
+          symlinkSync(corePath, coreTarget, 'dir');
+          this.log(`🔗 Symlinked @portel/photon-core for ${mcpName}`);
+        } catch (linkErr) {
+          this.log(
+            `⚠️ Failed to symlink photon-core for ${mcpName}: ${linkErr instanceof Error ? linkErr.message : String(linkErr)}`
+          );
+        }
       }
     }
 
