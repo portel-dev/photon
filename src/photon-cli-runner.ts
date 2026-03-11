@@ -203,6 +203,19 @@ function extractBaseType(typeStr: string): string {
 function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   let hint = formatHint;
 
+  // Handle @format json — render syntax-highlighted JSON for any data type
+  if ((hint as string) === 'json' && result !== undefined && result !== null) {
+    const formatted = JSON.stringify(result, null, 2);
+    import('cli-highlight')
+      .then(({ highlight }) => {
+        console.log(highlight(formatted, { language: 'json', ignoreIllegals: true }));
+      })
+      .catch(() => {
+        console.log(formatted);
+      });
+    return true;
+  }
+
   // Handle @format qr — render QR code in terminal
   if ((hint as string) === 'qr' && result && typeof result === 'object') {
     const qrValue = result.qr || result.value || result.url || result.link;
