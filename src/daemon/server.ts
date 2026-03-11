@@ -2347,6 +2347,39 @@ function startupWatchPhotons(): void {
   }
 
   logger.info('Startup watch registered', { count: fileWatchers.size, dir: photonDir });
+
+  // Watch the directory itself for new photon files added after startup
+  try {
+    const dirWatcher = fs.watch(photonDir, (eventType, filename) => {
+      if (!filename) return;
+      const ext = extensions.find((e) => filename.endsWith(e));
+      if (!ext) return;
+
+      const photonName = filename.slice(0, -ext.length);
+      const filePath = path.join(photonDir, filename);
+
+      // New file added — register and watch it
+      if (!photonPaths.has(photonName) && fs.existsSync(filePath)) {
+        photonPaths.set(photonName, filePath);
+        watchPhotonFile(photonName, filePath);
+        logger.info('Auto-discovered new photon', { photonName, path: filePath });
+      }
+
+      // File removed — clean up
+      if (photonPaths.has(photonName) && !fs.existsSync(filePath)) {
+        photonPaths.delete(photonName);
+        const watcher = fileWatchers.get(photonName);
+        if (watcher) {
+          watcher.close();
+          fileWatchers.delete(photonName);
+        }
+        logger.info('Photon file removed', { photonName, path: filePath });
+      }
+    });
+    dirWatcher.on('error', () => {}); // Non-fatal
+  } catch {
+    logger.warn('Failed to watch photon directory for new files', { dir: photonDir });
+  }
 }
 
 function startServer(): void {
