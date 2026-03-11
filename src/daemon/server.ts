@@ -1344,8 +1344,19 @@ async function handleRequest(
         setPromptHandler(createSocketPromptHandler(socket, request.id));
 
         const outputHandler = (emit: any) => {
-          if (emit && typeof emit === 'object' && emit.channel) {
-            publishToChannel(emit.channel, emit, socket);
+          if (emit && typeof emit === 'object') {
+            if (emit.channel) {
+              publishToChannel(emit.channel, emit, socket);
+            }
+            // Forward generator emit yields to CLI client
+            if (emit.emit) {
+              const emitResponse: DaemonResponse = {
+                type: 'emit',
+                id: request.id,
+                emitData: emit,
+              };
+              socket.write(JSON.stringify(emitResponse) + '\n');
+            }
           }
         };
 
@@ -1448,9 +1459,20 @@ async function handleRequest(
       setPromptHandler(createSocketPromptHandler(socket, request.id));
 
       const outputHandler = (emit: any) => {
-        if (emit && typeof emit === 'object' && emit.channel) {
-          publishToChannel(emit.channel, emit, socket);
-          logger.debug('Published to channel', { channel: emit.channel });
+        if (emit && typeof emit === 'object') {
+          if (emit.channel) {
+            publishToChannel(emit.channel, emit, socket);
+            logger.debug('Published to channel', { channel: emit.channel });
+          }
+          // Forward generator emit yields to CLI client
+          if (emit.emit) {
+            const emitResponse: DaemonResponse = {
+              type: 'emit',
+              id: request.id,
+              emitData: emit,
+            };
+            socket.write(JSON.stringify(emitResponse) + '\n');
+          }
         }
       };
 

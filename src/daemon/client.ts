@@ -13,12 +13,87 @@ import { DaemonRequest, DaemonResponse } from './protocol.js';
 import { getGlobalSocketPath, ensureDaemon } from './manager.js';
 import { createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
+import { ProgressRenderer } from '@portel/photon-core';
 
 // Generate session ID for this process
 // This ensures all commands from the same terminal session share the same photon instance
 const SESSION_ID =
   process.env.PHOTON_SESSION_ID || `cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const logger = createLogger({ component: 'daemon-client', minimal: true });
+const cliProgress = new ProgressRenderer();
+
+/**
+ * Render a generator emit yield in the CLI (mirrors loader's createOutputHandler)
+ */
+async function renderEmitInCLI(emit: any): Promise<void> {
+  if (!emit || typeof emit !== 'object' || !emit.emit) return;
+
+  switch (emit.emit) {
+    case 'progress':
+      cliProgress.render(emit.value, emit.message);
+      if (emit.value >= 1) cliProgress.done();
+      break;
+
+    case 'status':
+      if (cliProgress.active) {
+        cliProgress.updateMessage(emit.message);
+      } else {
+        cliProgress.startSpinner(emit.message);
+      }
+      break;
+
+    case 'log': {
+      cliProgress.done();
+      const icon = emit.level === 'error' ? '!' : emit.level === 'warn' ? '!' : 'i';
+      console.error(`${icon} ${emit.message}`);
+      break;
+    }
+
+    case 'toast':
+      cliProgress.done();
+      console.error(
+        `${emit.type === 'error' ? '!' : emit.type === 'success' ? '+' : 'i'} ${emit.message}`
+      );
+      break;
+
+    case 'qr': {
+      cliProgress.done();
+      if (emit.message) console.log(emit.message);
+      if (emit.value) {
+        try {
+          const qrcode = await import('qrcode');
+          const qrString = await (
+            qrcode.toString as (
+              text: string,
+              opts: { type: string; small: boolean }
+            ) => Promise<string>
+          )(emit.value, { type: 'terminal', small: true });
+          console.log('\n' + qrString);
+        } catch {
+          console.log(`\n[QR] ${emit.value}\n`);
+        }
+      }
+      break;
+    }
+
+    case 'stream':
+      cliProgress.done();
+      if (typeof emit.data === 'string') {
+        process.stdout.write(emit.data);
+      } else {
+        process.stdout.write(JSON.stringify(emit.data));
+      }
+      break;
+
+    case 'thinking':
+      if (emit.active) {
+        cliProgress.render(0, 'Processing...');
+      } else {
+        cliProgress.done();
+      }
+      break;
+  }
+}
 
 /**
  * Prompt user for input using readline
@@ -182,10 +257,23 @@ async function sendCommandDirect(
                   }
                 }, 120000);
               }
+              // Handle generator emit yields (status, qr, toast, progress, etc.)
+              else if (response.type === 'emit' && response.emitData) {
+                // Reset timeout — emits mean the tool is actively running
+                clearTimeout(currentTimeout);
+                currentTimeout = setTimeout(() => {
+                  if (!responseReceived) {
+                    client.destroy();
+                    reject(new Error('Request timeout'));
+                  }
+                }, 120000);
+                void renderEmitInCLI(response.emitData);
+              }
               // Handle final result
               else if (response.type === 'result') {
                 responseReceived = true;
                 clearTimeout(currentTimeout);
+                cliProgress.done();
                 client.destroy();
                 resolve(response.data);
               }
@@ -193,6 +281,7 @@ async function sendCommandDirect(
               else if (response.type === 'error') {
                 responseReceived = true;
                 clearTimeout(currentTimeout);
+                cliProgress.done();
                 client.destroy();
                 reject(new Error(response.error || 'Unknown error'));
               }

@@ -65,7 +65,7 @@ export interface DaemonRequest {
  * Response from daemon server to CLI client
  */
 export interface DaemonResponse {
-  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message' | 'refresh_needed';
+  type: 'result' | 'error' | 'pong' | 'prompt' | 'channel_message' | 'refresh_needed' | 'emit';
   id: string;
   success?: boolean;
   data?: unknown;
@@ -79,6 +79,8 @@ export interface DaemonResponse {
     default?: string;
     options?: Array<string | { value: string; label: string }>;
   };
+  /** Generator emit yield data (when type === 'emit') */
+  emitData?: Record<string, unknown>;
   /** Channel name for channel_message type */
   channel?: string;
   /** Message payload for channel_message type */
@@ -210,7 +212,7 @@ export function isValidDaemonResponse(obj: unknown): obj is DaemonResponse {
   const res = obj as Partial<DaemonResponse>;
   if (typeof res.id !== 'string') return false;
   if (
-    !['result', 'error', 'pong', 'prompt', 'channel_message', 'refresh_needed'].includes(
+    !['result', 'error', 'pong', 'prompt', 'channel_message', 'refresh_needed', 'emit'].includes(
       res.type as string
     )
   )
