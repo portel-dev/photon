@@ -509,7 +509,7 @@ export class PhotonLoader {
    */
   async loadFile(
     filePath: string,
-    options?: { instanceName?: string }
+    options?: { instanceName?: string; skipInitialize?: boolean }
   ): Promise<PhotonClassExtended> {
     // Validate input
     assertString(filePath, 'filePath');
@@ -879,8 +879,10 @@ export class PhotonLoader {
       }
 
       // Call lifecycle hook if present with error handling
+      // skipInitialize is used during hot-reload: state is transferred from the old
+      // instance after loadFile returns, then onInitialize is called manually.
       const onInitialize = instance.onInitialize;
-      if (typeof onInitialize === 'function') {
+      if (typeof onInitialize === 'function' && !options?.skipInitialize) {
         try {
           await onInitialize.call(instance);
         } catch (error) {

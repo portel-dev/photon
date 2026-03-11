@@ -2222,8 +2222,24 @@ async function reloadPhoton(
 
     for (const session of sessions) {
       try {
-        const newMcp = await sessionManager.loader.loadFile(newPhotonPath);
+        // Skip onInitialize during load — we'll call it after state transfer
+        const newMcp = await sessionManager.loader.loadFile(newPhotonPath, {
+          skipInitialize: true,
+        });
         const oldMcp = session.instance;
+
+        // Call onShutdown on the old instance so it can clean up resources
+        // (e.g. close sockets, stop timers) before being replaced.
+        if (oldMcp?.instance && typeof oldMcp.instance.onShutdown === 'function') {
+          try {
+            await oldMcp.instance.onShutdown();
+          } catch (err) {
+            logger.warn('onShutdown failed during hot-reload', {
+              photonName,
+              error: getErrorMessage(err),
+            });
+          }
+        }
 
         // Copy state from old CLASS INSTANCE to new CLASS INSTANCE.
         // session.instance is a PhotonClassExtended = { instance, name, schemas, ... }
@@ -2239,6 +2255,19 @@ async function reloadPhoton(
                 // Some properties may be read-only
               }
             }
+          }
+        }
+
+        // Now call onInitialize on the new instance — it has the transferred state
+        // and can make informed decisions (e.g. skip reconnecting if already connected).
+        if (newMcp?.instance && typeof newMcp.instance.onInitialize === 'function') {
+          try {
+            await newMcp.instance.onInitialize();
+          } catch (err) {
+            logger.warn('onInitialize failed during hot-reload', {
+              photonName,
+              error: getErrorMessage(err),
+            });
           }
         }
 
