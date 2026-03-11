@@ -2228,11 +2228,20 @@ async function reloadPhoton(
         });
         const oldMcp = session.instance;
 
-        // Call onShutdown on the old instance so it can clean up resources
-        // (e.g. close sockets, stop timers) before being replaced.
+        // Detect if this photon manages its own lifecycle (has both hooks).
+        // Lifecycle photons handle state via onShutdown/onInitialize and this.memory.
+        // Non-lifecycle photons rely on blind property copy.
+        const hasLifecycle =
+          oldMcp?.instance &&
+          typeof oldMcp.instance.onShutdown === 'function' &&
+          typeof oldMcp.instance.onInitialize === 'function';
+
+        // Call onShutdown on the old instance with hot-reload context.
+        // The context lets the photon decide what to clean up — e.g. a WhatsApp photon
+        // can skip closing its socket during hot-reload so the new instance can reuse it.
         if (oldMcp?.instance && typeof oldMcp.instance.onShutdown === 'function') {
           try {
-            await oldMcp.instance.onShutdown();
+            await oldMcp.instance.onShutdown({ reason: 'hot-reload' });
           } catch (err) {
             logger.warn('onShutdown failed during hot-reload', {
               photonName,
@@ -2241,25 +2250,16 @@ async function reloadPhoton(
           }
         }
 
-        // Copy state from old CLASS INSTANCE to new CLASS INSTANCE.
-        // Skip property copy if the photon has lifecycle hooks — it manages its own
-        // state via onShutdown/onInitialize and this.memory. Blind property copy breaks
-        // photons with runtime resources (sockets, timers, event listeners) that can't
-        // be transferred as plain values.
-        const hasLifecycle =
-          oldMcp?.instance &&
-          typeof oldMcp.instance.onShutdown === 'function' &&
-          typeof oldMcp.instance.onInitialize === 'function';
-
+        // For non-lifecycle photons: copy state from old to new instance.
+        // Skip for lifecycle photons — blind property copy breaks photons with
+        // runtime resources (sockets, timers, event listeners) that can't be
+        // transferred as plain values.
         if (
           !hasLifecycle &&
           oldMcp?.instance &&
           newMcp?.instance &&
           typeof oldMcp.instance === 'object'
         ) {
-          // session.instance is a PhotonClassExtended = { instance, name, schemas, ... }
-          // We must copy state on the .instance (actual class obj), NOT the descriptor level —
-          // otherwise we'd overwrite newMcp.instance with the old class, defeating the reload.
           for (const key of Object.keys(oldMcp.instance)) {
             const value = oldMcp.instance[key];
             if (typeof value !== 'function' && key !== 'constructor') {
@@ -2272,11 +2272,15 @@ async function reloadPhoton(
           }
         }
 
-        // Now call onInitialize on the new instance — it has the transferred state
-        // and can make informed decisions (e.g. skip reconnecting if already connected).
+        // Call onInitialize on the new instance with hot-reload context.
+        // Passes the old instance so the photon can transfer non-serializable
+        // resources (sockets, timers, DB connections) that can't survive property copy.
         if (newMcp?.instance && typeof newMcp.instance.onInitialize === 'function') {
           try {
-            await newMcp.instance.onInitialize();
+            await newMcp.instance.onInitialize({
+              reason: 'hot-reload',
+              oldInstance: hasLifecycle ? oldMcp?.instance : undefined,
+            });
           } catch (err) {
             logger.warn('onInitialize failed during hot-reload', {
               photonName,

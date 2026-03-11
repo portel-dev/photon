@@ -70,6 +70,53 @@ const lifecyclePhotonContent = `
   }
 `;
 
+// Photon with lifecycle hooks that support hot-reload context
+const hotReloadAwareContent = `
+  export default class HotReloadAwareMCP {
+    private socket: { id: string; alive: boolean } | null = null;
+    private shutdownReason: string | null = null;
+    private initReason: string | null = null;
+
+    async onInitialize(ctx?: { reason?: string; oldInstance?: any }) {
+      this.initReason = ctx?.reason || 'normal';
+
+      if (ctx?.reason === 'hot-reload' && ctx.oldInstance?.socket?.alive) {
+        // Transfer the socket instead of creating a new one
+        this.socket = ctx.oldInstance.socket;
+        ctx.oldInstance.socket = null; // prevent old instance from using it
+        return;
+      }
+
+      // Normal: create a fresh socket
+      this.socket = { id: 'sock-' + Date.now(), alive: true };
+    }
+
+    async onShutdown(ctx?: { reason?: string }) {
+      this.shutdownReason = ctx?.reason || 'normal';
+
+      if (ctx?.reason === 'hot-reload') {
+        // DON'T close the socket — new instance will take it
+        return;
+      }
+
+      // Real shutdown: close the socket
+      if (this.socket) {
+        this.socket.alive = false;
+        this.socket = null;
+      }
+    }
+
+    async status() {
+      return {
+        socketId: this.socket?.id || null,
+        socketAlive: this.socket?.alive || false,
+        shutdownReason: this.shutdownReason,
+        initReason: this.initReason,
+      };
+    }
+  }
+`;
+
 // Photon WITHOUT lifecycle hooks — relies on property copy
 const noLifecyclePhotonContent = `
   export default class SimpleMCP {
@@ -299,6 +346,117 @@ async function runTests() {
         newStatus = await newResult.instance.status();
         assert.equal(newStatus.connected, true, 'New instance should connect from onInitialize');
         assert.equal(newStatus.resource, 'live-socket', 'New instance should have fresh resource');
+
+        t.pass();
+      } catch (err) {
+        t.fail(err);
+      }
+    }
+
+    // ─── Test 9: Hot-reload context: onShutdown receives reason ───
+    {
+      const t = test('Hot-reload context: onShutdown({ reason: "hot-reload" }) preserves socket');
+      try {
+        const testFile = await createTestPhoton('ctx-shutdown', hotReloadAwareContent);
+        const loader = new PhotonLoader();
+        const result = await loader.loadFile(testFile);
+
+        let status = await result.instance.status();
+        assert.ok(status.socketAlive, 'Socket should be alive');
+        const originalSocketId = status.socketId;
+
+        // Simulate hot-reload shutdown
+        await result.instance.onShutdown({ reason: 'hot-reload' });
+        status = await result.instance.status();
+        assert.equal(status.shutdownReason, 'hot-reload');
+        assert.ok(status.socketAlive, 'Socket should still be alive during hot-reload');
+        assert.equal(status.socketId, originalSocketId, 'Socket ID should be unchanged');
+
+        t.pass();
+      } catch (err) {
+        t.fail(err);
+      }
+    }
+
+    // ─── Test 10: Real shutdown closes socket ───
+    {
+      const t = test('Real shutdown (no context) closes socket');
+      try {
+        const testFile = await createTestPhoton('real-shutdown', hotReloadAwareContent);
+        const loader = new PhotonLoader();
+        const result = await loader.loadFile(testFile);
+
+        let status = await result.instance.status();
+        assert.ok(status.socketAlive, 'Socket should be alive');
+
+        // Real shutdown — no context
+        await result.instance.onShutdown();
+        status = await result.instance.status();
+        assert.equal(status.shutdownReason, 'normal');
+        assert.equal(status.socketAlive, false, 'Socket should be closed');
+        assert.equal(status.socketId, null, 'Socket should be null');
+
+        t.pass();
+      } catch (err) {
+        t.fail(err);
+      }
+    }
+
+    // ─── Test 11: Hot-reload context: socket transfer via oldInstance ───
+    {
+      const t = test('Hot-reload: socket transferred from old to new instance');
+      try {
+        const testFile = await createTestPhoton('ctx-transfer', hotReloadAwareContent);
+        const loader = new PhotonLoader();
+
+        // Load old instance normally
+        const oldResult = await loader.loadFile(testFile);
+        let oldStatus = await oldResult.instance.status();
+        assert.ok(oldStatus.socketAlive, 'Old socket should be alive');
+        const originalSocketId = oldStatus.socketId;
+
+        // Hot-reload: shutdown old (preserves socket)
+        await oldResult.instance.onShutdown({ reason: 'hot-reload' });
+        oldStatus = await oldResult.instance.status();
+        assert.ok(oldStatus.socketAlive, 'Old socket still alive after hot-reload shutdown');
+
+        // Load new instance with skipInitialize
+        await loader.reloadFile(testFile);
+        const newResult = await loader.loadFile(testFile, { skipInitialize: true });
+
+        // Initialize new instance with hot-reload context, passing old instance
+        await newResult.instance.onInitialize({
+          reason: 'hot-reload',
+          oldInstance: oldResult.instance,
+        });
+
+        const newStatus = await newResult.instance.status();
+        assert.equal(newStatus.initReason, 'hot-reload');
+        assert.ok(newStatus.socketAlive, 'Socket should be alive on new instance');
+        assert.equal(newStatus.socketId, originalSocketId, 'Same socket transferred');
+
+        // Old instance should no longer have the socket
+        oldStatus = await oldResult.instance.status();
+        assert.equal(oldStatus.socketId, null, 'Old instance socket should be nulled');
+
+        t.pass();
+      } catch (err) {
+        t.fail(err);
+      }
+    }
+
+    // ─── Test 12: Normal init (no context) creates fresh socket ───
+    {
+      const t = test('Normal init (no hot-reload context) creates fresh socket');
+      try {
+        const testFile = await createTestPhoton('normal-ctx', hotReloadAwareContent);
+        const loader = new PhotonLoader();
+        const result = await loader.loadFile(testFile);
+
+        const status = await result.instance.status();
+        assert.equal(status.initReason, 'normal');
+        assert.ok(status.socketAlive, 'Fresh socket should be alive');
+        assert.ok(status.socketId, 'Should have a socket ID');
 
         t.pass();
       } catch (err) {
