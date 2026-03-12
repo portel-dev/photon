@@ -817,7 +817,28 @@ async function getOrCreateSessionManager(
             dep: depName,
             consumer: photonName,
           });
-          return loaded.instance;
+
+          // Return a Proxy that routes public method calls through executeTool
+          // so the full middleware pipeline (rate limit, cache, retry, etc.) is applied.
+          // Direct property access and private methods pass through to the raw instance.
+          const rawInstance = loaded.instance;
+          const toolNames = new Set((loaded.tools || []).map((t: any) => t.name));
+
+          return new Proxy(rawInstance, {
+            get(target: any, prop: string | symbol) {
+              const value = Reflect.get(target, prop);
+
+              // Only proxy known tool methods — pass through everything else
+              // (.on, .off, private methods, properties, etc.)
+              if (typeof prop === 'string' && typeof value === 'function' && toolNames.has(prop)) {
+                return async (params: any) => {
+                  return depManager.loader.executeTool(loaded, prop, params || {});
+                };
+              }
+
+              return value;
+            },
+          });
         }
       } catch (err) {
         logger.warn('Failed to resolve shared @photon instance, falling back to isolated load', {
