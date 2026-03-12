@@ -53,7 +53,7 @@ import {
 import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
 import { logger } from './shared/logger.js';
 
-interface MethodInfo {
+export interface MethodInfo {
   name: string;
   params: {
     name: string;
@@ -549,7 +549,7 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
 /**
  * Parse CLI arguments into method parameters
  */
-function parseCliArgs(args: string[], params: MethodInfo['params']): Record<string, any> {
+export function parseCliArgs(args: string[], params: MethodInfo['params']): Record<string, any> {
   const result: Record<string, any> = {};
 
   // Create a map of param names to types for quick lookup
@@ -596,8 +596,25 @@ function parseCliArgs(args: string[], params: MethodInfo['params']): Record<stri
           result[key] = true;
         }
       }
+    } else if (paramTypes.has(arg)) {
+      // Bare word matches a known parameter name — treat as named arg
+      // e.g., `register group "Arul" folder ~/path` → --group "Arul" --folder ~/path
+      const key = arg;
+      const expectedType = paramTypes.get(key) || 'any';
+
+      if (expectedType === 'boolean') {
+        result[key] = true;
+      } else if (i + 1 < args.length) {
+        i++;
+        result[key] = coerceValue(args[i], expectedType);
+      } else {
+        result[key] = true;
+      }
     } else {
-      // Positional argument
+      // Positional argument — skip params already filled by named args
+      while (positionalIndex < params.length && params[positionalIndex].name in result) {
+        positionalIndex++;
+      }
       if (positionalIndex < params.length) {
         const param = params[positionalIndex];
         result[param.name] = coerceValue(arg, param.type);

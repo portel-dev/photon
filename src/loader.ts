@@ -175,6 +175,14 @@ export class PhotonLoader {
   /** Base directory for state/config/cache (defaults to ~/.photon) */
   public baseDir: string;
 
+  /**
+   * Optional resolver for @photon dependencies.
+   * When set (by the daemon), the loader asks the daemon for an existing shared instance
+   * instead of creating a new isolated one. This ensures injected photons share the
+   * same instance as the one the daemon manages (e.g., WhatsApp socket reuse).
+   */
+  public photonInstanceResolver?: (photonName: string, photonPath: string) => Promise<any>;
+
   constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
@@ -731,12 +739,14 @@ export class PhotonLoader {
             }
             // Also publish to channel broker if channel is specified
             if (data && typeof data.channel === 'string') {
+              // Auto-prefix channel with photon name if not already namespaced
+              const channel = data.channel.includes(':') ? data.channel : `${name}:${data.channel}`;
               import('@portel/photon-core')
                 .then(({ getBroker }) => {
                   const broker = getBroker();
                   broker
                     .publish({
-                      channel: data.channel,
+                      channel,
                       event: data.event || 'message',
                       data: data.data !== undefined ? data.data : data,
                       timestamp: Date.now(),
@@ -1783,6 +1793,15 @@ export class PhotonLoader {
     // Check cache
     if (this.loadedPhotons.has(cacheKey)) {
       return this.loadedPhotons.get(cacheKey)!.instance;
+    }
+
+    // Ask the daemon for a shared instance (avoids duplicate WhatsApp sockets, etc.)
+    if (this.photonInstanceResolver) {
+      const shared = await this.photonInstanceResolver(dep.name, resolvedPath);
+      if (shared) {
+        this.log(`  ♻️ Reusing shared instance for @photon ${dep.name}`);
+        return shared;
+      }
     }
 
     // Dedup concurrent loads: if another call is already loading this path, wait for it

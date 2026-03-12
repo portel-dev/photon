@@ -23,7 +23,13 @@ import {
   type ScheduledJob,
   type LockInfo,
 } from './protocol.js';
-import { setPromptHandler, type PromptHandler } from '@portel/photon-core';
+import { setPromptHandler, type PromptHandler, setBroker } from '@portel/photon-core';
+import type {
+  ChannelBroker,
+  ChannelMessage,
+  ChannelHandler,
+  Subscription,
+} from '@portel/photon-core';
 import { getDefaultContext } from '../context.js';
 import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
@@ -46,6 +52,69 @@ if (!socketPath) {
   logger.error('Missing required argument: socketPath');
   process.exit(1);
 }
+
+// ════════════════════════════════════════════════════════════════════════════════
+// IN-PROCESS BROKER
+// All photons run inside the daemon process, so pub/sub is just in-memory dispatch.
+// This replaces the DaemonBroker (which connects via Unix socket to per-photon daemons
+// that no longer exist in the global daemon model).
+// ════════════════════════════════════════════════════════════════════════════════
+
+class InProcessBroker implements ChannelBroker {
+  readonly type = 'in-process';
+  private handlers = new Map<string, Set<ChannelHandler>>();
+
+  async publish(message: ChannelMessage): Promise<void> {
+    const channel = message.channel;
+    const handlers = this.handlers.get(channel);
+    if (!handlers || handlers.size === 0) return;
+
+    // Also buffer for external subscribers (Beam SSE, etc.)
+    bufferEvent(channel, message);
+
+    for (const handler of handlers) {
+      try {
+        handler(message);
+      } catch (err) {
+        logger.warn('In-process broker handler error', {
+          channel,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+  }
+
+  async subscribe(channel: string, handler: ChannelHandler): Promise<Subscription> {
+    let handlers = this.handlers.get(channel);
+    if (!handlers) {
+      handlers = new Set();
+      this.handlers.set(channel, handlers);
+    }
+    handlers.add(handler);
+
+    logger.info('In-process subscription', { channel, subscribers: handlers.size });
+
+    return {
+      channel,
+      active: true,
+      unsubscribe: () => {
+        handlers.delete(handler);
+        if (handlers.size === 0) this.handlers.delete(channel);
+      },
+    };
+  }
+
+  isConnected(): boolean {
+    return true;
+  }
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {
+    this.handlers.clear();
+  }
+}
+
+// Set the in-process broker so all photons use it for pub/sub
+setBroker(new InProcessBroker());
 
 // Map of compositeKey -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
@@ -731,6 +800,34 @@ async function getOrCreateSessionManager(
       logger.child({ scope: photonName }),
       workingDir
     );
+
+    // Wire @photon dependency resolver: when this photon's loader encounters
+    // `@photon whatsapp ./whatsapp.photon.ts`, it asks the daemon for the shared
+    // instance instead of creating a duplicate (avoids double WhatsApp sockets, etc.)
+    manager.loader.photonInstanceResolver = async (depName: string, depPath: string) => {
+      try {
+        // Get or create the dependency's session manager (lazy initialization)
+        const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
+        if (!depManager) return null;
+
+        // Load its default instance (reuses existing if already loaded)
+        const loaded = await depManager.getOrLoadInstance('');
+        if (loaded?.instance) {
+          logger.info('Resolved @photon dep from shared daemon instance', {
+            dep: depName,
+            consumer: photonName,
+          });
+          return loaded.instance;
+        }
+      } catch (err) {
+        logger.warn('Failed to resolve shared @photon instance, falling back to isolated load', {
+          dep: depName,
+          consumer: photonName,
+          error: getErrorMessage(err),
+        });
+      }
+      return null; // fall through to loader's own loading
+    };
 
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
