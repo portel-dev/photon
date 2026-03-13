@@ -6033,6 +6033,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
           if (errorText !== 'Elicitation cancelled by user') {
             this._log('error', errorText);
             showToast(errorText, 'error', 5000);
+            // Show error in result panel (persists, not just a toast)
+            this._lastResult = { _error: true, message: errorText };
           }
         } else {
           this._lastResult = mcpClient.parseToolResult(result);
@@ -7148,9 +7150,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .filter((p: any) => p.required)
             .map((p: any) => `--${p.name} <${p.type || 'value'}>`)
             .join(' ');
-          lines.push(
-            `CLI: \`photon cli ${name} ${method.name}${paramHints ? ' ' + paramHints : ''}\``
-          );
+          const cliPfx = (window as any).__PHOTON_SHELL_INIT ? name : `photon cli ${name}`;
+          lines.push(`CLI: \`${cliPfx} ${method.name}${paramHints ? ' ' + paramHints : ''}\``);
           lines.push('');
         }
 

@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 import {
   SchemaExtractor,
@@ -52,6 +52,35 @@ import {
 } from './cli-formatter.js';
 import { getErrorMessage, exitWithError, ExitCode } from './shared/error-handler.js';
 import { logger } from './shared/logger.js';
+import * as os from 'os';
+
+/**
+ * Check if shell integration has been installed (photon init cli).
+ * When installed, users can invoke photons directly (e.g., `whatsapp connect`)
+ * instead of `photon cli whatsapp connect`, so help output should reflect that.
+ */
+let _shellInitCached: boolean | undefined;
+function isShellIntegrationInstalled(): boolean {
+  if (_shellInitCached !== undefined) return _shellInitCached;
+  const shell = process.env.SHELL || '';
+  const isZsh = shell.includes('zsh');
+  const rcFile = isZsh ? path.join(os.homedir(), '.zshrc') : path.join(os.homedir(), '.bashrc');
+  try {
+    _shellInitCached = readFileSync(rcFile, 'utf-8').includes('# photon shell integration');
+  } catch {
+    _shellInitCached = false;
+  }
+  return _shellInitCached;
+}
+
+/**
+ * Returns the CLI prefix for help output.
+ * If shell integration is installed, returns just the photon name.
+ * Otherwise returns `photon cli <name>`.
+ */
+function cliPrefix(photonName: string): string {
+  return isShellIntegrationInstalled() ? photonName : `photon cli ${photonName}`;
+}
 
 export interface MethodInfo {
   name: string;
@@ -1394,7 +1423,8 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
   const requiredParams = method.params.filter((p) => !p.optional);
   const optionalParams = method.params.filter((p) => p.optional);
 
-  let usage = `    photon cli ${photonName} ${method.name}`;
+  const prefix = cliPrefix(photonName);
+  let usage = `    ${prefix} ${method.name}`;
   if (requiredParams.length > 0) {
     usage += ' ' + requiredParams.map((p) => `--${p.name} <value>`).join(' ');
   }
@@ -1428,9 +1458,9 @@ function printMethodHelp(photonName: string, method: MethodInfo): void {
   console.log(`EXAMPLE:`);
   if (requiredParams.length > 0) {
     const exampleParams = requiredParams.map((p) => `--${p.name} <value>`).join(' ');
-    console.log(`    photon cli ${photonName} ${method.name} ${exampleParams}\n`);
+    console.log(`    ${prefix} ${method.name} ${exampleParams}\n`);
   } else {
-    console.log(`    photon cli ${photonName} ${method.name}\n`);
+    console.log(`    ${prefix} ${method.name}\n`);
   }
 }
 
@@ -1464,8 +1494,9 @@ export async function listMethods(photonName: string): Promise<void> {
     const hiddenCount = allMethods.length - methods.length;
 
     // Print usage
+    const prefix = cliPrefix(photonName);
     console.log(`\nUSAGE:`);
-    console.log(`    photon cli ${photonName} <command> [options]\n`);
+    console.log(`    ${prefix} <command> [options]\n`);
 
     // Print commands
     console.log(`COMMANDS:`);
@@ -1502,7 +1533,7 @@ export async function listMethods(photonName: string): Promise<void> {
 
     // Print footer
     console.log(`\nFor detailed parameter information, run:`);
-    console.log(`    photon cli ${photonName} <command> --help\n`);
+    console.log(`    ${prefix} <command> --help\n`);
 
     // Print examples if there are methods
     if (methods.length > 0) {
@@ -1513,9 +1544,9 @@ export async function listMethods(photonName: string): Promise<void> {
         const requiredParams = method.params.filter((p) => !p.optional);
         if (requiredParams.length > 0) {
           const paramStr = requiredParams.map((p) => `--${p.name} <value>`).join(' ');
-          console.log(`    photon cli ${photonName} ${method.name} ${paramStr}`);
+          console.log(`    ${prefix} ${method.name} ${paramStr}`);
         } else {
-          console.log(`    photon cli ${photonName} ${method.name}`);
+          console.log(`    ${prefix} ${method.name}`);
         }
       }
       console.log('');
@@ -1586,7 +1617,7 @@ export async function runMethod(
       const available = methods.map((m) => m.name).join(', ');
       exitWithError(`Method '${methodName}' not found in ${photonName}`, {
         exitCode: ExitCode.NOT_FOUND,
-        suggestion: `Available methods: ${available}\nRun 'photon cli ${photonName}' to see details`,
+        suggestion: `Available methods: ${available}\nRun '${cliPrefix(photonName)}' to see details`,
       });
     }
 
@@ -1635,7 +1666,7 @@ export async function runMethod(
         .join('\n');
       exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
         exitCode: ExitCode.INVALID_ARGUMENT,
-        suggestion: `Usage: photon cli ${photonName} ${methodName} ${usage}\n\nRequired:\n${details}`,
+        suggestion: `Usage: ${cliPrefix(photonName)} ${methodName} ${usage}\n\nRequired:\n${details}`,
       });
     }
 

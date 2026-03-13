@@ -3370,9 +3370,62 @@ export class ResultViewer extends LitElement {
     return false;
   }
 
+  /**
+   * Check if data matches the expected shape for a format.
+   * Returns false when the data clearly doesn't fit, so the renderer
+   * should fall through to the default (JSON) view instead of producing
+   * a broken or nonsensical rendering.
+   */
+  private _matchesFormat(layout: LayoutType, data: any): boolean {
+    if (data === null || data === undefined) return true; // let renderer show empty state
+
+    switch (layout) {
+      case 'qr':
+        // String is always QR-able; objects need a QR-renderable field
+        if (typeof data === 'string') return true;
+        if (typeof data === 'object') {
+          return !!(data.qr || data.url || data.link || data.value);
+        }
+        return false;
+      case 'table':
+        return Array.isArray(data) || (typeof data === 'object' && data !== null);
+      case 'metric':
+      case 'gauge':
+        // Need an object with a value-like field, not an array
+        return (
+          typeof data === 'object' &&
+          !Array.isArray(data) &&
+          (data.value !== undefined ||
+            data.count !== undefined ||
+            data.total !== undefined ||
+            data.current !== undefined)
+        );
+      case 'chart':
+        // Need array or object (not a plain string)
+        return typeof data !== 'string';
+      case 'mermaid':
+        return typeof data === 'string';
+      case 'markdown':
+        return typeof data === 'string';
+      default:
+        return true; // other formats degrade gracefully
+    }
+  }
+
   private _renderContent(layout: LayoutType, filteredData: any): TemplateResult | string {
     if (filteredData === null) {
       return html`<div class="empty-state">No matches found</div>`;
+    }
+
+    // Error objects bypass format entirely — always render as error card
+    if (filteredData && filteredData._error) {
+      return this._renderErrorCard(filteredData.message || 'Unknown error');
+    }
+
+    // Format-data shape mismatch: fall through to default renderer.
+    // E.g., @format qr but response has no QR data, or @format table but response is a string.
+    if (!this._matchesFormat(layout, filteredData)) {
+      return this._renderJson(filteredData);
     }
 
     switch (layout) {
@@ -4473,10 +4526,10 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderQR(data: any): TemplateResult {
-    // If data is an object with a url/link field, use that as the QR text
+    // Shape validation handled by _matchesFormat — data is guaranteed to have QR content here
     const text =
       typeof data === 'object' && data !== null
-        ? String(data.url || data.link || data.value || JSON.stringify(data))
+        ? String(data.qr || data.url || data.link || data.value)
         : String(data);
 
     // Detect content type for smart linking
@@ -4666,6 +4719,45 @@ export class ResultViewer extends LitElement {
       return this._renderMermaid(text);
     }
     return this._highlightText(text);
+  }
+
+  private _renderErrorCard(message: string): TemplateResult {
+    // Parse structured error message (from server formatError)
+    // Format: "❌ Tool Error: name\n\nError Type: ...\nMessage: ...\nSuggestion: ..."
+    const lines = message.split('\n').filter((l) => l.trim());
+    const messageLine = lines.find((l) => l.startsWith('Message: '));
+    const suggestionLine = lines.find((l) => l.startsWith('Suggestion: '));
+    const displayMessage = messageLine
+      ? messageLine.replace('Message: ', '')
+      : lines[0]?.replace(/^❌\s*/, '') || message;
+    const suggestion = suggestionLine ? suggestionLine.replace('Suggestion: ', '') : '';
+
+    return html`<div
+      style="
+      padding: 20px; border-radius: var(--radius-md);
+      border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+      background: color-mix(in srgb, #ef4444 5%, var(--bg-subtle));
+      display: flex; flex-direction: column; gap: 8px;
+      margin: 8px 0;
+    "
+    >
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.1rem;">⚠️</span>
+        <span style="font-weight: 600; color: var(--t-primary); font-size: 0.95rem;">
+          ${displayMessage}
+        </span>
+      </div>
+      ${suggestion
+        ? html`<div
+            style="
+        font-size: 0.85rem; color: var(--t-secondary);
+        padding-left: 28px;
+      "
+          >
+            ${suggestion}
+          </div>`
+        : ''}
+    </div>`;
   }
 
   private _renderJson(data: any): TemplateResult {

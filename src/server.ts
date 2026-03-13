@@ -1273,8 +1273,23 @@ export class PhotonServer {
     let errorMessage = getErrorMessage(error) || String(error);
     let suggestion = '';
 
-    // Categorize common errors and provide suggestions
-    if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
+    // Photon authors can attach userMessage and hint to errors for friendly display:
+    //   throw Object.assign(new Error('internal'), { userMessage: 'friendly msg', hint: 'try this' })
+    const userMessage =
+      error && typeof error === 'object' && 'userMessage' in error ? String(error.userMessage) : '';
+    const userHint =
+      error && typeof error === 'object' && 'hint' in error ? String(error.hint) : '';
+
+    // Use userMessage as the display message if provided
+    if (userMessage) {
+      errorMessage = userMessage;
+    }
+
+    // Use author-provided hint over auto-generated suggestion
+    if (userHint) {
+      suggestion = userHint;
+    } else if (errorMessage.includes('not a function') || errorMessage.includes('undefined')) {
+      // Categorize common errors and provide suggestions
       errorType = 'implementation_error';
       suggestion =
         'The tool implementation may have an issue. Check that all methods are properly defined.';

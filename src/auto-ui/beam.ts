@@ -9,13 +9,37 @@
 import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs/promises';
-import { existsSync, lstatSync, mkdirSync, realpathSync, watch, type FSWatcher } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  watch,
+  type FSWatcher,
+} from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { setSecurityHeaders, SimpleRateLimiter } from '../shared/security.js';
+
+/**
+ * Check if shell integration has been installed (photon init cli).
+ * Cached at module load since it won't change during a Beam session.
+ */
+const _shellIntegrationInstalled = (() => {
+  const shell = process.env.SHELL || '';
+  const rcFile = shell.includes('zsh')
+    ? path.join(os.homedir(), '.zshrc')
+    : path.join(os.homedir(), '.bashrc');
+  try {
+    return readFileSync(rcFile, 'utf-8').includes('# photon shell integration');
+  } catch {
+    return false;
+  }
+})();
 
 /**
  * Generate a unique ID for a photon based on its path.
@@ -1642,7 +1666,14 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       if (url.pathname === '/' || !url.pathname.startsWith('/api')) {
         try {
           const indexPath = path.join(__dirname, 'frontend/index.html');
-          const content = await fs.readFile(indexPath, 'utf-8');
+          let content = await fs.readFile(indexPath, 'utf-8');
+          // Inject shell integration flag so frontend can strip CLI prefix
+          if (_shellIntegrationInstalled) {
+            content = content.replace(
+              '</head>',
+              '<script>window.__PHOTON_SHELL_INIT=true</script></head>'
+            );
+          }
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(content);
         } catch (err) {
@@ -1741,21 +1772,13 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   // Determine which photon a file change belongs to
   const getPhotonForPath = (changedPath: string): string | null => {
     const relativePath = path.relative(workingDir, changedPath);
-    const parts = relativePath.split(path.sep);
 
-    // Direct .photon.ts file change
-    if (relativePath.endsWith('.photon.ts')) {
+    // Only react to top-level .photon.ts file changes.
+    // Subfolders under workingDir (~/.photon/) are runtime data (auth, media, state),
+    // NOT source assets. Asset folders live at the symlink target and are watched
+    // separately by setupSymlinkWatcher.
+    if (relativePath.endsWith('.photon.ts') && !relativePath.includes(path.sep)) {
       return path.basename(relativePath, '.photon.ts');
-    }
-
-    // Asset folder change - first segment is the photon name
-    if (parts.length > 1) {
-      const folderName = parts[0];
-      // Check if corresponding .photon.ts exists
-      const photon = photons.find((p) => p.name === folderName);
-      if (photon) {
-        return folderName;
-      }
     }
 
     return null;
