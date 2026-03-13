@@ -140,6 +140,27 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
         fs.renameSync(dataDir, targetDataDir);
       }
 
+      // Also migrate data/<photonName>/ convention (used by WhatsApp, etc.)
+      // Moves contents into the new photon data dir (targetDir/photonName/)
+      const legacyDataDir = path.join(dir, 'data', photonName);
+      if (fs.existsSync(legacyDataDir) && fs.statSync(legacyDataDir).isDirectory()) {
+        fs.mkdirSync(targetDataDir, { recursive: true });
+        const dataEntries = fs.readdirSync(legacyDataDir);
+        for (const dataEntry of dataEntries) {
+          const src = path.join(legacyDataDir, dataEntry);
+          const dest = path.join(targetDataDir, dataEntry);
+          if (!fs.existsSync(dest)) {
+            fs.renameSync(src, dest);
+          }
+        }
+        // Remove empty legacy data dir
+        try {
+          fs.rmdirSync(legacyDataDir);
+        } catch {
+          // Not empty — some files may have been skipped
+        }
+      }
+
       // Migrate state files into the new .state/ structure
       const legacyStateDir = path.join(dir, 'state', photonName);
       if (fs.existsSync(legacyStateDir)) {

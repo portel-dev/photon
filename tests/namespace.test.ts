@@ -244,6 +244,27 @@ describe('Namespace Migration', () => {
     expect(fs.existsSync(path.join(testDir, 'notes.photon.ts'))).toBe(true);
   });
 
+  it('migrates data/<photonName>/ directory contents', async () => {
+    // Simulate WhatsApp's data/whatsapp/auth structure
+    await fsp.writeFile(
+      path.join(testDir, 'whatsapp.photon.ts'),
+      '/**\n * @forkedFrom portel-dev/photons#whatsapp\n */\nexport default class WA {}'
+    );
+    const legacyDataDir = path.join(testDir, 'data', 'whatsapp', 'auth');
+    await fsp.mkdir(legacyDataDir, { recursive: true });
+    await fsp.writeFile(path.join(legacyDataDir, 'creds.json'), '{"key": "value"}');
+
+    const { runNamespaceMigration } = await import('../src/namespace-migration.js');
+    await runNamespaceMigration(testDir);
+
+    // Auth data should be moved to portel-dev/whatsapp/auth/
+    const newAuthDir = path.join(testDir, 'portel-dev', 'whatsapp', 'auth');
+    expect(fs.existsSync(path.join(newAuthDir, 'creds.json'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(newAuthDir, 'creds.json'), 'utf-8'))).toEqual({
+      key: 'value',
+    });
+  });
+
   it('writes sentinel even when no flat files exist', async () => {
     const { runNamespaceMigration } = await import('../src/namespace-migration.js');
     await runNamespaceMigration(testDir);
