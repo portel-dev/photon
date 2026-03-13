@@ -683,6 +683,14 @@ export class PhotonLoader {
       // Inject instance name for named instances (runtime concept, not code)
       instance.instanceName = options?.instanceName ?? '';
 
+      // Inject file path for storage()/assets() resolution
+      instance._photonFilePath = absolutePath;
+
+      // Inject dynamic photon resolver for this.photon.use()
+      instance._photonResolver = (photonName: string, instanceName?: string) => {
+        return this.resolveAndLoadPhoton(photonName, absolutePath, instanceName);
+      };
+
       // Auto-wire ReactiveArray/Map/Set properties for zero-boilerplate reactivity
       // Developers just `import { Array } from '@portel/photon-core'` and use normally
       this.wireReactiveCollections(instance);
@@ -1057,6 +1065,14 @@ export class PhotonLoader {
 
     instance._photonName = name;
     instance.instanceName = options?.instanceName ?? '';
+
+    // Inject file path for storage()/assets() resolution
+    instance._photonFilePath = absolutePath;
+
+    // Inject dynamic photon resolver for this.photon.use()
+    instance._photonResolver = (photonName: string, instanceName?: string) => {
+      return this.resolveAndLoadPhoton(photonName, absolutePath, instanceName);
+    };
 
     // Wire reactive collections
     this.wireReactiveCollections(instance);
@@ -1870,7 +1886,7 @@ export class PhotonLoader {
         case 'state': {
           // Inject persisted state from instance-specific state file
           const stateKey = injection.stateKey!;
-          const stateFile = getInstanceStatePath(mcpName, instanceName, this.baseDir);
+          const stateFile = getInstanceStatePath(mcpName, instanceName, this.baseDir, photonPath);
           try {
             const snapshot = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
             if (stateKey in snapshot) {
@@ -2090,6 +2106,32 @@ export class PhotonLoader {
   }
 
   /**
+   * Dynamic photon resolution for this.photon.use().
+   *
+   * Supports:
+   * - Short names: 'whatsapp' → resolves via marketplace path
+   * - Namespace-qualified: 'portel-dev:whatsapp' → resolves in specific namespace dir
+   *
+   * Uses the same resolution pipeline as @photon DI but with dynamic names.
+   */
+  async resolveAndLoadPhoton(
+    name: string,
+    callerPhotonPath: string,
+    instanceName?: string
+  ): Promise<any> {
+    // Build a synthetic PhotonDependency for reuse of existing resolution
+    const dep: PhotonDependency = {
+      name: name.replace(/.*:/, ''), // strip namespace prefix for the dep name
+      source: name, // full name including namespace
+      sourceType: 'marketplace', // resolveMarketplacePhoton handles namespace:name
+    };
+    if (instanceName) {
+      dep.instanceName = instanceName;
+    }
+    return this.getPhotonInstance(dep, callerPhotonPath);
+  }
+
+  /**
    * Resolve Photon dependency path based on source type
    */
   private async resolvePhotonPath(
@@ -2123,19 +2165,79 @@ export class PhotonLoader {
     dep: PhotonDependency,
     currentPhotonPath: string
   ): Promise<string> {
-    const { slug, fileName, marketplaceHint } = this.normalizeMarketplaceSource(dep.source);
+    // Check for namespace:name format in the source
+    const colonIndex = dep.source.indexOf(':');
+    let explicitNamespace: string | undefined;
+    let sourceForSlug = dep.source;
+    if (colonIndex !== -1 && !dep.source.startsWith('.') && !dep.source.startsWith('/')) {
+      explicitNamespace = dep.source.slice(0, colonIndex);
+      sourceForSlug = dep.source.slice(colonIndex + 1);
+    }
+
+    const { slug, fileName, marketplaceHint } = this.normalizeMarketplaceSource(sourceForSlug);
     const photonDir = path.dirname(currentPhotonPath);
+
+    // If explicit namespace, search only that namespace dir
+    if (explicitNamespace) {
+      const nsPath = path.join(this.baseDir, explicitNamespace, fileName);
+      if (await this.pathExists(nsPath)) {
+        return nsPath;
+      }
+      throw new Error(
+        `Photon "${dep.source}" not found at ${nsPath}. ` +
+          `Ensure the photon is installed in the '${explicitNamespace}' namespace.`
+      );
+    }
+
     const candidates = [
+      // Same directory as calling photon (same namespace)
       path.resolve(photonDir, fileName),
       path.resolve(photonDir, 'photons', fileName),
       path.resolve(photonDir, 'templates', fileName),
+      // Current working directory
       path.join(process.cwd(), fileName),
       path.join(process.cwd(), 'photons', fileName),
       path.join(process.cwd(), 'templates', fileName),
+      // Base dir flat files (backward compat)
       path.join(this.baseDir, fileName),
       path.join(this.baseDir, 'photons', fileName),
       path.join(this.baseDir, 'marketplace', fileName),
     ];
+
+    // Also add namespace subdirectory candidates
+    // Priority: local/ > other namespaces
+    const namespaceCandidates: string[] = [];
+    try {
+      const { readdir } = await import('fs/promises');
+      const entries = await readdir(this.baseDir, { withFileTypes: true });
+      // local/ namespace gets priority
+      const localPath = path.join(this.baseDir, 'local', fileName);
+      namespaceCandidates.push(localPath);
+      // Then all other namespaces
+      for (const entry of entries) {
+        if (
+          entry.isDirectory() &&
+          entry.name !== 'local' &&
+          ![
+            'state',
+            'context',
+            'env',
+            '.cache',
+            '.config',
+            'node_modules',
+            'marketplace',
+            'photons',
+            'templates',
+          ].includes(entry.name) &&
+          !entry.name.startsWith('.')
+        ) {
+          namespaceCandidates.push(path.join(this.baseDir, entry.name, fileName));
+        }
+      }
+    } catch {
+      // baseDir doesn't exist yet
+    }
+    candidates.push(...namespaceCandidates);
 
     for (const candidate of candidates) {
       if (await this.pathExists(candidate)) {

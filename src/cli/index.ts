@@ -123,6 +123,14 @@ Run 'photon <command> --help' for detailed usage.
  * Main CLI execution — preprocess args and parse.
  */
 export async function main(): Promise<void> {
+  // Run namespace migration on first startup (fast no-op if already done)
+  try {
+    const { runNamespaceMigration } = await import('../namespace-migration.js');
+    await runNamespaceMigration();
+  } catch {
+    // Non-critical — don't block startup
+  }
+
   const program = createProgram();
   const { args, githubRef, photonName } = preprocessArgs();
 

@@ -765,7 +765,7 @@ const handlers: Record<string, RequestHandler> = {
       return handleBeamStudioParse(req, args || {});
     }
 
-    // Parse tool name: server-name/method-name
+    // Parse tool name: server-name/method-name or namespace:server-name/method-name
     const slashIndex = name.indexOf('/');
     if (slashIndex === -1) {
       return {
@@ -782,6 +782,7 @@ const handlers: Record<string, RequestHandler> = {
     const methodName = name.slice(slashIndex + 1);
 
     // Native photons take precedence over external MCP clients with the same name
+    // Support both short names and namespace:name qualified names
     const isNativePhoton = ctx.photons.some((p) => p.name === serverName);
 
     // Check if this is an external MCP tool call (only when no native photon matches)

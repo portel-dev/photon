@@ -60,19 +60,41 @@ export class InstanceStore {
 
   /**
    * List all instances by scanning the state directory.
+   * Checks both legacy state dir and new namespace-based .state/ dirs.
    */
-  listInstances(photonName: string): string[] {
-    const stateDir = path.join(this.baseDir, 'state', photonName);
+  listInstances(photonName: string, photonFilePath?: string): string[] {
+    const instances = new Set<string>();
+
+    // Legacy state dir: ~/.photon/state/{photon}/
+    const legacyStateDir = path.join(this.baseDir, 'state', photonName);
     try {
-      return fs
-        .readdirSync(stateDir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => f.replace('.json', ''));
+      for (const f of fs.readdirSync(legacyStateDir)) {
+        if (f.endsWith('.json')) instances.add(f.replace('.json', ''));
+      }
     } catch (err) {
-      if (isNodeError(err, 'ENOENT')) return []; // No state dir yet — normal
-      console.warn(`[photon] Cannot read instances for ${photonName}: ${getErrorMessage(err)}`);
-      return [];
+      if (!isNodeError(err, 'ENOENT')) {
+        console.warn(`[photon] Cannot read instances for ${photonName}: ${getErrorMessage(err)}`);
+      }
     }
+
+    // Namespace-aware state dir: <dir>/<photonName>/.state/
+    if (photonFilePath) {
+      const dir = path.dirname(photonFilePath);
+      const baseName = path.basename(photonFilePath).replace(/\.photon\.(ts|js)$/, '');
+      const nsStateDir = path.join(dir, baseName, '.state');
+      try {
+        for (const entry of fs.readdirSync(nsStateDir, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            // Each subdirectory is an instance
+            instances.add(entry.name);
+          }
+        }
+      } catch {
+        // .state/ dir doesn't exist yet — normal
+      }
+    }
+
+    return [...instances];
   }
 
   /**
@@ -244,25 +266,70 @@ export class EnvStore {
 
 /**
  * Get the state file path for a photon instance.
- * Path: ~/.photon/state/{photon}/{instance}.json
- * Default instance: ~/.photon/state/{photon}/default.json
+ *
+ * When photonFilePath is provided (namespace-aware), resolves to:
+ *   <dir>/<photonName>/.state/<instance>/state.json
+ * Otherwise (legacy), resolves to:
+ *   ~/.photon/state/{photon}/{instance}.json
+ *
+ * Falls back to legacy path if the new path doesn't exist yet but legacy does.
  */
 export function getInstanceStatePath(
   photonName: string,
   instance: string,
-  baseDir?: string
+  baseDir?: string,
+  photonFilePath?: string
 ): string {
   const name = instance || 'default';
+
+  if (photonFilePath) {
+    // Namespace-aware path: <dir>/<photonName>/.state/<instance>/state.json
+    const dir = path.dirname(photonFilePath);
+    const photonBaseName = path.basename(photonFilePath).replace(/\.photon\.(ts|js)$/, '');
+    const newPath = path.join(dir, photonBaseName, '.state', name, 'state.json');
+
+    // Check if legacy path has existing data to migrate from
+    const legacyDir = baseDir || getDefaultContext().baseDir;
+    const legacyPath = path.join(legacyDir, 'state', photonName, `${name}.json`);
+    if (!fs.existsSync(path.dirname(newPath)) && fs.existsSync(legacyPath)) {
+      return legacyPath; // Use legacy path until migration
+    }
+    return newPath;
+  }
+
+  // Legacy path
   const dir = baseDir || getDefaultContext().baseDir;
   return path.join(dir, 'state', photonName, `${name}.json`);
 }
 
 /**
  * Get the event log path for a photon instance.
- * Path: ~/.photon/state/{photon}/{instance}.log
+ *
+ * When photonFilePath is provided (namespace-aware), resolves to:
+ *   <dir>/<photonName>/.state/<instance>/state.log
+ * Otherwise (legacy), resolves to:
+ *   ~/.photon/state/{photon}/{instance}.log
  */
-export function getInstanceLogPath(photonName: string, instance: string, baseDir?: string): string {
+export function getInstanceLogPath(
+  photonName: string,
+  instance: string,
+  baseDir?: string,
+  photonFilePath?: string
+): string {
   const name = instance || 'default';
+
+  if (photonFilePath) {
+    const dir = path.dirname(photonFilePath);
+    const photonBaseName = path.basename(photonFilePath).replace(/\.photon\.(ts|js)$/, '');
+    const newPath = path.join(dir, photonBaseName, '.state', name, 'state.log');
+    const legacyDir = baseDir || getDefaultContext().baseDir;
+    const legacyPath = path.join(legacyDir, 'state', photonName, `${name}.log`);
+    if (!fs.existsSync(path.dirname(newPath)) && fs.existsSync(legacyPath)) {
+      return legacyPath;
+    }
+    return newPath;
+  }
+
   const dir = baseDir || getDefaultContext().baseDir;
   return path.join(dir, 'state', photonName, `${name}.log`);
 }

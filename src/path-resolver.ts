@@ -12,12 +12,15 @@
 export {
   resolvePath,
   listFiles,
+  listFilesWithNamespace,
   ensureDir,
   resolvePhotonPath,
   listPhotonFiles,
+  listPhotonFilesWithNamespace,
   ensurePhotonDir,
   DEFAULT_PHOTON_DIR,
   type ResolverOptions,
+  type ListedPhoton,
 } from '@portel/photon-core';
 
 import { DEFAULT_PHOTON_DIR, ensurePhotonDir, listPhotonFiles } from '@portel/photon-core';

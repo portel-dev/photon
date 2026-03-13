@@ -819,9 +819,43 @@ export class PhotonServer {
 
     // Handler for channel events - forward to daemon for cross-process pub/sub
     const outputHandler = (emit: any) => {
+      // Forward channel events to daemon for cross-process pub/sub
       if (this.daemonName && emit?.channel) {
         publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(() => {
           // Ignore publish errors - daemon may not be running
+        });
+      }
+
+      // Forward emit yields as MCP progress notifications to STDIO client
+      if (emit?.emit === 'progress') {
+        const rawValue = typeof emit.value === 'number' ? emit.value : 0;
+        const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+        void this.server?.notification({
+          method: 'notifications/progress',
+          params: {
+            progressToken: `progress_${toolName}`,
+            progress,
+            total: 100,
+            ...(emit.message ? { message: emit.message } : {}),
+          },
+        });
+      } else if (emit?.emit === 'status') {
+        void this.server?.notification({
+          method: 'notifications/progress',
+          params: {
+            progressToken: `progress_${toolName}`,
+            progress: 0,
+            total: 100,
+            message: emit.message || '',
+          },
+        });
+      } else if (emit?.emit === 'log') {
+        void this.server?.notification({
+          method: 'notifications/message',
+          params: {
+            level: emit.level || 'info',
+            data: emit.message || '',
+          },
         });
       }
     };
@@ -1082,6 +1116,29 @@ export class PhotonServer {
               publishToChannel(this.daemonName, emit.channel, emit, this.options.workingDir).catch(
                 () => {}
               );
+            }
+            // Forward emit yields as MCP notifications for async tools
+            if (emit?.emit === 'progress' || emit?.emit === 'status') {
+              const rawValue =
+                emit?.emit === 'progress' && typeof emit.value === 'number' ? emit.value : 0;
+              const progress = rawValue <= 1 ? rawValue * 100 : rawValue;
+              void this.server?.notification({
+                method: 'notifications/progress',
+                params: {
+                  progressToken: `progress_${toolName}`,
+                  progress,
+                  total: 100,
+                  message: emit.message || '',
+                },
+              });
+            } else if (emit?.emit === 'log') {
+              void this.server?.notification({
+                method: 'notifications/message',
+                params: {
+                  level: emit.level || 'info',
+                  data: emit.message || '',
+                },
+              });
             }
           };
 

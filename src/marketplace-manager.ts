@@ -1056,23 +1056,32 @@ export class MarketplaceManager {
       content = content.replace(/(\s*\*\/)/, `\n * @forkedFrom ${origin}$1`);
     }
 
+    // Determine namespace directory from marketplace repo (e.g., 'portel-dev/photons' → 'portel-dev')
+    // Falls back to flat install for backward compat when repo info isn't available
+    const namespace = this.extractNamespace(result.marketplace);
+    const installDir = namespace ? path.join(workingDir, namespace) : workingDir;
+
     // Write the .photon.ts file
-    await fs.mkdir(workingDir, { recursive: true });
-    const photonPath = path.join(workingDir, `${name}.photon.ts`);
+    await fs.mkdir(installDir, { recursive: true });
+    const photonPath = path.join(installDir, `${name}.photon.ts`);
     await fs.writeFile(photonPath, content, 'utf-8');
 
     const assetsInstalled: string[] = [];
 
+    // Create photon data directory and assets subdirectory
+    const photonDataDir = path.join(installDir, name);
+    const assetsDir = path.join(photonDataDir, 'assets');
+
     if (result.metadata) {
-      // Download and save all declared assets first (before hashing)
+      // Download and save all declared assets into the photon's assets/ directory
       if (result.metadata.assets && result.metadata.assets.length > 0) {
         const assets = await this.fetchAssets(result.marketplace, result.metadata.assets);
-        for (const [assetPath, content] of assets) {
+        for (const [assetPath, assetContent] of assets) {
           const safePath = validateAssetPath(assetPath);
-          const assetTarget = path.join(workingDir, safePath);
-          if (!isPathWithin(assetTarget, workingDir)) continue;
+          const assetTarget = path.join(assetsDir, safePath);
+          if (!isPathWithin(assetTarget, assetsDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
-          await fs.writeFile(assetTarget, content, 'utf-8');
+          await fs.writeFile(assetTarget, assetContent, 'utf-8');
           assetsInstalled.push(assetPath);
         }
       }
@@ -1080,8 +1089,9 @@ export class MarketplaceManager {
       // Save install metadata — use combined hash (source+assets) for update detection
       // The manifest's `hash` field is the combined hash; fall back to content-only hash
       const combinedHash = result.metadata.hash || calculateHash(result.content);
+      const metadataFileName = namespace ? `${namespace}/${name}.photon.ts` : `${name}.photon.ts`;
       await this.savePhotonMetadata(
-        `${name}.photon.ts`,
+        metadataFileName,
         result.marketplace,
         result.metadata,
         combinedHash
@@ -1089,6 +1099,21 @@ export class MarketplaceManager {
     }
 
     return { photonPath, assetsInstalled };
+  }
+
+  /**
+   * Extract namespace from marketplace repo.
+   * e.g., 'portel-dev/photons' → 'portel-dev'
+   * e.g., 'portel-dev/skills' → 'portel-dev'
+   */
+  private extractNamespace(marketplace: Marketplace): string | null {
+    if (marketplace.repo) {
+      const parts = marketplace.repo.split('/');
+      if (parts.length >= 2) {
+        return parts[0]; // GitHub owner = namespace
+      }
+    }
+    return null;
   }
 
   /**

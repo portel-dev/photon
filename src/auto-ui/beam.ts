@@ -106,7 +106,12 @@ const __dirname = path.dirname(__filename);
 
 import { withTimeout } from '../async/index.js';
 // WebSocket removed - now using MCP Streamable HTTP (SSE) only
-import { listPhotonMCPs, resolvePhotonPath } from '../path-resolver.js';
+import {
+  listPhotonMCPs,
+  listPhotonFilesWithNamespace,
+  resolvePhotonPath,
+  type ListedPhoton,
+} from '../path-resolver.js';
 import { PhotonLoader } from '../loader.js';
 import { logger, createLogger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
@@ -618,8 +623,24 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     logger.warn(`Asset repair check failed: ${getErrorMessage(error)}`);
   }
 
-  // Discover all photons (user photons + bundled photons)
-  const userPhotonList = await listPhotonMCPs(workingDir);
+  // Discover all photons with namespace metadata (user photons + bundled photons)
+  const userPhotonListDetailed = await listPhotonFilesWithNamespace(workingDir);
+
+  // Detect name collisions to decide sidebar display names
+  const nameOccurrences = new Map<string, number>();
+  for (const p of userPhotonListDetailed) {
+    nameOccurrences.set(p.name, (nameOccurrences.get(p.name) || 0) + 1);
+  }
+
+  // Build photon list: use qualifiedName when collision, short name when unique
+  // Also track resolved paths from namespace scan
+  const namespacePaths = new Map<string, string>(); // displayName → filePath
+  const userPhotonList: string[] = [];
+  for (const p of userPhotonListDetailed) {
+    const displayName = (nameOccurrences.get(p.name) || 0) > 1 ? p.qualifiedName : p.name;
+    userPhotonList.push(displayName);
+    namespacePaths.set(displayName, p.filePath);
+  }
 
   // Add bundled photons with their paths
   const bundledPhotonPaths = new Map<string, string>();
@@ -667,7 +688,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
   // Helper: load a single photon, returning the info to push into photons[]
   async function loadSinglePhoton(name: string): Promise<AnyPhotonInfo | null> {
-    const photonPath = bundledPhotonPaths.get(name) || (await resolvePhotonPath(name, workingDir));
+    const photonPath =
+      bundledPhotonPaths.get(name) ||
+      namespacePaths.get(name) ||
+      (await resolvePhotonPath(name, workingDir));
     if (!photonPath) return null;
 
     // Apply saved config to environment before loading
