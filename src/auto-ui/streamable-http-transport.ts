@@ -781,9 +781,12 @@ const handlers: Record<string, RequestHandler> = {
     const serverName = name.slice(0, slashIndex);
     const methodName = name.slice(slashIndex + 1);
 
-    // Check if this is an external MCP tool call
+    // Native photons take precedence over external MCP clients with the same name
+    const isNativePhoton = ctx.photons.some((p) => p.name === serverName);
+
+    // Check if this is an external MCP tool call (only when no native photon matches)
     // Prefer SDK client for full CallToolResult support (structuredContent)
-    if (ctx.externalMCPSDKClients?.has(serverName)) {
+    if (!isNativePhoton && ctx.externalMCPSDKClients?.has(serverName)) {
       const sdkClient = ctx.externalMCPSDKClients.get(serverName);
       try {
         // SDK client.callTool returns full CallToolResult with structuredContent
@@ -812,7 +815,7 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     // Fallback to wrapper client (no structuredContent support)
-    if (ctx.externalMCPClients?.has(serverName)) {
+    if (!isNativePhoton && ctx.externalMCPClients?.has(serverName)) {
       const client = ctx.externalMCPClients.get(serverName);
       try {
         const result = await client.call(methodName, args || {});
