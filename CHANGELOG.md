@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.13.0](https://github.com/portel-dev/photon/compare/v1.12.0...v1.13.0) (2026-03-13)
+
+### Features
+
+* add `photon build` command to compile photons into standalone binaries ([96fa7eb](https://github.com/portel-dev/photon/commit/96fa7eb2e2ccbd0801a6da6643bae256fb3752d7))
+* add CLI fallback rendering for all 30 [@format](https://github.com/format) tags ([7bb76b9](https://github.com/portel-dev/photon/commit/7bb76b93adf555e5a8b07b6671d0888c9fc3db58))
+* add QR code rendering support and fix photon-core dependency install ([5f3a8a9](https://github.com/portel-dev/photon/commit/5f3a8a90bbd0b3951a8d5fc6b044e8b53a3cda90))
+* add SVG audience badges to method cards in Beam UI ([90a3f6c](https://github.com/portel-dev/photon/commit/90a3f6c8f87873a6c266918128180180043db775))
+* add tests for auto-inferred and {[@value](https://github.com/value)} structured output ([2d29d42](https://github.com/portel-dev/photon/commit/2d29d42dc01859e7a7cf4cb0fcf6594cace6c527))
+* apply middleware pipeline to [@photon](https://github.com/photon) inter-instance method calls ([6283037](https://github.com/portel-dev/photon/commit/628303743e3186476b6ca2336e27d3edf79e24c1))
+* auto-discover new photon files added to ~/.photon at runtime ([a0c4bc4](https://github.com/portel-dev/photon/commit/a0c4bc409d3e403e42a5902dc06958b0ae9d1c43))
+* embedded runtime, [@photon](https://github.com/photon) dep bundling, and symlink routing for compiled binaries ([e2647e6](https://github.com/portel-dev/photon/commit/e2647e6df66726ade792fdf928982065522db683))
+* format shape validation, CLI prefix stripping, and error rendering ([4b82d45](https://github.com/portel-dev/photon/commit/4b82d45e5d2c21ffae866a8143c7a130b61c0617))
+* pass hot-reload context to lifecycle hooks for socket preservation ([9306ab4](https://github.com/portel-dev/photon/commit/9306ab48bcd3c222228a0c1074a3673ad8689fba))
+* resolve icon images to MCP standard icons[] field ([710a4a2](https://github.com/portel-dev/photon/commit/710a4a2a1c12802feaa1a15ab8fe2765da818fb2))
+* shared [@photon](https://github.com/photon) instances, CLI bare-word args, channel auto-prefix ([472fc75](https://github.com/portel-dev/photon/commit/472fc75e9a4deef07b544e78acf20064e47dd91c))
+* stream generator emit yields from daemon to CLI client ([5c0c19f](https://github.com/portel-dev/photon/commit/5c0c19f90eca3c675a94220c235753b536ba179c))
+* wire MCP annotations into STDIO transport and add spec tests ([0f05a9a](https://github.com/portel-dev/photon/commit/0f05a9a31f89ba9ced9fee76f391942d4792fd61))
+* wire MCP standard annotations into runtime and transport ([e81500f](https://github.com/portel-dev/photon/commit/e81500f32b72aabb0ec70cffc7b085ea15bfbcce))
+* wire Tool.icons to standard MCP server for full spec compliance ([8612c5d](https://github.com/portel-dev/photon/commit/8612c5d483e0194a4755734ecd835731b4773536))
+
+### Bug Fixes
+
+* [@format](https://github.com/format) json now renders syntax-highlighted JSON for object results ([8cd207a](https://github.com/portel-dev/photon/commit/8cd207a590897af72e8f5921f0e15bc0d5a1a055))
+* call onShutdown before hot-reload and defer onInitialize until after state transfer ([b3872ef](https://github.com/portel-dev/photon/commit/b3872ef0227ae8fea09c3047dc179633eb648613))
+* prevent npm install failure for @portel/photon-core dependency ([e3aa7c3](https://github.com/portel-dev/photon/commit/e3aa7c3a9beadd9be738970841a296e41f4bdd10))
+* QR format renderer now checks result.qr field ([c0317ee](https://github.com/portel-dev/photon/commit/c0317eed7fd8c235e425cfb3c40372a6eae3b869))
+* skip property copy during hot-reload for photons with lifecycle hooks ([159161a](https://github.com/portel-dev/photon/commit/159161a7a8d1852fe77d4ae849f230bfcb180376))
+* symlink @portel/photon-core into build cache for all photons ([2b3ca0a](https://github.com/portel-dev/photon/commit/2b3ca0af500afa8dbc0e46bf14f244250e283ee4))
+
 ## [1.12.0](https://github.com/portel-dev/photon/compare/v1.11.0...v1.12.0) (2026-03-09)
 
 ### Features
