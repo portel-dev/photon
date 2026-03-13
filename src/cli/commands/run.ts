@@ -57,6 +57,7 @@ export const RESERVED_COMMANDS = [
   'marketplace',
   // Packaging
   'package',
+  'build',
   // Hidden/advanced
   'mcp',
   'search',
@@ -112,6 +113,7 @@ const knownCommands = [
   'maker',
   'host',
   'shell',
+  'build',
   'diagram',
   'diagrams',
 ];

@@ -983,6 +983,228 @@ export class PhotonLoader {
   }
 
   /**
+   * Load a photon from a pre-imported module (for compiled binaries).
+   * Skips file I/O, compilation, and dependency installation — the module is
+   * already bundled. Still does class extraction, constructor injection,
+   * capability wiring, middleware, and metadata extraction from embedded source.
+   */
+  async loadFromModule(
+    module: { default: any; middleware?: any[] },
+    filePath: string,
+    sourceCode: string,
+    options?: { instanceName?: string; skipInitialize?: boolean }
+  ): Promise<PhotonClassExtended> {
+    const absolutePath = path.resolve(filePath);
+    const mcpName = path.basename(absolutePath, '.ts').replace('.photon', '');
+    const tsContent = sourceCode;
+
+    // Find the exported class
+    const MCPClass = this.findMCPClass(module);
+    if (!MCPClass || !this.isClass(MCPClass)) {
+      throw new Error(
+        'No class found in preloaded module. Expected a default-exported class with methods.'
+      );
+    }
+
+    const name = this.getMCPName(MCPClass);
+
+    // Register custom middleware if exported
+    if (module.middleware && Array.isArray(module.middleware)) {
+      this.photonMiddleware.set(name, module.middleware);
+      this.log(`🔧 Discovered ${module.middleware.length} custom middleware for ${name}`);
+    }
+
+    // Resolve constructor injections (env vars, persisted state, etc.)
+    const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
+      tsContent,
+      mcpName || name,
+      absolutePath,
+      options?.instanceName ?? ''
+    );
+
+    // Create instance
+    let instance: Record<string, unknown>;
+    try {
+      instance = new MCPClass(...values) as Record<string, unknown>;
+    } catch (error) {
+      let constructorParams: any[] = [];
+      try {
+        constructorParams = await this.extractConstructorParams(absolutePath);
+      } catch {
+        // Source file may not exist on disk (compiled binary) — skip enhancement
+      }
+      throw this.enhanceConstructorError(
+        error instanceof Error ? error : new Error(String(error)),
+        name,
+        constructorParams,
+        configError
+      );
+    }
+
+    if (configError) {
+      instance._photonConfigError = configError;
+    }
+
+    instance._photonName = name;
+    instance.instanceName = options?.instanceName ?? '';
+
+    // Wire reactive collections
+    this.wireReactiveCollections(instance);
+
+    // Inject @mcp dependencies
+    if (tsContent) {
+      await this.injectMCPDependencies(instance, tsContent, name);
+    }
+
+    // Auto-wrap stateful methods
+    if (tsContent) {
+      this.wrapStatefulMethods(instance, tsContent);
+    }
+
+    // Inject MCP client factory
+    const setMCPFactory = instance.setMCPFactory;
+    if (this.mcpClientFactory && typeof setMCPFactory === 'function') {
+      setMCPFactory.call(instance, this.mcpClientFactory);
+    }
+
+    // Inject cross-photon call handler
+    if (typeof instance._callHandler === 'undefined' || instance._callHandler === undefined) {
+      const callBaseDir = this.baseDir;
+      instance._callHandler = async (
+        photonName: string,
+        method: string,
+        params: Record<string, any>,
+        targetInstance?: string
+      ) => {
+        const { sendCommand } = await import('./daemon/client.js');
+        return sendCommand(photonName, method, params, {
+          workingDir: callBaseDir,
+          targetInstance,
+        });
+      };
+    }
+
+    // Detect and inject capabilities for plain classes
+    if (tsContent && typeof instance.executeTool !== 'function') {
+      const caps = detectCapabilities(tsContent);
+
+      if (caps.has('emit')) {
+        instance.emit = (data: any) => {
+          const store = executionContext.getStore();
+          const emitData =
+            instance._photonName && typeof data === 'object' && data !== null
+              ? { ...data, _source: instance._photonName }
+              : data;
+          const handler =
+            store?.outputHandler ||
+            (instance._lastOutputHandler as ((data: any) => void) | undefined);
+          if (handler) handler(emitData);
+          if (data && typeof data.channel === 'string') {
+            const channel = data.channel.includes(':') ? data.channel : `${name}:${data.channel}`;
+            import('@portel/photon-core')
+              .then(({ getBroker }) => {
+                getBroker()
+                  .publish({
+                    channel,
+                    event: data.event || 'message',
+                    data: data.data !== undefined ? data.data : data,
+                    timestamp: Date.now(),
+                    source: name,
+                  })
+                  .catch(() => {});
+              })
+              .catch(() => {});
+          }
+        };
+      }
+
+      if (caps.has('memory')) {
+        Object.defineProperty(instance, 'memory', {
+          get() {
+            if (!this._memory) {
+              this._memory = new MemoryProvider(name, this._sessionId);
+            }
+            return this._memory;
+          },
+          configurable: true,
+        });
+      }
+
+      if (caps.has('call') && !instance.call) {
+        instance.call = async (
+          target: string,
+          params: Record<string, any> = {},
+          opts?: { instance?: string }
+        ) => {
+          const dotIndex = target.indexOf('.');
+          if (dotIndex === -1) {
+            throw new Error(`Invalid call target: '${target}'. Expected 'photonName.methodName'`);
+          }
+          if (!instance._callHandler) {
+            throw new Error(`Cross-photon calls not available for ${name}.`);
+          }
+          return (instance._callHandler as (...args: unknown[]) => unknown)(
+            target.slice(0, dotIndex),
+            target.slice(dotIndex + 1),
+            params,
+            opts?.instance
+          );
+        };
+      }
+    }
+
+    // Call lifecycle hook
+    const onInitialize = instance.onInitialize;
+    if (typeof onInitialize === 'function' && !options?.skipInitialize) {
+      try {
+        await onInitialize.call(instance);
+      } catch (error) {
+        const initError = new Error(`Initialization failed for ${name}: ${getErrorMessage(error)}`);
+        initError.name = 'PhotonInitializationError';
+        throw initError;
+      }
+    }
+
+    // Extract tools and metadata from embedded source (no disk I/O)
+    const { tools, templates, statics, settingsSchema } = await this.extractTools(
+      MCPClass,
+      absolutePath,
+      tsContent
+    );
+
+    // Settings injection
+    if (settingsSchema?.hasSettings && instance.settings && typeof instance.settings === 'object') {
+      const instanceName = options?.instanceName || 'default';
+      await this.injectSettings(instance, name, instanceName, settingsSchema);
+      tools.push(this.generateSettingsTool(settingsSchema));
+    }
+
+    // Discover assets (for @ui)
+    const assets = await this.discoverAssets(absolutePath, tsContent);
+
+    this.log(`✅ Loaded (preloaded): ${name} (${tools.length} tools)`);
+
+    const result: PhotonClassExtended & {
+      classConstructor?: any;
+      settingsSchema?: SettingsSchema;
+    } = {
+      name,
+      description: `${name} MCP`,
+      tools,
+      templates,
+      statics,
+      instance,
+      assets,
+      injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
+    };
+    result.classConstructor = MCPClass;
+    if (settingsSchema?.hasSettings) {
+      result.settingsSchema = settingsSchema;
+    }
+    return result;
+  }
+
+  /**
    * Reload a Photon MCP file (for hot reload)
    */
   async reloadFile(filePath: string): Promise<PhotonClassExtended> {
@@ -1140,7 +1362,8 @@ export class PhotonLoader {
    */
   private async extractTools(
     mcpClass: new (...args: unknown[]) => unknown,
-    sourceFilePath: string
+    sourceFilePath: string,
+    sourceContent?: string
   ): Promise<{
     tools: PhotonTool[];
     templates: TemplateInfo[];
@@ -1219,7 +1442,7 @@ export class PhotonLoader {
           (jsonError as NodeJS.ErrnoException).code === 'ENOENT';
         if (isNotFound) {
           const extractor = new SchemaExtractor();
-          const source = await fs.readFile(sourceFilePath, 'utf-8');
+          const source = sourceContent || (await fs.readFile(sourceFilePath, 'utf-8'));
           const metadata = extractor.extractAllFromSource(source);
 
           // Filter by method names that exist in the class

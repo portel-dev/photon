@@ -78,6 +78,10 @@ export interface PhotonServerOptions {
   unresolvedPhoton?: UnresolvedPhoton;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
+  /** Pre-imported module (for compiled binaries — skips file I/O and compilation) */
+  preloadedModule?: { default: any; middleware?: any[] };
+  /** Embedded source code (for compiled binaries — used for metadata extraction) */
+  embeddedSource?: string;
 }
 
 // SSE session record for managing multiple clients
@@ -1618,8 +1622,17 @@ export class PhotonServer {
         }
 
         // Load the Photon MCP file
-        this.log('info', `Loading ${this.options.filePath}...`);
-        this.mcp = await this.loader.loadFile(this.options.filePath);
+        if (this.options.preloadedModule) {
+          this.log('info', `Loading preloaded module for ${this.options.filePath}...`);
+          this.mcp = await this.loader.loadFromModule(
+            this.options.preloadedModule,
+            this.options.filePath,
+            this.options.embeddedSource || ''
+          );
+        } else {
+          this.log('info', `Loading ${this.options.filePath}...`);
+          this.mcp = await this.loader.loadFile(this.options.filePath);
+        }
       }
 
       // Subscribe to daemon channels for cross-process notifications
