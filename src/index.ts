@@ -14,3 +14,4 @@ export * from '@portel/photon-core';
 export { PhotonLoader } from './loader.js';
 export { PhotonServer } from './server.js';
 export { PhotonDocExtractor } from './photon-doc-extractor.js';
+export { EmbeddedRuntime } from './embedded-runtime.js';

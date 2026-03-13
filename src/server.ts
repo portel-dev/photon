@@ -82,6 +82,11 @@ export interface PhotonServerOptions {
   preloadedModule?: { default: any; middleware?: any[] };
   /** Embedded source code (for compiled binaries — used for metadata extraction) */
   embeddedSource?: string;
+  /** Pre-loaded @photon dependency modules (for compiled binaries) */
+  preloadedDependencies?: Map<
+    string,
+    { module: { default: any; middleware?: any[] }; source: string; filePath: string }
+  >;
 }
 
 // SSE session record for managing multiple clients
@@ -148,6 +153,16 @@ export class PhotonServer {
     timestamp: Date.now(),
   };
   private logger: Logger;
+
+  /** Get the loaded photon (available after start()) */
+  getLoadedPhoton(): PhotonClassExtended | null {
+    return this.mcp;
+  }
+
+  /** Get the loader instance (for scheduler registration in compiled binaries) */
+  getLoader(): PhotonLoader {
+    return this.loader;
+  }
 
   constructor(options: PhotonServerOptions) {
     // Validate options (filePath validation skipped for unresolved photons)
@@ -1623,6 +1638,10 @@ export class PhotonServer {
 
         // Load the Photon MCP file
         if (this.options.preloadedModule) {
+          // Wire preloaded @photon dependencies before loading
+          if (this.options.preloadedDependencies) {
+            this.loader.preloadedDependencies = this.options.preloadedDependencies;
+          }
           this.log('info', `Loading preloaded module for ${this.options.filePath}...`);
           this.mcp = await this.loader.loadFromModule(
             this.options.preloadedModule,

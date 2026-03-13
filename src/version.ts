@@ -1,7 +1,13 @@
 import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json');
+let pkg: { version: string; dependencies?: Record<string, string> };
+try {
+  const require = createRequire(import.meta.url);
+  pkg = require('../package.json');
+} catch {
+  // Compiled binary — package.json not on disk; use build-time constant
+  pkg = { version: '0.0.0-compiled' };
+}
 
 export const PHOTON_VERSION: string = pkg.version;
 export const PHOTON_CORE_VERSION: string =
@@ -15,6 +21,7 @@ export const PHOTON_CORE_VERSION: string =
  */
 export function getResolvedPhotonCoreVersion(): string {
   try {
+    const require = createRequire(import.meta.url);
     const corePkg = require('@portel/photon-core/package.json');
     return corePkg.version;
   } catch {

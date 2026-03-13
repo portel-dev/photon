@@ -183,6 +183,16 @@ export class PhotonLoader {
    */
   public photonInstanceResolver?: (photonName: string, photonPath: string) => Promise<any>;
 
+  /**
+   * Pre-loaded dependency modules for compiled binaries.
+   * Maps dependency name → { module, source } so @photon deps can be resolved
+   * without file I/O when running as a standalone binary.
+   */
+  public preloadedDependencies?: Map<
+    string,
+    { module: { default: any; middleware?: any[] }; source: string; filePath: string }
+  >;
+
   constructor(verbose: boolean = false, logger?: Logger, baseDir?: string) {
     this.dependencyManager = new DependencyManager();
     this.verbose = verbose;
@@ -1153,6 +1163,11 @@ export class PhotonLoader {
       }
     }
 
+    // Check @cli dependencies (external tools like git, ffmpeg, etc.)
+    if (tsContent) {
+      await this.checkCLIDependencies(tsContent, name);
+    }
+
     // Call lifecycle hook
     const onInitialize = instance.onInitialize;
     if (typeof onInitialize === 'function' && !options?.skipInitialize) {
@@ -2007,6 +2022,29 @@ export class PhotonLoader {
    * When dep.instanceName is set, loads a named instance (separate state).
    */
   private async getPhotonInstance(dep: PhotonDependency, currentPhotonPath: string): Promise<any> {
+    // Check preloaded dependencies first (compiled binary mode)
+    if (this.preloadedDependencies) {
+      const preloaded =
+        this.preloadedDependencies.get(dep.name) || this.preloadedDependencies.get(dep.source);
+      if (preloaded) {
+        const cacheKey = dep.instanceName
+          ? `preloaded:${dep.name}::${dep.instanceName}`
+          : `preloaded:${dep.name}`;
+        if (this.loadedPhotons.has(cacheKey)) {
+          return this.loadedPhotons.get(cacheKey)!.instance;
+        }
+        this.log(`  📦 Loading preloaded dependency: ${dep.name}`);
+        const loaded = await this.loadFromModule(
+          preloaded.module,
+          preloaded.filePath,
+          preloaded.source,
+          dep.instanceName ? { instanceName: dep.instanceName } : undefined
+        );
+        this.loadedPhotons.set(cacheKey, loaded);
+        return loaded.instance;
+      }
+    }
+
     // Resolve the Photon path
     const resolvedPath = await this.resolvePhotonPath(dep, currentPhotonPath);
 
