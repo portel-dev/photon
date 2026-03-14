@@ -19,7 +19,7 @@ import * as readline from 'readline';
 import chalk from 'chalk';
 import { highlight } from 'cli-highlight';
 import { resolvePhotonPath } from './path-resolver.js';
-import { PhotonLoader } from './loader.js';
+import { PhotonLoader, clearRenderZone } from './loader.js';
 import { fileURLToPath } from 'url';
 import { getBundledPhotonPath } from './shared-utils.js';
 
@@ -1758,6 +1758,9 @@ export async function runMethod(
     // Check if this was a stateful workflow execution
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;
+
+    // Clear any intermediate render output before displaying final result
+    clearRenderZone();
 
     // Display result
     if (jsonOutput) {

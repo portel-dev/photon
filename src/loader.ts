@@ -126,7 +126,84 @@ import { warnIfDangerous } from './shared/security.js';
  * Uses the `qrcode` npm package for generation.
  */
 /**
- * Render a formatted value in the CLI using @portel/cli's formatOutput
+ * CLI Render Zone — manages a clear-and-replace output area for this.render()
+ *
+ * Layout:
+ *   [log lines - append, scroll up]
+ *   [render zone - clear and replace on each this.render() call]
+ *   [progress/status - ephemeral, managed by ProgressRenderer]
+ *
+ * Uses ANSI cursor movement to overwrite previous render output.
+ * Non-TTY environments fall through to simple append.
+ */
+class CLIRenderZone {
+  private lastLineCount = 0;
+
+  /**
+   * Clear the previous render output and write new content.
+   * Captures stdout writes to count lines for next clear.
+   */
+  render(fn: () => void): void {
+    // Clear previous render
+    this.clear();
+
+    // Capture stdout to count lines
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let output = '';
+    process.stdout.write = (chunk: any, ...args: any[]): boolean => {
+      const str = typeof chunk === 'string' ? chunk : chunk.toString();
+      output += str;
+      return (originalWrite as any)(chunk, ...args);
+    };
+
+    try {
+      fn();
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    // Count lines written (for next clear)
+    this.lastLineCount = output.split('\n').length;
+    // If output ends with newline, don't count the trailing empty string
+    if (output.endsWith('\n')) {
+      this.lastLineCount--;
+    }
+  }
+
+  /**
+   * Clear the render zone (move cursor up and erase lines)
+   */
+  clear(): void {
+    if (this.lastLineCount > 0 && process.stdout.isTTY) {
+      // Move cursor up and clear each line
+      for (let i = 0; i < this.lastLineCount; i++) {
+        process.stdout.write('\x1b[1A'); // Move up
+        process.stdout.write('\x1b[2K'); // Clear line
+      }
+      this.lastLineCount = 0;
+    }
+  }
+
+  /** Reset without clearing (e.g., when method returns and final result takes over) */
+  reset(): void {
+    this.lastLineCount = 0;
+  }
+}
+
+/** Singleton render zone for CLI output */
+const cliRenderZone = new CLIRenderZone();
+
+/**
+ * Clear any intermediate render output before printing final results.
+ * Called by CLI runner before rendering the method's return value.
+ */
+export function clearRenderZone(): void {
+  cliRenderZone.clear();
+}
+
+/**
+ * Render a formatted value in the CLI using @portel/cli's formatOutput.
+ * Uses clear-and-replace semantics — each call overwrites the previous render.
  */
 async function renderCLIFormat(format: string, value: any): Promise<void> {
   try {
@@ -134,17 +211,24 @@ async function renderCLIFormat(format: string, value: any): Promise<void> {
     if (format === 'qr') {
       const qrValue = typeof value === 'string' ? value : value?.value || value?.url || value?.qr;
       if (qrValue) {
+        cliRenderZone.clear();
         await renderTerminalQR(qrValue);
+        // QR output is multi-line; estimate line count
+        cliRenderZone.reset(); // QR is hard to re-count, just reset
       }
       return;
     }
 
     // Use the shared formatter from @portel/cli
     const { formatOutput } = await import('@portel/cli');
-    formatOutput(value, format);
+    cliRenderZone.render(() => {
+      formatOutput(value, format);
+    });
   } catch {
     // Fallback: print as JSON
-    console.log(JSON.stringify(value, null, 2));
+    cliRenderZone.render(() => {
+      console.log(JSON.stringify(value, null, 2));
+    });
   }
 }
 
