@@ -460,6 +460,13 @@ export class PhotonDocExtractor {
       cleanDesc = cleanDesc.replace(/\{@choice\s+[^}]+\}\s*/g, '');
     }
 
+    // Extract {@choice-from toolName} or {@choice-from toolName.field}
+    const choiceFromMatch = cleanDesc.match(/\{@choice-from\s+([^}]+)\}/);
+    if (choiceFromMatch) {
+      constraints.push(`choice-from: ${choiceFromMatch[1].trim()}`);
+      cleanDesc = cleanDesc.replace(/\{@choice-from\s+[^}]+\}\s*/g, '');
+    }
+
     // Extract {@field type}
     const fieldMatch = cleanDesc.match(/\{@field\s+([a-z]+)\}/);
     if (fieldMatch) {

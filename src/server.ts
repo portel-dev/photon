@@ -622,7 +622,74 @@ export class PhotonServer {
   // These methods contain the core logic shared between STDIO and SSE transports.
   // Both setupHandlers() and setupSessionHandlers() delegate to these.
 
-  private handleListTools(ctx: HandlerContext): { tools: any[] } {
+  /** Cache for @choice-from resolved values: key = "toolName.field", value = { values, resolvedAt } */
+  private choiceFromCache = new Map<string, { values: string[]; resolvedAt: number }>();
+  private static readonly CHOICE_FROM_CACHE_TTL = 30_000; // 30 seconds
+
+  /**
+   * Resolve all x-choiceFrom fields in a tool's inputSchema by calling the referenced tool.
+   * Mutates the inputSchema in-place (sets enum from tool results).
+   */
+  private async resolveChoiceFromFields(toolDef: any): Promise<void> {
+    const props = toolDef.inputSchema?.properties;
+    if (!props || !this.mcp || !this.loader) return;
+
+    for (const [, rawSchema] of Object.entries(props)) {
+      const paramSchema = rawSchema as Record<string, any>;
+      const choiceFrom = paramSchema['x-choiceFrom'];
+      if (!choiceFrom || typeof choiceFrom !== 'string') continue;
+
+      // Parse "toolName" or "toolName.field"
+      const dotIdx = choiceFrom.indexOf('.');
+      const toolName = dotIdx >= 0 ? choiceFrom.substring(0, dotIdx) : choiceFrom;
+      const fieldName = dotIdx >= 0 ? choiceFrom.substring(dotIdx + 1) : null;
+
+      // Check cache
+      const cached = this.choiceFromCache.get(choiceFrom);
+      if (cached && Date.now() - cached.resolvedAt < PhotonServer.CHOICE_FROM_CACHE_TTL) {
+        paramSchema.enum = cached.values;
+        continue;
+      }
+
+      // Verify the referenced tool exists
+      const providerTool = this.mcp.tools.find((t) => t.name === toolName);
+      if (!providerTool) continue;
+
+      try {
+        const result = await this.loader.executeTool(this.mcp, toolName, {});
+        let values: string[] = [];
+
+        if (Array.isArray(result)) {
+          values = result.map((item) => {
+            if (typeof item === 'string') return item;
+            if (fieldName && item && typeof item === 'object' && item[fieldName] != null) {
+              return String(item[fieldName]);
+            }
+            // Auto-detect: try name, label, value, title, then first string field
+            if (item && typeof item === 'object') {
+              for (const key of ['name', 'label', 'value', 'title']) {
+                if (typeof item[key] === 'string') return item[key];
+              }
+              const firstStr = Object.values(item).find((v) => typeof v === 'string');
+              if (firstStr) return String(firstStr);
+            }
+            return String(item);
+          });
+        }
+
+        if (values.length > 0) {
+          paramSchema.enum = values;
+          this.choiceFromCache.set(choiceFrom, { values, resolvedAt: Date.now() });
+        }
+      } catch (err) {
+        this.log('warn', `Failed to resolve @choice-from ${choiceFrom}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  private async handleListTools(ctx: HandlerContext): Promise<{ tools: any[] }> {
     if (!this.mcp) {
       return { tools: [] };
     }
@@ -639,7 +706,7 @@ export class PhotonServer {
       const toolDef: any = {
         name: tool.name,
         description,
-        inputSchema: tool.inputSchema,
+        inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
       };
 
       // MCP standard annotations (2025-11-25 spec)
@@ -700,6 +767,17 @@ export class PhotonServer {
         description: `Redo the last undone mutation. Re-applies a previously undone change.`,
         inputSchema: { type: 'object', properties: {} },
       });
+    }
+
+    // Resolve @choice-from fields (dynamic enum from tool calls)
+    const choiceFromPromises = tools
+      .filter((t) => {
+        const props = t.inputSchema?.properties;
+        return props && Object.values(props).some((p: any) => p['x-choiceFrom']);
+      })
+      .map((t) => this.resolveChoiceFromFields(t));
+    if (choiceFromPromises.length > 0) {
+      await Promise.all(choiceFromPromises);
     }
 
     return { tools };
@@ -2028,12 +2106,16 @@ export class PhotonServer {
                 return {
                   name: tool.name,
                   description: tool.description,
-                  inputSchema: tool.inputSchema,
+                  inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)),
                   ui: linkedUI
                     ? { id: linkedUI.id, uri: `ui://${this.mcp!.name}/${linkedUI.id}` }
                     : null,
                 };
               }) || [];
+            // Resolve @choice-from fields
+            for (const tool of tools) {
+              await this.resolveChoiceFromFields(tool);
+            }
             res.end(JSON.stringify({ tools }));
             return;
           }

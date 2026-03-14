@@ -214,6 +214,12 @@ function buildTags(runtimeVersion: string) {
       type: 'keyword',
     },
     {
+      label: '{@choice-from',
+      detail: 'Dynamic values from tool',
+      snippetTmpl: '{@choice-from ${1:toolName.field}}',
+      type: 'keyword',
+    },
+    {
       label: '{@field',
       detail: 'HTML input type',
       snippetTmpl: '{@field ${1:textarea}}',
