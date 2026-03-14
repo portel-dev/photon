@@ -728,7 +728,9 @@ export class PhotonServer {
         if (icons.length > 0) toolDef.icons = icons;
       }
 
-      const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+      const linkedUI = this.mcp?.assets?.ui.find(
+        (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
+      );
       if (linkedUI && this.clientSupportsUI(ctx.server)) {
         toolDef._meta = this.buildUIToolMeta(linkedUI.id);
       }
@@ -1041,7 +1043,9 @@ export class PhotonServer {
     }
 
     // Enrich response with structuredContent + _meta for tools with linked UIs
-    const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === toolName);
+    const linkedUI = this.mcp?.assets?.ui.find(
+      (u) => u.linkedTool === toolName || u.linkedTools?.includes(toolName)
+    );
     if (linkedUI && this.clientSupportsUI(ctx.server)) {
       if (actualResult !== undefined && actualResult !== null) {
         response.structuredContent =
@@ -2102,7 +2106,9 @@ export class PhotonServer {
             });
             const tools =
               this.mcp?.tools.map((tool) => {
-                const linkedUI = this.mcp?.assets?.ui.find((u) => u.linkedTool === tool.name);
+                const linkedUI = this.mcp?.assets?.ui.find(
+                  (u) => u.linkedTool === tool.name || u.linkedTools?.includes(tool.name)
+                );
                 return {
                   name: tool.name,
                   description: tool.description,

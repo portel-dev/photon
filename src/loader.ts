@@ -3650,10 +3650,21 @@ Run: photon mcp ${mcpName} --config
     while ((match = methodUiRegex.exec(source)) !== null) {
       const [, uiId, methodName] = match;
       const asset = assets.ui.find((u) => u.id === uiId);
-      if (asset && !asset.linkedTool) {
-        asset.linkedTool = methodName;
-        this.log(`  🔗 UI ${uiId} → ${methodName}`);
-      } else if (!asset) {
+      if (asset) {
+        // First method wins as primary (used for app detection)
+        if (!asset.linkedTool) {
+          asset.linkedTool = methodName;
+          this.log(`  🔗 UI ${uiId} → ${methodName}`);
+        }
+        // Track all methods that reference this UI
+        if (!asset.linkedTools) asset.linkedTools = [];
+        if (!asset.linkedTools.includes(methodName)) {
+          asset.linkedTools.push(methodName);
+          if (asset.linkedTools.length > 1) {
+            this.log(`  🔗 UI ${uiId} → ${methodName} (shared)`);
+          }
+        }
+      } else {
         this.log(`  ⚠️ @ui ${uiId} on ${methodName}: asset not found (check file exists)`);
       }
     }

@@ -40,7 +40,9 @@ function buildMethodList(
   const methods: MethodInfo[] = schemas
     .filter((schema: any) => !lifecycleMethods.includes(schema.name))
     .map((schema: any) => {
-      const linkedAsset = uiAssets.find((ui: any) => ui.linkedTool === schema.name);
+      const linkedAsset = uiAssets.find(
+        (ui: any) => ui.linkedTool === schema.name || ui.linkedTools?.includes(schema.name)
+      );
       return {
         name: schema.name,
         description: schema.description || '',
