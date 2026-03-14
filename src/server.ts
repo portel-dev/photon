@@ -87,6 +87,8 @@ export interface PhotonServerOptions {
     string,
     { module: { default: any; middleware?: any[] }; source: string; filePath: string }
   >;
+  /** Embedded frontend assets (for compiled binaries built with --with-app) */
+  embeddedAssets?: { indexHtml: string; bundleJs: string };
 }
 
 // SSE session record for managing multiple clients
@@ -1955,6 +1957,13 @@ export class PhotonServer {
           return;
         }
 
+        // Serve embedded index.html at root when assets are available
+        if (req.method === 'GET' && url.pathname === '/' && this.options.embeddedAssets) {
+          res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+          res.end(this.options.embeddedAssets.indexHtml);
+          return;
+        }
+
         // Health check / info endpoint
         if (req.method === 'GET' && url.pathname === '/') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2225,6 +2234,51 @@ export class PhotonServer {
           }
           res.writeHead(404).end('UI not found');
           return;
+        }
+
+        // Serve embedded frontend assets (compiled binaries with --with-app)
+        if (this.options.embeddedAssets) {
+          const assets = this.options.embeddedAssets;
+
+          if (req.method === 'GET' && url.pathname === '/index.html') {
+            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            res.end(assets.indexHtml);
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname === '/beam.bundle.js') {
+            res.writeHead(200, {
+              'Content-Type': 'text/javascript',
+              'Access-Control-Allow-Origin': '*',
+            });
+            res.end(assets.bundleJs);
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname === '/sw.js') {
+            res.writeHead(200, {
+              'Content-Type': 'text/javascript',
+              'Access-Control-Allow-Origin': '*',
+            });
+            res.end('self.addEventListener("fetch", () => {});');
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname.startsWith('/app/')) {
+            const appName = url.pathname.replace('/app/', '').replace(/\/$/, '') || 'photon';
+            const appHtml = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${appName}</title>
+<link rel="manifest" href="/manifest.json">
+<style>body{margin:0;font-family:system-ui,-apple-system,sans-serif}</style>
+</head><body>
+<script>window.PHOTON_APP_NAME="${appName}";window.PHOTON_SSE_URL=window.location.origin;</script>
+<script src="/beam.bundle.js"></script>
+</body></html>`;
+            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            res.end(appHtml);
+            return;
+          }
         }
 
         res.writeHead(404).end('Not Found');
