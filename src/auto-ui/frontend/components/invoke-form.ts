@@ -4,6 +4,7 @@ import { ifDefined } from 'lit/directives/if-defined.js';
 import { theme, buttons, forms } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
+import { mcpClient } from '../services/mcp-client.js';
 
 /**
  * Capitalize an enum value for display purposes.
@@ -672,6 +673,17 @@ export class InvokeForm extends LitElement {
   @state()
   private _errors: Record<string, string> = {};
 
+  /** Resolved params with x-choiceFrom populated as enum */
+  @state()
+  private _resolvedParams: Record<string, any> | null = null;
+
+  /** Track which choice-from keys are currently loading */
+  @state()
+  private _choiceFromLoading = new Set<string>();
+
+  /** Retry timer for unresolved choice-from fields */
+  private _choiceFromRetryTimer: number | null = null;
+
   @state()
   private _viewMode: 'form' | 'json' = 'form';
 
@@ -695,6 +707,10 @@ export class InvokeForm extends LitElement {
       changedProps.has('rememberValues')
     ) {
       this._loadPersistedValues();
+    }
+    // Resolve x-choiceFrom fields when params change
+    if (changedProps.has('params') || changedProps.has('photonName')) {
+      void this._resolveChoiceFromFields();
     }
     // Apply shared values from URL (takes priority over persisted values)
     if (changedProps.has('sharedValues') && this.sharedValues) {
@@ -722,6 +738,10 @@ export class InvokeForm extends LitElement {
       clearInterval(this._timerInterval);
       this._timerInterval = null;
     }
+    if (this._choiceFromRetryTimer) {
+      clearTimeout(this._choiceFromRetryTimer);
+      this._choiceFromRetryTimer = null;
+    }
   }
 
   private _loadPersistedValues() {
@@ -744,6 +764,105 @@ export class InvokeForm extends LitElement {
       console.warn('Failed to load persisted form values:', e);
     }
     this._initialValues = { ...this._values };
+  }
+
+  /**
+   * Resolve x-choiceFrom fields by calling the referenced tool via MCP.
+   * Populates enum on the resolved params copy so the form renders dropdowns.
+   */
+  private async _resolveChoiceFromFields() {
+    if (!this.photonName || !this.params) {
+      this._resolvedParams = null;
+      return;
+    }
+
+    const props = (this.params as any)?.properties;
+    if (!props) {
+      this._resolvedParams = null;
+      return;
+    }
+
+    // Check if any fields have x-choiceFrom
+    const choiceFromFields = Object.entries(props).filter(
+      ([, schema]: [string, any]) => schema['x-choiceFrom']
+    );
+    if (choiceFromFields.length === 0) {
+      this._resolvedParams = null;
+      return;
+    }
+
+    // Deep clone params to avoid mutating the original
+    const resolved = JSON.parse(JSON.stringify(this.params));
+    let hasUnresolved = false;
+
+    for (const [key, schema] of choiceFromFields) {
+      const choiceFrom = (schema as any)['x-choiceFrom'] as string;
+      const dotIdx = choiceFrom.indexOf('.');
+      const toolName = dotIdx >= 0 ? choiceFrom.substring(0, dotIdx) : choiceFrom;
+      const fieldName = dotIdx >= 0 ? choiceFrom.substring(dotIdx + 1) : null;
+
+      this._choiceFromLoading.add(key);
+      this._choiceFromLoading = new Set(this._choiceFromLoading);
+
+      try {
+        const result = await mcpClient.callTool(`${this.photonName}/${toolName}`, {});
+        let values: string[] = [];
+
+        // Parse the MCP tool result — content is an array of { type, text } blocks
+        let data: any = result;
+        if (result && Array.isArray((result as any).content)) {
+          // Skip error results (e.g., "Not connected")
+          if ((result as any).isError) {
+            hasUnresolved = true;
+            continue;
+          }
+          const textBlock = (result as any).content.find((c: any) => c.type === 'text');
+          if (textBlock?.text) {
+            try {
+              data = JSON.parse(textBlock.text);
+            } catch {
+              data = textBlock.text;
+            }
+          }
+        }
+
+        if (Array.isArray(data)) {
+          values = data.map((item: any) => {
+            if (typeof item === 'string') return item;
+            if (fieldName && item && typeof item === 'object' && item[fieldName] != null) {
+              return String(item[fieldName]);
+            }
+            if (item && typeof item === 'object') {
+              for (const k of ['name', 'label', 'value', 'title']) {
+                if (typeof item[k] === 'string') return item[k];
+              }
+            }
+            return String(item);
+          });
+        }
+
+        if (values.length > 0) {
+          resolved.properties[key] = { ...resolved.properties[key], enum: values };
+        } else {
+          hasUnresolved = true;
+        }
+      } catch {
+        hasUnresolved = true;
+      } finally {
+        this._choiceFromLoading.delete(key);
+        this._choiceFromLoading = new Set(this._choiceFromLoading);
+      }
+    }
+
+    this._resolvedParams = resolved;
+
+    // Retry unresolved fields after a delay (tool might not be ready yet)
+    if (hasUnresolved && !this._choiceFromRetryTimer) {
+      this._choiceFromRetryTimer = window.setTimeout(() => {
+        this._choiceFromRetryTimer = null;
+        void this._resolveChoiceFromFields();
+      }, 10_000);
+    }
   }
 
   get isDirty(): boolean {
@@ -777,7 +896,8 @@ export class InvokeForm extends LitElement {
   }
 
   render() {
-    const properties = (this.params as any)?.properties || this.params;
+    const effectiveParams = this._resolvedParams || this.params;
+    const properties = (effectiveParams as any)?.properties || effectiveParams;
     const hasParams =
       properties && typeof properties === 'object' && Object.keys(properties).length > 0;
 
@@ -867,8 +987,9 @@ export class InvokeForm extends LitElement {
 
   private _renderFields() {
     // Handle standard JSON Schema 'properties'
-    const properties = (this.params as any).properties || this.params;
-    const requiredList = (this.params as any).required || [];
+    const effectiveParams = this._resolvedParams || this.params;
+    const properties = (effectiveParams as any).properties || effectiveParams;
+    const requiredList = (effectiveParams as any).required || [];
 
     // Check if properties is actual object to avoid crash
     if (!properties || typeof properties !== 'object') {
