@@ -430,6 +430,7 @@ These tags are placed within `@param` descriptions to add validation and UI hint
 | `{@pattern regex}` | Regex pattern the parameter must match. | `@param zip Zip code {@pattern ^[0-9]{5}$}` |
 | `{@example value}` | Example value for the parameter. | `@param city City {@example London}` |
 | `{@choice a,b,c}` | Allowed values (renders as dropdown). | `@param status Status {@choice pending,approved,rejected}` |
+| `{@choice-from tool}` | Dynamic values from another tool (renders as dropdown). The tool is called at `tools/list` time and results populate the enum. Use `tool.field` to extract a specific field from object results. | `@param group Group {@choice-from groups.name}` |
 | `{@field type}` | Explicit HTML input type for Auto UI. | `@param bio Bio {@field textarea}` |
 | `{@label name}` | Custom display label for the parameter. | `@param firstName First Name {@label Your First Name}` |
 | `{@default value}` | Default value for the parameter. | `@param limit Max results {@default 10}` |
