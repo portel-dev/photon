@@ -222,6 +222,7 @@ export class PhotonServer {
           resources: {
             listChanged: true, // We support hot reload notifications
           },
+          logging: {}, // Required for notifications/message (used by render, log, etc.)
           // Note: Server doesn't declare elicitation capability - that's a client capability
           // The server uses elicitInput() when the client has elicitation support
         },
@@ -860,17 +861,33 @@ export class PhotonServer {
       } else if (emit?.emit === 'render') {
         // Render emit — send formatted intermediate result as a log notification
         // MCP clients can use the format hint to render appropriately
-        void this.server?.notification({
-          method: 'notifications/message',
-          params: {
-            level: 'info',
-            data: JSON.stringify({
-              _render: true,
-              format: emit.format,
-              value: emit.value,
-            }),
-          },
-        });
+        try {
+          void this.server?.notification({
+            method: 'notifications/message',
+            params: {
+              level: 'info',
+              data: JSON.stringify({
+                _render: true,
+                format: emit.format,
+                value: emit.value,
+              }),
+            },
+          });
+        } catch {
+          // Client may not support logging capability — silently skip
+        }
+      } else if (emit?.emit === 'render:clear') {
+        try {
+          void this.server?.notification({
+            method: 'notifications/message',
+            params: {
+              level: 'info',
+              data: JSON.stringify({ _render: true, clear: true }),
+            },
+          });
+        } catch {
+          // Client may not support logging capability — silently skip
+        }
       }
     };
 
@@ -1154,17 +1171,33 @@ export class PhotonServer {
                 },
               });
             } else if (emit?.emit === 'render') {
-              void this.server?.notification({
-                method: 'notifications/message',
-                params: {
-                  level: 'info',
-                  data: JSON.stringify({
-                    _render: true,
-                    format: emit.format,
-                    value: emit.value,
-                  }),
-                },
-              });
+              try {
+                void this.server?.notification({
+                  method: 'notifications/message',
+                  params: {
+                    level: 'info',
+                    data: JSON.stringify({
+                      _render: true,
+                      format: emit.format,
+                      value: emit.value,
+                    }),
+                  },
+                });
+              } catch {
+                // Client may not support logging capability
+              }
+            } else if (emit?.emit === 'render:clear') {
+              try {
+                void this.server?.notification({
+                  method: 'notifications/message',
+                  params: {
+                    level: 'info',
+                    data: JSON.stringify({ _render: true, clear: true }),
+                  },
+                });
+              } catch {
+                // Client may not support logging capability
+              }
             }
           };
 
@@ -2117,6 +2150,8 @@ export class PhotonServer {
                       format: emit.format,
                       value: emit.value,
                     });
+                  } else if (emit.emit === 'render:clear') {
+                    sendNotification('notifications/render', { clear: true });
                   } else {
                     sendNotification('notifications/emit', { event: emit });
                   }
@@ -2280,6 +2315,7 @@ export class PhotonServer {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
+          logging: {},
           experimental: {
             sampling: {}, // Support elicitation via MCP sampling protocol
           },

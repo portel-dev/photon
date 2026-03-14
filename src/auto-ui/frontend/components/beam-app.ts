@@ -2366,6 +2366,13 @@ export class BeamApp extends LitElement {
 
       // Handle render events — intermediate formatted results from this.render()
       mcpClient.on('render', (data: any) => {
+        // Handle render:clear — remove intermediate output
+        if (data?.clear) {
+          this._lastResult = null;
+          this._customFormatUri = null;
+          this.requestUpdate();
+          return;
+        }
         if (data?.format && data?.value !== undefined) {
           // Update the result viewer with the rendered value and its format
           this._lastResult = data.value;

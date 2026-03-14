@@ -1186,6 +1186,16 @@ const handlers: Record<string, RequestHandler> = {
           return;
         }
 
+        // Forward render:clear events — clear the render zone
+        if (yieldValue?.emit === 'render:clear') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/render',
+            params: { photon: photonName, method: methodName, clear: true },
+          });
+          return;
+        }
+
         // Forward channel events (task-moved, task-updated, etc.) with full delta
         // These contain specific event type + data for efficient UI updates
         if (yieldValue?.channel && yieldValue?.event) {

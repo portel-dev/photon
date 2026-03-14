@@ -885,8 +885,12 @@ export class PhotonLoader {
           };
 
           // Also inject render() — convenience wrapper around emit
-          instance.render = (format: string, value: any) => {
-            (instance.emit as (data: any) => void)({ emit: 'render', format, value });
+          instance.render = (format?: string, value?: any) => {
+            if (format === undefined) {
+              (instance.emit as (data: any) => void)({ emit: 'render:clear' });
+            } else {
+              (instance.emit as (data: any) => void)({ emit: 'render', format, value });
+            }
           };
         }
 
@@ -1253,6 +1257,15 @@ export class PhotonLoader {
                   .catch(() => {});
               })
               .catch(() => {});
+          }
+        };
+
+        // Also inject render() — convenience wrapper around emit
+        instance.render = (format?: string, value?: any) => {
+          if (format === undefined) {
+            (instance.emit as (data: any) => void)({ emit: 'render:clear' });
+          } else {
+            (instance.emit as (data: any) => void)({ emit: 'render', format, value });
           }
         };
       }
@@ -3158,6 +3171,12 @@ Run: photon mcp ${mcpName} --config
    */
   private createOutputHandler(): OutputHandler {
     return (emit: EmitYield) => {
+      // Handle render:clear before the typed switch
+      if ((emit as any).emit === 'render:clear') {
+        cliRenderZone.clear();
+        return;
+      }
+
       switch (emit.emit) {
         case 'progress':
           // Use inline progress bar with spinner animation
