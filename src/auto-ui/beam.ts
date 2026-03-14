@@ -1016,8 +1016,28 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     try {
       return await fs.readFile(uiPath, 'utf-8');
     } catch {
-      return null; // UI asset not found
+      // Fall through to check custom format renderers
     }
+
+    // Check for custom format renderer in assets/formats/
+    // Convention: format-<name> maps to assets/formats/<name>.html
+    if (uiId.startsWith('format-')) {
+      const formatName = uiId.slice('format-'.length);
+      const formatPath = path.join(
+        photonDir,
+        photonName,
+        'assets',
+        'formats',
+        `${formatName}.html`
+      );
+      try {
+        return await fs.readFile(formatPath, 'utf-8');
+      } catch {
+        // Not found
+      }
+    }
+
+    return null;
   };
 
   // Security: rate limiter for API endpoints

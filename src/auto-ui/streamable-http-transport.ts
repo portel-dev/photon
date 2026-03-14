@@ -1171,6 +1171,21 @@ const handlers: Record<string, RequestHandler> = {
           return;
         }
 
+        // Forward render events — intermediate formatted results
+        if (yieldValue?.emit === 'render') {
+          ctx.broadcast({
+            jsonrpc: '2.0',
+            method: 'beam/render',
+            params: {
+              photon: photonName,
+              method: methodName,
+              format: yieldValue.format,
+              value: yieldValue.value,
+            },
+          });
+          return;
+        }
+
         // Forward channel events (task-moved, task-updated, etc.) with full delta
         // These contain specific event type + data for efficient UI updates
         if (yieldValue?.channel && yieldValue?.event) {

@@ -1871,6 +1871,7 @@ export class BeamApp extends LitElement {
   @state() private _runningTests = false;
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
+  @state() private _customFormatUri: string | null = null;
   @state() private _lastFormParams: Record<string, any> = {};
   @state() private _sharedFormParams: Record<string, any> | null = null;
   @state() private _activityLog: any[] = [];
@@ -2363,6 +2364,56 @@ export class BeamApp extends LitElement {
         }
       });
 
+      // Handle render events — intermediate formatted results from this.render()
+      mcpClient.on('render', (data: any) => {
+        if (data?.format && data?.value !== undefined) {
+          // Update the result viewer with the rendered value and its format
+          this._lastResult = data.value;
+          // Override the output format for this render
+          if (this._selectedMethod) {
+            this._selectedMethod = { ...this._selectedMethod, outputFormat: data.format };
+
+            // For custom (non-built-in) formats, check if photon provides a renderer
+            const builtinFormats = new Set([
+              'table',
+              'list',
+              'card',
+              'kv',
+              'tree',
+              'json',
+              'markdown',
+              'md',
+              'mermaid',
+              'code',
+              'text',
+              'chips',
+              'grid',
+              'html',
+              'chart',
+              'metric',
+              'gauge',
+              'timeline',
+              'dashboard',
+              'cart',
+              'panels',
+              'tabs',
+              'accordion',
+              'stack',
+              'columns',
+              'qr',
+            ]);
+            const baseFormat = data.format.split(':')[0].toLowerCase();
+            if (!builtinFormats.has(baseFormat) && this._selectedPhoton) {
+              // Custom format — set a custom format URI for the renderer to load
+              this._customFormatUri = `ui://${this._selectedPhoton.name}/format-${data.format}`;
+            } else {
+              this._customFormatUri = null;
+            }
+          }
+          this.requestUpdate();
+        }
+      });
+
       // Handle photons list update from SSE
       mcpClient.on('photons', (data: any) => {
         if (data?.photons) {
@@ -2679,6 +2730,7 @@ export class BeamApp extends LitElement {
         this._selectedPhoton = null;
         this._selectedMethod = null;
         this._lastResult = null;
+        this._customFormatUri = null;
         return;
       }
 
@@ -2692,6 +2744,7 @@ export class BeamApp extends LitElement {
         if (photon) {
           this._selectedPhoton = photon;
           this._lastResult = null;
+          this._customFormatUri = null;
 
           // Restore saved instance for stateful photons (survives tab refresh)
           if (photon.stateful && photon.configured) {
@@ -2806,6 +2859,7 @@ export class BeamApp extends LitElement {
     this._selectedPhoton = null;
     this._selectedMethod = null;
     this._lastResult = null;
+    this._customFormatUri = null;
     this._updateRoute();
   };
 
@@ -4533,6 +4587,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._selectedPhoton = e.detail.photon;
     this._selectedMethod = null;
     this._lastResult = null;
+    this._customFormatUri = null;
     this._selectedMcpAppUri = null; // Reset MCP App tab when switching MCPs
     this._currentInstance = 'default';
 
@@ -4688,6 +4743,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
     this._selectedMethod = e.detail.method;
     this._lastResult = null;
+    this._customFormatUri = null;
     this._view = 'form';
     this._updateRoute();
 
@@ -4845,6 +4901,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       onMethodChange: (method: any) => {
         this._selectedMethod = method;
         this._lastResult = null;
+        this._customFormatUri = null;
         this._lastFormParams = {};
         if (this._willAutoInvoke(method)) {
           void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
@@ -5027,19 +5084,29 @@ ${photon.errorMessage || 'Unknown error'}</pre
               `
             : ''}
           ${opts.result !== null
-            ? html`
-                <result-viewer
-                  .result=${opts.result}
-                  .outputFormat=${opts.method?.outputFormat}
-                  .layoutHints=${opts.method?.layoutHints}
-                  .theme=${this._theme}
-                  .live=${this._currentCollectionName !== null}
-                  .resultKey=${opts.photon && opts.method
-                    ? `${opts.photon.name}/${opts.method.name}`
-                    : undefined}
-                  @share=${() => this._handleShareResult()}
-                ></result-viewer>
-              `
+            ? this._customFormatUri
+              ? html`
+                  <custom-ui-renderer
+                    .photon=${opts.photon?.name || ''}
+                    .method=${opts.method?.name || ''}
+                    .uiUri=${this._customFormatUri}
+                    .theme=${this._theme}
+                    .initialResult=${opts.result}
+                  ></custom-ui-renderer>
+                `
+              : html`
+                  <result-viewer
+                    .result=${opts.result}
+                    .outputFormat=${opts.method?.outputFormat}
+                    .layoutHints=${opts.method?.layoutHints}
+                    .theme=${this._theme}
+                    .live=${this._currentCollectionName !== null}
+                    .resultKey=${opts.photon && opts.method
+                      ? `${opts.photon.name}/${opts.method.name}`
+                      : undefined}
+                    @share=${() => this._handleShareResult()}
+                  ></result-viewer>
+                `
             : html`
                 <div class="empty-state-inline result-empty">
                   <span class="empty-state-icon">${play}</span>
@@ -5064,6 +5131,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._currentInstance = instance;
     sessionStorage.setItem(`photon-instance:${this._selectedPhoton.name}`, instance);
     this._lastResult = null;
+    this._customFormatUri = null;
   }
 
   /** Add a new split panel */
@@ -5173,6 +5241,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleLeftPanelMethodChange(method: any) {
     this._selectedMethod = method;
     this._lastResult = null;
+    this._customFormatUri = null;
     this._lastFormParams = {};
     this._updateRoute();
   }
@@ -6013,6 +6082,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._sidebar?.trackRecentPhoton(this._selectedPhoton.name);
     this._log('info', `Invoking ${this._selectedMethod.name}...`, true);
     this._lastResult = null;
+    this._customFormatUri = null;
     this._isExecuting = true;
     this._progress = null;
 

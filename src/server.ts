@@ -857,6 +857,20 @@ export class PhotonServer {
             data: emit.message || '',
           },
         });
+      } else if (emit?.emit === 'render') {
+        // Render emit — send formatted intermediate result as a log notification
+        // MCP clients can use the format hint to render appropriately
+        void this.server?.notification({
+          method: 'notifications/message',
+          params: {
+            level: 'info',
+            data: JSON.stringify({
+              _render: true,
+              format: emit.format,
+              value: emit.value,
+            }),
+          },
+        });
       }
     };
 
@@ -1137,6 +1151,18 @@ export class PhotonServer {
                 params: {
                   level: emit.level || 'info',
                   data: emit.message || '',
+                },
+              });
+            } else if (emit?.emit === 'render') {
+              void this.server?.notification({
+                method: 'notifications/message',
+                params: {
+                  level: 'info',
+                  data: JSON.stringify({
+                    _render: true,
+                    format: emit.format,
+                    value: emit.value,
+                  }),
                 },
               });
             }
@@ -2085,6 +2111,11 @@ export class PhotonServer {
                     sendNotification('notifications/status', {
                       type: emit.type || 'info',
                       message: emit.message || '',
+                    });
+                  } else if (emit.emit === 'render') {
+                    sendNotification('notifications/render', {
+                      format: emit.format,
+                      value: emit.value,
                     });
                   } else {
                     sendNotification('notifications/emit', { event: emit });

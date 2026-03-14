@@ -1031,6 +1031,10 @@ class MCPClientService {
         this.emit('log', notification.params);
         break;
 
+      case 'beam/render':
+        this.emit('render', notification.params);
+        break;
+
       case 'photon/board-update':
         this.emit('board-update', notification.params);
         break;

@@ -330,4 +330,29 @@ describe('Photon Base Class APIs', () => {
     expect(calledWith).toEqual(['portel-dev:whatsapp', 'personal']);
     expect(result).toEqual({ mock: true });
   });
+
+  it('render() emits a render event via outputHandler', async () => {
+    const { Photon } = await import('@portel/photon-core');
+    const photon = new Photon();
+
+    const emitted: any[] = [];
+    (photon as any).emit = (data: any) => emitted.push(data);
+
+    (photon as any).render('qr', 'https://wa.link/abc');
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]).toEqual({
+      emit: 'render',
+      format: 'qr',
+      value: 'https://wa.link/abc',
+    });
+
+    // Render with complex value
+    (photon as any).render('dashboard', {
+      chart: { format: 'chart:bar', data: [1, 2, 3] },
+      status: { format: 'text', data: 'OK' },
+    });
+    expect(emitted[1].emit).toBe('render');
+    expect(emitted[1].format).toBe('dashboard');
+    expect(emitted[1].value.chart.format).toBe('chart:bar');
+  });
 });

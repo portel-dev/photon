@@ -125,6 +125,29 @@ import { warnIfDangerous } from './shared/security.js';
  * Render a QR code in the terminal using Unicode block characters.
  * Uses the `qrcode` npm package for generation.
  */
+/**
+ * Render a formatted value in the CLI using @portel/cli's formatOutput
+ */
+async function renderCLIFormat(format: string, value: any): Promise<void> {
+  try {
+    // Handle QR as a special case
+    if (format === 'qr') {
+      const qrValue = typeof value === 'string' ? value : value?.value || value?.url || value?.qr;
+      if (qrValue) {
+        await renderTerminalQR(qrValue);
+      }
+      return;
+    }
+
+    // Use the shared formatter from @portel/cli
+    const { formatOutput } = await import('@portel/cli');
+    formatOutput(value, format);
+  } catch {
+    // Fallback: print as JSON
+    console.log(JSON.stringify(value, null, 2));
+  }
+}
+
 async function renderTerminalQR(text: string): Promise<void> {
   try {
     const qrcode = await import('qrcode');
@@ -3120,6 +3143,13 @@ Run: photon mcp ${mcpName} --config
           if (emit.value) {
             void renderTerminalQR(emit.value);
           }
+          break;
+        }
+
+        case 'render': {
+          // Render formatted intermediate result in terminal
+          this.progressRenderer.done();
+          void renderCLIFormat(emit.format, emit.value);
           break;
         }
       }
