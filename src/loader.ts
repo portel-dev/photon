@@ -42,6 +42,8 @@ import {
   confirm as elicitConfirm,
   // Progress rendering
   ProgressRenderer,
+  // CLI formatting
+  formatOutput as cliFormatOutput,
   // MCP Client types and SDK transport
   type MCPClientFactory,
   type MCPDependency,
@@ -204,25 +206,24 @@ export function clearRenderZone(): void {
 /**
  * Render a formatted value in the CLI using @portel/cli's formatOutput.
  * Uses clear-and-replace semantics — each call overwrites the previous render.
+ * Synchronous to ensure proper line counting in CLIRenderZone.
  */
-async function renderCLIFormat(format: string, value: any): Promise<void> {
+function renderCLIFormat(format: string, value: any): void {
   try {
-    // Handle QR as a special case
+    // Handle QR as a special case (async rendering)
     if (format === 'qr') {
       const qrValue = typeof value === 'string' ? value : value?.value || value?.url || value?.qr;
       if (qrValue) {
         cliRenderZone.clear();
-        await renderTerminalQR(qrValue);
-        // QR output is multi-line; estimate line count
-        cliRenderZone.reset(); // QR is hard to re-count, just reset
+        void renderTerminalQR(qrValue);
+        cliRenderZone.reset(); // QR line count is unpredictable
       }
       return;
     }
 
-    // Use the shared formatter from @portel/cli
-    const { formatOutput } = await import('@portel/cli');
+    // Use the eagerly-imported formatter — synchronous, so line counting works
     cliRenderZone.render(() => {
-      formatOutput(value, format);
+      cliFormatOutput(value, format);
     });
   } catch {
     // Fallback: print as JSON
@@ -3238,7 +3239,7 @@ Run: photon mcp ${mcpName} --config
         case 'render': {
           // Render formatted intermediate result in terminal
           this.progressRenderer.done();
-          void renderCLIFormat(emit.format, emit.value);
+          renderCLIFormat(emit.format, emit.value);
           break;
         }
       }
