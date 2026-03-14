@@ -882,6 +882,11 @@ export class PhotonLoader {
                 .catch(() => {});
             }
           };
+
+          // Also inject render() — convenience wrapper around emit
+          instance.render = (format: string, value: any) => {
+            (instance.emit as (data: any) => void)({ emit: 'render', format, value });
+          };
         }
 
         if (caps.has('memory')) {
