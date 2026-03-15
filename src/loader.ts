@@ -2330,20 +2330,14 @@ export class PhotonLoader {
       path.join(this.baseDir, 'marketplace', fileName),
     ];
 
-    // Also add namespace subdirectory candidates
-    // Priority: local/ > other namespaces
+    // Also add namespace subdirectory candidates (marketplace/GitHub-installed photons)
     const namespaceCandidates: string[] = [];
     try {
       const { readdir } = await import('fs/promises');
       const entries = await readdir(this.baseDir, { withFileTypes: true });
-      // local/ namespace gets priority
-      const localPath = path.join(this.baseDir, 'local', fileName);
-      namespaceCandidates.push(localPath);
-      // Then all other namespaces
       for (const entry of entries) {
         if (
           entry.isDirectory() &&
-          entry.name !== 'local' &&
           ![
             'state',
             'context',

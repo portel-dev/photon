@@ -4,7 +4,7 @@
  * Migrates flat ~/.photon/*.photon.ts files into namespace subdirectories.
  *
  * Files with @forkedFrom metadata → move to author namespace
- * Files without metadata → move to local/
+ * Files without metadata → stay in root (local photons live at ~/.photon/ root)
  *
  * Runs once on first startup, writes .migrated sentinel to prevent re-runs.
  */
@@ -86,8 +86,9 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
     const filePath = path.join(dir, entry.name);
     const photonName = entry.name.replace(/\.photon\.(ts|js)$/, '');
 
-    // Determine namespace
-    let namespace = 'local';
+    // Determine namespace — only marketplace/forked photons get namespaced.
+    // Local (user-created) photons stay in root.
+    let namespace: string | null = null;
 
     // Check @forkedFrom in source
     try {
@@ -106,7 +107,7 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
     }
 
     // Fallback: check install metadata
-    if (namespace === 'local' && metadata[entry.name]) {
+    if (!namespace && metadata[entry.name]) {
       const meta = metadata[entry.name];
       if (meta.marketplaceRepo) {
         const parts = meta.marketplaceRepo.split('/');
@@ -116,7 +117,12 @@ export async function runNamespaceMigration(baseDir?: string): Promise<void> {
       }
     }
 
-    // Move the file
+    // No namespace = local photon — skip, stays in root
+    if (!namespace) {
+      continue;
+    }
+
+    // Move the file to its namespace directory
     const targetDir = path.join(dir, namespace);
     const targetPath = path.join(targetDir, entry.name);
 
