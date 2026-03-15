@@ -443,6 +443,32 @@ These tags are placed within `@param` descriptions to add validation and UI hint
 | `{@deprecated message}` | Marks parameter as deprecated. | `@param oldField Old field {@deprecated Use newField instead}` |
 | `{@accept pattern}` | File type filter for file picker. | `@param file Upload {@accept .ts,.js}` |
 
+### Dynamic Enums with `{@choice-from}`
+
+The `{@choice-from}` tag populates a dropdown dynamically from the return value of another method. The enum values are resolved server-side at `tools/list` time, so MCP clients and Beam both see the current options.
+
+```typescript
+export default class ProjectManager {
+  /** List all projects */
+  async projects() {
+    return [
+      { id: 'proj-1', name: 'Frontend' },
+      { id: 'proj-2', name: 'Backend' },
+    ];
+  }
+
+  /**
+   * Assign a task to a project
+   * @param project Project {@choice-from projects.name}
+   */
+  async assign({ project, task }: { project: string; task: string }) {
+    return `Assigned "${task}" to ${project}`;
+  }
+}
+```
+
+The `projects.name` syntax calls the `projects` method and extracts the `name` field from each result. If the method returns a flat array of strings, use just the method name: `{@choice-from projects}`.
+
 ## Return Value Tags
 
 The `{@label}` tag can be used within `@returns` to customize the button label in BEAM:

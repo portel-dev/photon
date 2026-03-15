@@ -7,7 +7,7 @@ Production deployment strategies for photon applications.
 ## Table of Contents
 
 - [Overview](#overview)
-- [Deployment Targets](#deployment-targets)
+- [Standalone Binary](#standalone-binary)
 - [Docker Deployment](#docker-deployment)
 - [Cloudflare Workers](#cloudflare-workers)
 - [AWS Lambda](#aws-lambda)
@@ -24,10 +24,59 @@ Photons can be deployed in multiple ways depending on your needs:
 
 | Target | Best For | Scaling |
 |--------|----------|---------|
+| Standalone Binary | Zero-dependency distribution, air-gapped envs | Single binary per platform |
 | Docker | Self-hosted, full control | Horizontal with orchestrator |
 | Cloudflare Workers | Edge computing, global low latency | Automatic |
 | AWS Lambda | Serverless, pay-per-use | Automatic |
 | Systemd | Traditional VPS, always-on services | Manual/VM autoscaling |
+
+---
+
+## Standalone Binary
+
+Compile any photon into a self-contained executable. The target machine needs no Node.js, no npm, no Photon runtime — just the binary.
+
+### Build
+
+```bash
+photon build my-tool                    # Binary for current platform
+photon build my-tool -o my-tool-bin     # Custom output name
+photon build my-tool -t bun-linux-x64   # Cross-compile for Linux x64
+photon build my-tool --with-app         # Embed Beam UI for desktop app mode
+```
+
+### What Gets Bundled
+
+- The photon source and all `@dependencies`
+- Transitive `@photon` dependencies (resolved recursively)
+- The embedded Photon runtime
+- Beam frontend assets (with `--with-app`)
+
+### Cross-Compilation Targets
+
+| Target | Platform |
+|--------|----------|
+| `bun-darwin-arm64` | macOS Apple Silicon |
+| `bun-darwin-x64` | macOS Intel |
+| `bun-linux-x64` | Linux x64 |
+| `bun-linux-arm64` | Linux ARM64 |
+
+### Limitations
+
+- `@mcp` dependencies (external MCP servers) cannot be bundled — a warning is emitted
+- `@cli` dependencies (system binaries like `ffmpeg`) must be present on the target machine
+- Requires [Bun](https://bun.sh) installed on the build machine
+
+### Distribution
+
+The resulting binary is fully portable:
+
+```bash
+# Build on macOS, deploy to Linux server
+photon build my-tool -t bun-linux-x64
+scp my-tool user@server:/usr/local/bin/
+ssh user@server my-tool sse --port 3000
+```
 
 ---
 

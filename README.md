@@ -271,6 +271,8 @@ Things you don't build because Photon handles them:
 | **Distributed locks** | `@locked` serializes access: one caller at a time, across processes |
 | **Cross-photon calls** | `this.call()` invokes another photon's methods |
 | **Real-time events** | `this.emit()` fires named events to the browser UI with zero wiring |
+| **Live rendering** | `this.render()` pushes formatted output to CLI and Beam in real time |
+| **Standalone binaries** | `photon build` compiles any photon to a single executable via Bun |
 | **Dependency management** | `@dependencies` auto-installs npm packages on first run |
 
 ---
@@ -281,7 +283,7 @@ Two primitives. Together they unlock a class of things that are surprisingly har
 
 **Locks** serialize access. When a method is marked `@locked`, only one caller can execute at a time, whether that caller is a human in Beam, a CLI script, or an AI agent. Everyone else waits their turn.
 
-**Events** push state changes to any browser UI in real time. `this.emit('boardUpdated', data)` on the server becomes `chess.onBoardUpdated(handler)` in your custom UI — named after your photon file. No WebSockets to configure. No polling. Events are delivered via SSE through the MCP Streamable HTTP transport.
+**Events** push state changes to any browser UI in real time. `this.emit({ event: 'boardUpdated', data: board })` on the server becomes `chess.onBoardUpdated(handler)` in your custom UI — named after your photon file. No WebSockets to configure. No polling. Events are delivered via SSE through the MCP Streamable HTTP transport.
 
 Together: **turn-based coordination with live state**.
 
@@ -293,8 +295,8 @@ export default class Chess {
     const result = await this.applyMove(params.from, params.to);
 
     // Browser UI updates instantly, no polling needed
-    this.emit('boardUpdated', result.board);
-    this.emit('turnChanged', { next: result.nextPlayer });
+    this.emit({ event: 'boardUpdated', data: result.board });
+    this.emit({ event: 'turnChanged', data: { next: result.nextPlayer } });
 
     return result;
   }
@@ -330,6 +332,12 @@ photon search postgres
 photon add postgres
 ```
 
+You can also install directly from any GitHub repository using qualified refs:
+
+```bash
+photon add owner/repo/photon-name
+```
+
 Browse the full catalog in the [official photons repository](https://github.com/portel-dev/photons). You can also host a private marketplace for your team: internal tools that stay off the public internet.
 
 ---
@@ -343,8 +351,16 @@ photon mcp <name>                 # Run as MCP server
 photon mcp <name> --dev           # MCP server with hot reload
 photon cli <name> [method]        # Run as CLI tool
 
+# Install from GitHub
+photon beam owner/repo/name       # Install & open in Beam
+photon cli owner/repo/name method # Install & run via CLI
+
 # Create
 photon maker new <name>           # Scaffold a new photon
+
+# Build
+photon build <name>               # Compile to standalone binary
+photon build <name> --with-app    # Include Beam UI in binary
 
 # Manage
 photon info                       # List all photons
@@ -361,6 +377,29 @@ photon doctor                     # Diagnose environment
 photon test                       # Run tests
 ```
 
+### Install from GitHub
+
+Use qualified refs to install and run photons directly from any GitHub repository:
+
+```bash
+photon beam Arul-/photons/claw        # Install from GitHub, open in Beam
+photon cli Arul-/photons/todo add     # Install from GitHub, run method
+```
+
+The format is `owner/repo/photon-name`. Transitive `@photon` dependencies from the same repo are resolved automatically.
+
+### Compile to Binary
+
+Build standalone executables from any photon — no Node.js required on the target machine:
+
+```bash
+photon build my-tool                         # Binary for current platform
+photon build my-tool -t bun-linux-x64        # Cross-compile for Linux
+photon build my-tool --with-app              # Embed Beam UI as a desktop app
+```
+
+Uses Bun's compiler under the hood. The binary bundles the photon, its `@dependencies`, and transitive `@photon` deps into a single file.
+
 ---
 
 ## Tag Reference
@@ -371,6 +410,7 @@ photon test                       # Run tests
 | `@cli` | Class | Declare system CLI dependencies, checked at load time |
 | `@format` | Method | Result rendering (table, list, markdown, code, etc.) |
 | `@param ... {@choice a,b,c}` | Param | Dropdown selection in Beam |
+| `@param ... {@choice-from method}` | Param | Dynamic dropdown populated from another method's return value |
 | `@param ... {@format email}` | Param | Input validation and field type |
 | `@param ... {@min N} {@max N}` | Param | Numeric range constraints |
 | `@ui` | Class/Method | Link a custom HTML template |

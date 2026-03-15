@@ -1187,6 +1187,25 @@ this.emit('board:updated', data)
 
 Every client subscribed to that photon's channel gets the event. If you have Beam open in two browser tabs and Claude Desktop running, all three update simultaneously.
 
+### Live Rendering with `this.render()`
+
+For methods that produce incremental output (progress dashboards, streaming data, live metrics), use `this.render()` to push formatted content that replaces the previous output rather than appending:
+
+```typescript
+export default class Monitor {
+  async status() {
+    while (true) {
+      const metrics = await this.collectMetrics();
+      // Replaces previous render output in CLI and Beam
+      this.render('table', metrics);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+```
+
+In the CLI, `this.render()` manages a dedicated render zone that clears and repaints on each call. In Beam, it updates the result area in place. Call `this.render()` with no arguments to clear the render zone.
+
 ### Receiving Events in Custom UIs
 
 If your photon has a `@ui` template, use the auto-injected global named after your photon:
@@ -1456,6 +1475,8 @@ Photon provides a comprehensive suite of commands for running, managing, and dev
 | `photon cli <photon> [method]` | Execute Photon methods directly from the command line. |
 | `photon sse <name>` | Launch a single-tenant SSE server for browser or remote access. |
 | `photon beam` | Open an interactive web UI for all your installed Photons (formerly playground). |
+| `photon beam owner/repo/name` | Install a photon from GitHub and open it in Beam. |
+| `photon cli owner/repo/name method` | Install a photon from GitHub and run a method. |
 | `photon serve` | Start a local multi-tenant MCP server host for development. |
 | `photon host <command>` | Manage cloud hosting: `deploy` (ship to cloud) or `preview` (run local sim). |
 
@@ -1463,10 +1484,18 @@ Photon provides a comprehensive suite of commands for running, managing, and dev
 | Command | Usage |
 |---|---|
 | `photon add <name>` | Install a Photon from the marketplace. |
+| `photon add owner/repo/name` | Install a Photon directly from a GitHub repository. |
 | `photon remove <name>` | Remove an installed Photon. |
 | `photon upgrade [name]` | Upgrade Photon(s) to the latest version. |
 | `photon info [name]` | Show detailed metadata and configuration for a Photon. |
 | `photon search <query>` | Search enabled marketplaces for Photons. |
+
+### Build Commands
+| Command | Usage |
+|---|---|
+| `photon build <name>` | Compile a photon into a standalone binary (uses Bun). |
+| `photon build <name> --with-app` | Include embedded Beam UI in the binary. |
+| `photon build <name> -t <target>` | Cross-compile for a specific platform (e.g., `bun-linux-x64`). |
 
 ### Developer Tools (maker)
 | Command | Usage |
