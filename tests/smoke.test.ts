@@ -641,6 +641,191 @@ export default class ConfigTest extends PhotonMCP {
     }
   });
 
+  // ── 16. SSE transport ──────────────────────────────────────────────────
+
+  await test('SSE: photon sse <name> starts HTTP server with MCP endpoint', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install todo
+      photonExec('portel-dev/photons/todo add --text "sse setup"', dir);
+
+      const ssePort = 4600;
+      const proc = spawn('node', [CLI_PATH, 'sse', 'todo', '--port', String(ssePort)], {
+        env: { ...process.env, PHOTON_DIR: dir },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      try {
+        // Wait for server to be ready
+        let ready = false;
+        for (let i = 0; i < 10; i++) {
+          try {
+            const res = await fetch(`http://localhost:${ssePort}/`, {
+              signal: AbortSignal.timeout(2000),
+            });
+            if (res.ok) {
+              ready = true;
+              break;
+            }
+          } catch {
+            /* not ready */
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        assert.ok(ready, 'SSE server should start and respond on /');
+
+        // Verify /mcp endpoint returns SSE content type
+        const mcp = await fetch(`http://localhost:${ssePort}/mcp`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        assert.ok(mcp.ok, '/mcp endpoint should respond');
+        const ct = mcp.headers.get('content-type') || '';
+        assert.ok(ct.includes('text/event-stream'), 'Should serve SSE on /mcp');
+      } finally {
+        killProc(proc);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 17. Network failure — clean error for unreachable GitHub ──────────
+
+  await test('Error: network failure during marketplace fetch gives clean error', async () => {
+    const dir = freshDir();
+    try {
+      // Use a ref pointing at a valid format but unreachable host
+      // by using a GitHub user that doesn't exist (404 from raw.githubusercontent.com)
+      const { stderr } = photonExecAll(
+        'cli zzz-nonexistent-user-99999/zzz-nonexistent-repo/test-photon ping',
+        dir
+      );
+      assert.ok(
+        stderr.includes('Could not fetch') ||
+          stderr.includes('404') ||
+          stderr.includes('not found'),
+        'Should show fetch error'
+      );
+      assert.ok(!stderr.includes('at '), 'Should not include stack trace');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 18. photon info — lists installed photons ─────────────────────────
+
+  await test('CLI: photon info shows installed photons in table format', async () => {
+    const dir = freshDir();
+    try {
+      // Install todo first
+      photonExec('portel-dev/photons/todo add --text "info test"', dir);
+
+      const result = photonExec('info', dir);
+      // Should show a table with the installed photon
+      assert.ok(
+        result.includes('todo') || result.includes('todo-list'),
+        'Should list the installed todo photon'
+      );
+      // Should show table-like output (has column headers or box drawing)
+      assert.ok(
+        result.includes('Name') || result.includes('│') || result.includes('|'),
+        'Should display in table format'
+      );
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 19. Daemon cold start ─────────────────────────────────────────────
+
+  await test('CLI: works with fresh daemon (auto-starts if not running)', async () => {
+    const dir = freshDir();
+    try {
+      // The daemon is global (always at ~/.photon/daemon.sock), so we can't
+      // fully isolate this. Instead, verify the CLI works even when the daemon
+      // needs to handle a brand-new PHOTON_DIR it hasn't seen before.
+      // This tests the auto-registration path.
+      const result = photonExec('portel-dev/photons/todo add --text "cold start test"', dir);
+      assert.ok(result.includes('cold start test'), 'Should work with auto-started daemon');
+
+      // Run a second command to verify daemon stays healthy (each CLI spawn is independent)
+      const result2 = photonExec('portel-dev/photons/todo add --text "second call"', dir);
+      assert.ok(result2.includes('second call'), 'Second CLI call should also work');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 20. Concurrent Beam instances ─────────────────────────────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('Beam: two concurrent instances on different ports both serve', async () => {
+    const dir1 = freshDir();
+    const dir2 = freshDir();
+    try {
+      const port1 = 4700;
+      const port2 = 4800;
+
+      const proc1 = spawn('node', [CLI_PATH, 'beam', '--no-open', '-p', String(port1)], {
+        env: { ...process.env, PHOTON_DIR: dir1 },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const proc2 = spawn('node', [CLI_PATH, 'beam', '--no-open', '-p', String(port2)], {
+        env: { ...process.env, PHOTON_DIR: dir2 },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      try {
+        // Wait for both to be ready
+        let found1 = false,
+          found2 = false;
+        for (let i = 0; i < 10; i++) {
+          if (!found1) {
+            try {
+              await fetchDiagnostics(port1);
+              found1 = true;
+            } catch {
+              /* not ready */
+            }
+          }
+          if (!found2) {
+            try {
+              await fetchDiagnostics(port2);
+              found2 = true;
+            } catch {
+              /* not ready */
+            }
+          }
+          if (found1 && found2) break;
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+
+        assert.ok(found1, `First Beam should be serving on ${port1}`);
+        assert.ok(found2, `Second Beam should be serving on ${port2}`);
+
+        // Both should return valid diagnostics independently
+        const diag1 = await fetchDiagnostics(port1);
+        const diag2 = await fetchDiagnostics(port2);
+        assert.ok(diag1.photonVersion, 'First instance should report version');
+        assert.ok(diag2.photonVersion, 'Second instance should report version');
+      } finally {
+        killProc(proc1);
+        killProc(proc2);
+      }
+    } finally {
+      cleanup(dir1);
+      cleanup(dir2);
+    }
+  });
+
   // ── Summary ────────────────────────────────────────────────────────────
 
   console.log(`\n${'─'.repeat(60)}`);
