@@ -326,6 +326,23 @@ SEE ALSO:
         return;
       }
 
+      // Handle qualified refs (owner/repo/name) in explicit cli mode
+      const ref = parseGitHubRef(photon);
+      if (ref) {
+        const cliWorkingDir = getDefaultContext().baseDir;
+        const { MarketplaceManager } = await import('../../marketplace-manager.js');
+        const manager = new MarketplaceManager(undefined, cliWorkingDir);
+        await manager.initialize();
+        const { photonName, alreadyInstalled } = await manager.fetchAndInstallFromRef(
+          photon,
+          cliWorkingDir
+        );
+        if (!alreadyInstalled) {
+          console.error(`✅ Installed ${photonName} from ${photon}`);
+        }
+        photon = photonName;
+      }
+
       const { listMethods, runMethod } = await import('../../photon-cli-runner.js');
 
       const cliWorkingDir = getDefaultContext().baseDir;
