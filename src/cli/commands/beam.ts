@@ -239,21 +239,15 @@ export function registerBeamCommand(program: Command): void {
           }
         }
 
-        // Find available port
+        // startBeam handles port finding internally (with retry and status output)
         const startPort = parseInt(options.port, 10);
-        const port = await findAvailablePort(startPort);
 
-        if (port !== startPort) {
-          console.error(`⚠️  Port ${startPort} is in use, using ${port} instead\n`);
-        }
-
-        // Import and start Beam server
         const { startBeam } = await import('../../auto-ui/beam.js');
-        await startBeam(workingDir, port);
+        await startBeam(workingDir, startPort);
 
         // Auto-open browser — always when a photon is specified (focus mode), or when --open flag is set
         if (photon || options.open) {
-          const actualPort = process.env.BEAM_PORT || port;
+          const actualPort = process.env.BEAM_PORT || startPort;
           // Focus mode: hash routes to the photon, ?focus=1 hides sidebar for full-width view
           const url = photon
             ? `http://localhost:${actualPort}/#${photon}?focus=1`
