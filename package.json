@@ -53,6 +53,7 @@
     "test:logger": "npx tsx tests/logger.test.ts",
     "test:error-handler": "npx tsx tests/error-handler.test.ts",
     "test:validation": "npx tsx tests/validation.test.ts",
+    "test:smoke": "npx tsx tests/smoke.test.ts",
     "test:readme": "bash tests/readme-validation.sh",
     "test:schema": "npx tsx tests/schema-extractor.test.ts",
     "test:marketplace": "npx tsx tests/marketplace-manager.test.ts",
@@ -102,7 +103,7 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "@portel/photon-core": "^2.14.0",
+    "@portel/photon-core": "^2.15.0",
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "chart.js": "^4.5.1",

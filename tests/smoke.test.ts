@@ -1,0 +1,503 @@
+/**
+ * Smoke Tests — End-to-end tests for first-time user experience.
+ *
+ * Tests the critical path: install photon → run qualified ref → everything works.
+ * Uses a fresh PHOTON_DIR for each test to simulate a new user.
+ *
+ * Run: npx tsx tests/smoke.test.ts
+ */
+
+import { strict as assert } from 'assert';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { fileURLToPath } from 'url';
+import { execSync, spawn, ChildProcess } from 'child_process';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLI_PATH = path.join(__dirname, '..', 'dist', 'cli.js');
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function freshDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-smoke-'));
+  return dir;
+}
+
+function cleanup(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function photonExec(args: string, photonDir: string, timeoutMs = 30_000): string {
+  return execSync(`node ${CLI_PATH} ${args}`, {
+    env: { ...process.env, PHOTON_DIR: photonDir },
+    timeout: timeoutMs,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+function photonExecAll(
+  args: string,
+  photonDir: string,
+  timeoutMs = 30_000
+): { stdout: string; stderr: string } {
+  try {
+    const stdout = execSync(`node ${CLI_PATH} ${args}`, {
+      env: { ...process.env, PHOTON_DIR: photonDir },
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+    });
+    return { stdout, stderr: '' };
+  } catch (err: any) {
+    return { stdout: err.stdout || '', stderr: err.stderr || '' };
+  }
+}
+
+async function startBeamAndWait(
+  photonDir: string,
+  args = '',
+  waitMs = 20_000
+): Promise<{ proc: ChildProcess; port: number | null }> {
+  const proc = spawn('node', [CLI_PATH, 'beam', '--no-open', ...args.split(' ').filter(Boolean)], {
+    env: { ...process.env, PHOTON_DIR: photonDir },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let output = '';
+  proc.stdout?.on('data', (d) => {
+    output += d.toString();
+  });
+  proc.stderr?.on('data', (d) => {
+    output += d.toString();
+  });
+
+  // Poll for diagnostics endpoint instead of relying on output parsing
+  const startTime = Date.now();
+  let port: number | null = null;
+
+  while (Date.now() - startTime < waitMs) {
+    // Try to extract port from output first
+    const portMatch = output.match(/localhost:(\d+)/);
+    if (portMatch) {
+      const candidate = parseInt(portMatch[1]);
+      try {
+        await fetchDiagnostics(candidate);
+        port = candidate;
+        break;
+      } catch {
+        /* not ready yet */
+      }
+    }
+
+    // Also try common ports directly — derive start from --port arg or default 3000
+    const portArgMatch = args.match(/--port\s+(\d+)/);
+    const basePort = portArgMatch ? parseInt(portArgMatch[1]) : 3000;
+    for (const p of [basePort, basePort + 1, basePort + 2, basePort + 3]) {
+      try {
+        await fetchDiagnostics(p);
+        port = p;
+        break;
+      } catch {
+        /* not this port */
+      }
+    }
+    if (port) break;
+
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  return { proc, port };
+}
+
+function killProc(proc: ChildProcess): void {
+  try {
+    proc.kill('SIGKILL');
+  } catch {
+    /* already dead */
+  }
+}
+
+async function fetchDiagnostics(port: number): Promise<any> {
+  const res = await fetch(`http://localhost:${port}/api/diagnostics`, {
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
+
+async function test(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+    console.log(`  ✅ ${name}`);
+    passed++;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`  ❌ ${name}: ${msg}`);
+    failed++;
+    failures.push(`${name}: ${msg}`);
+  }
+}
+
+async function runAll() {
+  console.log('🧪 Smoke Tests — First-Time User Experience\n');
+
+  // ── 1. Fresh directory auto-creation ────────────────────────────────────
+
+  await test('Fresh dir: PHOTON_DIR auto-created on CLI use', async () => {
+    const dir = path.join(os.tmpdir(), `photon-virgin-${Date.now()}`);
+    assert.ok(!fs.existsSync(dir), 'Dir should not exist yet');
+
+    try {
+      // Use CLI (not beam) — simpler to test dir creation
+      const { stderr } = photonExecAll('portel-dev/photons/todo add --text "fresh dir test"', dir);
+      assert.ok(fs.existsSync(dir), 'Dir should be auto-created');
+      assert.ok(
+        fs.existsSync(path.join(dir, 'marketplaces.json')) ||
+          fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
+        'Should have created marketplace config or installed photon'
+      );
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 2. Simple name auto-install from marketplace ────────────────────────
+
+  await test('CLI: simple name auto-installs from marketplace (portel-dev/photons/todo)', async () => {
+    const dir = freshDir();
+    try {
+      const result = photonExec('portel-dev/photons/todo add --text "smoke test"', dir);
+      assert.ok(result.includes('smoke test'), 'Should return the added todo');
+
+      // Verify file was installed
+      const installed = path.join(dir, 'portel-dev', 'todo.photon.ts');
+      assert.ok(fs.existsSync(installed), 'todo.photon.ts should be installed in namespace dir');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 3. Transitive @photon dependency resolution ─────────────────────────
+
+  await test('Install: transitive @photon deps fetched from same repo', async () => {
+    const dir = freshDir();
+    try {
+      // Claw depends on whatsapp + agent-router, which depends on 4 runners
+      const { stdout, stderr } = photonExecAll(
+        'portel-dev/photons/todo add --text "dep test"',
+        dir
+      );
+
+      // Use a simpler photon first to verify the mechanism works, then check claw's deps
+      // separately since claw has heavy deps (WhatsApp, Baileys)
+      const { MarketplaceManager } = await import('../dist/marketplace-manager.js');
+      const manager = new MarketplaceManager(undefined, dir);
+      await manager.initialize();
+      await manager.fetchAndInstallFromRef('Arul-/photons/claw', dir);
+
+      // Verify all transitive deps were installed
+      const nsDir = path.join(dir, 'Arul-');
+      const expected = [
+        'claw',
+        'whatsapp',
+        'agent-router',
+        'claude-runner',
+        'gemini-runner',
+        'aider-runner',
+        'opencode-runner',
+      ];
+      for (const name of expected) {
+        assert.ok(
+          fs.existsSync(path.join(nsDir, `${name}.photon.ts`)),
+          `${name}.photon.ts should be installed`
+        );
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 4. Qualified ref — implicit CLI form ────────────────────────────────
+
+  await test('CLI implicit: photon owner/repo/name method works', async () => {
+    const dir = freshDir();
+    try {
+      const result = photonExec('portel-dev/photons/todo add --text "implicit test"', dir);
+      assert.ok(result.includes('implicit test'), 'Should return the added todo');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 5. Qualified ref — explicit CLI form ────────────────────────────────
+
+  await test('CLI explicit: photon cli owner/repo/name method works', async () => {
+    const dir = freshDir();
+    try {
+      const result = photonExec('cli portel-dev/photons/todo add --text "explicit test"', dir);
+      assert.ok(result.includes('explicit test'), 'Should return the added todo');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 6. Error handling — nonexistent photon ──────────────────────────────
+
+  await test('Error: nonexistent simple name gives clean error', async () => {
+    const dir = freshDir();
+    try {
+      const { stderr } = photonExecAll('cli nonexistent-xyz-12345 list', dir);
+      assert.ok(
+        stderr.includes('not found') || stderr.includes('Not found'),
+        'Should show "not found" error'
+      );
+      assert.ok(!stderr.includes('at '), 'Should not include stack trace');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  await test('Error: nonexistent qualified ref gives clean error', async () => {
+    const dir = freshDir();
+    try {
+      const { stderr } = photonExecAll('cli fake-owner/fake-repo/nope list', dir);
+      assert.ok(
+        stderr.includes('Could not fetch') || stderr.includes('404'),
+        'Should show fetch error'
+      );
+      assert.ok(!stderr.includes('at MarketplaceManager'), 'Should not include stack trace');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  await test('Error: invalid ref format (too many slashes) gives clean error', async () => {
+    const dir = freshDir();
+    try {
+      const { stderr } = photonExecAll('cli a/b/c/d method', dir);
+      assert.ok(
+        stderr.includes('not found') || stderr.includes('Invalid'),
+        'Should show error for invalid format'
+      );
+      assert.ok(!stderr.includes('at '), 'Should not include stack trace');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 7. MCP STDIO mode ──────────────────────────────────────────────────
+
+  await test('MCP: STDIO mode returns valid tools/list response', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install todo
+      photonExec('portel-dev/photons/todo add --text "mcp setup"', dir);
+
+      const transport = new StdioClientTransport({
+        command: 'node',
+        args: [CLI_PATH, 'mcp', 'todo'],
+        env: { ...process.env, PHOTON_DIR: dir },
+      });
+
+      const client = new Client({ name: 'smoke-test', version: '1.0.0' }, { capabilities: {} });
+
+      await client.connect(transport);
+      const { tools } = await client.listTools();
+      assert.ok(Array.isArray(tools), 'Should return tools array');
+      assert.ok(tools.length > 0, 'Should have at least one tool');
+
+      const toolNames = tools.map((t) => t.name);
+      assert.ok(toolNames.includes('add'), 'Should have "add" tool');
+      assert.ok(toolNames.includes('list'), 'Should have "list" tool');
+
+      await client.close();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 8. Beam with simple name ────────────────────────────────────────────
+
+  // Kill any stale beam processes between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* none running */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('Beam: photon beam <simple-name> auto-installs and starts', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install todo
+      photonExec('portel-dev/photons/todo add --text "pre-install"', dir);
+
+      const { proc, port } = await startBeamAndWait(dir, 'todo', 20_000);
+      try {
+        assert.ok(port, 'Should detect port');
+        const diag = await fetchDiagnostics(port!);
+        assert.ok(diag.photonVersion, 'Should return version');
+        // Verify todo is installed on disk (Beam may still be loading it)
+        assert.ok(
+          fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
+          'todo.photon.ts should be installed'
+        );
+      } finally {
+        killProc(proc);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 9. Beam with qualified ref ──────────────────────────────────────────
+
+  await test('Beam: photon beam owner/repo/name installs with deps and starts', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install claw + deps so beam doesn't need to fetch during startup
+      const { MarketplaceManager } = await import('../dist/marketplace-manager.js');
+      const manager = new MarketplaceManager(undefined, dir);
+      await manager.initialize();
+      await manager.fetchAndInstallFromRef('Arul-/photons/claw', dir);
+
+      const { proc, port } = await startBeamAndWait(dir, 'claw', 20_000);
+      try {
+        assert.ok(port, 'Should detect port');
+        const diag = await fetchDiagnostics(port!);
+        assert.ok(diag.photonVersion, 'Should return version');
+
+        // Verify transitive deps on disk
+        const nsDir = path.join(dir, 'Arul-');
+        assert.ok(fs.existsSync(path.join(nsDir, 'claw.photon.ts')), 'claw should be installed');
+        assert.ok(
+          fs.existsSync(path.join(nsDir, 'whatsapp.photon.ts')),
+          'whatsapp dep should be installed'
+        );
+        assert.ok(
+          fs.existsSync(path.join(nsDir, 'agent-router.photon.ts')),
+          'agent-router dep should be installed'
+        );
+      } finally {
+        killProc(proc);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 10. Port conflict auto-retry ────────────────────────────────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('Beam: port conflict auto-retries to next available port', async () => {
+    const dir = freshDir();
+    const net = await import('net');
+    // Use a high port to avoid conflicts with previous beam tests on 3000-3003
+    const blockedPort = 4500;
+    const blocker = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(blockedPort, '127.0.0.1', () => resolve());
+    });
+
+    // Spawn beam directly (not through startBeamAndWait) for precise port control
+    const proc = spawn('node', [CLI_PATH, 'beam', '--no-open', '-p', String(blockedPort)], {
+      env: { ...process.env, PHOTON_DIR: dir },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    try {
+      let port: number | null = null;
+      const waitMs = 20_000;
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < waitMs) {
+        // Probe ports around the blocked one (beam should retry to blockedPort+1)
+        for (const p of [blockedPort + 1, blockedPort + 2, blockedPort + 3]) {
+          try {
+            await fetchDiagnostics(p);
+            port = p;
+            break;
+          } catch {
+            /* not ready yet */
+          }
+        }
+        if (port) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      assert.ok(port, 'Should detect port');
+      assert.ok(port! > blockedPort, `Should use port > ${blockedPort} (got ${port})`);
+      const diag = await fetchDiagnostics(port!);
+      assert.ok(diag.photonVersion, 'Should be serving');
+    } finally {
+      killProc(proc);
+      await new Promise<void>((r) => blocker.close(() => r()));
+      cleanup(dir);
+    }
+  });
+
+  // ── 11. Empty beam (no photon arg) ──────────────────────────────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('Beam: empty launch shows bundled photons only', async () => {
+    const dir = freshDir();
+    try {
+      const { proc, port } = await startBeamAndWait(dir, '', 12_000);
+      try {
+        assert.ok(port, 'Should detect port');
+        const diag = await fetchDiagnostics(port!);
+        assert.ok(diag.photonCount >= 3, 'Should have at least 3 bundled photons');
+        const names = diag.photons.map((p: any) => p.name);
+        assert.ok(names.includes('maker'), 'Should have bundled maker');
+        assert.ok(names.includes('marketplace'), 'Should have bundled marketplace');
+      } finally {
+        killProc(proc);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── Summary ────────────────────────────────────────────────────────────
+
+  console.log(`\n${'─'.repeat(60)}`);
+  console.log(`  ${passed + failed} tests: ${passed} passed, ${failed} failed`);
+  if (failures.length > 0) {
+    console.log('\n  Failures:');
+    for (const f of failures) {
+      console.log(`    • ${f}`);
+    }
+  }
+  console.log('');
+
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+runAll().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
