@@ -333,14 +333,20 @@ SEE ALSO:
         const { MarketplaceManager } = await import('../../marketplace-manager.js');
         const manager = new MarketplaceManager(undefined, cliWorkingDir);
         await manager.initialize();
-        const { photonName, alreadyInstalled } = await manager.fetchAndInstallFromRef(
-          photon,
-          cliWorkingDir
-        );
-        if (!alreadyInstalled) {
-          console.error(`✅ Installed ${photonName} from ${photon}`);
+        try {
+          const { photonName, alreadyInstalled } = await manager.fetchAndInstallFromRef(
+            photon,
+            cliWorkingDir
+          );
+          if (!alreadyInstalled) {
+            console.error(`✅ Installed ${photonName} from ${photon}`);
+          }
+          photon = photonName;
+        } catch (err) {
+          const { printError } = await import('../../cli-formatter.js');
+          printError(err instanceof Error ? err.message : String(err));
+          process.exit(1);
         }
-        photon = photonName;
       }
 
       const { listMethods, runMethod } = await import('../../photon-cli-runner.js');
