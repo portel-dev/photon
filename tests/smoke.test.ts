@@ -826,6 +826,285 @@ export default class ConfigTest extends PhotonMCP {
     }
   });
 
+  // ── 21. photon maker new — create from template ────────────────────────
+
+  await test('Maker: photon maker new creates a valid photon file', async () => {
+    const dir = freshDir();
+    try {
+      // maker new outputs to stderr, so capture with 2>&1
+      const combined = execSync(`node ${CLI_PATH} maker new smoke-probe 2>&1`, {
+        env: { ...process.env, PHOTON_DIR: dir },
+        timeout: 15_000,
+        encoding: 'utf-8',
+      });
+      assert.ok(
+        combined.includes('Created') || combined.includes('smoke-probe'),
+        'Should confirm creation'
+      );
+
+      const created = path.join(dir, 'smoke-probe.photon.ts');
+      assert.ok(fs.existsSync(created), 'smoke-probe.photon.ts should exist');
+
+      // Verify it's valid TypeScript with PhotonMCP import
+      const content = fs.readFileSync(created, 'utf-8');
+      assert.ok(
+        content.includes('PhotonMCP') || content.includes('Photon'),
+        'Should import PhotonMCP or Photon'
+      );
+      assert.ok(content.includes('export default'), 'Should have default export');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 22. MCP tool invocation — actually call a tool ────────────────────
+
+  await test('MCP: tool call returns correct result through protocol', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install todo
+      photonExec('portel-dev/photons/todo add --text "mcp call test"', dir);
+
+      const transport = new StdioClientTransport({
+        command: 'node',
+        args: [CLI_PATH, 'mcp', 'todo'],
+        env: { ...process.env, PHOTON_DIR: dir },
+      });
+
+      const client = new Client({ name: 'smoke-test', version: '1.0.0' }, { capabilities: {} });
+
+      await client.connect(transport);
+
+      // Actually invoke the 'add' tool
+      const result = await client.callTool({
+        name: 'add',
+        arguments: { text: 'protocol test item' },
+      });
+
+      assert.ok(result.content, 'Should return content');
+      assert.ok(!result.isError, 'Should not be an error');
+      // The add tool returns the created todo object with id, done, createdAt
+      const text = JSON.stringify(result.content);
+      assert.ok(
+        text.includes('"id"') || text.includes('id'),
+        'Tool result should contain a created todo with id'
+      );
+
+      await client.close();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 23. photon search — discover photons in marketplace ───────────────
+
+  await test('CLI: photon search returns results in table format', async () => {
+    const dir = freshDir();
+    try {
+      const { stdout, stderr } = photonExecAll('search todo', dir);
+      const combined = stdout + stderr;
+      // Should find the todo photon in marketplace results
+      assert.ok(
+        combined.includes('todo') || combined.includes('Todo'),
+        'Search should find todo photon'
+      );
+      // Should be in table format
+      assert.ok(
+        combined.includes('│') || combined.includes('Name') || combined.includes('┌'),
+        'Results should be in table format'
+      );
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 24. photon mcp --config — generate Claude Desktop JSON ────────────
+
+  await test('MCP: --config generates configuration template', async () => {
+    const dir = freshDir();
+    try {
+      // Pre-install todo
+      photonExec('portel-dev/photons/todo add --text "config test"', dir);
+
+      // --config outputs to stderr, capture with 2>&1
+      const combined = execSync(`node ${CLI_PATH} mcp todo --config 2>&1`, {
+        env: { ...process.env, PHOTON_DIR: dir },
+        timeout: 15_000,
+        encoding: 'utf-8',
+      });
+
+      // Should produce config output (either mcpServers JSON or "no configuration required")
+      assert.ok(
+        combined.includes('mcpServers') ||
+          combined.includes('Configuration') ||
+          combined.includes('configuration') ||
+          combined.includes('No configuration required'),
+        'Should show configuration info'
+      );
+      assert.ok(combined.includes('todo'), 'Should reference the photon name');
+      // Should not crash or show stack traces
+      assert.ok(!combined.includes('at Object.<anonymous>'), 'Should not include stack traces');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 25. --json output flag ────────────────────────────────────────────
+
+  await test('CLI: --json flag outputs valid parseable JSON', async () => {
+    const dir = freshDir();
+    try {
+      photonExec('portel-dev/photons/todo add --text "json test"', dir);
+      const result = photonExec('cli todo add --text "json output" --json', dir);
+
+      // Should be parseable JSON
+      let parsed: any;
+      try {
+        parsed = JSON.parse(result.trim());
+      } catch {
+        assert.fail(`Output should be valid JSON, got: ${result.substring(0, 100)}`);
+      }
+      assert.ok(parsed !== null && typeof parsed === 'object', 'Should parse to an object');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 26. photon doctor — health check ──────────────────────────────────
+
+  await test('CLI: photon doctor runs without errors', async () => {
+    const dir = freshDir();
+    try {
+      const { stdout, stderr } = photonExecAll('doctor', dir);
+      const combined = stdout + stderr;
+
+      assert.ok(combined.includes('Node.js') || combined.includes('node'), 'Should check Node.js');
+      assert.ok(combined.includes('ok') || combined.includes('Status'), 'Should report status');
+      // Should not crash
+      assert.ok(!combined.includes('Fatal'), 'Should not have fatal errors');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 27. Graceful shutdown — SIGINT produces clean exit ────────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('Beam: SIGINT triggers clean shutdown without stack traces', async () => {
+    const dir = freshDir();
+    try {
+      const proc = spawn('node', [CLI_PATH, 'beam', '--no-open', '-p', '4900'], {
+        env: { ...process.env, PHOTON_DIR: dir },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let output = '';
+      proc.stdout?.on('data', (d) => {
+        output += d.toString();
+      });
+      proc.stderr?.on('data', (d) => {
+        output += d.toString();
+      });
+
+      // Wait for beam to be ready
+      let ready = false;
+      for (let i = 0; i < 10; i++) {
+        try {
+          await fetchDiagnostics(4900);
+          ready = true;
+          break;
+        } catch {
+          /* not ready */
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      assert.ok(ready, 'Beam should start on port 4900');
+
+      // Send SIGINT (Ctrl+C)
+      proc.kill('SIGINT');
+
+      // Wait for process to exit
+      const exitCode = await new Promise<number | null>((resolve) => {
+        const timeout = setTimeout(() => {
+          proc.kill('SIGKILL');
+          resolve(null);
+        }, 5000);
+        proc.on('exit', (code) => {
+          clearTimeout(timeout);
+          resolve(code);
+        });
+      });
+
+      assert.ok(exitCode !== null, 'Process should exit within 5 seconds');
+      assert.ok(
+        !output.includes('Error:') || output.includes('Shutting down'),
+        'Should not show errors (or only shutdown message)'
+      );
+      assert.ok(!output.includes('at Object.<anonymous>'), 'Should not include stack traces');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 28. Photon with npm @dependencies ─────────────────────────────────
+
+  await test('Loader: photon with @dependencies auto-installs npm packages', async () => {
+    const dir = freshDir();
+    try {
+      // Create a photon that declares an npm dependency
+      const photonContent = `
+import { PhotonMCP } from '@portel/photon-core';
+
+/**
+ * Dep test photon
+ * @version 1.0.0
+ * @dependencies fast-json-patch@^3.1.1
+ */
+export default class DepTest extends PhotonMCP {
+  async check() {
+    // If fast-json-patch was installed, require won't throw
+    const fjp = await import('fast-json-patch');
+    return { hasFjp: typeof fjp.applyPatch === 'function' };
+  }
+}
+`;
+      fs.writeFileSync(path.join(dir, 'dep-test.photon.ts'), photonContent);
+
+      // Use MCP STDIO to load the photon — the loader resolves from PHOTON_DIR
+      const transport = new StdioClientTransport({
+        command: 'node',
+        args: [CLI_PATH, 'mcp', 'dep-test'],
+        env: { ...process.env, PHOTON_DIR: dir },
+      });
+
+      const client = new Client({ name: 'smoke-test', version: '1.0.0' }, { capabilities: {} });
+
+      await client.connect(transport);
+      const { tools } = await client.listTools();
+      const toolNames = tools.map((t) => t.name);
+      assert.ok(toolNames.includes('check'), 'Should have "check" tool (means loader succeeded)');
+
+      // Actually call the tool to verify dependency was installed
+      const result = await client.callTool({ name: 'check', arguments: {} });
+      const text = JSON.stringify(result.content);
+      assert.ok(
+        text.includes('hasFjp') || text.includes('true'),
+        'Should successfully use the auto-installed dependency'
+      );
+
+      await client.close();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   // ── Summary ────────────────────────────────────────────────────────────
 
   console.log(`\n${'─'.repeat(60)}`);
