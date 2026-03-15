@@ -482,6 +482,165 @@ async function runAll() {
     }
   });
 
+  // ── 12. Global install path resolution ─────────────────────────────────
+
+  await test('CLI: works when invoked from unrelated directory (simulates global install)', async () => {
+    const dir = freshDir();
+    const unrelatedCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'photon-foreign-'));
+    try {
+      // Run CLI from a directory that has nothing to do with photon
+      const result = execSync(
+        `node ${CLI_PATH} portel-dev/photons/todo add --text "foreign dir test"`,
+        {
+          env: { ...process.env, PHOTON_DIR: dir },
+          cwd: unrelatedCwd,
+          timeout: 30_000,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }
+      );
+      assert.ok(result.includes('foreign dir test'), 'Should return the added todo');
+
+      // Verify photon was installed in PHOTON_DIR, not cwd
+      assert.ok(
+        fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
+        'Photon should be in PHOTON_DIR, not cwd'
+      );
+      assert.ok(
+        !fs.existsSync(path.join(unrelatedCwd, 'portel-dev')),
+        'Nothing should be written to cwd'
+      );
+    } finally {
+      cleanup(dir);
+      cleanup(unrelatedCwd);
+    }
+  });
+
+  // ── 13. Bare photon command (no args) via preprocessArgs ──────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('CLI: bare "photon" with no args launches Beam via preprocessArgs', async () => {
+    const dir = freshDir();
+    try {
+      // Spawn with NO arguments at all — preprocessArgs should rewrite to 'beam'
+      const proc = spawn('node', [CLI_PATH], {
+        env: { ...process.env, PHOTON_DIR: dir },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let port: number | null = null;
+      const startTime = Date.now();
+      while (Date.now() - startTime < 15_000) {
+        for (const p of [3000, 3001, 3002, 3003]) {
+          try {
+            await fetchDiagnostics(p);
+            port = p;
+            break;
+          } catch {
+            /* not ready yet */
+          }
+        }
+        if (port) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      try {
+        assert.ok(port, 'Bare photon should launch Beam and serve diagnostics');
+        const diag = await fetchDiagnostics(port!);
+        assert.ok(diag.photonVersion, 'Should report version');
+      } finally {
+        killProc(proc);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 14. Already-installed photon — skip re-install ────────────────────
+
+  // Clean up between beam tests
+  try {
+    execSync('pkill -9 -f "node.*cli.js.*beam"', { stdio: 'ignore' });
+  } catch {
+    /* ok */
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  await test('CLI: already-installed photon skips re-install and still works', async () => {
+    const dir = freshDir();
+    try {
+      // First run — installs from marketplace
+      const result1 = photonExec('portel-dev/photons/todo add --text "first run"', dir);
+      assert.ok(result1.includes('first run'), 'First run should succeed');
+
+      const installedFile = path.join(dir, 'portel-dev', 'todo.photon.ts');
+      assert.ok(fs.existsSync(installedFile), 'Should be installed');
+      const mtime1 = fs.statSync(installedFile).mtimeMs;
+
+      // Small delay to detect mtime changes
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Second run — should skip install, still work
+      const result2 = photonExec('portel-dev/photons/todo add --text "second run"', dir);
+      assert.ok(result2.includes('second run'), 'Second run should succeed');
+
+      const mtime2 = fs.statSync(installedFile).mtimeMs;
+      assert.ok(mtime1 === mtime2, 'File should not be re-written on second run');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  // ── 15. Photon with missing env vars — clean config error ─────────────
+
+  await test('Error: photon needing env vars gives config guidance, not stack trace', async () => {
+    const dir = freshDir();
+    try {
+      // Create a minimal photon that requires a constructor param (env var)
+      const photonContent = `
+import { PhotonMCP } from '@portel/photon-core';
+
+/**
+ * Test photon requiring config
+ * @version 1.0.0
+ */
+export default class ConfigTest extends PhotonMCP {
+  constructor(private apiKey: string) {
+    super();
+    if (!apiKey) throw new Error('apiKey is required');
+  }
+
+  async ping() { return 'pong'; }
+}
+`;
+      fs.writeFileSync(path.join(dir, 'config-test.photon.ts'), photonContent);
+
+      // Run via MCP (which triggers loader + constructor injection)
+      const { stderr } = photonExecAll('mcp config-test --validate', dir);
+
+      // Should mention the env var name, not crash with unhandled error
+      // The enhanced error includes PHOTON_CONFIG_TEST_APIKEY or similar guidance
+      const combined = stderr.toLowerCase();
+      assert.ok(
+        combined.includes('apikey') ||
+          combined.includes('api_key') ||
+          combined.includes('configuration') ||
+          combined.includes('env'),
+        'Should mention the missing config parameter or env var'
+      );
+      assert.ok(!stderr.includes('at Object.<anonymous>'), 'Should not include raw stack trace');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   // ── Summary ────────────────────────────────────────────────────────────
 
   console.log(`\n${'─'.repeat(60)}`);
