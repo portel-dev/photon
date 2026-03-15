@@ -210,23 +210,31 @@ export function registerBeamCommand(program: Command): void {
 
         // If a photon name is given but not installed, try marketplace auto-install
         if (photon) {
-          const photonFile = path.join(workingDir, `${photon}.photon.ts`);
-          if (!existsSync(photonFile)) {
-            const { MarketplaceManager } = await import('../../marketplace-manager.js');
-            const manager = new MarketplaceManager(undefined, workingDir);
-            await manager.initialize();
-            const conflict = await manager.checkConflict(photon);
-            if (conflict.sources.length === 0) {
-              const { printError } = await import('../../cli-formatter.js');
-              printError(`Photon '${photon}' not found locally or in marketplace.`);
-              console.error(`  Search for it with: photon search ${photon}`);
-              process.exit(1);
-            }
-            console.error(`📦 Installing ${photon}...`);
-            const result = await manager.fetchMCP(photon);
-            if (result) {
-              await manager.installPhoton(result, photon, workingDir);
-              console.error(`✅ Installed ${photon}`);
+          const { MarketplaceManager } = await import('../../marketplace-manager.js');
+          const manager = new MarketplaceManager(undefined, workingDir);
+          await manager.initialize();
+
+          // Qualified ref (owner/repo or owner/repo/name) — use fetchAndInstallFromRef
+          const isQualifiedRef = photon.includes('/');
+          if (isQualifiedRef) {
+            const { photonName } = await manager.fetchAndInstallFromRef(photon, workingDir);
+            photon = photonName; // replace with resolved short name for URL hash
+          } else {
+            const photonFile = path.join(workingDir, `${photon}.photon.ts`);
+            if (!existsSync(photonFile)) {
+              const conflict = await manager.checkConflict(photon);
+              if (conflict.sources.length === 0) {
+                const { printError } = await import('../../cli-formatter.js');
+                printError(`Photon '${photon}' not found locally or in marketplace.`);
+                console.error(`  Search for it with: photon search ${photon}`);
+                process.exit(1);
+              }
+              console.error(`📦 Installing ${photon}...`);
+              const result = await manager.fetchMCP(photon);
+              if (result) {
+                await manager.installPhoton(result, photon, workingDir);
+                console.error(`✅ Installed ${photon}`);
+              }
             }
           }
         }

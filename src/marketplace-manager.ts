@@ -11,6 +11,7 @@ import { createLogger, Logger } from './shared/logger.js';
 import { getErrorMessage } from './shared/error-handler.js';
 import { verifyContentHash, validateAssetPath, isPathWithin } from './shared/security.js';
 import { getDefaultContext } from './context.js';
+import { SchemaExtractor } from '@portel/photon-core';
 
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
@@ -520,7 +521,7 @@ export class MarketplaceManager {
         if (response.ok) {
           return (await response.json()) as MarketplaceManifest;
         } else {
-          this.logger.warn(`Manifest fetch returned ${response.status} for ${marketplace.name}`);
+          this.logger.debug(`Manifest fetch returned ${response.status} for ${marketplace.name}`);
         }
       }
     } catch (error) {
@@ -1694,10 +1695,12 @@ export class MarketplaceManager {
       );
     }
 
-    const photonFile = path.join(workingDir, `${photonName}.photon.ts`);
+    // Check both flat and namespaced install locations
+    const namespace = owner; // GitHub owner = namespace
+    const namespacedFile = path.join(workingDir, namespace, `${photonName}.photon.ts`);
+    const flatFile = path.join(workingDir, `${photonName}.photon.ts`);
 
-    // Already installed — skip fetch
-    if (existsSync(photonFile)) {
+    if (existsSync(namespacedFile) || existsSync(flatFile)) {
       return { photonName, alreadyInstalled: true };
     }
 
@@ -1705,7 +1708,36 @@ export class MarketplaceManager {
     const repoShorthand = `${owner}/${repo}`;
     const { marketplace: marketplaceInfo } = await this.add(repoShorthand);
 
-    // Fetch photon content directly from GitHub raw
+    const marketplace = this.get(marketplaceInfo.name);
+    if (!marketplace) throw new Error(`Marketplace not found after add: ${marketplaceInfo.name}`);
+
+    // Fetch and install the main photon + all transitive @photon dependencies
+    await this.fetchAndInstallWithDeps(owner, repo, photonName, marketplace, workingDir, new Set());
+
+    return { photonName, alreadyInstalled: false };
+  }
+
+  /**
+   * Recursively fetch a photon and its @photon dependencies from a GitHub repo.
+   * Tracks visited set to prevent circular dependency loops.
+   */
+  private async fetchAndInstallWithDeps(
+    owner: string,
+    repo: string,
+    photonName: string,
+    marketplace: Marketplace,
+    workingDir: string,
+    visited: Set<string>
+  ): Promise<void> {
+    if (visited.has(photonName)) return; // circular dep guard
+    visited.add(photonName);
+
+    // Check if already installed (namespaced or flat)
+    const namespace = this.extractNamespace(marketplace);
+    const installDir = namespace ? path.join(workingDir, namespace) : workingDir;
+    if (existsSync(path.join(installDir, `${photonName}.photon.ts`))) return;
+
+    // Fetch photon content from GitHub raw
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${photonName}.photon.ts`;
     let content: string;
     try {
@@ -1716,22 +1748,17 @@ export class MarketplaceManager {
       content = await response.text();
     } catch (err) {
       throw new Error(
-        `Could not fetch photon '${photonName}' from ${repoShorthand}: ${err instanceof Error ? err.message : String(err)}`
+        `Could not fetch photon '${photonName}' from ${owner}/${repo}: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 
     // Try to get manifest metadata (best-effort)
-    const marketplace = this.get(marketplaceInfo.name);
-    if (!marketplace) throw new Error(`Marketplace not found after add: ${marketplaceInfo.name}`);
-
     await this.updateMarketplaceCache(marketplace.name).catch(() => {
       /* non-fatal */
     });
     const manifest = await this.getCachedManifest(marketplace.name);
     const metadata = manifest?.photons.find((p) => p.name === photonName);
 
-    // When no manifest exists, use a minimal synthetic metadata so that
-    // .metadata.json is always written (enables update detection via hash comparison)
     const effectiveMetadata: PhotonMetadata = metadata ?? {
       name: photonName,
       version: 'unknown',
@@ -1739,12 +1766,33 @@ export class MarketplaceManager {
       source: rawUrl,
     };
 
+    // Install the photon file
     await this.installPhoton(
       { content, marketplace, metadata: effectiveMetadata },
       photonName,
       workingDir
     );
-    return { photonName, alreadyInstalled: false };
+
+    this.logger.info(`Installed ${photonName} from ${owner}/${repo}`);
+
+    // Parse @photon dependencies and fetch local ones from the same repo
+    const extractor = new SchemaExtractor();
+    const deps = extractor.extractPhotonDependencies(content);
+
+    for (const dep of deps) {
+      if (
+        dep.sourceType === 'local' &&
+        (dep.source.startsWith('./') || dep.source.startsWith('../'))
+      ) {
+        // Extract the dependency photon name from the relative path
+        // e.g., "./whatsapp.photon.ts" → "whatsapp"
+        const depFileName = path.basename(dep.source);
+        const depName = depFileName.replace(/\.photon\.(ts|js)$/, '');
+
+        this.logger.info(`Fetching @photon dependency: ${depName} from ${owner}/${repo}`);
+        await this.fetchAndInstallWithDeps(owner, repo, depName, marketplace, workingDir, visited);
+      }
+    }
   }
 
   /**

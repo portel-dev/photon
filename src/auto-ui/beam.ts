@@ -313,7 +313,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (event) => {
@@ -345,18 +349,14 @@ async function handlePWANavigation(request) {
 
     const health = await healthRes.json();
 
-    // Validate this is actually Beam serving the expected directory
+    // Validate this is actually Beam (not some other service on this port)
     if (!health.photonVersion) {
       return serveBoot('wrong-service', JSON.stringify(health));
     }
-    if (health.workingDir !== EXPECTED_WORKING_DIR) {
-      return serveBoot('wrong-directory', JSON.stringify({
-        expected: EXPECTED_WORKING_DIR,
-        actual: health.workingDir
-      }));
-    }
 
-    // Backend is healthy and correct — serve the real page
+    // Backend is healthy — serve the real page
+    // (workingDir may differ from what was cached in the SW — that's fine,
+    //  users can point Beam at any directory)
     return fetch(request);
   } catch (err) {
     // Backend is unreachable
