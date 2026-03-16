@@ -31,7 +31,37 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@label` | Custom display name for the photon in BEAM sidebar. | `@label My Custom Tool` |
 | `@persist` | Enables settings UI persistence for the photon. | `@persist` |
 | `@internal` | Marks entire photon as internal (hidden from sidebar). | `@internal` |
+| `@worker` | Forces the photon to run in an isolated worker thread. See [Worker Isolation](#worker-isolation). | `@worker` |
+| `@noworker` | Forces the photon to run in-process even if it has lifecycle hooks. See [Worker Isolation](#worker-isolation). | `@noworker` |
 | `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
+
+### Worker Isolation
+
+By default, all photons run in the main daemon process. Photons that manage long-running resources (WebSocket connections, polling loops, auth sessions) benefit from **worker thread isolation** — if another photon crashes or a hot-reload fails, isolated photons are unaffected.
+
+**Auto-detection:** Photons with both `onShutdown()` and `onInitialize()` lifecycle methods are automatically placed in worker threads. These methods signal that the photon manages runtime resources that need careful handoff during reloads.
+
+**Explicit control:**
+
+| Tag | Effect |
+|-----|--------|
+| `@worker` | Force worker isolation (even without lifecycle hooks) |
+| `@noworker` | Force in-process execution (even with lifecycle hooks) |
+
+**Priority:** `@noworker` > `@worker` > auto-detect (lifecycle hooks) > default (in-process)
+
+**What happens in a worker:**
+- The photon runs in a dedicated Node.js `Worker` thread
+- Tool calls are routed via IPC (adds ~1-2ms overhead)
+- `@photon` cross-dependencies are resolved via RPC through the main thread
+- Pub/sub events are bridged between workers automatically
+- A crash only affects that worker — other photons keep running
+- Hot-reload sends a reload message to the worker; failure preserves the old instance
+
+**When NOT to use workers:**
+- Simple stateless photons (overhead with no benefit)
+- Photons under active development (faster hot-reload in-process)
+- Photons that only use `this.memory` for state (disk-backed, survives restarts)
 
 ### Runtime Version Ranges
 

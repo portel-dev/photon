@@ -382,6 +382,44 @@ When a notification is missed at any layer, the system self-heals:
 | All clients disconnect | Daemon stays running (detached process) |
 | Machine reboot | Daemon restarts on next client interaction, state restored from disk |
 
+### Worker Thread Isolation
+
+Photons that manage long-running runtime resources (WebSocket connections, auth sessions, polling loops) run in dedicated **worker threads** for crash isolation.
+
+```
+┌─────────────────────────────────────────────────┐
+│ Daemon Process (main thread)                    │
+│                                                 │
+│  ┌──────────────┐  ┌──────────────┐            │
+│  │ todo (in-    │  │ calculator   │  Simple    │
+│  │  process)    │  │ (in-process) │  photons   │
+│  └──────────────┘  └──────────────┘            │
+│                                                 │
+│  WorkerManager ─── routes calls via IPC ──────  │
+│       │                    │                    │
+├───────┼────────────────────┼────────────────────┤
+│  ┌────▼─────┐         ┌───▼──────┐             │
+│  │ Worker 1 │         │ Worker 2 │  Isolated   │
+│  │ whatsapp │         │ telegram │  photons    │
+│  │ (socket) │         │ (poll)   │             │
+│  └──────────┘         └──────────┘             │
+└─────────────────────────────────────────────────┘
+```
+
+**Detection logic** (in priority order):
+1. `@noworker` tag → in-process (explicit opt-out)
+2. `@worker` tag → worker thread (explicit opt-in)
+3. Has both `onShutdown()` + `onInitialize()` → worker thread (auto-detected)
+4. None → in-process (default)
+
+**Cross-worker communication:**
+- Tool calls: main thread routes via `WorkerManager.call()` (IPC)
+- `@photon` deps: resolved via RPC proxy through main thread
+- Pub/sub: `WorkerBroker` bridges events between workers and main `InProcessBroker`
+- Hot-reload: main thread sends reload message; worker handles lifecycle hooks internally
+
+See [`docs/reference/DOCBLOCK-TAGS.md`](../reference/DOCBLOCK-TAGS.md#worker-isolation) for usage details.
+
 ### Shared Session Model
 
 All clients use the same daemon session ID (`shared-{photonName}`) for stateful photons. This means:
