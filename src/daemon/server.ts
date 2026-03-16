@@ -152,14 +152,30 @@ function compositeKey(photonName: string, workingDir?: string): string {
   return `${photonName}:${dirHash}`;
 }
 
-/** Check if a photon source file has the @worker class-level tag */
-function hasWorkerTag(photonPath: string): boolean {
+/**
+ * Determine if a photon should run in a worker thread.
+ *
+ * Auto-detect: photons with both onShutdown + onInitialize lifecycle methods
+ * manage their own resources (sockets, auth sessions) and benefit from isolation.
+ *
+ * Explicit: @worker forces worker mode, @noworker forces in-process mode.
+ */
+function shouldRunInWorker(photonPath: string): boolean {
   try {
     const source = fs.readFileSync(photonPath, 'utf-8');
-    // Look for @worker in the class-level JSDoc (before the class declaration)
+
+    // Check class-level JSDoc for explicit tags
     const classDocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?:export\s+)?(?:default\s+)?class\s/);
-    if (!classDocMatch) return false;
-    return /@worker\b/.test(classDocMatch[0]);
+    if (classDocMatch) {
+      const docblock = classDocMatch[0];
+      if (/@noworker\b/.test(docblock)) return false; // Explicit opt-out
+      if (/@worker\b/.test(docblock)) return true; // Explicit opt-in
+    }
+
+    // Auto-detect: has both lifecycle hooks → likely manages runtime resources
+    const hasOnShutdown = /\bonShutdown\s*\(/.test(source);
+    const hasOnInitialize = /\bonInitialize\s*\(/.test(source);
+    return hasOnShutdown && hasOnInitialize;
   } catch {
     return false;
   }
@@ -811,7 +827,7 @@ async function getOrCreateSessionManager(
   }
 
   // If @worker tagged, spawn in a worker thread instead of in-process
-  if (hasWorkerTag(pathToUse) && !workerManager.has(key)) {
+  if (shouldRunInWorker(pathToUse) && !workerManager.has(key)) {
     try {
       logger.info('Spawning worker thread for @worker photon', { photonName, key });
       const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
