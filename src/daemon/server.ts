@@ -2065,7 +2065,19 @@ function watchPhotonFile(photonName: string, photonPath: string): void {
             // Invalidate cached state keys so they're re-extracted from fresh source
             stateKeysCache.delete(photonName);
 
-            await reloadPhoton(photonName, photonPath);
+            try {
+              await reloadPhoton(photonName, photonPath);
+            } catch (err) {
+              logger.error('Hot-reload crashed — old instance preserved', {
+                photonName,
+                error: getErrorMessage(err),
+              });
+              publishToChannel(`system:${photonName}`, {
+                event: 'photon-reload-failed',
+                timestamp: Date.now(),
+                error: getErrorMessage(err),
+              });
+            }
           })();
         }, 100)
       );
@@ -2333,7 +2345,21 @@ async function reloadPhoton(
       return { success: true, sessionsUpdated: 0 };
     }
 
-    await sessionManager.loader.reloadFile(newPhotonPath);
+    try {
+      await sessionManager.loader.reloadFile(newPhotonPath);
+    } catch (err) {
+      const errorMessage = getErrorMessage(err);
+      logger.error('Failed to reload photon file — keeping old instances', {
+        photonName,
+        error: errorMessage,
+      });
+      publishToChannel(`system:${photonName}`, {
+        event: 'photon-reload-failed',
+        timestamp: Date.now(),
+        error: errorMessage,
+      });
+      return { success: false, error: errorMessage };
+    }
 
     const sessions = sessionManager.getSessions();
     let updatedCount = 0;
@@ -2616,6 +2642,20 @@ function startServer(): void {
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+
+  // Safety net: catch unhandled errors so a bad photon can't crash the daemon
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught exception (daemon staying alive)', {
+      error: getErrorMessage(err),
+      stack: err?.stack,
+    });
+  });
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled rejection (daemon staying alive)', {
+      error: reason instanceof Error ? getErrorMessage(reason) : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    });
+  });
 }
 
 function shutdown(): void {
