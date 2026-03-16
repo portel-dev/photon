@@ -14,6 +14,7 @@ import * as net from 'net';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import { SessionManager } from './session-manager.js';
 import {
@@ -531,6 +532,12 @@ async function runJob(jobId: string): Promise<void> {
     job.lastRun = Date.now();
     job.runCount++;
 
+    // Update persisted schedule file if this came from ScheduleProvider
+    updatePersistedSchedule(jobId, job.photonName, {
+      executionCount: job.runCount,
+      lastExecutionAt: new Date().toISOString(),
+    });
+
     publishToChannel(`jobs:${job.photonName}`, {
       event: 'job-completed',
       jobId,
@@ -565,6 +572,34 @@ function unscheduleJob(jobId: string): boolean {
     logger.info('Job unscheduled', { jobId });
   }
   return existed;
+}
+
+/** Update persisted schedule file (from ScheduleProvider) after job execution */
+function updatePersistedSchedule(
+  jobId: string,
+  photonName: string,
+  updates: { executionCount?: number; lastExecutionAt?: string }
+): void {
+  // Only for jobs loaded from schedule files (format: photonName:sched:uuid)
+  const match = jobId.match(/^[^:]+:sched:(.+)$/);
+  if (!match) return;
+  const taskId = match[1];
+
+  const schedulesDir = path.join(
+    process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
+    photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
+  );
+  const filePath = path.join(schedulesDir, `${taskId}.json`);
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const task = JSON.parse(content);
+    if (updates.executionCount !== undefined) task.executionCount = updates.executionCount;
+    if (updates.lastExecutionAt !== undefined) task.lastExecutionAt = updates.lastExecutionAt;
+    fs.writeFileSync(filePath, JSON.stringify(task, null, 2));
+  } catch {
+    // File may have been removed — ignore
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1028,6 +1063,56 @@ async function autoRegisterFromMetadata(
         photon: photonName,
         routes: [...routes.keys()],
       });
+    }
+
+    // Load persisted schedule files from ~/.photon/schedules/{photonName}/
+    // These are created by this.schedule.create() at runtime.
+    const schedulesDir = path.join(
+      process.env.PHOTON_SCHEDULES_DIR || path.join(os.homedir(), '.photon', 'schedules'),
+      photonName.replace(/[^a-zA-Z0-9_-]/g, '_')
+    );
+    try {
+      const scheduleFiles = fs.readdirSync(schedulesDir).filter((f) => f.endsWith('.json'));
+      for (const file of scheduleFiles) {
+        try {
+          const content = fs.readFileSync(path.join(schedulesDir, file), 'utf-8');
+          const task = JSON.parse(content);
+          if (task.status !== 'active') continue;
+          const jobId = `${photonName}:sched:${task.id}`;
+          if (scheduledJobs.has(jobId)) continue;
+
+          const job = {
+            id: jobId,
+            method: task.method,
+            args: task.params || {},
+            cron: task.cron,
+            runCount: task.executionCount || 0,
+            createdAt: new Date(task.createdAt).getTime(),
+            createdBy: 'schedule-provider',
+            photonName,
+          };
+          const ok = scheduleJob(job);
+          if (ok) {
+            logger.info('Loaded persisted schedule', {
+              jobId,
+              name: task.name,
+              method: task.method,
+              cron: task.cron,
+              photon: photonName,
+            });
+          }
+        } catch {
+          // Skip corrupt schedule files
+        }
+      }
+    } catch (err: any) {
+      // ENOENT is fine — no schedules dir means no persisted schedules
+      if (err.code !== 'ENOENT') {
+        logger.warn('Failed to load persisted schedules', {
+          photon: photonName,
+          error: getErrorMessage(err),
+        });
+      }
     }
   } catch (error) {
     logger.warn('Failed to auto-register metadata', {
