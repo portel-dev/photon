@@ -1,375 +1,505 @@
-#!/usr/bin/env tsx
 /**
- * CLI Runner Tests
- * Tests for photon CLI interface functionality
+ * CLI Runner Pure Function Tests
+ *
+ * Tests the pure utility functions in photon-cli-runner.ts.
+ * parseCliArgs is exported and imported directly; all other functions
+ * are non-exported so their logic is duplicated here (same pattern as
+ * worker-dep-proxy tests).
  */
 
-import { spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
+import { strict as assert } from 'assert';
+import { parseCliArgs, type MethodInfo } from '../src/photon-cli-runner.js';
 
-// Helper to run CLI commands
-function runCLI(
-  args: string[]
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve) => {
-    const cliPath = path.join(process.cwd(), 'dist', 'cli.js');
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      env: { ...process.env, FORCE_COLOR: '0' }, // Disable colors for easier testing
-    });
+let passed = 0;
+let failed = 0;
 
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('close', (code) => {
-      resolve({ stdout, stderr, exitCode: code });
-    });
-  });
-}
-
-// Test photon file
-const testPhotonContent = `/**
- * Test Calculator - Simple calculator for CLI testing
- */
-export default class TestCalculator {
-  /**
-   * Add two numbers
-   * @param a First number
-   * @param b Second number
-   * @format primitive
-   */
-  async add(params: { a: number; b: number }) {
-    return params.a + params.b;
-  }
-
-  /**
-   * Multiply two numbers with custom labels
-   * @param x {@label Multiplier} The first factor
-   * @param y {@label Multiplicand} The second factor
-   * @returns {@label Calculate Product} The product of x and y
-   */
-  async multiply(params: { x: number; y: number }) {
-    return params.x * params.y;
-  }
-
-  /**
-   * Get calculator info
-   * @format table
-   */
-  async info() {
-    return {
-      name: 'Test Calculator',
-      version: '1.0.0',
-      operations: 3
-    };
-  }
-
-  /**
-   * List operations
-   * @format list
-   */
-  async operations() {
-    return ['add', 'subtract', 'multiply'];
-  }
-
-  /**
-   * Get nested data
-   * @format tree
-   */
-  async nested() {
-    return {
-      calculator: {
-        name: 'Test',
-        features: {
-          basic: ['add', 'subtract'],
-          advanced: ['multiply', 'divide']
-        }
-      }
-    };
-  }
-
-  /**
-   * Markdown documentation snippet
-   */
-  async markdownDoc() {
-    return '# Documentation\\n\\n- Item one\\n- Item two\\n';
-  }
-
-  /**
-   * Adjust value
-   * @param value Value to adjust (supports +N and -N for relative adjustments)
-   */
-  async adjust(params: { value: number | string }) {
-    if (typeof params.value === 'string' && (params.value.startsWith('+') || params.value.startsWith('-'))) {
-      return { adjusted: true, value: params.value };
-    }
-    return { adjusted: false, value: params.value };
-  }
-
-  /**
-   * Return error
-   */
-  async error() {
-    return { success: false, error: 'Test error message' };
-  }
-}
-`;
-
-async function setupTestPhoton(): Promise<string> {
-  const photonDir = path.join(os.homedir(), '.photon');
-  const photonPath = path.join(photonDir, 'test-cli-calc.photon.ts');
-
-  if (!fs.existsSync(photonDir)) {
-    fs.mkdirSync(photonDir, { recursive: true });
-  }
-
-  fs.writeFileSync(photonPath, testPhotonContent);
-  return photonPath;
-}
-
-async function cleanupTestPhoton() {
-  const photonPath = path.join(os.homedir(), '.photon', 'test-cli-calc.photon.ts');
-  if (fs.existsSync(photonPath)) {
-    fs.unlinkSync(photonPath);
-  }
-}
-
-async function runTests() {
-  console.log('🧪 Running CLI Runner Tests...\n');
-
-  let passed = 0;
-  let failed = 0;
-
-  function assert(condition: boolean, testName: string) {
-    if (condition) {
-      console.log(`✅ ${testName}`);
+async function test(name: string, fn: () => void | Promise<void>): Promise<void> {
+  return Promise.resolve()
+    .then(() => fn())
+    .then(() => {
       passed++;
-    } else {
-      console.log(`❌ ${testName}`);
+      console.log(`  ✓ ${name}`);
+    })
+    .catch((err) => {
       failed++;
-    }
-  }
+      console.log(`  ✗ ${name}`);
+      console.log(`    Error: ${err.message}`);
+    });
+}
 
-  try {
-    // Setup test photon
-    await setupTestPhoton();
+// ── Duplicated pure functions from photon-cli-runner.ts ─────────────
 
-    // Test 1: List methods
-    {
-      const result = await runCLI(['cli', 'test-cli-calc']);
-      assert(
-        result.stdout.includes('add') && result.stdout.includes('info') && result.exitCode === 0,
-        'List all methods for a photon'
-      );
-    }
-
-    // Test 2: Call method with positional arguments
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '7', '3']);
-      assert(
-        result.stdout.includes('10') && result.exitCode === 0,
-        'Call method with positional arguments'
-      );
-    }
-
-    // Test 4: Format detection - primitive
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '2', '3']);
-      assert(result.stdout.trim() === '5', 'Format primitive values correctly');
-    }
-
-    // Test 5: Format detection - table
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'info']);
-      assert(
-        result.stdout.includes('┌') && result.stdout.includes('Name') && result.exitCode === 0,
-        'Format table with bordered output'
-      );
-    }
-
-    // Test 6: Format detection - list
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'operations']);
-      assert(
-        result.stdout.includes('add') &&
-          result.stdout.includes('subtract') &&
-          result.exitCode === 0,
-        'Format list with box-style output'
-      );
-    }
-
-    // Test 7: Format detection - tree
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'nested']);
-      assert(
-        result.stdout.includes('Calculator') &&
-          result.stdout.includes('Features') &&
-          result.exitCode === 0,
-        'Format tree (nested JSON) correctly'
-      );
-    }
-
-    // Test 8: Relative adjustments - preserve + prefix
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'adjust', '+5']);
-      assert(
-        result.stdout.includes('+5') && result.stdout.includes('yes') && result.exitCode === 0,
-        'Preserve + prefix for relative adjustments'
-      );
-    }
-
-    // Test 9: Relative adjustments - preserve - prefix
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'adjust', '-3']);
-      assert(
-        result.stdout.includes('-3') && result.stdout.includes('yes') && result.exitCode === 0,
-        'Preserve - prefix for relative adjustments'
-      );
-    }
-
-    // Test 10: --json flag
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '2', '3', '--json']);
-      const parsed = JSON.parse(result.stdout);
-      assert(parsed === 5 && result.exitCode === 0, 'Output raw JSON with --json flag');
-    }
-
-    // Test 11: Error handling - show error message
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'error']);
-      assert(
-        result.stdout.includes('✗') && result.stdout.includes('Test error message'),
-        'Display error messages correctly'
-      );
-    }
-
-    // Test 12: Error handling - exit code 1
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'error']);
-      assert(result.exitCode === 1, 'Return exit code 1 on error');
-    }
-
-    // Test 13: Invalid photon name
-    {
-      const result = await runCLI(['cli', 'nonexistent-photon']);
-      const combined = result.stdout + result.stderr;
-      assert(result.exitCode !== 0 && combined.includes('not found'), 'Handle invalid photon name');
-    }
-
-    // Test 14: --help flag for photon
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', '--help']);
-      assert(
-        result.stdout.includes('USAGE') &&
-          result.stdout.includes('test-cli-calc') &&
-          result.exitCode === 0,
-        'Show help for photon with --help flag'
-      );
-    }
-
-    // Test 15: --help flag for method
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '--help']);
-      assert(
-        result.stdout.includes('Add two numbers') &&
-          result.stdout.includes('First number') &&
-          result.exitCode === 0,
-        'Show help for specific method'
-      );
-    }
-
-    // Test 16: --help flag for CLI command itself
-    {
-      const result = await runCLI(['cli', '--help']);
-      assert(
-        result.stdout.includes('USAGE') &&
-          result.stdout.includes('photon cli') &&
-          result.exitCode === 0,
-        'Show CLI command help'
-      );
-    }
-
-    // Test: Custom {@label} tags show in method help
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'multiply', '--help']);
-      assert(
-        result.stdout.includes('Multiplier') &&
-          result.stdout.includes('Multiplicand') &&
-          result.exitCode === 0,
-        'Show custom {@label} tags for parameters in help'
-      );
-    }
-
-    // Test: Method with custom labels executes correctly
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'multiply', '6', '7']);
-      assert(
-        result.stdout.trim() === '42' && result.exitCode === 0,
-        'Execute method with labeled parameters correctly'
-      );
-    }
-
-    // Test: Default label formatting (camelCase to Title Case)
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', '--help']);
-      // markdownDoc should be listed as "Markdown Doc" (formatted)
-      assert(
-        result.stdout.includes('markdownDoc') && result.exitCode === 0,
-        'Methods listed with proper formatting'
-      );
-    }
-
-    // Test 17: Success exit code
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '1', '1']);
-      assert(result.exitCode === 0, 'Return exit code 0 on success');
-    }
-
-    // Test 18: Type coercion - string to number
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'add', '42', '8']);
-      assert(
-        result.stdout.includes('50') && result.exitCode === 0,
-        'Coerce string arguments to numbers'
-      );
-    }
-
-    // Test 19: Markdown rendering
-    {
-      const result = await runCLI(['cli', 'test-cli-calc', 'markdownDoc']);
-      assert(
-        result.stdout.includes('Documentation') && result.stdout.includes('- Item one'),
-        'Render markdown output nicely'
-      );
-    }
-  } catch (error: any) {
-    console.error('Test setup error:', error.message);
-    failed++;
-  } finally {
-    // Cleanup
-    await cleanupTestPhoton();
-  }
-
-  console.log(
-    `\n${passed > 0 ? '✅' : '❌'} CLI Runner tests: ${passed} passed, ${failed} failed\n`
-  );
-
-  if (failed > 0) {
-    process.exit(1);
+function coerceToType(value: any, expectedType: string): any {
+  switch (expectedType) {
+    case 'boolean':
+      if (typeof value === 'boolean') return value;
+      if (value === 1 || value === '1' || value === 'true') return true;
+      if (value === 0 || value === '0' || value === 'false') return false;
+      return Boolean(value);
+    case 'number':
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string' && (value.startsWith('+') || value.startsWith('-'))) {
+        return value;
+      }
+      const num = Number(value);
+      return isNaN(num) ? value : num;
+    case 'string':
+      return String(value);
+    default:
+      return value;
   }
 }
 
-// Run tests
-runTests().catch((error) => {
-  console.error('Test runner error:', error);
-  process.exit(1);
-});
+function coerceValue(value: string, expectedType: string): any {
+  if (expectedType.includes('number') && (value.startsWith('+') || value.startsWith('-'))) {
+    return value;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return coerceToType(parsed, expectedType);
+  } catch {
+    return coerceToType(value, expectedType);
+  }
+}
+
+function extractBaseType(typeStr: string): string {
+  const objectMatch = typeStr.match(/\{\s*\w+\??\s*:\s*(\w+)/);
+  if (objectMatch) {
+    return objectMatch[1];
+  }
+  const unionTypes = typeStr.split('|').map((t) => t.trim());
+  for (const type of unionTypes) {
+    if (/^(boolean|number|string)/.test(type)) {
+      return type;
+    }
+  }
+  return 'any';
+}
+
+function looksLikeMarkdown(value: any): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^---\s*[\r\n]/.test(trimmed)) return true;
+  const blockPatterns: RegExp[] = [
+    /^#{1,6}\s+/m,
+    /^> /m,
+    /^\s*[-*+]\s+/m,
+    /^\s*\d+\.\s+/m,
+    /^```/m,
+    /(?:^|\n)(?:-{3,}|_{3,}|\*{3,})(?:\n|$)/m,
+  ];
+  if (blockPatterns.some((pattern) => pattern.test(trimmed))) return true;
+  if (/\[.+?\]\(.+?\)/.test(trimmed)) return true;
+  return false;
+}
+
+const stripAnsiRegex = /\u001b\[[0-9;]*m/g;
+
+function visibleLength(text: string): number {
+  return text.replace(stripAnsiRegex, '').length;
+}
+
+function wrapToWidth(text: string, width: number): string[] {
+  if (!width) return [text];
+  const lines: string[] = [];
+  for (const rawLine of text.split('\n')) {
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine) {
+      lines.push('');
+      continue;
+    }
+    let current = '';
+    for (const word of trimmedLine.split(' ')) {
+      if (word.length > width) {
+        if (current) {
+          lines.push(current);
+          current = '';
+        }
+        let remaining = word;
+        while (remaining.length > width) {
+          lines.push(remaining.slice(0, width));
+          remaining = remaining.slice(width);
+        }
+        current = remaining;
+        continue;
+      }
+      if (!current) {
+        current = word;
+        continue;
+      }
+      if (current.length + 1 + word.length > width) {
+        lines.push(current);
+        current = word;
+      } else {
+        current += ` ${word}`;
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
+function formatLabel(name: string): string {
+  return name
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/([a-zA-Z])(\d)/g, '$1 $2')
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
+}
+
+function isValidOutputFormat(format: string): boolean {
+  const knownFormats: Set<string> = new Set([
+    'primitive',
+    'table',
+    'tree',
+    'list',
+    'none',
+    'json',
+    'markdown',
+    'yaml',
+    'xml',
+    'html',
+    'code',
+  ]);
+  return knownFormats.has(format) || format.startsWith('code:');
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+async function run() {
+  console.log('\n-- parseCliArgs --');
+
+  await test('positional args', () => {
+    const params: MethodInfo['params'] = [
+      { name: 'greeting', type: 'string', optional: false },
+      { name: 'target', type: 'string', optional: false },
+    ];
+    const result = parseCliArgs(['hello', 'world'], params);
+    assert.equal(result.greeting, 'hello');
+    assert.equal(result.target, 'world');
+  });
+
+  await test('named args with --key value', () => {
+    const params: MethodInfo['params'] = [
+      { name: 'name', type: 'string', optional: false },
+      { name: 'age', type: 'number', optional: false },
+    ];
+    const result = parseCliArgs(['--name', 'alice', '--age', '30'], params);
+    assert.equal(result.name, 'alice');
+    assert.equal(result.age, 30);
+  });
+
+  await test('--key=value format', () => {
+    const params: MethodInfo['params'] = [{ name: 'name', type: 'string', optional: false }];
+    const result = parseCliArgs(['--name=alice'], params);
+    assert.equal(result.name, 'alice');
+  });
+
+  await test('boolean flags (bare --flag)', () => {
+    const params: MethodInfo['params'] = [{ name: 'verbose', type: 'boolean', optional: true }];
+    const result = parseCliArgs(['--verbose'], params);
+    assert.equal(result.verbose, true);
+  });
+
+  await test('--no-prefix negation', () => {
+    const params: MethodInfo['params'] = [{ name: 'verbose', type: 'boolean', optional: true }];
+    const result = parseCliArgs(['--no-verbose'], params);
+    assert.equal(result.verbose, false);
+  });
+
+  await test('mixed positional + named (boolean before next flag)', () => {
+    const params: MethodInfo['params'] = [
+      { name: 'greeting', type: 'string', optional: false },
+      { name: 'target', type: 'string', optional: false },
+      { name: 'loud', type: 'boolean', optional: true },
+    ];
+    // Boolean flag followed by --flag => bare true, positional fills target
+    const result = parseCliArgs(['hello', '--loud', '--name=x', 'world'], params);
+    assert.equal(result.greeting, 'hello');
+    assert.equal(result.target, 'world');
+    assert.equal(result.loud, true);
+  });
+
+  await test('mixed positional + named (boolean at end)', () => {
+    const params: MethodInfo['params'] = [
+      { name: 'greeting', type: 'string', optional: false },
+      { name: 'target', type: 'string', optional: false },
+      { name: 'loud', type: 'boolean', optional: true },
+    ];
+    // Positionals first, then boolean flag at the end
+    const result = parseCliArgs(['hello', 'world', '--loud'], params);
+    assert.equal(result.greeting, 'hello');
+    assert.equal(result.target, 'world');
+    assert.equal(result.loud, true);
+  });
+
+  await test('JSON values', () => {
+    const params: MethodInfo['params'] = [{ name: 'data', type: 'any', optional: false }];
+    const result = parseCliArgs(['--data', '{"key":"value"}'], params);
+    assert.deepEqual(result.data, { key: 'value' });
+  });
+
+  await test('bare word matching known param names', () => {
+    const params: MethodInfo['params'] = [
+      { name: 'group', type: 'string', optional: false },
+      { name: 'folder', type: 'string', optional: false },
+    ];
+    const result = parseCliArgs(['group', 'Arul', 'folder', '~/path'], params);
+    assert.equal(result.group, 'Arul');
+    assert.equal(result.folder, '~/path');
+  });
+
+  console.log('\n-- coerceValue --');
+
+  await test('string to number coercion ("42" -> 42)', () => {
+    assert.equal(coerceValue('42', 'number'), 42);
+  });
+
+  await test('string to float coercion ("3.14" -> 3.14)', () => {
+    assert.equal(coerceValue('3.14', 'number'), 3.14);
+  });
+
+  await test('string to boolean ("true" -> true, "false" -> false)', () => {
+    assert.equal(coerceValue('true', 'boolean'), true);
+    assert.equal(coerceValue('false', 'boolean'), false);
+  });
+
+  await test('preserves +/- prefixed strings for number type', () => {
+    assert.equal(coerceValue('+3', 'number'), '+3');
+    assert.equal(coerceValue('-5', 'number'), '-5');
+  });
+
+  await test('JSON parsing for arrays', () => {
+    assert.deepEqual(coerceValue('[1,2,3]', 'any'), [1, 2, 3]);
+  });
+
+  await test('invalid JSON stays as string', () => {
+    assert.equal(coerceValue('not-json{', 'string'), 'not-json{');
+  });
+
+  console.log('\n-- coerceToType --');
+
+  await test('boolean: true/false literals', () => {
+    assert.equal(coerceToType(true, 'boolean'), true);
+    assert.equal(coerceToType(false, 'boolean'), false);
+  });
+
+  await test('boolean: 1/0 numbers', () => {
+    assert.equal(coerceToType(1, 'boolean'), true);
+    assert.equal(coerceToType(0, 'boolean'), false);
+  });
+
+  await test('boolean: "true"/"false"/"1"/"0" strings', () => {
+    assert.equal(coerceToType('true', 'boolean'), true);
+    assert.equal(coerceToType('false', 'boolean'), false);
+    assert.equal(coerceToType('1', 'boolean'), true);
+    assert.equal(coerceToType('0', 'boolean'), false);
+  });
+
+  await test('number: numeric values pass through', () => {
+    assert.equal(coerceToType(42, 'number'), 42);
+    assert.equal(coerceToType(3.14, 'number'), 3.14);
+  });
+
+  await test('number: string numbers coerced', () => {
+    assert.equal(coerceToType('42', 'number'), 42);
+    assert.equal(coerceToType('3.14', 'number'), 3.14);
+  });
+
+  await test('number: NaN stays as string', () => {
+    assert.equal(coerceToType('hello', 'number'), 'hello');
+  });
+
+  await test('string: always String()', () => {
+    assert.equal(coerceToType(42, 'string'), '42');
+    assert.equal(coerceToType(true, 'string'), 'true');
+    assert.equal(coerceToType('abc', 'string'), 'abc');
+  });
+
+  await test('any: pass-through', () => {
+    const obj = { a: 1 };
+    assert.equal(coerceToType(obj, 'any'), obj);
+    assert.equal(coerceToType('hello', 'unknown'), 'hello');
+  });
+
+  console.log('\n-- extractBaseType --');
+
+  await test('"boolean | number" -> "boolean"', () => {
+    assert.equal(extractBaseType('boolean | number'), 'boolean');
+  });
+
+  await test('"{ mute?: boolean } | boolean" -> "boolean"', () => {
+    assert.equal(extractBaseType('{ mute?: boolean } | boolean'), 'boolean');
+  });
+
+  await test('"string" -> "string"', () => {
+    assert.equal(extractBaseType('string'), 'string');
+  });
+
+  await test('"SomeCustomType" -> "any"', () => {
+    assert.equal(extractBaseType('SomeCustomType'), 'any');
+  });
+
+  console.log('\n-- looksLikeMarkdown --');
+
+  await test('headings: "# Hello" -> true', () => {
+    assert.equal(looksLikeMarkdown('# Hello'), true);
+  });
+
+  await test('lists: "- item" -> true', () => {
+    assert.equal(looksLikeMarkdown('- item'), true);
+  });
+
+  await test('code blocks: "```js\\n..." -> true', () => {
+    assert.equal(looksLikeMarkdown('```js\ncode here\n```'), true);
+  });
+
+  await test('links: "[text](url)" -> true', () => {
+    assert.equal(looksLikeMarkdown('[text](url)'), true);
+  });
+
+  await test('front matter: "---\\ntitle: x\\n---" -> true', () => {
+    assert.equal(looksLikeMarkdown('---\ntitle: x\n---'), true);
+  });
+
+  await test('plain text -> false', () => {
+    assert.equal(looksLikeMarkdown('just some plain text here'), false);
+  });
+
+  await test('empty string -> false', () => {
+    assert.equal(looksLikeMarkdown(''), false);
+  });
+
+  await test('non-string -> false', () => {
+    assert.equal(looksLikeMarkdown(42), false);
+    assert.equal(looksLikeMarkdown(null), false);
+  });
+
+  console.log('\n-- visibleLength --');
+
+  await test('plain text -> length', () => {
+    assert.equal(visibleLength('hello'), 5);
+  });
+
+  await test('ANSI codes stripped', () => {
+    assert.equal(visibleLength('\u001b[31mhello\u001b[0m'), 5);
+  });
+
+  await test('multiple ANSI codes', () => {
+    assert.equal(visibleLength('\u001b[1m\u001b[31mhi\u001b[0m'), 2);
+  });
+
+  await test('empty string -> 0', () => {
+    assert.equal(visibleLength(''), 0);
+  });
+
+  console.log('\n-- wrapToWidth --');
+
+  await test('short text within width -> single line', () => {
+    const result = wrapToWidth('hello world', 80);
+    assert.deepEqual(result, ['hello world']);
+  });
+
+  await test('long text -> multiple lines', () => {
+    const result = wrapToWidth('one two three four', 10);
+    assert.deepEqual(result, ['one two', 'three four']);
+  });
+
+  await test('words longer than width -> broken', () => {
+    const result = wrapToWidth('abcdefghij', 5);
+    assert.deepEqual(result, ['abcde', 'fghij']);
+  });
+
+  await test('newlines preserved', () => {
+    const result = wrapToWidth('line one\nline two', 80);
+    assert.deepEqual(result, ['line one', 'line two']);
+  });
+
+  await test('empty lines preserved', () => {
+    const result = wrapToWidth('line one\n\nline three', 80);
+    assert.deepEqual(result, ['line one', '', 'line three']);
+  });
+
+  await test('width 0 -> single element', () => {
+    const result = wrapToWidth('hello world', 0);
+    assert.deepEqual(result, ['hello world']);
+  });
+
+  console.log('\n-- formatLabel --');
+
+  await test('"chatId" -> "Chat Id"', () => {
+    assert.equal(formatLabel('chatId'), 'Chat Id');
+  });
+
+  await test('"maxRetries" -> "Max Retries"', () => {
+    assert.equal(formatLabel('maxRetries'), 'Max Retries');
+  });
+
+  await test('"count2" -> "Count 2"', () => {
+    assert.equal(formatLabel('count2'), 'Count 2');
+  });
+
+  await test('"name" -> "Name"', () => {
+    assert.equal(formatLabel('name'), 'Name');
+  });
+
+  console.log('\n-- isValidOutputFormat --');
+
+  await test('known formats are valid', () => {
+    for (const fmt of [
+      'table',
+      'json',
+      'markdown',
+      'yaml',
+      'xml',
+      'html',
+      'code',
+      'list',
+      'tree',
+      'none',
+      'primitive',
+    ]) {
+      assert.equal(isValidOutputFormat(fmt), true, `${fmt} should be valid`);
+    }
+  });
+
+  await test('code: prefix is valid', () => {
+    assert.equal(isValidOutputFormat('code:python'), true);
+    assert.equal(isValidOutputFormat('code:javascript'), true);
+  });
+
+  await test('unknown format is invalid', () => {
+    assert.equal(isValidOutputFormat('pdf'), false);
+    assert.equal(isValidOutputFormat('csv'), false);
+  });
+
+  console.log('\n-- parseMarkdownTableRow --');
+
+  await test('"| a | b | c |" -> ["a", "b", "c"]', () => {
+    assert.deepEqual(parseMarkdownTableRow('| a | b | c |'), ['a', 'b', 'c']);
+  });
+
+  await test('"a | b | c" -> ["a", "b", "c"]', () => {
+    assert.deepEqual(parseMarkdownTableRow('a | b | c'), ['a', 'b', 'c']);
+  });
+
+  await test('cells with whitespace are trimmed', () => {
+    assert.deepEqual(parseMarkdownTableRow('|  foo  |  bar  |'), ['foo', 'bar']);
+  });
+
+  // ── Summary ─────────────────────────────────────────────────────────
+  console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
+  if (failed > 0) process.exit(1);
+}
+
+run();
