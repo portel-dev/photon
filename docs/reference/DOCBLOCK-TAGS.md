@@ -16,7 +16,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@runtime` | **Required runtime version.** The photon will refuse to load if the runtime doesn't match. | `@runtime ^1.5.0` |
 | `@dependencies` | NPM packages to auto-install on first run. | `@dependencies axios@^1.0.0, lodash` |
 | `@mcp` | Declares an MCP dependency for constructor injection. | `@mcp github anthropics/mcp-server-github` |
-| `@photon` | Declares a Photon dependency (auto-install + auto-load). | `@photon billing billing-photon` |
+| `@photon` | Declares a Photon dependency (auto-install + auto-load). Append `:instance` to pin a named instance. | `@photon billing billing-photon` or `@photon homeTodos todo:home` |
 | `@cli` | Declares a system CLI tool dependency. | `@cli git - https://git-scm.com/downloads` |
 | `@mcps` | Lists MCP dependencies (for diagram generation). | `@mcps filesystem, git` |
 | `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |
@@ -1098,6 +1098,71 @@ export default class OrderProcessor extends PhotonMCP {
 | **Use case** | Tightly coupled helpers | Loosely coupled services |
 
 Both approaches benefit from `@photon` ensuring the dependency is installed and available. The `@photon` tag is what triggers auto-installation — without it, `this.call()` would fail if the target photon isn't loaded.
+
+### Instance Selection
+
+For `@stateful` photon dependencies, you can target a specific named instance using three mechanisms:
+
+#### 1. Declarative (Colon Syntax in `@photon` Tag)
+
+Append `:instanceName` to the photon source to pin the dependency to a specific instance at declaration time:
+
+```typescript
+/**
+ * Home Dashboard
+ * @photon homeTodos todo:home
+ * @photon workTodos todo:work
+ */
+export default class Dashboard {
+  constructor(
+    private homeTodos: any,  // Injected: "home" instance of todo photon
+    private workTodos: any   // Injected: "work" instance of todo photon
+  ) {}
+
+  async overview() {
+    const home = await this.homeTodos.list();
+    const work = await this.workTodos.list();
+    return { home, work };
+  }
+}
+```
+
+Both `homeTodos` and `workTodos` reference the same `todo` photon but receive different instances, each with their own persisted state.
+
+#### 2. Runtime API (`this.photon.use()`)
+
+Dynamically load and switch to a specific photon instance at runtime:
+
+```typescript
+async switchWorkspace({ workspace }: { workspace: string }) {
+  const todo = await this.photon.use('todo', workspace);
+  return todo.list();
+}
+```
+
+`this.photon.use(name, instance?)` returns a live in-process proxy to the requested instance. If no instance name is given, the default instance is returned. Supports namespace-qualified names: `this.photon.use('portel:todo', 'home')`.
+
+#### 3. Daemon-Routed (`this.call()` with Instance Option)
+
+Pass `instance` as a third-argument option for one-shot cross-process calls:
+
+```typescript
+async getHomeTasks() {
+  return this.call('todo.list', {}, { instance: 'home' });
+}
+```
+
+#### Comparison
+
+| | Declarative | `this.photon.use()` | `this.call()` with instance |
+|---|---|---|---|
+| **Binding** | Compile-time (fixed in tag) | Runtime (dynamic) | Runtime (dynamic) |
+| **Returns** | Live instance (constructor) | Live instance (proxy) | Method result only |
+| **Execution** | In-process | In-process | Cross-process (daemon) |
+| **Use case** | Known instances at design time | Dynamic instance switching | One-shot calls to specific instances |
+| **Multiple calls** | Natural (`this.dep.methodA()`, `this.dep.methodB()`) | Natural (returned proxy) | One call per invocation |
+
+**Do NOT consolidate `this.call()` and `this.photon.use()`** — they serve fundamentally different purposes. `this.photon.use()` returns a live object for direct interaction (multiple method calls, property access). `this.call()` is a one-shot RPC through the daemon. The instance option on `this.call()` is convenience for cases where you need a single cross-process call to a named instance without loading it in-process.
 
 ## Functional Tags (Runtime-Enforced)
 
