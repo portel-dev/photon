@@ -35,6 +35,7 @@ import { createLogger, Logger } from '../shared/logger.js';
 import { getErrorMessage } from '../shared/error-handler.js';
 import { timingSafeEqual, readBody, SimpleRateLimiter } from '../shared/security.js';
 import { audit } from '../shared/audit.js';
+import { WorkerManager } from './worker-manager.js';
 import fastJsonPatch, { type Operation } from 'fast-json-patch';
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const jsonPatchCompare = fastJsonPatch.compare;
@@ -114,7 +115,18 @@ class InProcessBroker implements ChannelBroker {
 }
 
 // Set the in-process broker so all photons use it for pub/sub
-setBroker(new InProcessBroker());
+const inProcessBroker = new InProcessBroker();
+setBroker(inProcessBroker);
+
+// Worker manager for @worker-tagged photons (isolated in worker threads)
+const workerManager = new WorkerManager(logger);
+
+// Wire worker manager pub/sub bridge to main broker
+workerManager.onPublish = (channel, message) => {
+  void inProcessBroker.publish(message as any);
+  // Also forward to other workers
+  workerManager.dispatchToWorkers(channel, message);
+};
 
 // Map of compositeKey -> SessionManager (lazy initialized)
 const sessionManagers = new Map<string, SessionManager>();
@@ -138,6 +150,19 @@ function compositeKey(photonName: string, workingDir?: string): string {
   if (!workingDir || workingDir === getDefaultContext().baseDir) return photonName;
   const dirHash = crypto.createHash('sha256').update(workingDir).digest('hex').slice(0, 8);
   return `${photonName}:${dirHash}`;
+}
+
+/** Check if a photon source file has the @worker class-level tag */
+function hasWorkerTag(photonPath: string): boolean {
+  try {
+    const source = fs.readFileSync(photonPath, 'utf-8');
+    // Look for @worker in the class-level JSDoc (before the class declaration)
+    const classDocMatch = source.match(/\/\*\*[\s\S]*?\*\/\s*(?:export\s+)?(?:default\s+)?class\s/);
+    if (!classDocMatch) return false;
+    return /@worker\b/.test(classDocMatch[0]);
+  } catch {
+    return false;
+  }
 }
 
 let idleTimeout = 0; // Daemon stays alive — it manages persistent stateful data
@@ -785,6 +810,47 @@ async function getOrCreateSessionManager(
     return null;
   }
 
+  // If @worker tagged, spawn in a worker thread instead of in-process
+  if (hasWorkerTag(pathToUse) && !workerManager.has(key)) {
+    try {
+      logger.info('Spawning worker thread for @worker photon', { photonName, key });
+      const info = await workerManager.spawn(key, photonName, pathToUse, workingDir);
+      photonPaths.set(key, pathToUse);
+      if (!photonPaths.has(photonName)) photonPaths.set(photonName, pathToUse);
+      if (workingDir) workingDirs.set(key, workingDir);
+      watchPhotonFile(photonName, pathToUse);
+
+      // Wire dep resolver to go through main thread's getOrCreateSessionManager
+      if (!workerManager.depResolver) {
+        workerManager.depResolver = async (depName, depPath, _consumerPhoton) => {
+          const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
+          if (!depManager) return null;
+          const loaded = await depManager.getOrLoadInstance('');
+          const toolNames = (loaded?.tools || []).map((t: any) => t.name as string);
+          return { toolNames };
+        };
+        workerManager.depCaller = async (depName, method, args) => {
+          const depKey = compositeKey(depName, workingDir);
+          const depManager = sessionManagers.get(depKey);
+          if (!depManager) throw new Error(`Dependency ${depName} not loaded`);
+          const loaded = await depManager.getOrLoadInstance('');
+          return depManager.loader.executeTool(loaded, method, args);
+        };
+      }
+
+      // Return null — caller should check workerManager.has(key) for routing
+      // We store a marker so callers know this is a worker photon
+      logger.info('Worker photon ready', { photonName, tools: info.tools.length });
+      return null;
+    } catch (err) {
+      logger.warn('Failed to spawn worker, falling back to in-process', {
+        photonName,
+        error: getErrorMessage(err),
+      });
+      // Fall through to in-process loading
+    }
+  }
+
   try {
     logger.info('Initializing session manager', {
       photonName,
@@ -1272,11 +1338,54 @@ async function handleRequest(
       };
     }
 
+    // Check if this photon runs in a worker thread
+    const cmdKey = compositeKey(photonName, request.workingDir);
+    if (workerManager.has(cmdKey)) {
+      const startMs = Date.now();
+      const result = await workerManager.call(
+        cmdKey,
+        request.method,
+        request.args || {},
+        request.sessionId || 'default',
+        request.instanceName || ''
+      );
+      return {
+        type: result.success ? 'result' : 'error',
+        id: request.id,
+        success: result.success,
+        data: result.data,
+        error: result.error,
+        durationMs: result.durationMs ?? Date.now() - startMs,
+      };
+    }
+
+    // Trigger worker spawn if needed (getOrCreateSessionManager returns null for workers)
     const sessionManager = await getOrCreateSessionManager(
       photonName,
       request.photonPath,
       request.workingDir
     );
+
+    // Re-check: might have spawned a worker
+    if (workerManager.has(cmdKey)) {
+      const startMs = Date.now();
+      const result = await workerManager.call(
+        cmdKey,
+        request.method,
+        request.args || {},
+        request.sessionId || 'default',
+        request.instanceName || ''
+      );
+      return {
+        type: result.success ? 'result' : 'error',
+        id: request.id,
+        success: result.success,
+        data: result.data,
+        error: result.error,
+        durationMs: result.durationMs ?? Date.now() - startMs,
+      };
+    }
+
     if (!sessionManager) {
       return {
         type: 'error',
@@ -2337,6 +2446,35 @@ async function reloadPhoton(
     const key = compositeKey(photonName, workingDir);
     logger.info('Hot-reloading photon', { photonName, key, path: newPhotonPath });
 
+    // If running in a worker, delegate reload to the worker
+    if (workerManager.has(key)) {
+      const result = await workerManager.reload(key, newPhotonPath);
+      if (result.success) {
+        publishToChannel(`system:${photonName}`, {
+          event: 'photon-reloaded',
+          timestamp: Date.now(),
+          worker: true,
+        });
+        logger.info('Worker photon reloaded', { photonName });
+      } else {
+        publishToChannel(`system:${photonName}`, {
+          event: 'photon-reload-failed',
+          timestamp: Date.now(),
+          error: result.error,
+          worker: true,
+        });
+        logger.error('Worker photon reload failed — old instance preserved', {
+          photonName,
+          error: result.error,
+        });
+      }
+      return {
+        success: result.success,
+        error: result.error,
+        sessionsUpdated: result.success ? 1 : 0,
+      };
+    }
+
     const sessionManager = sessionManagers.get(key);
     if (!sessionManager) {
       // First time - just register the path and start watching
@@ -2676,6 +2814,11 @@ function shutdown(): void {
   for (const photonPath of fileWatchers.keys()) {
     unwatchPhotonFile(photonPath);
   }
+
+  // Terminate all worker threads
+  void workerManager.terminateAll().catch((err) => {
+    logger.warn('Error terminating workers during shutdown', { error: getErrorMessage(err) });
+  });
 
   for (const manager of sessionManagers.values()) {
     manager.destroy();
