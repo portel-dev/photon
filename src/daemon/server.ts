@@ -1354,9 +1354,11 @@ async function handleRequest(
       };
     }
 
-    // Check if this photon runs in a worker thread
+    // Runtime-injected instance tools must be handled by the daemon,
+    // not forwarded to worker threads (workers don't know about _use etc.)
+    const runtimeTools = ['_use', '_instances', '_undo', '_redo'];
     const cmdKey = compositeKey(photonName, request.workingDir);
-    if (workerManager.has(cmdKey)) {
+    if (workerManager.has(cmdKey) && !runtimeTools.includes(request.method)) {
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,
@@ -1383,7 +1385,7 @@ async function handleRequest(
     );
 
     // Re-check: might have spawned a worker
-    if (workerManager.has(cmdKey)) {
+    if (workerManager.has(cmdKey) && !runtimeTools.includes(request.method)) {
       const startMs = Date.now();
       const result = await workerManager.call(
         cmdKey,
@@ -1403,6 +1405,39 @@ async function handleRequest(
     }
 
     if (!sessionManager) {
+      // Worker photons don't have a session manager — handle runtime tools directly
+      if (workerManager.has(cmdKey) && runtimeTools.includes(request.method)) {
+        if (request.method === '_use') {
+          const instanceName = String((request.args as any)?.name ?? '');
+          const label = instanceName || 'default';
+          return {
+            type: 'result',
+            id: request.id,
+            success: true,
+            data: { instance: label, message: `Switched to instance: ${label}` },
+          };
+        }
+        if (request.method === '_instances') {
+          const { InstanceStore } = await import('../context-store.js');
+          const store = new InstanceStore(request.workingDir);
+          const { instances, autoInstance, metadata } = store.listInstancesByMtime(photonName);
+          if (!instances.includes('default')) instances.push('default');
+          instances.sort();
+          return {
+            type: 'result',
+            id: request.id,
+            success: true,
+            data: { instances, current: 'default', autoInstance, metadata },
+          };
+        }
+        // _undo/_redo not supported for worker photons
+        return {
+          type: 'error',
+          id: request.id,
+          error: `${request.method} is not supported for worker-thread photons`,
+        };
+      }
+
       return {
         type: 'error',
         id: request.id,
