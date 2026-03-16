@@ -2728,6 +2728,52 @@ function startupWatchPhotons(): void {
 
   logger.info('Startup watch registered', { count: fileWatchers.size, dir: photonDir });
 
+  // Eagerly load photons with onInitialize — they may need to auto-resume
+  const toEagerLoad: Array<{ name: string; path: string }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    const ext = extensions.find((e) => entry.name.endsWith(e));
+    if (!ext) continue;
+
+    const pName = entry.name.slice(0, -ext.length);
+    const pPath = path.join(photonDir, entry.name);
+    try {
+      const source = fs.readFileSync(pPath, 'utf-8');
+      if (/\bonInitialize\s*\(/.test(source)) {
+        toEagerLoad.push({ name: pName, path: pPath });
+      }
+    } catch {
+      /* skip unreadable files */
+    }
+  }
+
+  if (toEagerLoad.length > 0) {
+    logger.info('Eager-loading lifecycle photons', {
+      count: toEagerLoad.length,
+      names: toEagerLoad.map((p) => p.name),
+    });
+    // Defer to after server starts listening (so deps can be resolved)
+    const eagerLoad = async (): Promise<void> => {
+      for (const p of toEagerLoad) {
+        try {
+          const manager = await getOrCreateSessionManager(p.name, p.path);
+          if (manager) {
+            await manager.getOrLoadInstance('');
+            logger.info('Eager-loaded lifecycle photon', { name: p.name });
+          }
+        } catch (err) {
+          logger.warn('Failed to eager-load lifecycle photon', {
+            name: p.name,
+            error: getErrorMessage(err),
+          });
+        }
+      }
+    };
+    setTimeout(() => {
+      eagerLoad().catch(() => {});
+    }, 1000);
+  }
+
   // Watch the directory itself for new photon files added after startup
   try {
     const dirWatcher = fs.watch(photonDir, (eventType, filename) => {
