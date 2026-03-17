@@ -292,6 +292,14 @@ export class PhotonLoader {
   public photonInstanceResolver?: (photonName: string, photonPath: string) => Promise<any>;
 
   /**
+   * Optional resolver for this.instance(name) — same-photon cross-instance access.
+   * When set (by the daemon), allows a photon to get another instance of itself
+   * in-process without daemon round-trips. Used for instance-per-group patterns
+   * where the default instance routes to named sub-instances.
+   */
+  public instanceResolver?: (instanceName: string) => Promise<any>;
+
+  /**
    * Pre-loaded dependency modules for compiled binaries.
    * Maps dependency name → { module, source } so @photon deps can be resolved
    * without file I/O when running as a standalone binary.
@@ -1016,6 +1024,13 @@ export class PhotonLoader {
             }
           };
         }
+      }
+
+      // Inject this.instance(name) for same-photon cross-instance access.
+      // Independent of capabilities — any photon can use instance-per-group patterns.
+      if (this.instanceResolver) {
+        const resolver = this.instanceResolver;
+        instance.instance = async (name: string) => resolver(name);
       }
 
       // Channel event capability: inject on()/off()/_dispatch()/_matchesFilter()

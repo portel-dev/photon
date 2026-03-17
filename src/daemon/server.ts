@@ -1014,6 +1014,15 @@ async function getOrCreateSessionManager(
       return null; // fall through to loader's own loading
     };
 
+    // Wire this.instance(name) — same-photon cross-instance access.
+    // Allows a photon to get another instance of itself in-process,
+    // e.g. chat photon routing per-group instances.
+    const mgr = manager;
+    mgr.loader.instanceResolver = async (instanceName: string) => {
+      const loaded = await mgr.getOrLoadInstance(instanceName);
+      return loaded?.instance ?? null;
+    };
+
     sessionManagers.set(key, manager);
     photonPaths.set(key, pathToUse);
     // Also store under bare photonName so snapshotState/persistInstanceState can find it
