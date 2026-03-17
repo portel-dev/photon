@@ -352,19 +352,49 @@ async function runSetup(withShell: boolean) {
     for (const name of created) console.log('    ' + name + ' -> ' + binName + ' x ...');
   }
 
-  // Shell integration
+  // Shell integration — add aliases for main binary + all bundled photons
   if (withShell) {
     const marker = '# photon:' + PHOTON_NAME;
-    const alias = marker + '\\nfunction ' + PHOTON_NAME + '() { "' + process.execPath + '" "$@"; }\\n';
-    const rcFile = process.env.SHELL?.includes('zsh')
-      ? __path.default.join(homeDir, '.zshrc')
-      : __path.default.join(homeDir, '.bashrc');
-    const rcContent = __fs.default.existsSync(rcFile) ? __fs.default.readFileSync(rcFile, 'utf-8') : '';
-    if (!rcContent.includes(marker)) {
-      __fs.default.appendFileSync(rcFile, '\\n' + alias);
-      console.log('  Shell alias added to ' + rcFile);
+    const binPath = process.execPath;
+
+    if (isWindows) {
+      // PowerShell profile
+      const psProfile = __path.default.join(homeDir, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+      const psDir = __path.default.dirname(psProfile);
+      __fs.default.mkdirSync(psDir, { recursive: true });
+      const psContent = __fs.default.existsSync(psProfile) ? __fs.default.readFileSync(psProfile, 'utf-8') : '';
+      if (!psContent.includes(marker)) {
+        let block = '\\n' + marker + '\\n';
+        block += 'function ' + PHOTON_NAME + ' { & "' + binPath + '" @args }\\n';
+        for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
+          if (seen.has(name) && name !== PHOTON_NAME) {
+            block += 'function ' + name + ' { & "' + binPath + '" x ' + name + ' @args }\\n';
+          }
+        }
+        __fs.default.appendFileSync(psProfile, block);
+        console.log('  PowerShell aliases added to ' + psProfile);
+      } else {
+        console.log('  PowerShell aliases already present');
+      }
     } else {
-      console.log('  Shell alias already present in ' + rcFile);
+      // Unix: .zshrc or .bashrc
+      const rcFile = process.env.SHELL?.includes('zsh')
+        ? __path.default.join(homeDir, '.zshrc')
+        : __path.default.join(homeDir, '.bashrc');
+      const rcContent = __fs.default.existsSync(rcFile) ? __fs.default.readFileSync(rcFile, 'utf-8') : '';
+      if (!rcContent.includes(marker)) {
+        let block = '\\n' + marker + '\\n';
+        block += 'alias ' + PHOTON_NAME + '="' + binPath + '"\\n';
+        for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
+          if (seen.has(name) && name !== PHOTON_NAME) {
+            block += 'alias ' + name + '="' + binPath + ' x ' + name + '"\\n';
+          }
+        }
+        __fs.default.appendFileSync(rcFile, block);
+        console.log('  Shell aliases added to ' + rcFile);
+      } else {
+        console.log('  Shell aliases already present in ' + rcFile);
+      }
     }
   }
   console.log('\\nSetup complete.');
