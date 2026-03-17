@@ -297,18 +297,8 @@ export function registerBuildCommand(program: Command) {
               ? `\nconst BUNDLED_PHOTONS: Record<string, { module: any; source: string; filePath: string }> = {\n${symlinkEntries.join('\n')}\n};\n`
               : '\nconst BUNDLED_PHOTONS: Record<string, { module: any; source: string; filePath: string }> = {};\n';
 
-          // Symlink routing logic: detect which photon to serve based on executable name
-          const symlinkRoutingCode = `
-  // Detect if invoked via a symlink to serve a bundled dependency.
-  // Bun compiled binaries don't preserve argv[0] for symlinks, but
-  // $_ (set by shells) contains the actual invocation path including symlink name.
-  const __path = await import('path');
-  const invokedAs = __path.default.basename(process.env._ || process.execPath);
-  const bundled = BUNDLED_PHOTONS[invokedAs];
-  const activeModule = bundled ? bundled.module : photonModule;
-  const activeSource = bundled ? bundled.source : EMBEDDED_SOURCE;
-  const activeFilePath = bundled ? bundled.filePath : ${JSON.stringify(photonPath)};
-`;
+          // The main photon file path constant for the entrypoint
+          const mainFilePathJson = JSON.stringify(photonPath);
 
           // Build the depMap argument for CLI mode
           const cliDepMapArg = depMapEntries.length > 0 ? ', buildDependencyMap()' : '';
@@ -328,28 +318,38 @@ async function runSetup(withShell: boolean) {
   const binDir = __path.default.dirname(process.execPath);
   const binName = __path.default.basename(process.execPath);
   const homeDir = __os.default.homedir();
+  const isWindows = process.platform === 'win32';
 
   // Create data directory
   const dataDir = __path.default.join(homeDir, '.photon', PHOTON_NAME);
   __fs.default.mkdirSync(dataDir, { recursive: true });
   console.log('  Data dir: ' + dataDir);
 
-  // Create symlinks for bundled photon dependencies
+  // Create wrapper scripts for bundled photon dependencies
+  // These call <binary> x <photon> internally — works on all platforms
   const created: string[] = [];
   const seen = new Set<string>();
   for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
-    if (seen.has(name) || name === binName) continue;
+    if (seen.has(name) || name === PHOTON_NAME) continue;
     seen.add(name);
-    const linkPath = __path.default.join(binDir, name);
-    try {
-      if (__fs.default.existsSync(linkPath)) __fs.default.unlinkSync(linkPath);
-      __fs.default.symlinkSync(process.execPath, linkPath);
+
+    if (isWindows) {
+      // Windows .cmd wrapper
+      const cmdPath = __path.default.join(binDir, name + '.cmd');
+      const cmdContent = '@echo off\\r\\n"%~dp0' + binName + '" x ' + name + ' %*\\r\\n';
+      __fs.default.writeFileSync(cmdPath, cmdContent);
+      created.push(name + '.cmd');
+    } else {
+      // Unix shell wrapper (shebang script)
+      const scriptPath = __path.default.join(binDir, name);
+      const scriptContent = '#!/bin/sh\\nexec "$(dirname "$0")/' + binName + '" x ' + name + ' "$@"\\n';
+      __fs.default.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
       created.push(name);
-    } catch {}
+    }
   }
   if (created.length > 0) {
-    console.log('  Symlinks:');
-    for (const name of created) console.log('    ' + name + ' -> ' + binName);
+    console.log('  Wrappers:');
+    for (const name of created) console.log('    ' + name + ' -> ' + binName + ' x ...');
   }
 
   // Shell integration
@@ -459,10 +459,11 @@ function printUsage() {
   console.log('');
   console.log('Commands:');
   console.log('  <method> [args]     Run a method directly (CLI mode)');
+  console.log('  x <photon> [...]    Run a bundled photon (cross-platform)');
   console.log('  mcp                 Start MCP server (stdio transport)');
   console.log('  sse [port]          Start MCP server (HTTP/SSE transport)');
   console.log('  beam [port]         Start Beam web UI (SSE + browser)');
-  console.log('  setup [--shell]     Create symlinks & data directories');
+  console.log('  setup [--shell]     Create wrapper scripts & data directories');
   console.log('  app                 Generate PWA app launchers');
   console.log('');
   console.log('Run with no arguments to see available methods.');
@@ -608,16 +609,50 @@ async function runCli(methodName: string, methodArgs: string[], source: string, 
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0] || '';
+  let args = process.argv.slice(2);
+  let command = args[0] || '';
 
-  // Meta commands (no symlink routing needed)
+  // Meta commands (no routing needed)
   if (command === 'setup') { await runSetup(args.includes('--shell')); process.exit(0); }
   if (command === 'app') { await generateAppLaunchers(args.slice(1)); process.exit(0); }
   if (command === '--help' || command === '-h') { printUsage(); process.exit(0); }
   if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
 
-${symlinkRoutingCode}
+  // Resolve which bundled photon to serve
+  let activeModule: any;
+  let activeSource: string;
+  let activeFilePath: string;
+
+  if (command === 'x' && args[1]) {
+    // Explicit routing: claw x whatsapp [command] [args...]
+    const photonName = args[1];
+    const bundled = BUNDLED_PHOTONS[photonName];
+    if (!bundled) {
+      const available = Object.keys(BUNDLED_PHOTONS).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+      console.error('Unknown photon: ' + photonName + '\\nBundled: ' + (available || '(none)'));
+      process.exit(1);
+    }
+    activeModule = bundled.module;
+    activeSource = bundled.source;
+    activeFilePath = bundled.filePath;
+    args = args.slice(2); // remaining args after x <photon>
+    command = args[0] || '';
+  } else {
+    // Fallback: symlink/wrapper detection via $_ (Unix) or argv[0]
+    const __path = await import('path');
+    const invokedAs = __path.default.basename(process.env._ || process.argv[1] || process.execPath);
+    const bundled = BUNDLED_PHOTONS[invokedAs];
+    if (bundled) {
+      activeModule = bundled.module;
+      activeSource = bundled.source;
+      activeFilePath = bundled.filePath;
+    } else {
+      activeModule = photonModule;
+      activeSource = EMBEDDED_SOURCE;
+      activeFilePath = ${mainFilePathJson};
+    }
+  }
+
   // Server modes
   const SERVER_COMMANDS = ['mcp', 'sse', 'beam'];
   if (SERVER_COMMANDS.includes(command)) {
@@ -720,34 +755,33 @@ main().catch(err => {
 
           spinner.succeed(`Compiled: ${chalk.green(chalk.bold(outfile))} (${sizeMB} MB)`);
 
-          // Create symlinks for bundled @photon dependencies
+          // Create wrapper scripts for bundled @photon dependencies
           if (photonDeps.length > 0) {
             const outDir = path.dirname(path.resolve(outfile));
-            const outBase = path.resolve(outfile);
-            const createdLinks: string[] = [];
+            const outName = path.basename(outfile);
+            const createdWrappers: string[] = [];
             const seenNames = new Set<string>();
 
             for (const dep of photonDeps) {
               const depName = path.basename(dep.filePath, '.photon.ts').replace('.photon', '');
-              if (seenNames.has(depName) || depName === path.basename(outfile)) continue;
+              if (seenNames.has(depName) || depName === outName) continue;
               seenNames.add(depName);
 
-              const linkPath = path.join(outDir, depName);
               try {
-                if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
-                fs.symlinkSync(outBase, linkPath);
-                createdLinks.push(depName);
+                // Create Unix shell wrapper
+                const scriptPath = path.join(outDir, depName);
+                const scriptContent = `#!/bin/sh\nexec "$(dirname "$0")/${outName}" x ${depName} "$@"\n`;
+                fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+                createdWrappers.push(depName);
               } catch {
-                // Symlink creation may fail on some filesystems — non-fatal
+                // Non-fatal — user can run `setup` later
               }
             }
 
-            if (createdLinks.length > 0) {
-              console.log(
-                `\n${chalk.dim('Symlinks (each serves the bundled photon as its own MCP server):')}`
-              );
-              for (const name of createdLinks) {
-                console.log(`  ${chalk.cyan(name)} → ${outfile}`);
+            if (createdWrappers.length > 0) {
+              console.log(`\n${chalk.dim('Wrappers (each routes to a bundled photon via `x`):')}`);
+              for (const name of createdWrappers) {
+                console.log(`  ${chalk.cyan(name)} → ${outfile} x ${name}`);
               }
             }
           }
@@ -755,12 +789,13 @@ main().catch(err => {
           console.log(`\nUsage:`);
           console.log(`  ./${outfile}              CLI mode (list methods)`);
           console.log(`  ./${outfile} <method>     Run a method directly`);
+          console.log(`  ./${outfile} x <photon>   Run a bundled photon`);
           console.log(`  ./${outfile} mcp          MCP server (stdio)`);
           console.log(`  ./${outfile} sse [port]   MCP server (HTTP/SSE)`);
           if (options.withApp) {
             console.log(`  ./${outfile} beam [port]  Beam web UI`);
           }
-          console.log(`  ./${outfile} setup        Create symlinks & data dirs`);
+          console.log(`  ./${outfile} setup        Create wrapper scripts & data dirs`);
         } catch (err) {
           spinner.fail('Build failed');
           printError(err instanceof Error ? err.message : String(err));
