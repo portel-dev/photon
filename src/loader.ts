@@ -103,6 +103,7 @@ import * as os from 'os';
 interface DependencySpec {
   name: string;
   version: string;
+  optional?: boolean;
 }
 
 import { MarketplaceManager, type Marketplace } from './marketplace-manager.js';
@@ -489,7 +490,7 @@ export class PhotonLoader {
     }
     const normalize = (deps: DependencySpec[]) =>
       deps
-        .map((d) => `${d.name}@${d.version}`)
+        .map((d) => `${d.name}@${d.version}${d.optional ? '?' : ''}`)
         .sort()
         .join('|');
     return normalize(a) === normalize(b);
@@ -619,9 +620,14 @@ export class PhotonLoader {
           continue;
         }
         const name = entry.slice(0, atIndex).trim();
-        const version = entry.slice(atIndex + 1).trim();
+        let version = entry.slice(atIndex + 1).trim();
+        // Trailing ? marks the dependency as optional (e.g. sharp@^0.33.0?)
+        const optional = version.endsWith('?');
+        if (optional) {
+          version = version.slice(0, -1);
+        }
         if (name && version) {
-          deps.push({ name, version });
+          deps.push({ name, version, ...(optional && { optional: true }) });
         }
       }
     }
@@ -632,14 +638,14 @@ export class PhotonLoader {
     existing: DependencySpec[],
     additional: DependencySpec[]
   ): DependencySpec[] {
-    const map = new Map<string, string>();
+    const map = new Map<string, DependencySpec>();
     for (const dep of existing) {
-      map.set(dep.name, dep.version);
+      map.set(dep.name, dep);
     }
     for (const dep of additional) {
-      map.set(dep.name, dep.version);
+      map.set(dep.name, dep);
     }
-    return Array.from(map.entries()).map(([name, version]) => ({ name, version }));
+    return Array.from(map.values());
   }
 
   /**
