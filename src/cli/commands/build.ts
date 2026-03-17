@@ -254,12 +254,12 @@ export function registerBuildCommand(program: Command) {
 
             const escapedDepSource = escapeForTemplateLiteral(dep.sourceCode);
             depMapEntries.push(
-              `  deps.set('${dep.name}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+              `  if (_depModules[${i}]) deps.set('${dep.name}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
             );
             // Also register by source name for fallback matching
             if (dep.source !== dep.name) {
               depMapEntries.push(
-                `  deps.set('${dep.source}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+                `  if (_depModules[${i}]) deps.set('${dep.source}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
               );
             }
           }
@@ -835,6 +835,11 @@ async function main() {
   // Everything below needs modules — load them now
   await loadModules();
   const activeModule = activeDepIndex !== null ? _depModules[activeDepIndex] : _mainModule;
+  if (!activeModule) {
+    const name = activeDepIndex !== null ? Object.keys(BUNDLED_PHOTONS).find(k => BUNDLED_PHOTONS[k].depIndex === activeDepIndex) || 'unknown' : PHOTON_NAME;
+    console.error('Error: Module "' + name + '" failed to load. Check warnings above.');
+    process.exit(1);
+  }
 
   // Server modes
   const SERVER_COMMANDS = ['mcp', 'sse', 'beam'];
