@@ -168,6 +168,9 @@ export class CustomUiRenderer extends LitElement {
   // Fixes timing race: SSE tool-result fires before iframe exists.
   @property({ type: Object }) initialResult: any = null;
 
+  // Bump to force re-fetch of template + bridge (e.g., after tools-changed)
+  @property({ type: Number }) revision = 0;
+
   @state() private _srcDoc = '';
   @state() private _loading = true;
   @state() private _error = '';
@@ -183,7 +186,8 @@ export class CustomUiRenderer extends LitElement {
       changedProperties.has('method') ||
       changedProperties.has('templatePath') ||
       changedProperties.has('uiId') ||
-      changedProperties.has('uiUri')
+      changedProperties.has('uiUri') ||
+      changedProperties.has('revision')
     ) {
       // Debounce: properties may arrive in separate Lit update cycles
       if (this._loadTimer) clearTimeout(this._loadTimer);

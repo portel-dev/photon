@@ -1871,6 +1871,7 @@ export class BeamApp extends LitElement {
   @state() private _runningTests = false;
   @state() private _selectedMethod: any = null;
   @state() private _lastResult: any = null;
+  @state() private _customUiRevision = 0; // bumped on tools-changed to invalidate custom UI iframes
   @state() private _customFormatUri: string | null = null;
   @state() private _lastFormParams: Record<string, any> = {};
   @state() private _sharedFormParams: Record<string, any> | null = null;
@@ -2255,6 +2256,7 @@ export class BeamApp extends LitElement {
           const prevNames = new Set(this._photons.filter((p) => !p.internal).map((p) => p.name));
           this._photons = photons;
           this._externalMCPs = externalMCPs;
+          this._customUiRevision++; // invalidate custom UI iframes to pick up asset changes
           // Re-add unconfigured photons from configuration schema
           this._addUnconfiguredPhotons();
 
@@ -4255,6 +4257,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   .uiId=${this._selectedMethod.linkedUi}
                   .theme=${this._theme}
                   .initialResult=${this._lastResult}
+                  .revision=${this._customUiRevision}
                   style="height: calc(100vh - 140px);"
                 ></custom-ui-renderer>
               `;
@@ -5099,6 +5102,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     .uiUri=${this._customFormatUri}
                     .theme=${this._theme}
                     .initialResult=${opts.result}
+                    .revision=${this._customUiRevision}
                   ></custom-ui-renderer>
                 `
               : html`
