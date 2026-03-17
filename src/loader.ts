@@ -1272,8 +1272,12 @@ export class PhotonLoader {
     instance._photonName = name;
     instance.instanceName = options?.instanceName ?? '';
 
-    // Inject file path for storage()/assets() resolution
-    instance._photonFilePath = absolutePath;
+    // Inject file path for storage()/assets() resolution.
+    // For preloaded modules (compiled binaries), remap to ~/.photon/ so storage()
+    // resolves under the deployment directory instead of the build machine's source tree.
+    // Assets still use absolutePath (resolved from embedded source paths).
+    const storagePath = path.join(os.homedir(), '.photon', path.basename(absolutePath));
+    instance._photonFilePath = storagePath;
 
     // Inject dynamic photon resolver for this.photon.use()
     instance._photonResolver = (photonName: string, instanceName?: string) => {
