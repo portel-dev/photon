@@ -2331,6 +2331,31 @@ export class PhotonServer {
         if (this.options.embeddedAssets) {
           const assets = this.options.embeddedAssets;
 
+          // Minimal /api/diagnostics for service worker health check
+          if (req.method === 'GET' && url.pathname === '/api/diagnostics') {
+            const { PHOTON_VERSION } = await import('./version.js');
+            const photonName = this.mcp?.name || 'photon';
+            const tools = this.mcp ? Object.keys((this.mcp as any)._toolSchemas || {}).length : 0;
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            });
+            res.end(
+              JSON.stringify({
+                photonVersion: PHOTON_VERSION,
+                workingDir: process.cwd(),
+                photons: [
+                  {
+                    name: photonName,
+                    status: 'loaded',
+                    methods: tools,
+                  },
+                ],
+              })
+            );
+            return;
+          }
+
           if (req.method === 'GET' && url.pathname === '/index.html') {
             res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
             res.end(assets.indexHtml);
