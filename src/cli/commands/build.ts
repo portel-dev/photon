@@ -310,7 +310,10 @@ export function registerBuildCommand(program: Command) {
   const activeFilePath = bundled ? bundled.filePath : ${JSON.stringify(photonPath)};
 `;
 
-          const entrypointCode = `import { PhotonServer, EmbeddedRuntime } from '${photonImportPath}';
+          // Build the depMap argument for CLI mode
+          const cliDepMapArg = depMapEntries.length > 0 ? ', buildDependencyMap()' : '';
+
+          const entrypointCode = `import { PhotonServer, PhotonLoader, EmbeddedRuntime, SchemaExtractor } from '${photonImportPath}';
 import * as photonModule from '${relativePhotonPath}';
 ${depImportsBlock}
 const EMBEDDED_SOURCE = \`${escapedSource}\`;
@@ -450,37 +453,219 @@ start http://localhost:\${port}/app/\${appName}
   console.log('\\nApp launchers created. They start the SSE server and open the PWA in your browser.');
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0] || 'mcp';
+function printUsage() {
+  console.log('');
+  console.log('Usage: ' + PHOTON_NAME + ' [command] [options]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  <method> [args]     Run a method directly (CLI mode)');
+  console.log('  mcp                 Start MCP server (stdio transport)');
+  console.log('  sse [port]          Start MCP server (HTTP/SSE transport)');
+  console.log('  beam [port]         Start Beam web UI (SSE + browser)');
+  console.log('  setup [--shell]     Create symlinks & data directories');
+  console.log('  app                 Generate PWA app launchers');
+  console.log('');
+  console.log('Run with no arguments to see available methods.');
+  console.log('');
+}
 
-  if (command === 'setup') { await runSetup(args.includes('--shell')); process.exit(0); }
-  if (command === 'app') { await generateAppLaunchers(args.slice(1)); process.exit(0); }
+function extractMethodsFromSource(source: string) {
+  const ext = new SchemaExtractor();
+  const metadata = ext.extractAllFromSource(source);
+  return metadata.tools
+    .filter((t: any) => !t.name.startsWith('scheduled') && !t.name.startsWith('handle') && t.name !== 'reportError')
+    .map((tool: any) => {
+      const params: { name: string; type: string; optional: boolean; description?: string }[] = [];
+      const schema = tool.inputSchema;
+      if (schema?.properties) {
+        for (const [name, prop] of Object.entries(schema.properties) as [string, any][]) {
+          let type = prop.type;
+          if (!type && (prop.anyOf || prop.oneOf)) {
+            type = (prop.anyOf || prop.oneOf).map((v: any) => v.type).filter(Boolean).join(' | ');
+          }
+          params.push({
+            name,
+            type: type || 'any',
+            optional: !schema.required?.includes(name),
+            description: prop.description,
+          });
+        }
+      }
+      return { name: tool.name, params, description: tool.description !== 'No description' ? tool.description : undefined };
+    });
+}
 
-  let port: number | undefined;
-  if (command === 'sse') {
-    port = args[1] ? parseInt(args[1], 10) : undefined;
+function cliParseArgs(args: string[], params: { name: string; type: string; optional: boolean }[]) {
+  const result: Record<string, any> = {};
+  const paramTypes = new Map(params.map(p => [p.name, p.type]));
+  let positionalIndex = 0;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--help' || arg === '-h' || arg === '--json') continue;
+    if (arg.startsWith('--no-')) { result[arg.substring(5)] = false; continue; }
+    if (arg.startsWith('--')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = arg.substring(2, eqIdx);
+        result[key] = cliCoerce(arg.substring(eqIdx + 1), paramTypes.get(key) || 'any');
+      } else {
+        const key = arg.substring(2);
+        const expectedType = paramTypes.get(key) || 'any';
+        if (expectedType === 'boolean' && (i + 1 >= args.length || args[i + 1].startsWith('--'))) {
+          result[key] = true;
+        } else if (i + 1 < args.length) { i++; result[key] = cliCoerce(args[i], expectedType); }
+        else { result[key] = true; }
+      }
+    } else if (paramTypes.has(arg)) {
+      const key = arg;
+      const expectedType = paramTypes.get(key) || 'any';
+      if (expectedType === 'boolean') { result[key] = true; }
+      else if (i + 1 < args.length) { i++; result[key] = cliCoerce(args[i], expectedType); }
+      else { result[key] = true; }
+    } else {
+      while (positionalIndex < params.length && params[positionalIndex].name in result) positionalIndex++;
+      if (positionalIndex < params.length) {
+        result[params[positionalIndex].name] = cliCoerce(arg, params[positionalIndex].type);
+        positionalIndex++;
+      }
+    }
   }
-${symlinkRoutingCode}
-  // Start embedded runtime (in-process broker + scheduler)
+  return result;
+}
+
+function cliCoerce(value: string, type: string): any {
+  if (type === 'boolean') return value === 'true' || value === '1';
+  if (type === 'number') { const n = Number(value); return isNaN(n) ? value : n; }
+  try { return JSON.parse(value); } catch { return value; }
+}
+
+async function runCli(methodName: string, methodArgs: string[], source: string, filePath: string, mod: any, depMap?: Map<string, any>) {
+  const methods = extractMethodsFromSource(source);
+
+  if (!methodName) {
+    console.log('\\nUSAGE:\\n    ' + PHOTON_NAME + ' <command> [options]\\n');
+    console.log('COMMANDS:');
+    const maxLen = Math.max(...methods.map((m: any) => m.name.length), 0);
+    for (const m of methods) {
+      const pad = ' '.repeat(maxLen - m.name.length + 4);
+      const desc = m.description ? (m.description.length > 60 ? m.description.substring(0, 57) + '...' : m.description) : '';
+      console.log('    ' + m.name + pad + desc);
+    }
+    console.log('\\nRun \\'' + PHOTON_NAME + ' <command> --help\\' for details.\\n');
+    console.log('SERVER MODES:');
+    console.log('    mcp              MCP server (stdio)');
+    console.log('    sse [port]       MCP server (HTTP/SSE)');
+    console.log('    beam [port]      Beam web UI');
+    console.log('');
+    return;
+  }
+
+  if (methodArgs.includes('--help') || methodArgs.includes('-h')) {
+    const method = methods.find((m: any) => m.name === methodName);
+    if (!method) { console.error('Method \\'' + methodName + '\\' not found.'); process.exit(1); }
+    console.log('\\n' + PHOTON_NAME + ' ' + method.name);
+    if (method.description) console.log('  ' + method.description);
+    if (method.params.length > 0) {
+      console.log('\\nParameters:');
+      for (const p of method.params) {
+        const req = p.optional ? '' : ' (required)';
+        console.log('  --' + p.name + ' <' + p.type + '>' + req + (p.description ? '  ' + p.description : ''));
+      }
+    }
+    console.log('');
+    return;
+  }
+
+  const method = methods.find((m: any) => m.name === methodName);
+  if (!method) { console.error('Method \\'' + methodName + '\\' not found. Run \\'' + PHOTON_NAME + '\\' to see available methods.'); process.exit(1); }
+
+  const parsedArgs = cliParseArgs(methodArgs, method.params);
+  const jsonOutput = methodArgs.includes('--json');
+  const missing = method.params.filter((p: any) => !p.optional && !(p.name in parsedArgs)).map((p: any) => p.name);
+  if (missing.length > 0) {
+    const usage = method.params.map((p: any) => p.optional ? '[--' + p.name + ']' : '--' + p.name + ' <value>').join(' ');
+    console.error('Missing required parameters: ' + missing.join(', ') + '\\nUsage: ' + PHOTON_NAME + ' ' + methodName + ' ' + usage);
+    process.exit(1);
+  }
+
   const runtime = new EmbeddedRuntime();
   runtime.start();
 
-  const server = new PhotonServer({
-    filePath: activeFilePath,
-    transport: command === 'sse' ? 'sse' : 'stdio',
-    port,
-    preloadedModule: activeModule,
-    embeddedSource: activeSource,${depMapArg}
-    embeddedAssets: BEAM_BUNDLE !== '' ? { indexHtml: BEAM_INDEX_HTML, bundleJs: BEAM_BUNDLE } : undefined,
-  });
+  const loader = new PhotonLoader(false);
+  if (depMap) (loader as any).preloadedDependencies = depMap;
+  const photonInstance = await loader.loadFromModule(mod, filePath, source);
+  const result = await loader.executeTool(photonInstance, methodName, parsedArgs);
 
-  await server.start();
+  if (photonInstance) runtime.registerScheduledJobs(photonInstance, loader);
 
-  // Register @scheduled/@cron jobs from the loaded photon
-  if (server.getLoadedPhoton()) {
-    runtime.registerScheduledJobs(server.getLoadedPhoton()!, server.getLoader());
+  if (result === undefined || result === null) return;
+  if (jsonOutput || typeof result === 'object') {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(result);
   }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0] || '';
+
+  // Meta commands (no symlink routing needed)
+  if (command === 'setup') { await runSetup(args.includes('--shell')); process.exit(0); }
+  if (command === 'app') { await generateAppLaunchers(args.slice(1)); process.exit(0); }
+  if (command === '--help' || command === '-h') { printUsage(); process.exit(0); }
+  if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
+
+${symlinkRoutingCode}
+  // Server modes
+  const SERVER_COMMANDS = ['mcp', 'sse', 'beam'];
+  if (SERVER_COMMANDS.includes(command)) {
+    let port: number | undefined;
+    if (command === 'sse' || command === 'beam') {
+      port = args[1] ? parseInt(args[1], 10) : (command === 'beam' ? 3000 : undefined);
+    }
+
+    if (command === 'beam' && BEAM_BUNDLE === '') {
+      console.error('Error: This binary was not built with --with-app. Rebuild with: photon build <file> --with-app');
+      process.exit(1);
+    }
+
+    const runtime = new EmbeddedRuntime();
+    runtime.start();
+
+    const server = new PhotonServer({
+      filePath: activeFilePath,
+      transport: command === 'sse' || command === 'beam' ? 'sse' : 'stdio',
+      port,
+      preloadedModule: activeModule,
+      embeddedSource: activeSource,${depMapArg}
+      embeddedAssets: BEAM_BUNDLE !== '' ? { indexHtml: BEAM_INDEX_HTML, bundleJs: BEAM_BUNDLE } : undefined,
+    });
+
+    await server.start();
+
+    if (server.getLoadedPhoton()) {
+      runtime.registerScheduledJobs(server.getLoadedPhoton()!, server.getLoader());
+    }
+
+    // For beam mode, open the browser
+    if (command === 'beam') {
+      const beamPort = port || 3000;
+      const beamUrl = 'http://localhost:' + beamPort + '/#' + PHOTON_NAME + '?focus=1';
+      console.log('Beam UI: ' + beamUrl);
+      const { exec } = await import('child_process');
+      if (process.platform === 'darwin') exec('open "' + beamUrl + '"');
+      else if (process.platform === 'win32') exec('start "" "' + beamUrl + '"');
+      else exec('xdg-open "' + beamUrl + '" 2>/dev/null');
+    }
+    return;
+  }
+
+  // CLI mode (default): run method or list methods
+  const methodName = command;
+  const methodArgs = command ? args.slice(1) : [];
+  await runCli(methodName, methodArgs, activeSource, activeFilePath, activeModule${cliDepMapArg});
 }
 
 main().catch(err => {
@@ -568,12 +753,14 @@ main().catch(err => {
           }
 
           console.log(`\nUsage:`);
-          console.log(`  ./${outfile}              MCP server (stdio)`);
+          console.log(`  ./${outfile}              CLI mode (list methods)`);
+          console.log(`  ./${outfile} <method>     Run a method directly`);
+          console.log(`  ./${outfile} mcp          MCP server (stdio)`);
           console.log(`  ./${outfile} sse [port]   MCP server (HTTP/SSE)`);
-          console.log(`  ./${outfile} setup        Create symlinks & data dirs`);
           if (options.withApp) {
-            console.log(`  ./${outfile} app           Generate PWA launchers`);
+            console.log(`  ./${outfile} beam [port]  Beam web UI`);
           }
+          console.log(`  ./${outfile} setup        Create symlinks & data dirs`);
         } catch (err) {
           spinner.fail('Build failed');
           printError(err instanceof Error ? err.message : String(err));
