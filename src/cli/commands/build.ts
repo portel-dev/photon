@@ -352,10 +352,17 @@ async function runSetup(withShell: boolean) {
     for (const name of created) console.log('    ' + name + ' -> ' + binName + ' x ...');
   }
 
-  // Shell integration — add aliases for main binary + all bundled photons
+  // Shell integration — add aliases + tab completions for main binary + all bundled photons
   if (withShell) {
     const marker = '# photon:' + PHOTON_NAME;
     const binPath = process.execPath;
+    const S = String.fromCharCode(36); // shell dollar sign
+
+    // Collect unique bundled photon names
+    const bundledNames: string[] = [];
+    for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
+      if (seen.has(name) && name !== PHOTON_NAME) bundledNames.push(name);
+    }
 
     if (isWindows) {
       // PowerShell profile
@@ -366,34 +373,49 @@ async function runSetup(withShell: boolean) {
       if (!psContent.includes(marker)) {
         let block = '\\n' + marker + '\\n';
         block += 'function ' + PHOTON_NAME + ' { & "' + binPath + '" @args }\\n';
-        for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
-          if (seen.has(name) && name !== PHOTON_NAME) {
-            block += 'function ' + name + ' { & "' + binPath + '" x ' + name + ' @args }\\n';
-          }
+        for (const name of bundledNames) {
+          block += 'function ' + name + ' { & "' + binPath + '" x ' + name + ' @args }\\n';
         }
+        block += 'Register-ArgumentCompleter -CommandName ' + PHOTON_NAME + ' -ScriptBlock {\\n';
+        block += '  param(' + S + 'wordToComplete, ' + S + 'commandAst, ' + S + 'cursorPosition)\\n';
+        block += '  ' + S + 'words = ' + S + 'commandAst.ToString().Split(" ")\\n';
+        block += '  & "' + binPath + '" completions (' + S + 'words | Select-Object -Skip 1) 2>' + S + 'null |\\n';
+        block += '    Where-Object { ' + S + '_ -like "' + S + 'wordToComplete*" } |\\n';
+        block += '    ForEach-Object { [System.Management.Automation.CompletionResult]::new(' + S + '_, ' + S + '_, "ParameterValue", ' + S + '_) }\\n';
+        block += '}\\n';
         __fs.default.appendFileSync(psProfile, block);
-        console.log('  PowerShell aliases added to ' + psProfile);
+        console.log('  PowerShell aliases + completions added to ' + psProfile);
       } else {
-        console.log('  PowerShell aliases already present');
+        console.log('  PowerShell setup already present');
       }
     } else {
       // Unix: .zshrc or .bashrc
-      const rcFile = process.env.SHELL?.includes('zsh')
+      const isZsh = process.env.SHELL?.includes('zsh');
+      const rcFile = isZsh
         ? __path.default.join(homeDir, '.zshrc')
         : __path.default.join(homeDir, '.bashrc');
       const rcContent = __fs.default.existsSync(rcFile) ? __fs.default.readFileSync(rcFile, 'utf-8') : '';
       if (!rcContent.includes(marker)) {
         let block = '\\n' + marker + '\\n';
         block += 'alias ' + PHOTON_NAME + '="' + binPath + '"\\n';
-        for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
-          if (seen.has(name) && name !== PHOTON_NAME) {
-            block += 'alias ' + name + '="' + binPath + ' x ' + name + '"\\n';
+        for (const name of bundledNames) {
+          block += 'alias ' + name + '="' + binPath + ' x ' + name + '"\\n';
+        }
+        // Tab completions
+        const allCmds = [[PHOTON_NAME, ''], ...bundledNames.map(n => [n, 'x ' + n + ' '])];
+        for (const [name, prefix] of allCmds) {
+          if (isZsh) {
+            block += '_' + name + '() { compadd -- ' + S + '("' + binPath + '" completions ' + prefix + '"' + S + '{words[@]:1}" 2>/dev/null) }\\n';
+            block += 'compdef _' + name + ' ' + name + '\\n';
+          } else {
+            block += '_' + name + '() { COMPREPLY=(' + S + '(compgen -W "' + S + '("' + binPath + '" completions ' + prefix + '"' + S + '{COMP_WORDS[@]:1}" 2>/dev/null)" -- "' + S + '{COMP_WORDS[COMP_CWORD]}")); }\\n';
+            block += 'complete -F _' + name + ' ' + name + '\\n';
           }
         }
         __fs.default.appendFileSync(rcFile, block);
-        console.log('  Shell aliases added to ' + rcFile);
+        console.log('  Shell aliases + completions added to ' + rcFile);
       } else {
-        console.log('  Shell aliases already present in ' + rcFile);
+        console.log('  Shell setup already present in ' + rcFile);
       }
     }
   }
@@ -481,6 +503,64 @@ start http://localhost:\${port}/app/\${appName}
   console.log('  Windows: ' + batPath);
 
   console.log('\\nApp launchers created. They start the SSE server and open the PWA in your browser.');
+}
+
+function handleCompletions(args: string[]) {
+  // args = words after the binary name, e.g. ['x', 'whats'] or ['status', '--']
+  const META_COMMANDS = ['mcp', 'sse', 'beam', 'setup', 'app', 'x', '--help', '--version'];
+  const photonNames = [...new Set(Object.keys(BUNDLED_PHOTONS))];
+
+  if (args.length <= 1) {
+    // Completing first word: methods + meta commands + bundled photon names via x
+    const methods = extractMethodsFromSource(EMBEDDED_SOURCE).map((m: any) => m.name);
+    const all = [...methods, ...META_COMMANDS];
+    const partial = args[0] || '';
+    console.log(all.filter(c => c.startsWith(partial)).join('\\n'));
+    return;
+  }
+
+  if (args[0] === 'x') {
+    if (args.length === 2) {
+      // Completing photon name after x
+      const partial = args[1] || '';
+      console.log(photonNames.filter(n => n.startsWith(partial)).join('\\n'));
+      return;
+    }
+    // Completing method/command for a bundled photon
+    const bundled = BUNDLED_PHOTONS[args[1]];
+    if (bundled) {
+      const methods = extractMethodsFromSource(bundled.source);
+      const subArgs = args.slice(2);
+      completeMethodArgs(methods, subArgs);
+      return;
+    }
+    return;
+  }
+
+  // Completing args for main photon method
+  const methods = extractMethodsFromSource(EMBEDDED_SOURCE);
+  completeMethodArgs(methods, args);
+}
+
+function completeMethodArgs(methods: any[], args: string[]) {
+  const META_COMMANDS = ['mcp', 'sse', 'beam', 'setup', 'app', 'x', '--help', '--version'];
+  if (args.length <= 1) {
+    const partial = args[0] || '';
+    const names = [...methods.map((m: any) => m.name), ...META_COMMANDS];
+    console.log(names.filter(n => n.startsWith(partial)).join('\\n'));
+    return;
+  }
+  // Completing params for a known method
+  const method = methods.find((m: any) => m.name === args[0]);
+  if (method) {
+    const partial = args[args.length - 1] || '';
+    const usedParams = new Set(args.filter(a => a.startsWith('--')).map(a => a.replace(/^--/, '').split('=')[0]));
+    const candidates = method.params
+      .filter((p: any) => !usedParams.has(p.name))
+      .map((p: any) => '--' + p.name);
+    candidates.push('--help', '--json');
+    console.log(candidates.filter((c: string) => c.startsWith(partial)).join('\\n'));
+  }
 }
 
 function printUsage() {
@@ -647,6 +727,7 @@ async function main() {
   if (command === 'app') { await generateAppLaunchers(args.slice(1)); process.exit(0); }
   if (command === '--help' || command === '-h') { printUsage(); process.exit(0); }
   if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
+  if (command === 'completions') { handleCompletions(args.slice(1)); process.exit(0); }
 
   // Resolve which bundled photon to serve
   let activeModule: any;
