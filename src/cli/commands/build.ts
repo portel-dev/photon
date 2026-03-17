@@ -311,115 +311,142 @@ const PHOTON_NAME = '${path.basename(outfile)}';
 ${beamBundleConst}
 ${beamIndexHtmlConst}
 ${depMapBlock}${symlinkMapBlock}
-async function runSetup(withShell: boolean) {
+async function runSetup() {
   const __fs = await import('fs');
   const __path = await import('path');
   const __os = await import('os');
   const binDir = __path.default.dirname(process.execPath);
   const binName = __path.default.basename(process.execPath);
+  const binPath = process.execPath;
   const homeDir = __os.default.homedir();
   const isWindows = process.platform === 'win32';
+  const S = String.fromCharCode(36); // shell dollar sign
 
-  // Create data directory
+  console.log('Setting up ' + PHOTON_NAME + '...\\n');
+
+  // 1. Create data directory
   const dataDir = __path.default.join(homeDir, '.photon', PHOTON_NAME);
   __fs.default.mkdirSync(dataDir, { recursive: true });
   console.log('  Data dir: ' + dataDir);
 
-  // Create wrapper scripts for bundled photon dependencies
-  // These call <binary> x <photon> internally — works on all platforms
-  const created: string[] = [];
+  // 2. Collect unique bundled photon names
   const seen = new Set<string>();
+  const bundledNames: string[] = [];
   for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
     if (seen.has(name) || name === PHOTON_NAME) continue;
     seen.add(name);
-
-    if (isWindows) {
-      // Windows .cmd wrapper
-      const cmdPath = __path.default.join(binDir, name + '.cmd');
-      const cmdContent = '@echo off\\r\\n"%~dp0' + binName + '" x ' + name + ' %*\\r\\n';
-      __fs.default.writeFileSync(cmdPath, cmdContent);
-      created.push(name + '.cmd');
-    } else {
-      // Unix shell wrapper (shebang script)
-      const scriptPath = __path.default.join(binDir, name);
-      const scriptContent = '#!/bin/sh\\nexec "$(dirname "$0")/' + binName + '" x ' + name + ' "$@"\\n';
-      __fs.default.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
-      created.push(name);
-    }
-  }
-  if (created.length > 0) {
-    console.log('  Wrappers:');
-    for (const name of created) console.log('    ' + name + ' -> ' + binName + ' x ...');
+    bundledNames.push(name);
   }
 
-  // Shell integration — add aliases + tab completions for main binary + all bundled photons
-  if (withShell) {
-    const marker = '# photon:' + PHOTON_NAME;
-    const binPath = process.execPath;
-    const S = String.fromCharCode(36); // shell dollar sign
-
-    // Collect unique bundled photon names
-    const bundledNames: string[] = [];
-    for (const [name] of Object.entries(BUNDLED_PHOTONS)) {
-      if (seen.has(name) && name !== PHOTON_NAME) bundledNames.push(name);
-    }
-
-    if (isWindows) {
-      // PowerShell profile
-      const psProfile = __path.default.join(homeDir, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
-      const psDir = __path.default.dirname(psProfile);
-      __fs.default.mkdirSync(psDir, { recursive: true });
-      const psContent = __fs.default.existsSync(psProfile) ? __fs.default.readFileSync(psProfile, 'utf-8') : '';
-      if (!psContent.includes(marker)) {
-        let block = '\\n' + marker + '\\n';
-        block += 'function ' + PHOTON_NAME + ' { & "' + binPath + '" @args }\\n';
-        for (const name of bundledNames) {
-          block += 'function ' + name + ' { & "' + binPath + '" x ' + name + ' @args }\\n';
-        }
-        block += 'Register-ArgumentCompleter -CommandName ' + PHOTON_NAME + ' -ScriptBlock {\\n';
-        block += '  param(' + S + 'wordToComplete, ' + S + 'commandAst, ' + S + 'cursorPosition)\\n';
-        block += '  ' + S + 'words = ' + S + 'commandAst.ToString().Split(" ")\\n';
-        block += '  & "' + binPath + '" completions (' + S + 'words | Select-Object -Skip 1) 2>' + S + 'null |\\n';
-        block += '    Where-Object { ' + S + '_ -like "' + S + 'wordToComplete*" } |\\n';
-        block += '    ForEach-Object { [System.Management.Automation.CompletionResult]::new(' + S + '_, ' + S + '_, "ParameterValue", ' + S + '_) }\\n';
-        block += '}\\n';
-        __fs.default.appendFileSync(psProfile, block);
-        console.log('  PowerShell aliases + completions added to ' + psProfile);
+  // 3. Create wrapper scripts so bundled photons are callable by name
+  const createdWrappers: string[] = [];
+  for (const name of bundledNames) {
+    try {
+      if (isWindows) {
+        const cmdPath = __path.default.join(binDir, name + '.cmd');
+        __fs.default.writeFileSync(cmdPath, '@echo off\\r\\n"%~dp0' + binName + '" x ' + name + ' %*\\r\\n');
+        createdWrappers.push(name + '.cmd');
       } else {
-        console.log('  PowerShell setup already present');
+        const scriptPath = __path.default.join(binDir, name);
+        __fs.default.writeFileSync(scriptPath, '#!/bin/sh\\nexec "$(dirname "$0")/' + binName + '" x ' + name + ' "$@"\\n', { mode: 0o755 });
+        createdWrappers.push(name);
       }
-    } else {
-      // Unix: .zshrc or .bashrc
-      const isZsh = process.env.SHELL?.includes('zsh');
-      const rcFile = isZsh
-        ? __path.default.join(homeDir, '.zshrc')
-        : __path.default.join(homeDir, '.bashrc');
-      const rcContent = __fs.default.existsSync(rcFile) ? __fs.default.readFileSync(rcFile, 'utf-8') : '';
-      if (!rcContent.includes(marker)) {
-        let block = '\\n' + marker + '\\n';
-        block += 'alias ' + PHOTON_NAME + '="' + binPath + '"\\n';
-        for (const name of bundledNames) {
-          block += 'alias ' + name + '="' + binPath + ' x ' + name + '"\\n';
-        }
-        // Tab completions
-        const allCmds = [[PHOTON_NAME, ''], ...bundledNames.map(n => [n, 'x ' + n + ' '])];
-        for (const [name, prefix] of allCmds) {
-          if (isZsh) {
-            block += '_' + name + '() { compadd -- ' + S + '("' + binPath + '" completions ' + prefix + '"' + S + '{words[@]:1}" 2>/dev/null) }\\n';
-            block += 'compdef _' + name + ' ' + name + '\\n';
-          } else {
-            block += '_' + name + '() { COMPREPLY=(' + S + '(compgen -W "' + S + '("' + binPath + '" completions ' + prefix + '"' + S + '{COMP_WORDS[@]:1}" 2>/dev/null)" -- "' + S + '{COMP_WORDS[COMP_CWORD]}")); }\\n';
-            block += 'complete -F _' + name + ' ' + name + '\\n';
-          }
-        }
-        __fs.default.appendFileSync(rcFile, block);
-        console.log('  Shell aliases + completions added to ' + rcFile);
-      } else {
-        console.log('  Shell setup already present in ' + rcFile);
-      }
+    } catch (e) {
+      // Non-fatal — shell aliases will still work
     }
   }
-  console.log('\\nSetup complete.');
+  if (createdWrappers.length > 0) {
+    console.log('  Wrappers: ' + createdWrappers.join(', '));
+  }
+
+  // 4. Install tab completions in auto-discovery locations
+  if (isWindows) {
+    // PowerShell: must go in profile (no auto-discovery)
+    // Handled in step 5 below
+  } else {
+    const isZsh = (process.env.SHELL || '').includes('zsh');
+    if (isZsh) {
+      // Zsh: drop completion file in ~/.zsh/completions/ and ensure fpath
+      const compDir = __path.default.join(homeDir, '.zsh', 'completions');
+      __fs.default.mkdirSync(compDir, { recursive: true });
+      // Generate zsh completion script
+      let compScript = '#compdef ' + PHOTON_NAME + '\\n';
+      compScript += '_' + PHOTON_NAME + '() { compadd -- ' + S + '("' + binPath + '" completions ' + S + '{words[@]:1}" 2>/dev/null) }\\n';
+      __fs.default.writeFileSync(__path.default.join(compDir, '_' + PHOTON_NAME), compScript);
+      // Also generate for bundled photons
+      for (const name of bundledNames) {
+        let cs = '#compdef ' + name + '\\n';
+        cs += '_' + name + '() { compadd -- ' + S + '("' + binPath + '" completions x ' + name + ' ' + S + '{words[@]:1}" 2>/dev/null) }\\n';
+        __fs.default.writeFileSync(__path.default.join(compDir, '_' + name), cs);
+      }
+      console.log('  Zsh completions: ' + compDir);
+    } else {
+      // Bash: drop in ~/.local/share/bash-completion/completions/ (auto-loaded)
+      const compDir = __path.default.join(homeDir, '.local', 'share', 'bash-completion', 'completions');
+      __fs.default.mkdirSync(compDir, { recursive: true });
+      let compScript = '_' + PHOTON_NAME + '() { COMPREPLY=(' + S + '(compgen -W "' + S + '("' + binPath + '" completions ' + S + '{COMP_WORDS[@]:1}" 2>/dev/null)" -- "' + S + '{COMP_WORDS[COMP_CWORD]}")); }\\n';
+      compScript += 'complete -F _' + PHOTON_NAME + ' ' + PHOTON_NAME + '\\n';
+      for (const name of bundledNames) {
+        compScript += '_' + name + '() { COMPREPLY=(' + S + '(compgen -W "' + S + '("' + binPath + '" completions x ' + name + ' ' + S + '{COMP_WORDS[@]:1}" 2>/dev/null)" -- "' + S + '{COMP_WORDS[COMP_CWORD]}")); }\\n';
+        compScript += 'complete -F _' + name + ' ' + name + '\\n';
+      }
+      __fs.default.writeFileSync(__path.default.join(compDir, PHOTON_NAME), compScript);
+      console.log('  Bash completions: ' + compDir);
+    }
+  }
+
+  // 5. Shell integration — aliases + PATH + fpath (idempotent)
+  const marker = '# photon:' + PHOTON_NAME;
+
+  if (isWindows) {
+    const psProfile = __path.default.join(homeDir, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
+    const psDir = __path.default.dirname(psProfile);
+    __fs.default.mkdirSync(psDir, { recursive: true });
+    const psContent = __fs.default.existsSync(psProfile) ? __fs.default.readFileSync(psProfile, 'utf-8') : '';
+    if (!psContent.includes(marker)) {
+      let block = '\\n' + marker + '\\n';
+      block += 'function ' + PHOTON_NAME + ' { & "' + binPath + '" @args }\\n';
+      for (const name of bundledNames) {
+        block += 'function ' + name + ' { & "' + binPath + '" x ' + name + ' @args }\\n';
+      }
+      block += 'Register-ArgumentCompleter -CommandName ' + PHOTON_NAME + ' -ScriptBlock {\\n';
+      block += '  param(' + S + 'wordToComplete, ' + S + 'commandAst, ' + S + 'cursorPosition)\\n';
+      block += '  ' + S + 'words = ' + S + 'commandAst.ToString().Split(" ")\\n';
+      block += '  & "' + binPath + '" completions (' + S + 'words | Select-Object -Skip 1) 2>' + S + 'null |\\n';
+      block += '    Where-Object { ' + S + '_ -like "' + S + 'wordToComplete*" } |\\n';
+      block += '    ForEach-Object { [System.Management.Automation.CompletionResult]::new(' + S + '_, ' + S + '_, "ParameterValue", ' + S + '_) }\\n';
+      block += '}\\n';
+      __fs.default.appendFileSync(psProfile, block);
+      console.log('  PowerShell profile: ' + psProfile);
+    } else {
+      console.log('  PowerShell profile: already configured');
+    }
+  } else {
+    const isZsh = (process.env.SHELL || '').includes('zsh');
+    const rcFile = isZsh
+      ? __path.default.join(homeDir, '.zshrc')
+      : __path.default.join(homeDir, '.bashrc');
+    const rcContent = __fs.default.existsSync(rcFile) ? __fs.default.readFileSync(rcFile, 'utf-8') : '';
+    if (!rcContent.includes(marker)) {
+      let block = '\\n' + marker + '\\n';
+      // Ensure completion dir is in fpath (zsh only)
+      if (isZsh) {
+        block += 'fpath=(~/.zsh/completions ' + S + 'fpath)\\n';
+        block += 'autoload -Uz compinit && compinit -C\\n';
+      }
+      // Aliases
+      block += 'alias ' + PHOTON_NAME + '="' + binPath + '"\\n';
+      for (const name of bundledNames) {
+        block += 'alias ' + name + '="' + binPath + ' x ' + name + '"\\n';
+      }
+      __fs.default.appendFileSync(rcFile, block);
+      console.log('  Shell config: ' + rcFile);
+    } else {
+      console.log('  Shell config: already configured');
+    }
+  }
+
+  console.log('\\nSetup complete. Restart your shell or run: source ~/' + (isWindows ? 'Documents/PowerShell/Microsoft.PowerShell_profile.ps1' : ((process.env.SHELL || '').includes('zsh') ? '.zshrc' : '.bashrc')));
 }
 
 async function generateAppLaunchers(cmdArgs: string[]) {
@@ -573,7 +600,7 @@ function printUsage() {
   console.log('  mcp                 Start MCP server (stdio transport)');
   console.log('  sse [port]          Start MCP server (HTTP/SSE transport)');
   console.log('  beam [port]         Start Beam web UI (SSE + browser)');
-  console.log('  setup [--shell]     Create wrapper scripts & data directories');
+  console.log('  setup               Set up shell integration (aliases, completions)');
   console.log('  app                 Generate PWA app launchers');
   console.log('');
   console.log('Run with no arguments to see available methods.');
@@ -723,7 +750,7 @@ async function main() {
   let command = args[0] || '';
 
   // Meta commands (no routing needed)
-  if (command === 'setup') { await runSetup(args.includes('--shell')); process.exit(0); }
+  if (command === 'setup') { await runSetup(); process.exit(0); }
   if (command === 'app') { await generateAppLaunchers(args.slice(1)); process.exit(0); }
   if (command === '--help' || command === '-h') { printUsage(); process.exit(0); }
   if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
@@ -906,7 +933,7 @@ main().catch(err => {
           if (options.withApp) {
             console.log(`  ./${outfile} beam [port]  Beam web UI`);
           }
-          console.log(`  ./${outfile} setup        Create wrapper scripts & data dirs`);
+          console.log(`  ./${outfile} setup        Set up shell integration`);
         } catch (err) {
           spinner.fail('Build failed');
           printError(err instanceof Error ? err.message : String(err));
