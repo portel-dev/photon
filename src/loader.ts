@@ -1018,6 +1018,73 @@ export class PhotonLoader {
         }
       }
 
+      // Channel event capability: inject on()/off()/_dispatch()/_matchesFilter()
+      // when source uses this._dispatch( — the universal channel dispatch pattern.
+      // Channels call this._dispatch(chatId, message, groupName?) to fire to subscribers
+      // instead of manually looping through handler arrays with filter matching.
+      if (tsContent && /this\._dispatch\s*\(/.test(tsContent)) {
+        const inst = instance as any;
+        if (!inst._eventListeners) {
+          inst._eventListeners = [];
+        }
+
+        if (!inst.on) {
+          inst.on = function (
+            event: string,
+            fn: (data: any) => void,
+            filter?: { group?: string; chatId?: string; trigger?: string; fromMe?: boolean }
+          ) {
+            inst._eventListeners.push({ event, fn, filter });
+          };
+        }
+
+        if (!inst.off) {
+          inst.off = function (event: string, fn: (data: any) => void) {
+            const idx = inst._eventListeners.findIndex(
+              (e: any) => e.event === event && e.fn === fn
+            );
+            if (idx !== -1) inst._eventListeners.splice(idx, 1);
+          };
+        }
+
+        if (!inst._matchesFilter) {
+          inst._matchesFilter = function (
+            filter: any,
+            chatId: string,
+            message: any,
+            groupName?: string
+          ): boolean {
+            if (!filter) return true;
+            if (filter.chatId && filter.chatId !== chatId) return false;
+            if (filter.group && groupName) {
+              const fg = filter.group.toLowerCase();
+              if (!groupName.toLowerCase().includes(fg) && chatId !== filter.group) return false;
+            }
+            if (filter.trigger && message?.content && !message.content.includes(filter.trigger))
+              return false;
+            if (filter.fromMe !== undefined && message?.fromMe !== filter.fromMe) return false;
+            return true;
+          };
+        }
+
+        if (!inst._dispatch) {
+          inst._dispatch = function (chatId: string, message: any, groupName?: string) {
+            for (const entry of inst._eventListeners) {
+              if (entry.event !== 'message') continue;
+              if (inst._matchesFilter(entry.filter, chatId, message, groupName)) {
+                try {
+                  entry.fn({ chatId, message });
+                } catch {
+                  // handler error — don't crash the dispatch loop
+                }
+              }
+            }
+          };
+        }
+
+        this.log(`🔌 Injected channel event infrastructure into ${name}`);
+      }
+
       // Check @cli dependencies (required system CLI tools)
       if (tsContent) {
         await this.checkCLIDependencies(tsContent, name);

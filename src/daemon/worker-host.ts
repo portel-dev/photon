@@ -260,12 +260,6 @@ async function handleMessage(msg: MainToWorkerMessage): Promise<void> {
           instanceName: init.instanceName,
         });
 
-        // Lifecycle hooks for state transfer
-        const hasLifecycle =
-          oldInstance?.instance &&
-          typeof oldInstance.instance.onShutdown === 'function' &&
-          typeof oldInstance.instance.onInitialize === 'function';
-
         if (oldInstance?.instance && typeof oldInstance.instance.onShutdown === 'function') {
           try {
             await oldInstance.instance.onShutdown({ reason: 'hot-reload' });
@@ -274,8 +268,8 @@ async function handleMessage(msg: MainToWorkerMessage): Promise<void> {
           }
         }
 
-        // Non-lifecycle: copy properties
-        if (!hasLifecycle && oldInstance?.instance && newLoaded?.instance) {
+        // Auto-transfer all non-function own properties from old to new instance
+        if (oldInstance?.instance && newLoaded?.instance) {
           for (const key of Object.keys(oldInstance.instance)) {
             const value = oldInstance.instance[key];
             if (typeof value !== 'function' && key !== 'constructor') {
@@ -288,12 +282,12 @@ async function handleMessage(msg: MainToWorkerMessage): Promise<void> {
           }
         }
 
-        // Lifecycle: pass old instance
+        // Always pass oldInstance so lifecycle photons can transfer non-copyable resources
         if (newLoaded?.instance && typeof newLoaded.instance.onInitialize === 'function') {
           try {
             await newLoaded.instance.onInitialize({
               reason: 'hot-reload',
-              oldInstance: hasLifecycle ? oldInstance?.instance : undefined,
+              oldInstance: oldInstance?.instance,
             });
           } catch (err) {
             logger.warn('onInitialize failed during worker reload', {

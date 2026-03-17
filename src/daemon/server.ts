@@ -1033,6 +1033,41 @@ async function getOrCreateSessionManager(
     // Do this lazily on first session creation
     void autoRegisterFromMetadata(key, manager);
 
+    // Auto-symlink: if this photon was resolved from a @photon dependency path
+    // (e.g. ./chat.photon.ts relative to consumer), ensure it's accessible by bare
+    // name from ~/.photon/local/ so CLI can reach it without manual symlinking.
+    try {
+      const localDir = path.join(os.homedir(), '.photon', 'local');
+      const symlinkName = `${photonName}.photon.ts`;
+      const symlinkPath = path.join(localDir, symlinkName);
+      const resolvedSource = fs.realpathSync(pathToUse);
+
+      if (!fs.existsSync(symlinkPath)) {
+        fs.mkdirSync(localDir, { recursive: true });
+        fs.symlinkSync(resolvedSource, symlinkPath);
+        logger.info('Auto-created symlink for CLI access', {
+          photonName,
+          symlink: symlinkPath,
+          target: resolvedSource,
+        });
+      }
+
+      // Also symlink the UI directory if it exists alongside the photon
+      const photonDir = path.dirname(resolvedSource);
+      const uiDir = path.join(photonDir, photonName);
+      const symlinkUiDir = path.join(localDir, photonName);
+      if (fs.existsSync(uiDir) && !fs.existsSync(symlinkUiDir)) {
+        fs.symlinkSync(uiDir, symlinkUiDir);
+        logger.info('Auto-created UI directory symlink', {
+          photonName,
+          symlink: symlinkUiDir,
+          target: uiDir,
+        });
+      }
+    } catch {
+      // Non-critical — CLI access via full path still works
+    }
+
     return manager;
   } catch (error) {
     logger.error('Failed to initialize session manager', {
@@ -2693,14 +2728,6 @@ async function reloadPhoton(
         });
         const oldMcp = session.instance;
 
-        // Detect if this photon manages its own lifecycle (has both hooks).
-        // Lifecycle photons handle state via onShutdown/onInitialize and this.memory.
-        // Non-lifecycle photons rely on blind property copy.
-        const hasLifecycle =
-          oldMcp?.instance &&
-          typeof oldMcp.instance.onShutdown === 'function' &&
-          typeof oldMcp.instance.onInitialize === 'function';
-
         // Call onShutdown on the old instance with hot-reload context.
         // The context lets the photon decide what to clean up — e.g. a WhatsApp photon
         // can skip closing its socket during hot-reload so the new instance can reuse it.
@@ -2715,36 +2742,31 @@ async function reloadPhoton(
           }
         }
 
-        // For non-lifecycle photons: copy state from old to new instance.
-        // Skip for lifecycle photons — blind property copy breaks photons with
-        // runtime resources (sockets, timers, event listeners) that can't be
-        // transferred as plain values.
-        if (
-          !hasLifecycle &&
-          oldMcp?.instance &&
-          newMcp?.instance &&
-          typeof oldMcp.instance === 'object'
-        ) {
+        // Auto-transfer all non-function own properties from old to new instance.
+        // This covers in-memory state (maps, arrays, flags, caches) without requiring
+        // every photon to manually copy fields in onInitialize. Photons only need
+        // onInitialize for non-copyable resources (sockets, timers, DB connections).
+        if (oldMcp?.instance && newMcp?.instance && typeof oldMcp.instance === 'object') {
           for (const key of Object.keys(oldMcp.instance)) {
             const value = oldMcp.instance[key];
             if (typeof value !== 'function' && key !== 'constructor') {
               try {
                 newMcp.instance[key] = value;
               } catch {
-                // Some properties may be read-only
+                // Some properties may be read-only (e.g. settings proxy)
               }
             }
           }
         }
 
         // Call onInitialize on the new instance with hot-reload context.
-        // Passes the old instance so the photon can transfer non-serializable
-        // resources (sockets, timers, DB connections) that can't survive property copy.
+        // Always passes oldInstance so lifecycle photons can transfer non-copyable
+        // resources (sockets, timers, polling loops) that auto-copy can't handle.
         if (newMcp?.instance && typeof newMcp.instance.onInitialize === 'function') {
           try {
             await newMcp.instance.onInitialize({
               reason: 'hot-reload',
-              oldInstance: hasLifecycle ? oldMcp?.instance : undefined,
+              oldInstance: oldMcp?.instance,
             });
           } catch (err) {
             logger.warn('onInitialize failed during hot-reload', {
