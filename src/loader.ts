@@ -253,6 +253,11 @@ export class PhotonLoader {
   private mcpClientFactory?: MCPClientFactory;
   /** Cache of loaded Photon instances by source path */
   private loadedPhotons: Map<string, PhotonClassExtended> = new Map();
+
+  /** Get all loaded photon instances (including sub-photons loaded via @photon). */
+  getLoadedPhotons(): Map<string, PhotonClassExtended> {
+    return this.loadedPhotons;
+  }
   /** In-flight Photon load promises — dedup concurrent loads of the same path */
   private loadedPhotonPromises: Map<string, Promise<any>> = new Map();
   /** MCP clients cache - reuse connections */

@@ -115,6 +115,16 @@ interface HandlerContext {
  *   POST /mcp — JSON-RPC request → JSON response with Mcp-Session-Id
  *   GET /mcp?sessionId=X — SSE stream for server notifications
  */
+/** Tool/metadata info for a sub-photon exposed via Beam sidebar. */
+interface SubPhotonInfo {
+  name: string;
+  description: string;
+  icon: string;
+  stateful: boolean;
+  hasSettings: boolean;
+  tools: any[]; // MCP tool definitions (name, description, inputSchema)
+}
+
 class BeamCompatTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -123,6 +133,11 @@ class BeamCompatTransport implements Transport {
   sessionId = crypto.randomUUID();
   private sseResponse: ServerResponse | null = null;
   private pendingResponse: ((message: any) => void) | null = null;
+
+  /** Sub-photons whose tools are injected into tools/list alongside the main photon. */
+  subPhotons: SubPhotonInfo[] = [];
+  /** Callback to execute a tool on a sub-photon by name. */
+  subPhotonExecutor?: (photonName: string, method: string, args: any) => Promise<any>;
 
   constructor(
     private photonName: string,
@@ -149,6 +164,7 @@ class BeamCompatTransport implements Transport {
   async send(message: any): Promise<void> {
     // Transform outgoing tools/list responses: prefix names + add x-photon-* metadata
     if (message?.result?.tools && Array.isArray(message.result.tools)) {
+      // Main photon tools
       message.result.tools = message.result.tools.map((tool: any) => ({
         ...tool,
         name: `${this.photonName}/${tool.name}`,
@@ -158,6 +174,27 @@ class BeamCompatTransport implements Transport {
         'x-photon-stateful': this.photonMeta.stateful || false,
         'x-photon-has-settings': this.photonMeta.hasSettings || false,
       }));
+
+      // Append sub-photon tools (each with their own x-photon-* metadata)
+      for (const sub of this.subPhotons) {
+        const subTools = sub.tools.map((tool: any) => {
+          const def: any = {
+            ...tool,
+            name: `${sub.name}/${tool.name}`,
+            'x-photon-id': sub.name,
+            'x-photon-description': sub.description,
+            'x-photon-icon': sub.icon,
+            'x-photon-stateful': sub.stateful,
+            'x-photon-has-settings': sub.hasSettings,
+          };
+          // Add UI linking metadata if this tool has a linked UI
+          if (tool.linkedUi) {
+            def._meta = { ui: { resourceUri: `ui://${sub.name}/${tool.linkedUi}` } };
+          }
+          return def;
+        });
+        message.result.tools.push(...subTools);
+      }
     }
 
     // If there's a pending HTTP request waiting for a response, deliver it
@@ -210,10 +247,53 @@ class BeamCompatTransport implements Transport {
       }
 
       // Transform incoming tools/call: strip photonName/ prefix from tool name
+      // and route sub-photon calls directly
       if (parsed.method === 'tools/call' && parsed.params?.name) {
-        const prefix = `${this.photonName}/`;
-        if (parsed.params.name.startsWith(prefix)) {
-          parsed.params.name = parsed.params.name.slice(prefix.length);
+        const slashIdx = parsed.params.name.indexOf('/');
+        if (slashIdx !== -1) {
+          const targetPhoton = parsed.params.name.slice(0, slashIdx);
+          const methodName = parsed.params.name.slice(slashIdx + 1);
+
+          // Check if this is a sub-photon call
+          if (targetPhoton !== this.photonName && this.subPhotonExecutor) {
+            const sub = this.subPhotons.find((s) => s.name === targetPhoton);
+            if (sub) {
+              try {
+                const result = await this.subPhotonExecutor(
+                  targetPhoton,
+                  methodName,
+                  parsed.params.arguments || {}
+                );
+                const response = { jsonrpc: '2.0', id: parsed.id, result };
+                res.writeHead(200, {
+                  'Content-Type': 'application/json',
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+                  'Mcp-Session-Id': this.sessionId,
+                });
+                res.end(JSON.stringify(response));
+                return;
+              } catch (err: any) {
+                const response = {
+                  jsonrpc: '2.0',
+                  id: parsed.id,
+                  result: {
+                    content: [{ type: 'text', text: err.message || String(err) }],
+                    isError: true,
+                  },
+                };
+                res.writeHead(200, {
+                  'Content-Type': 'application/json',
+                  'Access-Control-Allow-Origin': '*',
+                });
+                res.end(JSON.stringify(response));
+                return;
+              }
+            }
+          }
+
+          // Main photon — strip prefix
+          parsed.params.name = methodName;
         }
       }
 
@@ -1289,6 +1369,27 @@ export class PhotonServer {
       }
     }
 
+    // Include sub-photon UI resources (compiled binary mode)
+    if (this.options.embeddedAssets) {
+      const allLoaded = this.loader.getLoadedPhotons();
+      for (const [, loaded] of allLoaded) {
+        if (loaded.name === this.mcp.name) continue;
+        if (loaded.assets?.ui) {
+          for (const ui of loaded.assets.ui) {
+            const uiUri = ui.uri || `ui://${loaded.name}/${ui.id}`;
+            resources.push({
+              uri: uiUri,
+              name: `ui:${ui.id}`,
+              description: ui.linkedTool
+                ? `UI template for ${loaded.name}/${ui.linkedTool}`
+                : `UI template: ${loaded.name}/${ui.id}`,
+              mimeType: ui.mimeType || this.getUIMimeType(),
+            });
+          }
+        }
+      }
+    }
+
     return { resources };
   }
 
@@ -1317,9 +1418,25 @@ export class PhotonServer {
     const { uri } = request.params;
 
     const uiMatch = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
-    if (uiMatch && this.mcp.assets) {
-      const [, _photonName, assetId] = uiMatch;
-      return this.handleUIAssetRead(uri, assetId);
+    if (uiMatch) {
+      const [, uiPhotonName, assetId] = uiMatch;
+      // Check main photon first
+      if (this.mcp.assets && uiPhotonName === this.mcp.name) {
+        return this.handleUIAssetRead(uri, assetId);
+      }
+      // Check sub-photons (compiled binary mode)
+      if (this.options.embeddedAssets) {
+        const allLoaded = this.loader.getLoadedPhotons();
+        for (const [, loaded] of allLoaded) {
+          if (loaded.name === uiPhotonName && loaded.assets?.ui) {
+            return this.handleUIAssetRead(uri, assetId, loaded);
+          }
+        }
+      }
+      // Fallback to main photon
+      if (this.mcp.assets) {
+        return this.handleUIAssetRead(uri, assetId);
+      }
     }
 
     const assetMatch = uri.match(/^photon:\/\/([^/]+)\/(ui|prompts|resources)\/(.+)$/);
@@ -2170,6 +2287,81 @@ export class PhotonServer {
       });
       this.interceptTransportForRawCapabilities(beamTransport, this.server);
       await this.server.connect(beamTransport);
+
+      // Wire sub-photons: collect all loaded photons except the main one
+      const mainName = this.mcp?.name || 'photon';
+      const allLoaded = this.loader.getLoadedPhotons();
+      const preloaded = this.options.preloadedDependencies;
+      for (const [, loaded] of allLoaded) {
+        if (loaded.name === mainName) continue;
+        // Extract @icon from source code (preloaded deps have embedded source)
+        let icon = '⚡';
+        if (preloaded) {
+          for (const [, dep] of preloaded) {
+            if (dep.source) {
+              const nameInSource = loaded.name;
+              // Check if this source defines this photon (class name match)
+              const iconMatch = dep.source.match(/@icon\s+([^\s@*]+)/);
+              if (
+                iconMatch &&
+                dep.source.includes(
+                  `class ${nameInSource.charAt(0).toUpperCase() + nameInSource.slice(1)}`
+                )
+              ) {
+                icon = iconMatch[1];
+                break;
+              }
+              // Also try the file path match
+              if (dep.filePath.includes(nameInSource)) {
+                if (iconMatch) icon = iconMatch[1];
+                break;
+              }
+            }
+          }
+        }
+        const stateful = !!(loaded as any).stateful;
+        const hasSettings = !!(loaded as any).settingsSchema?.hasSettings;
+        // Convert PhotonTool[] to MCP tool format with UI linking
+        const uiAssets = loaded.assets?.ui || [];
+        const tools = loaded.tools
+          .filter((t: any) => !t.internal)
+          .map((t: any) => {
+            const linkedUI = uiAssets.find(
+              (u: any) => u.linkedTool === t.name || u.linkedTools?.includes(t.name)
+            );
+            return {
+              name: t.name,
+              description: t.description || '',
+              inputSchema: t.inputSchema,
+              ...(linkedUI ? { linkedUi: linkedUI.id } : {}),
+            };
+          });
+        beamTransport.subPhotons.push({
+          name: loaded.name,
+          description: loaded.description || `${loaded.name} MCP`,
+          icon,
+          stateful,
+          hasSettings,
+          tools,
+        });
+      }
+
+      // Wire sub-photon tool executor — returns MCP-formatted result
+      beamTransport.subPhotonExecutor = async (photonName: string, method: string, args: any) => {
+        for (const [, loaded] of allLoaded) {
+          if (loaded.name === photonName) {
+            const result = await this.loader.executeTool(loaded, method, args);
+            // Wrap raw result in MCP content format if not already wrapped
+            if (result && result.content && Array.isArray(result.content)) {
+              return result;
+            }
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            };
+          }
+        }
+        throw new Error(`Photon not found: ${photonName}`);
+      };
     }
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -2525,6 +2717,26 @@ export class PhotonServer {
             return;
           }
 
+          // Platform Bridge API: generate bridge script for @ui HTML templates
+          if (req.method === 'GET' && url.pathname === '/api/platform-bridge') {
+            const theme = (url.searchParams.get('theme') || 'dark') as 'light' | 'dark';
+            const photonName = url.searchParams.get('photon') || this.mcp?.name || 'photon';
+            const methodName = url.searchParams.get('method') || '';
+            const { generateBridgeScript } = await import('./auto-ui/bridge/index.js');
+            const script = generateBridgeScript({
+              theme,
+              locale: 'en-US',
+              photon: photonName,
+              method: methodName,
+              hostName: 'beam',
+              hostVersion: '1.5.0',
+              injectedPhotons: [],
+            });
+            res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+            res.end(script);
+            return;
+          }
+
           if (req.method === 'GET' && url.pathname === '/index.html') {
             res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
             res.end(assets.indexHtml);
@@ -2810,8 +3022,12 @@ export class PhotonServer {
   /**
    * Handle SEP-1865 ui:// resource read
    */
-  private async handleUIAssetRead(uri: string, assetId: string) {
-    const ui = this.mcp!.assets!.ui.find((u) => u.id === assetId);
+  private async handleUIAssetRead(uri: string, assetId: string, photon?: PhotonClassExtended) {
+    const target = photon || this.mcp!;
+    if (!target.assets?.ui) {
+      throw new Error(`UI asset not found: ${uri}`);
+    }
+    const ui = target.assets.ui.find((u) => u.id === assetId);
     if (!ui || !ui.resolvedPath) {
       throw new Error(`UI asset not found: ${uri}`);
     }
