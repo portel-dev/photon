@@ -90,6 +90,8 @@ export interface PhotonServerOptions {
   >;
   /** Embedded frontend assets (for compiled binaries built with --with-app) */
   embeddedAssets?: { indexHtml: string; bundleJs: string };
+  /** Embedded @ui HTML templates: photonName → { assetId → html content } */
+  embeddedUITemplates?: Record<string, Record<string, string>>;
 }
 
 // SSE session record for managing multiple clients
@@ -2291,34 +2293,9 @@ export class PhotonServer {
       // Wire sub-photons: collect all loaded photons except the main one
       const mainName = this.mcp?.name || 'photon';
       const allLoaded = this.loader.getLoadedPhotons();
-      const preloaded = this.options.preloadedDependencies;
       for (const [, loaded] of allLoaded) {
         if (loaded.name === mainName) continue;
-        // Extract @icon from source code (preloaded deps have embedded source)
-        let icon = '⚡';
-        if (preloaded) {
-          for (const [, dep] of preloaded) {
-            if (dep.source) {
-              const nameInSource = loaded.name;
-              // Check if this source defines this photon (class name match)
-              const iconMatch = dep.source.match(/@icon\s+([^\s@*]+)/);
-              if (
-                iconMatch &&
-                dep.source.includes(
-                  `class ${nameInSource.charAt(0).toUpperCase() + nameInSource.slice(1)}`
-                )
-              ) {
-                icon = iconMatch[1];
-                break;
-              }
-              // Also try the file path match
-              if (dep.filePath.includes(nameInSource)) {
-                if (iconMatch) icon = iconMatch[1];
-                break;
-              }
-            }
-          }
-        }
+        const icon = (loaded as any).icon || '⚡';
         const stateful = !!(loaded as any).stateful;
         const hasSettings = !!(loaded as any).settingsSchema?.hasSettings;
         // Convert PhotonTool[] to MCP tool format with UI linking
@@ -3024,22 +3001,36 @@ export class PhotonServer {
    */
   private async handleUIAssetRead(uri: string, assetId: string, photon?: PhotonClassExtended) {
     const target = photon || this.mcp!;
-    if (!target.assets?.ui) {
-      throw new Error(`UI asset not found: ${uri}`);
-    }
-    const ui = target.assets.ui.find((u) => u.id === assetId);
-    if (!ui || !ui.resolvedPath) {
-      throw new Error(`UI asset not found: ${uri}`);
+    const photonName = target.name;
+
+    let content: string | undefined;
+
+    // Try embedded templates first (compiled binary mode)
+    if (this.options.embeddedUITemplates) {
+      const templates = this.options.embeddedUITemplates[photonName];
+      if (templates && templates[assetId]) {
+        content = templates[assetId];
+      }
     }
 
-    let content = await fs.readFile(ui.resolvedPath, 'utf-8');
+    // Fall back to disk if not embedded
+    if (!content) {
+      if (!target.assets?.ui) {
+        throw new Error(`UI asset not found: ${uri}`);
+      }
+      const ui = target.assets.ui.find((u) => u.id === assetId);
+      if (!ui || !ui.resolvedPath) {
+        throw new Error(`UI asset not found: ${uri}`);
+      }
+      content = await fs.readFile(ui.resolvedPath, 'utf-8');
+    }
 
     // Inject MCP Apps bridge script for Claude Desktop compatibility
     const bridgeScript = this.generateMcpAppsBridge();
     content = content.replace('<head>', `<head>\n${bridgeScript}`);
 
     return {
-      contents: [{ uri, mimeType: ui.mimeType || 'text/html;profile=mcp-app', text: content }],
+      contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: content }],
     };
   }
 

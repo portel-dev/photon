@@ -1191,12 +1191,20 @@ export class PhotonLoader {
 
       this.log(`✅ Loaded: ${name} (${counts})`);
 
+      // Extract class-level metadata from docblock
+      const classDocblock = this.extractClassDocblock(tsContent || '');
+      const classIcon = classDocblock.match(/@icon\s+([^\s@*,]+)/)?.[1];
+      const classDesc = classDocblock.match(/^\s*\*\s+([^@*\n][^\n]*)/m)?.[1]?.trim();
+      const isStateful = /@stateful\b/.test(classDocblock);
+
       const result: PhotonClassExtended & {
         classConstructor?: any;
         settingsSchema?: SettingsSchema;
+        icon?: string;
+        stateful?: boolean;
       } = {
         name,
-        description: `${name} MCP`,
+        description: classDesc || `${name} MCP`,
         tools,
         templates,
         statics,
@@ -1204,6 +1212,8 @@ export class PhotonLoader {
         assets,
         injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
       };
+      if (classIcon) (result as any).icon = classIcon;
+      if (isStateful) (result as any).stateful = true;
       // Store class constructor for static method access
       result.classConstructor = MCPClass;
       // Store settings schema for Beam UI
@@ -1241,7 +1251,11 @@ export class PhotonLoader {
       );
     }
 
-    const name = this.getMCPName(MCPClass);
+    // Prefer file-path-derived name (e.g. 'whatsapp' from whatsapp.photon.ts)
+    // over class-name-derived kebab-case (e.g. 'whats-app' from WhatsApp class).
+    // File path names are canonical in the photon ecosystem.
+    const classNameDerived = this.getMCPName(MCPClass);
+    const name = mcpName || classNameDerived;
 
     // Register custom middleware if exported
     if (module.middleware && Array.isArray(module.middleware)) {
@@ -1252,7 +1266,7 @@ export class PhotonLoader {
     // Resolve constructor injections (env vars, persisted state, etc.)
     const { values, configError, injectedPhotonNames } = await this.resolveAllInjections(
       tsContent,
-      mcpName || name,
+      name,
       absolutePath,
       options?.instanceName ?? ''
     );
@@ -1512,12 +1526,20 @@ export class PhotonLoader {
 
     this.log(`✅ Loaded (preloaded): ${name} (${tools.length} tools)`);
 
+    // Extract class-level metadata from docblock (icon, description, stateful)
+    const classDocblock = this.extractClassDocblock(tsContent);
+    const classIcon = classDocblock.match(/@icon\s+([^\s@*,]+)/)?.[1];
+    const classDesc = classDocblock.match(/^\s*\*\s+([^@*\n][^\n]*)/m)?.[1]?.trim();
+    const isStateful = /@stateful\b/.test(classDocblock);
+
     const result: PhotonClassExtended & {
       classConstructor?: any;
       settingsSchema?: SettingsSchema;
+      icon?: string;
+      stateful?: boolean;
     } = {
       name,
-      description: `${name} MCP`,
+      description: classDesc || `${name} MCP`,
       tools,
       templates,
       statics,
@@ -1525,11 +1547,23 @@ export class PhotonLoader {
       assets,
       injectedPhotons: injectedPhotonNames.length > 0 ? injectedPhotonNames : undefined,
     };
+    if (classIcon) (result as any).icon = classIcon;
+    if (isStateful) (result as any).stateful = true;
     result.classConstructor = MCPClass;
     if (settingsSchema?.hasSettings) {
       result.settingsSchema = settingsSchema;
     }
     return result;
+  }
+
+  /**
+   * Extract the class-level JSDoc comment block from source code.
+   * Returns the raw docblock content (between the last comment before `class` and the class keyword).
+   */
+  private extractClassDocblock(source: string): string {
+    // Match the JSDoc comment immediately preceding `export default class`
+    const match = source.match(/\/\*\*([\s\S]*?)\*\/\s*export\s+default\s+class\b/);
+    return match ? match[1] : '';
   }
 
   /**

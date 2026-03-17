@@ -101,6 +101,31 @@ function resolvePhotonDeps(
   return result;
 }
 
+/**
+ * Discover @ui HTML templates from a photon source and read their content.
+ * Returns a map of asset id → HTML content for embedding in the binary.
+ */
+function discoverUITemplates(
+  sourceCode: string,
+  sourceFilePath: string
+): Map<string, { id: string; html: string; relativePath: string }> {
+  const templates = new Map<string, { id: string; html: string; relativePath: string }>();
+  const uiRegex = /@ui\s+(\w[\w-]*)\s+(\.\/[^\s*]+|\/[^\s*]+)/g;
+  let match;
+  while ((match = uiRegex.exec(sourceCode)) !== null) {
+    const [, id, uiPath] = match;
+    const resolvedPath = path.resolve(path.dirname(sourceFilePath), uiPath);
+    if (fs.existsSync(resolvedPath)) {
+      templates.set(id, {
+        id,
+        html: fs.readFileSync(resolvedPath, 'utf-8'),
+        relativePath: uiPath,
+      });
+    }
+  }
+  return templates;
+}
+
 export function registerBuildCommand(program: Command) {
   program
     .command('build')
@@ -234,6 +259,32 @@ export function registerBuildCommand(program: Command) {
             spinner.start('Continuing build...');
           }
 
+          // Discover and embed @ui HTML templates from main photon and all deps
+          const allUITemplates = new Map<
+            string,
+            Map<string, { id: string; html: string; relativePath: string }>
+          >();
+          const mainUI = discoverUITemplates(sourceCode, photonPath);
+          if (mainUI.size > 0) {
+            const mainPhotonName = path.basename(photonPath, '.photon.ts').replace('.photon', '');
+            allUITemplates.set(mainPhotonName, mainUI);
+          }
+          for (const dep of photonDeps) {
+            const depUI = discoverUITemplates(dep.sourceCode, dep.filePath);
+            if (depUI.size > 0) {
+              const depPhotonName = path
+                .basename(dep.filePath, '.photon.ts')
+                .replace('.photon', '');
+              allUITemplates.set(depPhotonName, depUI);
+            }
+          }
+          if (allUITemplates.size > 0) {
+            let totalTemplates = 0;
+            for (const [, templates] of allUITemplates) totalTemplates += templates.size;
+            spinner.info(`Embedding ${totalTemplates} @ui template(s)`);
+            spinner.start('Continuing build...');
+          }
+
           // Resolve the photon runtime package path for the entrypoint import.
           const photonPkgDir = path.resolve(__dirname, '..', '..'); // dist/ -> package root
           let photonImportPath = path.relative(workingDir, path.join(photonPkgDir, 'index.js'));
@@ -301,12 +352,27 @@ export function registerBuildCommand(program: Command) {
           // Build the depMap argument for CLI mode
           const cliDepMapArg = depMapEntries.length > 0 ? ', buildDependencyMap()' : '';
 
+          // Generate embedded UI templates constant
+          let uiTemplatesConst = 'const UI_TEMPLATES: Record<string, Record<string, string>> = {};';
+          if (allUITemplates && allUITemplates.size > 0) {
+            const entries: string[] = [];
+            for (const [photonName, templates] of allUITemplates) {
+              const templateEntries: string[] = [];
+              for (const [id, tmpl] of templates) {
+                templateEntries.push(`    '${id}': \`${escapeForTemplateLiteral(tmpl.html)}\``);
+              }
+              entries.push(`  '${photonName}': {\n${templateEntries.join(',\n')}\n  }`);
+            }
+            uiTemplatesConst = `const UI_TEMPLATES: Record<string, Record<string, string>> = {\n${entries.join(',\n')}\n};`;
+          }
+
           const entrypointCode = `import { PhotonServer, PhotonLoader, EmbeddedRuntime, SchemaExtractor } from '${photonImportPath}';
 
 const EMBEDDED_SOURCE = \`${escapedSource}\`;
 const PHOTON_NAME = '${path.basename(outfile)}';
 ${beamBundleConst}
 ${beamIndexHtmlConst}
+${uiTemplatesConst}
 
 // Lazy module loading — avoids top-level side effects that block startup
 let _mainModule: any;
@@ -866,6 +932,7 @@ async function main() {
       preloadedModule: activeModule,
       embeddedSource: activeSource,${depMapArg}
       embeddedAssets: BEAM_BUNDLE !== '' ? { indexHtml: BEAM_INDEX_HTML, bundleJs: BEAM_BUNDLE } : undefined,
+      embeddedUITemplates: Object.keys(UI_TEMPLATES).length > 0 ? UI_TEMPLATES : undefined,
     });
 
     await server.start();
