@@ -8,6 +8,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -2005,8 +2006,20 @@ export class PhotonServer {
    */
   private async startSSE() {
     const port = this.options.port || 3000;
+    const useStreamableHTTP = !!this.options.embeddedAssets;
     const ssePath = '/mcp';
     const messagesPath = '/mcp/messages';
+
+    // For compiled binaries with Beam UI, use Streamable HTTP transport
+    // so the Beam frontend can connect via POST /mcp + GET /mcp (SSE)
+    let streamableTransport: StreamableHTTPServerTransport | null = null;
+    if (useStreamableHTTP) {
+      streamableTransport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+      });
+      this.interceptTransportForRawCapabilities(streamableTransport, this.server);
+      await this.server.connect(streamableTransport);
+    }
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       void (async () => {
@@ -2023,21 +2036,26 @@ export class PhotonServer {
         if (req.method === 'OPTIONS') {
           res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Session-Id',
+            'Access-Control-Expose-Headers': 'Mcp-Session-Id',
           });
           res.end();
           return;
         }
 
-        // SSE connection endpoint
-        if (req.method === 'GET' && url.pathname === ssePath) {
-          await this.handleSSEConnection(res, messagesPath);
+        // Streamable HTTP transport: handle /mcp for Beam frontend
+        if (streamableTransport && url.pathname === ssePath) {
+          await streamableTransport.handleRequest(req, res);
           return;
         }
 
-        // Message posting endpoint
-        if (req.method === 'POST' && url.pathname === messagesPath) {
+        // Legacy SSE transport (when not using Streamable HTTP)
+        if (!streamableTransport && req.method === 'GET' && url.pathname === ssePath) {
+          await this.handleSSEConnection(res, messagesPath);
+          return;
+        }
+        if (!streamableTransport && req.method === 'POST' && url.pathname === messagesPath) {
           await this.handleSSEMessage(req, res, url);
           return;
         }
