@@ -15,8 +15,8 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@homepage` | Project homepage URL. | `@homepage https://example.com` |
 | `@runtime` | **Required runtime version.** The photon will refuse to load if the runtime doesn't match. | `@runtime ^1.5.0` |
 | `@dependencies` | NPM packages to auto-install on first run. Append `?` to the version to mark optional — install is best-effort and the photon should handle the dep being unavailable at runtime. | `@dependencies axios@^1.0.0, sharp@^0.33.0?` |
-| `@mcp` | Declares an MCP dependency for constructor injection. | `@mcp github anthropics/mcp-server-github` |
-| `@photon` | Declares a Photon dependency (auto-install + auto-load). Append `:instance` to pin a named instance. | `@photon billing billing-photon` or `@photon homeTodos todo:home` |
+| `@mcp` | Declares an MCP dependency for constructor injection. Append `?` to the source to mark optional — injects `null` if the server can't connect. | `@mcp github anthropics/mcp-server-github` or `@mcp analytics my-analytics?` |
+| `@photon` | Declares a Photon dependency (auto-install + auto-load). Append `:instance` to pin a named instance. Append `?` to the source to mark optional — injects `null` if the photon can't load. | `@photon billing billing-photon` or `@photon whatsapp ./whatsapp.photon.ts?` |
 | `@cli` | Declares a system CLI tool dependency. | `@cli git - https://git-scm.com/downloads` |
 | `@mcps` | Lists MCP dependencies (for diagram generation). | `@mcps filesystem, git` |
 | `@photons` | Lists Photon dependencies (for diagram generation). | `@photons calculator` |

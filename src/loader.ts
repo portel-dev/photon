@@ -2088,8 +2088,25 @@ export class PhotonLoader {
     photonPath: string,
     instanceName: string = ''
   ): Promise<{ values: any[]; configError: string | null; injectedPhotonNames: string[] }> {
+    // Detect optional dependencies: @photon name source? or @mcp name source?
+    // The ? suffix on the source marks the dependency as optional — inject null on failure
+    const optionalPhotons = new Set<string>();
+    const optionalMCPs = new Set<string>();
+    for (const m of source.matchAll(/@photon\s+(\w+)\s+\S+\?/g)) {
+      optionalPhotons.add(m[1]);
+    }
+    for (const m of source.matchAll(/@mcp\s+(\w+)\s+\S+\?/g)) {
+      optionalMCPs.add(m[1]);
+    }
+
+    // Strip ? from @photon/@mcp sources before passing to photon-core's parser,
+    // which doesn't understand the optional suffix
+    const cleanedSource = source
+      .replace(/@photon\s+(\w+)\s+(\S+)\?/g, '@photon $1 $2')
+      .replace(/@mcp\s+(\w+)\s+(\S+)\?/g, '@mcp $1 $2');
+
     const extractor = new SchemaExtractor();
-    const injections = extractor.resolveInjections(source, mcpName);
+    const injections = extractor.resolveInjections(cleanedSource, mcpName);
 
     // Lazy-load env store and instance state path
     const { EnvStore, getInstanceStatePath } = await import('./context-store.js');
@@ -2131,27 +2148,33 @@ export class PhotonLoader {
         case 'mcp': {
           // Inject MCP client
           const mcpDep = injection.mcpDependency!;
+          const isOptionalMCP = optionalMCPs.has(mcpDep.name);
           try {
             const client = await this.getMCPClient(mcpDep);
             values.push(client);
             this.log(`  ✅ Injected MCP: ${mcpDep.name} (${mcpDep.source})`);
           } catch (error) {
-            // If it's already an MCPConfigurationError, re-throw it directly
-            if (error instanceof MCPConfigurationError) {
+            // If it's already an MCPConfigurationError and not optional, re-throw it directly
+            if (error instanceof MCPConfigurationError && !isOptionalMCP) {
               throw error;
             }
 
-            this.log(
-              `  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${getErrorMessage(error)}`
-            );
-            missingMCPs.push({
-              name: mcpDep.name,
-              source: mcpDep.source,
-              sourceType: mcpDep.sourceType as MCPSourceType,
-              declaredIn: path.basename(photonPath),
-              originalError: getErrorMessage(error),
-            });
-            values.push(undefined);
+            if (isOptionalMCP) {
+              this.log(`  ⚠️ Optional MCP ${mcpDep.name} unavailable, injecting null`);
+              values.push(null);
+            } else {
+              this.log(
+                `  ⚠️ Failed to create MCP client for ${mcpDep.name}: ${getErrorMessage(error)}`
+              );
+              missingMCPs.push({
+                name: mcpDep.name,
+                source: mcpDep.source,
+                sourceType: mcpDep.sourceType as MCPSourceType,
+                declaredIn: path.basename(photonPath),
+                originalError: getErrorMessage(error),
+              });
+              values.push(undefined);
+            }
           }
           break;
         }
@@ -2159,6 +2182,7 @@ export class PhotonLoader {
         case 'photon': {
           // Inject Photon instance
           const photonDep = injection.photonDependency!;
+          const isOptionalPhoton = optionalPhotons.has(photonDep.name);
           try {
             const photonInstance = await this.getPhotonInstance(
               photonDep,
@@ -2169,11 +2193,16 @@ export class PhotonLoader {
             injectedPhotonNames.push(photonDep.name);
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
           } catch (error) {
-            this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${getErrorMessage(error)}`);
-            missingPhotons.push(
-              `@photon ${photonDep.name} ${photonDep.source}: ${getErrorMessage(error)}`
-            );
-            values.push(undefined);
+            if (isOptionalPhoton) {
+              this.log(`  ⚠️ Optional Photon ${photonDep.name} unavailable, injecting null`);
+              values.push(null);
+            } else {
+              this.log(`  ⚠️ Failed to load Photon ${photonDep.name}: ${getErrorMessage(error)}`);
+              missingPhotons.push(
+                `@photon ${photonDep.name} ${photonDep.source}: ${getErrorMessage(error)}`
+              );
+              values.push(undefined);
+            }
           }
           break;
         }
