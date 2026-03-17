@@ -1809,7 +1809,10 @@ export class PhotonServer {
         }
 
         // Check if photon is stateful (requires daemon)
-        const extractor = new PhotonDocExtractor(this.options.filePath);
+        const extractor = new PhotonDocExtractor(
+          this.options.filePath,
+          this.options.embeddedSource
+        );
         const metadata = await extractor.extractFullMetadata();
         const isStateful = metadata.stateful;
 

@@ -83,7 +83,10 @@ export class PhotonDocExtractor {
   private content: string;
   private schemaExtractor: SchemaExtractor;
 
-  constructor(private filePath: string) {
+  constructor(
+    private filePath: string,
+    private embeddedSource?: string
+  ) {
     this.content = '';
     this.schemaExtractor = new SchemaExtractor();
   }
@@ -92,7 +95,7 @@ export class PhotonDocExtractor {
    * Extract all metadata from the Photon file
    */
   async extractFullMetadata(): Promise<Omit<PhotonMetadata, 'hash'>> {
-    this.content = await fs.readFile(this.filePath, 'utf-8');
+    this.content = this.embeddedSource || (await fs.readFile(this.filePath, 'utf-8'));
 
     const statefulTag = this.extractTag('stateful');
     const idleTimeoutTag = this.extractTag('idleTimeout');
