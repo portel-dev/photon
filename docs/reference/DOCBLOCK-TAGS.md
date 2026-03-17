@@ -120,7 +120,10 @@ Tags prefixed with **MCP.** map directly to MCP protocol `Tool.annotations` fiel
 - **`@idempotent`** → `annotations.idempotentHint: true` — Client may safely retry on failure
 - **`@openWorld`** / **`@closedWorld`** → `annotations.openWorldHint: true/false` — Informs client about external side effects
 - **`@title`** → `annotations.title` — Display name shown in tool selection UI
-- **`@audience`** → Content block `annotations.audience` — Controls who sees results
+- **`@audience`** → Content block `annotations.audience` — Controls who sees results:
+  - `@audience user` — Results are for the human user (e.g. dashboard data)
+  - `@audience assistant` — Results are for the LLM only (e.g. internal context)
+  - Both/default — Results are for both audiences
 - **`@priority`** → Content block `annotations.priority` — Importance weighting for result display
 
 **Note:** Method-level `@readOnly` (no curly braces) is distinct from parameter-level `{@readOnly}` (inside `@param` tags). They serve different purposes and do not conflict.
@@ -144,6 +147,35 @@ list() { ... }
  */
 remove({ id }: { id: string }) { ... }
 ```
+
+### UI-Only Methods Pattern
+
+Combine `@internal` + `@audience user` to create methods that are callable by custom UI templates (via `window.photon.callTool()`) but hidden from the LLM tool listing:
+
+```typescript
+/**
+ * View the agent's journal — dashboard use only.
+ *
+ * @title Agent Journal
+ * @internal
+ * @audience user
+ * @readOnly
+ */
+async journal(params: { agent: string }): Promise<JournalEntry[]> { ... }
+```
+
+- **`@internal`** hides the method from `tools/list` — the LLM never sees it as an available tool
+- **`@audience user`** adds content annotations so the transport marks results as human-only
+- The UI can still call it directly via `window.photon.callTool('journal', { agent: 'lura' })`
+
+This pattern is useful for dashboard panels, admin controls, and evolution management methods that humans manage through a UI rather than through LLM conversation.
+
+| Combination | LLM sees tool? | UI can call? | Use case |
+|-------------|---------------|-------------|----------|
+| *(no tags)* | Yes | Yes | Standard tools (both audiences) |
+| `@internal` | No | Yes | Scheduled jobs, system callbacks |
+| `@internal` + `@audience user` | No | Yes | Dashboard-only methods |
+| `@audience assistant` | Yes | Yes | LLM-facing data the human doesn't need |
 
 ### Structured Output
 
