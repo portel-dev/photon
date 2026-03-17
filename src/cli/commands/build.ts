@@ -105,17 +105,34 @@ function resolvePhotonDeps(
  * Discover @ui HTML templates from a photon source and read their content.
  * Returns a map of asset id → HTML content for embedding in the binary.
  */
+/**
+ * Discover @ui HTML templates from a photon source and read their content.
+ * Convention: @ui paths are relative to the photon's asset folder
+ * (e.g. for claw.photon.ts, asset folder is claw/, so @ui dashboard ./ui/dashboard.html
+ * resolves to claw/ui/dashboard.html relative to the photon file).
+ */
 function discoverUITemplates(
   sourceCode: string,
   sourceFilePath: string
 ): Map<string, { id: string; html: string; relativePath: string }> {
   const templates = new Map<string, { id: string; html: string; relativePath: string }>();
   const uiRegex = /@ui\s+(\w[\w-]*)\s+(\.\/[^\s*]+|\/[^\s*]+)/g;
+  const photonDir = path.dirname(sourceFilePath);
+  const photonName = path.basename(sourceFilePath, '.photon.ts').replace('.photon', '');
+  const assetFolder = path.join(photonDir, photonName);
   let match;
   while ((match = uiRegex.exec(sourceCode)) !== null) {
     const [, id, uiPath] = match;
-    const resolvedPath = path.resolve(path.dirname(sourceFilePath), uiPath);
-    if (fs.existsSync(resolvedPath)) {
+    // Try asset folder convention first (claw/ui/dashboard.html)
+    const assetPath = path.resolve(assetFolder, uiPath.replace(/^\.\//, ''));
+    // Also try direct relative to photon file (./ui/dashboard.html)
+    const directPath = path.resolve(photonDir, uiPath);
+    const resolvedPath = fs.existsSync(assetPath)
+      ? assetPath
+      : fs.existsSync(directPath)
+        ? directPath
+        : null;
+    if (resolvedPath) {
       templates.set(id, {
         id,
         html: fs.readFileSync(resolvedPath, 'utf-8'),
