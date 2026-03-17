@@ -223,11 +223,23 @@ class BeamCompatTransport implements Transport {
         'Access-Control-Allow-Origin': '*',
         'Mcp-Session-Id': this.sessionId,
       });
+      // Send initial event so the client knows connection is established
+      res.write(':connected\n\n');
       // Send keepalive every 15s
       const keepalive = setInterval(() => {
-        if (!res.writableEnded) res.write(':keepalive\n\n');
+        if (!res.writableEnded) {
+          try {
+            res.write(':keepalive\n\n');
+          } catch {
+            /* stream closed */
+          }
+        }
       }, 15000);
       req.on('close', () => {
+        clearInterval(keepalive);
+        this.sseResponse = null;
+      });
+      res.on('error', () => {
         clearInterval(keepalive);
         this.sseResponse = null;
       });
