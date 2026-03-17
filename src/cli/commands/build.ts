@@ -253,13 +253,15 @@ export function registerBuildCommand(program: Command) {
             depDynamicLoads.push(`  _depModules[${i}] = await import('${depImportPath}');`);
 
             const escapedDepSource = escapeForTemplateLiteral(dep.sourceCode);
+            // Use actual module or a stub that throws (so loader doesn't search disk)
+            const moduleExpr = `_depModules[${i}] || { default: null }`;
             depMapEntries.push(
-              `  if (_depModules[${i}]) deps.set('${dep.name}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+              `  deps.set('${dep.name}', { module: ${moduleExpr}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
             );
             // Also register by source name for fallback matching
             if (dep.source !== dep.name) {
               depMapEntries.push(
-                `  if (_depModules[${i}]) deps.set('${dep.source}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+                `  deps.set('${dep.source}', { module: ${moduleExpr}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
               );
             }
           }
