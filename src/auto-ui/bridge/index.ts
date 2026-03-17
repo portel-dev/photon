@@ -422,6 +422,44 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         var i = photonEventListeners[photonName][eventName].indexOf(cb);
         if (i >= 0) photonEventListeners[photonName][eventName].splice(i, 1);
       };
+    },
+
+    // Render a QR code into a container element
+    // Usage: photon.renderQR(element, 'https://example.com', { size: 256 })
+    renderQR: function(container, text, opts) {
+      opts = opts || {};
+      var size = opts.size || 256;
+      if (!container || !text) return;
+      container.innerHTML = '';
+
+      // Load qrcode-generator on demand (once)
+      if (!window._photonQR) {
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+        script.onload = function() {
+          window._photonQR = true;
+          doRender();
+        };
+        script.onerror = function() {
+          // Fallback: show as monospace text
+          container.innerHTML = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
+        };
+        document.head.appendChild(script);
+      } else {
+        doRender();
+      }
+
+      function doRender() {
+        try {
+          var qr = qrcode(0, opts.errorCorrection || 'L');
+          qr.addData(text);
+          qr.make();
+          var cellSize = Math.max(1, Math.floor(size / (qr.getModuleCount() + 8)));
+          container.innerHTML = qr.createSvgTag({ cellSize: cellSize, margin: 4 });
+        } catch(e) {
+          container.innerHTML = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
+        }
+      }
     }
   };
 
