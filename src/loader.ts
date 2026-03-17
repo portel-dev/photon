@@ -289,7 +289,11 @@ export class PhotonLoader {
    * instead of creating a new isolated one. This ensures injected photons share the
    * same instance as the one the daemon manages (e.g., WhatsApp socket reuse).
    */
-  public photonInstanceResolver?: (photonName: string, photonPath: string) => Promise<any>;
+  public photonInstanceResolver?: (
+    photonName: string,
+    photonPath: string,
+    callerInstanceName?: string
+  ) => Promise<any>;
 
   /**
    * Optional resolver for this.instance(name) — same-photon cross-instance access.
@@ -1037,7 +1041,10 @@ export class PhotonLoader {
       // when source uses this._dispatch( — the universal channel dispatch pattern.
       // Channels call this._dispatch(chatId, message, groupName?) to fire to subscribers
       // instead of manually looping through handler arrays with filter matching.
-      if (tsContent && /this\._dispatch\s*\(/.test(tsContent)) {
+      if (
+        tsContent &&
+        /(?:this\._dispatch\s*\(|\(this\s+as\s+any\)\._dispatch\s*\()/.test(tsContent)
+      ) {
         const inst = instance as any;
         if (!inst._eventListeners) {
           inst._eventListeners = [];
@@ -1387,6 +1394,73 @@ export class PhotonLoader {
       }
     }
 
+    // Channel event capability: inject on()/off()/_dispatch()/_matchesFilter()
+    // when source uses this._dispatch( — the universal channel dispatch pattern.
+    // (Mirrors the same injection in loadFile for disk-based loading.)
+    if (
+      tsContent &&
+      /(?:this\._dispatch\s*\(|\(this\s+as\s+any\)\._dispatch\s*\()/.test(tsContent)
+    ) {
+      const inst = instance as any;
+      if (!inst._eventListeners) {
+        inst._eventListeners = [];
+      }
+
+      if (!inst.on) {
+        inst.on = function (
+          event: string,
+          fn: (data: any) => void,
+          filter?: { group?: string; chatId?: string; trigger?: string; fromMe?: boolean }
+        ) {
+          inst._eventListeners.push({ event, fn, filter });
+        };
+      }
+
+      if (!inst.off) {
+        inst.off = function (event: string, fn: (data: any) => void) {
+          const idx = inst._eventListeners.findIndex((e: any) => e.event === event && e.fn === fn);
+          if (idx !== -1) inst._eventListeners.splice(idx, 1);
+        };
+      }
+
+      if (!inst._matchesFilter) {
+        inst._matchesFilter = function (
+          filter: any,
+          chatId: string,
+          message: any,
+          groupName?: string
+        ): boolean {
+          if (!filter) return true;
+          if (filter.chatId && filter.chatId !== chatId) return false;
+          if (filter.group && groupName) {
+            const fg = filter.group.toLowerCase();
+            if (!groupName.toLowerCase().includes(fg) && chatId !== filter.group) return false;
+          }
+          if (filter.trigger && message?.content && !message.content.includes(filter.trigger))
+            return false;
+          if (filter.fromMe !== undefined && message?.fromMe !== filter.fromMe) return false;
+          return true;
+        };
+      }
+
+      if (!inst._dispatch) {
+        inst._dispatch = function (chatId: string, message: any, groupName?: string) {
+          for (const entry of inst._eventListeners) {
+            if (entry.event !== 'message') continue;
+            if (inst._matchesFilter(entry.filter, chatId, message, groupName)) {
+              try {
+                entry.fn({ chatId, message });
+              } catch {
+                // handler error — don't crash the dispatch loop
+              }
+            }
+          }
+        };
+      }
+
+      this.log(`🔌 Injected channel event infrastructure into ${name}`);
+    }
+
     // Check @cli dependencies (external tools like git, ffmpeg, etc.)
     if (tsContent) {
       await this.checkCLIDependencies(tsContent, name);
@@ -1548,12 +1622,11 @@ export class PhotonLoader {
     const builtInStatics = new Set(['length', 'name', 'prototype', 'getToolMethods']);
 
     // Get instance methods from prototype
+    // Use getOwnPropertyDescriptor to avoid triggering getters (which may call storage())
     Object.getOwnPropertyNames(prototype).forEach((name) => {
-      if (
-        !name.startsWith('_') &&
-        !conventionMethods.has(name) &&
-        typeof prototype[name] === 'function'
-      ) {
+      if (name.startsWith('_') || conventionMethods.has(name)) return;
+      const desc = Object.getOwnPropertyDescriptor(prototype, name);
+      if (desc && typeof desc.value === 'function') {
         methods.push(name);
       }
     });
@@ -2077,7 +2150,11 @@ export class PhotonLoader {
           // Inject Photon instance
           const photonDep = injection.photonDependency!;
           try {
-            const photonInstance = await this.getPhotonInstance(photonDep, photonPath);
+            const photonInstance = await this.getPhotonInstance(
+              photonDep,
+              photonPath,
+              instanceName
+            );
             values.push(photonInstance);
             injectedPhotonNames.push(photonDep.name);
             this.log(`  ✅ Injected Photon: ${photonDep.name} (${photonDep.source})`);
@@ -2244,8 +2321,14 @@ export class PhotonLoader {
   /**
    * Get or load a Photon instance for a dependency.
    * When dep.instanceName is set, loads a named instance (separate state).
+   * When callerInstanceName is set and dep has no explicit instanceName,
+   * the caller's instance name is inherited (multi-tenancy support).
    */
-  private async getPhotonInstance(dep: PhotonDependency, currentPhotonPath: string): Promise<any> {
+  private async getPhotonInstance(
+    dep: PhotonDependency,
+    currentPhotonPath: string,
+    callerInstanceName?: string
+  ): Promise<any> {
     // Check preloaded dependencies first (compiled binary mode)
     if (this.preloadedDependencies) {
       const preloaded =
@@ -2281,10 +2364,14 @@ export class PhotonLoader {
     }
 
     // Ask the daemon for a shared instance (avoids duplicate WhatsApp sockets, etc.)
+    // Pass effective instance name: explicit dep.instanceName takes priority,
+    // otherwise inherit from the caller (multi-tenancy: claw[arul] → whatsapp[arul])
     if (this.photonInstanceResolver) {
-      const shared = await this.photonInstanceResolver(dep.name, resolvedPath);
+      const effectiveInstance = dep.instanceName || callerInstanceName;
+      const shared = await this.photonInstanceResolver(dep.name, resolvedPath, effectiveInstance);
       if (shared) {
-        this.log(`  ♻️ Reusing shared instance for @photon ${dep.name}`);
+        const label = effectiveInstance ? ` (instance: ${effectiveInstance})` : '';
+        this.log(`  ♻️ Reusing shared instance for @photon ${dep.name}${label}`);
         return shared;
       }
     }

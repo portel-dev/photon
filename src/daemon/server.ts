@@ -951,18 +951,24 @@ async function getOrCreateSessionManager(
     // Wire @photon dependency resolver: when this photon's loader encounters
     // `@photon whatsapp ./whatsapp.photon.ts`, it asks the daemon for the shared
     // instance instead of creating a duplicate (avoids double WhatsApp sockets, etc.)
-    manager.loader.photonInstanceResolver = async (depName: string, depPath: string) => {
+    manager.loader.photonInstanceResolver = async (
+      depName: string,
+      depPath: string,
+      callerInstanceName?: string
+    ) => {
       try {
         // Get or create the dependency's session manager (lazy initialization)
         const depManager = await getOrCreateSessionManager(depName, depPath, workingDir);
         if (!depManager) return null;
 
-        // Load its default instance (reuses existing if already loaded)
-        const loaded = await depManager.getOrLoadInstance('');
+        // Load the instance — inherit caller's instance name for multi-tenancy
+        // e.g. claw[arul] → whatsapp[arul], telegram[arul], courier[arul]
+        const loaded = await depManager.getOrLoadInstance(callerInstanceName || '');
         if (loaded?.instance) {
           logger.info('Resolved @photon dep from shared daemon instance', {
             dep: depName,
             consumer: photonName,
+            instance: callerInstanceName || 'default',
           });
 
           // Return a Proxy that lazily resolves the current instance on every access.
@@ -972,10 +978,11 @@ async function getOrCreateSessionManager(
           // Event methods (.on, .off) and other non-tool methods pass through directly.
           const toolNames = new Set((loaded.tools || []).map((t: any) => t.name));
 
+          const depInstanceKey = callerInstanceName || undefined;
           return new Proxy({} as any, {
             get(_target: any, prop: string | symbol) {
               // Resolve the current instance from the session manager (survives hot-reload)
-              const current = depManager.getCurrentInstance() ?? loaded;
+              const current = depManager.getCurrentInstance(depInstanceKey) ?? loaded;
               const instance = current.instance ?? loaded.instance;
               const value = Reflect.get(instance, prop);
 
@@ -991,7 +998,7 @@ async function getOrCreateSessionManager(
                 prop !== 'off'
               ) {
                 return async (params: any) => {
-                  const latest = depManager.getCurrentInstance() ?? loaded;
+                  const latest = depManager.getCurrentInstance(depInstanceKey) ?? loaded;
                   return depManager.loader.executeTool(latest, prop, params || {});
                 };
               }
