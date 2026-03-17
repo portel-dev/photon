@@ -241,31 +241,31 @@ export function registerBuildCommand(program: Command) {
             photonImportPath = `./${photonImportPath}`;
           }
 
-          // Generate import statements for each @photon dependency
-          const depImports: string[] = [];
+          // Generate dynamic import lines for each @photon dependency (deferred loading)
+          const depDynamicLoads: string[] = [];
           const depMapEntries: string[] = [];
           for (let i = 0; i < photonDeps.length; i++) {
             const dep = photonDeps[i];
-            const varName = `__dep${i}`;
             let depImportPath = path.relative(workingDir, dep.filePath);
             if (!depImportPath.startsWith('.')) {
               depImportPath = `./${depImportPath}`;
             }
-            depImports.push(`import * as ${varName} from '${depImportPath}';`);
+            depDynamicLoads.push(`  _depModules[${i}] = await import('${depImportPath}');`);
 
             const escapedDepSource = escapeForTemplateLiteral(dep.sourceCode);
             depMapEntries.push(
-              `  deps.set('${dep.name}', { module: ${varName}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+              `  deps.set('${dep.name}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
             );
             // Also register by source name for fallback matching
             if (dep.source !== dep.name) {
               depMapEntries.push(
-                `  deps.set('${dep.source}', { module: ${varName}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
+                `  deps.set('${dep.source}', { module: _depModules[${i}], source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} });`
               );
             }
           }
 
-          const depImportsBlock = depImports.length > 0 ? depImports.join('\n') + '\n' : '';
+          const loadModulesBody =
+            depDynamicLoads.length > 0 ? depDynamicLoads.join('\n') + '\n' : '';
           const depMapBlock =
             depMapEntries.length > 0
               ? `\nfunction buildDependencyMap() {\n  const deps = new Map();\n${depMapEntries.join('\n')}\n  return deps;\n}\n`
@@ -273,29 +273,25 @@ export function registerBuildCommand(program: Command) {
           const depMapArg =
             depMapEntries.length > 0 ? `\n    preloadedDependencies: buildDependencyMap(),` : '';
 
-          // Build a symlink routing map for the entrypoint:
-          // When invoked via a symlink named after a bundled dep, serve that dep instead.
-          const symlinkEntries: string[] = [];
+          // Build bundled photons metadata map (module refs resolved lazily via depIndex)
+          const bundledEntries: string[] = [];
           for (let i = 0; i < photonDeps.length; i++) {
             const dep = photonDeps[i];
-            const varName = `__dep${i}`;
             const escapedDepSource = escapeForTemplateLiteral(dep.sourceCode);
-            // Extract the photon name from the file (e.g., "whatsapp" from "whatsapp.photon.ts")
             const depPhotonName = path.basename(dep.filePath, '.photon.ts').replace('.photon', '');
-            symlinkEntries.push(
-              `  '${depPhotonName}': { module: ${varName}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} },`
+            bundledEntries.push(
+              `  '${depPhotonName}': { depIndex: ${i}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} },`
             );
-            // Also map by the dependency variable name if different
             if (dep.name !== depPhotonName) {
-              symlinkEntries.push(
-                `  '${dep.name}': { module: ${varName}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} },`
+              bundledEntries.push(
+                `  '${dep.name}': { depIndex: ${i}, source: \`${escapedDepSource}\`, filePath: ${JSON.stringify(dep.filePath)} },`
               );
             }
           }
-          const symlinkMapBlock =
-            symlinkEntries.length > 0
-              ? `\nconst BUNDLED_PHOTONS: Record<string, { module: any; source: string; filePath: string }> = {\n${symlinkEntries.join('\n')}\n};\n`
-              : '\nconst BUNDLED_PHOTONS: Record<string, { module: any; source: string; filePath: string }> = {};\n';
+          const bundledMapBlock =
+            bundledEntries.length > 0
+              ? `\nconst BUNDLED_PHOTONS: Record<string, { depIndex: number; source: string; filePath: string }> = {\n${bundledEntries.join('\n')}\n};\n`
+              : '\nconst BUNDLED_PHOTONS: Record<string, { depIndex: number; source: string; filePath: string }> = {};\n';
 
           // The main photon file path constant for the entrypoint
           const mainFilePathJson = JSON.stringify(photonPath);
@@ -304,13 +300,23 @@ export function registerBuildCommand(program: Command) {
           const cliDepMapArg = depMapEntries.length > 0 ? ', buildDependencyMap()' : '';
 
           const entrypointCode = `import { PhotonServer, PhotonLoader, EmbeddedRuntime, SchemaExtractor } from '${photonImportPath}';
-import * as photonModule from '${relativePhotonPath}';
-${depImportsBlock}
+
 const EMBEDDED_SOURCE = \`${escapedSource}\`;
 const PHOTON_NAME = '${path.basename(outfile)}';
 ${beamBundleConst}
 ${beamIndexHtmlConst}
-${depMapBlock}${symlinkMapBlock}
+
+// Lazy module loading — avoids top-level side effects that block startup
+let _mainModule: any;
+const _depModules: any[] = [];
+let _modulesLoaded = false;
+
+async function loadModules() {
+  if (_modulesLoaded) return;
+  _mainModule = await import('${relativePhotonPath}');
+${loadModulesBody}  _modulesLoaded = true;
+}
+${depMapBlock}${bundledMapBlock}
 async function runSetup() {
   const __fs = await import('fs');
   const __path = await import('path');
@@ -756,6 +762,9 @@ async function main() {
   if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
   if (command === 'completions') { handleCompletions(args.slice(1)); process.exit(0); }
 
+  // Load all photon modules (deferred to avoid top-level side effects blocking startup)
+  await loadModules();
+
   // Resolve which bundled photon to serve
   let activeModule: any;
   let activeSource: string;
@@ -770,7 +779,7 @@ async function main() {
       console.error('Unknown photon: ' + photonName + '\\nBundled: ' + (available || '(none)'));
       process.exit(1);
     }
-    activeModule = bundled.module;
+    activeModule = _depModules[bundled.depIndex];
     activeSource = bundled.source;
     activeFilePath = bundled.filePath;
     args = args.slice(2); // remaining args after x <photon>
@@ -781,11 +790,11 @@ async function main() {
     const invokedAs = __path.default.basename(process.env._ || process.argv[1] || process.execPath);
     const bundled = BUNDLED_PHOTONS[invokedAs];
     if (bundled) {
-      activeModule = bundled.module;
+      activeModule = _depModules[bundled.depIndex];
       activeSource = bundled.source;
       activeFilePath = bundled.filePath;
     } else {
-      activeModule = photonModule;
+      activeModule = _mainModule;
       activeSource = EMBEDDED_SOURCE;
       activeFilePath = ${mainFilePathJson};
     }
@@ -903,11 +912,19 @@ main().catch(err => {
             for (const dep of photonDeps) {
               const depName = path.basename(dep.filePath, '.photon.ts').replace('.photon', '');
               if (seenNames.has(depName) || depName === outName) continue;
+              // Skip if a directory with this name exists (e.g. whatsapp/ for storage)
+              const existingPath = path.join(outDir, depName);
+              try {
+                if (fs.statSync(existingPath).isDirectory()) continue;
+              } catch {}
               seenNames.add(depName);
 
               try {
-                // Create Unix shell wrapper
+                // Create Unix shell wrapper (unlink first to avoid following old symlinks)
                 const scriptPath = path.join(outDir, depName);
+                try {
+                  fs.unlinkSync(scriptPath);
+                } catch {}
                 const scriptContent = `#!/bin/sh\nexec "$(dirname "$0")/${outName}" x ${depName} "$@"\n`;
                 fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
                 createdWrappers.push(depName);
