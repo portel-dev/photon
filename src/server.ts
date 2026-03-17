@@ -8,7 +8,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -106,6 +106,151 @@ interface HandlerContext {
   getInstanceName: () => string | undefined;
   setInstanceName: (name: string) => void;
   sessionId: string;
+}
+
+/**
+ * Minimal Streamable HTTP transport for compiled binaries with Beam UI.
+ * Implements the Transport interface so the SDK Server can connect to it,
+ * then handles HTTP requests matching the Beam frontend's protocol:
+ *   POST /mcp — JSON-RPC request → JSON response with Mcp-Session-Id
+ *   GET /mcp?sessionId=X — SSE stream for server notifications
+ */
+class BeamCompatTransport implements Transport {
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: (message: any, extra?: any) => void;
+
+  sessionId = crypto.randomUUID();
+  private sseResponse: ServerResponse | null = null;
+  private pendingResponse: ((message: any) => void) | null = null;
+
+  constructor(
+    private photonName: string,
+    private photonMeta: {
+      description?: string;
+      icon?: string;
+      stateful?: boolean;
+      hasSettings?: boolean;
+    }
+  ) {}
+
+  async start(): Promise<void> {
+    /* no-op — transport is ready immediately */
+  }
+
+  async close(): Promise<void> {
+    if (this.sseResponse) {
+      this.sseResponse.end();
+      this.sseResponse = null;
+    }
+    this.onclose?.();
+  }
+
+  async send(message: any): Promise<void> {
+    // Transform outgoing tools/list responses: prefix names + add x-photon-* metadata
+    if (message?.result?.tools && Array.isArray(message.result.tools)) {
+      message.result.tools = message.result.tools.map((tool: any) => ({
+        ...tool,
+        name: `${this.photonName}/${tool.name}`,
+        'x-photon-id': this.photonName,
+        'x-photon-description': this.photonMeta.description || '',
+        'x-photon-icon': this.photonMeta.icon || '⚡',
+        'x-photon-stateful': this.photonMeta.stateful || false,
+        'x-photon-has-settings': this.photonMeta.hasSettings || false,
+      }));
+    }
+
+    // If there's a pending HTTP request waiting for a response, deliver it
+    if (this.pendingResponse) {
+      const resolve = this.pendingResponse;
+      this.pendingResponse = null;
+      resolve(message);
+      return;
+    }
+    // Otherwise push to SSE stream if connected
+    if (this.sseResponse && !this.sseResponse.writableEnded) {
+      this.sseResponse.write(`data: ${JSON.stringify(message)}\n\n`);
+    }
+  }
+
+  async handleHTTP(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    // GET — open SSE stream for server-to-client notifications
+    if (req.method === 'GET') {
+      this.sseResponse = res;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Mcp-Session-Id': this.sessionId,
+      });
+      // Send keepalive every 15s
+      const keepalive = setInterval(() => {
+        if (!res.writableEnded) res.write(':keepalive\n\n');
+      }, 15000);
+      req.on('close', () => {
+        clearInterval(keepalive);
+        this.sseResponse = null;
+      });
+      return;
+    }
+
+    // POST — JSON-RPC request/response
+    if (req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      // Transform incoming tools/call: strip photonName/ prefix from tool name
+      if (parsed.method === 'tools/call' && parsed.params?.name) {
+        const prefix = `${this.photonName}/`;
+        if (parsed.params.name.startsWith(prefix)) {
+          parsed.params.name = parsed.params.name.slice(prefix.length);
+        }
+      }
+
+      // Notifications have no id — fire-and-forget
+      if (parsed.id === undefined) {
+        this.onmessage?.(parsed, { sessionId: this.sessionId });
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+
+      // Request — wait for the Server to call send() with the response
+      const response = await new Promise<any>((resolve) => {
+        this.pendingResponse = resolve;
+        this.onmessage?.(parsed, { sessionId: this.sessionId });
+      });
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+        'Mcp-Session-Id': this.sessionId,
+      });
+      res.end(JSON.stringify(response));
+      return;
+    }
+
+    // DELETE — session termination (spec compliance)
+    if (req.method === 'DELETE') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    res.writeHead(405);
+    res.end('Method not allowed');
+  }
 }
 
 export class PhotonServer {
@@ -2010,15 +2155,21 @@ export class PhotonServer {
     const ssePath = '/mcp';
     const messagesPath = '/mcp/messages';
 
-    // For compiled binaries with Beam UI, use Streamable HTTP transport
-    // so the Beam frontend can connect via POST /mcp + GET /mcp (SSE)
-    let streamableTransport: StreamableHTTPServerTransport | null = null;
+    // For compiled binaries with Beam UI, use a minimal Streamable HTTP transport
+    // that matches what the Beam frontend sends:
+    //   POST /mcp  — JSON-RPC request, Accept: application/json → JSON response
+    //   GET  /mcp?sessionId=X — EventSource for server-to-client notifications
+    let beamTransport: BeamCompatTransport | null = null;
     if (useStreamableHTTP) {
-      streamableTransport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
+      const photonName = this.mcp?.name || 'photon';
+      beamTransport = new BeamCompatTransport(photonName, {
+        description: this.mcp?.description,
+        icon: (this.mcp as any)?.icon,
+        stateful: !!(this.mcp as any)?.stateful,
+        hasSettings: !!(this.mcp as any)?.hasSettings,
       });
-      this.interceptTransportForRawCapabilities(streamableTransport, this.server);
-      await this.server.connect(streamableTransport);
+      this.interceptTransportForRawCapabilities(beamTransport, this.server);
+      await this.server.connect(beamTransport);
     }
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -2044,18 +2195,18 @@ export class PhotonServer {
           return;
         }
 
-        // Streamable HTTP transport: handle /mcp for Beam frontend
-        if (streamableTransport && url.pathname === ssePath) {
-          await streamableTransport.handleRequest(req, res);
+        // Streamable HTTP transport for Beam frontend (compiled binaries)
+        if (beamTransport && url.pathname === ssePath) {
+          await beamTransport.handleHTTP(req, res, url);
           return;
         }
 
         // Legacy SSE transport (when not using Streamable HTTP)
-        if (!streamableTransport && req.method === 'GET' && url.pathname === ssePath) {
+        if (!beamTransport && req.method === 'GET' && url.pathname === ssePath) {
           await this.handleSSEConnection(res, messagesPath);
           return;
         }
-        if (!streamableTransport && req.method === 'POST' && url.pathname === messagesPath) {
+        if (!beamTransport && req.method === 'POST' && url.pathname === messagesPath) {
           await this.handleSSEMessage(req, res, url);
           return;
         }
@@ -2413,6 +2564,13 @@ export class PhotonServer {
             res.end(appHtml);
             return;
           }
+        }
+
+        // SPA fallback: serve index.html for unmatched GET requests (compiled binary with Beam UI)
+        if (req.method === 'GET' && this.options.embeddedAssets) {
+          res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
+          res.end(this.options.embeddedAssets.indexHtml);
+          return;
         }
 
         res.writeHead(404).end('Not Found');

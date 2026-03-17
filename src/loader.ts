@@ -2338,6 +2338,11 @@ export class PhotonLoader {
       const preloaded =
         this.preloadedDependencies.get(dep.name) || this.preloadedDependencies.get(dep.source);
       if (preloaded) {
+        // Stub modules (failed native deps like sharp on wrong arch) have default: null
+        if (!preloaded.module?.default) {
+          this.log(`  ⚠️ Skipping stub dependency: ${dep.name} (module failed to load)`);
+          return undefined;
+        }
         const cacheKey = dep.instanceName
           ? `preloaded:${dep.name}::${dep.instanceName}`
           : `preloaded:${dep.name}`;
