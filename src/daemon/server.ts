@@ -861,6 +861,36 @@ async function getOrCreateSessionManager(
     return null;
   }
 
+  // Deduplicate: if another session manager already exists for the same resolved file path,
+  // reuse it. This handles the case where the same photon is accessed by bare name (via @photon
+  // dependency) and by full path (via CLI) — they should share one instance.
+  try {
+    const resolvedPath = fs.realpathSync(pathToUse);
+    for (const [existingKey, existingManager] of sessionManagers) {
+      if (existingKey === key) continue;
+      const existingPath = photonPaths.get(existingKey);
+      if (existingPath) {
+        try {
+          if (fs.realpathSync(existingPath) === resolvedPath) {
+            logger.info('Deduplicating session manager — same photon file', {
+              photonName,
+              key,
+              existingKey,
+              resolvedPath,
+            });
+            sessionManagers.set(key, existingManager);
+            photonPaths.set(key, pathToUse);
+            return existingManager;
+          }
+        } catch {
+          /* existingPath may not exist */
+        }
+      }
+    }
+  } catch {
+    /* pathToUse may not exist yet */
+  }
+
   // If @worker tagged, spawn in a worker thread instead of in-process
   if (shouldRunInWorker(pathToUse) && !workerManager.has(key)) {
     try {
@@ -935,24 +965,41 @@ async function getOrCreateSessionManager(
             consumer: photonName,
           });
 
-          // Return a Proxy that routes public method calls through executeTool
-          // so the full middleware pipeline (rate limit, cache, retry, etc.) is applied.
-          // Direct property access and private methods pass through to the raw instance.
-          const rawInstance = loaded.instance;
+          // Return a Proxy that lazily resolves the current instance on every access.
+          // This survives hot-reload: when the daemon replaces the instance in the
+          // session manager's map, the proxy automatically sees the new one.
+          // Tool methods route through executeTool for the middleware pipeline.
+          // Event methods (.on, .off) and other non-tool methods pass through directly.
           const toolNames = new Set((loaded.tools || []).map((t: any) => t.name));
 
-          return new Proxy(rawInstance, {
-            get(target: any, prop: string | symbol) {
-              const value = Reflect.get(target, prop);
+          return new Proxy({} as any, {
+            get(_target: any, prop: string | symbol) {
+              // Resolve the current instance from the session manager (survives hot-reload)
+              const current = depManager.getCurrentInstance() ?? loaded;
+              const instance = current.instance ?? loaded.instance;
+              const value = Reflect.get(instance, prop);
 
-              // Only proxy known tool methods — pass through everything else
-              // (.on, .off, private methods, properties, etc.)
-              if (typeof prop === 'string' && typeof value === 'function' && toolNames.has(prop)) {
+              // Route tool methods through executeTool for middleware pipeline,
+              // but always pass through event subscription methods — they take
+              // positional args (event, handler, filter) which the single-params
+              // wrapper would mangle.
+              if (
+                typeof prop === 'string' &&
+                typeof value === 'function' &&
+                toolNames.has(prop) &&
+                prop !== 'on' &&
+                prop !== 'off'
+              ) {
                 return async (params: any) => {
-                  return depManager.loader.executeTool(loaded, prop, params || {});
+                  const latest = depManager.getCurrentInstance() ?? loaded;
+                  return depManager.loader.executeTool(latest, prop, params || {});
                 };
               }
 
+              // Bind methods to current instance so `this` resolves correctly
+              if (typeof value === 'function') {
+                return value.bind(instance);
+              }
               return value;
             },
           });

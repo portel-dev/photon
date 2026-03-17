@@ -159,6 +159,15 @@ export class SessionManager {
   }
 
   /**
+   * Get the current loaded instance for a given name (synchronous).
+   * Returns undefined if not yet loaded. Used by @photon proxy to
+   * always resolve the latest instance after hot-reload.
+   */
+  getCurrentInstance(instanceName?: string): any {
+    return this.instances.get(instanceName || 'default');
+  }
+
+  /**
    * List all loaded instance names.
    */
   getLoadedInstances(): string[] {
