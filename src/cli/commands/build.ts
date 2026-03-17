@@ -310,11 +310,41 @@ ${beamIndexHtmlConst}
 let _mainModule: any;
 const _depModules: any[] = [];
 let _modulesLoaded = false;
+const _loadErrors: string[] = [];
 
 async function loadModules() {
   if (_modulesLoaded) return;
-  _mainModule = await import('${relativePhotonPath}');
-${loadModulesBody}  _modulesLoaded = true;
+  try {
+    _mainModule = await import('${relativePhotonPath}');
+  } catch (e: any) {
+    _loadErrors.push(PHOTON_NAME + ': ' + (e.message || e));
+  }
+${loadModulesBody
+  .split('\n')
+  .map((line: string) => {
+    // Wrap each _depModules[N] = await import(...) in try/catch
+    const m = line.match(/^(\s*)(_depModules\[\d+\]) = await import\('([^']+)'\);$/);
+    if (m) {
+      const depFile = m[3].replace(/.*\//, '').replace('.photon.ts', '');
+      return (
+        m[1] +
+        'try { ' +
+        m[2] +
+        " = await import('" +
+        m[3] +
+        "'); } catch (e: any) { _loadErrors.push('" +
+        depFile +
+        ": ' + (e.message || e)); }"
+      );
+    }
+    return line;
+  })
+  .join('\n')}  _modulesLoaded = true;
+  if (_loadErrors.length > 0) {
+    console.error('Warning: ' + _loadErrors.length + ' module(s) failed to load (native deps may need installing on this platform):');
+    for (const err of _loadErrors) console.error('  - ' + err.split('\\n')[0]);
+    console.error('');
+  }
 }
 ${depMapBlock}${bundledMapBlock}
 async function runSetup() {
@@ -762,13 +792,10 @@ async function main() {
   if (command === '--version' || command === '-v') { console.log(PHOTON_NAME); process.exit(0); }
   if (command === 'completions') { handleCompletions(args.slice(1)); process.exit(0); }
 
-  // Load all photon modules (deferred to avoid top-level side effects blocking startup)
-  await loadModules();
-
-  // Resolve which bundled photon to serve
-  let activeModule: any;
+  // Resolve which bundled photon to target (metadata only — no module loading yet)
   let activeSource: string;
   let activeFilePath: string;
+  let activeDepIndex: number | null = null; // null = main photon
 
   if (command === 'x' && args[1]) {
     // Explicit routing: claw x whatsapp [command] [args...]
@@ -779,7 +806,7 @@ async function main() {
       console.error('Unknown photon: ' + photonName + '\\nBundled: ' + (available || '(none)'));
       process.exit(1);
     }
-    activeModule = _depModules[bundled.depIndex];
+    activeDepIndex = bundled.depIndex;
     activeSource = bundled.source;
     activeFilePath = bundled.filePath;
     args = args.slice(2); // remaining args after x <photon>
@@ -790,15 +817,24 @@ async function main() {
     const invokedAs = __path.default.basename(process.env._ || process.argv[1] || process.execPath);
     const bundled = BUNDLED_PHOTONS[invokedAs];
     if (bundled) {
-      activeModule = _depModules[bundled.depIndex];
+      activeDepIndex = bundled.depIndex;
       activeSource = bundled.source;
       activeFilePath = bundled.filePath;
     } else {
-      activeModule = _mainModule;
       activeSource = EMBEDDED_SOURCE;
       activeFilePath = ${mainFilePathJson};
     }
   }
+
+  // CLI with no command: list methods from source (no module loading needed)
+  if (!command) {
+    await runCli('', [], activeSource, activeFilePath, null);
+    return;
+  }
+
+  // Everything below needs modules — load them now
+  await loadModules();
+  const activeModule = activeDepIndex !== null ? _depModules[activeDepIndex] : _mainModule;
 
   // Server modes
   const SERVER_COMMANDS = ['mcp', 'sse', 'beam'];
