@@ -16,6 +16,7 @@ Build rich interactive UIs for your photons. A global named after your photon fi
 - [Real-time Updates](#real-time-updates)
 - [Examples](#examples)
 - [Using Auto UI Renderers (photon.render)](#using-auto-ui-renderers-photonrender)
+- [Declarative Templates (.photon.html)](#declarative-templates-photonhtml)
 
 ---
 
@@ -749,6 +750,74 @@ Renderers auto-detect dark/light mode from the host theme. Colors, borders, and 
 ### Example Photon
 
 See `examples/render-showcase.photon.ts` for a complete working example with all 11 format types rendered in a custom dashboard.
+
+---
+
+## Declarative Templates (.photon.html)
+
+For simple UIs that just display method results, you can skip JavaScript entirely. Use the `.photon.html` file extension to opt into **declarative mode** — HTML data attributes automatically call methods and render results.
+
+### Two Modes
+
+| Extension | Mode | What happens |
+|-----------|------|-------------|
+| `dashboard.html` | **Full control** | Bridge injected, you write all JavaScript |
+| `dashboard.photon.html` | **Declarative** | Auto-wrapped with base CSS, data attributes bind to methods |
+
+When both exist, `.photon.html` takes priority.
+
+### Quick Start
+
+```html
+<!-- ~/.photon/my-app/ui/dashboard.photon.html -->
+<h1>My Dashboard</h1>
+<p>Current CPU usage:</p>
+<div data-method="cpu" data-format="gauge"></div>
+```
+
+That's it — no `<html>`, no `<head>`, no `<script>`. The runtime wraps the fragment with base styles, injects the bridge, and binds elements automatically.
+
+### Data Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `data-method` | Call this photon method on load | `data-method="cpu"` |
+| `data-format` | Render result using a format renderer | `data-format="gauge"` |
+| `data-field` | Extract a nested field from the result | `data-field="status.count"` |
+| `data-live` | Re-render when the method emits new results | `data-live` |
+| `data-refresh` | Poll the method on an interval | `data-refresh="5s"` |
+
+### Examples
+
+**Display a value as text:**
+```html
+<span data-method="version"></span>
+```
+
+**Render a QR code from a URL method:**
+```html
+<div data-method="url" data-format="qr"></div>
+```
+
+**Extract a specific field:**
+```html
+<span data-method="stats" data-field="users.active"></span>
+```
+
+**Live-updating with event subscription:**
+```html
+<div data-method="status" data-format="metric" data-live></div>
+```
+
+**Poll every 30 seconds:**
+```html
+<div data-method="health" data-format="table" data-refresh="30s"></div>
+```
+
+### When to Use Each Mode
+
+- **`.photon.html`** — Status displays, dashboards, simple data views. No JavaScript needed.
+- **`.html`** — Interactive UIs, custom event handling, complex layouts, React apps.
 
 ---
 
