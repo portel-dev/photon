@@ -212,7 +212,44 @@ export class BeamApp extends LitElement {
       }
 
       :host(.focus-mode) .main-area {
-        padding: var(--space-sm);
+        padding: 0;
+      }
+
+      :host(.focus-mode) .main-toolbar,
+      :host(.focus-mode) .floating-panel-btn {
+        display: none !important;
+      }
+
+      .focus-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 6px 8px;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+
+      .focus-toolbar .focus-toolbar-back {
+        margin-right: auto;
+      }
+
+      .focus-toolbar button {
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-glass);
+        border: 1px solid var(--border-glass);
+        color: var(--t-muted);
+        cursor: pointer;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        backdrop-filter: blur(8px);
       }
 
       .main-area {
@@ -223,11 +260,24 @@ export class BeamApp extends LitElement {
         padding: var(--space-lg);
       }
 
+      .main-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 101;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 6px 1px 0;
+        margin-bottom: -34px;
+        pointer-events: none;
+      }
+
+      .main-toolbar > * {
+        pointer-events: auto;
+      }
+
       .beam-back-btn,
       .beam-fullscreen-btn {
-        position: sticky;
-        top: calc(-1 * var(--space-lg));
-        z-index: 100;
         width: 28px;
         height: 28px;
         border-radius: var(--radius-sm);
@@ -244,17 +294,11 @@ export class BeamApp extends LitElement {
       }
 
       .beam-back-btn {
-        float: left;
-        margin-top: calc(-1 * var(--space-lg));
-        margin-left: calc(-1 * var(--space-lg) + 1px);
-        margin-bottom: calc(-28px + var(--space-lg));
+        margin-right: auto;
       }
 
       .beam-fullscreen-btn {
-        float: right;
-        margin-top: calc(-1 * var(--space-lg));
-        margin-right: calc(-1 * var(--space-lg) + 1px);
-        margin-bottom: calc(-28px + var(--space-lg));
+        margin-left: auto;
       }
 
       .cards-grid {
@@ -1589,23 +1633,27 @@ export class BeamApp extends LitElement {
           padding-top: calc(var(--space-md) + 60px); /* Space for mobile menu button */
         }
 
-        .beam-back-btn,
-        .beam-fullscreen-btn {
+        .main-toolbar {
+          height: auto;
           position: fixed;
           top: var(--space-md);
-          float: none;
-          margin: 0;
+          right: var(--space-md);
+          left: calc(var(--space-md) + 44px + var(--space-sm));
+          padding: 0;
+          z-index: 100;
+          pointer-events: none;
+        }
+
+        .main-toolbar > * {
+          pointer-events: auto;
+        }
+
+        .beam-back-btn,
+        .beam-fullscreen-btn {
           width: 44px;
           height: 44px;
+          margin-top: 0;
           box-shadow: var(--shadow-md);
-        }
-
-        .beam-back-btn {
-          left: calc(var(--space-md) + 44px + var(--space-sm));
-        }
-
-        .beam-fullscreen-btn {
-          right: var(--space-md);
         }
 
         .photon-header {
@@ -3442,50 +3490,100 @@ export class BeamApp extends LitElement {
         aria-label="Main content"
         style="${this._splitViewEnabled ? 'overflow: hidden !important;' : ''}"
       >
-        ${this._selectedPhoton && this._selectedMethod
-          ? html`<button
-              class="beam-back-btn"
-              @click=${() => this._handleBackFromMethod()}
-              @mouseenter=${(e: MouseEvent) => {
-                (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-              }}
-              @mouseleave=${(e: MouseEvent) => {
-                (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-              }}
-              title="Back to ${this._selectedPhoton.name}"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+        ${this._focusMode && this._selectedPhoton
+          ? html`<div class="focus-toolbar">
+              ${this._selectedMethod && !this._selectedPhoton.isApp
+                ? html`<button
+                    class="focus-toolbar-back"
+                    @click=${() => this._handleBackFromMethod()}
+                    @mouseenter=${(e: MouseEvent) => {
+                      (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                      (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                    }}
+                    @mouseleave=${(e: MouseEvent) => {
+                      (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                      (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                    }}
+                    title="Back to ${this._selectedPhoton.name}"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="m15 18-6-6 6-6" />
+                    </svg>
+                  </button>`
+                : ''}
+              <button
+                @click=${this._toggleFocusMode}
+                @mouseenter=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                }}
+                @mouseleave=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                }}
+                title="Exit focus mode"
               >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
-            </button>`
+                ${collapse}
+              </button>
+            </div>`
           : ''}
         ${this._selectedPhoton
-          ? html`<button
-              class="beam-fullscreen-btn"
-              @click=${this._toggleFocusMode}
-              @mouseenter=${(e: MouseEvent) => {
-                (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-              }}
-              @mouseleave=${(e: MouseEvent) => {
-                (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-              }}
-              title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
-            >
-              ${this._focusMode ? collapse : expand}
-            </button>`
+          ? html`<div class="main-toolbar">
+              <div>
+                ${this._selectedMethod && !this._selectedPhoton.isApp
+                  ? html`<button
+                      class="beam-back-btn"
+                      @click=${() => this._handleBackFromMethod()}
+                      @mouseenter=${(e: MouseEvent) => {
+                        (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                        (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                      }}
+                      @mouseleave=${(e: MouseEvent) => {
+                        (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                        (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                      }}
+                      title="Back to ${this._selectedPhoton.name}"
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="m15 18-6-6 6-6" />
+                      </svg>
+                    </button>`
+                  : ''}
+              </div>
+              <button
+                class="beam-fullscreen-btn"
+                @click=${this._toggleFocusMode}
+                @mouseenter=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                }}
+                @mouseleave=${(e: MouseEvent) => {
+                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                }}
+                title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
+              >
+                ${this._focusMode ? collapse : expand}
+              </button>
+            </div>`
           : ''}
         ${this._renderContent()}
         <activity-log
@@ -4288,14 +4386,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
           return html`
             <!-- Floating add-panel button for app view — sits next to focus button -->
             <div
-              style="position: sticky; top: calc(-1 * var(--space-lg)); float: right; z-index: 100; margin-top: calc(-1 * var(--space-lg)); margin-right: 6px;"
+              class="floating-panel-btn"
+              style="position: sticky; top: 0; z-index: 100; height: 0; display: flex; justify-content: flex-end; padding-right: 34px; pointer-events: none;"
             >
               <button
                 @click=${() => {
                   this._methodPickerOpen = !this._methodPickerOpen;
                   this._methodPickerPanelId = null;
                 }}
-                style="width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(8px);"
+                style="pointer-events: auto; margin-top: 6px; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(8px);"
                 @mouseenter=${(e: MouseEvent) => {
                   (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
                   (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
@@ -5489,23 +5588,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
     // Close all split panels when navigating back
     this._closeSecondPanel();
-    if (this._selectedPhoton.isApp && this._selectedPhoton.appEntry) {
-      // For Apps, go back to the main Custom UI and scroll to methods
-      this._selectedMethod = this._selectedPhoton.appEntry;
-      this._view = 'form';
-      this._updateRoute(true);
-
-      // Scroll to methods section after render
-      void this.updateComplete.then(() => {
-        setTimeout(() => {
-          const mainArea = this.shadowRoot?.querySelector('.main-area');
-          if (mainArea) {
-            // Scroll past the Custom UI to show methods
-            mainArea.scrollTo({ top: mainArea.scrollHeight, behavior: 'smooth' });
-          }
-        }, SCROLL_RENDER_DELAY_MS);
-      });
-    } else if (this._selectedPhoton.internal) {
+    if (this._selectedPhoton.internal) {
       // For internal photons, go back to welcome screen
       this._selectedMethod = null;
       this._selectedPhoton = null;
