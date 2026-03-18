@@ -1722,20 +1722,9 @@ export async function runMethod(
           parsedArgs[name] = coerceToType(answer, param.type);
         }
       } else {
-        // Non-interactive: show error with usage help
-        const usage = method.params
-          .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
-          .join(' ');
-        const details = missing
-          .map((name) => {
-            const p = method.params.find((mp) => mp.name === name);
-            return `  --${name} (${p?.type || 'string'})${p?.description ? ': ' + p.description : ''}`;
-          })
-          .join('\n');
-        exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
-          exitCode: ExitCode.INVALID_ARGUMENT,
-          suggestion: `Usage: ${cliPrefix(photonName)} ${methodName} ${usage}\n\nRequired:\n${details}`,
-        });
+        // Non-interactive: print concise help so agents can construct the correct call
+        printMethodHelp(photonName, method);
+        process.exit(ExitCode.INVALID_ARGUMENT);
       }
     }
 
