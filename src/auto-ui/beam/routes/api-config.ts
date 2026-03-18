@@ -84,6 +84,16 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Renderers script: lazy-loaded by photon.render() in custom UI iframes
+  if (url.pathname === '/api/photon-renderers.js') {
+    const { generateRenderersScript } = await import('../../bridge/renderers.js');
+    const script = generateRenderersScript();
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.end(script);
+    return true;
+  }
+
   // Platform Bridge API: Generate platform compatibility script
   // Uses the unified bridge architecture based on @modelcontextprotocol/ext-apps SDK
   if (url.pathname === '/api/platform-bridge') {

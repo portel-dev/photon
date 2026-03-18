@@ -424,7 +424,7 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       };
     },
 
-    // Render a QR code into a container element
+    // Render a QR code into a container element (convenience shortcut)
     // Usage: photon.renderQR(element, 'https://example.com', { size: 256 })
     renderQR: function(container, text, opts) {
       opts = opts || {};
@@ -441,7 +441,6 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           doRender();
         };
         script.onerror = function() {
-          // Fallback: show as monospace text
           container.innerHTML = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
         };
         document.head.appendChild(script);
@@ -460,6 +459,44 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           container.innerHTML = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
         }
       }
+    },
+
+    // Render data in any auto UI format: table, chart:bar, gauge, metric, etc.
+    // Usage: photon.render(container, data, 'chart:bar', { label: 'name', value: 'count' })
+    // Lazy-loads the renderer bundle on first call.
+    render: function(container, data, format, opts) {
+      if (!container) return;
+      format = format || 'json';
+
+      function doRender() {
+        window._photonRenderers.render(container, data, format, opts);
+      }
+
+      if (window._photonRenderers) { doRender(); return; }
+
+      // Lazy-load renderers script
+      if (window._photonRenderersLoading) {
+        // Queue this render call
+        window._photonRenderersQueue = window._photonRenderersQueue || [];
+        window._photonRenderersQueue.push(doRender);
+        return;
+      }
+      window._photonRenderersLoading = true;
+      window._photonRenderersQueue = [doRender];
+
+      var s = document.createElement('script');
+      var origin = '';
+      try { origin = window.parent.location.origin; } catch(e) { origin = window.location.origin; }
+      s.src = origin + '/api/photon-renderers.js';
+      s.onload = function() {
+        var queue = window._photonRenderersQueue || [];
+        window._photonRenderersQueue = [];
+        queue.forEach(function(fn) { fn(); });
+      };
+      s.onerror = function() {
+        container.innerHTML = '<pre style="font-size:11px;color:#888;">' + JSON.stringify(data, null, 2) + '</pre>';
+      };
+      document.head.appendChild(s);
     }
   };
 
