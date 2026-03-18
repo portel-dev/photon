@@ -6891,6 +6891,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
           },
           '*'
         );
+        // Also send standard MCP host-context notification
+        iframe.contentWindow.postMessage(
+          {
+            jsonrpc: '2.0',
+            method: 'ui/notifications/host-context-changed',
+            params: { theme: this._theme, styles: { variables: themeTokens } },
+          },
+          '*'
+        );
       }
     });
 
@@ -6902,6 +6911,15 @@ ${photon.errorMessage || 'Unknown error'}</pre
           type: 'photon:theme-change',
           theme: this._theme,
           themeTokens: themeTokens,
+        },
+        '*'
+      );
+      // Also send standard MCP host-context notification
+      iframe.contentWindow?.postMessage(
+        {
+          jsonrpc: '2.0',
+          method: 'ui/notifications/host-context-changed',
+          params: { theme: this._theme, styles: { variables: themeTokens } },
         },
         '*'
       );

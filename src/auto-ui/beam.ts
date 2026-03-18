@@ -1819,12 +1819,21 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const getPhotonForPath = (changedPath: string): string | null => {
     const relativePath = path.relative(workingDir, changedPath);
 
-    // Only react to top-level .photon.ts file changes.
-    // Subfolders under workingDir (~/.photon/) are runtime data (auth, media, state),
-    // NOT source assets. Asset folders live at the symlink target and are watched
-    // separately by setupSymlinkWatcher.
-    if (relativePath.endsWith('.photon.ts') && !relativePath.includes(path.sep)) {
-      return path.basename(relativePath, '.photon.ts');
+    // React to .photon.ts file changes — both top-level and namespaced subdirectories.
+    // Top-level: foo.photon.ts → "foo"
+    // Namespaced: portel/gitbox.photon.ts → "portel/gitbox"
+    if (relativePath.endsWith('.photon.ts')) {
+      return relativePath.slice(0, -'.photon.ts'.length);
+    }
+
+    // Detect asset file changes for local (non-symlinked) photons.
+    // Asset folders live at <workingDir>/<photonName>/ for local photons.
+    // NOTE: Do NOT match runtime data directories (state/, media/, auth/) — only
+    // photon asset directories are relevant here, identified by the loaded photons list.
+    for (const p of photons) {
+      if (relativePath.startsWith(p.name + path.sep)) {
+        return p.name;
+      }
     }
 
     return null;

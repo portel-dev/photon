@@ -84,6 +84,22 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     return true;
   }
 
+  // Design tokens CSS: custom UIs can load this to get photon's CSS variables
+  // Usage: <link rel="stylesheet" href="/api/photon-styles.css">
+  if (url.pathname === '/api/photon-styles.css') {
+    const theme = (url.searchParams.get('theme') || 'dark') as 'light' | 'dark';
+    const { getThemeTokens } = await import('../../design-system/tokens.js');
+    const tokens = getThemeTokens(theme);
+    const vars = Object.entries(tokens)
+      .map(([k, v]) => `  ${k}: ${v};`)
+      .join('\n');
+    const css = `:root {\n${vars}\n}\n\nhtml {\n  color-scheme: ${theme};\n}\n`;
+    res.setHeader('Content-Type', 'text/css');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.end(css);
+    return true;
+  }
+
   // Renderers script: lazy-loaded by photon.render() in custom UI iframes
   if (url.pathname === '/api/photon-renderers.js') {
     const { generateRenderersScript } = await import('../../bridge/renderers.js');
