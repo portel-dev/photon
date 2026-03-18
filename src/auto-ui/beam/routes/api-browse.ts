@@ -216,17 +216,33 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     // Try to use resolved path from assets if available (respects JSDoc)
     const asset = (photon as any).assets?.ui?.find((u: any) => u.id === uiId);
 
+    // Resolve UI template path. Prefer .photon.html (declarative mode) over .html.
     let uiPath: string;
+    let isPhotonTemplate = false;
+
     if (asset && asset.resolvedPath) {
       uiPath = asset.resolvedPath;
+      isPhotonTemplate = uiPath.endsWith('.photon.html');
     } else {
-      uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      // Try .photon.html first (declarative), fall back to .html (full control)
+      const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
+      const plainHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      try {
+        await fs.access(photonHtmlPath);
+        uiPath = photonHtmlPath;
+        isPhotonTemplate = true;
+      } catch {
+        uiPath = plainHtmlPath;
+      }
     }
 
     try {
       const uiContent = await fs.readFile(uiPath, 'utf-8');
       res.setHeader('Content-Type', 'text/html');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      if (isPhotonTemplate) {
+        res.setHeader('X-Photon-Template', 'true');
+      }
       res.writeHead(200);
       res.end(uiContent);
     } catch {

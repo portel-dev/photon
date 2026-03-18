@@ -215,7 +215,10 @@ interface HandlerContext {
   externalMCPClients?: Map<string, any>;
   externalMCPSDKClients?: Map<string, any>; // SDK clients with full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
-  loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  loadUIAsset: (
+    photonName: string,
+    uiId: string
+  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
   configurePhoton?: (
@@ -1455,9 +1458,9 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     const [, photonName, uiId] = match;
-    const content = await ctx.loadUIAsset(photonName, uiId);
+    const result = await ctx.loadUIAsset(photonName, uiId);
 
-    if (!content) {
+    if (!result) {
       return {
         jsonrpc: '2.0',
         id: req.id,
@@ -1465,11 +1468,16 @@ const handlers: Record<string, RequestHandler> = {
       };
     }
 
+    // Signal declarative mode (.photon.html) via mimeType parameter
+    const mimeType = result.isPhotonTemplate
+      ? 'text/html;profile=mcp-app;photon-template=true'
+      : 'text/html;profile=mcp-app';
+
     return {
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: content }],
+        contents: [{ uri, mimeType, text: result.content }],
       },
     };
   },
@@ -2394,7 +2402,10 @@ export interface StreamableHTTPOptions {
   externalMCPClients?: Map<string, any>;
   externalMCPSDKClients?: Map<string, any>; // SDK clients for full CallToolResult support
   reconnectExternalMCP?: (name: string) => Promise<{ success: boolean; error?: string }>;
-  loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  loadUIAsset: (
+    photonName: string,
+    uiId: string
+  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
   configurePhoton?: (

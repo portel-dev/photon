@@ -288,8 +288,9 @@ export class CustomUiRenderer extends LitElement {
     this._srcDoc = '';
 
     try {
-      // 1. Fetch Template via MCP resources/read (ui:// scheme)
+      // 1. Fetch Template via MCP resources/read (ui:// scheme) or HTTP
       let templateHtml: string;
+      let isPhotonTemplate = false; // .photon.html = declarative mode
 
       // Determine the ui:// URI
       let uri = this.uiUri;
@@ -298,8 +299,10 @@ export class CustomUiRenderer extends LitElement {
       }
 
       if (uri) {
-        // Use MCP resources/read for ui:// URIs
-        templateHtml = await this._fetchViaMCP(uri);
+        // Use MCP resources/read for ui:// URIs, with HTTP fallback
+        const result = await this._fetchTemplate(uri);
+        templateHtml = result.html;
+        isPhotonTemplate = result.isPhotonTemplate;
       } else if (this.templatePath) {
         // Fall back to HTTP for templatePath (legacy)
         const url = `/api/template?photon=${encodeURIComponent(this.photon)}&path=${encodeURIComponent(this.templatePath)}`;
@@ -348,11 +351,11 @@ export class CustomUiRenderer extends LitElement {
       // 4. Inject Bridge (and CSP if present)
       const injected = cspTag + bridgeScript;
       let finalHtml = templateHtml;
-      if (finalHtml.includes('</head>')) {
-        finalHtml = finalHtml.replace('</head>', `${injected}</head>`);
-      } else {
-        // Fragment HTML (no <html>/<head> tags) — wrap it and apply photon base styles.
-        // CSS variables are set by the bridge, so var(--color-surface) etc. work automatically.
+
+      if (isPhotonTemplate) {
+        // ── .photon.html: Declarative mode ──
+        // Auto-wrap as fragment, apply base CSS, enable data-method binding.
+        // The bridge detects <meta name="photon-template"> to activate binding.
         const photonBaseCSS = `<style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -385,7 +388,14 @@ export class CustomUiRenderer extends LitElement {
   }
   button:hover { opacity: 0.9; }
 </style>`;
-        finalHtml = `<html><head>${injected}${photonBaseCSS}</head><body>${finalHtml}</body></html>`;
+        const templateMeta = '<meta name="photon-template" content="true">';
+        finalHtml = `<html><head>${templateMeta}${injected}${photonBaseCSS}</head><body>${finalHtml}</body></html>`;
+      } else if (finalHtml.includes('</head>')) {
+        // ── .html with full structure: inject bridge only ──
+        finalHtml = finalHtml.replace('</head>', `${injected}</head>`);
+      } else {
+        // ── .html fragment (no <head>): wrap minimally, no base CSS ──
+        finalHtml = `<html><head>${injected}</head><body>${finalHtml}</body></html>`;
       }
 
       // Abort if a newer _loadContent() was triggered while we were fetching
@@ -431,6 +441,41 @@ export class CustomUiRenderer extends LitElement {
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`Failed to load UI: ${res.statusText}`);
     return res.text();
+  }
+
+  /**
+   * Fetch a UI template from MCP (preferred) or HTTP, detecting .photon.html mode.
+   */
+  private async _fetchTemplate(uri: string): Promise<{ html: string; isPhotonTemplate: boolean }> {
+    // Try MCP resources/read first
+    const mcpClient = (window as any).__photonMCPClient;
+    if (mcpClient) {
+      try {
+        const resource = await mcpClient.readResource(uri);
+        if (resource?.text) {
+          // MCP response — check mimeType parameter or URI for .photon.html
+          const isPT =
+            resource.mimeType?.includes('photon-template=true') ||
+            uri.endsWith('.photon.html') ||
+            resource.uri?.endsWith('.photon.html');
+          return { html: resource.text, isPhotonTemplate: !!isPT };
+        }
+      } catch (e) {
+        console.warn('MCP resources/read failed, falling back to HTTP:', e);
+      }
+    }
+
+    // Fallback to HTTP /api/ui (which detects .photon.html and sets header)
+    const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
+    if (!match) throw new Error(`Invalid ui:// URI: ${uri}`);
+
+    const [, photonName, uiId] = match;
+    const url = `/api/ui?photon=${encodeURIComponent(photonName)}&id=${encodeURIComponent(uiId)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`Failed to load UI: ${res.statusText}`);
+    const html = await res.text();
+    const isPhotonTemplate = res.headers.get('X-Photon-Template') === 'true';
+    return { html, isPhotonTemplate };
   }
 
   render() {

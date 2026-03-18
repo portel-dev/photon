@@ -1001,7 +1001,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
   const bufferEvent = subMgr.bufferEvent.bind(subMgr);
 
   // UI asset loader for MCP resources/read
-  const loadUIAsset = async (photonName: string, uiId: string): Promise<string | null> => {
+  const loadUIAsset = async (
+    photonName: string,
+    uiId: string
+  ): Promise<{ content: string; isPhotonTemplate: boolean } | null> => {
     const photon = photons.find((p) => p.name === photonName);
     if (!photon || !photon.configured) return null;
 
@@ -1012,11 +1015,21 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
     if (asset?.resolvedPath) {
       uiPath = asset.resolvedPath;
     } else {
-      uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      // Prefer .photon.html (declarative mode) over .html (full control)
+      const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);
+      try {
+        await fs.access(photonHtmlPath);
+        uiPath = photonHtmlPath;
+      } catch {
+        uiPath = path.join(photonDir, photonName, 'ui', `${uiId}.html`);
+      }
     }
 
+    const isPhotonTemplate = uiPath.endsWith('.photon.html');
+
     try {
-      return await fs.readFile(uiPath, 'utf-8');
+      const content = await fs.readFile(uiPath, 'utf-8');
+      return { content, isPhotonTemplate };
     } catch {
       // Fall through to check custom format renderers
     }
@@ -1033,7 +1046,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         `${formatName}.html`
       );
       try {
-        return await fs.readFile(formatPath, 'utf-8');
+        const content = await fs.readFile(formatPath, 'utf-8');
+        return { content, isPhotonTemplate: false };
       } catch {
         // Not found
       }

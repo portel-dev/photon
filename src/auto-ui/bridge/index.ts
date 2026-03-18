@@ -618,6 +618,107 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Apply initial theme
   applyThemeTokens();
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DECLARATIVE DATA BINDING
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Scan DOM for data-method attributes and auto-wire method calls + rendering.
+  //   <div data-method="users" data-format="table"></div>
+  //   <span data-method="activeUsers" data-field="value"></span>
+  //   <div data-method="cpu" data-format="gauge" data-live></div>
+  //   <div data-method="stats" data-format="kv" data-refresh="5s"></div>
+
+  function _bindElements() {
+    if (!ctx.photon) return;
+    var proxy = window[ctx.photon];
+    if (!proxy) return;
+
+    var els = document.querySelectorAll('[data-method]');
+    for (var i = 0; i < els.length; i++) {
+      (function(el) {
+        var method = el.getAttribute('data-method');
+        var format = el.getAttribute('data-format');
+        var field = el.getAttribute('data-field');
+        var refreshAttr = el.getAttribute('data-refresh');
+        var isLive = el.hasAttribute('data-live');
+
+        if (!method) return;
+
+        // Render a result into the element
+        function renderResult(result) {
+          if (field) {
+            // Extract nested field: "status.count" -> result.status.count
+            var parts = field.split('.');
+            var val = result;
+            for (var j = 0; j < parts.length && val != null; j++) {
+              val = val[parts[j]];
+            }
+            el.textContent = val != null ? String(val) : '';
+          } else if (format) {
+            window.photon.render(el, result, format);
+          } else {
+            // No format, no field: render as text or JSON
+            el.textContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
+          }
+        }
+
+        // Call method and render
+        function load() {
+          try {
+            var p = proxy[method]();
+            if (p && typeof p.then === 'function') {
+              p.then(renderResult).catch(function(e) {
+                el.textContent = 'Error: ' + e.message;
+              });
+            } else {
+              renderResult(p);
+            }
+          } catch (e) {
+            el.textContent = 'Error: ' + e.message;
+          }
+        }
+
+        // Initial load
+        load();
+
+        // data-live: subscribe to onResult events and re-render on match
+        if (isLive) {
+          var onFn = proxy['onResult'];
+          if (onFn) {
+            onFn(function(data) {
+              if (data && data.method === method) {
+                renderResult(data.result);
+              }
+            });
+          }
+        }
+
+        // data-refresh="5s" / "10s" / "30s": poll on interval
+        if (refreshAttr) {
+          var ms = parseFloat(refreshAttr) * 1000;
+          if (/s$/i.test(refreshAttr)) ms = parseFloat(refreshAttr) * 1000;
+          else if (/m$/i.test(refreshAttr)) ms = parseFloat(refreshAttr) * 60000;
+          if (ms > 0 && isFinite(ms)) {
+            setInterval(load, Math.max(ms, 1000)); // min 1s
+          }
+        }
+      })(els[i]);
+    }
+  }
+
+  // Only run declarative data binding for .photon.html templates
+  // (signaled by <meta name="photon-template"> injected by custom-ui-renderer)
+  function _maybeBindElements() {
+    if (document.querySelector('meta[name="photon-template"]')) {
+      _bindElements();
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _maybeBindElements);
+  } else {
+    setTimeout(_maybeBindElements, 0);
+  }
+
   // Notify host that bridge is ready (legacy)
   postToHost({ type: 'photon:ready' });
 

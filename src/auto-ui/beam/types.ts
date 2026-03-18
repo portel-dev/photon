@@ -53,7 +53,10 @@ export interface BeamActions {
   handleFileChange: (photonName: string) => Promise<void>;
   loadSinglePhoton: (name: string) => Promise<AnyPhotonInfo | null>;
   reconnectExternalMCP: (name: string) => Promise<{ success: boolean; error?: string }>;
-  loadUIAsset: (photonName: string, uiId: string) => Promise<string | null>;
+  loadUIAsset: (
+    photonName: string,
+    uiId: string
+  ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
   subscribeToChannel: (channel: string) => Promise<void>;
   unsubscribeFromChannel: (channel: string) => void;
   configurePhotonViaMCP: (photonName: string, config: Record<string, any>) => Promise<any>;
