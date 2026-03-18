@@ -432,20 +432,37 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       if (!container || !text) return;
       container.innerHTML = '';
 
-      // Load qrcode-generator on demand (once)
-      if (!window._photonQR) {
+      // Load qrcode-generator on demand (once), with queuing to handle concurrent calls
+      if (window._photonQR) {
+        doRender();
+      } else if (window._photonQRLoading) {
+        // Script is still loading — queue this render
+        window._photonQRQueue = window._photonQRQueue || [];
+        window._photonQRQueue.push(doRender);
+      } else {
+        window._photonQRLoading = true;
+        window._photonQRQueue = [doRender];
         var script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
         script.onload = function() {
           window._photonQR = true;
-          doRender();
+          window._photonQRLoading = false;
+          var queue = window._photonQRQueue || [];
+          window._photonQRQueue = [];
+          queue.forEach(function(fn) { fn(); });
         };
         script.onerror = function() {
-          container.innerHTML = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
+          window._photonQRLoading = false;
+          var queue = window._photonQRQueue || [];
+          window._photonQRQueue = [];
+          var fallback = '<pre style="font-size:9px;background:#fff;color:#000;padding:8px;border-radius:4px;word-break:break-all;max-width:300px;">' + text + '</pre>';
+          // Fall back for the current container; other queued renders also get fallback
+          container.innerHTML = fallback;
+          queue.forEach(function(fn) {
+            try { fn(); } catch(e) { /* already fell back */ }
+          });
         };
         document.head.appendChild(script);
-      } else {
-        doRender();
       }
 
       function doRender() {
