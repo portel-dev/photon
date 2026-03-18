@@ -215,8 +215,7 @@ export class BeamApp extends LitElement {
         padding: 0;
       }
 
-      :host(.focus-mode) .main-toolbar,
-      :host(.focus-mode) .floating-panel-btn {
+      :host(.focus-mode) .main-toolbar {
         display: none !important;
       }
 
@@ -261,19 +260,11 @@ export class BeamApp extends LitElement {
       }
 
       .main-toolbar {
-        position: sticky;
-        top: 0;
-        z-index: 101;
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
-        padding: 6px 1px 0;
-        margin-bottom: -34px;
-        pointer-events: none;
-      }
-
-      .main-toolbar > * {
-        pointer-events: auto;
+        align-items: center;
+        padding: 4px 0;
+        flex-shrink: 0;
       }
 
       .beam-back-btn,
@@ -1633,27 +1624,10 @@ export class BeamApp extends LitElement {
           padding-top: calc(var(--space-md) + 60px); /* Space for mobile menu button */
         }
 
-        .main-toolbar {
-          height: auto;
-          position: fixed;
-          top: var(--space-md);
-          right: var(--space-md);
-          left: calc(var(--space-md) + 44px + var(--space-sm));
-          padding: 0;
-          z-index: 100;
-          pointer-events: none;
-        }
-
-        .main-toolbar > * {
-          pointer-events: auto;
-        }
-
         .beam-back-btn,
         .beam-fullscreen-btn {
           width: 44px;
           height: 44px;
-          margin-top: 0;
-          box-shadow: var(--shadow-md);
         }
 
         .photon-header {
@@ -3568,21 +3542,48 @@ export class BeamApp extends LitElement {
                     </button>`
                   : ''}
               </div>
-              <button
-                class="beam-fullscreen-btn"
-                @click=${this._toggleFocusMode}
-                @mouseenter=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-primary)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
-                }}
-                @mouseleave=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                }}
-                title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
-              >
-                ${this._focusMode ? collapse : expand}
-              </button>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                ${this._selectedPhoton.isApp
+                  ? html`<div style="position: relative;">
+                      <button
+                        class="beam-fullscreen-btn"
+                        @click=${() => {
+                          this._methodPickerOpen = !this._methodPickerOpen;
+                          this._methodPickerPanelId = null;
+                        }}
+                        @mouseenter=${(e: MouseEvent) => {
+                          (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
+                          (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
+                        }}
+                        @mouseleave=${(e: MouseEvent) => {
+                          (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                          (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                        }}
+                        title="Add panel"
+                      >
+                        +
+                      </button>
+                      ${this._methodPickerOpen && this._methodPickerPanelId === null
+                        ? this._renderMethodPickerPopover()
+                        : ''}
+                    </div>`
+                  : ''}
+                <button
+                  class="beam-fullscreen-btn"
+                  @click=${this._toggleFocusMode}
+                  @mouseenter=${(e: MouseEvent) => {
+                    (e.target as HTMLElement).style.color = 'var(--t-primary)';
+                    (e.target as HTMLElement).style.borderColor = 'var(--accent-primary)';
+                  }}
+                  @mouseleave=${(e: MouseEvent) => {
+                    (e.target as HTMLElement).style.color = 'var(--t-muted)';
+                    (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
+                  }}
+                  title=${this._focusMode ? 'Exit focus mode' : 'Focus mode'}
+                >
+                  ${this._focusMode ? collapse : expand}
+                </button>
+              </div>
             </div>`
           : ''}
         ${this._renderContent()}
@@ -4384,33 +4385,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
           }
 
           return html`
-            <!-- Floating add-panel button for app view — sits next to focus button -->
-            <div
-              class="floating-panel-btn"
-              style="position: sticky; top: 0; z-index: 100; height: 0; display: flex; justify-content: flex-end; padding-right: 34px; pointer-events: none;"
-            >
-              <button
-                @click=${() => {
-                  this._methodPickerOpen = !this._methodPickerOpen;
-                  this._methodPickerPanelId = null;
-                }}
-                style="pointer-events: auto; margin-top: 6px; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bg-glass); border: 1px solid var(--border-glass); color: var(--t-muted); cursor: pointer; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(8px);"
-                @mouseenter=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--accent-secondary)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--accent-secondary)';
-                }}
-                @mouseleave=${(e: MouseEvent) => {
-                  (e.target as HTMLElement).style.color = 'var(--t-muted)';
-                  (e.target as HTMLElement).style.borderColor = 'var(--border-glass)';
-                }}
-                title="Add panel"
-              >
-                +
-              </button>
-              ${this._methodPickerOpen && this._methodPickerPanelId === null
-                ? this._renderMethodPickerPopover()
-                : ''}
-            </div>
             <app-layout
               .photonName=${this._selectedPhoton.name}
               .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
