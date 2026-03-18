@@ -1654,6 +1654,9 @@ export async function runMethod(
     // Check for --json flag
     const jsonOutput = args.includes('--json');
 
+    // Check for -y flag (non-interactive mode, for agents/scripts)
+    const nonInteractive = args.includes('-y');
+
     // Check for --resume <runId> flag
     let resumeRunId: string | undefined;
     const resumeIndex = args.indexOf('--resume');
@@ -1664,7 +1667,10 @@ export async function runMethod(
     // Filter out special flags before parsing method args
     const filteredArgs = args.filter(
       (arg, i) =>
-        arg !== '--json' && arg !== '--resume' && (resumeIndex === -1 || i !== resumeIndex + 1)
+        arg !== '--json' &&
+        arg !== '-y' &&
+        arg !== '--resume' &&
+        (resumeIndex === -1 || i !== resumeIndex + 1)
     );
 
     // Parse arguments
@@ -1679,8 +1685,8 @@ export async function runMethod(
     }
 
     if (missing.length > 0) {
-      // If stdin is a TTY, show help then interactively prompt for missing params
-      if (process.stdin.isTTY) {
+      // If stdin is a TTY and not in non-interactive mode, prompt for missing params
+      if (process.stdin.isTTY && !nonInteractive) {
         // Show method help context
         printMethodHelp(photonName, method);
 
