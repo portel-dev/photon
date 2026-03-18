@@ -120,10 +120,19 @@ export function generateRenderersScript(): string {
 
     var norm = Math.max(0, Math.min(1, (value - min) / (max - min)));
     var cx = 80, cy = 80, r = 60;
-    var startA = Math.PI, sweepA = startA - startA * norm;
-    var sx = cx + r * Math.cos(startA), sy = cy - r * Math.sin(startA);
-    var ex = cx + r * Math.cos(sweepA), ey = cy - r * Math.sin(sweepA);
-    var large = norm > 0.5 ? 1 : 0;
+
+    // SVG arc helper: point on upper semicircle at angle (degrees, 0°=right, 180°=left)
+    // Uses cy - r*sin to place points ABOVE center (SVG Y-axis points down)
+    function arcPoint(angleDeg) {
+      var rad = angleDeg * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy - r * Math.sin(rad)];
+    }
+
+    // Gauge spans upper semicircle: left (180°) → top (90°) → right (0°)
+    // Value arc ends at this angle (180° = empty, 0° = full)
+    var valueAngleDeg = 180 - norm * 180;
+    var ep = arcPoint(valueAngleDeg);
+    var large = 0; // value arc is at most 180° (full semicircle), never the SVG "large arc"
 
     // Green → Yellow → Red
     function gaugeColor(n) {
@@ -137,8 +146,8 @@ export function generateRenderersScript(): string {
     var display = typeof value === 'number' ? formatValue(value) : value;
     container.innerHTML = '<div style="text-align:center">' +
       '<svg viewBox="0 0 160 100" width="200" style="display:block;margin:0 auto">' +
-      '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 1 ' + (cx + r) + ' ' + cy + '" fill="none" stroke="' + colors.border + '" stroke-width="12" stroke-linecap="round"/>' +
-      (norm > 0.001 ? '<path d="M ' + sx + ' ' + sy + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + ex + ' ' + ey + '" fill="none" stroke="' + color + '" stroke-width="12" stroke-linecap="round"/>' : '') +
+      '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 1 1 ' + (cx + r) + ' ' + cy + '" fill="none" stroke="' + colors.border + '" stroke-width="12" stroke-linecap="round"/>' +
+      (norm > 0.001 ? '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + ep[0] + ' ' + ep[1] + '" fill="none" stroke="' + color + '" stroke-width="12" stroke-linecap="round"/>' : '') +
       '<text x="' + cx + '" y="' + (cy - 10) + '" text-anchor="middle" fill="' + colors.text + '" font-size="22" font-weight="700">' + esc(display) + (unit ? '<tspan font-size="12">' + esc(unit) + '</tspan>' : '') + '</text>' +
       (label ? '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" fill="' + colors.textMuted + '" font-size="11">' + esc(label) + '</text>' : '') +
       '</svg></div>';
