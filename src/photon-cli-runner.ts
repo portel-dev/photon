@@ -124,6 +124,24 @@ function stripJSDocTags(description: string | undefined): string {
 }
 
 /**
+ * Extract the photon's class-level description from its JSDoc
+ */
+async function extractPhotonDescription(filePath: string): Promise<string> {
+  const source = await fs.readFile(filePath, 'utf-8');
+  const jsdocMatch = source.match(/\/\*\*([\s\S]*?)\*\//);
+  if (!jsdocMatch) return '';
+
+  const lines = jsdocMatch[1].split('\n').map((line) => line.replace(/^\s*\*\s?/, ''));
+  const descLines: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('@') || line.startsWith('#')) break;
+    if (line.length > 0) descLines.push(line);
+  }
+  return descLines.join(' ').trim();
+}
+
+/**
  * Extract all public async methods from a photon file
  */
 async function extractMethods(filePath: string): Promise<MethodInfo[]> {
@@ -1480,6 +1498,7 @@ export async function listMethods(photonName: string): Promise<void> {
     }
 
     const allMethods = await extractMethods(resolvedPath);
+    const photonDesc = await extractPhotonDescription(resolvedPath);
 
     // Filter out internal methods: scheduled*, handle*, reportError
     const methods = allMethods.filter((m) => {
@@ -1493,9 +1512,14 @@ export async function listMethods(photonName: string): Promise<void> {
 
     const hiddenCount = allMethods.length - methods.length;
 
+    // Print description if available
+    if (photonDesc) {
+      console.log(`\n${photonDesc}\n`);
+    }
+
     // Print usage
     const prefix = cliPrefix(photonName);
-    console.log(`\nUSAGE:`);
+    console.log(`USAGE:`);
     console.log(`    ${prefix} <command> [options]\n`);
 
     // Print commands
@@ -1655,19 +1679,58 @@ export async function runMethod(
     }
 
     if (missing.length > 0) {
-      const usage = method.params
-        .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
-        .join(' ');
-      const details = missing
-        .map((name) => {
-          const p = method.params.find((mp) => mp.name === name);
-          return `  --${name} (${p?.type || 'string'})${p?.description ? ': ' + p.description : ''}`;
-        })
-        .join('\n');
-      exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
-        exitCode: ExitCode.INVALID_ARGUMENT,
-        suggestion: `Usage: ${cliPrefix(photonName)} ${methodName} ${usage}\n\nRequired:\n${details}`,
-      });
+      // If stdin is a TTY, show help then interactively prompt for missing params
+      if (process.stdin.isTTY) {
+        // Show method help context
+        printMethodHelp(photonName, method);
+
+        // Prompt for each missing parameter
+        for (const name of missing) {
+          const param = method.params.find((mp) => mp.name === name)!;
+          const displayLabel = param.label || formatLabel(param.name);
+          let prompt = `${displayLabel}`;
+          if (param.description) prompt += ` (${param.description})`;
+          if (param.enum && param.enum.length > 0) {
+            prompt += ` [${param.enum.join('/')}]`;
+          }
+          prompt += ': ';
+
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stderr,
+          });
+          const answer = await new Promise<string>((resolve) => {
+            rl.question(prompt, (ans) => {
+              rl.close();
+              resolve(ans.trim());
+            });
+          });
+
+          if (!answer) {
+            exitWithError(`Parameter '${name}' is required`, {
+              exitCode: ExitCode.INVALID_ARGUMENT,
+            });
+          }
+
+          // Coerce the value to the expected type
+          parsedArgs[name] = coerceToType(answer, param.type);
+        }
+      } else {
+        // Non-interactive: show error with usage help
+        const usage = method.params
+          .map((p) => (p.optional ? `[--${p.name}]` : `--${p.name} <value>`))
+          .join(' ');
+        const details = missing
+          .map((name) => {
+            const p = method.params.find((mp) => mp.name === name);
+            return `  --${name} (${p?.type || 'string'})${p?.description ? ': ' + p.description : ''}`;
+          })
+          .join('\n');
+        exitWithError(`Missing required parameters: ${missing.join(', ')}`, {
+          exitCode: ExitCode.INVALID_ARGUMENT,
+          suggestion: `Usage: ${cliPrefix(photonName)} ${methodName} ${usage}\n\nRequired:\n${details}`,
+        });
+      }
     }
 
     // Validate parameter types and enum values
