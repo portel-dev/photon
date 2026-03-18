@@ -1,0 +1,302 @@
+<!--
+  Render Showcase Dashboard
+
+  Demonstrates how custom UI templates can use photon.render()
+  to leverage auto UI format renderers inside a custom layout.
+
+  Key concepts:
+  1. Call photon methods:     window.photon.callTool('methodName', {})
+  2. Render the result:       photon.render(container, data, 'format')
+  3. Listen for live events:  photon.on('result', callback)
+  4. Theme-aware rendering:   renderers auto-detect dark/light mode
+
+  Available formats:
+    table, gauge, metric, progress, timeline, badge, list,
+    chart (chart:bar, chart:line, chart:pie, chart:area, chart:donut),
+    kv/card, markdown, json
+-->
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg, #0f0f0f);
+    color: var(--text, #e0e0e0);
+    padding: 20px;
+    line-height: 1.5;
+  }
+
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 20px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ccc;
+  }
+  .card-format {
+    font-size: 11px;
+    color: #666;
+    background: #242424;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-family: monospace;
+  }
+  .card-body {
+    padding: 16px;
+    min-height: 60px;
+    position: relative;
+  }
+  .card-body.loading::after {
+    content: 'Loading...';
+    color: #555;
+    font-size: 12px;
+  }
+
+  /* Wide cards for charts and tables */
+  .card.wide { grid-column: span 2; }
+
+  /* Gauge row */
+  .gauge-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  /* Badge row */
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Refresh button */
+  .btn-refresh {
+    background: none;
+    border: 1px solid #333;
+    color: #888;
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .btn-refresh:hover { border-color: #555; color: #ccc; }
+
+  /* Code snippet */
+  .code-hint {
+    font-size: 11px;
+    color: #555;
+    font-family: monospace;
+    padding: 8px 16px;
+    border-top: 1px solid #2a2a2a;
+    background: #141414;
+  }
+</style>
+
+<h1>Render Showcase</h1>
+<p class="subtitle">
+  Custom UI + photon.render() — auto UI formats inside your own layout
+  <button class="btn-refresh" onclick="loadAll()" style="margin-left: 12px">Refresh All</button>
+</p>
+
+<div class="grid">
+  <!-- Metric -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Metric</span>
+      <span class="card-format">metric</span>
+    </div>
+    <div class="card-body loading" id="metric-slot"></div>
+    <div class="code-hint">photon.render(el, data, 'metric')</div>
+  </div>
+
+  <!-- Progress -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Progress</span>
+      <span class="card-format">progress</span>
+    </div>
+    <div class="card-body loading" id="progress-slot"></div>
+    <div class="code-hint">photon.render(el, data, 'progress')</div>
+  </div>
+
+  <!-- Gauges -->
+  <div class="card wide">
+    <div class="card-header">
+      <span class="card-title">Gauges</span>
+      <span class="card-format">gauge</span>
+    </div>
+    <div class="card-body">
+      <div class="gauge-row">
+        <div id="gauge-cpu" class="loading"></div>
+        <div id="gauge-mem" class="loading"></div>
+      </div>
+    </div>
+    <div class="code-hint">photon.render(el, { value: 73, max: 100, label: 'CPU' }, 'gauge')</div>
+  </div>
+
+  <!-- Badges -->
+  <div class="card wide">
+    <div class="card-header">
+      <span class="card-title">Service Status</span>
+      <span class="card-format">badge</span>
+    </div>
+    <div class="card-body loading" id="badges-slot"></div>
+    <div class="code-hint">photon.render(el, 'Active', 'badge')</div>
+  </div>
+
+  <!-- Bar Chart -->
+  <div class="card wide">
+    <div class="card-header">
+      <span class="card-title">Revenue (Bar Chart)</span>
+      <span class="card-format">chart:bar</span>
+    </div>
+    <div class="card-body loading" id="chart-bar-slot"></div>
+    <div class="code-hint">photon.render(el, data, 'chart:bar')</div>
+  </div>
+
+  <!-- Line Chart -->
+  <div class="card wide">
+    <div class="card-header">
+      <span class="card-title">Temperature (Line Chart)</span>
+      <span class="card-format">chart:line</span>
+    </div>
+    <div class="card-body loading" id="chart-line-slot"></div>
+    <div class="code-hint">photon.render(el, data, 'chart:line')</div>
+  </div>
+
+  <!-- Table -->
+  <div class="card wide">
+    <div class="card-header">
+      <span class="card-title">Users (Sortable Table)</span>
+      <span class="card-format">table</span>
+    </div>
+    <div class="card-body loading" id="table-slot"></div>
+    <div class="code-hint">photon.render(el, rows, 'table')</div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Activity</span>
+      <span class="card-format">timeline</span>
+    </div>
+    <div class="card-body loading" id="timeline-slot"></div>
+    <div class="code-hint">photon.render(el, events, 'timeline')</div>
+  </div>
+
+  <!-- List -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Team</span>
+      <span class="card-format">list</span>
+    </div>
+    <div class="card-body loading" id="list-slot"></div>
+    <div class="code-hint">photon.render(el, items, 'list')</div>
+  </div>
+
+  <!-- KV / Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Config</span>
+      <span class="card-format">kv</span>
+    </div>
+    <div class="card-body loading" id="kv-slot"></div>
+    <div class="code-hint">photon.render(el, obj, 'kv')</div>
+  </div>
+
+  <!-- Markdown -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Changelog</span>
+      <span class="card-format">markdown</span>
+    </div>
+    <div class="card-body loading" id="markdown-slot"></div>
+    <div class="code-hint">photon.render(el, text, 'markdown')</div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Helper: call a photon method and render the result
+  async function loadAndRender(method, slotId, format, opts) {
+    const slot = $(slotId);
+    try {
+      const result = await window.photon.callTool(method, {});
+      slot.classList.remove('loading');
+      photon.render(slot, result, format, opts);
+    } catch (e) {
+      slot.classList.remove('loading');
+      slot.innerHTML = '<span style="color:#f87171;font-size:12px">Error: ' + e.message + '</span>';
+    }
+  }
+
+  // Load badges as individual items in a flex row
+  async function loadBadges() {
+    const slot = $('badges-slot');
+    try {
+      const services = await window.photon.callTool('services', {});
+      slot.classList.remove('loading');
+      slot.innerHTML = '';
+      const row = document.createElement('div');
+      row.className = 'badge-row';
+      slot.appendChild(row);
+      for (const svc of services) {
+        const label = document.createElement('span');
+        label.style.cssText = 'font-size:12px;color:#888;margin-right:2px';
+        label.textContent = svc.name + ':';
+        row.appendChild(label);
+        const badge = document.createElement('span');
+        row.appendChild(badge);
+        photon.render(badge, svc.status, 'badge');
+      }
+    } catch (e) {
+      slot.classList.remove('loading');
+      slot.innerHTML = '<span style="color:#f87171;font-size:12px">Error: ' + e.message + '</span>';
+    }
+  }
+
+  function loadAll() {
+    loadAndRender('activeUsers', 'metric-slot', 'metric');
+    loadAndRender('deployment',  'progress-slot', 'progress');
+    loadAndRender('cpu',         'gauge-cpu', 'gauge');
+    loadAndRender('memory',      'gauge-mem', 'gauge');
+    loadBadges();
+    loadAndRender('revenue',     'chart-bar-slot', 'chart:bar');
+    loadAndRender('temperature', 'chart-line-slot', 'chart:line');
+    loadAndRender('users',       'table-slot', 'table');
+    loadAndRender('activity',    'timeline-slot', 'timeline');
+    loadAndRender('team',        'list-slot', 'list');
+    loadAndRender('config',      'kv-slot', 'kv');
+    loadAndRender('changelog',   'markdown-slot', 'markdown');
+  }
+
+  // Load everything on start
+  loadAll();
+
+  // Live updates: re-render when new results arrive
+  photon.on('result', (data) => {
+    if (data.method === 'cpu')    photon.render($('gauge-cpu'), data.result, 'gauge');
+    if (data.method === 'memory') photon.render($('gauge-mem'), data.result, 'gauge');
+  });
+</script>
