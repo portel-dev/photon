@@ -395,6 +395,39 @@ export function generateRenderersScript(): string {
     catch(e) { return v; }
   }
 
+  // ─── QR code ───
+  var _qrLoading = false, _qrLoaded = false, _qrQueue = [];
+  function _loadQRJS(cb) {
+    if (_qrLoaded) { cb(); return; }
+    _qrQueue.push(cb);
+    if (_qrLoading) return;
+    _qrLoading = true;
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    s.onload = function() { _qrLoaded = true; _qrQueue.forEach(function(fn) { fn(); }); _qrQueue = []; };
+    s.onerror = function() { _qrQueue.forEach(function(fn) { fn(); }); _qrQueue = []; };
+    document.head.appendChild(s);
+  }
+
+  renderers.qr = function(container, data) {
+    var text = typeof data === 'object' && data !== null
+      ? String(data.qr || data.url || data.link || data.value || JSON.stringify(data))
+      : String(data);
+    var isUrl = /^https?:\\/\\//i.test(text);
+    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px">' +
+      '<div id="_qr_canvas" style="background:#fff;padding:12px;border-radius:8px"></div>' +
+      (isUrl ? '<a href="' + esc(text) + '" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:' + colors.accent + ';word-break:break-all;text-align:center">' + esc(text) + '</a>' : '<span style="font-size:12px;color:' + colors.textMuted + ';word-break:break-all;text-align:center">' + esc(text) + '</span>') +
+      '</div>';
+    var canvas = container.querySelector('#_qr_canvas');
+    _loadQRJS(function() {
+      if (!canvas || !window.QRCode) return;
+      try {
+        var size = Math.max(160, Math.min(container.clientWidth - 64, 280));
+        new window.QRCode(canvas, { text: text, width: size, height: size, colorDark: '#000000', colorLight: '#ffffff' });
+      } catch(e) { canvas.textContent = text; }
+    });
+  };
+
   var _chartLoading = false, _chartLoaded = false, _chartQueue = [];
   function _loadChartJS(cb) {
     if (_chartLoaded) { cb(); return; }

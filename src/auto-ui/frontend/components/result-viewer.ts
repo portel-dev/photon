@@ -4552,25 +4552,36 @@ export class ResultViewer extends LitElement {
       href = `tel:${text.replace(/[\s\-().]/g, '')}`;
     }
 
-    // Schedule QR code generation after render — size adapts to container
+    // Schedule QR code generation after render — size adapts to container.
+    // Lazy-loads qrcodejs from CDN if not already present.
+    const renderQR = () => {
+      if (!this._qrContainer) return;
+      this._qrContainer.innerHTML = '';
+      try {
+        const containerWidth = this._qrContainer.clientWidth;
+        const qrSize = Math.max(200, Math.min(containerWidth - 48, 400));
+        new (window as any).QRCode(this._qrContainer, {
+          text: text,
+          width: qrSize,
+          height: qrSize,
+          correctLevel: (window as any).QRCode?.CorrectLevel?.H,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+        });
+      } catch (error) {
+        console.error('Failed to generate QR code:', error);
+      }
+    };
+
     setTimeout(() => {
-      if (this._qrContainer) {
-        this._qrContainer.innerHTML = '';
-        try {
-          // Compute QR size from container width (subtract padding)
-          const containerWidth = this._qrContainer.clientWidth;
-          const qrSize = Math.max(200, Math.min(containerWidth - 48, 400));
-          new (window as any).QRCode(this._qrContainer, {
-            text: text,
-            width: qrSize,
-            height: qrSize,
-            correctLevel: (window as any).QRCode?.CorrectLevel?.H,
-            colorDark: '#000000',
-            colorLight: '#ffffff',
-          });
-        } catch (error) {
-          console.error('Failed to generate QR code:', error);
-        }
+      if ((window as any).QRCode) {
+        renderQR();
+      } else {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+        script.onload = renderQR;
+        script.onerror = () => console.error('Failed to load QR code library');
+        document.head.appendChild(script);
       }
     }, 0);
 
@@ -4606,7 +4617,7 @@ export class ResultViewer extends LitElement {
         style="
         width: 100%; padding: 24px;
         display: flex; justify-content: center; align-items: center;
-        background: #ffffff; border-radius: var(--radius-md) var(--radius-md) 0 0;
+        background: transparent; border-radius: var(--radius-md) var(--radius-md) 0 0;
       "
       ></div>
 
