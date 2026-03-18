@@ -263,7 +263,7 @@ export class BeamApp extends LitElement {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 4px 0;
+        margin: calc(-1 * var(--space-lg) + 4px) calc(-1 * var(--space-lg) + 4px) 4px;
         flex-shrink: 0;
       }
 
