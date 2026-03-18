@@ -351,7 +351,41 @@ export class CustomUiRenderer extends LitElement {
       if (finalHtml.includes('</head>')) {
         finalHtml = finalHtml.replace('</head>', `${injected}</head>`);
       } else {
-        finalHtml = `<html><head>${injected}</head><body>${finalHtml}</body></html>`;
+        // Fragment HTML (no <html>/<head> tags) — wrap it and apply photon base styles.
+        // CSS variables are set by the bridge, so var(--color-surface) etc. work automatically.
+        const photonBaseCSS = `<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-family-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    background: var(--color-surface);
+    color: var(--color-on-surface);
+    font-size: var(--font-size-sm, 14px);
+    line-height: 1.5;
+    padding: var(--space-4, 16px);
+  }
+  a { color: var(--color-primary); }
+  input, textarea, select {
+    background: var(--color-surface-container);
+    color: var(--color-on-surface);
+    border: 1px solid var(--color-outline-variant);
+    border-radius: var(--radius-sm, 4px);
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    font-family: inherit;
+    font-size: inherit;
+  }
+  button {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    padding: var(--space-2, 8px) var(--space-4, 16px);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+</style>`;
+        finalHtml = `<html><head>${injected}${photonBaseCSS}</head><body>${finalHtml}</body></html>`;
       }
 
       // Abort if a newer _loadContent() was triggered while we were fetching
