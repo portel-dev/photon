@@ -5,10 +5,14 @@
   to leverage auto UI format renderers inside a custom layout.
 
   Key concepts:
-  1. Call photon methods:     window.photon.callTool('methodName', {})
+  1. Call methods:            await showcase.users()
   2. Render the result:       photon.render(container, data, 'format')
-  3. Listen for live events:  photon.on('result', callback)
+  3. Listen for live events:  showcase.onResult(callback)
   4. Theme-aware rendering:   renderers auto-detect dark/light mode
+
+  API pattern:
+    window.{photonName} — Proxy with all public methods + .on{Event}() listeners
+    window.photon        — Bridge utilities (render, renderQR, theme, etc.)
 
   Available formats:
     table, gauge, metric, progress, timeline, badge, list,
@@ -126,7 +130,7 @@
       <span class="card-format">metric</span>
     </div>
     <div class="card-body loading" id="metric-slot"></div>
-    <div class="code-hint">photon.render(el, data, 'metric')</div>
+    <div class="code-hint">const data = await showcase.activeUsers(); photon.render(el, data, 'metric')</div>
   </div>
 
   <!-- Progress -->
@@ -136,7 +140,7 @@
       <span class="card-format">progress</span>
     </div>
     <div class="card-body loading" id="progress-slot"></div>
-    <div class="code-hint">photon.render(el, data, 'progress')</div>
+    <div class="code-hint">const data = await showcase.deployment(); photon.render(el, data, 'progress')</div>
   </div>
 
   <!-- Gauges -->
@@ -151,7 +155,7 @@
         <div id="gauge-mem" class="loading"></div>
       </div>
     </div>
-    <div class="code-hint">photon.render(el, { value: 73, max: 100, label: 'CPU' }, 'gauge')</div>
+    <div class="code-hint">const data = await showcase.cpu(); photon.render(el, data, 'gauge')</div>
   </div>
 
   <!-- Badges -->
@@ -161,7 +165,7 @@
       <span class="card-format">badge</span>
     </div>
     <div class="card-body loading" id="badges-slot"></div>
-    <div class="code-hint">photon.render(el, 'Active', 'badge')</div>
+    <div class="code-hint">const svcs = await showcase.services(); photon.render(el, svc.status, 'badge')</div>
   </div>
 
   <!-- Bar Chart -->
@@ -171,7 +175,7 @@
       <span class="card-format">chart:bar</span>
     </div>
     <div class="card-body loading" id="chart-bar-slot"></div>
-    <div class="code-hint">photon.render(el, data, 'chart:bar')</div>
+    <div class="code-hint">const data = await showcase.revenue(); photon.render(el, data, 'chart:bar')</div>
   </div>
 
   <!-- Line Chart -->
@@ -181,7 +185,7 @@
       <span class="card-format">chart:line</span>
     </div>
     <div class="card-body loading" id="chart-line-slot"></div>
-    <div class="code-hint">photon.render(el, data, 'chart:line')</div>
+    <div class="code-hint">const data = await showcase.temperature(); photon.render(el, data, 'chart:line')</div>
   </div>
 
   <!-- Table -->
@@ -191,7 +195,7 @@
       <span class="card-format">table</span>
     </div>
     <div class="card-body loading" id="table-slot"></div>
-    <div class="code-hint">photon.render(el, rows, 'table')</div>
+    <div class="code-hint">const rows = await showcase.users(); photon.render(el, rows, 'table')</div>
   </div>
 
   <!-- Timeline -->
@@ -201,7 +205,7 @@
       <span class="card-format">timeline</span>
     </div>
     <div class="card-body loading" id="timeline-slot"></div>
-    <div class="code-hint">photon.render(el, events, 'timeline')</div>
+    <div class="code-hint">const events = await showcase.activity(); photon.render(el, events, 'timeline')</div>
   </div>
 
   <!-- List -->
@@ -211,7 +215,7 @@
       <span class="card-format">list</span>
     </div>
     <div class="card-body loading" id="list-slot"></div>
-    <div class="code-hint">photon.render(el, items, 'list')</div>
+    <div class="code-hint">const items = await showcase.team(); photon.render(el, items, 'list')</div>
   </div>
 
   <!-- KV / Card -->
@@ -221,7 +225,7 @@
       <span class="card-format">kv</span>
     </div>
     <div class="card-body loading" id="kv-slot"></div>
-    <div class="code-hint">photon.render(el, obj, 'kv')</div>
+    <div class="code-hint">const obj = await showcase.config(); photon.render(el, obj, 'kv')</div>
   </div>
 
   <!-- Markdown -->
@@ -231,18 +235,22 @@
       <span class="card-format">markdown</span>
     </div>
     <div class="card-body loading" id="markdown-slot"></div>
-    <div class="code-hint">photon.render(el, text, 'markdown')</div>
+    <div class="code-hint">const text = await showcase.changelog(); photon.render(el, text, 'markdown')</div>
   </div>
 </div>
 
 <script>
   const $ = (id) => document.getElementById(id);
 
-  // Helper: call a photon method and render the result
+  // window[photonName] is a Proxy — all methods available directly
+  // For kebab-case names, use bracket notation
+  const showcase = window['render-showcase'];
+
+  // Helper: call a method and render the result
   async function loadAndRender(method, slotId, format, opts) {
     const slot = $(slotId);
     try {
-      const result = await window.photon.callTool(method, {});
+      const result = await showcase[method]();
       slot.classList.remove('loading');
       photon.render(slot, result, format, opts);
     } catch (e) {
@@ -255,7 +263,7 @@
   async function loadBadges() {
     const slot = $('badges-slot');
     try {
-      const services = await window.photon.callTool('services', {});
+      const services = await showcase.services();
       slot.classList.remove('loading');
       slot.innerHTML = '';
       const row = document.createElement('div');
@@ -295,7 +303,8 @@
   loadAll();
 
   // Live updates: re-render when new results arrive
-  photon.on('result', (data) => {
+  // showcase.on{EventName}(cb) subscribes to events
+  showcase.onResult((data) => {
     if (data.method === 'cpu')    photon.render($('gauge-cpu'), data.result, 'gauge');
     if (data.method === 'memory') photon.render($('gauge-mem'), data.result, 'gauge');
   });
