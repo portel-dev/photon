@@ -15,6 +15,7 @@ Build rich interactive UIs for your photons. A global named after your photon fi
 - [Tool Invocation](#tool-invocation)
 - [Real-time Updates](#real-time-updates)
 - [Examples](#examples)
+- [Using Auto UI Renderers (photon.render)](#using-auto-ui-renderers-photonrender)
 
 ---
 
@@ -515,8 +516,9 @@ All three methods render inside `dashboard.html`. The UI receives whichever meth
   <pre id="result"></pre>
 
   <script>
+    // 'my-photon' global is auto-injected (named after your .photon.ts file)
     document.getElementById('action').onclick = async () => {
-      const result = await window.photon.callTool('myMethod', {});
+      const result = await window['my-photon'].myMethod();
       document.getElementById('result').textContent =
         JSON.stringify(result, null, 2);
     };
@@ -606,6 +608,147 @@ function KanbanApp() {
   );
 }
 ```
+
+---
+
+## Using Auto UI Renderers (photon.render)
+
+Custom UIs don't have to build everything from scratch. `photon.render()` lets you use the same format renderers that auto UI uses — tables, charts, gauges, badges, and more — inside your own layout.
+
+### Quick Start
+
+```javascript
+// 1. Get data from a method
+const data = await showcase.cpu();
+
+// 2. Render it using a format
+photon.render(document.getElementById('gauge'), data, 'gauge');
+```
+
+That's it. The renderer handles theming, formatting, and interactivity automatically.
+
+### API
+
+```typescript
+photon.render(container: HTMLElement, data: any, format: string, opts?: object): void
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `container` | `HTMLElement` | DOM element to render into (innerHTML is replaced) |
+| `data` | `any` | Data to visualize — shape depends on format |
+| `format` | `string` | Format type (see table below) |
+| `opts` | `object?` | Optional overrides (columns, min/max, labels, etc.) |
+
+### Available Formats
+
+| Format | Data Shape | Description |
+|--------|-----------|-------------|
+| `table` | `Array<object>` | Sortable table with auto-detected columns |
+| `gauge` | `{ value, max, label?, unit? }` | SVG semicircular gauge with color gradient |
+| `metric` | `{ value, label?, delta?, trend? }` | Large KPI display with trend arrow |
+| `progress` | `{ value, max?, label? }` | Animated progress bar with percentage |
+| `chart:bar` | `Array<object>` | Bar chart (auto-detects label/value fields) |
+| `chart:line` | `Array<object>` | Line chart (auto-detects time series) |
+| `chart:pie` | `Array<object>` | Pie chart |
+| `chart:area` | `Array<object>` | Area chart (line with fill) |
+| `chart:donut` | `Array<object>` | Donut chart |
+| `timeline` | `Array<{ time, event, details? }>` | Chronological event list with dots and lines |
+| `badge` | `string` | Colored status badge (auto-detects variant) |
+| `list` | `Array<{ name, subtitle?, status? }>` | iOS-style list rows with optional badges |
+| `kv` / `card` | `object` | Key-value pairs in alternating rows |
+| `markdown` | `string` | Basic markdown rendering (headings, bold, code, lists) |
+| `json` | `any` | Pretty-printed JSON in a `<pre>` block |
+
+### Data Shape Examples
+
+```javascript
+// Gauge — value within a range
+photon.render(el, { value: 73, max: 100, label: 'CPU Usage', unit: '%' }, 'gauge');
+
+// Metric — big number with trend
+photon.render(el, { value: 14283, label: 'Active Users', delta: 842, trend: 'up' }, 'metric');
+
+// Table — array of objects (columns auto-detected from keys)
+photon.render(el, [
+  { name: 'Alice', role: 'Admin', status: 'Active' },
+  { name: 'Bob',   role: 'Editor', status: 'Offline' },
+], 'table');
+
+// Chart — array with string + numeric fields
+photon.render(el, [
+  { month: 'Jan', revenue: 12400, costs: 8200 },
+  { month: 'Feb', revenue: 15800, costs: 9100 },
+], 'chart:bar');
+
+// Badge — auto-detects color from text
+photon.render(el, 'Active', 'badge');    // green
+photon.render(el, 'Degraded', 'badge');  // yellow
+photon.render(el, 'Offline', 'badge');   // red
+
+// Timeline — chronological events
+photon.render(el, [
+  { time: '2026-03-18T08:00:00Z', event: 'Deploy started', details: 'v2.4.1' },
+  { time: '2026-03-18T08:05:00Z', event: 'Deploy live', details: 'All regions healthy' },
+], 'timeline');
+```
+
+### Options
+
+Some renderers accept options to override auto-detection:
+
+```javascript
+// Table — specify which columns to show
+photon.render(el, data, 'table', { columns: ['name', 'status'] });
+
+// Gauge — override min/max range
+photon.render(el, { value: 4.2 }, 'gauge', { min: 0, max: 16, label: 'Memory', unit: 'GB' });
+
+// Chart — specify axis fields
+photon.render(el, data, 'chart:line', { x: 'timestamp', y: 'temperature' });
+```
+
+### Full Dashboard Pattern
+
+The typical pattern combines `window[photonName]` for data and `photon.render()` for visualization:
+
+```html
+<div id="cpu-gauge"></div>
+<div id="users-table"></div>
+
+<script>
+  // Reference your photon by name
+  const monitor = window['system-monitor'];
+
+  // Load data and render
+  async function refresh() {
+    const cpu = await monitor.cpu();
+    photon.render(document.getElementById('cpu-gauge'), cpu, 'gauge');
+
+    const users = await monitor.users();
+    photon.render(document.getElementById('users-table'), users, 'table');
+  }
+
+  refresh();
+
+  // Live updates via events
+  monitor.onCpuUpdate((data) => {
+    photon.render(document.getElementById('cpu-gauge'), data, 'gauge');
+  });
+</script>
+```
+
+### Theme Awareness
+
+Renderers auto-detect dark/light mode from the host theme. Colors, borders, and text adjust automatically — no extra configuration needed.
+
+### Lazy Loading
+
+`photon.render()` lazy-loads the renderer library on first call. Chart formats further lazy-load Chart.js from CDN. The initial call may have a brief delay; subsequent calls are instant.
+
+### Example Photon
+
+See `examples/render-showcase.photon.ts` for a complete working example with all 11 format types rendered in a custom dashboard.
 
 ---
 
