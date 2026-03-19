@@ -18,5 +18,10 @@ import './components/context-bar.js';
 import './components/fork-dialog.js';
 import './components/app-layout.js';
 import './components/inputs/date-picker.js';
+import './components/inputs/tag-input.js';
+import './components/inputs/star-rating.js';
+import './components/inputs/segmented-control.js';
+import './components/inputs/code-input.js';
+import './components/inputs/markdown-input.js';
 
 console.log('✨ Beam UI Initialized');

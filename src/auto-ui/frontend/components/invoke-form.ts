@@ -1378,6 +1378,73 @@ export class InvokeForm extends LitElement {
     const fmt2 = (schema as any).format;
     const lk2 = key.toLowerCase();
 
+    // Tags (array of strings as chips)
+    if (
+      fmt2 === 'tags' ||
+      (schema.type === 'array' && (schema as any).items?.type === 'string' && fmt2 !== 'textarea')
+    ) {
+      const currentTags = Array.isArray(this._values[key]) ? this._values[key] : [];
+      return html`
+        <tag-input
+          .value=${currentTags}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></tag-input>
+      `;
+    }
+
+    // Rating (star rating)
+    if (fmt2 === 'rating' || lk2 === 'rating' || lk2 === 'stars') {
+      const max = (schema as any).maximum || 5;
+      const step = (schema as any).multipleOf || 1;
+      return html`
+        <star-rating
+          .value=${Number(this._values[key]) || 0}
+          .max=${max}
+          .step=${step}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></star-rating>
+      `;
+    }
+
+    // Segmented control (for small enums, 2-4 values)
+    if ((fmt2 === 'segmented' || fmt2 === 'radio') && (schema as any).enum) {
+      return html`
+        <segmented-control
+          .options=${(schema as any).enum}
+          .value=${this._values[key] || ''}
+          .variant=${fmt2 === 'radio' ? 'radio' : 'segmented'}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></segmented-control>
+      `;
+    }
+
+    // Code input (with line numbers and tab support)
+    if (fmt2 === 'code' || (fmt2 && fmt2.startsWith('code:'))) {
+      const lang = fmt2?.includes(':') ? fmt2.split(':')[1] : '';
+      return html`
+        <code-input
+          .value=${this._values[key] || ''}
+          .language=${lang}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></code-input>
+      `;
+    }
+
+    // Markdown input (with toolbar and live preview)
+    if (fmt2 === 'markdown') {
+      return html`
+        <markdown-input
+          .value=${this._values[key] || ''}
+          .hasError=${hasError}
+          @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+        ></markdown-input>
+      `;
+    }
+
     // Password / Secret
     if (
       fmt2 === 'password' ||
