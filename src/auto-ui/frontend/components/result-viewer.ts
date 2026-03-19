@@ -2072,6 +2072,9 @@ export class ResultViewer extends LitElement {
   @property({ type: Object })
   layoutHints?: LayoutHints;
 
+  @property({ type: String })
+  photonName?: string;
+
   @property({ type: String, reflect: true, attribute: 'data-theme' })
   theme: Theme = 'dark';
 
@@ -4588,9 +4591,25 @@ export class ResultViewer extends LitElement {
     const total = slides.length;
     const idx = this._slidesCurrentIndex;
 
+    // Resolve base URL for relative paths (images, links)
+    // Priority: frontmatter baseUrl > default /api/assets/{photon}/
+    const baseUrl =
+      config.baseUrl ||
+      (this.photonName ? `/api/assets/${encodeURIComponent(this.photonName)}/` : '');
+
+    // Rewrite relative paths in markdown before parsing
+    let slideMarkdown = current;
+    if (baseUrl) {
+      // Rewrite ![alt](relative/path) but not ![alt](https://...) or ![alt](/absolute) or ![alt](data:...)
+      slideMarkdown = slideMarkdown.replace(
+        /(!?\[([^\]]*)\])\((?!https?:\/\/|\/|data:)([^)]+)\)/g,
+        (_, prefix, _alt, relPath) => `${prefix}(${baseUrl}${relPath})`
+      );
+    }
+
     // Parse slide markdown
     const marked = (window as any).marked;
-    const slideHtml = marked ? marked.parse(current) : current;
+    const slideHtml = marked ? marked.parse(slideMarkdown) : slideMarkdown;
 
     // Resolve theme: 'auto' inherits from Beam's active theme
     const resolvedTheme =

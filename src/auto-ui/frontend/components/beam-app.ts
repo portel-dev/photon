@@ -4907,6 +4907,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
             .result=${this._lastResult}
             .outputFormat=${this._selectedMethod?.outputFormat}
             .layoutHints=${this._selectedMethod?.layoutHints}
+            .photonName=${this._selectedPhoton?.name}
             .theme=${this._theme}
             .live=${this._currentCollectionName !== null}
             .resultKey=${this._selectedPhoton && this._selectedMethod
@@ -5185,6 +5186,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                     .result=${opts.result}
                     .outputFormat=${opts.method?.outputFormat}
                     .layoutHints=${opts.method?.layoutHints}
+                    .photonName=${opts.photon?.name}
                     .theme=${this._theme}
                     .live=${this._currentCollectionName !== null}
                     .resultKey=${opts.photon && opts.method
