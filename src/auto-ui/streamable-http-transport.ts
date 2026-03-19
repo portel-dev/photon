@@ -38,6 +38,34 @@ import { buildToolMetadataExtensions } from './types.js';
 import { audit } from '../shared/audit.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
+// JWT HELPERS
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Decode a JWT payload without verification (validation is done by the auth server).
+ * Returns CallerInfo from the standard OIDC claims.
+ */
+function decodeJWTCaller(authHeader: string | string[] | undefined): CallerInfo | undefined {
+  if (Array.isArray(authHeader)) authHeader = authHeader[0];
+  if (!authHeader?.startsWith('Bearer ')) return undefined;
+  const token = authHeader.slice(7);
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return undefined;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    return {
+      id: payload.sub || payload.client_id || 'unknown',
+      name: payload.name || payload.preferred_username,
+      anonymous: false,
+      scope: payload.scope,
+      claims: payload,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // LOCAL TYPES (specific to this transport)
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -208,6 +236,14 @@ type RequestHandler = (
   context: HandlerContext
 ) => Promise<JSONRPCResponse>;
 
+interface CallerInfo {
+  id: string;
+  name?: string;
+  anonymous: boolean;
+  scope?: string;
+  claims?: Record<string, unknown>;
+}
+
 interface HandlerContext {
   photons: AnyPhotonInfo[];
   photonMCPs: Map<string, PhotonInstance>;
@@ -221,6 +257,8 @@ interface HandlerContext {
   ) => Promise<{ content: string; isPhotonTemplate: boolean } | null>;
   /** Working directory override (base dir for state/config/cache) */
   workingDir?: string;
+  /** Authenticated caller from MCP OAuth (JWT) */
+  caller?: CallerInfo;
   configurePhoton?: (
     photonName: string,
     config: Record<string, any>
@@ -1260,6 +1298,7 @@ const handlers: Record<string, RequestHandler> = {
         result = await ctx.loader.executeTool(mcp, methodName, args || {}, {
           outputHandler,
           inputProvider,
+          caller: ctx.caller,
         });
       } else {
         // For static methods, don't bind to instance
@@ -2552,6 +2591,9 @@ export async function handleStreamableHTTP(
       return true;
     }
 
+    // Extract caller identity from Authorization header (MCP OAuth)
+    const caller = decodeJWTCaller(req.headers.authorization);
+
     const context: HandlerContext = {
       photons: options.photons,
       photonMCPs: options.photonMCPs,
@@ -2569,6 +2611,7 @@ export async function handleStreamableHTTP(
       broadcast: options.broadcast,
       subscriptionManager: options.subscriptionManager,
       workingDir: options.workingDir,
+      caller,
     };
 
     // Process requests

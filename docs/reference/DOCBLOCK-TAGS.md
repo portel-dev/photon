@@ -33,6 +33,7 @@ These tags are placed in the JSDoc comment at the top of your `.photon.ts` file,
 | `@internal` | Marks entire photon as internal (hidden from sidebar). | `@internal` |
 | `@worker` | Forces the photon to run in an isolated worker thread. See [Worker Isolation](#worker-isolation). | `@worker` |
 | `@noworker` | Forces the photon to run in-process even if it has lifecycle hooks. See [Worker Isolation](#worker-isolation). | `@noworker` |
+| `@auth` | MCP OAuth auth requirement. Enables `this.caller` for identity-aware methods. | `@auth required` or `@auth optional` |
 | `@forkedFrom` | Origin reference for forked photons. Auto-injected on install. | `@forkedFrom portel-dev/photons#kanban` |
 
 ### Worker Isolation

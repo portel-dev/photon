@@ -82,6 +82,7 @@ import {
   MemoryProvider,
   // Execution context for unified method wrapping
   executionContext,
+  type CallerInfo,
   // Lock helper
   withLock as withLockHelper,
   // Duration parsing for functional tags
@@ -972,6 +973,20 @@ export class PhotonLoader {
             }
             return client;
           };
+        }
+
+        if (
+          caps.has('caller') &&
+          !Object.getOwnPropertyDescriptor(Object.getPrototypeOf(instance), 'caller')
+        ) {
+          // Inject caller getter that reads from executionContext
+          Object.defineProperty(instance, 'caller', {
+            get() {
+              const store = executionContext.getStore();
+              return store?.caller ?? { id: 'anonymous', anonymous: true };
+            },
+            configurable: true,
+          });
         }
 
         if (caps.has('lock') && !instance.withLock) {
@@ -3066,7 +3081,12 @@ Run: photon mcp ${mcpName} --config
     mcp: PhotonClass,
     toolName: string,
     parameters: any,
-    options?: { resumeRunId?: string; outputHandler?: OutputHandler; inputProvider?: InputProvider }
+    options?: {
+      resumeRunId?: string;
+      outputHandler?: OutputHandler;
+      inputProvider?: InputProvider;
+      caller?: CallerInfo;
+    }
   ): Promise<any> {
     // Start audit trail recording
     const audit = getAuditTrail();
@@ -3291,7 +3311,10 @@ Run: photon mcp ${mcpName} --config
         ? () => method.call(null, ...args)
         : () =>
             executionContext.run(
-              { outputHandler: outputHandler as ((data: unknown) => void) | undefined },
+              {
+                outputHandler: outputHandler as ((data: unknown) => void) | undefined,
+                caller: options?.caller,
+              },
               () => {
                 return method.call(mcp.instance, ...args) as unknown;
               }
