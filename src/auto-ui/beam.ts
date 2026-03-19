@@ -1269,6 +1269,67 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // ══════════════════════════════════════════════════════════════════════════
+      // Photon Asset Serving — /api/assets/:photon/*
+      // Serves files from the photon's assets() directory (images, fonts, etc.)
+      // ══════════════════════════════════════════════════════════════════════════
+      const assetsMatch = url.pathname.match(/^\/api\/assets\/([^/]+)\/(.+)$/);
+      if (assetsMatch) {
+        const [, photonName, assetPath] = assetsMatch;
+        const photon = photons.find((p) => p.name === photonName);
+        if (!photon?.configured || !photon.path) {
+          res.writeHead(404);
+          res.end('Photon not found');
+          return;
+        }
+        // Resolve asset path: {photonDir}/{photonBaseName}/assets/{assetPath}
+        const realPath = realpathSync(photon.path);
+        const photonDir = path.dirname(realPath);
+        const baseName = path.basename(realPath).replace(/\.photon\.(ts|js)$/, '');
+        const fullPath = path.join(photonDir, baseName, 'assets', assetPath);
+
+        // Security: ensure resolved path is within the assets directory
+        const assetsRoot = path.join(photonDir, baseName, 'assets');
+        if (!fullPath.startsWith(assetsRoot)) {
+          res.writeHead(403);
+          res.end('Forbidden');
+          return;
+        }
+
+        try {
+          const data = await fs.readFile(fullPath);
+          const ext = path.extname(fullPath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.webp': 'image/webp',
+            '.ico': 'image/x-icon',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.pdf': 'application/pdf',
+            '.woff2': 'font/woff2',
+            '.woff': 'font/woff',
+            '.ttf': 'font/ttf',
+            '.css': 'text/css',
+            '.js': 'text/javascript',
+            '.json': 'application/json',
+            '.txt': 'text/plain',
+          };
+          res.writeHead(200, {
+            'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+            'Cache-Control': 'public, max-age=3600',
+          });
+          res.end(data);
+        } catch {
+          res.writeHead(404);
+          res.end('Asset not found');
+        }
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
       // REST API routes (extracted modules)
       // ══════════════════════════════════════════════════════════════════════════
       if (url.pathname.startsWith('/api/')) {
