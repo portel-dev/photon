@@ -13,6 +13,7 @@ import { getThemeTokens } from '../design-system/tokens.js';
 // Re-export types (server-safe)
 export type {
   PhotonBridgeContext,
+  BridgeMethodMeta,
   SizeConstraints,
   PhotonAPI,
   OpenAIAPI,
@@ -619,13 +620,36 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   applyThemeTokens();
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // DECLARATIVE DATA BINDING
+  // DECLARATIVE DATA BINDING (Datastar-inspired, metadata-driven)
   // ═══════════════════════════════════════════════════════════════════════════
-  // Scan DOM for data-method attributes and auto-wire method calls + rendering.
-  //   <div data-method="users" data-format="table"></div>
-  //   <span data-method="activeUsers" data-field="value"></span>
-  //   <div data-method="cpu" data-format="gauge" data-live></div>
-  //   <div data-method="stats" data-format="kv" data-refresh="5s"></div>
+  //
+  // Minimal: just data-method is enough. Everything else auto-inferred.
+  //
+  //   <div data-method="cpu"></div>
+  //     → format from @format tag, live from @stateful, trigger=load (div)
+  //
+  //   <button data-method="restart" data-target="#status">Restart</button>
+  //     → trigger=click (button), swaps innerHTML of #status
+  //
+  //   <span data-method="stats" data-field="users.active"></span>
+  //     → extracts nested field, trigger=load (span)
+  //
+  // Override attributes (optional — only when you need to deviate from metadata):
+  //   data-format="gauge"       Override @format from docblock
+  //   data-trigger="click"      Override auto-inferred trigger
+  //   data-target="#panel"      Where to render (default: self)
+  //   data-swap="outerHTML"     How to replace: innerHTML(default), outerHTML,
+  //                             beforeend, afterend, beforebegin, afterbegin
+  //   data-args='{"id":1}'     Parameters to pass
+  //   data-field="name.first"  Extract nested field from result
+  //   data-live                Force live mode (override @stateful inference)
+  //   data-refresh="5s"        Force polling (override @scheduled inference)
+
+  var _methodMeta = ctx.methodMeta || {};
+  var _isStateful = ctx.stateful || false;
+
+  // Interactive elements default to click trigger, content elements to load
+  var _clickTags = { BUTTON: 1, A: 1, INPUT: 1, SELECT: 1 };
 
   function _bindElements() {
     if (!ctx.photon) return;
@@ -636,51 +660,127 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     for (var i = 0; i < els.length; i++) {
       (function(el) {
         var method = el.getAttribute('data-method');
-        var format = el.getAttribute('data-format');
-        var field = el.getAttribute('data-field');
-        var refreshAttr = el.getAttribute('data-refresh');
-        var isLive = el.hasAttribute('data-live');
-
         if (!method) return;
 
-        // Render a result into the element
+        // ── Resolve metadata (docblock tags) ──
+        var meta = _methodMeta[method] || {};
+
+        // ── Format: explicit attr > @format tag > fallback to raw rendering ──
+        var format = el.getAttribute('data-format') || meta.format || null;
+
+        // ── Field extraction (optional) ──
+        var field = el.getAttribute('data-field');
+
+        // ── Args (optional) ──
+        var argsStr = el.getAttribute('data-args');
+        var args = {};
+        if (argsStr) {
+          try { args = JSON.parse(argsStr); } catch(e) {
+            console.warn('[photon] Invalid data-args JSON:', argsStr);
+          }
+        }
+
+        // ── Target: explicit attr or self ──
+        var targetSel = el.getAttribute('data-target');
+        function getTarget() {
+          if (targetSel) {
+            return document.querySelector(targetSel) || el;
+          }
+          return el;
+        }
+
+        // ── Swap mode ──
+        var swap = el.getAttribute('data-swap') || 'innerHTML';
+
+        // ── Render result into target ──
         function renderResult(result) {
+          var target = getTarget();
           if (field) {
-            // Extract nested field: "status.count" -> result.status.count
             var parts = field.split('.');
             var val = result;
             for (var j = 0; j < parts.length && val != null; j++) {
               val = val[parts[j]];
             }
-            el.textContent = val != null ? String(val) : '';
+            var text = val != null ? String(val) : '';
+            if (swap === 'outerHTML') {
+              target.outerHTML = text;
+            } else {
+              target.textContent = text;
+            }
           } else if (format) {
-            window.photon.render(el, result, format);
+            // Use photon renderer for structured formats (table, gauge, chart, etc.)
+            if (swap === 'outerHTML') {
+              // Render into a temp container, then replace
+              var tmp = document.createElement('div');
+              tmp.id = target.id;
+              tmp.className = target.className;
+              window.photon.render(tmp, result, format);
+              target.replaceWith(tmp);
+            } else if (swap === 'innerHTML') {
+              window.photon.render(target, result, format);
+            } else {
+              // beforeend, afterend, etc. — render to temp, then insert
+              var frag = document.createElement('div');
+              window.photon.render(frag, result, format);
+              target.insertAdjacentHTML(swap, frag.innerHTML);
+            }
           } else {
             // No format, no field: render as text or JSON
-            el.textContent = typeof result === 'object' ? JSON.stringify(result) : String(result);
+            var raw = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+            if (swap === 'outerHTML') {
+              target.outerHTML = raw;
+            } else if (swap === 'innerHTML') {
+              target.textContent = raw;
+            } else {
+              target.insertAdjacentText(swap, raw);
+            }
           }
         }
 
-        // Call method and render
+        // ── Call method and render ──
         function load() {
+          el.classList.add('photon-loading');
           try {
-            var p = proxy[method]();
+            var p = proxy[method](args);
             if (p && typeof p.then === 'function') {
-              p.then(renderResult).catch(function(e) {
-                el.textContent = 'Error: ' + e.message;
+              p.then(function(r) {
+                el.classList.remove('photon-loading');
+                renderResult(r);
+              }).catch(function(e) {
+                el.classList.remove('photon-loading');
+                var target = getTarget();
+                target.textContent = 'Error: ' + e.message;
               });
             } else {
+              el.classList.remove('photon-loading');
               renderResult(p);
             }
           } catch (e) {
-            el.textContent = 'Error: ' + e.message;
+            el.classList.remove('photon-loading');
+            var target = getTarget();
+            target.textContent = 'Error: ' + e.message;
           }
         }
 
-        // Initial load
-        load();
+        // ── Trigger: explicit attr > auto-infer from element type ──
+        var trigger = el.getAttribute('data-trigger');
+        if (!trigger) {
+          trigger = _clickTags[el.tagName] ? 'click' : 'load';
+        }
 
-        // data-live: subscribe to onResult events and re-render on match
+        if (trigger === 'load') {
+          // Content elements: call method immediately on page load
+          load();
+        } else {
+          // Interactive elements: bind event handler
+          el.addEventListener(trigger, function(e) {
+            e.preventDefault();
+            load();
+          });
+        }
+
+        // ── Live updates: explicit data-live > auto from @stateful ──
+        var isLive = el.hasAttribute('data-live') || _isStateful;
         if (isLive) {
           var onFn = proxy['onResult'];
           if (onFn) {
@@ -692,13 +792,19 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           }
         }
 
-        // data-refresh="5s" / "10s" / "30s": poll on interval
+        // ── Refresh: explicit data-refresh > auto from @scheduled ──
+        var refreshAttr = el.getAttribute('data-refresh');
+        if (!refreshAttr && meta.scheduled) {
+          // @scheduled cron exists — default to 60s polling as reasonable interval
+          // (cron precision varies; polling is a simple client-side approximation)
+          refreshAttr = '60s';
+        }
         if (refreshAttr) {
           var ms = parseFloat(refreshAttr) * 1000;
           if (/s$/i.test(refreshAttr)) ms = parseFloat(refreshAttr) * 1000;
           else if (/m$/i.test(refreshAttr)) ms = parseFloat(refreshAttr) * 60000;
           if (ms > 0 && isFinite(ms)) {
-            setInterval(load, Math.max(ms, 1000)); // min 1s
+            setInterval(load, Math.max(ms, 1000));
           }
         }
       })(els[i]);

@@ -117,9 +117,28 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
     const photonName = url.searchParams.get('photon') || '';
     const methodName = url.searchParams.get('method') || '';
 
-    // Look up injected photons for this photon
+    // Look up injected photons and method metadata for this photon
     const photon = state.photons.find((p) => p.name === photonName);
     const injectedPhotonsList = photon && photon.configured && photon.injectedPhotons;
+
+    // Build lightweight method metadata map for bridge auto-inference
+    let methodMeta: Record<string, import('../../bridge/types.js').BridgeMethodMeta> | undefined;
+    let stateful: boolean | undefined;
+    if (photon && photon.configured) {
+      stateful = photon.stateful;
+      methodMeta = {};
+      for (const m of photon.methods) {
+        const meta: import('../../bridge/types.js').BridgeMethodMeta = {};
+        if (m.outputFormat) meta.format = m.outputFormat;
+        if (m.scheduled) meta.scheduled = m.scheduled;
+        if (m.readOnlyHint) meta.readOnly = true;
+        // Only include methods that have relevant metadata
+        if (Object.keys(meta).length > 0) {
+          methodMeta[m.name] = meta;
+        }
+      }
+      if (Object.keys(methodMeta).length === 0) methodMeta = undefined;
+    }
 
     const { generateBridgeScript } = await import('../../bridge/index.js');
     const script = generateBridgeScript({
@@ -130,6 +149,8 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       hostName: 'beam',
       hostVersion: '1.5.0',
       injectedPhotons: injectedPhotonsList || [],
+      stateful,
+      methodMeta,
     });
 
     res.setHeader('Content-Type', 'text/html');

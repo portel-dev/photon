@@ -48,6 +48,7 @@ export {
   generateBridgeScript,
   generatePlatformBridgeScript, // backward compatible alias
   type PhotonBridgeContext,
+  type BridgeMethodMeta,
   type SizeConstraints,
   type PhotonAPI,
   type OpenAIAPI,

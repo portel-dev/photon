@@ -5,6 +5,19 @@
  */
 
 /**
+ * Lightweight method metadata for bridge-side auto-inference.
+ * Subset of MethodInfo — only what the declarative binding engine needs.
+ */
+export interface BridgeMethodMeta {
+  /** Output format from @format tag: table, gauge, chart:bar, etc. */
+  format?: string;
+  /** Cron schedule from @scheduled/@cron tag */
+  scheduled?: string;
+  /** True if method has no side effects (@readOnly) */
+  readOnly?: boolean;
+}
+
+/**
  * Photon context passed to the bridge
  */
 export interface PhotonBridgeContext {
@@ -16,6 +29,10 @@ export interface PhotonBridgeContext {
   hostVersion?: string;
   /** Names of injected @photon dependencies (for client-side event routing) */
   injectedPhotons?: string[];
+  /** True if photon class has @stateful tag (all methods auto-emit) */
+  stateful?: boolean;
+  /** Per-method metadata for declarative binding auto-inference */
+  methodMeta?: Record<string, BridgeMethodMeta>;
 }
 
 /**
