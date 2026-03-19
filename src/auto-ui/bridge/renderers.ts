@@ -1042,6 +1042,204 @@ export function generateRenderersScript(): string {
     container.innerHTML = h;
   };
 
+  // ─── Map (Leaflet) ───
+  var _leafletLoading = false, _leafletLoaded = false, _leafletQueue = [];
+  function _loadLeaflet(cb) {
+    if (_leafletLoaded) { cb(); return; }
+    _leafletQueue.push(cb);
+    if (_leafletLoading) return;
+    _leafletLoading = true;
+    // Load CSS
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.css';
+    document.head.appendChild(link);
+    // Load JS
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9/dist/leaflet.min.js';
+    s.onload = function() { _leafletLoaded = true; _leafletQueue.forEach(function(fn) { fn(); }); _leafletQueue = []; };
+    s.onerror = function() { _leafletQueue.forEach(function(fn) { fn(); }); _leafletQueue = []; };
+    document.head.appendChild(s);
+  }
+
+  renderers.map = function(container, data) {
+    var items = Array.isArray(data) ? data : [data];
+    var mapId = '_map_' + Math.random().toString(36).slice(2, 8);
+    container.innerHTML = '<div id="' + mapId + '" style="height:350px;border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + '"></div>';
+    _loadLeaflet(function() {
+      if (!window.L) { container.innerHTML = '<p style="color:' + colors.textMuted + '">Failed to load map library</p>'; return; }
+      var el = document.getElementById(mapId);
+      if (!el) return;
+      var map = L.map(el);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '\\u00A9 OpenStreetMap'
+      }).addTo(map);
+      var bounds = [];
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var lat = item.lat || item.latitude;
+        var lng = item.lng || item.lon || item.longitude;
+        if (lat == null || lng == null) continue;
+        var label = item.label || item.name || item.title || '';
+        var popup = item.popup || item.description || label;
+        var marker = L.marker([lat, lng]).addTo(map);
+        if (popup) marker.bindPopup(esc(popup));
+        bounds.push([lat, lng]);
+      }
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      } else if (bounds.length === 1) {
+        map.setView(bounds[0], 13);
+      } else {
+        map.setView([0, 0], 2);
+      }
+    });
+  };
+
+  // ─── Calendar ───
+  renderers.calendar = function(container, data) {
+    var events = Array.isArray(data) ? data : (data.events || [data]);
+    // Build month view for current month (or month of first event)
+    var firstDate = null;
+    for (var i = 0; i < events.length; i++) {
+      var d = events[i].start || events[i].date || events[i].time;
+      if (d) { firstDate = new Date(d); break; }
+    }
+    if (!firstDate) firstDate = new Date();
+    var year = firstDate.getFullYear();
+    var month = firstDate.getMonth();
+    var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Build event map: dateStr → events[]
+    var eventMap = {};
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var ds = (ev.start || ev.date || ev.time || '').toString().slice(0, 10);
+      if (!ds) continue;
+      if (!eventMap[ds]) eventMap[ds] = [];
+      eventMap[ds].push(ev);
+    }
+
+    // Calendar grid
+    var firstDay = new Date(year, month, 1).getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+    var today = new Date().toISOString().slice(0, 10);
+
+    var h = '<div style="background:' + colors.bgAlt + ';border-radius:10px;padding:16px;border:1px solid ' + colors.border + '">';
+    h += '<div style="text-align:center;font-size:16px;font-weight:700;color:' + colors.text + ';margin-bottom:12px">' + monthNames[month] + ' ' + year + '</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center">';
+    // Day headers
+    for (var d = 0; d < 7; d++) {
+      h += '<div style="font-size:10px;font-weight:600;color:' + colors.textMuted + ';padding:4px">' + dayNames[d] + '</div>';
+    }
+    // Empty cells before first day
+    for (var e = 0; e < firstDay; e++) {
+      h += '<div></div>';
+    }
+    // Day cells
+    for (var day = 1; day <= daysInMonth; day++) {
+      var dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      var hasEvents = eventMap[dateStr];
+      var isToday = dateStr === today;
+      var cellBg = isToday ? colors.accent + '30' : 'transparent';
+      var cellBorder = isToday ? '2px solid ' + colors.accent : '1px solid transparent';
+      h += '<div style="padding:4px;border-radius:6px;background:' + cellBg + ';border:' + cellBorder + ';min-height:32px;cursor:' + (hasEvents ? 'pointer' : 'default') + '" title="' + (hasEvents ? hasEvents.map(function(e) { return e.title || e.name || ''; }).join(', ') : '') + '">';
+      h += '<div style="font-size:12px;color:' + (isToday ? colors.accent : colors.text) + ';font-weight:' + (isToday ? '700' : '400') + '">' + day + '</div>';
+      if (hasEvents) {
+        for (var ei = 0; ei < Math.min(hasEvents.length, 2); ei++) {
+          var evColor = hasEvents[ei].color || colors.accent;
+          h += '<div style="font-size:8px;background:' + evColor + ';color:#fff;border-radius:3px;padding:1px 3px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(hasEvents[ei].title || hasEvents[ei].name || '') + '</div>';
+        }
+        if (hasEvents.length > 2) h += '<div style="font-size:8px;color:' + colors.textMuted + '">+' + (hasEvents.length - 2) + ' more</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+
+    // Upcoming events list
+    var upcoming = [];
+    for (var ds in eventMap) {
+      for (var ui = 0; ui < eventMap[ds].length; ui++) {
+        upcoming.push({ date: ds, event: eventMap[ds][ui] });
+      }
+    }
+    upcoming.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+    if (upcoming.length > 0) {
+      h += '<div style="margin-top:12px;border-top:1px solid ' + colors.border + ';padding-top:12px">';
+      h += '<div style="font-size:11px;font-weight:600;color:' + colors.textMuted + ';margin-bottom:8px">UPCOMING</div>';
+      for (var ui = 0; ui < Math.min(upcoming.length, 5); ui++) {
+        var u = upcoming[ui];
+        var title = u.event.title || u.event.name || '';
+        var time = u.event.start || u.event.time || u.date;
+        var evColor = u.event.color || colors.accent;
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">';
+        h += '<div style="width:4px;height:4px;border-radius:50%;background:' + evColor + ';flex-shrink:0"></div>';
+        h += '<span style="color:' + colors.textMuted + ';flex-shrink:0">' + esc(String(time).slice(0, 10)) + '</span>';
+        h += '<span style="color:' + colors.text + '">' + esc(title) + '</span>';
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Network/Graph (force-directed via vis-network) ───
+  var _visLoading = false, _visLoaded = false, _visQueue = [];
+  function _loadVisNetwork(cb) {
+    if (_visLoaded) { cb(); return; }
+    _visQueue.push(cb);
+    if (_visLoading) return;
+    _visLoading = true;
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js';
+    s.onload = function() { _visLoaded = true; _visQueue.forEach(function(fn) { fn(); }); _visQueue = []; };
+    s.onerror = function() { _visQueue.forEach(function(fn) { fn(); }); _visQueue = []; };
+    document.head.appendChild(s);
+  }
+
+  renderers.network = renderers.graph = function(container, data) {
+    var nodes = data.nodes || [];
+    var edges = data.edges || data.links || [];
+    var netId = '_net_' + Math.random().toString(36).slice(2, 8);
+    container.innerHTML = '<div id="' + netId + '" style="height:400px;border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + ';background:' + colors.bgAlt + '"></div>';
+    _loadVisNetwork(function() {
+      if (!window.vis) { container.innerHTML = '<p style="color:' + colors.textMuted + '">Failed to load graph library</p>'; return; }
+      var el = document.getElementById(netId);
+      if (!el) return;
+      // Map groups to colors
+      var groupColors = {};
+      var ci = 0;
+      var visNodes = nodes.map(function(n) {
+        var group = n.group || n.category || n.type || 'default';
+        if (!groupColors[group]) groupColors[group] = colors.palette[ci++ % colors.palette.length];
+        return {
+          id: n.id || n.name,
+          label: n.label || n.name || n.id || '',
+          color: { background: groupColors[group], border: groupColors[group], highlight: { background: groupColors[group], border: colors.accent } },
+          font: { color: colors.text, size: 12 },
+          shape: 'dot',
+          size: n.size || 16
+        };
+      });
+      var visEdges = edges.map(function(e) {
+        return {
+          from: e.from || e.source,
+          to: e.to || e.target,
+          label: e.label || '',
+          color: { color: colors.border, highlight: colors.accent },
+          font: { color: colors.textMuted, size: 10, align: 'middle' },
+          arrows: e.directed !== false ? 'to' : ''
+        };
+      });
+      new vis.Network(el, { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) }, {
+        physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -30 } },
+        interaction: { hover: true, tooltipDelay: 200 }
+      });
+    });
+  };
+
   // ── Public API ──
 
   window._photonRenderers = {
