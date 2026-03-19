@@ -358,6 +358,30 @@ export function generateRenderersScript(): string {
     container.innerHTML = '<pre style="font-size:12px;line-height:1.5;color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px;border-radius:6px;overflow:auto;max-height:400px;margin:0">' + esc(text) + '</pre>';
   };
 
+  // ─── Code (syntax-highlighted) ───
+  renderers.code = function(container, data) {
+    var text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    // Simple syntax highlighter using regex replacements
+    var root = getComputedStyle(document.documentElement);
+    var get = function(prop, fb) { return root.getPropertyValue(prop).trim() || fb; };
+    var sc = {
+      comment: get('--syntax-comment', '#6a737d'),
+      keyword: get('--syntax-keyword', '#ff7b72'),
+      string:  get('--syntax-string', '#a5d6ff'),
+      number:  get('--syntax-number', '#ff9e64'),
+      fn:      get('--syntax-function', '#d2a8ff'),
+      punct:   get('--syntax-punctuation', '#888'),
+      op:      get('--syntax-operator', '#ff7b72'),
+    };
+    var highlighted = esc(text)
+      .replace(/(\\/(\\/.*))/gm, '<span style="color:' + sc.comment + '">$1</span>')
+      .replace(/\\b(const|let|var|function|async|await|return|if|else|for|while|new|class|import|export|from|default|this|typeof|try|catch|throw)\\b/g, '<span style="color:' + sc.keyword + '">$1</span>')
+      .replace(/(&apos;[^&]*?&apos;|&quot;[^&]*?&quot;|&#39;[^&#]*?&#39;|'[^']*?'|"[^"]*?"|\`[^\`]*?\`)/g, '<span style="color:' + sc.string + '">$1</span>')
+      .replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span style="color:' + sc.number + '">$1</span>')
+      .replace(/([\\w]+)\\s*\\(/g, '<span style="color:' + sc.fn + '">$1</span>(');
+    container.innerHTML = '<pre style="font-size:12px;line-height:1.6;color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px 16px;border-radius:6px;overflow:auto;max-height:500px;margin:0;tab-size:2"><code>' + highlighted + '</code></pre>';
+  };
+
   // ─── KV (key-value card) ───
   renderers.card = renderers.kv = function(container, data, opts) {
     if (typeof data !== 'object' || Array.isArray(data)) { renderers.json(container, data); return; }
