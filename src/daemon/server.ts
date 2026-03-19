@@ -1448,7 +1448,7 @@ async function handleRequest(
   // Handle lock release
   if (request.type === 'unlock') {
     const lockName = request.lockName!;
-    const holder = request.sessionId || request.id;
+    const holder = request.lockHolder || request.sessionId || request.id;
     const released = releaseLock(lockName, holder);
     return {
       type: 'result',
@@ -1459,6 +1459,101 @@ async function handleRequest(
         lockName,
         ...(released ? {} : { reason: 'Cannot release lock held by another client' }),
       },
+    };
+  }
+
+  // Handle identity-aware lock assignment (photon code assigns to a specific caller)
+  if (request.type === 'assign_lock') {
+    const lockName = request.lockName!;
+    const holder = request.lockHolder || request.sessionId || request.id;
+    const timeout = request.lockTimeout || DEFAULT_LOCK_TIMEOUT;
+    const acquired = acquireLock(lockName, holder, timeout);
+    return {
+      type: 'result',
+      id: request.id,
+      success: acquired,
+      data: {
+        acquired,
+        lockName,
+        holder,
+        ...(acquired
+          ? {}
+          : {
+              reason: 'Lock held by another caller',
+              currentHolder: activeLocks.get(lockName)?.holder,
+            }),
+      },
+    };
+  }
+
+  // Handle lock transfer (move lock from current holder to new holder)
+  if (request.type === 'transfer_lock') {
+    const lockName = request.lockName!;
+    const currentHolder = request.lockHolder || request.sessionId || request.id;
+    const newHolder = request.lockTransferTo!;
+    const timeout = request.lockTimeout || DEFAULT_LOCK_TIMEOUT;
+    const existing = activeLocks.get(lockName);
+
+    if (!existing || existing.expiresAt <= Date.now()) {
+      // No lock to transfer — just assign to new holder
+      const acquired = acquireLock(lockName, newHolder, timeout);
+      return {
+        type: 'result',
+        id: request.id,
+        success: acquired,
+        data: { transferred: acquired, lockName, from: currentHolder, to: newHolder },
+      };
+    }
+
+    if (existing.holder !== currentHolder) {
+      return {
+        type: 'result',
+        id: request.id,
+        success: false,
+        data: {
+          transferred: false,
+          lockName,
+          reason: 'Not the current holder',
+          currentHolder: existing.holder,
+        },
+      };
+    }
+
+    // Release and re-acquire for new holder
+    activeLocks.delete(lockName);
+    acquireLock(lockName, newHolder, timeout);
+    logger.info('Lock transferred', { lockName, from: currentHolder, to: newHolder });
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { transferred: true, lockName, from: currentHolder, to: newHolder },
+    };
+  }
+
+  // Handle lock query (who holds this lock?)
+  if (request.type === 'query_lock') {
+    const lockName = request.lockName!;
+    const existing = activeLocks.get(lockName);
+    const now = Date.now();
+    if (existing && existing.expiresAt > now) {
+      return {
+        type: 'result',
+        id: request.id,
+        success: true,
+        data: {
+          lockName,
+          holder: existing.holder,
+          acquiredAt: existing.acquiredAt,
+          expiresAt: existing.expiresAt,
+        },
+      };
+    }
+    return {
+      type: 'result',
+      id: request.id,
+      success: true,
+      data: { lockName, holder: null },
     };
   }
 

@@ -1000,6 +1000,34 @@ export class PhotonLoader {
           };
         }
 
+        // Inject identity-aware lock handler for this.acquireLock/transferLock/releaseLock/getLock
+        if (!instance._lockHandler) {
+          const photonNameForLock = name;
+          instance._lockHandler = {
+            async assign(lockName: string, holder: string, lockTimeout?: number) {
+              const { assignLock } = await import('./daemon/client.js');
+              return assignLock(photonNameForLock, lockName, holder, lockTimeout);
+            },
+            async transfer(
+              lockName: string,
+              fromHolder: string,
+              toHolder: string,
+              lockTimeout?: number
+            ) {
+              const { transferLock } = await import('./daemon/client.js');
+              return transferLock(photonNameForLock, lockName, fromHolder, toHolder, lockTimeout);
+            },
+            async release(lockName: string, holder: string) {
+              const { releaseIdentityLock } = await import('./daemon/client.js');
+              return releaseIdentityLock(photonNameForLock, lockName, holder);
+            },
+            async query(lockName: string) {
+              const { queryLock } = await import('./daemon/client.js');
+              return queryLock(photonNameForLock, lockName);
+            },
+          };
+        }
+
         if (caps.has('instanceMeta')) {
           // Inject instance metadata (file-stat-based timestamps)
           const instanceName = options?.instanceName || 'default';
@@ -3050,6 +3078,32 @@ Run: photon mcp ${mcpName} --config
     handlerOverrides.set('locked', (config: { name: string }) => {
       return async (_ctx: MiddlewareContext, next: () => Promise<any>) => {
         const lockName = config.name || `${photonName}:${toolName}`;
+
+        // Identity-aware lock check: if caller is authenticated, verify they hold the lock
+        const store = executionContext.getStore();
+        const caller = store?.caller;
+        if (caller && !caller.anonymous) {
+          // Query who holds this lock
+          try {
+            const { queryLock: queryLockFn } = await import('./daemon/client.js');
+            const lockInfo = await queryLockFn(photonName, lockName);
+            if (lockInfo.holder && lockInfo.holder !== caller.id) {
+              throw new Error(`Not your turn. Lock "${lockName}" is held by ${lockInfo.holder}`);
+            }
+            if (!lockInfo.holder) {
+              // No one holds the lock — allow the call (lock not yet assigned)
+            }
+          } catch (e: any) {
+            // If daemon is not running, fall through to withLockHelper
+            if (!e.message?.includes('Not your turn')) {
+              return withLockHelper(lockName, next);
+            }
+            throw e;
+          }
+          return next();
+        }
+
+        // No auth — fall back to binary mutex
         return withLockHelper(lockName, next);
       };
     });

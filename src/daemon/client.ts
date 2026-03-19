@@ -719,6 +719,242 @@ export async function listLocks(
 }
 
 /**
+ * Assign a lock to a specific caller (identity-aware)
+ * Unlike acquireLock which uses the session ID, this sets an explicit holder.
+ */
+export async function assignLock(
+  photonName: string,
+  lockName: string,
+  holder: string,
+  timeout?: number,
+  workingDir?: string
+): Promise<boolean> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `assignlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const requestTimeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Assign lock request timeout'));
+    }, 10000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'assign_lock',
+        id: requestId,
+        photonName,
+        sessionId: SESSION_ID,
+        lockName,
+        lockHolder: holder,
+        lockTimeout: timeout,
+        workingDir,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId) {
+          clearTimeout(requestTimeout);
+          client.destroy();
+          if (response.type === 'result') {
+            resolve((response.data as { acquired: boolean }).acquired);
+          } else {
+            reject(new Error(response.error || 'Assign lock failed'));
+          }
+        }
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(requestTimeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+    });
+  });
+}
+
+/**
+ * Transfer a lock from one holder to another
+ */
+export async function transferLock(
+  photonName: string,
+  lockName: string,
+  fromHolder: string,
+  toHolder: string,
+  timeout?: number,
+  workingDir?: string
+): Promise<boolean> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `transferlock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const requestTimeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Transfer lock request timeout'));
+    }, 10000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'transfer_lock',
+        id: requestId,
+        photonName,
+        sessionId: SESSION_ID,
+        lockName,
+        lockHolder: fromHolder,
+        lockTransferTo: toHolder,
+        lockTimeout: timeout,
+        workingDir,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId) {
+          clearTimeout(requestTimeout);
+          client.destroy();
+          if (response.type === 'result') {
+            resolve((response.data as { transferred: boolean }).transferred);
+          } else {
+            reject(new Error(response.error || 'Transfer lock failed'));
+          }
+        }
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(requestTimeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+    });
+  });
+}
+
+/**
+ * Release a lock held by a specific caller (identity-aware)
+ */
+export async function releaseIdentityLock(
+  photonName: string,
+  lockName: string,
+  holder: string,
+  workingDir?: string
+): Promise<boolean> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `releaselock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const requestTimeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Release lock request timeout'));
+    }, 5000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'unlock',
+        id: requestId,
+        photonName,
+        sessionId: SESSION_ID,
+        lockName,
+        lockHolder: holder,
+        workingDir,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId) {
+          clearTimeout(requestTimeout);
+          client.destroy();
+          if (response.type === 'result') {
+            resolve((response.data as { released: boolean }).released);
+          } else {
+            reject(new Error(response.error || 'Release lock failed'));
+          }
+        }
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(requestTimeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+    });
+  });
+}
+
+/**
+ * Query who holds a specific lock
+ */
+export async function queryLock(
+  photonName: string,
+  lockName: string
+): Promise<{ holder: string | null; acquiredAt?: number; expiresAt?: number }> {
+  const socketPath = getGlobalSocketPath();
+  const requestId = `querylock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+
+    const requestTimeout = setTimeout(() => {
+      client.destroy();
+      reject(new Error('Query lock request timeout'));
+    }, 5000);
+
+    client.on('connect', () => {
+      const request: DaemonRequest = {
+        type: 'query_lock',
+        id: requestId,
+        photonName,
+        lockName,
+      };
+      client.write(JSON.stringify(request) + '\n');
+    });
+
+    client.on('data', (chunk) => {
+      try {
+        const response: DaemonResponse = JSON.parse(chunk.toString().trim());
+        if (response.id === requestId) {
+          clearTimeout(requestTimeout);
+          client.destroy();
+          if (response.type === 'result') {
+            resolve(
+              response.data as { holder: string | null; acquiredAt?: number; expiresAt?: number }
+            );
+          } else {
+            reject(new Error(response.error || 'Query lock failed'));
+          }
+        }
+      } catch (e) {
+        logger.warn('Failed to parse daemon response', { error: getErrorMessage(e) });
+      }
+    });
+
+    client.on('error', (error) => {
+      clearTimeout(requestTimeout);
+      client.destroy();
+      reject(new Error(`Connection error: ${getErrorMessage(error)}`));
+    });
+  });
+}
+
+/**
  * Schedule a recurring job
  */
 export async function scheduleJob(

@@ -21,6 +21,9 @@ export interface DaemonRequest {
     | 'publish'
     | 'lock'
     | 'unlock'
+    | 'assign_lock'
+    | 'transfer_lock'
+    | 'query_lock'
     | 'schedule'
     | 'unschedule'
     | 'list_jobs'
@@ -53,6 +56,10 @@ export interface DaemonRequest {
   lockName?: string;
   /** Lock timeout in ms (default: 30000) */
   lockTimeout?: number;
+  /** Explicit lock holder (caller ID for identity-aware locks) */
+  lockHolder?: string;
+  /** Target holder for lock transfer */
+  lockTransferTo?: string;
   /** Job ID for schedule operations */
   jobId?: string;
   /** Cron expression for scheduled jobs */
