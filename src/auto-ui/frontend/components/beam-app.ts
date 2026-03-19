@@ -5102,7 +5102,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 opts.onMethodChange(method);
               }
             }}
-            style="padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 13px; font-weight: 600; flex-shrink: 0;"
+            style="padding: 6px 28px 6px 10px; border-radius: 6px; border: 1px solid var(--border-glass); background: var(--bg-glass); color: var(--t-primary); font-size: 13px; font-weight: 600; flex-shrink: 0; appearance: none; -webkit-appearance: none; cursor: pointer; background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%226%22 viewBox=%220 0 10 6%22><path d=%22M0 0l5 6 5-6z%22 fill=%22%23999%22/></svg>'); background-repeat: no-repeat; background-position: right 8px center;"
           >
             ${opts.allMethods?.map(
               (m: any) =>
