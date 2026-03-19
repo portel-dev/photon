@@ -6971,6 +6971,42 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _broadcastThemeToIframes() {
     const themeTokens = getThemeTokens(this._theme);
 
+    // When OKLCH theme is active, map Beam-internal vars to common aliases
+    // so custom UIs using --bg, --card, --accent, --border see the OKLCH colors
+    if (this._oklchEnabled) {
+      const style = this.style;
+      const get = (prop: string) => style.getPropertyValue(prop).trim();
+      // Map Beam vars → common aliases that custom UIs use
+      if (get('--bg-app')) {
+        themeTokens['--bg'] = get('--bg-app');
+        themeTokens['--background'] = get('--bg-app');
+      }
+      if (get('--bg-panel')) {
+        themeTokens['--card'] = get('--bg-panel');
+        themeTokens['--bg-secondary'] = get('--bg-panel');
+        themeTokens['--bg-card'] = get('--bg-panel');
+      }
+      if (get('--bg-glass-strong')) {
+        themeTokens['--bg-tertiary'] = get('--bg-glass-strong');
+      }
+      if (get('--t-primary')) {
+        themeTokens['--text'] = get('--t-primary');
+        themeTokens['--foreground'] = get('--t-primary');
+      }
+      if (get('--t-muted')) {
+        themeTokens['--muted'] = get('--t-muted');
+        themeTokens['--text-muted'] = get('--t-muted');
+      }
+      if (get('--border-glass')) {
+        themeTokens['--border'] = get('--border-glass');
+        themeTokens['--border-color'] = get('--border-glass');
+      }
+      if (get('--accent-primary')) {
+        themeTokens['--accent'] = get('--accent-primary');
+        themeTokens['--primary'] = get('--accent-primary');
+      }
+    }
+
     // Find custom-ui-renderer components and notify their iframes
     const renderers = this.shadowRoot?.querySelectorAll('custom-ui-renderer');
     renderers?.forEach((renderer) => {
