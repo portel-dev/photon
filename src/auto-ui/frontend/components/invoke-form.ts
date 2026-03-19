@@ -670,6 +670,8 @@ export class InvokeForm extends LitElement {
 
   private _initialValues: Record<string, any> = {};
 
+  private _passwordVisible: Record<string, boolean> = {};
+
   @state()
   private _errors: Record<string, string> = {};
 
@@ -1372,6 +1374,163 @@ export class InvokeForm extends LitElement {
       }
     }
 
+    // ── Enhanced Input Formats ──
+    const fmt2 = (schema as any).format;
+    const lk2 = key.toLowerCase();
+
+    // Password / Secret
+    if (
+      fmt2 === 'password' ||
+      fmt2 === 'secret' ||
+      lk2.includes('password') ||
+      lk2.includes('secret') ||
+      lk2 === 'token' ||
+      lk2 === 'apikey'
+    ) {
+      const showId = `_pw_${key}`;
+      return html`
+        <div style="position:relative">
+          <input
+            id=${ifDefined(inputId)}
+            type="${this._passwordVisible?.[key] ? 'text' : 'password'}"
+            class="${errorClass}"
+            autocomplete="off"
+            .value=${this._values[key] || ''}
+            @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+          />
+          <button
+            type="button"
+            tabindex="-1"
+            style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--t-muted);cursor:pointer;font-size:14px;padding:4px"
+            @click=${() => {
+              if (!this._passwordVisible) this._passwordVisible = {};
+              this._passwordVisible[key] = !this._passwordVisible[key];
+              this.requestUpdate();
+            }}
+            title="${this._passwordVisible?.[key] ? 'Hide' : 'Show'}"
+          >
+            ${this._passwordVisible?.[key] ? '🙈' : '👁'}
+          </button>
+        </div>
+      `;
+    }
+
+    // Email
+    if (fmt2 === 'email' || lk2 === 'email' || lk2.endsWith('email')) {
+      return html`
+        <input
+          id=${ifDefined(inputId)}
+          type="email"
+          class="${errorClass}"
+          placeholder="name@example.com"
+          .value=${this._values[key] || ''}
+          @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+        />
+      `;
+    }
+
+    // URL
+    if (
+      fmt2 === 'url' ||
+      lk2 === 'url' ||
+      lk2.endsWith('url') ||
+      lk2 === 'website' ||
+      lk2 === 'homepage'
+    ) {
+      return html`
+        <div style="position:relative">
+          <input
+            id=${ifDefined(inputId)}
+            type="url"
+            class="${errorClass}"
+            placeholder="https://"
+            .value=${this._values[key] || ''}
+            @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+          />
+          ${this._values[key] && /^https?:\/\/.+/.test(String(this._values[key]))
+            ? html`
+                <a
+                  href=${this._values[key]}
+                  target="_blank"
+                  rel="noopener"
+                  tabindex="-1"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--accent-primary);font-size:14px;text-decoration:none"
+                  title="Open URL"
+                  >↗</a
+                >
+              `
+            : nothing}
+        </div>
+      `;
+    }
+
+    // Phone / Tel
+    if (
+      fmt2 === 'phone' ||
+      fmt2 === 'tel' ||
+      lk2 === 'phone' ||
+      lk2 === 'tel' ||
+      lk2 === 'mobile' ||
+      lk2.endsWith('phone')
+    ) {
+      return html`
+        <input
+          id=${ifDefined(inputId)}
+          type="tel"
+          class="${errorClass}"
+          placeholder="+1 (555) 000-0000"
+          .value=${this._values[key] || ''}
+          @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+        />
+      `;
+    }
+
+    // Color
+    if (
+      fmt2 === 'color' ||
+      lk2 === 'color' ||
+      lk2 === 'colour' ||
+      lk2.endsWith('color') ||
+      lk2.endsWith('colour')
+    ) {
+      const colorVal = String(this._values[key] || '#6366f1');
+      return html`
+        <div style="display:flex;gap:8px;align-items:center">
+          <input
+            type="color"
+            .value=${colorVal}
+            style="width:40px;height:34px;padding:2px;border-radius:var(--radius-sm);border:1px solid var(--border-glass);cursor:pointer;background:var(--bg-glass)"
+            @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+          />
+          <input
+            id=${ifDefined(inputId)}
+            type="text"
+            class="${errorClass}"
+            placeholder="#6366f1"
+            style="flex:1;font-family:var(--font-mono,monospace)"
+            .value=${colorVal}
+            @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+          />
+        </div>
+      `;
+    }
+
+    // Search
+    if (fmt2 === 'search' || lk2 === 'search' || lk2 === 'query' || lk2 === 'q') {
+      return html`
+        <div style="position:relative">
+          <input
+            id=${ifDefined(inputId)}
+            type="search"
+            class="${errorClass}"
+            placeholder="Search..."
+            .value=${this._values[key] || ''}
+            @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
+          />
+        </div>
+      `;
+    }
+
     // Default -> Text Input
     const defaultVal = (schema as any).default;
     const placeholder = defaultVal != null ? String(defaultVal) : '';
@@ -1520,6 +1679,7 @@ export class InvokeForm extends LitElement {
       <date-picker
         .value=${this._values[key] || ''}
         .hasError=${hasError}
+        .paramKey=${key}
         mode=${mode}
         @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
       ></date-picker>

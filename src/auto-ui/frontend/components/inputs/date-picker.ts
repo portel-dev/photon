@@ -317,12 +317,15 @@ export class DatePicker extends LitElement {
   @property() placeholder = '';
   @property() min = '';
   @property() max = '';
+  /** Parameter key name — used to infer smart initial view position */
+  @property() paramKey = '';
 
   @state() private _open = false;
   @state() private _viewMode: ViewMode = 'days';
   @state() private _viewYear = new Date().getFullYear();
   @state() private _viewMonth = new Date().getMonth();
   @state() private _yearRangeStart = Math.floor(new Date().getFullYear() / 12) * 12;
+  private _initialPositionSet = false;
   @state() private _textValue = '';
   @state() private _hours = '12';
   @state() private _minutes = '00';
@@ -348,6 +351,34 @@ export class DatePicker extends LitElement {
     if (changed.has('value')) {
       this._syncFromValue();
     }
+  }
+
+  /** Infer smart initial view position from parameter key name */
+  private _applySmartPosition() {
+    if (this._initialPositionSet || this.value) return;
+    this._initialPositionSet = true;
+    const key = this.paramKey.toLowerCase();
+    const now = new Date();
+
+    // Birth dates: start ~25 years ago, open in year view for fast navigation
+    if (/birth|dob|born|age/.test(key)) {
+      this._viewYear = now.getFullYear() - 25;
+      this._viewMonth = 0;
+      this._yearRangeStart = Math.floor(this._viewYear / 12) * 12;
+      this._viewMode = 'years';
+      return;
+    }
+
+    // Expiry/validity: start ~2 years in future
+    if (/expir|valid|renew/.test(key)) {
+      this._viewYear = now.getFullYear() + 2;
+      this._viewMonth = now.getMonth();
+      this._yearRangeStart = Math.floor(this._viewYear / 12) * 12;
+      return;
+    }
+
+    // Past events: start at current month (default behavior)
+    // Future events (deadline, target, due): also current month
   }
 
   private _syncFromValue() {
@@ -530,16 +561,25 @@ export class DatePicker extends LitElement {
           @blur=${this._handleTextBlur}
           @keydown=${this._handleTextKeydown}
           @focus=${() => {
+            this._applySmartPosition();
             this._open = true;
-            this._viewMode = 'days';
+            if (
+              !this._initialPositionSet ||
+              !/birth|dob|born|age/.test(this.paramKey.toLowerCase())
+            ) {
+              this._viewMode = 'days';
+            }
           }}
         />
         <button
           class="toggle-btn ${this._open ? 'active' : ''}"
           @click=${(e: Event) => {
             e.stopPropagation();
+            if (!this._open) this._applySmartPosition();
             this._open = !this._open;
-            this._viewMode = 'days';
+            if (!/birth|dob|born|age/.test(this.paramKey.toLowerCase())) {
+              this._viewMode = 'days';
+            }
           }}
           title="Open calendar"
           tabindex="-1"
