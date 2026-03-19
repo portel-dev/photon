@@ -961,6 +961,75 @@ Elements automatically get the `photon-loading` CSS class while a method call is
 
 ---
 
+## Auto-Form Input Widgets
+
+When a photon method has `@param` tags, Beam renders an auto-form so users can fill in values before invoking the tool. The `{@format}` inline tag controls which input widget appears for each field.
+
+### Enhanced Basic Inputs
+
+These are auto-detected from the parameter **name** or set explicitly with `{@format}`.
+
+| Format | Widget | Auto-detected names |
+|--------|--------|---------------------|
+| `password` / `secret` | Masked text + show/hide eye toggle | `password`, `secret`, `token`, `apikey` |
+| `email` | `type="email"` | `email` |
+| `url` | `type="url"` + live "open link" button | `url`, `website`, `homepage` |
+| `phone` / `tel` | `type="tel"` | `phone`, `tel`, `mobile` |
+| `color` | Color swatch + hex input side by side | `color`, `colour` |
+| `search` | `type="search"` | `search`, `query`, `q` |
+
+### Rich Input Components
+
+These require explicit `{@format}` in the `@param` docblock.
+
+| Format | Widget |
+|--------|--------|
+| `tags` | Chip/pill input — Enter or comma adds a chip, Backspace removes last, deduplicates. Also auto-detected for `string[]` params. |
+| `rating` | 1–5 star picker with hover preview. Pair with `{@multipleOf 0.5}` for half-stars. Auto-detected: `rating`, `stars`. |
+| `segmented` | Horizontal pill bar for enum params (2–4 choices). Pair with `{@choice a,b,c}`. |
+| `radio` | Vertical radio buttons for enum params. Pair with `{@choice a,b,c}`. |
+| `code` / `code:lang` | Code editor — line numbers, tab-indent (2 spaces), char/line count. Append language: `code:typescript`, `code:python`, `code:css`. |
+| `markdown` | Split-pane editor with toolbar (Bold, Italic, Code, Link, Heading, List, Quote), Write/Split/Preview modes, word count. |
+
+### Date & Time Pickers
+
+Custom calendar replaces the native browser date input. Supports typed input (`"2026-03-20"`, `"Mar 20 2026"`, `"03/20/2026"`), Today and Clear buttons, and a 3-layer drill-down: click month name → month grid, click year → year grid with decade paging.
+
+**Smart positioning:** params named `birthday` / `dob` open the year picker ~25 years back. Params named `expiry` / `expires` start 2 years forward.
+
+| Format | Widget |
+|--------|--------|
+| `date` | Calendar date picker |
+| `date-time` | Calendar + hour:minute inputs |
+| `time` | Time text input |
+| `date-range` | Two date pickers side by side |
+| `datetime-range` | Two date-time pickers side by side |
+
+### Example
+
+```typescript
+/**
+ * Register a new user
+ * @param name Full name
+ * @param email Email address {@format email}
+ * @param password Account password {@format password}
+ * @param birthday Date of birth {@format date}
+ * @param phone Phone number {@format phone}
+ * @param website Personal website {@format url}
+ * @param color Preferred color {@format color}
+ * @param tags Interest tags {@format tags}
+ * @param rating Experience level (1-5) {@format rating}
+ * @param role User role {@choice admin,user,guest} {@format segmented}
+ * @param bio About yourself {@format markdown}
+ * @param code Custom CSS {@format code:css}
+ */
+async register(params: { ... }): Promise<User> { ... }
+```
+
+For the complete list of formats and their validation behavior, see [DOCBLOCK-TAGS.md](../reference/DOCBLOCK-TAGS.md#input-widget-formats).
+
+---
+
 ## ChatGPT Apps SDK Compatibility
 
 BEAM implements the ChatGPT Apps SDK for compatibility:

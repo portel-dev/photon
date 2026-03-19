@@ -972,27 +972,102 @@ When no `@format` is specified, the auto-UI detects visualization types from dat
 
 ## Input Format Values
 
-The `{@format}` inline tag on parameters controls validation and Auto UI:
+The `{@format}` inline tag on parameters controls validation and the input widget rendered in the Beam auto-form.
 
-| Value | Description | Character Restrictions |
-|-------|-------------|------------------------|
-| `email` | Email input with validation | Letters, digits, @, ., -, _, + |
-| `url` / `uri` | URL input with validation | Letters, digits, :, /, -, _, ., ?, =, &, #, %, @, +, ~, ;, ,, ! |
+### Validation-Only Formats
+
+These add format validation but render as a standard text input:
+
+| Value | Description | Allowed Characters |
+|-------|-------------|-------------------|
 | `uuid` | UUID validation | Hex digits and hyphens (0-9a-f, -) |
-| `ipv4` | IPv4 address validation | Digits and dots |
-| `ipv6` | IPv6 address validation | Hex digits and colons |
-| `slug` | URL slug format | Lowercase letters, digits, hyphens |
+| `ipv4` | IPv4 address | Digits and dots |
+| `ipv6` | IPv6 address | Hex digits and colons |
+| `slug` | URL slug | Lowercase letters, digits, hyphens |
 | `hex` | Hexadecimal color/code | Hex digits and # prefix |
-| `phone` | Phone number validation | Digits, +, -, (, ), space |
-| `date` | Date picker | Date format based on locale |
-| `date-time` | Date and time picker | DateTime format based on locale |
-| `time` | Time picker | Time format based on locale |
-| `password` | Password input (masked) | Any characters (not validated) |
 | `textarea` / `multiline` | Multi-line text area | Any characters |
 
 **Custom Patterns:** Use `{@pattern regex}` for custom validation:
 ```typescript
 @param code Product code {@pattern ^[A-Z]{3}\d{3}$}
+```
+
+### Input Widget Formats
+
+These control how the field renders in the Beam auto-form UI. Many are **auto-detected** from the parameter name — explicit `{@format}` overrides auto-detection.
+
+#### Enhanced Basic Inputs
+
+Auto-detected from the param name OR set explicitly with `{@format}`.
+
+| Value | Widget | Auto-detected param names |
+|-------|--------|--------------------------|
+| `password` / `secret` | Masked text input with show/hide eye toggle | `password`, `secret`, `token`, `apikey` |
+| `email` | `type="email"` with placeholder | `email` |
+| `url` | `type="url"` with live "open link" button | `url`, `website`, `homepage` |
+| `phone` / `tel` | `type="tel"` with phone placeholder | `phone`, `tel`, `mobile` |
+| `color` / `colour` | Color swatch picker + hex text input side by side | `color`, `colour` |
+| `search` | `type="search"` | `search`, `query`, `q` |
+
+#### Rich Input Components
+
+These require explicit `{@format}` (no auto-detection from param name, except where noted).
+
+| Value | Widget | Notes |
+|-------|--------|-------|
+| `tags` | Chip/pill input — Enter or comma to add, Backspace to remove last, deduplicates | Also auto-detected for `string[]` array params |
+| `rating` | 1–5 star rating with hover preview, numeric fallback | Use `{@multipleOf 0.5}` for half-stars. Auto-detected: `rating`, `stars` |
+| `segmented` | Horizontal pill bar for enum params (2–4 values) | Use with `{@choice}` or `enum` type |
+| `radio` | Vertical radio buttons for enum params | Use with `{@choice}` or `enum` type |
+| `code` | Code editor with line numbers, tab-to-indent (2 spaces), char/line count | Use `code:typescript`, `code:python`, `code:css`, etc. for language label |
+| `markdown` | Split-pane markdown editor with toolbar (Bold, Italic, Code, Link, Heading, List, Quote) and Write/Split/Preview modes | Built-in renderer, word count |
+
+#### Date & Time Pickers
+
+Custom calendar component replacing the native browser date input. Supports typed input (`"2026-03-20"`, `"Mar 20 2026"`, `"03/20/2026"`), Today and Clear buttons, and a 3-layer drill-down: click month name → month grid, click year → year grid with decade paging.
+
+**Smart positioning:** params named `birthday`/`dob` open the year view ~25 years in the past; params named `expiry`/`expires` start 2 years in the future.
+
+| Value | Widget |
+|-------|--------|
+| `date` | Calendar date picker |
+| `date-time` | Calendar + hour:minute inputs |
+| `time` | Time text input |
+| `date-range` | Two date pickers side by side |
+| `datetime-range` | Two date-time pickers side by side |
+
+#### Example — all input widgets in one method
+
+```typescript
+/**
+ * Register a new user
+ * @param name Full name
+ * @param email Email address {@format email}
+ * @param password Account password {@format password}
+ * @param birthday Date of birth {@format date}
+ * @param phone Phone number {@format phone}
+ * @param website Personal website {@format url}
+ * @param color Preferred color {@format color}
+ * @param tags Interest tags {@format tags}
+ * @param rating Experience level (1-5) {@format rating}
+ * @param role User role {@choice admin,user,guest} {@format segmented}
+ * @param bio About yourself {@format markdown}
+ * @param code Custom CSS {@format code:css}
+ */
+async register(params: {
+  name: string;
+  email: string;
+  password: string;
+  birthday: string;
+  phone: string;
+  website: string;
+  color: string;
+  tags: string[];
+  rating: number;
+  role: string;
+  bio: string;
+  code: string;
+}): Promise<User> { ... }
 ```
 
 ## Field Types
