@@ -1288,6 +1288,32 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         return;
       }
 
+      // OAuth callback handler — receives token from OAuth popup and passes to opener
+      if (url.pathname === '/auth/callback') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!DOCTYPE html>
+<html><head><title>Auth Complete</title></head>
+<body>
+<script>
+  // Extract token from URL hash (implicit flow) or exchange code
+  const params = new URLSearchParams(window.location.hash.slice(1) || window.location.search);
+  const token = params.get('access_token') || params.get('token');
+  const error = params.get('error');
+
+  if (token && window.opener) {
+    // Send token back to the Beam window that opened this popup
+    window.opener.postMessage({ type: 'photon-auth-token', token }, window.location.origin);
+    window.close();
+  } else if (error) {
+    document.body.textContent = 'Auth error: ' + error;
+  } else {
+    document.body.textContent = 'Waiting for auth...';
+  }
+</script>
+</body></html>`);
+        return;
+      }
+
       // Serve static frontend bundle
       if (url.pathname === '/beam.bundle.js') {
         try {

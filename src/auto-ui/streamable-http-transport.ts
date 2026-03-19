@@ -2526,9 +2526,12 @@ export async function handleStreamableHTTP(
   }
 
   // MCP OAuth auth gate (RFC 9728)
-  // If any loaded photon has @auth required, demand a Bearer token
+  // Accept token from Authorization header (POST) or query param (SSE GET — EventSource can't set headers)
+  const queryToken = url.searchParams.get('token');
+  const authHeader = queryToken ? `Bearer ${queryToken}` : req.headers.authorization;
+
   const requiresAuth = options.photons.some((p) => p.configured && (p as any).auth === 'required');
-  if (requiresAuth && !req.headers.authorization?.startsWith('Bearer ')) {
+  if (requiresAuth && !authHeader?.startsWith('Bearer ')) {
     const serverUrl = `http://${req.headers.host}`;
     res.writeHead(401, {
       'WWW-Authenticate': `Bearer realm="mcp", resource_metadata="${serverUrl}/.well-known/oauth-protected-resource"`,
@@ -2633,8 +2636,8 @@ export async function handleStreamableHTTP(
       return true;
     }
 
-    // Extract caller identity from Authorization header (MCP OAuth)
-    const caller = decodeJWTCaller(req.headers.authorization);
+    // Extract caller identity from Authorization header or query token (MCP OAuth)
+    const caller = decodeJWTCaller(authHeader);
 
     const context: HandlerContext = {
       photons: options.photons,

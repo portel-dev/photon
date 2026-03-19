@@ -102,7 +102,10 @@ type MCPEventType =
   | 'ui-tool-input' // MCP Apps: tool input notification
   | 'ui-tool-input-partial' // MCP Apps: partial tool input (streaming)
   | 'state-changed' // Stateful photon state changed (via daemon)
-  | 'reconnect'; // SSE reconnected after disconnect
+  | 'reconnect' // SSE reconnected after disconnect
+  | 'auth-required' // MCP OAuth: server requires authentication
+  | 'auth-changed' // MCP OAuth: auth state changed (login/logout)
+  | 'auth-error'; // MCP OAuth: auth flow error
 
 // Pending operation for offline queue
 interface PendingOperation {
@@ -130,6 +133,11 @@ class MCPClientService {
   private lastMessageTime = 0;
   private heartbeatInterval: number | null = null;
   private visibilityHandler: (() => void) | null = null;
+
+  // ═══ MCP OAuth Auth State ═══
+  private _authToken: string | null = null;
+  private _authRequired = false;
+  private _resourceMetadataUrl: string | null = null;
   private readonly HEARTBEAT_TIMEOUT_MS = 45000; // 45s - server sends keepalive every 15s (3x interval)
   private pendingOperations: PendingOperation[] = [];
   private isProcessingQueue = false;
@@ -137,6 +145,90 @@ class MCPClientService {
 
   constructor() {
     this.baseUrl = `${window.location.protocol}//${window.location.host}/mcp`;
+    // Restore saved auth token
+    this._authToken = localStorage.getItem('photon_auth_token');
+
+    // Listen for token from OAuth popup callback
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'photon-auth-token' && event.data.token) {
+        this.setAuthToken(event.data.token);
+        // Reconnect with the new token
+        this.connect().catch(() => {});
+      }
+    });
+  }
+
+  // ═══ MCP OAuth Auth ═══
+
+  /** Whether the server requires auth (detected from 401 on connect) */
+  get authRequired(): boolean {
+    return this._authRequired;
+  }
+
+  /** Current auth token (null if not authenticated) */
+  get authToken(): string | null {
+    return this._authToken;
+  }
+
+  /** Set auth token (after OAuth flow completes) */
+  setAuthToken(token: string): void {
+    this._authToken = token;
+    localStorage.setItem('photon_auth_token', token);
+    this.emit('auth-changed', { authenticated: true });
+  }
+
+  /** Clear auth token (logout) */
+  clearAuthToken(): void {
+    this._authToken = null;
+    localStorage.removeItem('photon_auth_token');
+    this.emit('auth-changed', { authenticated: false });
+  }
+
+  /** Whether the client is authenticated */
+  get isAuthenticated(): boolean {
+    return !!this._authToken;
+  }
+
+  /**
+   * Discover the OAuth authorization server from PRM metadata
+   * Returns the authorization_servers URL(s) from /.well-known/oauth-protected-resource
+   */
+  async discoverAuthServer(): Promise<{
+    authorizationServers?: string[];
+    scopes?: string[];
+  } | null> {
+    if (!this._resourceMetadataUrl) return null;
+    try {
+      const res = await fetch(this._resourceMetadataUrl);
+      if (!res.ok) return null;
+      const prm = await res.json();
+      return {
+        authorizationServers: prm.authorization_servers,
+        scopes: prm.scopes_supported,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Start OAuth flow by opening the authorization URL in a popup
+   * The popup will redirect back to /auth/callback which sets the token
+   */
+  async startOAuthFlow(): Promise<void> {
+    const discovery = await this.discoverAuthServer();
+    if (!discovery?.authorizationServers?.length) {
+      this.emit('auth-error', { message: 'No authorization server configured' });
+      return;
+    }
+
+    // Emit event so the UI can show the OAuth popup/redirect
+    this.emit('auth-required', {
+      authorizationServers: discovery.authorizationServers,
+      scopes: discovery.scopes,
+      resourceMetadataUrl: this._resourceMetadataUrl,
+    });
   }
 
   /**
@@ -153,7 +245,15 @@ class MCPClientService {
       this.connected = true;
       this.reconnectAttempts = 0;
       this.emit('connect');
-    } catch (error) {
+    } catch (error: unknown) {
+      // Check if this is a 401 auth required response
+      if (error instanceof Error && error.message.includes('401')) {
+        this._authRequired = true;
+        // Try to start OAuth flow
+        await this.startOAuthFlow();
+        this.emit('auth-required', { message: 'Authentication required' });
+        return;
+      }
       this.emit('error', error);
       throw error;
     }
@@ -214,11 +314,17 @@ class MCPClientService {
    * Open SSE stream for server-to-client notifications
    */
   private openSSEStream(): void {
-    // Build URL with session ID if available
-    let sseUrl = this.baseUrl;
+    // Build URL with session ID and auth token if available
+    // EventSource doesn't support custom headers, so we pass token via query param
+    const params = new URLSearchParams();
     if (this.sessionId) {
-      sseUrl += `?sessionId=${encodeURIComponent(this.sessionId)}`;
+      params.set('sessionId', this.sessionId);
     }
+    if (this._authToken) {
+      params.set('token', this._authToken);
+    }
+    const query = params.toString();
+    const sseUrl = query ? `${this.baseUrl}?${query}` : this.baseUrl;
 
     this.eventSource = new EventSource(sseUrl);
 
@@ -917,6 +1023,11 @@ class MCPClientService {
       headers['Mcp-Session-Id'] = this.sessionId;
     }
 
+    // Include auth token if available (MCP OAuth)
+    if (this._authToken) {
+      headers['Authorization'] = `Bearer ${this._authToken}`;
+    }
+
     const response = await fetch(this.baseUrl, {
       method: 'POST',
       headers,
@@ -928,6 +1039,17 @@ class MCPClientService {
     const newSessionId = response.headers.get('Mcp-Session-Id');
     if (newSessionId) {
       this.sessionId = newSessionId;
+    }
+
+    // Handle 401 — extract resource metadata URL from WWW-Authenticate header
+    if (response.status === 401) {
+      const wwwAuth = response.headers.get('WWW-Authenticate') || '';
+      const metaMatch = wwwAuth.match(/resource_metadata="([^"]+)"/);
+      if (metaMatch) {
+        this._resourceMetadataUrl = metaMatch[1];
+      }
+      this._authRequired = true;
+      throw new Error(`HTTP error: 401 Unauthorized`);
     }
 
     if (!response.ok) {
@@ -969,6 +1091,10 @@ class MCPClientService {
 
     if (this.sessionId) {
       headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    if (this._authToken) {
+      headers['Authorization'] = `Bearer ${this._authToken}`;
     }
 
     await fetch(this.baseUrl, {
