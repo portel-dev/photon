@@ -124,7 +124,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@param` | Describes a tool parameter. | `@param name User's full name` |
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
-| `@format` | Hints the output format for CLI/Web interfaces. | `@format table` |
+| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `metric`, `gauge`, `timeline`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
 | `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
 | `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
