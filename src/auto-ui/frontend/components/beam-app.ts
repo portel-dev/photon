@@ -1624,7 +1624,10 @@ export class BeamApp extends LitElement {
           padding-top: calc(var(--space-md) + 60px); /* Space for mobile menu button */
         }
 
-        .beam-back-btn,
+        .beam-back-btn {
+          display: none; /* Handled by mobile menu button */
+        }
+
         .beam-fullscreen-btn {
           width: 44px;
           height: 44px;
@@ -3399,13 +3402,43 @@ export class BeamApp extends LitElement {
 
       <div class="background-glow" aria-hidden="true"></div>
 
-      <!-- Mobile Menu Button -->
+      <!-- Mobile Menu Button: shows back arrow when in method detail, hamburger otherwise -->
       <button
         class="mobile-menu-btn ${this._sidebarVisible ? 'open' : ''}"
-        @click=${() => this._toggleSidebar()}
-        aria-label="${this._sidebarVisible ? 'Close menu' : 'Open menu'}"
+        @click=${() => {
+          if (
+            !this._sidebarVisible &&
+            this._selectedMethod &&
+            this._selectedPhoton &&
+            !this._selectedPhoton.isApp
+          ) {
+            this._handleBackFromMethod();
+          } else {
+            this._toggleSidebar();
+          }
+        }}
+        aria-label="${this._sidebarVisible
+          ? 'Close menu'
+          : this._selectedMethod && this._selectedPhoton && !this._selectedPhoton.isApp
+            ? 'Back'
+            : 'Open menu'}"
       >
-        ${this._sidebarVisible ? xMark : menu}
+        ${this._sidebarVisible
+          ? xMark
+          : this._selectedMethod && this._selectedPhoton && !this._selectedPhoton.isApp
+            ? html`<svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>`
+            : menu}
       </button>
 
       <!-- Sidebar Overlay (mobile) -->
