@@ -4567,12 +4567,14 @@ export class ResultViewer extends LitElement {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    return { slides, theme: config.theme || 'default', config };
+    // Default theme: match Beam's active theme (dark→default, light→uncover)
+    const defaultTheme = 'auto';
+    return { slides, theme: config.theme || defaultTheme, config };
   }
 
   private _renderSlides(data: any): TemplateResult {
     const raw = String(data);
-    const { slides, theme } = this._parseSlides(raw);
+    const { slides, theme: rawTheme, config } = this._parseSlides(raw);
 
     if (slides.length === 0) {
       return this._renderMarkdown(raw);
@@ -4590,7 +4592,19 @@ export class ResultViewer extends LitElement {
     const marked = (window as any).marked;
     const slideHtml = marked ? marked.parse(current) : current;
 
-    const themeClass = `slides-theme-${theme}`;
+    // Resolve theme: 'auto' inherits from Beam's active theme
+    const resolvedTheme =
+      rawTheme === 'auto' ? (this.theme === 'light' ? 'uncover' : 'default') : rawTheme;
+    const themeClass = `slides-theme-${resolvedTheme}`;
+
+    // Frontmatter-driven inline overrides
+    const bgOverride = config.backgroundColor ? `background:${config.backgroundColor};` : '';
+    const colorOverride = config.color ? `color:${config.color};` : '';
+    const viewportStyle = bgOverride + colorOverride;
+
+    const showPaginate = config.paginate === 'true';
+    const headerText = config.header || '';
+    const footerText = config.footer || '';
 
     return html`
       <div
@@ -4598,10 +4612,18 @@ export class ResultViewer extends LitElement {
         id="slides-root"
         @keydown=${(e: KeyboardEvent) => this._slidesKeydown(e, total)}
         tabindex="0"
+        style="${viewportStyle}"
       >
+        ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
           <div class="slides-content">${unsafeHTML(slideHtml)}</div>
         </div>
+        ${footerText || showPaginate
+          ? html`<div class="slides-footer">
+              <span>${footerText}</span>
+              ${showPaginate ? html`<span>${idx + 1} / ${total}</span>` : ''}
+            </div>`
+          : ''}
         <div class="slides-controls">
           <button
             class="slides-btn"
@@ -4768,6 +4790,20 @@ export class ResultViewer extends LitElement {
         }
         .slides-fullscreen-btn {
           margin-left: 8px;
+        }
+        .slides-header {
+          padding: 8px 24px;
+          font-size: 12px;
+          opacity: 0.6;
+          border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+        }
+        .slides-footer {
+          display: flex;
+          justify-content: space-between;
+          padding: 6px 24px;
+          font-size: 11px;
+          opacity: 0.5;
+          border-top: 1px solid rgba(128, 128, 128, 0.15);
         }
 
         /* ═══ THEMES ═══ */
