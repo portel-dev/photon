@@ -223,6 +223,17 @@ export const handleBrowseRoutes: RouteHandler = async (req, res, url, state) => 
     if (asset && asset.resolvedPath) {
       uiPath = asset.resolvedPath;
       isPhotonTemplate = uiPath.endsWith('.photon.html');
+      // If asset points to .html, check if a .photon.html sibling exists (takes priority)
+      if (!isPhotonTemplate && uiPath.endsWith('.html')) {
+        const photonSibling = uiPath.replace(/\.html$/, '.photon.html');
+        try {
+          await fs.access(photonSibling);
+          uiPath = photonSibling;
+          isPhotonTemplate = true;
+        } catch {
+          // No .photon.html sibling — use the .html as-is
+        }
+      }
     } else {
       // Try .photon.html first (declarative), fall back to .html (full control)
       const photonHtmlPath = path.join(photonDir, photonName, 'ui', `${uiId}.photon.html`);

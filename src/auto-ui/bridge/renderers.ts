@@ -379,8 +379,8 @@ export function generateRenderersScript(): string {
       var ci = line.indexOf('//');
       var tail = '';
       if (ci >= 0) { tail = '<span style="color:' + sc.comment + '">' + line.slice(ci) + '</span>'; line = line.slice(0, ci); }
-      // Strings: 'x', "x", \`x\`
-      line = line.replace(/(&quot;[^&]*?&quot;|&#x27;[^&]*?&#x27;|'[^']*?')/g, '<span style="color:' + sc.string + '">$1</span>');
+      // Strings: 'x', "x" — esc() converts " to &quot; but leaves ' as-is
+      line = line.replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span style="color:' + sc.string + '">$1</span>');
       // Keywords
       line = line.replace(/\\b(const|let|var|function|async|await|return|if|else|for|while|new|class|import|export|from|default|this|typeof|try|catch|throw|of|in)\\b/g, '<span style="color:' + sc.keyword + '">$1</span>');
       // Numbers
