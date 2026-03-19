@@ -625,7 +625,11 @@ The `@format` tag on methods supports multiple format types:
 | `chart:radar` | Radar/spider chart |
 | `metric` | KPI display (big number + label + delta) |
 | `gauge` | Circular gauge/progress indicator |
+| `progress` | Animated progress bar with percentage |
+| `badge` | Colored status badge (auto-detects variant from text) |
 | `timeline` | Vertical timeline of events |
+| `qr` | QR code from URL/text |
+| `slides` | Marp-style slide presentation |
 | `dashboard` | Composite grid of auto-detected panels |
 | `cart` | Shopping cart with item rows + totals |
 
@@ -645,11 +649,29 @@ Container formats wrap inner content renderers. Data must be an **object** — k
 
 | Value | Description |
 |-------|-------------|
-| `code` | Generic code block |
+| `code` | Syntax-highlighted code block (auto-detects keywords, strings, numbers, comments) |
 | `code:javascript` | JavaScript syntax highlighting |
 | `code:typescript` | TypeScript syntax highlighting |
 | `code:python` | Python syntax highlighting |
 | `code:lang` | Any language (replace `lang`) |
+
+Colors use `--syntax-*` CSS variables from the theme, adapting to light/dark and OKLCH presets.
+
+```typescript
+/**
+ * Example usage snippet
+ * @format code
+ */
+example() {
+  return `const data = await monitor.cpu();
+console.log(data.value);
+
+// Subscribe to events
+monitor.on('alert', (data) => {
+  notify(data.message);
+});`;
+}
+```
 
 ### Advanced List/Grid Formatting
 

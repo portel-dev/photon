@@ -659,6 +659,7 @@ photon.render(container: HTMLElement, data: any, format: string, opts?: object):
 | `list` | `Array<{ name, subtitle?, status? }>` | iOS-style list rows with optional badges |
 | `kv` / `card` | `object` | Key-value pairs in alternating rows |
 | `markdown` | `string` | Basic markdown rendering (headings, bold, code, lists) |
+| `code` | `string` | Syntax-highlighted code (keywords, strings, numbers, comments) |
 | `json` | `any` | Pretty-printed JSON in a `<pre>` block |
 
 ### Data Shape Examples
