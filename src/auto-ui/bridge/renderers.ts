@@ -270,7 +270,7 @@ export function generateRenderersScript(): string {
   };
 
   // ─── Chart (lazy-loads Chart.js) ───
-  renderers['chart'] = renderers['chart:bar'] = renderers['chart:line'] = renderers['chart:pie'] = renderers['chart:area'] = renderers['chart:donut'] = function(container, data, opts, formatKey) {
+  renderers['chart'] = renderers['chart:bar'] = renderers['chart:hbar'] = renderers['chart:line'] = renderers['chart:pie'] = renderers['chart:area'] = renderers['chart:donut'] = function(container, data, opts, formatKey) {
     opts = opts || {};
     var items = Array.isArray(data) ? data : (data.data || data.items || data.rows || [data]);
     if (!items.length || typeof items[0] !== 'object') { container.innerHTML = '<p style="color:' + colors.textMuted + '">No chart data</p>'; return; }
@@ -289,6 +289,8 @@ export function generateRenderersScript(): string {
       var parts = formatKey.split(':');
       if (parts[1]) chartType = parts[1];
     }
+    var isHorizontal = chartType === 'hbar';
+    if (isHorizontal) chartType = 'bar'; // hbar = bar with indexAxis: 'y'
     if (chartType === 'donut') chartType = 'doughnut';
     if (chartType === 'area') chartType = 'line'; // area = line with fill
 
@@ -326,6 +328,7 @@ export function generateRenderersScript(): string {
         options: {
           responsive: true,
           maintainAspectRatio: true,
+          indexAxis: isHorizontal ? 'y' : 'x',
           plugins: { legend: { labels: { color: colors.textMuted } } },
           scales: (chartType === 'pie' || chartType === 'doughnut') ? {} : {
             x: { ticks: { color: colors.textMuted }, grid: { color: colors.border + '40' } },
@@ -480,6 +483,217 @@ export function generateRenderersScript(): string {
     s.onerror = function() { _chartQueue.forEach(function(fn) { fn(); }); _chartQueue = []; };
     document.head.appendChild(s);
   }
+
+  // ─── Steps/Stepper ───
+  renderers.steps = renderers.stepper = function(container, data) {
+    var items = Array.isArray(data) ? data : (data.steps || [data]);
+    var h = '<div style="display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:12px 0">';
+    for (var i = 0; i < items.length; i++) {
+      var s = items[i];
+      var label = s.label || s.title || s.name || ('Step ' + (i + 1));
+      var status = (s.status || 'pending').toLowerCase();
+      var detail = s.detail || s.description || '';
+      var isComplete = status === 'complete' || status === 'completed' || status === 'done';
+      var isCurrent = status === 'current' || status === 'active' || status === 'in-progress';
+      var circleColor = isComplete ? '#34d399' : isCurrent ? colors.accent : colors.border;
+      var circleContent = isComplete ? '\\u2713' : String(i + 1);
+      var textColor = isComplete || isCurrent ? colors.text : colors.textMuted;
+      // Circle
+      h += '<div style="display:flex;flex-direction:column;align-items:center;min-width:80px;flex:1">';
+      h += '<div style="display:flex;align-items:center;width:100%">';
+      if (i > 0) h += '<div style="flex:1;height:2px;background:' + (isComplete ? '#34d399' : colors.border) + '"></div>';
+      else h += '<div style="flex:1"></div>';
+      h += '<div style="width:28px;height:28px;border-radius:50%;background:' + circleColor + ';color:' + (isComplete || isCurrent ? '#fff' : colors.textMuted) + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">' + circleContent + '</div>';
+      if (i < items.length - 1) h += '<div style="flex:1;height:2px;background:' + colors.border + '"></div>';
+      else h += '<div style="flex:1"></div>';
+      h += '</div>';
+      h += '<div style="text-align:center;margin-top:6px;font-size:11px;font-weight:500;color:' + textColor + '">' + esc(label) + '</div>';
+      if (detail) h += '<div style="text-align:center;font-size:10px;color:' + colors.textMuted + '">' + esc(detail) + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Stat Group (row of KPI metrics) ───
+  renderers['stat-group'] = renderers.statgroup = function(container, data) {
+    var items = Array.isArray(data) ? data : [data];
+    var h = '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+    for (var i = 0; i < items.length; i++) {
+      var m = items[i];
+      var value = m.value != null ? m.value : '';
+      var label = m.label || m.name || m.title || '';
+      var prefix = m.prefix || '';
+      var suffix = m.suffix || m.unit || '';
+      var delta = m.delta;
+      var trend = m.trend || (typeof delta === 'number' ? (delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat') : null);
+      var display = typeof value === 'number' ? formatValue(value) : esc(String(value));
+      var trendHtml = '';
+      if (trend) {
+        var arrow = trend === 'up' ? '\\u2191' : trend === 'down' ? '\\u2193' : '\\u2192';
+        var tc = trend === 'up' ? '#34d399' : trend === 'down' ? '#f87171' : colors.textMuted;
+        trendHtml = '<span style="font-size:12px;color:' + tc + '">' + arrow + (delta != null ? ' ' + (delta > 0 ? '+' : '') + formatValue(delta) : '') + '</span>';
+      }
+      h += '<div style="flex:1;min-width:120px;padding:16px;background:' + colors.bgAlt + ';border-radius:8px;border:1px solid ' + colors.border + '">';
+      h += '<div style="font-size:24px;font-weight:700;color:' + colors.text + '">' + esc(prefix) + display + esc(suffix) + ' ' + trendHtml + '</div>';
+      if (label) h += '<div style="font-size:12px;color:' + colors.textMuted + ';margin-top:2px">' + esc(label) + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Log (severity-colored log viewer) ───
+  renderers.log = function(container, data) {
+    var items = Array.isArray(data) ? data : [data];
+    var levelColors = { error: '#f87171', warn: '#fbbf24', warning: '#fbbf24', info: colors.accent, debug: colors.textMuted, trace: colors.textMuted };
+    var h = '<div style="font-family:monospace;font-size:12px;line-height:1.6;background:' + colors.bgAlt + ';border-radius:6px;padding:8px 12px;max-height:400px;overflow:auto">';
+    for (var i = 0; i < items.length; i++) {
+      var entry = items[i];
+      var level = (entry.level || entry.severity || 'info').toLowerCase();
+      var msg = entry.message || entry.msg || entry.text || (typeof entry === 'string' ? entry : JSON.stringify(entry));
+      var ts = entry.timestamp || entry.time || entry.ts || '';
+      var src = entry.source || entry.logger || '';
+      var lc = levelColors[level] || colors.textMuted;
+      h += '<div style="display:flex;gap:8px;padding:2px 0;border-bottom:1px solid ' + colors.border + '">';
+      if (ts) h += '<span style="color:' + colors.textMuted + ';flex-shrink:0">' + esc(typeof ts === 'string' ? ts.replace('T', ' ').slice(0, 19) : String(ts)) + '</span>';
+      h += '<span style="color:' + lc + ';font-weight:600;min-width:40px;text-transform:uppercase;flex-shrink:0">' + esc(level.slice(0, 4)) + '</span>';
+      if (src) h += '<span style="color:' + colors.textMuted + ';flex-shrink:0">[' + esc(src) + ']</span>';
+      h += '<span style="color:' + colors.text + '">' + esc(msg) + '</span>';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Image ───
+  renderers.image = function(container, data) {
+    var items = Array.isArray(data) ? data : [typeof data === 'string' ? { src: data } : data];
+    if (items.length === 1) {
+      var img = items[0];
+      var src = img.src || img.url || img.image || (typeof data === 'string' ? data : '');
+      var alt = img.alt || img.caption || img.title || '';
+      var caption = img.caption || img.title || '';
+      var h = '<div style="text-align:center">';
+      h += '<img src="' + esc(src) + '" alt="' + esc(alt) + '" style="max-width:100%;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.2)" />';
+      if (caption) h += '<div style="font-size:12px;color:' + colors.textMuted + ';margin-top:8px">' + esc(caption) + '</div>';
+      h += '</div>';
+      container.innerHTML = h;
+    } else {
+      // Gallery grid
+      var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">';
+      for (var i = 0; i < items.length; i++) {
+        var img = items[i];
+        var src = img.src || img.url || img.image || '';
+        var caption = img.caption || img.title || '';
+        h += '<div style="text-align:center">';
+        h += '<img src="' + esc(src) + '" alt="' + esc(caption) + '" style="width:100%;border-radius:6px;aspect-ratio:1;object-fit:cover" />';
+        if (caption) h += '<div style="font-size:11px;color:' + colors.textMuted + ';margin-top:4px">' + esc(caption) + '</div>';
+        h += '</div>';
+      }
+      h += '</div>';
+      container.innerHTML = h;
+    }
+  };
+
+  // ─── Hero ───
+  renderers.hero = function(container, data) {
+    var d = typeof data === 'string' ? { title: data } : data;
+    var title = d.title || d.heading || '';
+    var subtitle = d.subtitle || d.description || d.text || '';
+    var image = d.image || d.bg || d.background || '';
+    var cta = d.cta || d.action || d.button || '';
+    var ctaUrl = d.url || d.link || d.href || '#';
+    var bgStyle = image ? 'background:linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.7)),url(' + esc(image) + ') center/cover' : 'background:linear-gradient(135deg,' + colors.accent + '22,' + colors.bgAlt + ')';
+    var h = '<div style="' + bgStyle + ';border-radius:12px;padding:48px 32px;text-align:center">';
+    h += '<h2 style="font-size:28px;font-weight:700;color:' + colors.text + ';margin:0 0 8px">' + esc(title) + '</h2>';
+    if (subtitle) h += '<p style="font-size:15px;color:' + colors.textMuted + ';margin:0 0 20px;max-width:600px;margin-left:auto;margin-right:auto">' + esc(subtitle) + '</p>';
+    if (cta) h += '<a href="' + esc(ctaUrl) + '" style="display:inline-block;padding:10px 24px;background:' + colors.accent + ';color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">' + esc(cta) + '</a>';
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Banner ───
+  renderers.banner = function(container, data) {
+    var d = typeof data === 'string' ? { message: data } : data;
+    var message = d.message || d.text || d.title || '';
+    var type = (d.type || d.variant || d.severity || 'info').toLowerCase();
+    var icon = d.icon || '';
+    var bannerColors = { success: '#34d399', error: '#f87171', warning: '#fbbf24', info: colors.accent };
+    var bc = bannerColors[type] || colors.accent;
+    var h = '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:' + bc + '18;border:1px solid ' + bc + '44;border-radius:8px;border-left:4px solid ' + bc + '">';
+    if (icon) h += '<span style="font-size:18px;flex-shrink:0">' + esc(icon) + '</span>';
+    h += '<span style="font-size:13px;color:' + colors.text + '">' + esc(message) + '</span>';
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Quote ───
+  renderers.quote = function(container, data) {
+    var d = typeof data === 'string' ? { text: data } : data;
+    var text = d.text || d.quote || d.content || d.message || '';
+    var author = d.author || d.name || d.by || d.attribution || '';
+    var source = d.source || d.from || d.publication || '';
+    var avatar = d.avatar || d.image || '';
+    var h = '<div style="border-left:3px solid ' + colors.accent + ';padding:16px 20px;background:' + colors.bgAlt + ';border-radius:0 8px 8px 0">';
+    h += '<div style="font-size:15px;color:' + colors.text + ';font-style:italic;line-height:1.6">\\u201C' + esc(text) + '\\u201D</div>';
+    if (author || source) {
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-top:12px">';
+      if (avatar) h += '<img src="' + esc(avatar) + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover" />';
+      h += '<div>';
+      if (author) h += '<div style="font-size:13px;font-weight:600;color:' + colors.text + '">' + esc(author) + '</div>';
+      if (source) h += '<div style="font-size:11px;color:' + colors.textMuted + '">' + esc(source) + '</div>';
+      h += '</div></div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Profile ───
+  renderers.profile = function(container, data) {
+    var d = typeof data === 'object' && data !== null ? data : { name: String(data) };
+    var name = d.name || d.displayName || d.username || '';
+    var avatar = d.avatar || d.image || d.photo || '';
+    var role = d.role || d.title || d.position || '';
+    var bio = d.bio || d.description || d.about || '';
+    var stats = d.stats || {};
+    var h = '<div style="display:flex;flex-direction:column;align-items:center;padding:24px;background:' + colors.bgAlt + ';border-radius:12px;border:1px solid ' + colors.border + '">';
+    if (avatar) h += '<img src="' + esc(avatar) + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;margin-bottom:12px;border:2px solid ' + colors.border + '" />';
+    else h += '<div style="width:72px;height:72px;border-radius:50%;background:' + colors.accent + ';display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;margin-bottom:12px">' + esc(name.charAt(0).toUpperCase()) + '</div>';
+    h += '<div style="font-size:18px;font-weight:700;color:' + colors.text + '">' + esc(name) + '</div>';
+    if (role) h += '<div style="font-size:13px;color:' + colors.accent + ';margin-top:2px">' + esc(role) + '</div>';
+    if (bio) h += '<div style="font-size:13px;color:' + colors.textMuted + ';margin-top:8px;text-align:center;max-width:300px">' + esc(bio) + '</div>';
+    var statKeys = Object.keys(stats);
+    if (statKeys.length > 0) {
+      h += '<div style="display:flex;gap:20px;margin-top:16px;padding-top:16px;border-top:1px solid ' + colors.border + '">';
+      for (var i = 0; i < statKeys.length; i++) {
+        h += '<div style="text-align:center"><div style="font-size:18px;font-weight:700;color:' + colors.text + '">' + formatValue(stats[statKeys[i]]) + '</div>';
+        h += '<div style="font-size:11px;color:' + colors.textMuted + '">' + esc(formatLabel(statKeys[i])) + '</div></div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Feature Grid ───
+  renderers['feature-grid'] = renderers.features = function(container, data) {
+    var items = Array.isArray(data) ? data : [data];
+    var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">';
+    for (var i = 0; i < items.length; i++) {
+      var f = items[i];
+      var icon = f.icon || f.emoji || '';
+      var title = f.title || f.name || f.label || '';
+      var desc = f.description || f.text || f.detail || '';
+      h += '<div style="padding:20px;background:' + colors.bgAlt + ';border-radius:10px;border:1px solid ' + colors.border + '">';
+      if (icon) h += '<div style="font-size:24px;margin-bottom:8px">' + esc(icon) + '</div>';
+      h += '<div style="font-size:14px;font-weight:600;color:' + colors.text + '">' + esc(title) + '</div>';
+      if (desc) h += '<div style="font-size:12px;color:' + colors.textMuted + ';margin-top:4px;line-height:1.5">' + esc(desc) + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
 
   // ── Public API ──
 
