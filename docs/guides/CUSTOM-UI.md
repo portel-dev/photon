@@ -755,7 +755,9 @@ See `examples/render-showcase.photon.ts` for a complete working example with all
 
 ## Declarative Templates (.photon.html)
 
-For simple UIs that just display method results, you can skip JavaScript entirely. Use the `.photon.html` file extension to opt into **declarative mode** — HTML data attributes automatically call methods and render results.
+For UIs that display method results, you can skip JavaScript entirely. Use the `.photon.html` file extension to opt into **declarative mode** — inspired by [Datastar](https://data-star.dev/)'s SSE-first hypermedia approach, but with metadata-driven auto-inference.
+
+Where Datastar uses explicit `@get('/url')` actions, photon auto-resolves method metadata from your docblock tags — format, reactivity, and refresh are inferred automatically.
 
 ### Two Modes
 
@@ -770,33 +772,102 @@ When both exist, `.photon.html` takes priority.
 
 ```html
 <!-- ~/.photon/my-app/ui/dashboard.photon.html -->
-<h1>My Dashboard</h1>
-<p>Current CPU usage:</p>
-<div data-method="cpu" data-format="gauge"></div>
+<h1>System Monitor</h1>
+<div data-method="cpu"></div>
+<div data-method="memory"></div>
+<div data-method="requests"></div>
 ```
 
-That's it — no `<html>`, no `<head>`, no `<script>`. The runtime wraps the fragment with base styles, injects the bridge, and binds elements automatically.
+That's it — no `<html>`, no `<head>`, no `<script>`. The runtime wraps the fragment with base styles, injects the bridge, and binds elements automatically. Each `data-method` element auto-resolves:
 
-### Data Attributes
+- **Format** from the method's `@format` tag (table, gauge, chart:bar, etc.)
+- **Live updates** from `@stateful` on the class
+- **Refresh interval** from `@scheduled` / `@cron` on the method
+- **Trigger** from element type (buttons → click, divs → load)
 
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `data-method` | Call this photon method on load | `data-method="cpu"` |
-| `data-format` | Render result using a format renderer | `data-format="gauge"` |
-| `data-field` | Extract a nested field from the result | `data-field="status.count"` |
-| `data-live` | Re-render when the method emits new results | `data-live` |
-| `data-refresh` | Poll the method on an interval | `data-refresh="5s"` |
+### How It Works
+
+Given a photon like this:
+
+```typescript
+/**
+ * @stateful
+ */
+export default class Monitor {
+  /** @format gauge */
+  async cpu() { return { value: 73, max: 100, label: 'CPU', unit: '%' }; }
+
+  /** @format table */
+  async requests() { return [{ path: '/api', count: 1420 }]; }
+
+  /** @scheduled "*/5 * * * *" */
+  async health() { return { status: 'healthy', uptime: '14d' }; }
+
+  async restart() { return { message: 'Restarted successfully' }; }
+}
+```
+
+The declarative template only needs `data-method`:
+
+```html
+<div data-method="cpu"></div>          <!-- gauge (from @format), live (from @stateful) -->
+<div data-method="requests"></div>     <!-- table (from @format), live (from @stateful) -->
+<div data-method="health"></div>       <!-- polls every 60s (from @scheduled) -->
+<button data-method="restart" data-target="#status">Restart</button>  <!-- click trigger (button) -->
+<span id="status"></span>
+```
+
+### The `data-method` Attribute
+
+`data-method` is the only required attribute. It specifies which photon method to call. Everything else is auto-inferred from metadata or element type:
+
+| What | Auto-inferred from | Manual override |
+|------|-------------------|-----------------|
+| **Format** | `@format` tag on the method | `data-format="gauge"` |
+| **Live updates** | `@stateful` tag on the class | `data-live` |
+| **Refresh** | `@scheduled` / `@cron` tag | `data-refresh="5s"` |
+| **Trigger** | Element type: `<button>` → click, `<div>` → load | `data-trigger="click"` |
+
+### Optional Override Attributes
+
+Use these only when you need to deviate from the method's metadata:
+
+| Attribute | Purpose | Default |
+|-----------|---------|---------|
+| `data-method` | Which method to call | *(required)* |
+| `data-format` | Override format renderer | From `@format` tag |
+| `data-target` | CSS selector — where to render the result | Self |
+| `data-swap` | How to replace content | `innerHTML` |
+| `data-trigger` | When to fire the method call | Auto: button→click, div→load |
+| `data-args` | JSON parameters to pass | `{}` |
+| `data-field` | Extract a nested field from the result | — |
+| `data-live` | Force live mode | Auto from `@stateful` |
+| `data-refresh` | Force polling interval | Auto from `@scheduled` |
+
+#### Swap Modes
+
+The `data-swap` attribute controls how results replace content (same as [htmx swap](https://htmx.org/docs/#swapping)):
+
+| Value | Behavior |
+|-------|----------|
+| `innerHTML` | Replace inner content of target *(default)* |
+| `outerHTML` | Replace the entire target element |
+| `beforebegin` | Insert before the target element |
+| `afterbegin` | Insert at the start of the target |
+| `beforeend` | Append to the end of the target |
+| `afterend` | Insert after the target element |
 
 ### Examples
 
-**Display a value as text:**
+**Minimal — just the method name:**
 ```html
-<span data-method="version"></span>
+<div data-method="cpu"></div>
 ```
 
-**Render a QR code from a URL method:**
+**Button triggers a method, result renders elsewhere:**
 ```html
-<div data-method="url" data-format="qr"></div>
+<button data-method="restart" data-target="#output">Restart Server</button>
+<div id="output"></div>
 ```
 
 **Extract a specific field:**
@@ -804,20 +875,65 @@ That's it — no `<html>`, no `<head>`, no `<script>`. The runtime wraps the fra
 <span data-method="stats" data-field="users.active"></span>
 ```
 
-**Live-updating with event subscription:**
+**Override format for a different visualization:**
 ```html
-<div data-method="status" data-format="metric" data-live></div>
+<div data-method="requests" data-format="chart:bar"></div>
 ```
 
-**Poll every 30 seconds:**
+**Append results to a log:**
 ```html
-<div data-method="health" data-format="table" data-refresh="30s"></div>
+<button data-method="generate" data-target="#log" data-swap="beforeend">Generate</button>
+<div id="log"></div>
+```
+
+**Pass arguments:**
+```html
+<button data-method="deploy" data-args='{"env":"production"}' data-target="#status">
+  Deploy to Production
+</button>
+<span id="status"></span>
+```
+
+### Full Dashboard Example
+
+```html
+<!-- monitor/ui/dashboard.photon.html -->
+<style>
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .full { grid-column: 1 / -1; }
+</style>
+
+<h1>System Dashboard</h1>
+
+<div class="grid">
+  <div data-method="cpu"></div>
+  <div data-method="memory"></div>
+  <div class="full" data-method="requests"></div>
+</div>
+
+<h2>Actions</h2>
+<button data-method="restart" data-target="#action-result">Restart</button>
+<button data-method="clearCache" data-target="#action-result">Clear Cache</button>
+<div id="action-result"></div>
+```
+
+No JavaScript. The gauge renders because `cpu()` has `@format gauge`. The table renders because `requests()` has `@format table`. Live updates flow because the class is `@stateful`. Buttons trigger on click because they're `<button>` elements.
+
+### Loading State
+
+Elements automatically get the `photon-loading` CSS class while a method call is in flight. Style it for visual feedback:
+
+```css
+.photon-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
 ```
 
 ### When to Use Each Mode
 
-- **`.photon.html`** — Status displays, dashboards, simple data views. No JavaScript needed.
-- **`.html`** — Interactive UIs, custom event handling, complex layouts, React apps.
+- **`.photon.html`** — Dashboards, status displays, simple data views, action buttons. No JavaScript needed.
+- **`.html`** — Interactive UIs, custom event handling, complex layouts, React/Vue apps.
 
 ---
 
