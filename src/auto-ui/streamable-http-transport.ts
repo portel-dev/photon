@@ -2525,27 +2525,13 @@ export async function handleStreamableHTTP(
     return true;
   }
 
-  // MCP OAuth auth gate (RFC 9728)
+  // MCP OAuth: extract token if present (used for per-photon auth checks at tool call time)
   // Accept token from Authorization header (POST) or query param (SSE GET — EventSource can't set headers)
   const queryToken = url.searchParams.get('token');
   const authHeader = queryToken ? `Bearer ${queryToken}` : req.headers.authorization;
-
-  const requiresAuth = options.photons.some((p) => p.configured && (p as any).auth === 'required');
-  if (requiresAuth && !authHeader?.startsWith('Bearer ')) {
-    const serverUrl = `http://${req.headers.host}`;
-    res.writeHead(401, {
-      'WWW-Authenticate': `Bearer realm="mcp", resource_metadata="${serverUrl}/.well-known/oauth-protected-resource"`,
-      'Content-Type': 'application/json',
-    });
-    res.end(
-      JSON.stringify({
-        error: 'unauthorized',
-        error_description:
-          'MCP OAuth token required. See WWW-Authenticate header for auth metadata.',
-      })
-    );
-    return true;
-  }
+  // Note: No global auth gate here. Individual photons that require @auth are enforced
+  // at tool call time (see per-photon auth check in tools/call handler). This allows
+  // non-auth photons to work normally even when auth-required photons are loaded.
 
   // Get or create session
   // Check header first, then query parameter (for SSE which can't set headers)
