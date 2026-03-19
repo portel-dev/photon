@@ -191,6 +191,22 @@ export class ElicitationModal extends LitElement {
         flex-shrink: 0;
       }
 
+      /* Native select dropdown */
+      select {
+        appearance: none;
+        -webkit-appearance: none;
+        padding: 10px 32px 10px 12px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-glass);
+        background: var(--bg-glass);
+        color: var(--t-primary);
+        font-size: var(--text-lg);
+        cursor: pointer;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+      }
+
       /* OAuth */
       .oauth-content {
         text-align: center;

@@ -286,6 +286,15 @@ export function generatePlaygroundHTML(options: PlaygroundOptions): string {
       font-size: 14px;
       font-family: inherit;
     }
+    .form-group select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 32px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      cursor: pointer;
+    }
     .form-group textarea {
       min-height: 80px;
       resize: vertical;
