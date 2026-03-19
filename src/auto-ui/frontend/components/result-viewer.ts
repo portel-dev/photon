@@ -31,7 +31,8 @@ type LayoutType =
   | 'accordion'
   | 'stack'
   | 'columns'
-  | 'qr';
+  | 'qr'
+  | 'slides';
 
 interface LayoutHints {
   title?: string;
@@ -3177,12 +3178,14 @@ export class ResultViewer extends LitElement {
           'stack',
           'columns',
           'qr',
+          'slides',
         ].includes(format)
       ) {
         return format as LayoutType;
       }
       // Content formats
       if (format === 'md') return 'markdown';
+      if (format === 'presentation') return 'slides';
     }
 
     // 2. _photonType objects (collection: and UI types) are unwrapped in updated()
@@ -3202,6 +3205,10 @@ export class ResultViewer extends LitElement {
 
     // String detection
     if (typeof data === 'string') {
+      // Check for slide deck (marp-style: multiple --- separators or marp: true frontmatter)
+      if (this._isSlidesString(data)) {
+        return 'slides';
+      }
       // Check for mermaid diagram syntax
       if (this._isMermaidString(data)) {
         return 'mermaid';
@@ -3407,6 +3414,8 @@ export class ResultViewer extends LitElement {
         return typeof data === 'string';
       case 'markdown':
         return typeof data === 'string';
+      case 'slides':
+        return typeof data === 'string';
       default:
         return true; // other formats degrade gracefully
     }
@@ -3473,6 +3482,8 @@ export class ResultViewer extends LitElement {
         return this._renderQR(filteredData);
       case 'mermaid':
         return this._renderMermaid(filteredData);
+      case 'slides':
+        return this._renderSlides(filteredData);
       case 'json':
       default:
         return this._renderJson(filteredData);
@@ -4525,6 +4536,357 @@ export class ResultViewer extends LitElement {
     ></div>`;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SLIDES RENDERER (Marp-style markdown presentations)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private _slidesCurrentIndex = 0;
+  private _slidesFullscreen = false;
+
+  private _parseSlides(raw: string): {
+    slides: string[];
+    theme: string;
+    config: Record<string, string>;
+  } {
+    const config: Record<string, string> = {};
+    let content = raw;
+
+    // Extract YAML frontmatter
+    const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    if (fmMatch) {
+      content = content.slice(fmMatch[0].length);
+      for (const line of fmMatch[1].split('\n')) {
+        const kv = line.match(/^(\w+):\s*(.+)/);
+        if (kv) config[kv[1]] = kv[2].trim();
+      }
+    }
+
+    // Split by --- slide separator (must be on its own line)
+    const slides = content
+      .split(/\n---\s*\n/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    return { slides, theme: config.theme || 'default', config };
+  }
+
+  private _renderSlides(data: any): TemplateResult {
+    const raw = String(data);
+    const { slides, theme } = this._parseSlides(raw);
+
+    if (slides.length === 0) {
+      return this._renderMarkdown(raw);
+    }
+
+    // Clamp index
+    if (this._slidesCurrentIndex >= slides.length) this._slidesCurrentIndex = slides.length - 1;
+    if (this._slidesCurrentIndex < 0) this._slidesCurrentIndex = 0;
+
+    const current = slides[this._slidesCurrentIndex];
+    const total = slides.length;
+    const idx = this._slidesCurrentIndex;
+
+    // Parse slide markdown
+    const marked = (window as any).marked;
+    const slideHtml = marked ? marked.parse(current) : current;
+
+    const themeClass = `slides-theme-${theme}`;
+
+    return html`
+      <div
+        class="slides-container ${themeClass}"
+        id="slides-root"
+        @keydown=${(e: KeyboardEvent) => this._slidesKeydown(e, total)}
+        tabindex="0"
+      >
+        <div class="slides-viewport">
+          <div class="slides-content">${unsafeHTML(slideHtml)}</div>
+        </div>
+        <div class="slides-controls">
+          <button
+            class="slides-btn"
+            ?disabled=${idx === 0}
+            @click=${() => {
+              this._slidesCurrentIndex = idx - 1;
+              this.requestUpdate();
+            }}
+          >
+            ◀
+          </button>
+          <span class="slides-counter">${idx + 1} / ${total}</span>
+          <button
+            class="slides-btn"
+            ?disabled=${idx === total - 1}
+            @click=${() => {
+              this._slidesCurrentIndex = idx + 1;
+              this.requestUpdate();
+            }}
+          >
+            ▶
+          </button>
+          <button
+            class="slides-btn slides-fullscreen-btn"
+            title="Fullscreen (F)"
+            @click=${() => this._slidesToggleFullscreen()}
+          >
+            ⛶
+          </button>
+        </div>
+      </div>
+      <style>
+        .slides-container {
+          position: relative;
+          border-radius: var(--radius-md, 8px);
+          overflow: hidden;
+          outline: none;
+          background: #1a1a2e;
+          color: #e5e5e5;
+          font-family:
+            system-ui,
+            -apple-system,
+            sans-serif;
+        }
+        .slides-container:fullscreen {
+          display: flex;
+          flex-direction: column;
+        }
+        .slides-viewport {
+          aspect-ratio: 16 / 9;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 48px 64px;
+          overflow: auto;
+        }
+        .slides-container:fullscreen .slides-viewport {
+          flex: 1;
+          aspect-ratio: auto;
+          padding: 64px 120px;
+        }
+        .slides-content {
+          width: 100%;
+          max-width: 960px;
+          line-height: 1.6;
+        }
+        .slides-content h1 {
+          font-size: 2.4em;
+          margin: 0 0 0.4em;
+          font-weight: 700;
+        }
+        .slides-content h2 {
+          font-size: 1.8em;
+          margin: 0 0 0.4em;
+          font-weight: 600;
+        }
+        .slides-content h3 {
+          font-size: 1.3em;
+          margin: 0 0 0.3em;
+        }
+        .slides-content p {
+          margin: 0.5em 0;
+          font-size: 1.15em;
+        }
+        .slides-content ul,
+        .slides-content ol {
+          margin: 0.5em 0;
+          padding-left: 1.5em;
+          font-size: 1.1em;
+        }
+        .slides-content li {
+          margin: 0.3em 0;
+        }
+        .slides-content code {
+          background: rgba(255, 255, 255, 0.1);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 0.9em;
+        }
+        .slides-content pre {
+          background: rgba(0, 0, 0, 0.3);
+          padding: 16px;
+          border-radius: 8px;
+          overflow-x: auto;
+        }
+        .slides-content pre code {
+          background: none;
+          padding: 0;
+        }
+        .slides-content img {
+          max-width: 100%;
+          border-radius: 8px;
+        }
+        .slides-content blockquote {
+          border-left: 4px solid rgba(255, 255, 255, 0.3);
+          padding-left: 16px;
+          margin: 0.5em 0;
+          opacity: 0.85;
+        }
+        .slides-content table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 0.5em 0;
+        }
+        .slides-content th,
+        .slides-content td {
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          padding: 8px 12px;
+          text-align: left;
+        }
+        .slides-content th {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .slides-controls {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          padding: 10px;
+          background: rgba(0, 0, 0, 0.3);
+        }
+        .slides-btn {
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: #e5e5e5;
+          padding: 6px 14px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: background 0.15s;
+        }
+        .slides-btn:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.2);
+        }
+        .slides-btn:disabled {
+          opacity: 0.3;
+          cursor: default;
+        }
+        .slides-counter {
+          font-size: 13px;
+          opacity: 0.7;
+          min-width: 50px;
+          text-align: center;
+        }
+        .slides-fullscreen-btn {
+          margin-left: 8px;
+        }
+
+        /* ═══ THEMES ═══ */
+        .slides-theme-default {
+          background: #1a1a2e;
+          color: #e5e5e5;
+        }
+        .slides-theme-default .slides-content h1,
+        .slides-theme-default .slides-content h2 {
+          color: #7dd3fc;
+        }
+
+        .slides-theme-gaia {
+          background: #004643;
+          color: #e8e4e6;
+        }
+        .slides-theme-gaia .slides-content h1,
+        .slides-theme-gaia .slides-content h2 {
+          color: #f9bc60;
+        }
+        .slides-theme-gaia .slides-controls {
+          background: rgba(0, 0, 0, 0.2);
+        }
+
+        .slides-theme-uncover {
+          background: #fafafa;
+          color: #333;
+        }
+        .slides-theme-uncover .slides-content h1,
+        .slides-theme-uncover .slides-content h2 {
+          color: #1a1a2e;
+        }
+        .slides-theme-uncover .slides-controls {
+          background: rgba(0, 0, 0, 0.05);
+        }
+        .slides-theme-uncover .slides-btn {
+          color: #333;
+          border-color: rgba(0, 0, 0, 0.15);
+          background: rgba(0, 0, 0, 0.05);
+        }
+        .slides-theme-uncover .slides-btn:hover:not(:disabled) {
+          background: rgba(0, 0, 0, 0.1);
+        }
+
+        .slides-theme-rose {
+          background: #1c1017;
+          color: #f0e6eb;
+        }
+        .slides-theme-rose .slides-content h1,
+        .slides-theme-rose .slides-content h2 {
+          color: #f472b6;
+        }
+
+        .slides-theme-dracula {
+          background: #282a36;
+          color: #f8f8f2;
+        }
+        .slides-theme-dracula .slides-content h1,
+        .slides-theme-dracula .slides-content h2 {
+          color: #bd93f9;
+        }
+        .slides-theme-dracula .slides-controls {
+          background: #191a21;
+        }
+      </style>
+    `;
+  }
+
+  private _slidesKeydown(e: KeyboardEvent, total: number): void {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+      e.preventDefault();
+      if (this._slidesCurrentIndex < total - 1) {
+        this._slidesCurrentIndex++;
+        this.requestUpdate();
+      }
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      if (this._slidesCurrentIndex > 0) {
+        this._slidesCurrentIndex--;
+        this.requestUpdate();
+      }
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      this._slidesCurrentIndex = 0;
+      this.requestUpdate();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      this._slidesCurrentIndex = total - 1;
+      this.requestUpdate();
+    } else if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      this._slidesToggleFullscreen();
+    } else if (e.key === 'Escape') {
+      // Escape exits fullscreen (browser handles this, but ensure state sync)
+      this._slidesFullscreen = false;
+    }
+  }
+
+  private _slidesToggleFullscreen(): void {
+    const el = this.shadowRoot?.getElementById('slides-root');
+    if (!el) return;
+
+    if (!document.fullscreenElement) {
+      el.requestFullscreen()
+        .then(() => {
+          this._slidesFullscreen = true;
+          el.focus();
+        })
+        .catch(() => {});
+    } else {
+      document
+        .exitFullscreen()
+        .then(() => {
+          this._slidesFullscreen = false;
+        })
+        .catch(() => {});
+    }
+  }
+
   private _renderQR(data: any): TemplateResult {
     // Shape validation handled by _matchesFormat — data is guaranteed to have QR content here
     const text =
@@ -5064,6 +5426,17 @@ ${str}</pre
     return /^(flowchart |graph |sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie |gitGraph|journey|mindmap|timeline|sankey|xychart|block-beta|packet-beta|architecture-beta|kanban)/.test(
       trimmed
     );
+  }
+
+  /**
+   * Detect slide deck content: marp frontmatter or 3+ slide separators
+   */
+  private _isSlidesString(str: string): boolean {
+    // Marp frontmatter
+    if (/^---\s*\n[\s\S]*?marp:\s*true/m.test(str)) return true;
+    // 3+ horizontal rules used as slide separators (not just one markdown hr)
+    const separators = str.split(/\n---\s*\n/).length - 1;
+    return separators >= 2;
   }
 
   private _isDateField(key: string): boolean {

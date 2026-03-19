@@ -296,6 +296,21 @@ function formatOutput(result: any, formatHint?: OutputFormat): boolean {
   if (hint && result !== undefined && result !== null) {
     const hintStr = hint as string;
 
+    // slides — render as paginated markdown in terminal
+    if ((hintStr === 'slides' || hintStr === 'presentation') && typeof result === 'string') {
+      // Strip frontmatter
+      let content = result;
+      const fmMatch = content.match(/^---\s*\n[\s\S]*?\n---\s*\n/);
+      if (fmMatch) content = content.slice(fmMatch[0].length);
+      const slides = content.split(/\n---\s*\n/).filter((s: string) => s.trim());
+      slides.forEach((slide: string, i: number) => {
+        console.log(chalk.dim(`── Slide ${i + 1}/${slides.length} ──`));
+        console.log(slide.trim());
+        if (i < slides.length - 1) console.log();
+      });
+      return true;
+    }
+
     // mermaid — render as code block (it's a text DSL)
     if (hintStr === 'mermaid' && typeof result === 'string') {
       console.log(chalk.dim('── mermaid ──'));

@@ -277,6 +277,7 @@ const formatValues: Completion[] = [
   { label: 'code:typescript', detail: 'TypeScript code', type: 'constant' },
   { label: 'code:javascript', detail: 'JavaScript code', type: 'constant' },
   { label: 'code:python', detail: 'Python code', type: 'constant' },
+  { label: 'slides', detail: 'Slide presentation', type: 'constant' },
 ];
 
 /**

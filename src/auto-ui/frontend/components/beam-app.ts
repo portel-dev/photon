@@ -2432,6 +2432,8 @@ export class BeamApp extends LitElement {
               'stack',
               'columns',
               'qr',
+              'slides',
+              'presentation',
             ]);
             const baseFormat = data.format.split(':')[0].toLowerCase();
             if (!builtinFormats.has(baseFormat) && this._selectedPhoton) {
