@@ -1455,34 +1455,33 @@ export class InvokeForm extends LitElement {
   }
 
   /** Render date/time input based on format */
-  private _renderDateTimeInput(key: string, schema: any, hasError: boolean, inputId?: string) {
+  private _renderDateTimeInput(key: string, schema: any, hasError: boolean, _inputId?: string) {
     const fmt = this._getDateTimeFormat(key, schema);
-    const errorClass = hasError ? 'error' : '';
 
     if (fmt === 'date-range') {
       const currentObj = (this._values[key] as { start?: string; end?: string }) || {};
       return html`
         <div class="date-range-row">
-          <input
-            type="date"
-            class="date-input ${errorClass}"
+          <date-picker
             .value=${currentObj.start || ''}
-            @input=${(e: Event) => {
-              const start = (e.target as HTMLInputElement).value;
-              this._handleChange(key, { ...currentObj, start });
+            .hasError=${hasError}
+            mode="date"
+            placeholder="Start date"
+            @change=${(e: CustomEvent) => {
+              this._handleChange(key, { ...currentObj, start: e.detail.value });
             }}
-          />
+          ></date-picker>
           <span class="date-range-arrow">→</span>
-          <input
-            type="date"
-            class="date-input ${errorClass}"
-            min=${currentObj.start || ''}
+          <date-picker
             .value=${currentObj.end || ''}
-            @input=${(e: Event) => {
-              const end = (e.target as HTMLInputElement).value;
-              this._handleChange(key, { ...currentObj, end });
+            .hasError=${hasError}
+            mode="date"
+            placeholder="End date"
+            .min=${currentObj.start || ''}
+            @change=${(e: CustomEvent) => {
+              this._handleChange(key, { ...currentObj, end: e.detail.value });
             }}
-          />
+          ></date-picker>
         </div>
       `;
     }
@@ -1491,40 +1490,39 @@ export class InvokeForm extends LitElement {
       const currentObj = (this._values[key] as { start?: string; end?: string }) || {};
       return html`
         <div class="date-range-row">
-          <input
-            type="datetime-local"
-            class="date-input ${errorClass}"
+          <date-picker
             .value=${currentObj.start || ''}
-            @input=${(e: Event) => {
-              const start = (e.target as HTMLInputElement).value;
-              this._handleChange(key, { ...currentObj, start });
+            .hasError=${hasError}
+            mode="date-time"
+            placeholder="Start"
+            @change=${(e: CustomEvent) => {
+              this._handleChange(key, { ...currentObj, start: e.detail.value });
             }}
-          />
+          ></date-picker>
           <span class="date-range-arrow">→</span>
-          <input
-            type="datetime-local"
-            class="date-input ${errorClass}"
-            min=${currentObj.start || ''}
+          <date-picker
             .value=${currentObj.end || ''}
-            @input=${(e: Event) => {
-              const end = (e.target as HTMLInputElement).value;
-              this._handleChange(key, { ...currentObj, end });
+            .hasError=${hasError}
+            mode="date-time"
+            placeholder="End"
+            .min=${currentObj.start || ''}
+            @change=${(e: CustomEvent) => {
+              this._handleChange(key, { ...currentObj, end: e.detail.value });
             }}
-          />
+          ></date-picker>
         </div>
       `;
     }
 
     // Single date, date-time, or time
-    const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
+    const mode = fmt === 'date-time' ? 'date-time' : fmt === 'time' ? 'time' : 'date';
     return html`
-      <input
-        id=${ifDefined(inputId)}
-        type="${inputType}"
-        class="date-input ${errorClass}"
+      <date-picker
         .value=${this._values[key] || ''}
-        @input=${(e: Event) => this._handleChange(key, (e.target as HTMLInputElement).value)}
-      />
+        .hasError=${hasError}
+        mode=${mode}
+        @change=${(e: CustomEvent) => this._handleChange(key, e.detail.value)}
+      ></date-picker>
     `;
   }
 
@@ -1876,37 +1874,36 @@ export class InvokeForm extends LitElement {
     if (this._isDateTimeFormat(propKey, schema)) {
       const fmt = this._getDateTimeFormat(propKey, schema);
       if (fmt === 'date-range' || fmt === 'datetime-range') {
-        const inputType = fmt === 'datetime-range' ? 'datetime-local' : 'date';
+        const mode = fmt === 'datetime-range' ? 'date-time' : 'date';
         const currentObj = (value as { start?: string; end?: string }) || {};
         return html`
           <div class="date-range-row">
-            <input
-              type="${inputType}"
-              class="date-input"
+            <date-picker
               .value=${currentObj.start || ''}
-              @input=${(e: Event) =>
-                onChange(propKey, { ...currentObj, start: (e.target as HTMLInputElement).value })}
-            />
+              mode=${mode}
+              placeholder="Start"
+              @change=${(e: CustomEvent) =>
+                onChange(propKey, { ...currentObj, start: e.detail.value })}
+            ></date-picker>
             <span class="date-range-arrow">→</span>
-            <input
-              type="${inputType}"
-              class="date-input"
-              min=${currentObj.start || ''}
+            <date-picker
               .value=${currentObj.end || ''}
-              @input=${(e: Event) =>
-                onChange(propKey, { ...currentObj, end: (e.target as HTMLInputElement).value })}
-            />
+              mode=${mode}
+              placeholder="End"
+              .min=${currentObj.start || ''}
+              @change=${(e: CustomEvent) =>
+                onChange(propKey, { ...currentObj, end: e.detail.value })}
+            ></date-picker>
           </div>
         `;
       }
-      const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
+      const mode = fmt === 'date-time' ? 'date-time' : fmt === 'time' ? 'time' : 'date';
       return html`
-        <input
-          type="${inputType}"
-          class="date-input"
+        <date-picker
           .value=${value || ''}
-          @input=${(e: Event) => onChange(propKey, (e.target as HTMLInputElement).value)}
-        />
+          mode=${mode}
+          @change=${(e: CustomEvent) => onChange(propKey, e.detail.value)}
+        ></date-picker>
       `;
     }
     // Default: text input
@@ -2138,37 +2135,36 @@ export class InvokeForm extends LitElement {
     if (this._isDateTimeFormat(propKey, schema)) {
       const fmt = this._getDateTimeFormat(propKey, schema);
       if (fmt === 'date-range' || fmt === 'datetime-range') {
-        const inputType = fmt === 'datetime-range' ? 'datetime-local' : 'date';
+        const mode = fmt === 'datetime-range' ? 'date-time' : 'date';
         const currentObj = (value as { start?: string; end?: string }) || {};
         return html`
           <div class="date-range-row">
-            <input
-              type="${inputType}"
-              class="date-input"
+            <date-picker
               .value=${currentObj.start || ''}
-              @input=${(e: Event) =>
-                handleNestedChange({ ...currentObj, start: (e.target as HTMLInputElement).value })}
-            />
+              mode=${mode}
+              placeholder="Start"
+              @change=${(e: CustomEvent) =>
+                handleNestedChange({ ...currentObj, start: e.detail.value })}
+            ></date-picker>
             <span class="date-range-arrow">→</span>
-            <input
-              type="${inputType}"
-              class="date-input"
-              min=${currentObj.start || ''}
+            <date-picker
               .value=${currentObj.end || ''}
-              @input=${(e: Event) =>
-                handleNestedChange({ ...currentObj, end: (e.target as HTMLInputElement).value })}
-            />
+              mode=${mode}
+              placeholder="End"
+              .min=${currentObj.start || ''}
+              @change=${(e: CustomEvent) =>
+                handleNestedChange({ ...currentObj, end: e.detail.value })}
+            ></date-picker>
           </div>
         `;
       }
-      const inputType = fmt === 'date-time' ? 'datetime-local' : fmt === 'time' ? 'time' : 'date';
+      const mode = fmt === 'date-time' ? 'date-time' : fmt === 'time' ? 'time' : 'date';
       return html`
-        <input
-          type="${inputType}"
-          class="date-input"
+        <date-picker
           .value=${value || ''}
-          @input=${(e: Event) => handleNestedChange((e.target as HTMLInputElement).value)}
-        />
+          mode=${mode}
+          @change=${(e: CustomEvent) => handleNestedChange(e.detail.value)}
+        ></date-picker>
       `;
     }
 

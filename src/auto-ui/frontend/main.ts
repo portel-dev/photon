@@ -17,5 +17,6 @@ import './components/overflow-menu.js';
 import './components/context-bar.js';
 import './components/fork-dialog.js';
 import './components/app-layout.js';
+import './components/inputs/date-picker.js';
 
 console.log('✨ Beam UI Initialized');
