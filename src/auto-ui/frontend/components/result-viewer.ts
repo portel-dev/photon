@@ -5025,7 +5025,7 @@ export class ResultViewer extends LitElement {
       padding: 0; border-radius: var(--radius-md);
       border: 1px solid var(--border-glass);
       background: var(--bg-subtle); overflow: hidden;
-      width: 40%; min-width: 280px; max-width: 480px;
+      width: fit-content; min-width: 280px; max-width: 480px;
       margin: 16px auto;
     "
     >
@@ -5034,7 +5034,7 @@ export class ResultViewer extends LitElement {
         style="
         width: 100%; padding: 24px;
         display: flex; justify-content: center; align-items: center;
-        background: transparent; border-radius: var(--radius-md) var(--radius-md) 0 0;
+        background: #ffffff; border-radius: var(--radius-md) var(--radius-md) 0 0;
       "
       ></div>
 
