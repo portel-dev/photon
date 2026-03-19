@@ -695,6 +695,353 @@ export function generateRenderersScript(): string {
     container.innerHTML = h;
   };
 
+  // ─── Diff ───
+  renderers.diff = function(container, data) {
+    var text = '';
+    if (typeof data === 'string') {
+      text = data;
+    } else if (data && data.before != null && data.after != null) {
+      // Simple line-by-line diff
+      var before = String(data.before).split('\\n');
+      var after = String(data.after).split('\\n');
+      var filename = data.filename || data.file || '';
+      if (filename) text += '--- a/' + filename + '\\n+++ b/' + filename + '\\n';
+      var maxLen = Math.max(before.length, after.length);
+      for (var di = 0; di < maxLen; di++) {
+        if (di >= before.length) text += '+' + after[di] + '\\n';
+        else if (di >= after.length) text += '-' + before[di] + '\\n';
+        else if (before[di] !== after[di]) { text += '-' + before[di] + '\\n+' + after[di] + '\\n'; }
+        else text += ' ' + before[di] + '\\n';
+      }
+    } else {
+      text = JSON.stringify(data, null, 2);
+    }
+    var lines = text.split('\\n');
+    var h = '<pre style="font-size:12px;line-height:1.5;font-family:monospace;background:' + colors.bgAlt + ';border-radius:6px;padding:12px;overflow:auto;max-height:500px;margin:0">';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var lineColor = colors.text;
+      var lineBg = 'transparent';
+      if (line.charAt(0) === '+' && !line.startsWith('+++')) { lineColor = '#34d399'; lineBg = '#34d39910'; }
+      else if (line.charAt(0) === '-' && !line.startsWith('---')) { lineColor = '#f87171'; lineBg = '#f8717110'; }
+      else if (line.startsWith('@@')) { lineColor = colors.accent; }
+      else if (line.startsWith('---') || line.startsWith('+++')) { lineColor = colors.textMuted; }
+      h += '<div style="color:' + lineColor + ';background:' + lineBg + ';padding:0 4px;white-space:pre">' + esc(line) + '</div>';
+    }
+    h += '</pre>';
+    container.innerHTML = h;
+  };
+
+  // ─── Carousel ───
+  renderers.carousel = function(container, data) {
+    var items = Array.isArray(data) ? data : [typeof data === 'string' ? { src: data } : data];
+    var id = '_carousel_' + Math.random().toString(36).slice(2, 8);
+    var h = '<div id="' + id + '" style="position:relative;overflow:hidden;border-radius:10px">';
+    // Slides
+    h += '<div class="slides" style="display:flex;transition:transform 0.4s ease;width:100%">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var src = item.src || item.url || item.image || '';
+      var caption = item.caption || item.title || '';
+      h += '<div style="min-width:100%;box-sizing:border-box">';
+      h += '<img src="' + esc(src) + '" style="width:100%;display:block;aspect-ratio:16/9;object-fit:cover" />';
+      if (caption) h += '<div style="padding:8px 12px;font-size:12px;color:' + colors.textMuted + ';background:' + colors.bgAlt + '">' + esc(caption) + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    // Nav arrows
+    if (items.length > 1) {
+      h += '<button onclick="(function(el){var s=el.closest(\'[id]\').querySelector(\'.slides\');var idx=+(s.dataset.idx||0);idx=idx>0?idx-1:' + (items.length - 1) + ';s.style.transform=\'translateX(-\'+idx*100+\'%)\';s.dataset.idx=idx})(this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px">\\u2039</button>';
+      h += '<button onclick="(function(el){var s=el.closest(\'[id]\').querySelector(\'.slides\');var idx=+(s.dataset.idx||0);idx=idx<' + (items.length - 1) + '?idx+1:0;s.style.transform=\'translateX(-\'+idx*100+\'%)\';s.dataset.idx=idx})(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px">\\u203A</button>';
+      // Dots
+      h += '<div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px">';
+      for (var j = 0; j < items.length; j++) {
+        h += '<div style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,' + (j === 0 ? '0.9' : '0.4') + ')"></div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Gallery (lightbox grid) ───
+  renderers.gallery = function(container, data) {
+    var items = Array.isArray(data) ? data : [typeof data === 'string' ? { src: data } : data];
+    var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var src = item.src || item.url || item.image || item.thumbnail || '';
+      var full = item.full || item.original || src;
+      var caption = item.caption || item.title || '';
+      h += '<div style="cursor:pointer;overflow:hidden;border-radius:6px;aspect-ratio:1" onclick="(function(s,c){var o=document.createElement(\'div\');o.style.cssText=\'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;cursor:pointer\';o.onclick=function(){o.remove()};var img=document.createElement(\'img\');img.src=s;img.style.cssText=\'max-width:90%;max-height:85vh;border-radius:8px\';o.appendChild(img);if(c){var p=document.createElement(\'div\');p.style.cssText=\'color:#fff;font-size:13px;margin-top:8px\';p.textContent=c;o.appendChild(p)}document.body.appendChild(o)})(\'' + esc(full).replace(/'/g, "\\\\'") + '\',\'' + esc(caption).replace(/'/g, "\\\\'") + '\')">';
+      h += '<img src="' + esc(src) + '" alt="' + esc(caption) + '" style="width:100%;height:100%;object-fit:cover" />';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Masonry ───
+  renderers.masonry = function(container, data) {
+    var items = Array.isArray(data) ? data : [typeof data === 'string' ? { src: data } : data];
+    // CSS columns-based masonry
+    var h = '<div style="columns:3 200px;column-gap:8px">';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var src = item.src || item.url || item.image || '';
+      var caption = item.caption || item.title || '';
+      h += '<div style="break-inside:avoid;margin-bottom:8px;border-radius:8px;overflow:hidden;background:' + colors.bgAlt + '">';
+      h += '<img src="' + esc(src) + '" style="width:100%;display:block" />';
+      if (caption) h += '<div style="padding:6px 8px;font-size:11px;color:' + colors.textMuted + '">' + esc(caption) + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Kanban ───
+  renderers.kanban = function(container, data) {
+    var columns = data.columns || data.lanes || [];
+    if (!Array.isArray(columns) && typeof data === 'object') {
+      // Convert object keys to columns: { "To Do": [...], "Done": [...] }
+      columns = Object.keys(data).map(function(k) { return { title: k, items: data[k] }; });
+    }
+    var h = '<div style="display:flex;gap:12px;overflow-x:auto;padding:8px 0;min-height:200px">';
+    for (var ci = 0; ci < columns.length; ci++) {
+      var col = columns[ci];
+      var title = col.title || col.name || col.label || ('Column ' + (ci + 1));
+      var items = col.items || col.cards || col.tasks || [];
+      h += '<div style="min-width:220px;max-width:280px;flex:1;background:' + colors.bgAlt + ';border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px">';
+      h += '<div style="font-size:12px;font-weight:600;color:' + colors.textMuted + ';text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between">' + esc(title) + '<span style="background:' + colors.border + ';border-radius:10px;padding:0 6px;font-size:11px">' + items.length + '</span></div>';
+      for (var ki = 0; ki < items.length; ki++) {
+        var card = items[ki];
+        var cardTitle = card.title || card.name || card.label || (typeof card === 'string' ? card : JSON.stringify(card));
+        var assignee = card.assignee || card.owner || '';
+        var priority = card.priority || '';
+        var prColor = priority === 'high' || priority === 'urgent' ? '#f87171' : priority === 'medium' ? '#fbbf24' : '';
+        h += '<div style="padding:10px;background:' + colors.bg + ';border-radius:6px;border:1px solid ' + colors.border + ';font-size:13px">';
+        if (prColor) h += '<div style="width:6px;height:6px;border-radius:50%;background:' + prColor + ';display:inline-block;margin-right:4px"></div>';
+        h += '<span style="color:' + colors.text + '">' + esc(String(cardTitle)) + '</span>';
+        if (assignee) h += '<div style="font-size:11px;color:' + colors.textMuted + ';margin-top:4px">' + esc(assignee) + '</div>';
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Heatmap ───
+  renderers.heatmap = function(container, data) {
+    var rows, cols, values;
+    if (Array.isArray(data)) {
+      // Flat array: [{ day, hour, value }]
+      var rowSet = {}, colSet = {}, valMap = {};
+      for (var fi = 0; fi < data.length; fi++) {
+        var keys = Object.keys(data[fi]);
+        var rk = keys[0], ck = keys[1], vk = keys[2] || 'value';
+        var rv = String(data[fi][rk]), cv = String(data[fi][ck]);
+        rowSet[rv] = 1; colSet[cv] = 1;
+        valMap[rv + '|' + cv] = data[fi][vk];
+      }
+      rows = Object.keys(rowSet);
+      cols = Object.keys(colSet);
+      values = [];
+      for (var ri = 0; ri < rows.length; ri++) {
+        var row = [];
+        for (var cj = 0; cj < cols.length; cj++) {
+          row.push(valMap[rows[ri] + '|' + cols[cj]] || 0);
+        }
+        values.push(row);
+      }
+    } else {
+      rows = data.rows || [];
+      cols = data.cols || data.columns || [];
+      values = data.values || data.data || [];
+    }
+    // Find min/max for normalization
+    var min = Infinity, max = -Infinity;
+    for (var hi = 0; hi < values.length; hi++) {
+      for (var hj = 0; hj < values[hi].length; hj++) {
+        var v = values[hi][hj];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+    if (min === max) max = min + 1;
+    function heatColor(norm) {
+      // Cold (blue) → Warm (yellow) → Hot (red)
+      var r, g, b;
+      if (norm < 0.5) { var t = norm * 2; r = Math.round(30 + t * 220); g = Math.round(100 + t * 80); b = Math.round(200 - t * 150); }
+      else { var t2 = (norm - 0.5) * 2; r = Math.round(250); g = Math.round(180 - t2 * 130); b = Math.round(50 - t2 * 40); }
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+    var cellSize = Math.max(24, Math.min(40, Math.floor(400 / Math.max(cols.length, 1))));
+    var h = '<div style="overflow:auto"><table style="border-collapse:collapse;font-size:11px">';
+    // Header row
+    h += '<tr><td></td>';
+    for (var ci = 0; ci < cols.length; ci++) {
+      h += '<td style="padding:4px;text-align:center;color:' + colors.textMuted + ';font-weight:500">' + esc(String(cols[ci])) + '</td>';
+    }
+    h += '</tr>';
+    // Data rows
+    for (var ri = 0; ri < rows.length; ri++) {
+      h += '<tr><td style="padding:4px 8px 4px 0;color:' + colors.textMuted + ';font-weight:500;white-space:nowrap">' + esc(String(rows[ri])) + '</td>';
+      for (var cj = 0; cj < (values[ri] || []).length; cj++) {
+        var val = values[ri][cj];
+        var norm = (val - min) / (max - min);
+        h += '<td style="width:' + cellSize + 'px;height:' + cellSize + 'px;background:' + heatColor(norm) + ';border-radius:3px;text-align:center;color:#fff;font-size:10px;font-weight:600;padding:2px" title="' + esc(String(val)) + '">' + (cellSize >= 30 ? val : '') + '</td>';
+      }
+      h += '</tr>';
+    }
+    h += '</table></div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Comparison ───
+  renderers.comparison = function(container, data) {
+    var items = data.items || data.plans || data.options || (Array.isArray(data) ? data : []);
+    var highlight = data.highlight || data.recommended || '';
+    if (!items.length) { renderers.json(container, data); return; }
+    // Gather all property keys
+    var allKeys = [];
+    for (var i = 0; i < items.length; i++) {
+      var keys = Object.keys(items[i]).filter(function(k) { return k !== 'name' && k !== 'title' && k !== 'plan'; });
+      for (var j = 0; j < keys.length; j++) {
+        if (allKeys.indexOf(keys[j]) < 0) allKeys.push(keys[j]);
+      }
+    }
+    var h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">';
+    // Header
+    h += '<tr><th style="padding:12px;text-align:left;border-bottom:2px solid ' + colors.border + '"></th>';
+    for (var i = 0; i < items.length; i++) {
+      var name = items[i].name || items[i].title || items[i].plan || ('Option ' + (i + 1));
+      var isHL = name === highlight;
+      h += '<th style="padding:12px;text-align:center;border-bottom:2px solid ' + colors.border + ';' + (isHL ? 'background:' + colors.accent + '18;' : '') + '">';
+      h += '<div style="font-weight:700;color:' + colors.text + '">' + esc(name) + '</div>';
+      if (isHL) h += '<div style="font-size:10px;color:' + colors.accent + ';margin-top:2px">Recommended</div>';
+      h += '</th>';
+    }
+    h += '</tr>';
+    // Rows
+    for (var ki = 0; ki < allKeys.length; ki++) {
+      var key = allKeys[ki];
+      h += '<tr>';
+      h += '<td style="padding:8px 12px;color:' + colors.textMuted + ';font-weight:500;border-bottom:1px solid ' + colors.border + '">' + esc(formatLabel(key)) + '</td>';
+      for (var i = 0; i < items.length; i++) {
+        var val = items[i][key];
+        var isHL = (items[i].name || items[i].title || items[i].plan) === highlight;
+        var display = val === true ? '\\u2713' : val === false ? '\\u2717' : (val != null ? formatValue(val) : '\\u2014');
+        var valColor = val === true ? '#34d399' : val === false ? '#f87171' : colors.text;
+        h += '<td style="padding:8px 12px;text-align:center;border-bottom:1px solid ' + colors.border + ';color:' + valColor + ';' + (isHL ? 'background:' + colors.accent + '08;' : '') + '">' + display + '</td>';
+      }
+      h += '</tr>';
+    }
+    h += '</table></div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Invoice/Receipt ───
+  renderers.invoice = renderers.receipt = function(container, data) {
+    var d = data;
+    var h = '<div style="background:' + colors.bgAlt + ';border-radius:10px;padding:24px;max-width:600px;margin:0 auto;border:1px solid ' + colors.border + '">';
+    // Header
+    var num = d.number || d.id || '';
+    var date = d.date || '';
+    var due = d.due || d.dueDate || '';
+    if (num || date) {
+      h += '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+      h += '<div><div style="font-size:20px;font-weight:700;color:' + colors.text + '">' + (d.title || 'Invoice') + '</div>';
+      if (num) h += '<div style="font-size:12px;color:' + colors.textMuted + '">' + esc(num) + '</div>';
+      h += '</div>';
+      if (date) h += '<div style="text-align:right;font-size:12px;color:' + colors.textMuted + '">Date: ' + esc(date) + (due ? '<br>Due: ' + esc(due) : '') + '</div>';
+      h += '</div>';
+    }
+    // From / To
+    var from = d.from;
+    var to = d.to;
+    if (from || to) {
+      h += '<div style="display:flex;gap:24px;margin-bottom:20px;font-size:12px">';
+      if (from) {
+        h += '<div><div style="font-weight:600;color:' + colors.textMuted + ';margin-bottom:4px">FROM</div>';
+        h += '<div style="color:' + colors.text + '">' + esc(typeof from === 'string' ? from : (from.name || '')) + '</div>';
+        if (from.address) h += '<div style="color:' + colors.textMuted + '">' + esc(from.address) + '</div>';
+        h += '</div>';
+      }
+      if (to) {
+        h += '<div><div style="font-weight:600;color:' + colors.textMuted + ';margin-bottom:4px">TO</div>';
+        h += '<div style="color:' + colors.text + '">' + esc(typeof to === 'string' ? to : (to.name || '')) + '</div>';
+        if (to.address) h += '<div style="color:' + colors.textMuted + '">' + esc(to.address) + '</div>';
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+    // Items
+    var items = d.items || d.lineItems || [];
+    if (items.length > 0) {
+      h += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">';
+      h += '<tr style="border-bottom:1px solid ' + colors.border + '"><th style="text-align:left;padding:8px 4px;color:' + colors.textMuted + '">Item</th><th style="text-align:right;padding:8px 4px;color:' + colors.textMuted + '">Qty</th><th style="text-align:right;padding:8px 4px;color:' + colors.textMuted + '">Price</th><th style="text-align:right;padding:8px 4px;color:' + colors.textMuted + '">Amount</th></tr>';
+      for (var ii = 0; ii < items.length; ii++) {
+        var item = items[ii];
+        h += '<tr style="border-bottom:1px solid ' + colors.border + '">';
+        h += '<td style="padding:8px 4px;color:' + colors.text + '">' + esc(item.description || item.name || item.item || '') + '</td>';
+        h += '<td style="padding:8px 4px;text-align:right;color:' + colors.textMuted + '">' + (item.quantity || item.qty || 1) + '</td>';
+        h += '<td style="padding:8px 4px;text-align:right;color:' + colors.textMuted + '">' + formatValue(item.rate || item.price || item.unitPrice || 0) + '</td>';
+        h += '<td style="padding:8px 4px;text-align:right;color:' + colors.text + ';font-weight:500">' + formatValue(item.amount || item.total || 0) + '</td>';
+        h += '</tr>';
+      }
+      h += '</table>';
+    }
+    // Totals
+    if (d.subtotal != null || d.total != null) {
+      h += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:13px">';
+      if (d.subtotal != null) h += '<div><span style="color:' + colors.textMuted + ';margin-right:20px">Subtotal</span><span style="color:' + colors.text + '">' + formatValue(d.subtotal) + '</span></div>';
+      if (d.tax != null) h += '<div><span style="color:' + colors.textMuted + ';margin-right:20px">Tax</span><span style="color:' + colors.text + '">' + formatValue(d.tax) + '</span></div>';
+      if (d.discount != null) h += '<div><span style="color:' + colors.textMuted + ';margin-right:20px">Discount</span><span style="color:#34d399">-' + formatValue(d.discount) + '</span></div>';
+      if (d.total != null) h += '<div style="border-top:2px solid ' + colors.border + ';padding-top:8px;margin-top:4px"><span style="color:' + colors.text + ';font-weight:700;margin-right:20px">Total</span><span style="color:' + colors.text + ';font-weight:700;font-size:16px">' + formatValue(d.total) + '</span></div>';
+      h += '</div>';
+    }
+    // Notes
+    if (d.notes) h += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid ' + colors.border + ';font-size:11px;color:' + colors.textMuted + '">' + esc(d.notes) + '</div>';
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Cron ───
+  renderers.cron = function(container, data) {
+    var expr = typeof data === 'string' ? data : (data.expression || data.cron || '');
+    var desc = typeof data === 'object' ? (data.description || '') : '';
+    // Simple cron field labels
+    var parts = expr.trim().split(/\\s+/);
+    var fields = ['Minute', 'Hour', 'Day', 'Month', 'Weekday'];
+    var h = '<div style="padding:12px;background:' + colors.bgAlt + ';border-radius:8px;border:1px solid ' + colors.border + '">';
+    h += '<div style="font-family:monospace;font-size:16px;font-weight:700;color:' + colors.accent + ';margin-bottom:8px">' + esc(expr) + '</div>';
+    if (desc) h += '<div style="font-size:13px;color:' + colors.text + ';margin-bottom:12px">' + esc(desc) + '</div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    for (var i = 0; i < Math.min(parts.length, fields.length); i++) {
+      h += '<div style="text-align:center;padding:6px 10px;background:' + colors.bg + ';border-radius:6px;border:1px solid ' + colors.border + '">';
+      h += '<div style="font-family:monospace;font-size:14px;font-weight:600;color:' + colors.text + '">' + esc(parts[i]) + '</div>';
+      h += '<div style="font-size:10px;color:' + colors.textMuted + '">' + fields[i] + '</div>';
+      h += '</div>';
+    }
+    h += '</div></div>';
+    container.innerHTML = h;
+  };
+
+  // ─── Embed ───
+  renderers.embed = function(container, data) {
+    var url = typeof data === 'string' ? data : (data.url || data.src || data.href || '');
+    var title = typeof data === 'object' ? (data.title || '') : '';
+    // Convert YouTube watch URLs to embed URLs
+    var embedUrl = url.replace(/youtube\\.com\\/watch\\?v=([^&]+)/, 'youtube.com/embed/$1')
+                      .replace(/youtu\\.be\\/([^?]+)/, 'youtube.com/embed/$1');
+    var h = '<div style="border-radius:8px;overflow:hidden;border:1px solid ' + colors.border + '">';
+    h += '<iframe src="' + esc(embedUrl) + '" style="width:100%;aspect-ratio:16/9;border:none" allowfullscreen></iframe>';
+    if (title) h += '<div style="padding:8px 12px;font-size:12px;color:' + colors.textMuted + ';background:' + colors.bgAlt + '">' + esc(title) + '</div>';
+    h += '</div>';
+    container.innerHTML = h;
+  };
+
   // ── Public API ──
 
   window._photonRenderers = {
