@@ -331,7 +331,10 @@ export class DatePicker extends LitElement {
   @state() private _minutes = '00';
 
   private _onDocClick = (e: Event) => {
-    if (this._open && !this.contains(e.target as Node)) {
+    if (!this._open) return;
+    // Check composedPath for shadow DOM — the event target may be retargeted
+    const path = e.composedPath();
+    if (!path.includes(this)) {
       this._open = false;
     }
   };
@@ -339,12 +342,12 @@ export class DatePicker extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._syncFromValue();
-    document.addEventListener('click', this._onDocClick, true);
+    document.addEventListener('mousedown', this._onDocClick);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    document.removeEventListener('click', this._onDocClick, true);
+    document.removeEventListener('mousedown', this._onDocClick);
   }
 
   updated(changed: Map<string, unknown>) {
