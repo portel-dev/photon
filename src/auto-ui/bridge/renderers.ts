@@ -19,19 +19,25 @@ export function generateRenderersScript(): string {
 
   // ── Theme helpers ──
 
-  var theme = (document.documentElement.getAttribute('data-theme') || 'dark');
-  var isDark = theme !== 'light';
-  var colors = {
-    text: isDark ? '#e0e0e0' : '#1a1a1a',
-    textMuted: isDark ? '#888' : '#666',
-    bg: isDark ? '#1a1a1a' : '#ffffff',
-    bgAlt: isDark ? '#242424' : '#f5f5f5',
-    border: isDark ? '#333' : '#e0e0e0',
-    accent: isDark ? '#6c9eff' : '#2563eb',
-    palette: isDark
-      ? ['#6c9eff','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#38bdf8','#e879f9']
-      : ['#2563eb','#059669','#d97706','#dc2626','#7c3aed','#ea580c','#0284c7','#c026d3']
-  };
+  // Read colors dynamically from CSS custom properties so theme changes are reflected.
+  // Falls back to sensible defaults if vars aren't set.
+  function getColors() {
+    var root = getComputedStyle(document.documentElement);
+    var get = function(prop, fallback) { return root.getPropertyValue(prop).trim() || fallback; };
+    var isDark = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'light';
+    return {
+      text: get('--text', isDark ? '#e0e0e0' : '#1a1a1a'),
+      textMuted: get('--muted', isDark ? '#888' : '#666'),
+      bg: get('--bg', isDark ? '#1a1a1a' : '#ffffff'),
+      bgAlt: get('--bg-tertiary', isDark ? '#242424' : '#f5f5f5'),
+      border: get('--border', isDark ? '#333' : '#e0e0e0'),
+      accent: get('--accent', isDark ? '#6c9eff' : '#2563eb'),
+      palette: isDark
+        ? ['#6c9eff','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#38bdf8','#e879f9']
+        : ['#2563eb','#059669','#d97706','#dc2626','#7c3aed','#ea580c','#0284c7','#c026d3']
+    };
+  }
+  var colors = getColors();
 
   function esc(s) {
     if (typeof s !== 'string') return String(s == null ? '' : s);
@@ -446,6 +452,8 @@ export function generateRenderersScript(): string {
   window._photonRenderers = {
     render: function(container, data, format, opts) {
       if (!container) return;
+      // Refresh colors from CSS vars on every render so theme changes are reflected
+      colors = getColors();
       format = format || 'json';
       var key = format.toLowerCase();
       // Try exact match, then prefix match (chart:bar → chart)

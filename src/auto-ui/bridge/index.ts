@@ -172,6 +172,12 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           applyThemeClass();
           listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
         }
+        // Re-render data-method elements so renderers pick up new colors
+        if (ctxParams.styles || ctxParams.theme) {
+          setTimeout(function() {
+            _boundElements.forEach(function(rerender) { rerender(); });
+          }, 0);
+        }
 
         // Extract embedded photon event data (for real-time sync)
         if (ctxParams._photon) {
@@ -230,6 +236,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
         applyThemeTokens();
         applyThemeClass();
         listeners.themeChange.forEach(function(cb) { cb(ctx.theme); });
+        // Re-render all data-method bound elements so renderers pick up new colors
+        setTimeout(function() {
+          _boundElements.forEach(function(rerender) { rerender(); });
+        }, 0);
       }
       else if (m.type === 'photon:context') {
         Object.assign(ctx, m.context);
@@ -645,6 +655,9 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Interactive elements default to click trigger, content elements to load
   var _clickTags = { BUTTON: 1, A: 1, INPUT: 1, SELECT: 1 };
 
+  // Track bound elements and their last results for theme-change re-rendering
+  var _boundElements = [];
+
   function _bindElements() {
     if (!ctx.photon) return;
     var proxy = window[ctx.photon];
@@ -730,6 +743,21 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
             }
           }
         }
+
+        // Track for theme-change re-rendering (only format-rendered elements)
+        var _lastResult = undefined;
+        if (format) {
+          _boundElements.push(function() {
+            if (_lastResult !== undefined) renderResult(_lastResult);
+          });
+        }
+
+        // Wrap renderResult to cache last result
+        var _originalRender = renderResult;
+        renderResult = function(result) {
+          _lastResult = result;
+          _originalRender(result);
+        };
 
         // ── Call method and render ──
         function load() {
