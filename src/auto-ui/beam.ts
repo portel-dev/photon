@@ -944,7 +944,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       const isStateful = schemaSource ? /@stateful\b/.test(schemaSource) : false;
-      const authMatch = schemaSource?.match(/@auth(?:\s+(\S+))?/i);
+      const authMatch = schemaSource?.match(/@auth\b(?:\s+(\S+))?/i);
       const authValue = authMatch ? authMatch[1]?.trim() || 'required' : undefined;
 
       return {
@@ -2256,7 +2256,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               backfillEnvDefaults(mcp.instance, reloadConstructorParams);
 
               const isStateful = /@stateful\b/.test(reloadSource);
-              const reloadAuthMatch = reloadSource.match(/@auth(?:\s+(\S+))?/i);
+              const reloadAuthMatch = reloadSource.match(/@auth\b(?:\s+(\S+))?/i);
               const reloadAuthValue = reloadAuthMatch
                 ? reloadAuthMatch[1]?.trim() || 'required'
                 : undefined;
