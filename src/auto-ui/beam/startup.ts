@@ -60,8 +60,14 @@ export class StartupSequencer {
     this.url = url;
     const status = this.formatStatus();
 
-    if (this.isTTY && this.state === 'buffering') {
-      this.originalStderrWrite(`\r${status.padEnd(120)}`);
+    if (this.state === 'buffering') {
+      if (this.isTTY) {
+        this.originalStderrWrite(`\r${status.padEnd(120)}`);
+      } else {
+        // Non-TTY (CI, subprocess, piped): print immediately so callers
+        // can detect that Beam started without waiting for full ready()
+        this.originalLog(status);
+      }
       this.state = 'url_shown';
     }
   }
@@ -73,11 +79,14 @@ export class StartupSequencer {
   ready(): void {
     const status = this.formatStatus();
 
-    if (this.state === 'url_shown' && this.isTTY) {
-      // Was showing inline TTY status — add newline before restoring
-      this.originalStderrWrite('\n');
+    if (this.state === 'url_shown') {
+      if (this.isTTY) {
+        // Was showing inline TTY status — add newline before restoring
+        this.originalStderrWrite('\n');
+      }
+      // Non-TTY: showUrl() already printed the status line, skip
     } else {
-      // Non-TTY or never showed URL — print the full status line
+      // Never showed URL — print the full status line
       this.originalLog(`\n${status}\n`);
     }
 
