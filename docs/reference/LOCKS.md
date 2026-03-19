@@ -101,3 +101,123 @@ async moveTask(params: { taskId: string; column: string }) {
   return task;
 }
 ```
+
+---
+
+## Identity-Aware Locks
+
+When a photon uses `@auth`, locks become identity-aware. Instead of a binary mutex, locks are assigned to specific caller IDs. Only the holder can call `@locked` methods.
+
+### API
+
+```typescript
+// Assign lock to a specific caller
+await this.acquireLock('turn', callerId, timeout?);
+
+// Transfer lock to another caller
+await this.transferLock('turn', toCallerId, fromCallerId?);
+
+// Release lock (open to anyone)
+await this.releaseLock('turn', callerId?);
+
+// Query who holds the lock
+const lock = await this.getLock('turn');
+// → { holder: 'user_abc' | null, acquiredAt?, expiresAt? }
+```
+
+| Method | Description |
+|--------|-------------|
+| `acquireLock(name, callerId, timeout?)` | Assign lock to a caller. Fails if held by another. |
+| `transferLock(name, toCallerId, from?)` | Move lock atomically. `from` defaults to `this.caller.id`. |
+| `releaseLock(name, callerId?)` | Release. Defaults to `this.caller.id`. |
+| `getLock(name)` | Query current holder. |
+
+### `@locked` with `@auth`
+
+When both `@auth` and `@locked` are present, the middleware checks `this.caller.id` against the lock holder instead of using a binary mutex:
+
+```typescript
+/**
+ * @stateful
+ * @auth required
+ */
+class Chess {
+  /** @locked turn */
+  async move(params: { from: string; to: string }) {
+    // If this.caller.id !== lock holder → error: "Not your turn"
+    // If lock not assigned → call allowed (lock not yet in play)
+    await this.transferLock('turn', this.nextPlayer);
+    return this.board;
+  }
+}
+```
+
+Without `@auth`, `@locked` falls back to the standard binary mutex behavior.
+
+### Chess — Full Example
+
+```typescript
+/**
+ * @stateful
+ * @auth required
+ */
+class Chess {
+  players: Record<string, string> = {};
+  turn = 'white';
+
+  async join() {
+    const slot = !this.players.white ? 'white' :
+                 !this.players.black ? 'black' : null;
+    if (!slot) return { error: 'Game full' };
+
+    this.players[slot] = this.caller.id;
+
+    if (slot === 'black') {
+      await this.acquireLock('turn', this.players.white);
+    }
+    return { color: slot };
+  }
+
+  /** @locked turn */
+  async move(params: { from: string; to: string }) {
+    // Execute move...
+    this.turn = this.turn === 'white' ? 'black' : 'white';
+    const nextPlayer = this.players[this.turn];
+    await this.transferLock('turn', nextPlayer);
+    return { board: this.board, turn: this.turn };
+  }
+
+  // No @locked — anyone can call (spectators too)
+  async board() {
+    return { board: this.board, players: this.players, turn: this.turn };
+  }
+}
+```
+
+### Presentation — Lock Release
+
+```typescript
+/**
+ * @stateful
+ * @auth required
+ */
+class Slides {
+  /** @locked navigation */
+  async next() { this.currentSlide++; return this.slide; }
+
+  /** @locked navigation */
+  async previous() { this.currentSlide--; return this.slide; }
+
+  async present() {
+    // Presenter takes control
+    await this.acquireLock('navigation', this.caller.id);
+    return { mode: 'presenting', presenter: this.caller.name };
+  }
+
+  async release() {
+    // Release navigation to audience
+    await this.releaseLock('navigation');
+    return { mode: 'free' };
+  }
+}
+```

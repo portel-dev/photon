@@ -75,6 +75,46 @@ The `@runtime` tag supports semver-style version ranges:
 | `>=1.5.0` | Any version 1.5.0 or higher | `@runtime >=1.5.0` |
 | `1.5.0` | Exact version match required | `@runtime 1.5.0` |
 
+### MCP OAuth Authentication
+
+The `@auth` tag enables MCP OAuth 2.1 authentication, making `this.caller` available in every method. The runtime handles the full OAuth flow per the [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization).
+
+| Value | Behavior |
+|-------|----------|
+| `@auth required` | All methods require a valid JWT. Anonymous callers get 401. |
+| `@auth optional` | Caller populated if token present, anonymous allowed (default without tag). |
+| `@auth https://accounts.google.com` | OIDC provider URL (implies required). Advertised in PRM metadata. |
+
+**What the runtime does when `@auth` is set:**
+1. Serves `/.well-known/oauth-protected-resource` (RFC 9728 Protected Resource Metadata)
+2. Returns `401 WWW-Authenticate` challenge when no Bearer token is present
+3. Decodes JWT claims from `Authorization: Bearer` header
+4. Populates `this.caller` with `{ id, name, anonymous, scope, claims }`
+5. Upgrades `@locked` middleware to check `this.caller.id` against lock holder
+
+**`this.caller` properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Stable user ID (JWT `sub` claim). `'anonymous'` if no token. |
+| `name` | `string?` | Display name from OIDC profile |
+| `anonymous` | `boolean` | `true` if no valid JWT was provided |
+| `scope` | `string?` | OAuth scopes granted |
+| `claims` | `Record<string, unknown>?` | Full JWT claims for custom fields |
+
+```typescript
+/**
+ * Multiplayer game
+ * @stateful
+ * @auth required
+ */
+export default class Game {
+  async join() {
+    return { playerId: this.caller.id, name: this.caller.name };
+  }
+}
+```
+
 ## Method-Level Tags
 
 These tags are placed in the JSDoc comment immediately before a tool method.
