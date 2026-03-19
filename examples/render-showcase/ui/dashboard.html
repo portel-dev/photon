@@ -31,7 +31,7 @@
   }
 
   h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
-  .subtitle { font-size: 13px; color: #888; margin-bottom: 20px; }
+  .subtitle { font-size: 13px; color: var(--muted, #888); margin-bottom: 20px; }
 
   .grid {
     display: grid;
@@ -40,8 +40,8 @@
   }
 
   .card {
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
+    background: var(--card, var(--bg-secondary, #1a1a1a));
+    border: 1px solid var(--border, #2a2a2a);
     border-radius: 10px;
     overflow: hidden;
   }
@@ -50,17 +50,17 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--border, #2a2a2a);
   }
   .card-title {
     font-size: 13px;
     font-weight: 600;
-    color: #ccc;
+    color: var(--text, #ccc);
   }
   .card-format {
     font-size: 11px;
-    color: #666;
-    background: #242424;
+    color: var(--muted, #666);
+    background: var(--bg-tertiary, #242424);
     padding: 2px 8px;
     border-radius: 10px;
     font-family: monospace;
@@ -72,7 +72,7 @@
   }
   .card-body.loading::after {
     content: 'Loading...';
-    color: #555;
+    color: var(--muted, #555);
     font-size: 12px;
   }
 
@@ -96,23 +96,23 @@
   /* Refresh button */
   .btn-refresh {
     background: none;
-    border: 1px solid #333;
-    color: #888;
+    border: 1px solid var(--border, #333);
+    color: var(--muted, #888);
     padding: 4px 12px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 12px;
   }
-  .btn-refresh:hover { border-color: #555; color: #ccc; }
+  .btn-refresh:hover { border-color: var(--text-secondary, #555); color: var(--text, #ccc); }
 
   /* Code snippet */
   .code-hint {
     font-size: 11px;
-    color: #555;
+    color: var(--muted, #555);
     font-family: monospace;
     padding: 8px 16px;
-    border-top: 1px solid #2a2a2a;
-    background: #141414;
+    border-top: 1px solid var(--border, #2a2a2a);
+    background: var(--bg, #141414);
   }
 </style>
 
@@ -271,7 +271,7 @@
       slot.appendChild(row);
       for (const svc of services) {
         const label = document.createElement('span');
-        label.style.cssText = 'font-size:12px;color:#888;margin-right:2px';
+        label.style.cssText = 'font-size:12px;color:var(--muted,#888);margin-right:2px';
         label.textContent = svc.name + ':';
         row.appendChild(label);
         const badge = document.createElement('span');
