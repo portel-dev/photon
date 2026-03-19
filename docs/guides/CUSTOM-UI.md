@@ -648,8 +648,10 @@ photon.render(container: HTMLElement, data: any, format: string, opts?: object):
 | `table` | `Array<object>` | Sortable table with auto-detected columns |
 | `gauge` | `{ value, max, label?, unit? }` | SVG semicircular gauge with color gradient |
 | `metric` | `{ value, label?, delta?, trend? }` | Large KPI display with trend arrow |
+| `stat-group` | `Array<{ label, value, delta?, trend?, prefix?, suffix? }>` | Row of KPI stat cards |
 | `progress` | `{ value, max?, label? }` | Animated progress bar with percentage |
 | `chart:bar` | `Array<object>` | Bar chart (auto-detects label/value fields) |
+| `chart:hbar` | `Array<object>` | Horizontal bar chart (same shape as `chart:bar`) |
 | `chart:line` | `Array<object>` | Line chart (auto-detects time series) |
 | `chart:pie` | `Array<object>` | Pie chart |
 | `chart:area` | `Array<object>` | Area chart (line with fill) |
@@ -658,6 +660,27 @@ photon.render(container: HTMLElement, data: any, format: string, opts?: object):
 | `badge` | `string` | Colored status badge (auto-detects variant) |
 | `list` | `Array<{ name, subtitle?, status? }>` | iOS-style list rows with optional badges |
 | `kv` / `card` | `object` | Key-value pairs in alternating rows |
+| `steps` / `stepper` | `Array<{ label, status, detail? }>` | Step-by-step progress indicator |
+| `kanban` | `{ columns: [{ title, items: [{ title, assignee?, priority? }] }] }` | Kanban board with columns and cards |
+| `comparison` | `{ items: [{ name, ...props }], highlight? }` | Side-by-side property comparison |
+| `diff` | unified diff string or `{ before, after, filename? }` | Diff viewer with added/removed highlighting |
+| `log` | `Array<{ level, message, timestamp?, source? }>` | Structured log viewer with level coloring |
+| `embed` | URL string or `{ url, title? }` | Embed an external URL in an iframe |
+| `heatmap` | `{ rows, cols, values }` or `[{ rowKey, colKey, value }]` | Color-intensity activity heatmap |
+| `calendar` | `Array<{ title, start, end?, allDay?, color? }>` | Monthly/weekly calendar view with events |
+| `map` | `Array<{ lat, lng, label?, popup? }>` | Interactive map with markers |
+| `network` / `graph` | `{ nodes: [{ id, label, group? }], edges: [{ from, to, label? }] }` | Node-edge graph diagram |
+| `cron` | cron string or `{ expression, description? }` | Human-readable cron expression display |
+| `image` | URL string, `{ src, caption? }`, or array | Single image or image list with captions |
+| `carousel` | `Array<{ src, caption? }>` | Horizontally scrolling image carousel |
+| `gallery` | `Array<{ src, caption?, full? }>` | Thumbnail grid with lightbox expand |
+| `masonry` | `Array<{ src, caption? }>` | Pinterest-style masonry image grid |
+| `hero` | `{ title, subtitle?, image?, cta?, url? }` | Full-width hero section |
+| `banner` | `{ message, type?, icon? }` | Dismissable notification banner |
+| `quote` | `{ text, author?, source?, avatar? }` | Styled pull-quote with attribution |
+| `profile` | `{ name, avatar?, role?, bio?, stats? }` | User profile card with avatar and stats |
+| `feature-grid` | `Array<{ icon, title, description }>` | Marketing feature grid |
+| `invoice` / `receipt` | `{ items: [{ description, quantity, rate, amount }], total, ... }` | Itemized invoice with totals |
 | `markdown` | `string` | Basic markdown rendering (headings, bold, code, lists) |
 | `code` | `string` | Syntax-highlighted code (keywords, strings, numbers, comments) |
 | `json` | `any` | Pretty-printed JSON in a `<pre>` block |

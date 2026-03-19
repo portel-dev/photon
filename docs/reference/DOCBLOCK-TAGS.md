@@ -124,7 +124,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@param` | Describes a tool parameter. | `@param name User's full name` |
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
-| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `metric`, `gauge`, `timeline`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
+| `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `metric`, `gauge`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
 | `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
 | `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |
@@ -599,6 +599,27 @@ The `@format` tag on methods supports multiple format types:
 | `tree` | Hierarchical/nested data |
 | `card` | Single object as a card |
 | `none` | No special formatting |
+| `steps` / `stepper` | Step-by-step progress indicator with status per step |
+| `kanban` | Kanban board with columns and cards |
+| `comparison` | Side-by-side feature/property comparison table |
+
+**`steps` data shape:**
+```json
+[{ "label": "Install", "status": "complete", "detail": "optional note" },
+ { "label": "Configure", "status": "current" },
+ { "label": "Deploy", "status": "pending" }]
+```
+`status` values: `"complete"`, `"current"`, `"pending"`
+
+**`kanban` data shape:**
+```json
+{ "columns": [{ "title": "Todo", "items": [{ "title": "Fix bug", "assignee": "alice", "priority": "high" }] }] }
+```
+
+**`comparison` data shape:**
+```json
+{ "items": [{ "name": "Plan A", "price": "$9", "storage": "10GB" }, { "name": "Plan B", "price": "$29", "storage": "100GB" }], "highlight": "Plan B" }
+```
 
 ### Content Formats
 
@@ -610,6 +631,19 @@ The `@format` tag on methods supports multiple format types:
 | `xml` | XML syntax highlighting |
 | `html` | HTML rendering |
 | `mermaid` | Mermaid diagram rendering |
+| `diff` | Unified diff or before/after comparison |
+| `log` | Structured log viewer with level-based coloring |
+| `embed` | Embed an external URL in an iframe |
+
+**`diff` data shape:** Unified diff string, or `{ before, after, filename? }`
+
+**`log` data shape:**
+```json
+[{ "level": "info", "message": "Server started", "timestamp": "2026-03-20T09:00:00Z", "source": "api" }]
+```
+`level` values: `"info"`, `"warn"`, `"error"`
+
+**`embed` data shape:** URL string, or `{ url, title? }`
 
 ### Visualization Formats
 
@@ -617,6 +651,7 @@ The `@format` tag on methods supports multiple format types:
 |-------|-------------|
 | `chart` | Auto-detect chart type from data shape |
 | `chart:bar` | Bar chart |
+| `chart:hbar` | Horizontal bar chart (same data shape as `chart:bar`) |
 | `chart:line` | Line chart |
 | `chart:pie` | Pie chart |
 | `chart:area` | Area chart (line with fill) |
@@ -632,6 +667,37 @@ The `@format` tag on methods supports multiple format types:
 | `slides` | Marp-style slide presentation |
 | `dashboard` | Composite grid of auto-detected panels |
 | `cart` | Shopping cart with item rows + totals |
+| `stat-group` | Row of KPI stat cards |
+| `heatmap` | Color-intensity grid (activity heatmap) |
+| `calendar` | Monthly/weekly calendar view with events |
+| `map` | Interactive map with markers |
+| `network` / `graph` | Node-edge graph diagram |
+| `cron` | Human-readable cron expression display |
+
+**`stat-group` data shape:**
+```json
+[{ "label": "Revenue", "value": "$14,283", "delta": "+12%", "trend": "up", "prefix": "$", "suffix": "" }]
+```
+`trend` values: `"up"`, `"down"`, `"flat"`
+
+**`heatmap` data shape:** `{ rows, cols, values }` grid, or flat array `[{ rowKey, colKey, value }]`
+
+**`calendar` data shape:**
+```json
+[{ "title": "Sprint Review", "start": "2026-03-20", "end": "2026-03-20", "allDay": true, "color": "#6366f1" }]
+```
+
+**`map` data shape:**
+```json
+[{ "lat": 37.7749, "lng": -122.4194, "label": "SF Office", "popup": "HQ" }]
+```
+
+**`network` / `graph` data shape:**
+```json
+{ "nodes": [{ "id": "1", "label": "Alice", "group": "admin" }], "edges": [{ "from": "1", "to": "2", "label": "manages" }] }
+```
+
+**`cron` data shape:** Cron expression string `"0 9 * * 1-5"`, or `{ expression, description? }`
 
 ### Container Formats (Composable)
 
@@ -656,6 +722,62 @@ Container formats wrap inner content renderers. Data must be an **object** — k
 | `code:lang` | Any language (replace `lang`) |
 
 Colors use `--syntax-*` CSS variables from the theme, adapting to light/dark and OKLCH presets.
+
+### Design / Layout Formats
+
+| Value | Description |
+|-------|-------------|
+| `image` | Single image, or array of images with optional captions |
+| `carousel` | Horizontally scrolling image carousel |
+| `gallery` | Thumbnail grid with lightbox expand |
+| `masonry` | Pinterest-style masonry image grid |
+| `hero` | Full-width hero section with title, subtitle, and CTA |
+| `banner` | Dismissable notification banner |
+| `quote` | Styled pull-quote with optional attribution |
+| `profile` | User/entity profile card with avatar, role, bio, and stats |
+| `feature-grid` | Marketing feature grid with icons and descriptions |
+| `invoice` / `receipt` | Itemized invoice or receipt with totals |
+
+**`image` data shape:** URL string, `{ src, caption? }`, or `[{ src, caption? }]`
+
+**`carousel` / `gallery` / `masonry` data shape:** `[{ src, caption? }]`
+(`gallery` items also accept `full` for the lightbox URL)
+
+**`hero` data shape:**
+```json
+{ "title": "Ship faster", "subtitle": "One platform for everything", "image": "/hero.png", "cta": "Get started", "url": "/signup" }
+```
+
+**`banner` data shape:**
+```json
+{ "message": "Scheduled maintenance on Sunday", "type": "warning", "icon": "⚠️" }
+```
+`type` values: `"info"`, `"success"`, `"error"`, `"warning"`
+
+**`quote` data shape:**
+```json
+{ "text": "Build things people want.", "author": "PG", "source": "YC", "avatar": "/pg.jpg" }
+```
+
+**`profile` data shape:**
+```json
+{ "name": "Alice Chen", "avatar": "/alice.png", "role": "Engineer", "bio": "Works on runtime.", "stats": { "commits": 342, "reviews": 89 } }
+```
+
+**`feature-grid` data shape:**
+```json
+[{ "icon": "⚡", "title": "Fast", "description": "Sub-millisecond routing" }]
+```
+
+**`invoice` / `receipt` data shape:**
+```json
+{
+  "number": "INV-001", "date": "2026-03-20",
+  "from": "Acme Corp", "to": "Customer Ltd",
+  "items": [{ "description": "Photon Pro", "quantity": 1, "rate": 99, "amount": 99 }],
+  "subtotal": 99, "tax": 9.9, "total": 108.9, "notes": "Due in 30 days"
+}
+```
 
 ```typescript
 /**
