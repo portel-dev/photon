@@ -361,7 +361,6 @@ export function generateRenderersScript(): string {
   // ─── Code (syntax-highlighted) ───
   renderers.code = function(container, data) {
     var text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    // Simple syntax highlighter using regex replacements
     var root = getComputedStyle(document.documentElement);
     var get = function(prop, fb) { return root.getPropertyValue(prop).trim() || fb; };
     var sc = {
@@ -370,16 +369,27 @@ export function generateRenderersScript(): string {
       string:  get('--syntax-string', '#a5d6ff'),
       number:  get('--syntax-number', '#ff9e64'),
       fn:      get('--syntax-function', '#d2a8ff'),
-      punct:   get('--syntax-punctuation', '#888'),
-      op:      get('--syntax-operator', '#ff7b72'),
     };
-    var highlighted = esc(text)
-      .replace(/(\\/(\\/.*))/gm, '<span style="color:' + sc.comment + '">$1</span>')
-      .replace(/\\b(const|let|var|function|async|await|return|if|else|for|while|new|class|import|export|from|default|this|typeof|try|catch|throw)\\b/g, '<span style="color:' + sc.keyword + '">$1</span>')
-      .replace(/(&apos;[^&]*?&apos;|&quot;[^&]*?&quot;|&#39;[^&#]*?&#39;|'[^']*?'|"[^"]*?"|\`[^\`]*?\`)/g, '<span style="color:' + sc.string + '">$1</span>')
-      .replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span style="color:' + sc.number + '">$1</span>')
-      .replace(/([\\w]+)\\s*\\(/g, '<span style="color:' + sc.fn + '">$1</span>(');
-    container.innerHTML = '<pre style="font-size:12px;line-height:1.6;color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px 16px;border-radius:6px;overflow:auto;max-height:500px;margin:0;tab-size:2"><code>' + highlighted + '</code></pre>';
+    // Tokenize then reassemble — avoids regex-on-HTML issues from esc()
+    var lines = text.split('\\n');
+    var out = [];
+    for (var li = 0; li < lines.length; li++) {
+      var line = esc(lines[li]);
+      // Comments (// ...)
+      var ci = line.indexOf('//');
+      var tail = '';
+      if (ci >= 0) { tail = '<span style="color:' + sc.comment + '">' + line.slice(ci) + '</span>'; line = line.slice(0, ci); }
+      // Strings: 'x', "x", \`x\`
+      line = line.replace(/(&quot;[^&]*?&quot;|&#x27;[^&]*?&#x27;|'[^']*?')/g, '<span style="color:' + sc.string + '">$1</span>');
+      // Keywords
+      line = line.replace(/\\b(const|let|var|function|async|await|return|if|else|for|while|new|class|import|export|from|default|this|typeof|try|catch|throw|of|in)\\b/g, '<span style="color:' + sc.keyword + '">$1</span>');
+      // Numbers
+      line = line.replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span style="color:' + sc.number + '">$1</span>');
+      // Function calls
+      line = line.replace(/([a-zA-Z_$][\\w$]*)\\s*\\(/g, '<span style="color:' + sc.fn + '">$1</span>(');
+      out.push(line + tail);
+    }
+    container.innerHTML = '<pre style="font-size:12px;line-height:1.6;color:' + colors.text + ';background:' + colors.bgAlt + ';padding:12px 16px;border-radius:6px;overflow:auto;max-height:500px;margin:0;tab-size:2"><code>' + out.join('\\n') + '</code></pre>';
   };
 
   // ─── KV (key-value card) ───
