@@ -270,24 +270,18 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     document.documentElement.style.colorScheme = ctx.theme;
     document.documentElement.setAttribute('data-theme', ctx.theme);
 
-    var lightBg = '#ffffff';
-    var lightText = '#1a1a1a';
-    var darkBg = '#0d0d0d';
-    var darkText = '#e6e6e6';
-
     if (ctx.theme === 'light') {
       document.documentElement.classList.add('light-theme');
-      document.documentElement.style.backgroundColor = lightBg;
-      if (document.body) {
-        document.body.style.backgroundColor = lightBg;
-        document.body.style.color = lightText;
-      }
-    } else {
-      document.documentElement.style.backgroundColor = darkBg;
-      if (document.body) {
-        document.body.style.backgroundColor = darkBg;
-        document.body.style.color = darkText;
-      }
+    }
+
+    // Set bg/text from theme tokens so custom UIs using var(--bg) get the right values.
+    // Use token values when available, fall back to sensible defaults.
+    var bg = themeTokens['--bg'] || (ctx.theme === 'light' ? '#ffffff' : '#0d0d0d');
+    var text = themeTokens['--text'] || (ctx.theme === 'light' ? '#1a1a1a' : '#e6e6e6');
+    document.documentElement.style.backgroundColor = bg;
+    if (document.body) {
+      document.body.style.backgroundColor = bg;
+      document.body.style.color = text;
     }
   }
 
