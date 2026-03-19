@@ -151,6 +151,8 @@ export interface PhotonInfo {
   injectedPhotons?: string[];
   /** True if marked with @stateful */
   stateful?: boolean;
+  /** MCP OAuth auth requirement from @auth tag */
+  auth?: string;
   /** True if photon has `protected settings = { ... }` */
   hasSettings?: boolean;
 }

@@ -944,6 +944,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       const isStateful = schemaSource ? /@stateful\b/.test(schemaSource) : false;
+      const authMatch = schemaSource?.match(/@auth(?:\s+(\S+))?/i);
+      const authValue = authMatch ? authMatch[1]?.trim() || 'required' : undefined;
 
       return {
         id: generatePhotonId(photonPath),
@@ -965,6 +967,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         promptCount,
         installSource,
         ...(isStateful && { stateful: true }),
+        ...(authValue && { auth: authValue }),
         ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
         ...(constructorParams.length > 0 && { requiredParams: constructorParams }),
         ...(mcp.injectedPhotons &&
@@ -1115,6 +1118,41 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           logger.debug(`${req.method} ${url.pathname} ${res.statusCode} ${duration}ms`);
         }
       });
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // MCP OAuth Protected Resource Metadata (RFC 9728)
+      // Tells MCP clients where to authenticate when @auth is required
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/.well-known/oauth-protected-resource') {
+        // Find any photon with @auth — use its auth provider URL
+        const authPhoton = photons.find(
+          (p): p is PhotonInfo => p.configured && !!('auth' in p && p.auth)
+        );
+        const authValue = authPhoton?.auth;
+
+        if (!authValue || authValue === 'optional') {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'No auth-required photons loaded' }));
+          return;
+        }
+
+        // If @auth is a URL, it's the OIDC provider; otherwise use a placeholder
+        const authServer = authValue !== 'required' ? authValue : undefined;
+        const serverUrl = `http://${req.headers.host}`;
+
+        const prm: Record<string, unknown> = {
+          resource: `${serverUrl}/mcp`,
+          bearer_methods_supported: ['header'],
+          scopes_supported: ['mcp:tools'],
+        };
+        if (authServer) {
+          prm.authorization_servers = [authServer];
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(prm));
+        return;
+      }
 
       // ══════════════════════════════════════════════════════════════════════════
       // MCP Streamable HTTP Transport (standard MCP clients like Claude Desktop)
@@ -2131,6 +2169,10 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               backfillEnvDefaults(mcp.instance, reloadConstructorParams);
 
               const isStateful = /@stateful\b/.test(reloadSource);
+              const reloadAuthMatch = reloadSource.match(/@auth(?:\s+(\S+))?/i);
+              const reloadAuthValue = reloadAuthMatch
+                ? reloadAuthMatch[1]?.trim() || 'required'
+                : undefined;
               const reloadedPhoton: PhotonInfo = {
                 id: generatePhotonId(photonPath),
                 name: photonName,
@@ -2143,6 +2185,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
                 icon: reloadClassMeta.icon,
                 internal: reloadClassMeta.internal,
                 ...(isStateful && { stateful: true }),
+                ...(reloadAuthValue && { auth: reloadAuthValue }),
                 ...(mcp.settingsSchema?.hasSettings && { hasSettings: true }),
                 ...(reloadConstructorParams.length > 0 && {
                   requiredParams: reloadConstructorParams,

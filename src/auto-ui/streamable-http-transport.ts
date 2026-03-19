@@ -822,6 +822,26 @@ const handlers: Record<string, RequestHandler> = {
     const serverName = name.slice(0, slashIndex);
     const methodName = name.slice(slashIndex + 1);
 
+    // Per-photon auth check: if this photon requires auth but caller is anonymous, reject
+    const targetPhoton = ctx.photons.find((p) => p.name === serverName);
+    if (targetPhoton?.configured && (targetPhoton as any).auth === 'required') {
+      if (!ctx.caller || ctx.caller.anonymous) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `Authentication required for ${serverName}. Provide an OAuth Bearer token.`,
+              },
+            ],
+            isError: true,
+          },
+        };
+      }
+    }
+
     // Native photons take precedence over external MCP clients with the same name
     // Support both short names and namespace:name qualified names
     const isNativePhoton = ctx.photons.some((p) => p.name === serverName);
@@ -2492,13 +2512,35 @@ export async function handleStreamableHTTP(
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Accept, Mcp-Session-Id, Authorization'
+  );
   res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
 
   // Handle preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return true;
+  }
+
+  // MCP OAuth auth gate (RFC 9728)
+  // If any loaded photon has @auth required, demand a Bearer token
+  const requiresAuth = options.photons.some((p) => p.configured && (p as any).auth === 'required');
+  if (requiresAuth && !req.headers.authorization?.startsWith('Bearer ')) {
+    const serverUrl = `http://${req.headers.host}`;
+    res.writeHead(401, {
+      'WWW-Authenticate': `Bearer realm="mcp", resource_metadata="${serverUrl}/.well-known/oauth-protected-resource"`,
+      'Content-Type': 'application/json',
+    });
+    res.end(
+      JSON.stringify({
+        error: 'unauthorized',
+        error_description:
+          'MCP OAuth token required. See WWW-Authenticate header for auth metadata.',
+      })
+    );
     return true;
   }
 
