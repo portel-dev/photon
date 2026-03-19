@@ -47,18 +47,18 @@ Thank you for your interest in contributing to Photon!
 - `src/` — Main source code
 - `tests/` — Test files
 - `docs/` — User-facing documentation
-- `docs/core/` — Internal architecture docs for contributors
+- `docs/internals/` — Internal architecture docs for contributors
 - `templates/` — Project templates
 
 ## Architecture & Implementation Docs
 
-Detailed documentation for contributors can be found in `docs/core/`:
+Detailed documentation for contributors can be found in `docs/internals/`:
 
-- [Auto-UI Architecture](docs/core/AUTO-UI-ARCHITECTURE.md) — How the Auto-UI system generates interfaces
-- [Daemon PubSub Protocol](docs/core/DAEMON-PUBSUB.md) — Protocol for the Photon Daemon's pub/sub system
-- [Elicitation Architecture](docs/core/ELICITATION-ARCHITECTURE.md) — Architecture of the elicitation system
-- [MCP Elicitation Implementation](docs/core/MCP-ELICITATION-IMPLEMENTATION.md) — Implementation details for MCP elicitation
-- [UX Guidelines](docs/core/UX-GUIDELINES.md) — Guidelines for consistent CLI and UI experience
+- [Auto-UI Architecture](docs/internals/AUTO-UI-ARCHITECTURE.md) — How the Auto-UI system generates interfaces
+- [Daemon PubSub Protocol](docs/internals/DAEMON-PUBSUB.md) — Protocol for the Photon Daemon's pub/sub system
+- [Elicitation Architecture](docs/internals/ELICITATION-ARCHITECTURE.md) — Architecture of the elicitation system
+- [MCP Elicitation Implementation](docs/internals/MCP-ELICITATION-IMPLEMENTATION.md) — Implementation details for MCP elicitation
+- [UX Guidelines](docs/internals/UX-GUIDELINES.md) — Guidelines for consistent CLI and UI experience
 
 For general usage and development of Photon MCPs:
 

@@ -442,7 +442,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 |---|---|
 | [Custom UI](./docs/guides/CUSTOM-UI.md) | Build rich interactive interfaces with the photon bridge API |
 | [OAuth](./docs/guides/AUTH.md) | Built-in OAuth 2.0 with Google, GitHub, Microsoft |
-| [Daemon Pub/Sub](./docs/core/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
+| [Daemon Pub/Sub](./docs/internals/DAEMON-PUBSUB.md) | Real-time cross-process messaging |
 | [Webhooks](./docs/reference/WEBHOOKS.md) | HTTP endpoints for external services |
 | [Locks](./docs/reference/LOCKS.md) | Distributed locks for exclusive access |
 | [Advanced Patterns](./docs/guides/ADVANCED.md) | Lifecycle hooks, dependency injection, interactive workflows |
@@ -457,7 +457,7 @@ Uses Bun's compiler under the hood. The binary bundles the photon, its `@depende
 | [Best Practices](./docs/guides/BEST-PRACTICES.md) | Patterns for production photons |
 | [Comparison](./docs/COMPARISON.md) | Benchmarks vs official MCP implementations |
 
-**Reference:** [Architecture](./docs/core/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
+**Reference:** [Architecture](./docs/internals/ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md)
 
 ---
 
