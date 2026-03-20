@@ -16,7 +16,8 @@
     "onLanguage:typescript",
     "onCommand:photon.openInBeam",
     "onCommand:photon.regenerateEditorCache",
-    "onCommand:photon.createPhoton"
+    "onCommand:photon.createPhoton",
+    "onCommand:photon.goToSymbol"
   ],
   "main": "./extension.cjs",
   "contributes": {
@@ -32,6 +33,10 @@
       {
         "command": "photon.createPhoton",
         "title": "Photon: Create Photon"
+      },
+      {
+        "command": "photon.goToSymbol",
+        "title": "Photon: Go To Photon Symbol"
       }
     ],
     "configuration": {

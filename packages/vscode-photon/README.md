@@ -11,6 +11,7 @@ Current MVP:
 - adds find references and rename across the current photon and local support files
 - offers quick fixes from the shared Photon TypeScript engine
 - shows signature help for Photon-aware function and method calls
+- feeds Photon-aware symbols into the VS Code Outline view and quick symbol picker
 - opens the current photon in Beam
 - creates a new photon from the built-in template
 

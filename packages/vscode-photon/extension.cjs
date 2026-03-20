@@ -528,6 +528,106 @@ function createPhotonSignatureHelpProvider() {
   };
 }
 
+function toSymbolKind(kind) {
+  const map = {
+    class: vscode.SymbolKind.Class,
+    method: vscode.SymbolKind.Method,
+    function: vscode.SymbolKind.Function,
+    property: vscode.SymbolKind.Property,
+    variable: vscode.SymbolKind.Variable,
+    interface: vscode.SymbolKind.Interface,
+    enum: vscode.SymbolKind.Enum,
+    namespace: vscode.SymbolKind.Namespace,
+    module: vscode.SymbolKind.Module,
+    constructor: vscode.SymbolKind.Constructor,
+  };
+  return map[kind] || vscode.SymbolKind.Object;
+}
+
+function buildDocumentSymbols(document, items) {
+  const roots = [];
+  const stack = [];
+
+  for (const item of items) {
+    const range = new vscode.Range(
+      document.positionAt(item.from),
+      document.positionAt(item.to)
+    );
+    const symbol = new vscode.DocumentSymbol(
+      item.text,
+      '',
+      toSymbolKind(item.kind),
+      range,
+      range
+    );
+
+    while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
+      stack.pop();
+    }
+
+    const parent = stack[stack.length - 1];
+    if (parent) {
+      parent.symbol.children.push(symbol);
+    } else {
+      roots.push(symbol);
+    }
+
+    stack.push({ level: item.level, symbol });
+  }
+
+  return roots;
+}
+
+function createPhotonDocumentSymbolProvider() {
+  return {
+    async provideDocumentSymbols(document) {
+      if (!isPhotonDocument(document)) return [];
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const outline = await session.outline(
+        document.fileName,
+        document.getText(),
+        supportFiles
+      );
+      return buildDocumentSymbols(document, outline);
+    },
+  };
+}
+
+async function goToPhotonSymbol() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || !isPhotonDocument(editor.document)) {
+    vscode.window.showErrorMessage('Open a .photon.ts file first.');
+    return;
+  }
+
+  const session = await getDirectSession();
+  const supportFiles = await collectSupportFiles(editor.document);
+  const outline = await session.outline(
+    editor.document.fileName,
+    editor.document.getText(),
+    supportFiles
+  );
+
+  const pick = await vscode.window.showQuickPick(
+    outline.map((item) => ({
+      label: item.text,
+      description: item.kind,
+      detail: `${'  '.repeat(item.level)}line ${editor.document.positionAt(item.from).line + 1}`,
+      item,
+    })),
+    { placeHolder: 'Jump to a Photon symbol' }
+  );
+  if (!pick) return;
+
+  const range = new vscode.Range(
+    editor.document.positionAt(pick.item.from),
+    editor.document.positionAt(pick.item.to)
+  );
+  editor.selection = new vscode.Selection(range.start, range.start);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+}
+
 function activate(context) {
   const selector = { language: 'typescript', scheme: 'file', pattern: '**/*.photon.ts' };
   diagnosticsCollection = vscode.languages.createDiagnosticCollection('photon');
@@ -555,6 +655,7 @@ function activate(context) {
       );
     }),
     vscode.commands.registerCommand('photon.createPhoton', () => void createPhotonFromTemplate()),
+    vscode.commands.registerCommand('photon.goToSymbol', () => void goToPhotonSymbol()),
     vscode.languages.registerCompletionItemProvider(
       selector,
       createPhotonCompletionProvider(),
@@ -573,7 +674,8 @@ function activate(context) {
       createPhotonSignatureHelpProvider(),
       '(',
       ','
-    )
+    ),
+    vscode.languages.registerDocumentSymbolProvider(selector, createPhotonDocumentSymbolProvider())
   );
 
   for (const document of vscode.workspace.textDocuments) {
