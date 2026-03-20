@@ -336,7 +336,12 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode !== 'navigate') return;
 
   // Skip API routes and static assets — let them pass through
-  if (url.pathname.startsWith('/api/') || url.pathname === '/sw.js' || url.pathname === '/beam.bundle.js') return;
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname === '/sw.js' ||
+    url.pathname === '/beam.bundle.js' ||
+    url.pathname === '/beam-ts-worker.js'
+  ) return;
 
   // All navigation requests go through health check
   event.respondWith(handlePWANavigation(event.request));
@@ -1393,6 +1398,22 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
         } catch {
           res.writeHead(404);
           res.end('Bundle not found. Run npm run build:beam first.');
+        }
+        return;
+      }
+
+      if (url.pathname === '/beam-ts-worker.js') {
+        try {
+          const workerPath = path.join(__dirname, '../../dist/beam-ts-worker.js');
+          const content = await fs.readFile(workerPath, 'utf-8');
+          res.writeHead(200, {
+            'Content-Type': 'text/javascript',
+            'Cache-Control': 'no-cache',
+          });
+          res.end(content);
+        } catch {
+          res.writeHead(404);
+          res.end('TS worker not found. Run npm run build:beam first.');
         }
         return;
       }

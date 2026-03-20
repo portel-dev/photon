@@ -10,6 +10,8 @@ import { EditorView, keymap } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap } from '@codemirror/commands';
+import type { CompletionContext } from '@codemirror/autocomplete';
+import { linter, type Diagnostic } from '@codemirror/lint';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
@@ -18,6 +20,10 @@ import {
   photonFormatCompletions,
   photonRuntimeCompletions,
 } from './docblock-completions.js';
+import {
+  PhotonTsWorkerClient,
+  type PhotonTsDiagnostic,
+} from '../services/photon-ts-worker-client.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
 import './studio-preview.js';
@@ -45,10 +51,13 @@ export class PhotonStudio extends LitElement {
   @state() private _loading = true;
   @state() private _filePath = '';
   @state() private _error = '';
+  @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
 
   private _editorView: EditorView | null = null;
   private _parseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly PARSE_DEBOUNCE_MS = 1500;
+  private _tsWorkerClient: PhotonTsWorkerClient | null = null;
+  private _diagnosticRequestToken = 0;
 
   static styles = css`
     :host {
@@ -287,6 +296,8 @@ export class PhotonStudio extends LitElement {
       clearTimeout(this._parseDebounceTimer);
       this._parseDebounceTimer = null;
     }
+    this._tsWorkerClient?.destroy();
+    this._tsWorkerClient = null;
   }
 
   updated(changed: Map<string, any>) {
@@ -312,10 +323,14 @@ export class PhotonStudio extends LitElement {
       this._filePath = parsed.path || '';
       this._dirty = false;
       this._loading = false;
+      this._tsWorkerClient?.destroy();
+      this._tsWorkerClient = new PhotonTsWorkerClient();
+      await this._tsWorkerClient.sync(this._filePath, this._source).catch(() => {});
       await this.updateComplete;
       this._initEditor();
       // Auto-parse on load
       void this._parse();
+      void this._refreshTypeScriptDiagnostics();
     } catch (err: any) {
       this._error = err.message || 'Failed to load source';
       this._loading = false;
@@ -333,9 +348,28 @@ export class PhotonStudio extends LitElement {
     }
 
     const isDark = this.theme === 'dark';
+    const tsWorker = this._tsWorkerClient;
 
     // Create completion source once so CM6 gets a stable function reference
     const docblockCompletions = createDocblockCompletions(mcpClient.getServerVersion());
+    const tsCompletions = async (context: CompletionContext) => {
+      if (!tsWorker || !this._filePath) return null;
+      return tsWorker.completions(this._filePath, this._source, context);
+    };
+    const tsLint = linter(async () => {
+      if (!tsWorker || !this._filePath) return [];
+      const diagnostics = await tsWorker.diagnostics(this._filePath, this._source).catch(() => []);
+      this._tsDiagnostics = diagnostics;
+      return diagnostics.map(
+        (diag): Diagnostic => ({
+          from: diag.from,
+          to: Math.max(diag.to, diag.from + 1),
+          severity: diag.severity,
+          message: diag.message,
+          source: diag.code ? `ts(${diag.code})` : 'ts',
+        })
+      );
+    });
 
     const state = EditorState.create({
       doc: this._source,
@@ -343,11 +377,13 @@ export class PhotonStudio extends LitElement {
         basicSetup,
         javascript({ typescript: true }),
         isDark ? oneDark : lightTheme,
+        tsLint,
         // Add photon JSDoc completions via language data (merges with basicSetup's autocompletion)
         EditorState.languageData.of(() => [
           { autocomplete: docblockCompletions },
           { autocomplete: photonFormatCompletions },
           { autocomplete: photonRuntimeCompletions },
+          { autocomplete: tsCompletions },
         ]),
         // JSDoc comment continuation at high priority so it fires before basicSetup's Enter
         Prec.high(
@@ -393,6 +429,8 @@ export class PhotonStudio extends LitElement {
           if (update.docChanged) {
             this._source = update.state.doc.toString();
             this._dirty = this._source !== this._originalSource;
+            void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+            void this._refreshTypeScriptDiagnostics();
             this._scheduleParse();
           }
         }),
@@ -432,6 +470,8 @@ export class PhotonStudio extends LitElement {
           if (parsed.parseResult) {
             this._parseResult = parsed.parseResult;
           }
+          void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+          void this._refreshTypeScriptDiagnostics();
           showToast('Saved and reloaded', 'success');
           this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
         } else {
@@ -465,6 +505,8 @@ export class PhotonStudio extends LitElement {
     this._source = template.source;
     this._dirty = this._source !== this._originalSource;
     this._parseResult = null;
+    void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+    void this._refreshTypeScriptDiagnostics();
 
     // Update editor content
     if (this._editorView) {
@@ -475,6 +517,25 @@ export class PhotonStudio extends LitElement {
           insert: template.source,
         },
       });
+    }
+  }
+
+  private async _refreshTypeScriptDiagnostics() {
+    const token = ++this._diagnosticRequestToken;
+    if (!this._tsWorkerClient || !this._filePath) {
+      this._tsDiagnostics = [];
+      return;
+    }
+
+    try {
+      const diagnostics = await this._tsWorkerClient.diagnostics(this._filePath, this._source);
+      if (token === this._diagnosticRequestToken) {
+        this._tsDiagnostics = diagnostics;
+      }
+    } catch {
+      if (token === this._diagnosticRequestToken) {
+        this._tsDiagnostics = [];
+      }
     }
   }
 
@@ -565,6 +626,12 @@ export class PhotonStudio extends LitElement {
 
       <div class="status-bar">
         <span class="status-path" title="${this._filePath}">${this._filePath}</span>
+        <span>
+          TS
+          ${this._tsDiagnostics.length === 0
+            ? 'clean'
+            : `${this._tsDiagnostics.length} issue${this._tsDiagnostics.length === 1 ? '' : 's'}`}
+        </span>
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
     `;
