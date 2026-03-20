@@ -8,6 +8,11 @@ const vscode = require('vscode');
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const TEMPLATE_PATH = path.join(ROOT_DIR, 'templates', 'photon.template.ts');
+const IMPORT_RE = /\b(?:import|export)\b[\s\S]*?\bfrom\s*['"](\.[^'"]+)['"]|import\s*['"](\.[^'"]+)['"]/g;
+
+let directSessionPromise;
+let diagnosticsCollection;
+const diagnosticTimers = new Map();
 
 function isPhotonDocument(document) {
   return Boolean(document && document.fileName && document.fileName.endsWith('.photon.ts'));
@@ -43,6 +48,15 @@ function getBaseDir(document) {
 
 async function loadPhotonModule(modulePath) {
   return import(pathToFileURL(modulePath).href);
+}
+
+async function getDirectSession() {
+  if (!directSessionPromise) {
+    directSessionPromise = loadPhotonModule(
+      path.join(DIST_DIR, 'editor-support', 'photon-ts-direct-session.js')
+    ).then((mod) => mod.createDirectPhotonTsSession());
+  }
+  return directSessionPromise;
 }
 
 async function ensureDeclarationForDocument(document) {
@@ -85,6 +99,95 @@ async function regenerateWorkspaceDeclarations() {
   return results;
 }
 
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function resolveSupportPath(baseFilePath, specifier) {
+  const basePath = path.resolve(path.dirname(baseFilePath), specifier);
+  const candidates = [
+    basePath,
+    `${basePath}.ts`,
+    `${basePath}.js`,
+    `${basePath}.d.ts`,
+    path.join(basePath, 'index.ts'),
+    path.join(basePath, 'index.js'),
+    path.join(basePath, 'index.d.ts'),
+  ];
+
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+async function collectSupportFiles(document) {
+  const matches = Array.from(document.getText().matchAll(IMPORT_RE));
+  const supportFiles = [];
+  const seen = new Set();
+
+  for (const match of matches) {
+    const specifier = match[1] || match[2];
+    if (!specifier) continue;
+    const resolvedPath = await resolveSupportPath(document.fileName, specifier);
+    if (!resolvedPath || seen.has(resolvedPath)) continue;
+    seen.add(resolvedPath);
+    supportFiles.push({
+      path: resolvedPath,
+      source: await fs.readFile(resolvedPath, 'utf8'),
+    });
+  }
+
+  return supportFiles;
+}
+
+function severityFromPhoton(severity) {
+  if (severity === 'warning') return vscode.DiagnosticSeverity.Warning;
+  if (severity === 'info') return vscode.DiagnosticSeverity.Information;
+  return vscode.DiagnosticSeverity.Error;
+}
+
+async function refreshDiagnostics(document) {
+  if (!diagnosticsCollection) return;
+  if (!isPhotonDocument(document) || document.isUntitled) {
+    diagnosticsCollection.delete(document.uri);
+    return;
+  }
+
+  const session = await getDirectSession();
+  const supportFiles = await collectSupportFiles(document);
+  const diagnostics = await session.diagnostics(document.fileName, document.getText(), supportFiles);
+  const nextDiagnostics = diagnostics.map((entry) => {
+    const diagnostic = new vscode.Diagnostic(
+      new vscode.Range(document.positionAt(entry.from), document.positionAt(entry.to)),
+      entry.message,
+      severityFromPhoton(entry.severity)
+    );
+    diagnostic.code = entry.code;
+    diagnostic.source = 'photon';
+    return diagnostic;
+  });
+  diagnosticsCollection.set(document.uri, nextDiagnostics);
+}
+
+function scheduleDiagnostics(document, delay = 150) {
+  if (!isPhotonDocument(document)) return;
+  const existing = diagnosticTimers.get(document.uri.toString());
+  if (existing) clearTimeout(existing);
+  const handle = setTimeout(() => {
+    diagnosticTimers.delete(document.uri.toString());
+    void refreshDiagnostics(document);
+  }, delay);
+  diagnosticTimers.set(document.uri.toString(), handle);
+}
+
 async function createPhotonFromTemplate() {
   const workspaceFolders = vscode.workspace.workspaceFolders || [];
   if (workspaceFolders.length === 0) {
@@ -119,11 +222,10 @@ async function createPhotonFromTemplate() {
   const className = toPascalCase(kebabName) || 'MyPhoton';
   const targetPath = path.join(folder.uri.fsPath, `${kebabName}.photon.ts`);
 
-  try {
-    await fs.access(targetPath);
+  if (await pathExists(targetPath)) {
     vscode.window.showErrorMessage(`Photon already exists: ${path.basename(targetPath)}`);
     return;
-  } catch {}
+  }
 
   const template = await fs.readFile(TEMPLATE_PATH, 'utf8');
   const content = template
@@ -205,15 +307,86 @@ function createPhotonCompletionProvider() {
   };
 }
 
+function createPhotonHoverProvider() {
+  return {
+    async provideHover(document, position) {
+      if (!isPhotonDocument(document)) return null;
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const hover = await session.hover(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        supportFiles
+      );
+      if (!hover) return null;
+
+      const contents = [];
+      if (hover.display) {
+        contents.push(new vscode.MarkdownString().appendCodeblock(hover.display, 'ts'));
+      }
+      if (hover.documentation) {
+        contents.push(new vscode.MarkdownString(hover.documentation));
+      }
+      for (const tag of hover.tags || []) {
+        if (!tag.text) continue;
+        contents.push(new vscode.MarkdownString(`**@${tag.name}** ${tag.text}`));
+      }
+
+      return new vscode.Hover(
+        contents,
+        new vscode.Range(document.positionAt(hover.from), document.positionAt(hover.to))
+      );
+    },
+  };
+}
+
+function createPhotonDefinitionProvider() {
+  return {
+    async provideDefinition(document, position) {
+      if (!isPhotonDocument(document)) return null;
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const definition = await session.definition(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        supportFiles
+      );
+      if (!definition || definition.kind === 'virtual') return null;
+
+      const targetDocument =
+        definition.filePath === document.fileName
+          ? document
+          : await vscode.workspace.openTextDocument(definition.filePath);
+
+      return new vscode.Location(
+        targetDocument.uri,
+        new vscode.Range(
+          targetDocument.positionAt(definition.targetFrom),
+          targetDocument.positionAt(definition.targetTo)
+        )
+      );
+    },
+  };
+}
+
 function activate(context) {
   const selector = { language: 'typescript', scheme: 'file', pattern: '**/*.photon.ts' };
+  diagnosticsCollection = vscode.languages.createDiagnosticCollection('photon');
 
   context.subscriptions.push(
+    diagnosticsCollection,
     vscode.workspace.onDidOpenTextDocument((document) => {
       void ensureDeclarationForDocument(document);
+      scheduleDiagnostics(document, 0);
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       void ensureDeclarationForDocument(document);
+      scheduleDiagnostics(document, 0);
+    }),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      scheduleDiagnostics(event.document);
     }),
     vscode.commands.registerCommand('photon.openInBeam', () => void openCurrentPhotonInBeam()),
     vscode.commands.registerCommand('photon.regenerateEditorCache', async () => {
@@ -230,15 +403,29 @@ function activate(context) {
       createPhotonCompletionProvider(),
       '@',
       '{'
-    )
+    ),
+    vscode.languages.registerHoverProvider(selector, createPhotonHoverProvider()),
+    vscode.languages.registerDefinitionProvider(selector, createPhotonDefinitionProvider())
   );
 
   for (const document of vscode.workspace.textDocuments) {
     void ensureDeclarationForDocument(document);
+    scheduleDiagnostics(document, 0);
   }
 }
 
-function deactivate() {}
+async function deactivate() {
+  for (const handle of diagnosticTimers.values()) {
+    clearTimeout(handle);
+  }
+  diagnosticTimers.clear();
+  diagnosticsCollection = null;
+  if (directSessionPromise) {
+    const session = await directSessionPromise;
+    await session.destroy();
+    directSessionPromise = null;
+  }
+}
 
 module.exports = {
   activate,

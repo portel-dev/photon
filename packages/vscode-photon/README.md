@@ -6,6 +6,8 @@ Current MVP:
 
 - regenerates Photon editor declarations on open/save
 - provides Photon docblock tag completions
+- shows Photon diagnostics from the shared TS service
+- shows hover info and go-to-definition for Photon-aware symbols
 - opens the current photon in Beam
 - creates a new photon from the built-in template
 
