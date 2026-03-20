@@ -40,6 +40,14 @@ export interface PhotonTsSignatureHelp {
   activeParameter: number;
 }
 
+export interface PhotonTsOutlineItem {
+  text: string;
+  kind: string;
+  from: number;
+  to: number;
+  level: number;
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -167,6 +175,14 @@ export class PhotonTsWorkerClient {
       source,
       pos,
     }).then((r) => r.signatureHelp);
+  }
+
+  outline(filePath: string, source: string): Promise<PhotonTsOutlineItem[]> {
+    return this.request<{ outline: PhotonTsOutlineItem[] }>({
+      type: 'outline',
+      filePath,
+      source,
+    }).then((r) => r.outline);
   }
 
   async completions(

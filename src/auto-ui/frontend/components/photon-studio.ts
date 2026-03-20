@@ -22,6 +22,7 @@ import {
 } from './docblock-completions.js';
 import {
   type PhotonTsCodeFix,
+  type PhotonTsOutlineItem,
   PhotonTsWorkerClient,
   type PhotonTsDefinition,
   type PhotonTsDiagnostic,
@@ -67,6 +68,8 @@ export class PhotonStudio extends LitElement {
     fixes: PhotonTsCodeFix[];
   } | null = null;
   @state() private _signatureHelp: PhotonTsSignatureHelp | null = null;
+  @state() private _outlineItems: PhotonTsOutlineItem[] = [];
+  @state() private _showOutline = true;
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -88,6 +91,7 @@ export class PhotonStudio extends LitElement {
   private _importSignature = '';
   private _projectRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private _signatureHelpToken = 0;
+  private _outlineToken = 0;
 
   static styles = css`
     :host {
@@ -701,6 +705,53 @@ export class PhotonStudio extends LitElement {
       white-space: pre-wrap;
     }
 
+    .outline-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 12px 10px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .outline-header {
+      font-size: var(--text-xs);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--t-muted, #9fb3c8);
+    }
+
+    .outline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .outline-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--t-primary, #e0e0e0);
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .outline-item:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .outline-kind {
+      color: var(--t-muted, #888);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      min-width: 56px;
+    }
+
     .kbd {
       display: inline-block;
       padding: 0 4px;
@@ -791,6 +842,7 @@ export class PhotonStudio extends LitElement {
       void this._parse();
       void this._refreshTypeScriptDiagnostics();
       void this._refreshSignatureHelp();
+      void this._refreshOutline();
     } catch (err: any) {
       this._error = err.message || 'Failed to load source';
       this._loading = false;
@@ -928,6 +980,7 @@ export class PhotonStudio extends LitElement {
             }
             void this._refreshTypeScriptDiagnostics();
             void this._refreshSignatureHelp(update.state.selection.main.head);
+            void this._refreshOutline();
             this._scheduleParse();
           } else if (update.selectionSet) {
             void this._refreshSignatureHelp(update.state.selection.main.head);
@@ -1339,6 +1392,7 @@ export class PhotonStudio extends LitElement {
     await this._syncTypeScriptProject().catch(() => {});
     await this._refreshTypeScriptDiagnostics();
     await this._refreshSignatureHelp();
+    await this._refreshOutline();
     showToast(successMessage, 'success');
     this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
   }
@@ -1507,6 +1561,7 @@ export class PhotonStudio extends LitElement {
           void this._syncTypeScriptProject().catch(() => {});
           void this._refreshTypeScriptDiagnostics();
           void this._refreshSignatureHelp();
+          void this._refreshOutline();
           showToast('Saved and reloaded', 'success');
           this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
         } else {
@@ -1544,6 +1599,7 @@ export class PhotonStudio extends LitElement {
     void this._refreshProjectContext().catch(() => {});
     void this._refreshTypeScriptDiagnostics();
     void this._refreshSignatureHelp();
+    void this._refreshOutline();
 
     // Update editor content
     if (this._editorView) {
@@ -1599,6 +1655,25 @@ export class PhotonStudio extends LitElement {
     }
   }
 
+  private async _refreshOutline() {
+    const token = ++this._outlineToken;
+    if (!this._tsWorkerClient || !this._filePath) {
+      this._outlineItems = [];
+      return;
+    }
+
+    try {
+      const outline = await this._tsWorkerClient.outline(this._filePath, this._source);
+      if (token === this._outlineToken) {
+        this._outlineItems = outline;
+      }
+    } catch {
+      if (token === this._outlineToken) {
+        this._outlineItems = [];
+      }
+    }
+  }
+
   private _renderSignatureHelp() {
     const activeItem =
       this._signatureHelp?.items[this._signatureHelp.activeItem] || this._signatureHelp?.items[0];
@@ -1624,6 +1699,32 @@ export class PhotonStudio extends LitElement {
               </div>
             `
           : ''}
+      </div>
+    `;
+  }
+
+  private _renderOutline() {
+    if (!this._showOutline || this._outlineItems.length === 0) return null;
+
+    return html`
+      <div class="outline-panel">
+        <div class="outline-header">Outline</div>
+        <div class="outline-list">
+          ${this._outlineItems.map(
+            (item) => html`
+              <div
+                class="outline-item"
+                style="padding-left: ${8 + item.level * 16}px"
+                @click=${() => {
+                  this._focusEditorSpan(item.from, Math.max(item.to, item.from + 1));
+                }}
+              >
+                <span class="outline-kind">${item.kind}</span>
+                <span>${item.text}</span>
+              </div>
+            `
+          )}
+        </div>
       </div>
     `;
   }
@@ -1675,6 +1776,10 @@ export class PhotonStudio extends LitElement {
 
         <button class="toolbar-btn" @click=${() => (this._showInspector = !this._showInspector)}>
           ${this._showInspector ? 'Hide Inspector' : 'Inspector'}
+        </button>
+
+        <button class="toolbar-btn" @click=${() => (this._showOutline = !this._showOutline)}>
+          ${this._showOutline ? 'Hide Outline' : 'Outline'}
         </button>
 
         <button
@@ -1758,7 +1863,7 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
-      ${this._signatureHelp ? this._renderSignatureHelp() : ''}
+      ${this._signatureHelp ? this._renderSignatureHelp() : ''} ${this._renderOutline()}
       ${this._renamePreview
         ? html`
             <div class="rename-panel">
