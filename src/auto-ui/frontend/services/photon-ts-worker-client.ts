@@ -1,52 +1,27 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
 export type {
+  PhotonTsCodeFix,
   PhotonTsDefinition,
   PhotonTsDiagnostic,
   PhotonTsHover,
+  PhotonTsOutlineItem,
   PhotonTsProjectFile,
   PhotonTsReferences,
   PhotonTsRenamePlan,
+  PhotonTsSignatureHelp,
 } from '../../../editor-support/photon-ts-types.js';
 import type {
+  PhotonTsCodeFix,
   PhotonTsDefinition,
   PhotonTsDiagnostic,
   PhotonTsHover,
+  PhotonTsOutlineItem,
   PhotonTsProjectFile,
   PhotonTsReferences,
   PhotonTsRenamePlan,
+  PhotonTsSignatureHelp,
 } from '../../../editor-support/photon-ts-types.js';
-
-export interface PhotonTsCodeFixFile {
-  kind: 'source' | 'project';
-  filePath: string;
-  source: string;
-  changeCount: number;
-}
-
-export interface PhotonTsCodeFix {
-  description: string;
-  files: PhotonTsCodeFixFile[];
-}
-
-export interface PhotonTsSignatureHelp {
-  items: Array<{
-    prefix: string;
-    suffix: string;
-    separator: string;
-    parameters: Array<{ text: string; documentation?: string }>;
-    documentation?: string;
-  }>;
-  activeItem: number;
-  activeParameter: number;
-}
-
-export interface PhotonTsOutlineItem {
-  text: string;
-  kind: string;
-  from: number;
-  to: number;
-  level: number;
-}
+import type { PhotonTsWorkerResponse } from '../../../editor-support/photon-ts-protocol.js';
 
 interface WorkerSuccess<T> {
   id: number;
@@ -72,7 +47,7 @@ export class PhotonTsWorkerClient {
 
   constructor() {
     this.worker = new Worker('/beam-ts-worker.js', { type: 'module' });
-    this.worker.onmessage = (event: MessageEvent<WorkerResponse<any>>) => {
+    this.worker.onmessage = (event: MessageEvent<PhotonTsWorkerResponse>) => {
       const msg = event.data;
       const pending = this.pending.get(msg.id);
       if (!pending) return;
