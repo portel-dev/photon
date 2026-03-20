@@ -751,6 +751,38 @@ const handlers: Record<string, RequestHandler> = {
     });
 
     tools.push({
+      name: 'beam/studio-apply-files',
+      'x-photon-internal': true,
+      description: 'Apply coordinated Studio file updates across the photon project',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the photon being edited',
+          },
+          source: {
+            type: 'string',
+            description: 'Updated source for the photon file',
+          },
+          files: {
+            type: 'array',
+            description: 'Updated sources for the photon and related local support files',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string' },
+                source: { type: 'string' },
+              },
+              required: ['path', 'source'],
+            },
+          },
+        },
+        required: ['name', 'source', 'files'],
+      },
+    });
+
+    tools.push({
       name: 'beam/studio-parse',
       'x-photon-internal': true,
       description: 'Parse photon source and return extracted schema',
@@ -825,6 +857,10 @@ const handlers: Record<string, RequestHandler> = {
 
     if (name === 'beam/studio-project') {
       return handleBeamStudioProject(req, ctx, args || {});
+    }
+
+    if (name === 'beam/studio-apply-files') {
+      return handleBeamStudioApplyFiles(req, ctx, args || {});
     }
 
     if (name === 'beam/studio-parse') {
@@ -2556,6 +2592,112 @@ async function handleBeamStudioProject(
       id: req.id,
       result: {
         content: [{ type: 'text', text: `Error resolving project context: ${message}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
+async function handleBeamStudioApplyFiles(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const {
+    name: photonName,
+    source,
+    files,
+  } = args as {
+    name: string;
+    source: string;
+    files: Array<{ path: string; source: string }>;
+  };
+
+  if (!photonName || typeof source !== 'string' || !Array.isArray(files)) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name, source, and files are required' }],
+        isError: true,
+      },
+    };
+  }
+
+  const photon = ctx.photons.find((p) => p.name === photonName);
+  if (!photon || !photon.path) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error: photon "${photonName}" not found or has no path` }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const payload = await buildStudioProjectPayload(photon.path, source, ctx.workingDir);
+    const allowedPaths = new Set<string>([
+      normalize(photon.path),
+      ...payload.supportFiles.map((file) => normalize(file.path)),
+    ]);
+
+    for (const file of files) {
+      if (!file || typeof file.path !== 'string' || typeof file.source !== 'string') {
+        throw new Error('Each file update must include path and source');
+      }
+      const normalizedPath = normalize(file.path);
+      if (!allowedPaths.has(normalizedPath)) {
+        throw new Error(`Refusing to write unexpected file: ${file.path}`);
+      }
+    }
+
+    for (const file of files) {
+      await writeFile(file.path, file.source, 'utf-8');
+      if (file.path.endsWith('.photon.ts') || file.path.endsWith('.photon.tsx')) {
+        await writePhotonEditorDeclaration(file.path, file.source, ctx.workingDir).catch(
+          () => null
+        );
+      }
+    }
+
+    if (ctx.reloadPhoton) {
+      try {
+        const reloadResult = await ctx.reloadPhoton(photonName);
+        if (reloadResult.success) {
+          broadcastToBeam('beam/hot-reload', { photon: reloadResult.photon });
+        }
+      } catch {
+        // Best effort: don't fail the apply if hot-reload misses.
+      }
+    }
+
+    const refreshedPayload = await buildStudioProjectPayload(photon.path, source, ctx.workingDir);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              declarationPath: refreshedPayload.declarationPath,
+              supportFiles: refreshedPayload.supportFiles,
+            }),
+          },
+        ],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: JSON.stringify({ success: false, error: message }) }],
         isError: true,
       },
     };

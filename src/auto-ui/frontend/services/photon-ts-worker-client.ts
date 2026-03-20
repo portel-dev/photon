@@ -33,6 +33,34 @@ export interface PhotonTsProjectFile {
   source: string;
 }
 
+export interface PhotonTsReferenceItem {
+  kind: 'source' | 'project';
+  filePath: string;
+  from: number;
+  to: number;
+  line: number;
+  column: number;
+  preview: string;
+}
+
+export interface PhotonTsReferences {
+  symbolName: string;
+  items: PhotonTsReferenceItem[];
+}
+
+export interface PhotonTsRenamePlanFile {
+  kind: 'source' | 'project';
+  filePath: string;
+  source: string;
+  changeCount: number;
+}
+
+export interface PhotonTsRenamePlan {
+  symbolName: string;
+  nextName: string;
+  files: PhotonTsRenamePlanFile[];
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -106,6 +134,30 @@ export class PhotonTsWorkerClient {
       source,
       pos,
     }).then((r) => r.definition);
+  }
+
+  references(filePath: string, source: string, pos: number): Promise<PhotonTsReferences | null> {
+    return this.request<{ references: PhotonTsReferences | null }>({
+      type: 'references',
+      filePath,
+      source,
+      pos,
+    }).then((r) => r.references);
+  }
+
+  rename(
+    filePath: string,
+    source: string,
+    pos: number,
+    newName: string
+  ): Promise<PhotonTsRenamePlan | null> {
+    return this.request<{ rename: PhotonTsRenamePlan | null }>({
+      type: 'rename',
+      filePath,
+      source,
+      pos,
+      newName,
+    }).then((r) => r.rename);
   }
 
   async completions(

@@ -49,6 +49,23 @@ type WorkerRequest =
       source: string;
       supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
+    }
+  | {
+      id: number;
+      type: 'references';
+      filePath: string;
+      source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
+      pos: number;
+    }
+  | {
+      id: number;
+      type: 'rename';
+      filePath: string;
+      source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
+      pos: number;
+      newName: string;
     };
 
 type WorkerResponse =
@@ -100,6 +117,40 @@ type WorkerResponse =
           targetTo: number;
           title: string;
           preview?: string;
+        } | null;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        references: {
+          symbolName: string;
+          items: Array<{
+            kind: 'source' | 'project';
+            filePath: string;
+            from: number;
+            to: number;
+            line: number;
+            column: number;
+            preview: string;
+          }>;
+        } | null;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        rename: {
+          symbolName: string;
+          nextName: string;
+          files: Array<{
+            kind: 'source' | 'project';
+            filePath: string;
+            source: string;
+            changeCount: number;
+          }>;
         } | null;
       };
     }
@@ -472,6 +523,33 @@ function buildPreview(content: string, start: number, length: number): string {
     .trim();
 }
 
+function getFileContent(filePath: string): string | null {
+  if (filePath === STUB_LIB_PATH) return PHOTON_RUNTIME_LIB;
+  if (normalizePath(filePath) === normalizePath(currentFilePath)) return currentSource;
+  return projectFiles.get(normalizePath(filePath))?.content || null;
+}
+
+function getLineInfo(
+  content: string,
+  start: number
+): { line: number; column: number; preview: string } {
+  const lines = content.split('\n');
+  let cursor = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineText = lines[i];
+    const lineEnd = cursor + lineText.length;
+    if (start <= lineEnd) {
+      return {
+        line: i + 1,
+        column: start - cursor + 1,
+        preview: lineText.trim(),
+      };
+    }
+    cursor = lineEnd + 1;
+  }
+  return { line: lines.length, column: 1, preview: lines[lines.length - 1]?.trim() || '' };
+}
+
 function normalizeIdentifierSpan(
   source: string,
   start: number,
@@ -511,6 +589,24 @@ function refineSpanToName(
     start: refinedStart,
     end: refinedStart + name.length,
   };
+}
+
+function trimToIdentifierSpan(
+  source: string,
+  start: number,
+  end: number
+): { start: number; end: number } {
+  let nextStart = Math.max(0, start);
+  let nextEnd = Math.max(nextStart, end);
+
+  while (nextStart < source.length && !/[A-Za-z0-9_$]/.test(source[nextStart] || '')) {
+    nextStart++;
+  }
+  while (nextEnd > nextStart && !/[A-Za-z0-9_$]/.test(source[nextEnd - 1] || '')) {
+    nextEnd--;
+  }
+
+  return normalizeIdentifierSpan(source, nextStart, nextEnd);
 }
 
 function getDefinition(pos: number) {
@@ -568,6 +664,128 @@ function getDefinition(pos: number) {
   };
 }
 
+function getReferences(pos: number) {
+  const shadowPos = sourceToShadowPos(pos);
+  const results =
+    languageService.findReferences(currentFilePath, shadowPos) ||
+    (shadowPos > 0 ? languageService.findReferences(currentFilePath, shadowPos - 1) : undefined);
+
+  if (!results || results.length === 0) return null;
+
+  const symbolName = results[0]?.definition?.name || 'Symbol';
+  const items: Array<{
+    kind: 'source' | 'project';
+    filePath: string;
+    from: number;
+    to: number;
+    line: number;
+    column: number;
+    preview: string;
+  }> = [];
+
+  for (const result of results) {
+    for (const ref of result.references) {
+      if (ref.isDefinition) continue;
+      if (normalizePath(ref.fileName) === normalizePath(STUB_LIB_PATH)) continue;
+
+      const content = getFileContent(ref.fileName);
+      if (!content) continue;
+
+      const isCurrent = normalizePath(ref.fileName) === normalizePath(currentFilePath);
+      const start = isCurrent ? shadowToSourcePos(ref.textSpan.start) : ref.textSpan.start;
+      const end = isCurrent
+        ? shadowToSourcePos(ref.textSpan.start + ref.textSpan.length)
+        : ref.textSpan.start + ref.textSpan.length;
+      const lineInfo = getLineInfo(content, start);
+
+      items.push({
+        kind: isCurrent ? 'source' : 'project',
+        filePath: ref.fileName,
+        from: start,
+        to: end,
+        line: lineInfo.line,
+        column: lineInfo.column,
+        preview: lineInfo.preview,
+      });
+    }
+  }
+
+  return { symbolName, items };
+}
+
+function applyTextChanges(
+  content: string,
+  changes: Array<{ start: number; end: number; newText: string }>
+): string {
+  const sorted = [...changes].sort((a, b) => b.start - a.start);
+  let next = content;
+  for (const change of sorted) {
+    next = next.slice(0, change.start) + change.newText + next.slice(change.end);
+  }
+  return next;
+}
+
+function getRenamePlan(pos: number, newName: string) {
+  const shadowPos = sourceToShadowPos(pos);
+  const renameInfo =
+    languageService.getRenameInfo(currentFilePath, shadowPos, {
+      allowRenameOfImportPath: false,
+    }) ||
+    (shadowPos > 0
+      ? languageService.getRenameInfo(currentFilePath, shadowPos - 1, {
+          allowRenameOfImportPath: false,
+        })
+      : undefined);
+
+  if (!renameInfo || !renameInfo.canRename) {
+    throw new Error(renameInfo?.localizedErrorMessage || 'This symbol cannot be renamed');
+  }
+
+  const locations =
+    languageService.findRenameLocations(currentFilePath, shadowPos, false, false, false) ||
+    (shadowPos > 0
+      ? languageService.findRenameLocations(currentFilePath, shadowPos - 1, false, false, false)
+      : undefined) ||
+    [];
+
+  if (locations.length === 0) return null;
+
+  const grouped = new Map<string, Array<{ start: number; end: number; newText: string }>>();
+  for (const location of locations) {
+    if (normalizePath(location.fileName) === normalizePath(STUB_LIB_PATH)) continue;
+    const isCurrent = normalizePath(location.fileName) === normalizePath(currentFilePath);
+    const rawStart = isCurrent
+      ? shadowToSourcePos(location.textSpan.start)
+      : location.textSpan.start;
+    const rawEnd = isCurrent
+      ? shadowToSourcePos(location.textSpan.start + location.textSpan.length)
+      : location.textSpan.start + location.textSpan.length;
+    const fileContent = isCurrent ? currentSource : getFileContent(location.fileName) || '';
+    const trimmed = trimToIdentifierSpan(fileContent, rawStart, rawEnd);
+    const fileKey = normalizePath(location.fileName);
+    const list = grouped.get(fileKey) || [];
+    list.push({ start: trimmed.start, end: trimmed.end, newText: newName });
+    grouped.set(fileKey, list);
+  }
+
+  const files = Array.from(grouped.entries()).map(([filePath, changes]) => {
+    const isCurrent = normalizePath(filePath) === normalizePath(currentFilePath);
+    const content = isCurrent ? currentSource : getFileContent(filePath) || '';
+    return {
+      kind: isCurrent ? ('source' as const) : ('project' as const),
+      filePath,
+      source: applyTextChanges(content, changes),
+      changeCount: changes.length,
+    };
+  });
+
+  return {
+    symbolName: renameInfo.displayName || renameInfo.fullDisplayName || 'Symbol',
+    nextName: newName,
+    files,
+  };
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -599,6 +817,22 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           definition: getDefinition(msg.pos),
+        },
+      };
+    } else if (msg.type === 'references') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          references: getReferences(msg.pos),
+        },
+      };
+    } else if (msg.type === 'rename') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          rename: getRenamePlan(msg.pos, msg.newName),
         },
       };
     } else {

@@ -26,6 +26,8 @@ import {
   type PhotonTsDiagnostic,
   type PhotonTsHover,
   type PhotonTsProjectFile,
+  type PhotonTsRenamePlan,
+  type PhotonTsReferences,
 } from '../services/photon-ts-worker-client.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
@@ -56,6 +58,7 @@ export class PhotonStudio extends LitElement {
   @state() private _error = '';
   @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
   @state() private _definitionPreview: PhotonTsDefinition | null = null;
+  @state() private _referencesPreview: PhotonTsReferences | null = null;
   @state() private _hoverEnabled = true;
 
   private _editorView: EditorView | null = null;
@@ -326,6 +329,56 @@ export class PhotonStudio extends LitElement {
       overflow: auto;
       white-space: pre-wrap;
       font-family: var(--font-mono, monospace);
+    }
+
+    .references-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(110, 231, 183, 0.06);
+    }
+
+    .references-count {
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+    }
+
+    .reference-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .reference-item {
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      cursor: pointer;
+    }
+
+    .reference-item:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .reference-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+      margin-bottom: 6px;
+    }
+
+    .reference-preview {
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--t-primary, #e0e0e0);
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     .problem-item {
@@ -615,6 +668,20 @@ export class PhotonStudio extends LitElement {
                 return true;
               },
             },
+            {
+              key: 'Shift-F12',
+              run: () => {
+                void this._peekReferences();
+                return true;
+              },
+            },
+            {
+              key: 'F2',
+              run: () => {
+                void this._renameSymbol();
+                return true;
+              },
+            },
           ])
         ),
         keymap.of([
@@ -632,6 +699,7 @@ export class PhotonStudio extends LitElement {
             this._source = update.state.doc.toString();
             this._dirty = this._source !== this._originalSource;
             this._definitionPreview = null;
+            this._referencesPreview = null;
             void this._syncTypeScriptProject().catch(() => {});
             const nextImportSignature = this._extractImportSignature(this._source);
             if (nextImportSignature !== this._importSignature) {
@@ -731,7 +799,133 @@ export class PhotonStudio extends LitElement {
     }
 
     this._definitionPreview = definition;
+    this._referencesPreview = null;
     showToast(`Opened ${definition.title} definition preview`, 'info');
+  }
+
+  private async _peekReferences(pos = this._editorView?.state.selection.main.head ?? 0) {
+    if (!this._tsWorkerClient || !this._filePath) return;
+
+    const references = await this._tsWorkerClient
+      .references(this._filePath, this._source, pos)
+      .catch(() => null);
+
+    if (!references || references.items.length === 0) {
+      this._referencesPreview = null;
+      showToast('No references found', 'warning');
+      return;
+    }
+
+    this._definitionPreview = null;
+    this._referencesPreview = references;
+    showToast(
+      `${references.items.length} reference${references.items.length === 1 ? '' : 's'} for ${references.symbolName}`,
+      'info'
+    );
+  }
+
+  private _openReference(item: PhotonTsReferences['items'][number]) {
+    if (item.kind === 'source' && this._editorView) {
+      this._editorView.dispatch({
+        selection: { anchor: item.from, head: item.to },
+        effects: EditorView.scrollIntoView(item.from, { y: 'center' }),
+      });
+      this._editorView.focus();
+      return;
+    }
+
+    this._definitionPreview = {
+      kind: 'project',
+      filePath: item.filePath,
+      from: item.from,
+      to: item.to,
+      targetFrom: item.from,
+      targetTo: item.to,
+      title: `${this._referencesPreview?.symbolName || 'Reference'} reference`,
+      preview: item.preview,
+    };
+  }
+
+  private async _renameSymbol(pos = this._editorView?.state.selection.main.head ?? 0) {
+    if (!this._tsWorkerClient || !this._filePath) return;
+
+    const seedPlan = await this._tsWorkerClient
+      .rename(this._filePath, this._source, pos, '__photon_rename_probe__')
+      .catch(() => null);
+
+    if (!seedPlan) {
+      showToast('This symbol cannot be renamed', 'warning');
+      return;
+    }
+
+    const currentName = seedPlan.symbolName.replace(/^\(alias\)\s*/, '').trim();
+    const nextName = window.prompt('Rename symbol to:', currentName);
+    if (!nextName || nextName === currentName) return;
+
+    const renamePlan = await this._tsWorkerClient
+      .rename(this._filePath, this._source, pos, nextName)
+      .catch((error) => {
+        showToast(error instanceof Error ? error.message : String(error), 'error');
+        return null;
+      });
+
+    if (!renamePlan || renamePlan.files.length === 0) {
+      showToast('No rename edits generated', 'warning');
+      return;
+    }
+
+    await this._applyRenamePlan(renamePlan);
+  }
+
+  private async _applyRenamePlan(renamePlan: PhotonTsRenamePlan) {
+    const currentFile = renamePlan.files.find((file) => file.kind === 'source');
+    const nextSource = currentFile?.source ?? this._source;
+
+    try {
+      const result = await mcpClient.callTool('beam/studio-apply-files', {
+        name: this.photonName,
+        source: nextSource,
+        files: renamePlan.files.map((file) => ({
+          path: file.filePath,
+          source: file.source,
+        })),
+      });
+      const text = result?.content?.[0]?.text;
+      if (!text) throw new Error('Empty response');
+      const parsed = JSON.parse(text);
+      if (!parsed.success) throw new Error(parsed.error || 'Rename failed');
+
+      if (currentFile && this._editorView) {
+        this._editorView.dispatch({
+          changes: {
+            from: 0,
+            to: this._editorView.state.doc.length,
+            insert: currentFile.source,
+          },
+        });
+      }
+
+      this._source = nextSource;
+      this._originalSource = nextSource;
+      this._dirty = false;
+      this._definitionPreview = null;
+      this._referencesPreview = null;
+      this._projectSupportFiles = parsed.supportFiles || [];
+      this._importSignature = this._extractImportSignature(this._source);
+      await this._syncTypeScriptProject().catch(() => {});
+      void this._refreshTypeScriptDiagnostics();
+
+      const projectEditCount = renamePlan.files.filter((file) => file.kind === 'project').length;
+      showToast(
+        `Renamed ${renamePlan.symbolName} to ${renamePlan.nextName}${projectEditCount > 0 ? ` across ${projectEditCount + 1} files` : ''}`,
+        'success'
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error ? `Rename failed: ${error.message}` : 'Rename failed',
+        'error'
+      );
+    }
   }
 
   private _diagnosticSeverityClass(): 'ok' | 'warning' | 'error' {
@@ -942,6 +1136,26 @@ export class PhotonStudio extends LitElement {
         </button>
 
         <button
+          class="toolbar-btn"
+          @click=${() => {
+            void this._peekReferences();
+          }}
+          title="Peek references (Shift+F12)"
+        >
+          References
+        </button>
+
+        <button
+          class="toolbar-btn"
+          @click=${() => {
+            void this._renameSymbol();
+          }}
+          title="Rename symbol (F2)"
+        >
+          Rename
+        </button>
+
+        <button
           class="toolbar-btn primary"
           @click=${() => {
             void this._save();
@@ -987,6 +1201,8 @@ export class PhotonStudio extends LitElement {
         </span>
         <span class="status-pill">Hover types on</span>
         <span class="status-pill">F12 / Cmd+Click</span>
+        <span class="status-pill">Shift+F12 refs</span>
+        <span class="status-pill">F2 rename</span>
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
@@ -1012,6 +1228,49 @@ export class PhotonStudio extends LitElement {
                 : html`<div class="definition-path">
                     Preview is only available for virtual Photon runtime definitions right now.
                   </div>`}
+            </div>
+          `
+        : ''}
+      ${this._referencesPreview
+        ? html`
+            <div class="references-panel">
+              <div class="definition-header">
+                <div>
+                  <div class="definition-title">
+                    References for ${this._referencesPreview.symbolName}
+                  </div>
+                  <div class="references-count">
+                    ${this._referencesPreview.items.length}
+                    result${this._referencesPreview.items.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <button
+                  class="toolbar-btn"
+                  @click=${() => {
+                    this._referencesPreview = null;
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              <div class="reference-list">
+                ${this._referencesPreview.items.map(
+                  (item) => html`
+                    <div
+                      class="reference-item"
+                      @click=${() => {
+                        this._openReference(item);
+                      }}
+                    >
+                      <div class="reference-meta">
+                        <span>${item.filePath}</span>
+                        <span>Ln ${item.line}, Col ${item.column}</span>
+                      </div>
+                      <div class="reference-preview">${item.preview}</div>
+                    </div>
+                  `
+                )}
+              </div>
             </div>
           `
         : ''}
