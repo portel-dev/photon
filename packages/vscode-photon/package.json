@@ -30,6 +30,7 @@
   "scripts": {
     "build": "node ./scripts/build.cjs",
     "check": "node -c ./extension.cjs",
+    "smoke": "npm run check && npm run build && node ./scripts/smoke.cjs",
     "package": "npm run build && npx @vscode/vsce package --allow-missing-repository",
     "vscode:prepublish": "npm run build"
   },
@@ -37,7 +38,8 @@
     "extension.cjs",
     "README.md",
     "package.json",
-    ".generated/**"
+    ".generated/**",
+    ".vscode/**"
   ],
   "dependencies": {
     "typescript": "^5.7.3"

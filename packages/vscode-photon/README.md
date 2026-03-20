@@ -23,7 +23,14 @@ This package is intentionally thin and reuses the shared editor-support modules 
 
 1. From the repo root, run `npm run build`.
 2. From this folder, run `npm run build`.
-3. Open VS Code and use `Developer: Install Extension from Location...` on `packages/vscode-photon`.
+3. Optional sanity check: run `npm run smoke`.
+4. Open VS Code and use `Developer: Install Extension from Location...` on `packages/vscode-photon`.
+
+For extension-host dogfooding in this repo:
+
+1. Open the repo in VS Code.
+2. Run the `Run Photon Extension` launch config from `packages/vscode-photon/.vscode/launch.json`.
+3. Open a `.photon.ts` file in the Extension Development Host window.
 
 To build a `.vsix` for local testing:
 
