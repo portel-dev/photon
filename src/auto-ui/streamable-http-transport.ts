@@ -23,6 +23,9 @@ import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
+import { AGUIEventType } from '../ag-ui/types.js';
+import { proxyExternalAgent, createAGUIOutputHandler } from '../ag-ui/adapter.js';
+import type { RunAgentInput } from '../ag-ui/types.js';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -395,6 +398,27 @@ interface HandlerContext {
  * Mirrors server.ts formatResult(): strings returned as-is, objects/arrays JSON-stringified,
  * other primitives converted via String().
  */
+/**
+ * Extract tool arguments from AG-UI messages.
+ * Uses the last user message content, attempting JSON parse first.
+ */
+function extractArgsFromMessages(
+  messages?: Array<{ role: string; content: string }>
+): Record<string, unknown> | undefined {
+  if (!messages || messages.length === 0) return undefined;
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  if (!lastUser) return undefined;
+  try {
+    const parsed = JSON.parse(lastUser.content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON — wrap as message arg
+  }
+  return { message: lastUser.content };
+}
+
 function formatResultText(result: any): string {
   if (result === undefined || result === null) return 'Done';
   if (typeof result === 'string') return result;
@@ -476,6 +500,12 @@ const handlers: Record<string, RequestHandler> = {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
+          experimental: {
+            'ag-ui': {
+              version: '0.1.0',
+              events: Object.values(AGUIEventType),
+            },
+          },
         },
         // SEP-1596 inspired: configuration schema for unconfigured photons
         // Uses JSON Schema for rich UI generation
@@ -488,6 +518,136 @@ const handlers: Record<string, RequestHandler> = {
   'notifications/initialized': async (req, session) => {
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AG-UI Protocol
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  'ag-ui/run': async (req, session, ctx) => {
+    const params = req.params as {
+      agentUrl?: string;
+      photon?: string;
+      method?: string;
+      input: RunAgentInput;
+    };
+
+    if (!params?.input) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required field: input (RunAgentInput)' },
+      } as JSONRPCResponse;
+    }
+
+    if (!ctx.broadcast) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32600, message: 'No SSE connection for AG-UI event streaming' },
+      } as JSONRPCResponse;
+    }
+
+    const broadcast = ctx.broadcast;
+
+    // ── Proxy mode: forward to external AG-UI agent ──
+    if (params.agentUrl) {
+      try {
+        await proxyExternalAgent(params.agentUrl, params.input, broadcast);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        broadcast({
+          jsonrpc: '2.0',
+          method: 'ag-ui/event',
+          params: {
+            type: AGUIEventType.RUN_ERROR,
+            message: `Proxy error: ${message}`,
+            timestamp: Date.now(),
+          },
+        });
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: { success: true },
+      };
+    }
+
+    // ── Local mode: execute photon method with AG-UI events ──
+    if (!params.photon || !params.method) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: -32602,
+          message: 'Either agentUrl (proxy) or photon+method (local) must be provided',
+        },
+      } as JSONRPCResponse;
+    }
+
+    const photonName = params.photon;
+    const methodName = params.method;
+    const runId = params.input.runId;
+
+    // Find the photon MCP instance
+    const mcp = ctx.photonMCPs.get(photonName);
+    if (!mcp) {
+      broadcast({
+        jsonrpc: '2.0',
+        method: 'ag-ui/event',
+        params: {
+          type: AGUIEventType.RUN_ERROR,
+          message: `Photon not found: ${photonName}`,
+          timestamp: Date.now(),
+        },
+      });
+      return { jsonrpc: '2.0', id: req.id, result: { success: false } };
+    }
+
+    const agui = createAGUIOutputHandler(photonName, methodName, runId, broadcast);
+
+    try {
+      // Build args from input messages (last user message content) or forwarded props
+      const args =
+        (params.input.forwardedProps as Record<string, unknown>) ||
+        extractArgsFromMessages(params.input.messages) ||
+        {};
+
+      let result: any;
+      if (ctx.loader) {
+        result = await ctx.loader.executeTool(mcp, methodName, args, {
+          outputHandler: agui.outputHandler,
+          caller: ctx.caller,
+        });
+      } else {
+        const method = mcp.instance[methodName];
+        if (typeof method !== 'function') {
+          agui.error(`Method not found: ${photonName}/${methodName}`);
+          return { jsonrpc: '2.0', id: req.id, result: { success: false } };
+        }
+        result = await method.call(mcp.instance, args);
+      }
+
+      // Handle async generators
+      if (result && typeof result[Symbol.asyncIterator] === 'function') {
+        const iterator = result[Symbol.asyncIterator]();
+        while (true) {
+          const { value, done } = await iterator.next();
+          if (done) {
+            agui.finish(value);
+            break;
+          }
+          agui.outputHandler(value);
+        }
+      } else {
+        agui.finish(result);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      agui.error(message);
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { success: true } };
   },
 
   // Handle elicitation response from frontend
