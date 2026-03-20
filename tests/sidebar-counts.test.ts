@@ -82,7 +82,7 @@ function toolsToPhotons(tools: MCPTool[]) {
   }
 
   for (const photon of photonMap.values()) {
-    const mainMethod = photon.methods.find((m: any) => m.name === 'main' && m.linkedUi);
+    const mainMethod = photon.methods.find((m: any) => m.name === 'main');
     if (mainMethod) {
       photon.isApp = true;
       photon.appEntry = mainMethod;
@@ -248,6 +248,20 @@ async function testMethodMetadata() {
     const photons = toolsToPhotons(tools);
     assert.equal(photons[0].isApp, true);
     assert.equal(photons[0].appEntry.name, 'main');
+  });
+
+  await test('detects app photons with main even without linkedUi', () => {
+    const tools: MCPTool[] = [
+      {
+        name: 'autoapp/main',
+        description: 'Main entry',
+      },
+      { name: 'autoapp/helper', description: 'Helper' },
+    ];
+    const photons = toolsToPhotons(tools);
+    assert.equal(photons[0].isApp, true);
+    assert.equal(photons[0].appEntry.name, 'main');
+    assert.equal(photons[0].appEntry.linkedUi, undefined);
   });
 }
 

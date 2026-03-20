@@ -103,6 +103,17 @@ export class ResultViewer extends LitElement {
         overflow: hidden;
       }
 
+      .container.app-surface {
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+      }
+
+      .container.app-surface .content {
+        padding: 0;
+      }
+
       .container:fullscreen {
         background: var(--bg-app, #0a0a12);
         padding: var(--space-lg);
@@ -2170,6 +2181,9 @@ export class ResultViewer extends LitElement {
   @property({ type: Boolean })
   live = false;
 
+  @property({ type: Boolean })
+  appSurface = false;
+
   // Key for persisting heat timestamps across refresh (e.g. "photonName/methodName")
   @property({ type: String })
   resultKey?: string;
@@ -2716,37 +2730,45 @@ export class ResultViewer extends LitElement {
     }
 
     return html`
-      <div class="container glass-panel">
-        <div class="header">
-          <span class="title">Result</span>
-          <div class="filter-container">
-            <input
-              type="text"
-              class="filter-input"
-              placeholder="Filter results..."
-              .value=${this._filterQuery}
-              @input=${(e: Event) => this._handleFilterInput(e)}
-              @keydown=${(e: Event) => this._handleFilterKeydown(e as KeyboardEvent)}
-            />
-            ${isFiltered
-              ? html` <span class="filter-count filtered">${filteredCount} / ${totalCount}</span> `
-              : ''}
-          </div>
-          <div class="actions">
-            ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
-            <button @click=${() => this._copy()}>Copy</button>
-            <button @click=${() => this._downloadSmart(layout)}>
-              ↓ ${this._getDownloadLabel(layout)}
-            </button>
-            ${this._isTabularData()
-              ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
-              : ''}
-            <button @click=${() => this._share()} title="Share link to this result">
-              ${link} Share
-            </button>
-            <button @click=${() => this._fullscreen()} title="Full screen result">${expand}</button>
-          </div>
-        </div>
+      <div class="container glass-panel ${this.appSurface ? 'app-surface' : ''}">
+        ${this.appSurface
+          ? ''
+          : html`
+              <div class="header">
+                <span class="title">Result</span>
+                <div class="filter-container">
+                  <input
+                    type="text"
+                    class="filter-input"
+                    placeholder="Filter results..."
+                    .value=${this._filterQuery}
+                    @input=${(e: Event) => this._handleFilterInput(e)}
+                    @keydown=${(e: Event) => this._handleFilterKeydown(e as KeyboardEvent)}
+                  />
+                  ${isFiltered
+                    ? html`
+                        <span class="filter-count filtered">${filteredCount} / ${totalCount}</span>
+                      `
+                    : ''}
+                </div>
+                <div class="actions">
+                  ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
+                  <button @click=${() => this._copy()}>Copy</button>
+                  <button @click=${() => this._downloadSmart(layout)}>
+                    ↓ ${this._getDownloadLabel(layout)}
+                  </button>
+                  ${this._isTabularData()
+                    ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
+                    : ''}
+                  <button @click=${() => this._share()} title="Share link to this result">
+                    ${link} Share
+                  </button>
+                  <button @click=${() => this._fullscreen()} title="Full screen result">
+                    ${expand}
+                  </button>
+                </div>
+              </div>
+            `}
         <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
           ${this._renderContent(layout, filteredData)}
         </div>

@@ -69,9 +69,21 @@ function buildTags(runtimeVersion: string) {
       type: 'keyword',
     },
     {
+      label: '@mcps',
+      detail: 'MCP dependency list for diagrams',
+      snippetTmpl: '@mcps ${1:filesystem, git}',
+      type: 'keyword',
+    },
+    {
       label: '@photon',
       detail: 'Photon dependency injection',
       snippetTmpl: '@photon ${1:name} ${2:./path.photon.ts}',
+      type: 'keyword',
+    },
+    {
+      label: '@photons',
+      detail: 'Photon dependency list for diagrams',
+      snippetTmpl: '@photons ${1:calculator, billing}',
       type: 'keyword',
     },
     {
@@ -95,7 +107,7 @@ function buildTags(runtimeVersion: string) {
     {
       label: '@ui',
       detail: 'UI template asset',
-      snippetTmpl: '@ui ${1:view-name} ${2:./ui/view.html}',
+      snippetTmpl: '@ui ${1:view-name} ${2:./ui/view.photon.html}',
       type: 'keyword',
     },
     {
@@ -117,9 +129,41 @@ function buildTags(runtimeVersion: string) {
       type: 'keyword',
     },
     {
+      label: '@icons',
+      detail: 'Photon icon variants',
+      snippetTmpl: '@icons ${1:./icons/tool-48.png} ${2:48x48} ${3:dark}',
+      type: 'keyword',
+    },
+    {
       label: '@tags',
       detail: 'Categorization tags',
       snippetTmpl: '@tags ${1:tag1, tag2}',
+      type: 'keyword',
+    },
+    {
+      label: '@label',
+      detail: 'Custom Beam sidebar label',
+      snippetTmpl: '@label ${1:My Custom Tool}',
+      type: 'keyword',
+    },
+    { label: '@persist', detail: 'Persist settings UI state', apply: '@persist', type: 'keyword' },
+    { label: '@worker', detail: 'Force worker isolation', apply: '@worker', type: 'keyword' },
+    {
+      label: '@noworker',
+      detail: 'Force in-process execution',
+      apply: '@noworker',
+      type: 'keyword',
+    },
+    {
+      label: '@auth',
+      detail: 'OAuth auth requirement',
+      snippetTmpl: '@auth ${1:required}',
+      type: 'keyword',
+    },
+    {
+      label: '@forkedFrom',
+      detail: 'Origin reference for forked photons',
+      snippetTmpl: '@forkedFrom ${1:portel-dev/photons#kanban}',
       type: 'keyword',
     },
     { label: '@internal', detail: 'Hidden from main UI', apply: '@internal', type: 'keyword' },
@@ -152,11 +196,139 @@ function buildTags(runtimeVersion: string) {
       type: 'keyword',
     },
     { label: '@icon', detail: 'Tool icon', snippetTmpl: '@icon ${1:🔧}', type: 'keyword' },
+    {
+      label: '@icons',
+      detail: 'Tool icon variants',
+      snippetTmpl: '@icons ${1:./icons/tool-48.png} ${2:48x48} ${3:dark}',
+      type: 'keyword',
+    },
     { label: '@autorun', detail: 'Auto-execute in Beam UI', apply: '@autorun', type: 'keyword' },
+    { label: '@async', detail: 'Run in background', apply: '@async', type: 'keyword' },
     {
       label: '@ui',
       detail: 'Link to UI template',
       snippetTmpl: '@ui ${1:view-name}',
+      type: 'keyword',
+    },
+    {
+      label: '@fallback',
+      detail: 'Return default value on error',
+      snippetTmpl: '@fallback ${1:[]}',
+      type: 'keyword',
+    },
+    {
+      label: '@logged',
+      detail: 'Auto-log execution with timing',
+      snippetTmpl: '@logged ${1:debug}',
+      type: 'keyword',
+    },
+    {
+      label: '@circuitBreaker',
+      detail: 'Fast-reject after repeated failures',
+      snippetTmpl: '@circuitBreaker ${1:5} ${2:30s}',
+      type: 'keyword',
+    },
+    {
+      label: '@cached',
+      detail: 'Memoize results with TTL',
+      snippetTmpl: '@cached ${1:5m}',
+      type: 'keyword',
+    },
+    {
+      label: '@timeout',
+      detail: 'Execution time limit',
+      snippetTmpl: '@timeout ${1:30s}',
+      type: 'keyword',
+    },
+    {
+      label: '@retryable',
+      detail: 'Auto-retry on failure',
+      snippetTmpl: '@retryable ${1:3} ${2:1s}',
+      type: 'keyword',
+    },
+    {
+      label: '@throttled',
+      detail: 'Rate limit per method',
+      snippetTmpl: '@throttled ${1:10/min}',
+      type: 'keyword',
+    },
+    {
+      label: '@debounced',
+      detail: 'Collapse rapid repeated calls',
+      snippetTmpl: '@debounced ${1:500ms}',
+      type: 'keyword',
+    },
+    {
+      label: '@queued',
+      detail: 'Sequential execution queue',
+      snippetTmpl: '@queued ${1:1}',
+      type: 'keyword',
+    },
+    {
+      label: '@validate',
+      detail: 'Runtime input validation rule',
+      snippetTmpl: '@validate ${1:params.email must be a valid email}',
+      type: 'keyword',
+    },
+    {
+      label: '@deprecated',
+      detail: 'Mark tool as deprecated',
+      snippetTmpl: '@deprecated ${1:Use v2 instead}',
+      type: 'keyword',
+    },
+    {
+      label: '@internal',
+      detail: 'Hide method from sidebar and LLM',
+      apply: '@internal',
+      type: 'keyword',
+    },
+    {
+      label: '@use',
+      detail: 'Apply middleware with inline config',
+      snippetTmpl: '@use ${1:audit} ${2:{@level info}}',
+      type: 'keyword',
+    },
+    {
+      label: '@title',
+      detail: 'Human-readable MCP tool title',
+      snippetTmpl: '@title ${1:Create New Task}',
+      type: 'keyword',
+    },
+    { label: '@readOnly', detail: 'Tool has no side effects', apply: '@readOnly', type: 'keyword' },
+    {
+      label: '@destructive',
+      detail: 'Tool performs destructive operations',
+      apply: '@destructive',
+      type: 'keyword',
+    },
+    {
+      label: '@idempotent',
+      detail: 'Tool is safe to retry',
+      apply: '@idempotent',
+      type: 'keyword',
+    },
+    {
+      label: '@openWorld',
+      detail: 'Tool touches external systems',
+      apply: '@openWorld',
+      type: 'keyword',
+    },
+    {
+      label: '@closedWorld',
+      detail: 'Tool only uses local data',
+      apply: '@closedWorld',
+      type: 'keyword',
+    },
+    {
+      label: '@audience',
+      detail: 'Who should see results',
+      snippetTmpl: '@audience ${1:user}',
+      type: 'keyword',
+    },
+    {
+      label: '@priority',
+      detail: 'Result importance hint',
+      snippetTmpl: '@priority ${1:0.8}',
       type: 'keyword',
     },
     {
@@ -181,6 +353,167 @@ function buildTags(runtimeVersion: string) {
       label: '@locked',
       detail: 'Distributed lock',
       snippetTmpl: '@locked ${1:lock-name}',
+      type: 'keyword',
+    },
+  ];
+
+  const inlineGeneralTags: TagDef[] = [
+    {
+      label: '{@label',
+      detail: 'Custom label or button title',
+      snippetTmpl: '{@label ${1:Label}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@title',
+      detail: 'Layout title field mapping',
+      snippetTmpl: '{@title ${1:title}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@subtitle',
+      detail: 'Layout subtitle field mapping',
+      snippetTmpl: '{@subtitle ${1:subtitle}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@badge',
+      detail: 'Layout badge field mapping',
+      snippetTmpl: '{@badge ${1:status}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@detail',
+      detail: 'Layout detail field mapping',
+      snippetTmpl: '{@detail ${1:detail}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@style',
+      detail: 'Layout style hint',
+      snippetTmpl: '{@style ${1:compact}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@columns',
+      detail: 'Layout column hint',
+      snippetTmpl: '{@columns ${1:3}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@value',
+      detail: 'Value mapping for format/layout hints',
+      snippetTmpl: '{@value ${1:value}}',
+      type: 'keyword',
+    },
+    { label: '{@x', detail: 'Chart x-axis field', snippetTmpl: '{@x ${1:month}}', type: 'keyword' },
+    {
+      label: '{@y',
+      detail: 'Chart y-axis field',
+      snippetTmpl: '{@y ${1:amount}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@series',
+      detail: 'Chart series field',
+      snippetTmpl: '{@series ${1:category}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@min',
+      detail: 'Gauge or numeric minimum',
+      snippetTmpl: '{@min ${1:0}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@max',
+      detail: 'Gauge or numeric maximum',
+      snippetTmpl: '{@max ${1:100}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@date',
+      detail: 'Date field mapping',
+      snippetTmpl: '{@date ${1:createdAt}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@description',
+      detail: 'Description field mapping',
+      snippetTmpl: '{@description ${1:summary}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@group',
+      detail: 'Grouping field mapping',
+      snippetTmpl: '{@group ${1:team}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@inner',
+      detail: 'Nested inner format',
+      snippetTmpl: '{@inner ${1:table}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@level',
+      detail: 'Logging or middleware level',
+      snippetTmpl: '{@level ${1:info}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@tags',
+      detail: 'Middleware tags',
+      snippetTmpl: '{@tags ${1:api,billing}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@threshold',
+      detail: 'Circuit breaker threshold',
+      snippetTmpl: '{@threshold ${1:5}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@resetAfter',
+      detail: 'Circuit breaker reset duration',
+      snippetTmpl: '{@resetAfter ${1:30s}}',
+      type: 'keyword',
+    },
+    { label: '{@ttl', detail: 'Cache duration', snippetTmpl: '{@ttl ${1:5m}}', type: 'keyword' },
+    {
+      label: '{@ms',
+      detail: 'Timeout duration',
+      snippetTmpl: '{@ms ${1:30s}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@count',
+      detail: 'Retry count',
+      snippetTmpl: '{@count ${1:3}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@delay',
+      detail: 'Retry or debounce delay',
+      snippetTmpl: '{@delay ${1:1s}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@rate',
+      detail: 'Throttle rate',
+      snippetTmpl: '{@rate ${1:10/min}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@concurrency',
+      detail: 'Queue concurrency',
+      snippetTmpl: '{@concurrency ${1:1}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@name',
+      detail: 'Custom middleware or lock name',
+      snippetTmpl: '{@name ${1:board:write}}',
       type: 'keyword',
     },
   ];
@@ -237,11 +570,59 @@ function buildTags(runtimeVersion: string) {
       snippetTmpl: '{@default ${1:value}}',
       type: 'keyword',
     },
+    {
+      label: '{@placeholder',
+      detail: 'Placeholder text',
+      snippetTmpl: '{@placeholder ${1:Enter value...}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@hint',
+      detail: 'Help text',
+      snippetTmpl: '{@hint ${1:Found in your dashboard}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@readOnly',
+      detail: 'Marks param as read-only',
+      apply: '{@readOnly}',
+      type: 'keyword',
+    },
+    {
+      label: '{@writeOnly',
+      detail: 'Marks param as write-only',
+      apply: '{@writeOnly}',
+      type: 'keyword',
+    },
+    {
+      label: '{@unique',
+      detail: 'Marks array items as unique',
+      apply: '{@unique}',
+      type: 'keyword',
+    },
+    {
+      label: '{@multipleOf',
+      detail: 'Numeric multiple constraint',
+      snippetTmpl: '{@multipleOf ${1:5}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@deprecated',
+      detail: 'Marks parameter as deprecated',
+      snippetTmpl: '{@deprecated ${1:Use newField instead}}',
+      type: 'keyword',
+    },
+    {
+      label: '{@accept',
+      detail: 'File picker accept filter',
+      snippetTmpl: '{@accept ${1:.ts,.js}}',
+      type: 'keyword',
+    },
   ];
 
   const allTags: TagDef[] = [...classLevelTags, ...methodLevelTags];
 
-  return { allTags, inlineParamTags };
+  return { allTags, inlineGeneralTags, inlineParamTags };
 }
 
 /**
@@ -344,17 +725,20 @@ function isInsideParam(context: CompletionContext): boolean {
  * Call with the runtime version to get the correct @runtime default.
  */
 export function createDocblockCompletions(runtimeVersion = '') {
-  const { allTags, inlineParamTags } = buildTags(runtimeVersion);
+  const { allTags, inlineGeneralTags, inlineParamTags } = buildTags(runtimeVersion);
 
   return function photonDocblockCompletions(context: CompletionContext): CompletionResult | null {
     if (!isInsideJSDoc(context)) return null;
 
     // Check for inline tags starting with {@
     const inlineMatch = context.matchBefore(/\{@\w*/);
-    if (inlineMatch && isInsideParam(context)) {
+    if (inlineMatch) {
+      const inlineTags = isInsideParam(context)
+        ? [...inlineGeneralTags, ...inlineParamTags]
+        : inlineGeneralTags;
       return {
         from: inlineMatch.from,
-        options: inlineParamTags.map(tagToCompletion),
+        options: inlineTags.map(tagToCompletion),
         validFor: /^\{@\w*$/,
       };
     }

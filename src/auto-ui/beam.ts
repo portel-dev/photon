@@ -118,6 +118,7 @@ import { getErrorMessage } from '../shared/error-handler.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
 import { subscribeChannel, pingDaemon } from '../daemon/client.js';
+import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
 import { ensureDaemon } from '../daemon/manager.js';
 import {
   SchemaExtractor,
@@ -905,7 +906,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       applyMethodVisibility(schemaSource, methods);
 
       // Check if this is an App (has main() method with @ui)
-      const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+      const mainMethod = methods.find((m) => m.name === 'main');
 
       // Extract class-level metadata — reuse source already read
       const classMetadata = extractClassMetadataFromSource(schemaSource);
@@ -2087,6 +2088,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
               try {
                 const source = await fs.readFile(photonPath, 'utf-8');
+                await writePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
                 const params = extractor.extractConstructorParams(source);
                 constructorParams = params
                   .filter((p: ConstructorParam) => p.isPrimitive)
@@ -2139,6 +2141,9 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               // Re-extract schema - use extractAllFromSource to get both tools and templates
               const extractor = new SchemaExtractor();
               const reloadSource = await fs.readFile(photonPath, 'utf-8');
+              await writePhotonEditorDeclaration(photonPath, reloadSource, workingDir).catch(
+                () => {}
+              );
               const reloadMetadata = extractor.extractAllFromSource(reloadSource);
               const schemas = reloadMetadata.tools;
               const templates = reloadMetadata.templates;
@@ -2234,7 +2239,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               applyMethodVisibility(reloadSource, methods);
 
               // Check if this is an App (has main() method with @ui)
-              const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+              const mainMethod = methods.find((m) => m.name === 'main');
 
               // Extract class metadata from source
               const reloadClassMeta = extractClassMetadataFromSource(reloadSource);

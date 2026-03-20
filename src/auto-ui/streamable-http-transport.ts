@@ -36,6 +36,7 @@ import type {
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
 import { audit } from '../shared/audit.js';
+import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
@@ -2202,11 +2203,19 @@ async function handleBeamStudioRead(
 
   try {
     const source = await readFile(photon.path, 'utf-8');
+    const declarationPath = await writePhotonEditorDeclaration(photon.path, source).catch(
+      () => null
+    );
     return {
       jsonrpc: '2.0',
       id: req.id,
       result: {
-        content: [{ type: 'text', text: JSON.stringify({ source, path: photon.path }) }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ source, path: photon.path, declarationPath }),
+          },
+        ],
         isError: false,
       },
     };
@@ -2259,6 +2268,9 @@ async function handleBeamStudioWrite(
   try {
     // Write source to disk
     await writeFile(photon.path, source, 'utf-8');
+    const declarationPath = await writePhotonEditorDeclaration(photon.path, source).catch(
+      () => null
+    );
 
     // Parse the new source for preview
     let parseResult = null;
@@ -2328,7 +2340,7 @@ async function handleBeamStudioWrite(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ success: true, parseResult }),
+            text: JSON.stringify({ success: true, parseResult, declarationPath }),
           },
         ],
         isError: false,

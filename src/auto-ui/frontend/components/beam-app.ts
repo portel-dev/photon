@@ -1875,6 +1875,8 @@ export class BeamApp extends LitElement {
       this._closeSecondPanel();
     }
     this._selectedPhoton = photon;
+    this._lastFormParams = {};
+    this._sharedFormParams = null;
     // Set _isExecuting BEFORE setting state to prevent iframe from rendering
     // before the tool call starts (which would bypass elicitation)
     if (this._willAutoInvoke(method)) {
@@ -2738,6 +2740,7 @@ export class BeamApp extends LitElement {
       const [photonName, methodName] = fullPath.split('/');
 
       // Parse query parameters for shared links
+      this._sharedFormParams = null;
       let sharedParams: Record<string, any> = {};
       if (queryPart) {
         const params = new URLSearchParams(queryPart);
@@ -4350,9 +4353,73 @@ ${photon.errorMessage || 'Unknown error'}</pre
     }
 
     if (this._view === 'form' && this._selectedMethod) {
+      const isAppMain = this._selectedPhoton.isApp && this._selectedMethod.name === 'main';
+
+      if (isAppMain && !this._selectedMethod.linkedUi) {
+        const otherMethods = this._getVisibleMethods().filter((m: any) => m.name !== 'main');
+
+        return html`
+          <app-layout
+            .photonName=${this._selectedPhoton.name}
+            .photonIcon=${this._selectedPhoton.appEntry?.icon || '📱'}
+          >
+            <div slot="app" style="min-height: calc(100vh - 140px);">
+              <div class="glass-panel" style="min-height: calc(100vh - 140px); overflow: hidden;">
+                ${this._renderMethodBody({
+                  photon: this._selectedPhoton,
+                  method: this._selectedMethod,
+                  result: this._lastResult,
+                  executing: this._isExecuting,
+                  progress: this._progress,
+                  formParams: this._lastFormParams,
+                  onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
+                  onCancel: () => this._handleBackFromMethod(),
+                  appSurface: true,
+                })}
+              </div>
+            </div>
+            <div slot="popout" style="height: 100%;"></div>
+            <div slot="below-fold">
+              ${this._renderPhotonToolbar()} ${this._renderAnchorNav()}
+              ${otherMethods.length > 0
+                ? html`
+                    <div id="photon-methods" class="bento-methods">
+                      <h3 class="bento-section-title">
+                        ${(() => {
+                          const hasTools = otherMethods.some((m: any) => !m.isTemplate);
+                          const hasPrompts = otherMethods.some((m: any) => m.isTemplate);
+                          return hasTools && hasPrompts
+                            ? 'Methods & Prompts'
+                            : hasPrompts
+                              ? 'Prompts'
+                              : 'Methods';
+                        })()}
+                      </h3>
+                      <div class="cards-grid">
+                        ${otherMethods.map(
+                          (method: any) => html`
+                            <method-card
+                              .method=${method}
+                              .photonName=${this._selectedPhoton.name}
+                              @select=${(e: Event) => this._handleMethodSelect(e as CustomEvent)}
+                              @update-metadata=${this._handleMethodMetadataUpdate}
+                            ></method-card>
+                          `
+                        )}
+                      </div>
+                    </div>
+                  `
+                : ''}
+              <div id="photon-prompts" class="bento-bottom-grid">
+                ${this._renderPromptsSection()} ${this._renderResourcesSection()}
+              </div>
+            </div>
+          </app-layout>
+        `;
+      }
+
       // Check for Linked UI (Custom Interface)
       if (this._selectedMethod.linkedUi) {
-        const isAppMain = this._selectedPhoton.isApp && this._selectedMethod.name === 'main';
         const otherMethods = isAppMain
           ? this._getVisibleMethods().filter((m: any) => m.name !== 'main')
           : [];
@@ -4854,6 +4921,8 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleMethodSelect(e: CustomEvent) {
     // Teardown any active custom-ui-renderer before switching methods
     this._teardownActiveCustomUI();
+    this._lastFormParams = {};
+    this._sharedFormParams = null;
     // Set _isExecuting BEFORE setting state to prevent iframe from rendering
     // before the tool call starts (which would bypass elicitation)
     if (this._willAutoInvoke(e.detail.method)) {
@@ -5170,71 +5239,91 @@ ${photon.errorMessage || 'Unknown error'}</pre
             : ''}
         </div>
         <!-- Panel Content (scrollable) -->
-        <div
-          style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;"
-        >
-          ${this._renderDescription(opts.method.description)}
-          <invoke-form
-            .params=${opts.method.params}
-            .loading=${opts.executing}
-            .photonName=${opts.photon.name}
-            .methodName=${opts.method.name}
-            .rememberValues=${this._rememberFormValues}
-            .sharedValues=${opts.formParams}
-            @submit=${opts.onSubmit}
-            @cancel=${opts.onCancel}
-          ></invoke-form>
+        ${this._renderMethodBody(opts)}
+      </div>
+    `;
+  }
 
-          ${opts.progress
+  private _renderMethodBody(opts: {
+    photon: any;
+    method: any;
+    result: any;
+    executing: boolean;
+    progress: any;
+    formParams: Record<string, any>;
+    onSubmit: (e: Event) => void;
+    onCancel: () => void;
+    appSurface?: boolean;
+  }) {
+    const hasParams =
+      !!opts.method?.params?.properties && Object.keys(opts.method.params.properties).length > 0;
+    return html`
+      <div style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;">
+        ${opts.appSurface ? '' : this._renderDescription(opts.method.description)}
+        ${opts.appSurface && !hasParams
+          ? ''
+          : html`
+              <invoke-form
+                .params=${opts.method.params}
+                .loading=${opts.executing}
+                .photonName=${opts.photon.name}
+                .methodName=${opts.method.name}
+                .rememberValues=${this._rememberFormValues}
+                .sharedValues=${this._sharedFormParams ?? opts.formParams}
+                @submit=${opts.onSubmit}
+                @cancel=${opts.onCancel}
+              ></invoke-form>
+            `}
+        ${opts.progress
+          ? html`
+              <div class="progress-container">
+                <div class="progress-bar-wrapper">
+                  <div
+                    class="progress-bar ${opts.progress.value < 0 ? 'indeterminate' : ''}"
+                    style="width: ${opts.progress.value < 0
+                      ? '30%'
+                      : Math.round(opts.progress.value * 100) + '%'}"
+                  ></div>
+                </div>
+                <div class="progress-text">
+                  <span>${opts.progress.message}</span>
+                </div>
+              </div>
+            `
+          : ''}
+        ${opts.result !== null
+          ? this._customFormatUri
             ? html`
-                <div class="progress-container">
-                  <div class="progress-bar-wrapper">
-                    <div
-                      class="progress-bar ${opts.progress.value < 0 ? 'indeterminate' : ''}"
-                      style="width: ${opts.progress.value < 0
-                        ? '30%'
-                        : Math.round(opts.progress.value * 100) + '%'}"
-                    ></div>
-                  </div>
-                  <div class="progress-text">
-                    <span>${opts.progress.message}</span>
-                  </div>
-                </div>
+                <custom-ui-renderer
+                  .photon=${opts.photon?.name || ''}
+                  .method=${opts.method?.name || ''}
+                  .uiUri=${this._customFormatUri}
+                  .theme=${this._theme}
+                  .initialResult=${opts.result}
+                  .revision=${this._customUiRevision}
+                ></custom-ui-renderer>
               `
-            : ''}
-          ${opts.result !== null
-            ? this._customFormatUri
-              ? html`
-                  <custom-ui-renderer
-                    .photon=${opts.photon?.name || ''}
-                    .method=${opts.method?.name || ''}
-                    .uiUri=${this._customFormatUri}
-                    .theme=${this._theme}
-                    .initialResult=${opts.result}
-                    .revision=${this._customUiRevision}
-                  ></custom-ui-renderer>
-                `
-              : html`
-                  <result-viewer
-                    .result=${opts.result}
-                    .outputFormat=${opts.method?.outputFormat}
-                    .layoutHints=${opts.method?.layoutHints}
-                    .photonName=${opts.photon?.name}
-                    .theme=${this._theme}
-                    .live=${this._currentCollectionName !== null}
-                    .resultKey=${opts.photon && opts.method
-                      ? `${opts.photon.name}/${opts.method.name}`
-                      : undefined}
-                    @share=${() => this._handleShareResult()}
-                  ></result-viewer>
-                `
             : html`
-                <div class="empty-state-inline result-empty">
-                  <span class="empty-state-icon">${play}</span>
-                  <span>Run the method to see results here</span>
-                </div>
-              `}
-        </div>
+                <result-viewer
+                  .result=${opts.result}
+                  .outputFormat=${opts.method?.outputFormat}
+                  .layoutHints=${opts.method?.layoutHints}
+                  .photonName=${opts.photon?.name}
+                  .theme=${this._theme}
+                  .live=${this._currentCollectionName !== null}
+                  .appSurface=${!!opts.appSurface}
+                  .resultKey=${opts.photon && opts.method
+                    ? `${opts.photon.name}/${opts.method.name}`
+                    : undefined}
+                  @share=${() => this._handleShareResult()}
+                ></result-viewer>
+              `
+          : html`
+              <div class="empty-state-inline result-empty">
+                <span class="empty-state-icon">${play}</span>
+                <span>Run the method to see results here</span>
+              </div>
+            `}
       </div>
     `;
   }
@@ -5364,6 +5453,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     this._lastResult = null;
     this._customFormatUri = null;
     this._lastFormParams = {};
+    this._sharedFormParams = null;
     this._updateRoute();
   }
 

@@ -121,7 +121,7 @@ export interface PhotonInfo {
   methods: MethodInfo[];
   /** Legacy @ui template path (deprecated, use assets.ui) */
   templatePath?: string;
-  /** True if photon has main() with @ui - listed under Apps section */
+  /** True if photon has main() - listed under Apps section */
   isApp?: boolean;
   /** The main() method that serves as app entry point */
   appEntry?: MethodInfo;

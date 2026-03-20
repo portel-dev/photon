@@ -155,7 +155,7 @@ export async function configurePhotonViaMCP(
     const uiAssets = mcp.assets?.ui || [];
     const methods = buildMethodList(schemas, templates, configSource, uiAssets);
 
-    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+    const mainMethod = methods.find((m) => m.name === 'main');
     const classMeta = extractClassMetadataFromSource(configSource);
 
     const configuredPhoton: PhotonInfo = {
@@ -250,7 +250,7 @@ export async function reloadPhotonViaMCP(
     const uiAssets = mcp.assets?.ui || [];
     const methods = buildMethodList(schemas, templates, reloadSrc, uiAssets);
 
-    const mainMethod = methods.find((m) => m.name === 'main' && m.linkedUi);
+    const mainMethod = methods.find((m) => m.name === 'main');
     const reloadClassMeta = extractClassMetadataFromSource(reloadSrc);
 
     const reloadedPhoton: PhotonInfo = {

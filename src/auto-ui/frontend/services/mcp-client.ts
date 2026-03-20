@@ -943,9 +943,9 @@ class MCPClientService {
       }
     }
 
-    // Post-process: set isApp and appEntry for photons with main() + linkedUi
+    // Post-process: set isApp and appEntry for photons with main()
     for (const photon of photonMap.values()) {
-      const mainMethod = photon.methods.find((m: any) => m.name === 'main' && m.linkedUi);
+      const mainMethod = photon.methods.find((m: any) => m.name === 'main');
       if (mainMethod) {
         photon.isApp = true;
         photon.appEntry = mainMethod;

@@ -13,7 +13,7 @@ export default class Walkthrough {
    * Learn to build photons — from zero to production
    * @format slides
    */
-  start() {
+  main() {
     return this.assets('slides.md', { load: true });
   }
 }
