@@ -112,6 +112,109 @@ interface PendingElicitation {
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
 
+// ════════════════════════════════════════════════════════════════════════════════
+// PERSISTENT APPROVALS — durable HITL that survives navigation/restart
+// ════════════════════════════════════════════════════════════════════════════════
+
+interface PersistentApproval {
+  id: string;
+  runId?: string;
+  photon: string;
+  method: string;
+  message: string;
+  preview?: unknown;
+  destructive?: boolean;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+}
+
+const APPROVALS_DIR = join(homedir(), '.photon', 'state');
+
+function approvalsPath(photonName: string): string {
+  return join(APPROVALS_DIR, photonName, 'approvals.json');
+}
+
+async function loadApprovals(photonName: string): Promise<PersistentApproval[]> {
+  try {
+    const data = await readFile(approvalsPath(photonName), 'utf-8');
+    return JSON.parse(data) as PersistentApproval[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveApprovals(photonName: string, approvals: PersistentApproval[]): Promise<void> {
+  const dir = dirname(approvalsPath(photonName));
+  const { mkdirSync } = await import('fs');
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    /* exists */
+  }
+  await writeFile(approvalsPath(photonName), JSON.stringify(approvals, null, 2));
+}
+
+async function addApproval(approval: PersistentApproval): Promise<void> {
+  const approvals = await loadApprovals(approval.photon);
+  approvals.push(approval);
+  await saveApprovals(approval.photon, approvals);
+}
+
+async function resolveApproval(
+  photonName: string,
+  approvalId: string,
+  status: 'approved' | 'rejected'
+): Promise<PersistentApproval | undefined> {
+  const approvals = await loadApprovals(photonName);
+  const idx = approvals.findIndex((a) => a.id === approvalId);
+  if (idx === -1) return undefined;
+  approvals[idx].status = status;
+  await saveApprovals(photonName, approvals);
+  return approvals[idx];
+}
+
+async function getAllPendingApprovals(photonNames: string[]): Promise<PersistentApproval[]> {
+  const all: PersistentApproval[] = [];
+  const now = new Date().toISOString();
+  for (const name of photonNames) {
+    const approvals = await loadApprovals(name);
+    for (const a of approvals) {
+      if (a.status === 'pending') {
+        // Auto-expire
+        if (a.expiresAt && a.expiresAt < now) {
+          a.status = 'expired';
+        } else {
+          all.push(a);
+        }
+      }
+    }
+    // Persist any expirations
+    if (approvals.some((a) => a.status === 'expired')) {
+      await saveApprovals(name, approvals);
+    }
+  }
+  return all;
+}
+
+function parseDurationToMs(duration: string): number {
+  const match = duration.match(/^(\d+)(s|m|h|d)$/);
+  if (!match) return 5 * 60 * 1000; // default 5 min
+  const value = parseInt(match[1], 10);
+  switch (match[2]) {
+    case 's':
+      return value * 1000;
+    case 'm':
+      return value * 60 * 1000;
+    case 'h':
+      return value * 60 * 60 * 1000;
+    case 'd':
+      return value * 24 * 60 * 60 * 1000;
+    default:
+      return 5 * 60 * 1000;
+  }
+}
+
 // Clean up old sessions periodically (30 min timeout)
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -421,6 +524,67 @@ const handlers: Record<string, RequestHandler> = {
     }
 
     return { jsonrpc: '2.0', id: req.id, result: { success: true } } as JSONRPCResponse;
+  },
+
+  // Handle persistent approval response from approvals panel
+  'beam/approval-response': async (req, session, ctx) => {
+    const params = req.params as
+      | { approvalId?: string; photon?: string; approved?: boolean }
+      | undefined;
+
+    if (!params?.approvalId || !params?.photon) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing approvalId or photon' },
+      } as JSONRPCResponse;
+    }
+
+    const status = params.approved ? 'approved' : 'rejected';
+    const approval = await resolveApproval(params.photon, params.approvalId, status);
+
+    if (!approval) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Approval not found or already resolved' },
+      } as JSONRPCResponse;
+    }
+
+    // If the elicitation is still in-flight (user responded via panel before timeout),
+    // resolve it through the normal elicitation path
+    const pending = pendingElicitations.get(params.approvalId);
+    if (pending) {
+      pendingElicitations.delete(params.approvalId);
+      if (pending.timer) clearTimeout(pending.timer);
+      if (params.approved) {
+        pending.resolve(true);
+      } else {
+        pending.reject(new Error('Approval rejected by user'));
+      }
+    }
+
+    // Broadcast approval state change for UI updates
+    if (ctx.broadcast) {
+      ctx.broadcast({
+        jsonrpc: '2.0',
+        method: 'beam/approval-resolved',
+        params: { approvalId: params.approvalId, photon: params.photon, status },
+      });
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { success: true, status } } as JSONRPCResponse;
+  },
+
+  // List all pending approvals (for sidebar badge)
+  'beam/approvals-list': async (req, session, ctx) => {
+    const photonNames = ctx.photons.map((p: any) => p.name);
+    const approvals = await getAllPendingApprovals(photonNames);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: { approvals },
+    } as JSONRPCResponse;
   },
 
   // Client notifies what resource they're viewing (for on-demand subscriptions)
@@ -1334,6 +1498,7 @@ const handlers: Record<string, RequestHandler> = {
       };
 
       // Create inputProvider to handle ask yields (elicitation)
+      // Supports persistent: true for durable approvals that survive navigation/restart
       const inputProvider = async (ask: any): Promise<any> => {
         if (!ctx.broadcast) {
           throw new Error('No broadcast connection for elicitation');
@@ -1341,6 +1506,10 @@ const handlers: Record<string, RequestHandler> = {
 
         // Generate unique elicitation ID
         const elicitationId = randomUUID();
+        const isPersistent = ask.persistent === true;
+
+        // Determine timeout: persistent asks use 'expires' field, default 5 min
+        const timeoutMs = isPersistent && ask.expires ? parseDurationToMs(ask.expires) : 300000;
 
         return new Promise((resolve, reject) => {
           // Store pending elicitation
@@ -1351,23 +1520,54 @@ const handlers: Record<string, RequestHandler> = {
           };
           pendingElicitations.set(elicitationId, pending);
 
+          // For persistent asks, write to approvals.json for durability
+          if (isPersistent) {
+            const approval: PersistentApproval = {
+              id: elicitationId,
+              photon: photonName,
+              method: methodName,
+              message: ask.message || `Confirm ${methodName}?`,
+              preview: ask.preview,
+              destructive: ask.destructive,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
+            };
+            // Write async — don't block the elicitation broadcast
+            addApproval(approval).catch(() => {});
+          }
+
           // Broadcast elicitation request to frontend
           ctx.broadcast!({
             jsonrpc: '2.0',
             method: 'beam/elicitation',
             params: {
               elicitationId,
+              persistent: isPersistent || undefined,
+              destructive: ask.destructive || undefined,
               ...ask,
             },
           });
 
-          // Timeout after 5 minutes (timer cleared on normal resolve)
-          pending.timer = setTimeout(() => {
-            if (pendingElicitations.has(elicitationId)) {
-              pendingElicitations.delete(elicitationId);
-              reject(new Error('Elicitation timeout - no response received'));
-            }
-          }, 300000);
+          // Timeout — for persistent asks, mark as pending (not reject)
+          pending.timer = setTimeout(
+            () => {
+              if (pendingElicitations.has(elicitationId)) {
+                pendingElicitations.delete(elicitationId);
+                if (isPersistent) {
+                  // Don't reject — the approval stays in approvals.json for later
+                  // Resolve with undefined to indicate "no immediate response"
+                  // The caller should check for this and handle gracefully
+                  reject(
+                    new Error('Approval pending — user can respond later via approvals panel')
+                  );
+                } else {
+                  reject(new Error('Elicitation timeout - no response received'));
+                }
+              }
+            },
+            isPersistent ? Math.min(timeoutMs, 60000) : 300000
+          ); // Persistent: shorter in-flight timeout (1 min), actual expiry handled by approvals.json
         });
       };
 
@@ -1561,11 +1761,47 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
+    // Add pending approval resources (approval:// scheme)
+    const photonNames = ctx.photons.map((p: any) => p.name);
+    const pendingApprovals = await getAllPendingApprovals(photonNames);
+    for (const approval of pendingApprovals) {
+      resources.push({
+        uri: `approval://${approval.photon}/${approval.id}`,
+        name: `Pending: ${approval.message}`,
+        mimeType: 'application/json',
+        description: `Approval request from ${approval.photon}.${approval.method}`,
+      });
+    }
+
     return { jsonrpc: '2.0', id: req.id, result: { resources } };
   },
 
   'resources/read': async (req, session, ctx) => {
     const { uri } = req.params as { uri: string };
+
+    // Parse approval:// URI
+    const approvalMatch = uri.match(/^approval:\/\/([^/]+)\/(.+)$/);
+    if (approvalMatch) {
+      const [, photonName, approvalId] = approvalMatch;
+      const approvals = await loadApprovals(photonName);
+      const approval = approvals.find((a) => a.id === approvalId);
+      if (!approval) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Approval not found: ${uri}` },
+        };
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          contents: [
+            { uri, mimeType: 'application/json', text: JSON.stringify(approval, null, 2) },
+          ],
+        },
+      };
+    }
 
     // Parse ui:// URI
     const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);

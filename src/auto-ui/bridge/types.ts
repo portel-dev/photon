@@ -149,6 +149,24 @@ export interface OpenAIAPI {
   setOpenInAppUrl(options: { href: string }): void;
 }
 
+/**
+ * Bidirectional state exposure convention.
+ *
+ * When a custom UI calls `callTool()`, the bridge automatically attaches the
+ * current `widgetState` as `_clientState` in the tool call arguments if the
+ * widget state has any keys set. The loader strips `_clientState` before JSON
+ * Schema validation and makes it available on the photon instance as
+ * `this._clientState`.
+ *
+ * This enables custom UIs to passively expose context to photon methods without
+ * the user explicitly passing it as a tool argument.
+ *
+ * CLI calls (no widgetState) work unchanged — `_clientState` is simply absent.
+ */
+export interface ClientState {
+  [key: string]: unknown;
+}
+
 declare global {
   interface Window {
     photon: PhotonAPI;

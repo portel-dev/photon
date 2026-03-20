@@ -3152,6 +3152,20 @@ Run: photon mcp ${mcpName} --config
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
 
     try {
+      // Extract _clientState from args before schema validation
+      // This is auto-injected by the bridge when custom UI has widgetState set
+      let clientState: Record<string, unknown> | undefined;
+      if (parameters && typeof parameters === 'object' && '_clientState' in parameters) {
+        clientState = parameters._clientState as Record<string, unknown>;
+        parameters = { ...parameters };
+        delete parameters._clientState;
+      }
+
+      // Make client state available on the instance for this execution
+      if (mcp.instance && clientState !== undefined) {
+        mcp.instance._clientState = clientState;
+      }
+
       // Check for configuration errors before executing tool
       if (mcp.instance._photonConfigError) {
         throw new Error(mcp.instance._photonConfigError);
