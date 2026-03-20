@@ -199,6 +199,7 @@ import {
 } from './beam/photon-management.js';
 export type { PhotonConfig } from './beam/types.js';
 export type { BeamState } from './beam/types.js';
+import { generateAgentCard } from '../a2a/card-generator.js';
 
 // Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
 // InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
@@ -1129,6 +1130,39 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           logger.debug(`${req.method} ${url.pathname} ${res.statusCode} ${duration}ms`);
         }
       });
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // A2A Agent Card Discovery (Google A2A Protocol)
+      // Returns Agent Card describing this agent's capabilities and skills
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/.well-known/agent.json') {
+        const configuredPhotons = photons
+          .filter((p): p is PhotonInfo => p.configured)
+          .filter((p) => !p.internal);
+        const card = generateAgentCard(
+          configuredPhotons.map((p) => ({
+            name: p.name,
+            description: p.description,
+            stateful: p.stateful,
+            icon: p.icon,
+            methods: p.methods.map((m) => ({
+              name: m.name,
+              description: m.description,
+              params: m.params,
+            })),
+          })),
+          {
+            baseUrl: `http://${req.headers.host}`,
+            version: PHOTON_VERSION,
+          }
+        );
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify(card));
+        return;
+      }
 
       // ══════════════════════════════════════════════════════════════════════════
       // MCP OAuth Protected Resource Metadata (RFC 9728)

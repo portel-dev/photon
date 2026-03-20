@@ -51,6 +51,7 @@ import {
   unregisterController,
   getController,
 } from '../tasks/store.js';
+import { generateAgentCard } from '../a2a/card-generator.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
@@ -775,6 +776,30 @@ const handlers: Record<string, RequestHandler> = {
     }
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // A2A Agent Card (via MCP transport)
+  // ─────────────────────────────────────────────────────────────────────────────
+  'a2a/card': async (req, session, ctx) => {
+    const configuredPhotons = ctx.photons
+      .filter((p): p is PhotonInfo => p.configured)
+      .filter((p) => !p.internal);
+    const card = generateAgentCard(
+      configuredPhotons.map((p) => ({
+        name: p.name,
+        description: p.description,
+        stateful: p.stateful,
+        icon: p.icon,
+        methods: p.methods.map((m) => ({
+          name: m.name,
+          description: m.description,
+          params: m.params,
+        })),
+      })),
+      { version: PHOTON_VERSION }
+    );
+    return { jsonrpc: '2.0', id: req.id, result: card } as JSONRPCResponse;
   },
 
   ping: async (req) => {
