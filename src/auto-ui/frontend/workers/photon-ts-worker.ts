@@ -84,6 +84,13 @@ type WorkerRequest =
       source: string;
       supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
+    }
+  | {
+      id: number;
+      type: 'outline';
+      filePath: string;
+      source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
     };
 
 type WorkerResponse =
@@ -202,6 +209,19 @@ type WorkerResponse =
           activeItem: number;
           activeParameter: number;
         } | null;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        outline: Array<{
+          text: string;
+          kind: string;
+          from: number;
+          to: number;
+          level: number;
+        }>;
       };
     }
   | { id: number; ok: false; error: string };
@@ -922,6 +942,36 @@ function getSignatureHelp(pos: number) {
   };
 }
 
+function flattenNavigationTree(
+  item: ts.NavigationTree,
+  level = 0
+): Array<{ text: string; kind: string; from: number; to: number; level: number }> {
+  const spans = item.spans || [];
+  const primarySpan = spans[0];
+  const entries =
+    item.text === '<global>'
+      ? []
+      : [
+          {
+            text: item.text,
+            kind: item.kind,
+            from: shadowToSourcePos(primarySpan?.start ?? 0),
+            to: shadowToSourcePos((primarySpan?.start ?? 0) + (primarySpan?.length ?? 0)),
+            level,
+          },
+        ];
+
+  const childEntries = (item.childItems || []).flatMap((child) =>
+    flattenNavigationTree(child, item.text === '<global>' ? level : level + 1)
+  );
+  return [...entries, ...childEntries];
+}
+
+function getOutline() {
+  const tree = languageService.getNavigationTree(currentFilePath);
+  return flattenNavigationTree(tree).filter((item) => item.text.trim().length > 0);
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -985,6 +1035,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           signatureHelp: getSignatureHelp(msg.pos),
+        },
+      };
+    } else if (msg.type === 'outline') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          outline: getOutline(),
         },
       };
     } else {
