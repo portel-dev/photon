@@ -73,6 +73,7 @@ export async function proxyExternalAgent(
       Accept: 'text/event-stream',
     },
     body: JSON.stringify(input),
+    signal: AbortSignal.timeout(300_000), // 5 min timeout for long-running agents
   });
 
   if (!response.ok) {
