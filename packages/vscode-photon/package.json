@@ -54,7 +54,8 @@
     "onCommand:photon.openInBeam",
     "onCommand:photon.regenerateEditorCache",
     "onCommand:photon.createPhoton",
-    "onCommand:photon.goToSymbol"
+    "onCommand:photon.goToSymbol",
+    "onCommand:photon.showStatus"
   ],
   "main": "./extension.cjs",
   "contributes": {
@@ -74,6 +75,10 @@
       {
         "command": "photon.goToSymbol",
         "title": "Photon: Go To Photon Symbol"
+      },
+      {
+        "command": "photon.showStatus",
+        "title": "Photon: Show Status"
       }
     ],
     "menus": {
@@ -91,6 +96,10 @@
         },
         {
           "command": "photon.goToSymbol",
+          "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
+        },
+        {
+          "command": "photon.showStatus",
           "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
         }
       ]

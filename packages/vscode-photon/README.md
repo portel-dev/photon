@@ -15,6 +15,7 @@ Current MVP:
 - feeds Photon-aware symbols into the VS Code Outline view and quick symbol picker
 - caches imported support files so editor features stay responsive in larger photon workspaces
 - adds clearer per-file labels and confirmation hints for multi-file Photon edits
+- shows Photon status in the VS Code status bar for the active `.photon.ts` file
 - opens the current photon in Beam
 - creates a new photon from the built-in template
 

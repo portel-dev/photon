@@ -13,6 +13,8 @@ const IMPORT_RE = /\b(?:import|export)\b[\s\S]*?\bfrom\s*['"](\.[^'"]+)['"]|impo
 
 let directSessionPromise;
 let diagnosticsCollection;
+let statusBarItem;
+let lastStatusSummary = null;
 const diagnosticTimers = new Map();
 const resolvedImportCache = new Map();
 const supportFileCache = new Map();
@@ -234,16 +236,91 @@ function severityFromPhoton(severity) {
   return vscode.DiagnosticSeverity.Error;
 }
 
+function countDiagnosticsBySeverity(diagnostics) {
+  const counts = { errors: 0, warnings: 0, infos: 0 };
+  for (const entry of diagnostics) {
+    if (entry.severity === 'warning') counts.warnings++;
+    else if (entry.severity === 'info') counts.infos++;
+    else counts.errors++;
+  }
+  return counts;
+}
+
+function buildPhotonStatusText(filePath, diagnostics, declarationPath) {
+  const counts = countDiagnosticsBySeverity(diagnostics);
+  const photonName = photonNameFromPath(filePath);
+  const parts = [];
+  if (counts.errors) parts.push(`${counts.errors} error${counts.errors === 1 ? '' : 's'}`);
+  if (counts.warnings) parts.push(`${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`);
+  if (parts.length === 0) parts.push('ready');
+  if (declarationPath) parts.push('types cached');
+  return {
+    text: `$(sparkle) Photon ${photonName}: ${parts.join(' • ')}`,
+    tooltip: `Photon ${photonName}\n${parts.join('\n')}${declarationPath ? `\n\nDeclaration: ${declarationPath}` : ''}`,
+    counts,
+    declarationPath,
+  };
+}
+
+function setPhotonStatus(summary) {
+  lastStatusSummary = summary;
+  if (!statusBarItem) return;
+  if (!summary) {
+    statusBarItem.hide();
+    return;
+  }
+  statusBarItem.text = summary.text;
+  statusBarItem.tooltip = summary.tooltip;
+  statusBarItem.show();
+}
+
+function clearPhotonStatusForDocument(document) {
+  if (!lastStatusSummary || !document || !isPhotonDocument(document)) return;
+  if (lastStatusSummary.filePath === document.fileName) {
+    setPhotonStatus(null);
+  }
+}
+
+async function refreshPhotonStatus(document, diagnostics, declarationPath) {
+  if (!document || !isPhotonDocument(document)) {
+    setPhotonStatus(null);
+    return;
+  }
+  setPhotonStatus({
+    filePath: document.fileName,
+    ...buildPhotonStatusText(document.fileName, diagnostics, declarationPath),
+  });
+}
+
+async function refreshActivePhotonStatus() {
+  const activeDocument = vscode.window.activeTextEditor?.document;
+  if (!activeDocument || !isPhotonDocument(activeDocument)) {
+    setPhotonStatus(null);
+    return;
+  }
+  const session = await getDirectSession();
+  const supportFiles = await collectSupportFiles(activeDocument);
+  const diagnostics = await session.diagnostics(
+    activeDocument.fileName,
+    activeDocument.getText(),
+    supportFiles
+  );
+  const declarationPath = await ensureDeclarationForDocument(activeDocument);
+  await refreshPhotonStatus(activeDocument, diagnostics, declarationPath);
+}
+
 async function refreshDiagnostics(document) {
   if (!diagnosticsCollection) return;
   if (!isPhotonDocument(document) || document.isUntitled) {
     diagnosticsCollection.delete(document.uri);
+    clearPhotonStatusForDocument(document);
     return;
   }
 
   const session = await getDirectSession();
   const supportFiles = await collectSupportFiles(document);
   const diagnostics = await session.diagnostics(document.fileName, document.getText(), supportFiles);
+  const declarationPath = await ensureDeclarationForDocument(document);
   const nextDiagnostics = diagnostics.map((entry) => {
     const diagnostic = new vscode.Diagnostic(
       new vscode.Range(document.positionAt(entry.from), document.positionAt(entry.to)),
@@ -255,6 +332,9 @@ async function refreshDiagnostics(document) {
     return diagnostic;
   });
   diagnosticsCollection.set(document.uri, nextDiagnostics);
+  if (vscode.window.activeTextEditor?.document.fileName === document.fileName) {
+    await refreshPhotonStatus(document, diagnostics, declarationPath);
+  }
 }
 
 function scheduleDiagnostics(document, delay = 150) {
@@ -770,9 +850,12 @@ async function goToPhotonSymbol() {
 function activate(context) {
   const selector = { language: 'typescript', scheme: 'file', pattern: '**/*.photon.ts' };
   diagnosticsCollection = vscode.languages.createDiagnosticCollection('photon');
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  statusBarItem.command = 'photon.showStatus';
 
   context.subscriptions.push(
     diagnosticsCollection,
+    statusBarItem,
     vscode.workspace.onDidOpenTextDocument((document) => {
       invalidateSupportCaches(document.fileName);
       void ensureDeclarationForDocument(document);
@@ -792,6 +875,14 @@ function activate(context) {
       if (isPhotonDocument(document) && diagnosticsCollection) {
         diagnosticsCollection.delete(document.uri);
       }
+      clearPhotonStatusForDocument(document);
+    }),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!editor || !isPhotonDocument(editor.document)) {
+        setPhotonStatus(null);
+        return;
+      }
+      void refreshActivePhotonStatus();
     }),
     vscode.commands.registerCommand('photon.openInBeam', () => void openCurrentPhotonInBeam()),
     vscode.commands.registerCommand('photon.regenerateEditorCache', async () => {
@@ -801,9 +892,20 @@ function activate(context) {
           ? `Regenerated ${declarationPaths.length} Photon editor declaration file(s).`
           : 'No Photon files found to regenerate.'
       );
+      void refreshActivePhotonStatus();
     }),
     vscode.commands.registerCommand('photon.createPhoton', () => void createPhotonFromTemplate()),
     vscode.commands.registerCommand('photon.goToSymbol', () => void goToPhotonSymbol()),
+    vscode.commands.registerCommand('photon.showStatus', async () => {
+      if (!lastStatusSummary) {
+        await refreshActivePhotonStatus();
+      }
+      if (!lastStatusSummary) {
+        vscode.window.showInformationMessage('Open a .photon.ts file to see Photon status.');
+        return;
+      }
+      vscode.window.showInformationMessage(lastStatusSummary.tooltip.replace(/\n/g, ' • '));
+    }),
     vscode.languages.registerCompletionItemProvider(
       selector,
       createPhotonCompletionProvider(),
@@ -830,6 +932,7 @@ function activate(context) {
     void ensureDeclarationForDocument(document);
     scheduleDiagnostics(document, 0);
   }
+  void refreshActivePhotonStatus();
 }
 
 async function deactivate() {
@@ -838,11 +941,13 @@ async function deactivate() {
   }
   diagnosticTimers.clear();
   diagnosticsCollection = null;
+  lastStatusSummary = null;
   if (directSessionPromise) {
     const session = await directSessionPromise;
     await session.destroy();
     directSessionPromise = null;
   }
+  statusBarItem = null;
 }
 
 module.exports = {
