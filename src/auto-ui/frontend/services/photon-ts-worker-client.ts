@@ -10,6 +10,10 @@ export type {
   PhotonTsRenamePlan,
   PhotonTsSignatureHelp,
 } from '../../../editor-support/photon-ts-types.js';
+import {
+  PhotonTsSession,
+  type PhotonTsCompletionEntry,
+} from '../../../editor-support/photon-ts-session.js';
 import type {
   PhotonTsCodeFix,
   PhotonTsDefinition,
@@ -21,7 +25,10 @@ import type {
   PhotonTsRenamePlan,
   PhotonTsSignatureHelp,
 } from '../../../editor-support/photon-ts-types.js';
-import type { PhotonTsWorkerResponse } from '../../../editor-support/photon-ts-protocol.js';
+import type {
+  PhotonTsWorkerRequest,
+  PhotonTsWorkerResponse,
+} from '../../../editor-support/photon-ts-protocol.js';
 
 interface WorkerSuccess<T> {
   id: number;
@@ -39,6 +46,7 @@ type WorkerResponse<T> = WorkerSuccess<T> | WorkerFailure;
 
 export class PhotonTsWorkerClient {
   private readonly worker: Worker;
+  private readonly session: PhotonTsSession;
   private nextId = 1;
   private pending = new Map<
     number,
@@ -47,6 +55,10 @@ export class PhotonTsWorkerClient {
 
   constructor() {
     this.worker = new Worker('/beam-ts-worker.js', { type: 'module' });
+    this.session = new PhotonTsSession({
+      send: (request) => this.requestMessage(request),
+      dispose: () => this.worker.terminate(),
+    });
     this.worker.onmessage = (event: MessageEvent<PhotonTsWorkerResponse>) => {
       const msg = event.data;
       const pending = this.pending.get(msg.id);
@@ -60,51 +72,34 @@ export class PhotonTsWorkerClient {
     };
   }
 
-  private request<T>(payload: Record<string, unknown>): Promise<T> {
+  private requestMessage(
+    message: Omit<PhotonTsWorkerRequest, 'id'>
+  ): Promise<PhotonTsWorkerResponse> {
     const id = this.nextId++;
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<PhotonTsWorkerResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ id, ...payload });
+      this.worker.postMessage({ id, ...message });
     });
   }
 
   sync(filePath: string, source: string, supportFiles: PhotonTsProjectFile[] = []): Promise<void> {
-    return this.request<void>({ type: 'sync', filePath, source, supportFiles });
+    return this.session.sync(filePath, source, supportFiles);
   }
 
   diagnostics(filePath: string, source: string): Promise<PhotonTsDiagnostic[]> {
-    return this.request<{ diagnostics: PhotonTsDiagnostic[] }>({
-      type: 'diagnostics',
-      filePath,
-      source,
-    }).then((r) => r.diagnostics);
+    return this.session.diagnostics(filePath, source);
   }
 
   hover(filePath: string, source: string, pos: number): Promise<PhotonTsHover | null> {
-    return this.request<{ hover: PhotonTsHover | null }>({
-      type: 'hover',
-      filePath,
-      source,
-      pos,
-    }).then((r) => r.hover);
+    return this.session.hover(filePath, source, pos);
   }
 
   definition(filePath: string, source: string, pos: number): Promise<PhotonTsDefinition | null> {
-    return this.request<{ definition: PhotonTsDefinition | null }>({
-      type: 'definition',
-      filePath,
-      source,
-      pos,
-    }).then((r) => r.definition);
+    return this.session.definition(filePath, source, pos);
   }
 
   references(filePath: string, source: string, pos: number): Promise<PhotonTsReferences | null> {
-    return this.request<{ references: PhotonTsReferences | null }>({
-      type: 'references',
-      filePath,
-      source,
-      pos,
-    }).then((r) => r.references);
+    return this.session.references(filePath, source, pos);
   }
 
   rename(
@@ -113,13 +108,7 @@ export class PhotonTsWorkerClient {
     pos: number,
     newName: string
   ): Promise<PhotonTsRenamePlan | null> {
-    return this.request<{ rename: PhotonTsRenamePlan | null }>({
-      type: 'rename',
-      filePath,
-      source,
-      pos,
-      newName,
-    }).then((r) => r.rename);
+    return this.session.rename(filePath, source, pos, newName);
   }
 
   codeFixes(
@@ -129,14 +118,7 @@ export class PhotonTsWorkerClient {
     to: number,
     errorCode: number
   ): Promise<PhotonTsCodeFix[]> {
-    return this.request<{ fixes: PhotonTsCodeFix[] }>({
-      type: 'codeFixes',
-      filePath,
-      source,
-      from,
-      to,
-      errorCode,
-    }).then((r) => r.fixes);
+    return this.session.codeFixes(filePath, source, from, to, errorCode);
   }
 
   signatureHelp(
@@ -144,20 +126,11 @@ export class PhotonTsWorkerClient {
     source: string,
     pos: number
   ): Promise<PhotonTsSignatureHelp | null> {
-    return this.request<{ signatureHelp: PhotonTsSignatureHelp | null }>({
-      type: 'signatureHelp',
-      filePath,
-      source,
-      pos,
-    }).then((r) => r.signatureHelp);
+    return this.session.signatureHelp(filePath, source, pos);
   }
 
   outline(filePath: string, source: string): Promise<PhotonTsOutlineItem[]> {
-    return this.request<{ outline: PhotonTsOutlineItem[] }>({
-      type: 'outline',
-      filePath,
-      source,
-    }).then((r) => r.outline);
+    return this.session.outline(filePath, source);
   }
 
   async completions(
@@ -174,24 +147,16 @@ export class PhotonTsWorkerClient {
     const word = context.matchBefore(/[A-Za-z_$][\w$]*/);
     const from = word ? word.from : context.pos;
 
-    const result = await this.request<{
-      completions: Array<{ label: string; detail?: string; kind: Completion['type'] }>;
-    }>({
-      type: 'completions',
-      filePath,
-      source,
-      pos: context.pos,
-      explicit: context.explicit,
-    });
+    const result = await this.session.completions(filePath, source, context.pos, context.explicit);
 
-    if (!result.completions.length) return null;
+    if (!result.length) return null;
 
     return {
       from,
-      options: result.completions.map((entry) => ({
+      options: result.map((entry: PhotonTsCompletionEntry) => ({
         label: entry.label,
         detail: entry.detail,
-        type: entry.kind,
+        type: entry.kind as Completion['type'],
       })),
       validFor: /^[A-Za-z_$][\w$]*$/,
     };
@@ -202,6 +167,6 @@ export class PhotonTsWorkerClient {
       pending.reject(new Error('TypeScript worker disposed'));
     }
     this.pending.clear();
-    this.worker.terminate();
+    void this.session.destroy();
   }
 }

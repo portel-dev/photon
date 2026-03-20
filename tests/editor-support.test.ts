@@ -12,6 +12,7 @@ import {
   getPhotonEditorDeclarationPath,
   writePhotonEditorDeclaration,
 } from '../src/photon-editor-declarations.js';
+import { createDirectPhotonTsSession } from '../src/editor-support/photon-ts-direct-session.js';
 import {
   createDocblockCompletions,
   photonFormatCompletions,
@@ -131,6 +132,20 @@ await test('editor declaration helper can eagerly generate from source file on d
   assert.match(written, /interface Demo extends Photon \{\}/);
 
   await rm(baseDir, { recursive: true, force: true });
+});
+
+await test('direct TS session exposes shared completions and hovers without a worker', async () => {
+  const session = createDirectPhotonTsSession();
+  const source = `export default class Demo {\n  main() {\n    return this.assets('slides.md', true)\n  }\n}\n`;
+  const pos = source.indexOf('assets') + 2;
+
+  const completions = await session.completions('/demo.photon.ts', source, pos, true);
+  const hover = await session.hover('/demo.photon.ts', source, pos);
+
+  assert(completions.some((entry) => entry.label === 'assets'));
+  assert.match(hover?.display || '', /Photon\.assets/);
+
+  await session.destroy();
 });
 
 console.log(`\nPassed: ${passed}, Failed: ${failed}`);
