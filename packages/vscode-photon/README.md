@@ -9,6 +9,7 @@ Current MVP:
 - shows Photon diagnostics from the shared TS service
 - shows hover info and go-to-definition for Photon-aware symbols
 - adds find references and rename across the current photon and local support files
+- offers quick fixes from the shared Photon TypeScript engine
 - opens the current photon in Beam
 - creates a new photon from the built-in template
 

@@ -406,6 +406,22 @@ function createPhotonReferenceProvider() {
   };
 }
 
+async function buildWorkspaceEditFromUpdatedFiles(currentDocument, files) {
+  const edit = new vscode.WorkspaceEdit();
+  for (const file of files) {
+    const targetDocument =
+      file.filePath === currentDocument.fileName
+        ? currentDocument
+        : await vscode.workspace.openTextDocument(file.filePath);
+    const fullRange = new vscode.Range(
+      targetDocument.positionAt(0),
+      targetDocument.positionAt(targetDocument.getText().length)
+    );
+    edit.replace(targetDocument.uri, fullRange, file.source);
+  }
+  return edit;
+}
+
 function createPhotonRenameProvider() {
   return {
     prepareRename(document, position) {
@@ -423,20 +439,59 @@ function createPhotonRenameProvider() {
         supportFiles
       );
       if (!rename) return null;
+      return buildWorkspaceEditFromUpdatedFiles(document, rename.files);
+    },
+  };
+}
 
-      const edit = new vscode.WorkspaceEdit();
-      for (const file of rename.files) {
-        const targetDocument =
-          file.filePath === document.fileName
-            ? document
-            : await vscode.workspace.openTextDocument(file.filePath);
-        const fullRange = new vscode.Range(
-          targetDocument.positionAt(0),
-          targetDocument.positionAt(targetDocument.getText().length)
+function createPhotonCodeActionProvider() {
+  return {
+    providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    async provideCodeActions(document, range, context) {
+      if (!isPhotonDocument(document)) return [];
+
+      const relevantDiagnostics = context.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.source === 'photon' &&
+          typeof diagnostic.code === 'number' &&
+          diagnostic.severity === vscode.DiagnosticSeverity.Error
+      );
+      if (relevantDiagnostics.length === 0) return [];
+
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const actions = [];
+      const seen = new Set();
+
+      for (const diagnostic of relevantDiagnostics) {
+        if (!diagnostic.range.intersection(range)) continue;
+
+        const fixes = await session.codeFixes(
+          document.fileName,
+          document.getText(),
+          document.offsetAt(diagnostic.range.start),
+          document.offsetAt(diagnostic.range.end),
+          Number(diagnostic.code),
+          supportFiles
         );
-        edit.replace(targetDocument.uri, fullRange, file.source);
+
+        for (const fix of fixes) {
+          const key = `${diagnostic.code}:${fix.description}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          const action = new vscode.CodeAction(
+            fix.description,
+            vscode.CodeActionKind.QuickFix
+          );
+          action.diagnostics = [diagnostic];
+          action.edit = await buildWorkspaceEditFromUpdatedFiles(document, fix.files);
+          action.isPreferred = fix.files.length === 1;
+          actions.push(action);
+        }
       }
-      return edit;
+
+      return actions;
     },
   };
 }
@@ -477,7 +532,10 @@ function activate(context) {
     vscode.languages.registerHoverProvider(selector, createPhotonHoverProvider()),
     vscode.languages.registerDefinitionProvider(selector, createPhotonDefinitionProvider()),
     vscode.languages.registerReferenceProvider(selector, createPhotonReferenceProvider()),
-    vscode.languages.registerRenameProvider(selector, createPhotonRenameProvider())
+    vscode.languages.registerRenameProvider(selector, createPhotonRenameProvider()),
+    vscode.languages.registerCodeActionsProvider(selector, createPhotonCodeActionProvider(), {
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    })
   );
 
   for (const document of vscode.workspace.textDocuments) {
