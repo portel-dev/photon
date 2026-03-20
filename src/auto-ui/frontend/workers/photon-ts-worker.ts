@@ -66,6 +66,16 @@ type WorkerRequest =
       supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
       newName: string;
+    }
+  | {
+      id: number;
+      type: 'codeFixes';
+      filePath: string;
+      source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
+      from: number;
+      to: number;
+      errorCode: number;
     };
 
 type WorkerResponse =
@@ -152,6 +162,21 @@ type WorkerResponse =
             changeCount: number;
           }>;
         } | null;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        fixes: Array<{
+          description: string;
+          files: Array<{
+            kind: 'source' | 'project';
+            filePath: string;
+            source: string;
+            changeCount: number;
+          }>;
+        }>;
       };
     }
   | { id: number; ok: false; error: string };
@@ -786,6 +811,66 @@ function getRenamePlan(pos: number, newName: string) {
   };
 }
 
+function getCodeFixes(from: number, to: number, errorCode: number) {
+  const shadowFrom = sourceToShadowPos(from);
+  const shadowTo = sourceToShadowPos(to);
+  const fixes = languageService.getCodeFixesAtPosition(
+    currentFilePath,
+    shadowFrom,
+    shadowTo,
+    [errorCode],
+    {},
+    {}
+  );
+
+  return fixes
+    .map((fix) => {
+      const grouped = new Map<string, Array<{ start: number; end: number; newText: string }>>();
+
+      for (const change of fix.changes) {
+        if (normalizePath(change.fileName) === normalizePath(STUB_LIB_PATH)) continue;
+        const fileKey = normalizePath(change.fileName);
+        const list = grouped.get(fileKey) || [];
+
+        for (const textChange of change.textChanges) {
+          const isCurrent = fileKey === normalizePath(currentFilePath);
+          const start = isCurrent
+            ? shadowToSourcePos(textChange.span.start)
+            : textChange.span.start;
+          const end = isCurrent
+            ? shadowToSourcePos(textChange.span.start + textChange.span.length)
+            : textChange.span.start + textChange.span.length;
+          list.push({ start, end, newText: textChange.newText });
+        }
+
+        grouped.set(fileKey, list);
+      }
+
+      const files = Array.from(grouped.entries())
+        .map(([filePath, changes]) => {
+          const isCurrent = normalizePath(filePath) === normalizePath(currentFilePath);
+          const content = isCurrent ? currentSource : getFileContent(filePath) || '';
+          if (!content) return null;
+
+          return {
+            kind: isCurrent ? ('source' as const) : ('project' as const),
+            filePath,
+            source: applyTextChanges(content, changes),
+            changeCount: changes.length,
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+      if (files.length === 0) return null;
+
+      return {
+        description: fix.description,
+        files,
+      };
+    })
+    .filter((fix): fix is NonNullable<typeof fix> => fix !== null);
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -833,6 +918,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           rename: getRenamePlan(msg.pos, msg.newName),
+        },
+      };
+    } else if (msg.type === 'codeFixes') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          fixes: getCodeFixes(msg.from, msg.to, msg.errorCode),
         },
       };
     } else {
