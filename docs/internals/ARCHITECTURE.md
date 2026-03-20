@@ -441,6 +441,7 @@ All clients use the same daemon session ID (`shared-{photonName}`) for stateful 
 | CLI ↔ Photon (stateless) | Direct method call | In-process |
 | CLI ↔ Photon (`@stateful`) | Daemon Unix Socket | Shared session via daemon |
 | Beam ↔ Photon (`@stateful`) | Daemon Unix Socket | Routed through daemon for shared instance |
+| External Agent ↔ Beam | AG-UI over MCP | `ag-ui/run` + `ag-ui/event` notifications |
 
 ### Real-Time Flow
 
@@ -626,6 +627,76 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ---
 
+## Protocol Interoperability
+
+Photon's protocol stack aligns with the emerging industry standard layers:
+
+| Layer | Standard | Photon Implementation |
+|-------|----------|----------------------|
+| Agent ↔ Tool | **MCP** (Anthropic) | Core protocol — every `.photon.ts` is an MCP server |
+| Agent ↔ UI | **AG-UI** (open protocol) | Adapter layer on MCP transport — `ag-ui/run` + `ag-ui/event` |
+| Agent ↔ Agent | **A2A** (Google) | Planned — Agent Cards from photon metadata |
+| Observability | **OTel GenAI** (CNCF) | Planned — middleware pipeline instrumentation |
+
+### AG-UI Protocol Support
+
+AG-UI events flow as MCP notifications over the existing SSE transport. No separate endpoint.
+
+**Two modes:**
+
+1. **Proxy** — external AG-UI agents (LangGraph, CrewAI, Google ADK, etc.) stream through Beam:
+   ```
+   ag-ui/run { agentUrl: "https://agent.example.com", input: RunAgentInput }
+   → proxies SSE events as ag-ui/event MCP notifications
+   ```
+
+2. **Local** — Photon methods emit AG-UI-compatible events:
+   ```
+   ag-ui/run { photon: "name", method: "tool", input: RunAgentInput }
+   → wraps yields (stream, progress, emit) as AG-UI events
+   ```
+
+**Event mapping:**
+
+| Photon Yield | AG-UI Event |
+|---|---|
+| Stream chunks (strings) | `TEXT_MESSAGE_START` / `CONTENT` / `END` |
+| `yield { emit: 'progress' }` | `STEP_STARTED` / `STEP_FINISHED` |
+| Channel events (patches) | `STATE_DELTA` (RFC 6902 JSON Patch) |
+| `this.emit()` | `CUSTOM` event |
+| Tool result | `STATE_SNAPSHOT` + `RUN_FINISHED` |
+| Error | `RUN_ERROR` |
+
+**Spec compliance:**
+- MCP: Custom notifications are legal per JSON-RPC 2.0. Advertised via `experimental.ag-ui` capability.
+- AG-UI: Transport-agnostic by design. Events arrive in order via SSE. Terminal event guaranteed.
+
+**Files:** `src/ag-ui/types.ts`, `src/ag-ui/adapter.ts`, handler in `streamable-http-transport.ts`
+
+### Bidirectional State Exposure
+
+Custom UIs passively expose context to photon methods via `_clientState`:
+
+```
+UI sets widgetState → bridge auto-attaches as _clientState →
+loader strips before schema validation → available as this._clientState
+```
+
+CLI calls without widgetState work unchanged — the field is optional.
+
+### Persistent Approval Queue
+
+Durable human-in-the-loop that survives navigation and restart:
+
+```
+yield { ask: 'confirm', persistent: true, expires: '24h' }
+→ written to ~/.photon/state/{photon}/approvals.json
+→ exposed as approval:// MCP resources
+→ resolved via beam/approval-response
+```
+
+---
+
 ## Related Documentation
 
 - [DAEMON-PUBSUB.md](./DAEMON-PUBSUB.md) - Detailed pub/sub protocol
@@ -634,4 +705,4 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ---
 
-*Last updated: February 2026*
+*Last updated: March 2026*
