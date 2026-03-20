@@ -64,7 +64,11 @@ export class PhotonStudio extends LitElement {
     title: string;
     filePath: string;
     source: string;
+    originalSource?: string;
     line: number;
+    canEdit?: boolean;
+    editing?: boolean;
+    dirty?: boolean;
   } | null = null;
   @state() private _hoverEnabled = true;
 
@@ -476,6 +480,32 @@ export class PhotonStudio extends LitElement {
 
     .read-source-line-text {
       overflow-x: auto;
+    }
+
+    .read-source-editor {
+      width: 100%;
+      min-height: 320px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--t-primary, #e0e0e0);
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      line-height: 1.55;
+      resize: vertical;
+      outline: none;
+    }
+
+    .read-source-editor:focus {
+      border-color: rgba(88, 166, 255, 0.45);
+      box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.18);
+    }
+
+    .read-source-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .problem-item {
@@ -983,7 +1013,80 @@ export class PhotonStudio extends LitElement {
     }
 
     this._definitionPreview = null;
-    this._readOnlySourcePreview = { title, filePath, source, line };
+    this._readOnlySourcePreview = {
+      title,
+      filePath,
+      source,
+      originalSource: source,
+      line,
+      canEdit: true,
+      editing: false,
+      dirty: false,
+    };
+  }
+
+  private _enterSourcePreviewEdit() {
+    if (!this._readOnlySourcePreview?.canEdit) return;
+    this._readOnlySourcePreview = {
+      ...this._readOnlySourcePreview,
+      editing: true,
+    };
+  }
+
+  private _cancelSourcePreviewEdit() {
+    if (!this._readOnlySourcePreview) return;
+    this._readOnlySourcePreview = {
+      ...this._readOnlySourcePreview,
+      source: this._readOnlySourcePreview.originalSource || this._readOnlySourcePreview.source,
+      editing: false,
+      dirty: false,
+    };
+  }
+
+  private _updateSourcePreviewDraft(source: string) {
+    if (!this._readOnlySourcePreview) return;
+    this._readOnlySourcePreview = {
+      ...this._readOnlySourcePreview,
+      source,
+      dirty: source !== (this._readOnlySourcePreview.originalSource || ''),
+    };
+  }
+
+  private async _saveSourcePreviewEdit() {
+    const preview = this._readOnlySourcePreview;
+    if (!preview?.canEdit) return;
+
+    try {
+      const result = await mcpClient.callTool('beam/studio-apply-files', {
+        name: this.photonName,
+        source: this._source,
+        files: [{ path: preview.filePath, source: preview.source }],
+      });
+      const text = result?.content?.[0]?.text;
+      if (!text) throw new Error('Empty response');
+      const parsed = JSON.parse(text);
+      if (!parsed.success) throw new Error(parsed.error || 'Save failed');
+
+      this._projectSupportFiles = parsed.supportFiles || [];
+      await this._syncTypeScriptProject().catch(() => {});
+      await this._refreshTypeScriptDiagnostics();
+      await this._refreshSignatureHelp();
+      await this._refreshOutline();
+      this._readOnlySourcePreview = {
+        ...preview,
+        originalSource: preview.source,
+        editing: false,
+        dirty: false,
+      };
+      showToast(`Saved ${preview.filePath.split('/').pop() || 'support file'}`, 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? `Support file save failed: ${error.message}`
+          : 'Support file save failed',
+        'error'
+      );
+    }
   }
 
   private async _renameSymbol(pos = this._editorView?.state.selection.main.head ?? 0) {
@@ -1434,31 +1537,74 @@ export class PhotonStudio extends LitElement {
                   <div class="definition-title">${this._readOnlySourcePreview.title}</div>
                   <div class="definition-path">${this._readOnlySourcePreview.filePath}</div>
                 </div>
-                <button
-                  class="toolbar-btn"
-                  @click=${() => {
-                    this._readOnlySourcePreview = null;
-                  }}
-                >
-                  Close
-                </button>
+                <div class="read-source-actions">
+                  ${this._readOnlySourcePreview.canEdit && !this._readOnlySourcePreview.editing
+                    ? html`
+                        <button class="toolbar-btn" @click=${() => this._enterSourcePreviewEdit()}>
+                          Edit
+                        </button>
+                      `
+                    : ''}
+                  ${this._readOnlySourcePreview.editing
+                    ? html`
+                        <button
+                          class="toolbar-btn primary"
+                          ?disabled=${!this._readOnlySourcePreview.dirty}
+                          @click=${() => {
+                            void this._saveSourcePreviewEdit();
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          class="toolbar-btn"
+                          @click=${() => {
+                            this._cancelSourcePreviewEdit();
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      `
+                    : ''}
+                  <button
+                    class="toolbar-btn"
+                    @click=${() => {
+                      this._readOnlySourcePreview = null;
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
-              <div class="read-source-scroll">
-                <pre class="read-source-code">
+              ${this._readOnlySourcePreview.editing
+                ? html`
+                    <textarea
+                      class="read-source-editor"
+                      .value=${this._readOnlySourcePreview.source}
+                      @input=${(event: Event) => {
+                        this._updateSourcePreviewDraft((event.target as HTMLTextAreaElement).value);
+                      }}
+                    ></textarea>
+                  `
+                : html`
+                    <div class="read-source-scroll">
+                      <pre class="read-source-code">
 ${this._readOnlySourcePreview.source.split('\n').map(
-                    (line, index) => html`
-                      <div
-                        class="read-source-line ${index + 1 === this._readOnlySourcePreview!.line
-                          ? 'active'
-                          : ''}"
+                          (line, index) => html`
+                            <div
+                              class="read-source-line ${index + 1 ===
+                              this._readOnlySourcePreview!.line
+                                ? 'active'
+                                : ''}"
+                            >
+                              <span class="read-source-line-number">${index + 1}</span>
+                              <span class="read-source-line-text">${line || ' '}</span>
+                            </div>
+                          `
+                        )}</pre
                       >
-                        <span class="read-source-line-number">${index + 1}</span>
-                        <span class="read-source-line-text">${line || ' '}</span>
-                      </div>
-                    `
-                  )}</pre
-                >
-              </div>
+                    </div>
+                  `}
             </div>
           `
         : ''}
