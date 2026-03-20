@@ -70,6 +70,7 @@ export class PhotonStudio extends LitElement {
   @state() private _signatureHelp: PhotonTsSignatureHelp | null = null;
   @state() private _outlineItems: PhotonTsOutlineItem[] = [];
   @state() private _showOutline = true;
+  @state() private _activeOutlineKey = '';
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -744,6 +745,11 @@ export class PhotonStudio extends LitElement {
       background: rgba(255, 255, 255, 0.07);
     }
 
+    .outline-item.active {
+      background: rgba(88, 166, 255, 0.14);
+      border: 1px solid rgba(88, 166, 255, 0.18);
+    }
+
     .outline-kind {
       color: var(--t-muted, #888);
       text-transform: uppercase;
@@ -983,6 +989,7 @@ export class PhotonStudio extends LitElement {
             void this._refreshOutline();
             this._scheduleParse();
           } else if (update.selectionSet) {
+            this._syncActiveOutline(update.state.selection.main.head);
             void this._refreshSignatureHelp(update.state.selection.main.head);
           }
         }),
@@ -1666,10 +1673,12 @@ export class PhotonStudio extends LitElement {
       const outline = await this._tsWorkerClient.outline(this._filePath, this._source);
       if (token === this._outlineToken) {
         this._outlineItems = outline;
+        this._syncActiveOutline();
       }
     } catch {
       if (token === this._outlineToken) {
         this._outlineItems = [];
+        this._activeOutlineKey = '';
       }
     }
   }
@@ -1713,7 +1722,9 @@ export class PhotonStudio extends LitElement {
           ${this._outlineItems.map(
             (item) => html`
               <div
-                class="outline-item"
+                class="outline-item ${this._outlineKey(item) === this._activeOutlineKey
+                  ? 'active'
+                  : ''}"
                 style="padding-left: ${8 + item.level * 16}px"
                 @click=${() => {
                   this._focusEditorSpan(item.from, Math.max(item.to, item.from + 1));
@@ -1727,6 +1738,17 @@ export class PhotonStudio extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  private _outlineKey(item: PhotonTsOutlineItem) {
+    return `${item.kind}:${item.text}:${item.from}:${item.to}`;
+  }
+
+  private _syncActiveOutline(pos = this._editorView?.state.selection.main.head ?? 0) {
+    const matchingItem = this._outlineItems
+      .filter((item) => pos >= item.from && pos <= Math.max(item.to, item.from + 1))
+      .sort((left, right) => right.level - left.level)[0];
+    this._activeOutlineKey = matchingItem ? this._outlineKey(matchingItem) : '';
   }
 
   private _close() {
@@ -1857,6 +1879,13 @@ export class PhotonStudio extends LitElement {
             : `${this._tsDiagnostics.length} issue${this._tsDiagnostics.length === 1 ? '' : 's'}`}
         </span>
         <span class="status-pill">Hover types on</span>
+        ${this._activeOutlineKey
+          ? html`<span class="status-pill">
+              Symbol
+              ${this._outlineItems.find((item) => this._outlineKey(item) === this._activeOutlineKey)
+                ?.text || ''}
+            </span>`
+          : ''}
         <span class="status-pill">F12 / Cmd+Click</span>
         <span class="status-pill">Shift+F12 refs</span>
         <span class="status-pill">F2 rename</span>
