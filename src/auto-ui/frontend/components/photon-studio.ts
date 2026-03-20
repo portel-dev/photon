@@ -13,7 +13,11 @@ import { defaultKeymap } from '@codemirror/commands';
 import { basicSetup } from 'codemirror';
 import { mcpClient } from '../services/mcp-client.js';
 import { showToast } from './toast-manager.js';
-import { createDocblockCompletions, photonFormatCompletions } from './docblock-completions.js';
+import {
+  createDocblockCompletions,
+  photonFormatCompletions,
+  photonRuntimeCompletions,
+} from './docblock-completions.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
 import './studio-preview.js';
@@ -343,6 +347,7 @@ export class PhotonStudio extends LitElement {
         EditorState.languageData.of(() => [
           { autocomplete: docblockCompletions },
           { autocomplete: photonFormatCompletions },
+          { autocomplete: photonRuntimeCompletions },
         ]),
         // JSDoc comment continuation at high priority so it fires before basicSetup's Enter
         Prec.high(

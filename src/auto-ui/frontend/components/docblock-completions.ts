@@ -777,3 +777,298 @@ export function photonFormatCompletions(context: CompletionContext): CompletionR
   const from = context.pos - formatMatch[1].length;
   return { from, options: formatValues, validFor: /^[^\s{]*$/ };
 }
+
+interface RuntimeCompletionDef {
+  label: string;
+  detail: string;
+  type: Completion['type'];
+  info?: string;
+  snippetTmpl?: string;
+}
+
+function runtimeCompletion(def: RuntimeCompletionDef): Completion {
+  return {
+    label: def.label,
+    detail: def.detail,
+    type: def.type,
+    info: def.info,
+    apply: def.snippetTmpl ? snippet(def.snippetTmpl) : undefined,
+  };
+}
+
+const photonInstanceCompletions: Completion[] = [
+  runtimeCompletion({
+    label: 'assets',
+    detail: 'Resolve or load a photon asset',
+    type: 'method',
+    snippetTmpl: "assets(${1:'slides.md'})",
+  }),
+  runtimeCompletion({
+    label: 'assetUrl',
+    detail: 'Get a Beam-served asset URL',
+    type: 'method',
+    snippetTmpl: "assetUrl(${1:'images/logo.png'})",
+  }),
+  runtimeCompletion({
+    label: 'storage',
+    detail: 'Get a photon data directory path',
+    type: 'method',
+    snippetTmpl: "storage(${1:'data'})",
+  }),
+  runtimeCompletion({
+    label: 'memory',
+    detail: 'Persistent key-value storage',
+    type: 'property',
+  }),
+  runtimeCompletion({
+    label: 'schedule',
+    detail: 'Runtime task scheduling',
+    type: 'property',
+  }),
+  runtimeCompletion({
+    label: 'photon',
+    detail: 'Access other photons dynamically',
+    type: 'property',
+  }),
+  runtimeCompletion({
+    label: 'caller',
+    detail: 'Authenticated caller identity',
+    type: 'property',
+  }),
+  runtimeCompletion({
+    label: 'emit',
+    detail: 'Emit progress or events',
+    type: 'method',
+    snippetTmpl: "emit(${1:{ status: 'processing', progress: 50 }})",
+  }),
+  runtimeCompletion({
+    label: 'render',
+    detail: 'Render intermediate formatted output',
+    type: 'method',
+    snippetTmpl: "render(${1:'table'}, ${2:value})",
+  }),
+  runtimeCompletion({
+    label: 'call',
+    detail: 'Call another photon method',
+    type: 'method',
+    snippetTmpl: "call(${1:'billing.generate'}, ${2:{ orderId: '123' }})",
+  }),
+  runtimeCompletion({
+    label: 'mcp',
+    detail: 'Connect to an MCP server client',
+    type: 'method',
+    snippetTmpl: "mcp(${1:'github'})",
+  }),
+  runtimeCompletion({
+    label: 'hasMCPAccess',
+    detail: 'Check whether MCP access is available',
+    type: 'method',
+    snippetTmpl: 'hasMCPAccess()',
+  }),
+  runtimeCompletion({
+    label: 'listMCPServers',
+    detail: 'List available MCP servers',
+    type: 'method',
+    snippetTmpl: 'listMCPServers()',
+  }),
+  runtimeCompletion({
+    label: 'withLock',
+    detail: 'Run code with a distributed lock',
+    type: 'method',
+    snippetTmpl: "withLock(${1:'resource:write'}, async () => {\n  ${2}\n})",
+  }),
+  runtimeCompletion({
+    label: 'acquireLock',
+    detail: 'Assign a lock to a caller',
+    type: 'method',
+    snippetTmpl: "acquireLock(${1:'turn'}, ${2:this.caller.id})",
+  }),
+  runtimeCompletion({
+    label: 'transferLock',
+    detail: 'Transfer a lock to another caller',
+    type: 'method',
+    snippetTmpl: "transferLock(${1:'turn'}, ${2:nextCallerId})",
+  }),
+  runtimeCompletion({
+    label: 'releaseLock',
+    detail: 'Release a held lock',
+    type: 'method',
+    snippetTmpl: "releaseLock(${1:'turn'})",
+  }),
+  runtimeCompletion({
+    label: 'getLock',
+    detail: 'Query lock holder info',
+    type: 'method',
+    snippetTmpl: "getLock(${1:'turn'})",
+  }),
+];
+
+const photonMemoryCompletions: Completion[] = [
+  runtimeCompletion({
+    label: 'get',
+    detail: 'Read a value',
+    type: 'method',
+    snippetTmpl: "get(${1:'key'})",
+  }),
+  runtimeCompletion({
+    label: 'set',
+    detail: 'Write a value',
+    type: 'method',
+    snippetTmpl: "set(${1:'key'}, ${2:value})",
+  }),
+  runtimeCompletion({
+    label: 'delete',
+    detail: 'Delete a value',
+    type: 'method',
+    snippetTmpl: "delete(${1:'key'})",
+  }),
+  runtimeCompletion({
+    label: 'has',
+    detail: 'Check key existence',
+    type: 'method',
+    snippetTmpl: "has(${1:'key'})",
+  }),
+  runtimeCompletion({
+    label: 'keys',
+    detail: 'List keys',
+    type: 'method',
+    snippetTmpl: "keys(${1:'photon'})",
+  }),
+  runtimeCompletion({
+    label: 'clear',
+    detail: 'Clear a scope',
+    type: 'method',
+    snippetTmpl: "clear(${1:'photon'})",
+  }),
+  runtimeCompletion({
+    label: 'getAll',
+    detail: 'Read all values',
+    type: 'method',
+    snippetTmpl: "getAll(${1:'photon'})",
+  }),
+  runtimeCompletion({
+    label: 'update',
+    detail: 'Read-modify-write helper',
+    type: 'method',
+    snippetTmpl: "update(${1:'key'}, (${2:current}) => ${3:current})",
+  }),
+  runtimeCompletion({ label: 'sessionId', detail: 'Current session scope id', type: 'property' }),
+];
+
+const photonScheduleCompletions: Completion[] = [
+  runtimeCompletion({
+    label: 'create',
+    detail: 'Create a scheduled task',
+    type: 'method',
+    snippetTmpl:
+      "create({\n  name: ${1:'nightly-cleanup'},\n  schedule: ${2:'0 0 * * *'},\n  method: ${3:'cleanup'}${4:,}\n})",
+  }),
+  runtimeCompletion({
+    label: 'get',
+    detail: 'Get a task by id',
+    type: 'method',
+    snippetTmpl: 'get(${1:taskId})',
+  }),
+  runtimeCompletion({
+    label: 'getByName',
+    detail: 'Get a task by name',
+    type: 'method',
+    snippetTmpl: "getByName(${1:'nightly-cleanup'})",
+  }),
+  runtimeCompletion({
+    label: 'list',
+    detail: 'List scheduled tasks',
+    type: 'method',
+    snippetTmpl: "list(${1:'active'})",
+  }),
+  runtimeCompletion({
+    label: 'update',
+    detail: 'Update a scheduled task',
+    type: 'method',
+    snippetTmpl: "update(${1:taskId}, ${2:{ schedule: '0 0 * * *' }})",
+  }),
+  runtimeCompletion({
+    label: 'pause',
+    detail: 'Pause a task',
+    type: 'method',
+    snippetTmpl: 'pause(${1:taskId})',
+  }),
+  runtimeCompletion({
+    label: 'resume',
+    detail: 'Resume a task',
+    type: 'method',
+    snippetTmpl: 'resume(${1:taskId})',
+  }),
+  runtimeCompletion({
+    label: 'cancel',
+    detail: 'Cancel a task',
+    type: 'method',
+    snippetTmpl: 'cancel(${1:taskId})',
+  }),
+  runtimeCompletion({
+    label: 'cancelByName',
+    detail: 'Cancel a task by name',
+    type: 'method',
+    snippetTmpl: "cancelByName(${1:'nightly-cleanup'})",
+  }),
+  runtimeCompletion({
+    label: 'has',
+    detail: 'Check schedule existence',
+    type: 'method',
+    snippetTmpl: "has(${1:'nightly-cleanup'})",
+  }),
+  runtimeCompletion({
+    label: 'cancelAll',
+    detail: 'Cancel all tasks',
+    type: 'method',
+    snippetTmpl: 'cancelAll()',
+  }),
+];
+
+const photonCallerCompletions: Completion[] = [
+  runtimeCompletion({ label: 'id', detail: 'Stable caller identifier', type: 'property' }),
+  runtimeCompletion({ label: 'name', detail: 'Caller display name', type: 'property' }),
+  runtimeCompletion({
+    label: 'anonymous',
+    detail: 'True when no auth token was provided',
+    type: 'property',
+  }),
+  runtimeCompletion({ label: 'scope', detail: 'Granted OAuth scopes', type: 'property' }),
+  runtimeCompletion({ label: 'claims', detail: 'Raw JWT claims', type: 'property' }),
+];
+
+const photonNestedCompletions: Record<string, Completion[]> = {
+  memory: photonMemoryCompletions,
+  schedule: photonScheduleCompletions,
+  caller: photonCallerCompletions,
+  photon: [
+    runtimeCompletion({
+      label: 'use',
+      detail: 'Access another photon instance',
+      type: 'method',
+      snippetTmpl: "use(${1:'billing'}, ${2:'default'})",
+    }),
+  ],
+};
+
+export function photonRuntimeCompletions(context: CompletionContext): CompletionResult | null {
+  if (isInsideJSDoc(context)) return null;
+
+  const fullMatch = context.matchBefore(/this(?:\.[A-Za-z_$][\w$]*)*\.[A-Za-z_$]*$/);
+  if (!fullMatch) return null;
+
+  const expression = fullMatch.text;
+  const segments = expression.split('.');
+  if (segments[0] !== 'this') return null;
+
+  const prefix = segments.at(-1) ?? '';
+  const parent = segments.length > 2 ? segments[segments.length - 2] : null;
+  const options = parent ? photonNestedCompletions[parent] : photonInstanceCompletions;
+  if (!options || options.length === 0) return null;
+
+  return {
+    from: context.pos - prefix.length,
+    options,
+    validFor: /^[A-Za-z_$][\w$]*$/,
+  };
+}

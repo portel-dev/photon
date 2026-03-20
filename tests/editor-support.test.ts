@@ -14,6 +14,7 @@ import {
 import {
   createDocblockCompletions,
   photonFormatCompletions,
+  photonRuntimeCompletions,
 } from '../src/auto-ui/frontend/components/docblock-completions.js';
 
 let passed = 0;
@@ -70,6 +71,28 @@ await test('format completions include newer renderer formats', () => {
   assert(labels.has('chart:hbar'));
   assert(labels.has('slides'));
   assert(labels.has('feature-grid'));
+});
+
+await test('runtime completions expose photon helpers on this', () => {
+  const doc = `export default class Demo {\n  main() {\n    return this.as\n  }\n}\n`;
+  const completions = photonRuntimeCompletions(contextFor(doc, 'this.as'));
+  const labels = new Set((completions?.options || []).map((o) => o.label));
+
+  assert(labels.has('assets'));
+  assert(labels.has('assetUrl'));
+  assert(labels.has('memory'));
+});
+
+await test('runtime completions expose nested helpers for memory and caller', () => {
+  const memoryDoc = `export default class Demo {\n  main() {\n    return this.memory.g\n  }\n}\n`;
+  const callerDoc = `export default class Demo {\n  main() {\n    return this.caller.a\n  }\n}\n`;
+
+  const memoryCompletions = photonRuntimeCompletions(contextFor(memoryDoc, 'this.memory.g'));
+  const callerCompletions = photonRuntimeCompletions(contextFor(callerDoc, 'this.caller.a'));
+
+  assert((memoryCompletions?.options || []).some((o) => o.label === 'get'));
+  assert((memoryCompletions?.options || []).some((o) => o.label === 'getAll'));
+  assert((callerCompletions?.options || []).some((o) => o.label === 'anonymous'));
 });
 
 await test('editor declaration generator augments photon class from cache dir', async () => {
