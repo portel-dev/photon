@@ -13,6 +13,9 @@ const IMPORT_RE = /\b(?:import|export)\b[\s\S]*?\bfrom\s*['"](\.[^'"]+)['"]|impo
 let directSessionPromise;
 let diagnosticsCollection;
 const diagnosticTimers = new Map();
+const resolvedImportCache = new Map();
+const supportFileCache = new Map();
+const supportGraphCache = new Map();
 
 function isPhotonDocument(document) {
   return Boolean(document && document.fileName && document.fileName.endsWith('.photon.ts'));
@@ -110,6 +113,11 @@ async function pathExists(filePath) {
 }
 
 async function resolveSupportPath(baseFilePath, specifier) {
+  const cacheKey = `${baseFilePath}::${specifier}`;
+  if (resolvedImportCache.has(cacheKey)) {
+    return resolvedImportCache.get(cacheKey);
+  }
+
   const basePath = path.resolve(path.dirname(baseFilePath), specifier);
   const candidates = [
     basePath,
@@ -122,16 +130,59 @@ async function resolveSupportPath(baseFilePath, specifier) {
   ];
 
   for (const candidate of candidates) {
-    if (await pathExists(candidate)) return candidate;
+    if (await pathExists(candidate)) {
+      resolvedImportCache.set(cacheKey, candidate);
+      return candidate;
+    }
   }
 
+  resolvedImportCache.set(cacheKey, null);
   return null;
 }
 
+function getImportsSignature(source) {
+  return Array.from(source.matchAll(IMPORT_RE))
+    .map((match) => match[1] || match[2] || '')
+    .filter(Boolean)
+    .join('|');
+}
+
+async function loadSupportFile(filePath) {
+  const stat = await fs.stat(filePath);
+  const cached = supportFileCache.get(filePath);
+  if (
+    cached &&
+    cached.mtimeMs === stat.mtimeMs &&
+    cached.size === stat.size
+  ) {
+    return cached.source;
+  }
+
+  const source = await fs.readFile(filePath, 'utf8');
+  supportFileCache.set(filePath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    source,
+  });
+  return source;
+}
+
 async function collectSupportFiles(document) {
-  const matches = Array.from(document.getText().matchAll(IMPORT_RE));
+  const documentSource = document.getText();
+  const importsSignature = getImportsSignature(documentSource);
+  const cachedGraph = supportGraphCache.get(document.fileName);
+  if (
+    cachedGraph &&
+    cachedGraph.version === document.version &&
+    cachedGraph.importsSignature === importsSignature
+  ) {
+    return cachedGraph.files;
+  }
+
+  const matches = Array.from(documentSource.matchAll(IMPORT_RE));
   const supportFiles = [];
   const seen = new Set();
+  const dependencyPaths = [];
 
   for (const match of matches) {
     const specifier = match[1] || match[2];
@@ -139,13 +190,37 @@ async function collectSupportFiles(document) {
     const resolvedPath = await resolveSupportPath(document.fileName, specifier);
     if (!resolvedPath || seen.has(resolvedPath)) continue;
     seen.add(resolvedPath);
+    dependencyPaths.push(resolvedPath);
     supportFiles.push({
       path: resolvedPath,
-      source: await fs.readFile(resolvedPath, 'utf8'),
+      source: await loadSupportFile(resolvedPath),
     });
   }
 
+  supportGraphCache.set(document.fileName, {
+    version: document.version,
+    importsSignature,
+    dependencyPaths,
+    files: supportFiles,
+  });
+
   return supportFiles;
+}
+
+function invalidateSupportCaches(filePath) {
+  resolvedImportCache.forEach((_value, key) => {
+    if (key.startsWith(`${filePath}::`)) {
+      resolvedImportCache.delete(key);
+    }
+  });
+
+  supportFileCache.delete(filePath);
+  supportGraphCache.delete(filePath);
+  for (const [photonPath, entry] of supportGraphCache.entries()) {
+    if (entry.dependencyPaths.includes(filePath)) {
+      supportGraphCache.delete(photonPath);
+    }
+  }
 }
 
 function severityFromPhoton(severity) {
@@ -670,15 +745,24 @@ function activate(context) {
   context.subscriptions.push(
     diagnosticsCollection,
     vscode.workspace.onDidOpenTextDocument((document) => {
+      invalidateSupportCaches(document.fileName);
       void ensureDeclarationForDocument(document);
       scheduleDiagnostics(document, 0);
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
+      invalidateSupportCaches(document.fileName);
       void ensureDeclarationForDocument(document);
       scheduleDiagnostics(document, 0);
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
+      invalidateSupportCaches(event.document.fileName);
       scheduleDiagnostics(event.document);
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      invalidateSupportCaches(document.fileName);
+      if (isPhotonDocument(document) && diagnosticsCollection) {
+        diagnosticsCollection.delete(document.uri);
+      }
     }),
     vscode.commands.registerCommand('photon.openInBeam', () => void openCurrentPhotonInBeam()),
     vscode.commands.registerCommand('photon.regenerateEditorCache', async () => {
