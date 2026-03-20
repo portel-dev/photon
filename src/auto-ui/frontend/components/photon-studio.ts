@@ -59,6 +59,7 @@ export class PhotonStudio extends LitElement {
   @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
   @state() private _definitionPreview: PhotonTsDefinition | null = null;
   @state() private _referencesPreview: PhotonTsReferences | null = null;
+  @state() private _renamePreview: PhotonTsRenamePlan | null = null;
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -385,6 +386,48 @@ export class PhotonStudio extends LitElement {
       color: var(--t-primary, #e0e0e0);
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .rename-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(242, 204, 96, 0.08);
+    }
+
+    .rename-summary {
+      font-size: var(--text-sm);
+      color: var(--t-primary, #e0e0e0);
+    }
+
+    .rename-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .rename-file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .rename-file-item {
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .rename-file-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+      margin-bottom: 6px;
     }
 
     .read-source-panel {
@@ -754,6 +797,7 @@ export class PhotonStudio extends LitElement {
             this._dirty = this._source !== this._originalSource;
             this._definitionPreview = null;
             this._referencesPreview = null;
+            this._renamePreview = null;
             void this._syncTypeScriptProject().catch(() => {});
             const nextImportSignature = this._extractImportSignature(this._source);
             if (nextImportSignature !== this._importSignature) {
@@ -845,6 +889,7 @@ export class PhotonStudio extends LitElement {
     if (definition.kind === 'source') {
       this._definitionPreview = null;
       this._readOnlySourcePreview = null;
+      this._renamePreview = null;
       this._editorView.dispatch({
         selection: { anchor: definition.targetFrom, head: definition.targetTo },
         effects: EditorView.scrollIntoView(definition.targetFrom, { y: 'center' }),
@@ -866,6 +911,7 @@ export class PhotonStudio extends LitElement {
 
     this._definitionPreview = definition;
     this._referencesPreview = null;
+    this._renamePreview = null;
     showToast(`Opened ${definition.title} definition preview`, 'info');
   }
 
@@ -885,6 +931,7 @@ export class PhotonStudio extends LitElement {
     this._definitionPreview = null;
     this._readOnlySourcePreview = null;
     this._referencesPreview = references;
+    this._renamePreview = null;
     showToast(
       `${references.items.length} reference${references.items.length === 1 ? '' : 's'} for ${references.symbolName}`,
       'info'
@@ -894,6 +941,7 @@ export class PhotonStudio extends LitElement {
   private _openReference(item: PhotonTsReferences['items'][number]) {
     if (item.kind === 'source' && this._editorView) {
       this._readOnlySourcePreview = null;
+      this._renamePreview = null;
       this._editorView.dispatch({
         selection: { anchor: item.from, head: item.to },
         effects: EditorView.scrollIntoView(item.from, { y: 'center' }),
@@ -966,7 +1014,10 @@ export class PhotonStudio extends LitElement {
       return;
     }
 
-    await this._applyRenamePlan(renamePlan);
+    this._definitionPreview = null;
+    this._referencesPreview = null;
+    this._readOnlySourcePreview = null;
+    this._renamePreview = renamePlan;
   }
 
   private async _applyRenamePlan(renamePlan: PhotonTsRenamePlan) {
@@ -1002,6 +1053,8 @@ export class PhotonStudio extends LitElement {
       this._dirty = false;
       this._definitionPreview = null;
       this._referencesPreview = null;
+      this._renamePreview = null;
+      this._readOnlySourcePreview = null;
       this._projectSupportFiles = parsed.supportFiles || [];
       this._importSignature = this._extractImportSignature(this._source);
       await this._syncTypeScriptProject().catch(() => {});
@@ -1018,6 +1071,25 @@ export class PhotonStudio extends LitElement {
         'error'
       );
     }
+  }
+
+  private _previewRenameFile(file: PhotonTsRenamePlan['files'][number]) {
+    if (file.kind === 'source' && this._editorView) {
+      this._readOnlySourcePreview = {
+        title: `${this._renamePreview?.symbolName || 'Rename'} preview`,
+        filePath: file.filePath,
+        source: file.source,
+        line: 1,
+      };
+      return;
+    }
+
+    this._readOnlySourcePreview = {
+      title: `${this._renamePreview?.symbolName || 'Rename'} preview`,
+      filePath: file.filePath,
+      source: file.source,
+      line: 1,
+    };
   }
 
   private _diagnosticSeverityClass(): 'ok' | 'warning' | 'error' {
@@ -1298,6 +1370,62 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
+      ${this._renamePreview
+        ? html`
+            <div class="rename-panel">
+              <div class="definition-header">
+                <div>
+                  <div class="definition-title">Rename Preview</div>
+                  <div class="rename-summary">
+                    ${this._renamePreview.symbolName} → ${this._renamePreview.nextName}
+                  </div>
+                  <div class="references-count">
+                    ${this._renamePreview.files.length}
+                    file${this._renamePreview.files.length === 1 ? '' : 's'} affected
+                  </div>
+                </div>
+                <div class="rename-actions">
+                  <button
+                    class="toolbar-btn primary"
+                    @click=${() => {
+                      void this._applyRenamePlan(this._renamePreview!);
+                    }}
+                  >
+                    Apply Rename
+                  </button>
+                  <button
+                    class="toolbar-btn"
+                    @click=${() => {
+                      this._renamePreview = null;
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+              <div class="rename-file-list">
+                ${this._renamePreview.files.map(
+                  (file) => html`
+                    <div
+                      class="rename-file-item"
+                      @click=${() => {
+                        this._previewRenameFile(file);
+                      }}
+                    >
+                      <div class="rename-file-meta">
+                        <span>${file.filePath}</span>
+                        <span>${file.changeCount} change${file.changeCount === 1 ? '' : 's'}</span>
+                      </div>
+                      <div class="reference-preview">
+                        ${file.source.split('\n').slice(0, 4).join('\n')}
+                      </div>
+                    </div>
+                  `
+                )}
+              </div>
+            </div>
+          `
+        : ''}
       ${this._readOnlySourcePreview
         ? html`
             <div class="read-source-panel">
