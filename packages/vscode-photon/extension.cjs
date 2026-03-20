@@ -496,6 +496,38 @@ function createPhotonCodeActionProvider() {
   };
 }
 
+function createPhotonSignatureHelpProvider() {
+  return {
+    async provideSignatureHelp(document, position) {
+      if (!isPhotonDocument(document)) return null;
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const signatureHelp = await session.signatureHelp(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        supportFiles
+      );
+      if (!signatureHelp || signatureHelp.items.length === 0) return null;
+
+      const result = new vscode.SignatureHelp();
+      result.activeSignature = signatureHelp.activeItem;
+      result.activeParameter = signatureHelp.activeParameter;
+      result.signatures = signatureHelp.items.map((item) => {
+        const signature = new vscode.SignatureInformation(
+          `${item.prefix}${item.parameters.map((param) => param.text).join(item.separator)}${item.suffix}`,
+          item.documentation
+        );
+        signature.parameters = item.parameters.map(
+          (param) => new vscode.ParameterInformation(param.text, param.documentation)
+        );
+        return signature;
+      });
+      return result;
+    },
+  };
+}
+
 function activate(context) {
   const selector = { language: 'typescript', scheme: 'file', pattern: '**/*.photon.ts' };
   diagnosticsCollection = vscode.languages.createDiagnosticCollection('photon');
@@ -535,7 +567,13 @@ function activate(context) {
     vscode.languages.registerRenameProvider(selector, createPhotonRenameProvider()),
     vscode.languages.registerCodeActionsProvider(selector, createPhotonCodeActionProvider(), {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
-    })
+    }),
+    vscode.languages.registerSignatureHelpProvider(
+      selector,
+      createPhotonSignatureHelpProvider(),
+      '(',
+      ','
+    )
   );
 
   for (const document of vscode.workspace.textDocuments) {
