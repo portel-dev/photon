@@ -118,7 +118,10 @@ import { getErrorMessage } from '../shared/error-handler.js';
 import { toEnvVarName } from '../shared/config-docs.js';
 import { MarketplaceManager } from '../marketplace-manager.js';
 import { subscribeChannel, pingDaemon } from '../daemon/client.js';
-import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
+import {
+  ensurePhotonEditorDeclaration,
+  writePhotonEditorDeclaration,
+} from '../photon-editor-declarations.js';
 import { ensureDaemon } from '../daemon/manager.js';
 import {
   SchemaExtractor,
@@ -716,6 +719,7 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
     try {
       source = await fs.readFile(photonPath, 'utf-8');
+      await ensurePhotonEditorDeclaration(photonPath, source, workingDir).catch(() => {});
     } catch {
       // Can't read source
     }

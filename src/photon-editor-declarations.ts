@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 
 import { getDefaultContext } from './context.js';
 
@@ -81,4 +81,13 @@ export async function writePhotonEditorDeclaration(
   await mkdir(path.dirname(declarationPath), { recursive: true });
   await writeFile(declarationPath, content, 'utf-8');
   return declarationPath;
+}
+
+export async function ensurePhotonEditorDeclaration(
+  sourcePath: string,
+  source?: string,
+  baseDir = getDefaultContext().baseDir
+): Promise<string | null> {
+  const resolvedSource = source ?? (await readFile(sourcePath, 'utf-8'));
+  return writePhotonEditorDeclaration(sourcePath, resolvedSource, baseDir);
 }

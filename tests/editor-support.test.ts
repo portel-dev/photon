@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ import { CompletionContext } from '@codemirror/autocomplete';
 
 import {
   buildPhotonEditorDeclaration,
+  ensurePhotonEditorDeclaration,
   getPhotonEditorDeclarationPath,
   writePhotonEditorDeclaration,
 } from '../src/photon-editor-declarations.js';
@@ -111,6 +112,23 @@ await test('editor declaration generator augments photon class from cache dir', 
 
   const written = await readFile(declarationPath!, 'utf-8');
   assert.equal(written, declaration);
+
+  await rm(baseDir, { recursive: true, force: true });
+});
+
+await test('editor declaration helper can eagerly generate from source file on disk', async () => {
+  const baseDir = await mkdtemp(path.join(os.tmpdir(), 'photon-editor-types-'));
+  const sourcePath = path.join(baseDir, 'demo.photon.ts');
+  const source = `export default class Demo {\n  main() {\n    return this.assets('slides.md', true)\n  }\n}\n`;
+
+  await writeFile(sourcePath, source, 'utf-8');
+
+  const declarationPath = await ensurePhotonEditorDeclaration(sourcePath, undefined, baseDir);
+  assert.equal(declarationPath, getPhotonEditorDeclarationPath(sourcePath, baseDir));
+
+  const written = await readFile(declarationPath!, 'utf-8');
+  assert.match(written, /declare module '\.\.\/\.\.\/demo\.photon'/);
+  assert.match(written, /interface Demo extends Photon \{\}/);
 
   await rm(baseDir, { recursive: true, force: true });
 });
