@@ -485,6 +485,14 @@ export class PhotonStudio extends LitElement {
       font-size: var(--text-xs);
       line-height: 1.45;
       color: var(--t-primary, #e0e0e0);
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 4px 6px;
+      margin: 0 -6px;
+    }
+
+    .problem-item:hover {
+      background: rgba(255, 255, 255, 0.04);
     }
 
     .problem-badge {
@@ -874,6 +882,37 @@ export class PhotonStudio extends LitElement {
     };
   }
 
+  private _focusEditorSpan(from: number, to: number) {
+    if (!this._editorView) return;
+    this._readOnlySourcePreview = null;
+    this._editorView.dispatch({
+      selection: { anchor: from, head: to },
+      effects: EditorView.scrollIntoView(from, { y: 'center' }),
+    });
+    this._editorView.focus();
+  }
+
+  private _normalizeEditorTokenSpan(from: number, to: number): { from: number; to: number } {
+    const source = this._source;
+    let nextFrom = Math.max(0, from);
+    let nextTo = Math.max(nextFrom, to);
+
+    while (nextFrom < source.length && !/[A-Za-z0-9_$'"]/.test(source[nextFrom] || '')) {
+      nextFrom++;
+    }
+    while (nextTo > nextFrom && !/[A-Za-z0-9_$'"]/.test(source[nextTo - 1] || '')) {
+      nextTo--;
+    }
+    while (nextFrom > 0 && /[A-Za-z0-9_$'"]/.test(source[nextFrom - 1] || '')) {
+      nextFrom--;
+    }
+    while (nextTo < source.length && /[A-Za-z0-9_$'"]/.test(source[nextTo] || '')) {
+      nextTo++;
+    }
+
+    return { from: nextFrom, to: Math.max(nextTo, nextFrom + 1) };
+  }
+
   private async _goToDefinition(pos = this._editorView?.state.selection.main.head ?? 0) {
     if (!this._tsWorkerClient || !this._filePath || !this._editorView) return;
 
@@ -890,11 +929,7 @@ export class PhotonStudio extends LitElement {
       this._definitionPreview = null;
       this._readOnlySourcePreview = null;
       this._renamePreview = null;
-      this._editorView.dispatch({
-        selection: { anchor: definition.targetFrom, head: definition.targetTo },
-        effects: EditorView.scrollIntoView(definition.targetFrom, { y: 'center' }),
-      });
-      this._editorView.focus();
+      this._focusEditorSpan(definition.targetFrom, definition.targetTo);
       return;
     }
 
@@ -942,11 +977,7 @@ export class PhotonStudio extends LitElement {
     if (item.kind === 'source' && this._editorView) {
       this._readOnlySourcePreview = null;
       this._renamePreview = null;
-      this._editorView.dispatch({
-        selection: { anchor: item.from, head: item.to },
-        effects: EditorView.scrollIntoView(item.from, { y: 'center' }),
-      });
-      this._editorView.focus();
+      this._focusEditorSpan(item.from, item.to);
       return;
     }
 
@@ -1100,6 +1131,14 @@ export class PhotonStudio extends LitElement {
 
   private _visibleDiagnostics() {
     return this._tsDiagnostics.slice(0, 3);
+  }
+
+  private _openDiagnostic(diag: PhotonTsDiagnostic) {
+    this._definitionPreview = null;
+    this._referencesPreview = null;
+    this._renamePreview = null;
+    const span = this._normalizeEditorTokenSpan(diag.from, Math.max(diag.to, diag.from + 1));
+    this._focusEditorSpan(span.from, span.to);
   }
 
   private _scheduleParse() {
@@ -1535,7 +1574,12 @@ ${this._readOnlySourcePreview.source.split('\n').map(
             <div class="problems-panel">
               ${this._visibleDiagnostics().map(
                 (diag) => html`
-                  <div class="problem-item">
+                  <div
+                    class="problem-item"
+                    @click=${() => {
+                      this._openDiagnostic(diag);
+                    }}
+                  >
                     <span class="problem-badge ${diag.severity}">${diag.severity}</span>
                     <div class="problem-text">
                       ${diag.message}
