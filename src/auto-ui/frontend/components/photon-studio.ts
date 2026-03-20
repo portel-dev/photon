@@ -71,6 +71,7 @@ export class PhotonStudio extends LitElement {
   @state() private _outlineItems: PhotonTsOutlineItem[] = [];
   @state() private _showOutline = true;
   @state() private _activeOutlineKey = '';
+  @state() private _outlineQuery = '';
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -693,6 +694,22 @@ export class PhotonStudio extends LitElement {
       color: var(--t-muted, #9fb3c8);
     }
 
+    .outline-search {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--t-primary, #e0e0e0);
+      padding: 7px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .outline-search:focus {
+      border-color: rgba(88, 166, 255, 0.45);
+      box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.18);
+    }
+
     .outline-list {
       display: flex;
       flex-direction: column;
@@ -925,6 +942,13 @@ export class PhotonStudio extends LitElement {
               key: 'F2',
               run: () => {
                 void this._renameSymbol();
+                return true;
+              },
+            },
+            {
+              key: 'Mod-Shift-o',
+              run: () => {
+                void this._focusOutlineSearch();
                 return true;
               },
             },
@@ -1610,13 +1634,23 @@ export class PhotonStudio extends LitElement {
   }
 
   private _renderOutline() {
+    const filteredItems = this._filteredOutlineItems();
     if (!this._showOutline || this._outlineItems.length === 0) return null;
 
     return html`
       <div class="outline-panel">
         <div class="outline-header">Outline</div>
+        <input
+          class="outline-search"
+          data-role="outline-search"
+          .value=${this._outlineQuery}
+          @input=${(event: Event) => {
+            this._outlineQuery = (event.target as HTMLInputElement).value;
+          }}
+          placeholder="Filter symbols..."
+        />
         <div class="outline-list">
-          ${this._outlineItems.map(
+          ${filteredItems.map(
             (item) => html`
               <div
                 class="outline-item ${this._outlineKey(item) === this._activeOutlineKey
@@ -1639,6 +1673,22 @@ export class PhotonStudio extends LitElement {
 
   private _outlineKey(item: PhotonTsOutlineItem) {
     return `${item.kind}:${item.text}:${item.from}:${item.to}`;
+  }
+
+  private _filteredOutlineItems() {
+    const query = this._outlineQuery.trim().toLowerCase();
+    if (!query) return this._outlineItems;
+    return this._outlineItems.filter((item) =>
+      `${item.text} ${item.kind}`.toLowerCase().includes(query)
+    );
+  }
+
+  private async _focusOutlineSearch() {
+    this._showOutline = true;
+    await this.updateComplete;
+    const input = this.renderRoot.querySelector<HTMLInputElement>('[data-role="outline-search"]');
+    input?.focus();
+    input?.select();
   }
 
   private _syncActiveOutline(pos = this._editorView?.state.selection.main.head ?? 0) {
@@ -1697,7 +1747,11 @@ export class PhotonStudio extends LitElement {
           ${this._showInspector ? 'Hide Inspector' : 'Inspector'}
         </button>
 
-        <button class="toolbar-btn" @click=${() => (this._showOutline = !this._showOutline)}>
+        <button
+          class="toolbar-btn"
+          @click=${() => (this._showOutline = !this._showOutline)}
+          title="Outline / symbol filter (Cmd/Ctrl+Shift+O)"
+        >
           ${this._showOutline ? 'Hide Outline' : 'Outline'}
         </button>
 
