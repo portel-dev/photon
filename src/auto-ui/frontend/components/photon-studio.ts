@@ -683,6 +683,12 @@ export class PhotonStudio extends LitElement {
       // Rebuild editor with new theme
       this._initEditor();
     }
+    if (changed.has('_readOnlySourcePreview') && this._readOnlySourcePreview) {
+      requestAnimationFrame(() => {
+        const activeLine = this.renderRoot.querySelector('.read-source-line.active');
+        activeLine?.scrollIntoView({ block: 'center' });
+      });
+    }
   }
 
   private async _loadSource() {
@@ -1120,6 +1126,18 @@ export class PhotonStudio extends LitElement {
     }
   }
 
+  private _findFirstChangedLine(previousSource: string, nextSource: string): number {
+    const previousLines = previousSource.split('\n');
+    const nextLines = nextSource.split('\n');
+    const max = Math.max(previousLines.length, nextLines.length);
+    for (let index = 0; index < max; index++) {
+      if ((previousLines[index] || '') !== (nextLines[index] || '')) {
+        return index + 1;
+      }
+    }
+    return 1;
+  }
+
   private async _renameSymbol(pos = this._editorView?.state.selection.main.head ?? 0) {
     if (!this._tsWorkerClient || !this._filePath) return;
 
@@ -1208,12 +1226,16 @@ export class PhotonStudio extends LitElement {
   }
 
   private _previewRenameFile(file: PhotonTsRenamePlan['files'][number]) {
+    const previousSource =
+      file.kind === 'source' ? this._source : this._getProjectFileSource(file.filePath) || '';
+    const firstChangedLine = this._findFirstChangedLine(previousSource, file.source);
+
     if (file.kind === 'source' && this._editorView) {
       this._readOnlySourcePreview = {
         title: `${this._renamePreview?.symbolName || 'Rename'} preview`,
         filePath: file.filePath,
         source: file.source,
-        line: 1,
+        line: firstChangedLine,
       };
       return;
     }
@@ -1222,7 +1244,7 @@ export class PhotonStudio extends LitElement {
       title: `${this._renamePreview?.symbolName || 'Rename'} preview`,
       filePath: file.filePath,
       source: file.source,
-      line: 1,
+      line: firstChangedLine,
     };
   }
 
