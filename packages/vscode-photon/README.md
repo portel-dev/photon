@@ -6,6 +6,7 @@ Current MVP:
 
 - regenerates Photon editor declarations on open/save
 - provides Photon docblock tag completions
+- provides Photon runtime/code completions for helpers like `this.assets(...)`
 - shows Photon diagnostics from the shared TS service
 - shows hover info and go-to-definition for Photon-aware symbols
 - adds find references and rename across the current photon and local support files

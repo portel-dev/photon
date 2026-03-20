@@ -274,35 +274,70 @@ function createDocblockCompletionItem(tag, range) {
   return item;
 }
 
+function toCompletionKind(kind) {
+  const map = {
+    function: vscode.CompletionItemKind.Function,
+    method: vscode.CompletionItemKind.Method,
+    property: vscode.CompletionItemKind.Property,
+    class: vscode.CompletionItemKind.Class,
+    variable: vscode.CompletionItemKind.Variable,
+    keyword: vscode.CompletionItemKind.Keyword,
+    text: vscode.CompletionItemKind.Text,
+  };
+  return map[kind] || vscode.CompletionItemKind.Text;
+}
+
+function createRuntimeCompletionItem(entry, range) {
+  const item = new vscode.CompletionItem(entry.label, toCompletionKind(entry.kind));
+  item.detail = entry.detail;
+  item.range = range;
+  return item;
+}
+
 function createPhotonCompletionProvider() {
   const catalogPromise = buildDocblockCompletions();
 
   return {
-    async provideCompletionItems(document, position) {
+    async provideCompletionItems(document, position, _token, context) {
       if (!isPhotonDocument(document)) return [];
 
       const linePrefix = document.lineAt(position).text.slice(0, position.character);
-      if (!insideDocblock(linePrefix)) return [];
+      if (insideDocblock(linePrefix)) {
+        const inlineMatch = linePrefix.match(/\{@[A-Za-z]*$/);
+        if (inlineMatch) {
+          const catalog = await catalogPromise;
+          const range = new vscode.Range(
+            position.translate(0, -inlineMatch[0].length),
+            position
+          );
+          const tagPool = linePrefix.includes('@param')
+            ? catalog.inlineParamTags
+            : catalog.inlineGeneralTags;
+          return tagPool.map((tag) => createDocblockCompletionItem(tag, range));
+        }
 
-      const inlineMatch = linePrefix.match(/\{@[A-Za-z]*$/);
-      if (inlineMatch) {
         const catalog = await catalogPromise;
-        const range = new vscode.Range(
-          position.translate(0, -inlineMatch[0].length),
-          position
-        );
-        const tagPool = linePrefix.includes('@param')
-          ? catalog.inlineParamTags
-          : catalog.inlineGeneralTags;
-        return tagPool.map((tag) => createDocblockCompletionItem(tag, range));
+        const blockMatch = linePrefix.match(/@[A-Za-z]*$/);
+        if (!blockMatch) return [];
+
+        const range = new vscode.Range(position.translate(0, -blockMatch[0].length), position);
+        return catalog.allTags.map((tag) => createDocblockCompletionItem(tag, range));
       }
 
-      const blockMatch = linePrefix.match(/@[A-Za-z]*$/);
-      if (!blockMatch) return [];
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const completions = await session.completions(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        context.triggerKind === vscode.CompletionTriggerKind.Invoke,
+        supportFiles
+      );
+      if (!completions.length) return [];
 
-      const catalog = await catalogPromise;
-      const range = new vscode.Range(position.translate(0, -blockMatch[0].length), position);
-      return catalog.allTags.map((tag) => createDocblockCompletionItem(tag, range));
+      const wordRange =
+        document.getWordRangeAtPosition(position) || new vscode.Range(position, position);
+      return completions.map((entry) => createRuntimeCompletionItem(entry, wordRange));
     },
   };
 }
