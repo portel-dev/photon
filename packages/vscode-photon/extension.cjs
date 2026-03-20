@@ -521,7 +521,23 @@ function createPhotonReferenceProvider() {
   };
 }
 
-async function buildWorkspaceEditFromUpdatedFiles(currentDocument, files) {
+function buildChangeMetadata(file, annotation) {
+  if (!annotation) return undefined;
+
+  const relativePath =
+    vscode.workspace.asRelativePath(file.filePath, false) || path.basename(file.filePath);
+  const needsConfirmation =
+    annotation.needsConfirmation === true ||
+    (annotation.multiFile === true && file.filePath !== annotation.currentFilePath);
+
+  return {
+    label: annotation.label,
+    description: `${relativePath} • ${file.changeCount} change${file.changeCount === 1 ? '' : 's'}`,
+    needsConfirmation,
+  };
+}
+
+async function buildWorkspaceEditFromUpdatedFiles(currentDocument, files, annotation) {
   const edit = new vscode.WorkspaceEdit();
   for (const file of files) {
     const targetDocument =
@@ -532,7 +548,7 @@ async function buildWorkspaceEditFromUpdatedFiles(currentDocument, files) {
       targetDocument.positionAt(0),
       targetDocument.positionAt(targetDocument.getText().length)
     );
-    edit.replace(targetDocument.uri, fullRange, file.source);
+    edit.replace(targetDocument.uri, fullRange, file.source, buildChangeMetadata(file, annotation));
   }
   return edit;
 }
@@ -554,7 +570,11 @@ function createPhotonRenameProvider() {
         supportFiles
       );
       if (!rename) return null;
-      return buildWorkspaceEditFromUpdatedFiles(document, rename.files);
+      return buildWorkspaceEditFromUpdatedFiles(document, rename.files, {
+        label: `Rename Photon symbol to ${newName}`,
+        currentFilePath: document.fileName,
+        multiFile: rename.files.length > 1,
+      });
     },
   };
 }
@@ -600,7 +620,11 @@ function createPhotonCodeActionProvider() {
             vscode.CodeActionKind.QuickFix
           );
           action.diagnostics = [diagnostic];
-          action.edit = await buildWorkspaceEditFromUpdatedFiles(document, fix.files);
+          action.edit = await buildWorkspaceEditFromUpdatedFiles(document, fix.files, {
+            label: fix.description,
+            currentFilePath: document.fileName,
+            multiFile: fix.files.length > 1,
+          });
           action.isPreferred = fix.files.length === 1;
           actions.push(action);
         }
