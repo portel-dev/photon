@@ -40,6 +40,16 @@ import type {
 import { buildToolMetadataExtensions } from './types.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
+import {
+  createTask,
+  getTask,
+  updateTask,
+  listTasks,
+  cleanExpiredTasks,
+  registerController,
+  unregisterController,
+  getController,
+} from '../tasks/store.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
@@ -500,6 +510,7 @@ const handlers: Record<string, RequestHandler> = {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
+          tasks: {},
           experimental: {
             'ag-ui': {
               version: '0.1.0',
@@ -2080,6 +2091,167 @@ const handlers: Record<string, RequestHandler> = {
         error: { code: -32603, message: `Prompt execution failed: ${message}` },
       };
     }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // MCP Tasks (2025-11-25 spec)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  'tasks/create': async (req, session, ctx) => {
+    const {
+      photon: photonName,
+      method: methodName,
+      params,
+    } = req.params as {
+      photon: string;
+      method: string;
+      params?: Record<string, unknown>;
+    };
+
+    if (!photonName || !methodName) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required params: photon, method' },
+      };
+    }
+
+    const mcp = ctx.photonMCPs.get(photonName);
+    if (!mcp) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Photon not found: ${photonName}` },
+      };
+    }
+
+    const task = createTask(photonName, methodName, params);
+    const controller = new AbortController();
+    registerController(task.id, controller);
+
+    // Run execution in background — don't await
+    const taskId = task.id;
+    void (async () => {
+      try {
+        let result: any;
+        if (ctx.loader) {
+          result = await ctx.loader.executeTool(mcp, methodName, params || {}, {
+            caller: ctx.caller,
+            signal: controller.signal,
+          });
+        } else {
+          const method = mcp.instance?.[methodName];
+          if (typeof method === 'function') {
+            result = await method.call(mcp.instance, params || {});
+          } else {
+            throw new Error(`Method ${methodName} not found on ${photonName}`);
+          }
+        }
+
+        // Handle async generators
+        if (result && typeof result[Symbol.asyncIterator] === 'function') {
+          const chunks: any[] = [];
+          const iterator = result[Symbol.asyncIterator]();
+          while (true) {
+            if (controller.signal.aborted) {
+              updateTask(taskId, { state: 'cancelled' });
+              unregisterController(taskId);
+              return;
+            }
+            const { value, done } = await iterator.next();
+            if (done) {
+              result = value !== undefined ? value : chunks;
+              break;
+            }
+            if (value?.emit === 'progress' && typeof value.percent === 'number') {
+              updateTask(taskId, {
+                progress: { percent: value.percent, message: value.message },
+              });
+            } else if (value?.ask) {
+              updateTask(taskId, { state: 'input_required' });
+            } else {
+              chunks.push(value);
+            }
+          }
+        }
+
+        if (!controller.signal.aborted) {
+          updateTask(taskId, { state: 'completed', result });
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          const message = err instanceof Error ? err.message : String(err);
+          updateTask(taskId, { state: 'failed', error: message });
+        }
+      } finally {
+        unregisterController(taskId);
+      }
+    })();
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: { task: { id: task.id, state: task.state, createdAt: task.createdAt } },
+    };
+  },
+
+  'tasks/get': async (req, _session, _ctx) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required param: id' },
+      };
+    }
+    const task = getTask(id);
+    if (!task) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${id}` },
+      };
+    }
+    return { jsonrpc: '2.0', id: req.id, result: { task } };
+  },
+
+  'tasks/list': async (req, _session, _ctx) => {
+    const { photon: photonFilter } = (req.params || {}) as { photon?: string };
+    const tasks = listTasks(photonFilter);
+    return { jsonrpc: '2.0', id: req.id, result: { tasks } };
+  },
+
+  'tasks/cancel': async (req, _session, _ctx) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required param: id' },
+      };
+    }
+    const task = getTask(id);
+    if (!task) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${id}` },
+      };
+    }
+    if (task.state !== 'working' && task.state !== 'input_required') {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Cannot cancel task in state: ${task.state}` },
+      };
+    }
+    const controller = getController(id);
+    if (controller) {
+      controller.abort();
+    }
+    const updated = updateTask(id, { state: 'cancelled' });
+    unregisterController(id);
+    return { jsonrpc: '2.0', id: req.id, result: { task: updated } };
   },
 };
 
