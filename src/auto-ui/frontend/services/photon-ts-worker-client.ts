@@ -1,65 +1,20 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
-
-export interface PhotonTsDiagnostic {
-  from: number;
-  to: number;
-  message: string;
-  severity: 'error' | 'warning' | 'info';
-  code?: number;
-}
-
-export interface PhotonTsHover {
-  from: number;
-  to: number;
-  kind: string;
-  display: string;
-  documentation?: string;
-  tags?: Array<{ name: string; text?: string }>;
-}
-
-export interface PhotonTsDefinition {
-  from: number;
-  to: number;
-  kind: 'source' | 'project' | 'virtual';
-  filePath: string;
-  targetFrom: number;
-  targetTo: number;
-  title: string;
-  preview?: string;
-}
-
-export interface PhotonTsProjectFile {
-  path: string;
-  source: string;
-}
-
-export interface PhotonTsReferenceItem {
-  kind: 'source' | 'project';
-  filePath: string;
-  from: number;
-  to: number;
-  line: number;
-  column: number;
-  preview: string;
-}
-
-export interface PhotonTsReferences {
-  symbolName: string;
-  items: PhotonTsReferenceItem[];
-}
-
-export interface PhotonTsRenamePlanFile {
-  kind: 'source' | 'project';
-  filePath: string;
-  source: string;
-  changeCount: number;
-}
-
-export interface PhotonTsRenamePlan {
-  symbolName: string;
-  nextName: string;
-  files: PhotonTsRenamePlanFile[];
-}
+export type {
+  PhotonTsDefinition,
+  PhotonTsDiagnostic,
+  PhotonTsHover,
+  PhotonTsProjectFile,
+  PhotonTsReferences,
+  PhotonTsRenamePlan,
+} from '../../../editor-support/photon-ts-types.js';
+import type {
+  PhotonTsDefinition,
+  PhotonTsDiagnostic,
+  PhotonTsHover,
+  PhotonTsProjectFile,
+  PhotonTsReferences,
+  PhotonTsRenamePlan,
+} from '../../../editor-support/photon-ts-types.js';
 
 interface WorkerSuccess<T> {
   id: number;
