@@ -17,6 +17,17 @@ export interface PhotonTsHover {
   tags?: Array<{ name: string; text?: string }>;
 }
 
+export interface PhotonTsDefinition {
+  from: number;
+  to: number;
+  kind: 'source' | 'virtual';
+  filePath: string;
+  targetFrom: number;
+  targetTo: number;
+  title: string;
+  preview?: string;
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -81,6 +92,15 @@ export class PhotonTsWorkerClient {
       source,
       pos,
     }).then((r) => r.hover);
+  }
+
+  definition(filePath: string, source: string, pos: number): Promise<PhotonTsDefinition | null> {
+    return this.request<{ definition: PhotonTsDefinition | null }>({
+      type: 'definition',
+      filePath,
+      source,
+      pos,
+    }).then((r) => r.definition);
   }
 
   async completions(

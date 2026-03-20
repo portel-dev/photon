@@ -22,6 +22,7 @@ import {
 } from './docblock-completions.js';
 import {
   PhotonTsWorkerClient,
+  type PhotonTsDefinition,
   type PhotonTsDiagnostic,
   type PhotonTsHover,
 } from '../services/photon-ts-worker-client.js';
@@ -53,6 +54,7 @@ export class PhotonStudio extends LitElement {
   @state() private _filePath = '';
   @state() private _error = '';
   @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
+  @state() private _definitionPreview: PhotonTsDefinition | null = null;
   @state() private _hoverEnabled = true;
 
   private _editorView: EditorView | null = null;
@@ -278,6 +280,48 @@ export class PhotonStudio extends LitElement {
       padding: 8px 12px 10px;
       border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
       background: rgba(255, 255, 255, 0.02);
+    }
+
+    .definition-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(88, 166, 255, 0.05);
+    }
+
+    .definition-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .definition-title {
+      font-size: var(--text-xs);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #79c0ff;
+    }
+
+    .definition-path {
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+    }
+
+    .definition-preview {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--t-primary, #e0e0e0);
+      font-size: 12px;
+      line-height: 1.55;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: var(--font-mono, monospace);
     }
 
     .problem-item {
@@ -554,6 +598,13 @@ export class PhotonStudio extends LitElement {
                 return true;
               },
             },
+            {
+              key: 'F12',
+              run: () => {
+                void this._goToDefinition();
+                return true;
+              },
+            },
           ])
         ),
         keymap.of([
@@ -570,10 +621,21 @@ export class PhotonStudio extends LitElement {
           if (update.docChanged) {
             this._source = update.state.doc.toString();
             this._dirty = this._source !== this._originalSource;
+            this._definitionPreview = null;
             void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
             void this._refreshTypeScriptDiagnostics();
             this._scheduleParse();
           }
+        }),
+        EditorView.domEventHandlers({
+          mousedown: (event, view) => {
+            if (!(event.metaKey || event.ctrlKey)) return false;
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos == null) return false;
+            event.preventDefault();
+            void this._goToDefinition(pos);
+            return true;
+          },
         }),
       ],
     });
@@ -629,6 +691,32 @@ export class PhotonStudio extends LitElement {
         return { dom };
       },
     };
+  }
+
+  private async _goToDefinition(pos = this._editorView?.state.selection.main.head ?? 0) {
+    if (!this._tsWorkerClient || !this._filePath || !this._editorView) return;
+
+    const definition = await this._tsWorkerClient
+      .definition(this._filePath, this._source, pos)
+      .catch(() => null);
+
+    if (!definition) {
+      showToast('No definition found', 'warning');
+      return;
+    }
+
+    if (definition.kind === 'source') {
+      this._definitionPreview = null;
+      this._editorView.dispatch({
+        selection: { anchor: definition.targetFrom, head: definition.targetTo },
+        effects: EditorView.scrollIntoView(definition.targetFrom, { y: 'center' }),
+      });
+      this._editorView.focus();
+      return;
+    }
+
+    this._definitionPreview = definition;
+    showToast(`Opened ${definition.title} definition preview`, 'info');
   }
 
   private _diagnosticSeverityClass(): 'ok' | 'warning' | 'error' {
@@ -787,6 +875,16 @@ export class PhotonStudio extends LitElement {
         </button>
 
         <button
+          class="toolbar-btn"
+          @click=${() => {
+            void this._goToDefinition();
+          }}
+          title="Go to definition (F12 or Cmd/Ctrl+Click)"
+        >
+          Definition
+        </button>
+
+        <button
           class="toolbar-btn primary"
           @click=${() => {
             void this._save();
@@ -831,9 +929,35 @@ export class PhotonStudio extends LitElement {
             : `${this._tsDiagnostics.length} issue${this._tsDiagnostics.length === 1 ? '' : 's'}`}
         </span>
         <span class="status-pill">Hover types on</span>
+        <span class="status-pill">F12 / Cmd+Click</span>
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
+      ${this._definitionPreview
+        ? html`
+            <div class="definition-panel">
+              <div class="definition-header">
+                <div>
+                  <div class="definition-title">${this._definitionPreview.title}</div>
+                  <div class="definition-path">${this._definitionPreview.filePath}</div>
+                </div>
+                <button
+                  class="toolbar-btn"
+                  @click=${() => {
+                    this._definitionPreview = null;
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              ${this._definitionPreview.preview
+                ? html`<pre class="definition-preview">${this._definitionPreview.preview}</pre>`
+                : html`<div class="definition-path">
+                    Preview is only available for virtual Photon runtime definitions right now.
+                  </div>`}
+            </div>
+          `
+        : ''}
       ${this._tsDiagnostics.length > 0
         ? html`
             <div class="problems-panel">

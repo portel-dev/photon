@@ -37,6 +37,13 @@ type WorkerRequest =
       filePath: string;
       source: string;
       pos: number;
+    }
+  | {
+      id: number;
+      type: 'definition';
+      filePath: string;
+      source: string;
+      pos: number;
     };
 
 type WorkerResponse =
@@ -72,6 +79,22 @@ type WorkerResponse =
           display: string;
           documentation?: string;
           tags?: Array<{ name: string; text?: string }>;
+        } | null;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        definition: {
+          from: number;
+          to: number;
+          kind: 'source' | 'virtual';
+          filePath: string;
+          targetFrom: number;
+          targetTo: number;
+          title: string;
+          preview?: string;
         } | null;
       };
     }
@@ -383,6 +406,124 @@ function getHover(pos: number) {
   };
 }
 
+function buildPreview(content: string, start: number, length: number): string {
+  const lines = content.split('\n');
+  let cursor = 0;
+  let startLine = 0;
+  let endLine = lines.length - 1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineLength = lines[i].length + 1;
+    if (start >= cursor && start < cursor + lineLength) {
+      startLine = i;
+    }
+    if (start + length >= cursor && start + length <= cursor + lineLength) {
+      endLine = i;
+      break;
+    }
+    cursor += lineLength;
+  }
+
+  const fromLine = Math.max(0, startLine - 1);
+  const toLine = Math.min(lines.length - 1, endLine + 2);
+  return lines
+    .slice(fromLine, toLine + 1)
+    .join('\n')
+    .trim();
+}
+
+function normalizeIdentifierSpan(
+  source: string,
+  start: number,
+  end: number
+): { start: number; end: number } {
+  let normalizedStart = Math.max(0, start);
+  let normalizedEnd = Math.max(normalizedStart, end);
+
+  while (normalizedStart > 0 && /[A-Za-z0-9_$]/.test(source[normalizedStart - 1] || '')) {
+    normalizedStart--;
+  }
+  while (normalizedEnd < source.length && /[A-Za-z0-9_$]/.test(source[normalizedEnd] || '')) {
+    normalizedEnd++;
+  }
+
+  return { start: normalizedStart, end: normalizedEnd };
+}
+
+function refineSpanToName(
+  source: string,
+  start: number,
+  end: number,
+  name: string | undefined
+): { start: number; end: number } {
+  const normalized = normalizeIdentifierSpan(source, start, end);
+  if (!name) return normalized;
+
+  const windowStart = Math.max(0, normalized.start - 24);
+  const windowEnd = Math.min(source.length, normalized.end + 24);
+  const windowText = source.slice(windowStart, windowEnd);
+  const nameIndex = windowText.indexOf(name);
+
+  if (nameIndex === -1) return normalized;
+
+  const refinedStart = windowStart + nameIndex;
+  return {
+    start: refinedStart,
+    end: refinedStart + name.length,
+  };
+}
+
+function getDefinition(pos: number) {
+  const shadowPos = sourceToShadowPos(pos);
+  const definitionInfo =
+    languageService.getDefinitionAndBoundSpan(currentFilePath, shadowPos) ||
+    (shadowPos > 0
+      ? languageService.getDefinitionAndBoundSpan(currentFilePath, shadowPos - 1)
+      : undefined);
+
+  if (!definitionInfo || definitionInfo.definitions.length === 0) return null;
+
+  const definition =
+    definitionInfo.definitions.find(
+      (entry) => normalizePath(entry.fileName) === normalizePath(currentFilePath)
+    ) || definitionInfo.definitions[0];
+
+  const originFrom = shadowToSourcePos(definitionInfo.textSpan.start);
+  const originTo = shadowToSourcePos(
+    definitionInfo.textSpan.start + definitionInfo.textSpan.length
+  );
+
+  if (normalizePath(definition.fileName) === normalizePath(currentFilePath)) {
+    const targetStart = shadowToSourcePos(definition.textSpan.start);
+    const targetEnd = shadowToSourcePos(definition.textSpan.start + definition.textSpan.length);
+    const targetSpan = refineSpanToName(currentSource, targetStart, targetEnd, definition.name);
+    return {
+      from: originFrom,
+      to: originTo,
+      kind: 'source' as const,
+      filePath: currentFilePath,
+      targetFrom: targetSpan.start,
+      targetTo: targetSpan.end,
+      title: definition.name || 'Current photon',
+    };
+  }
+
+  const previewSource = definition.fileName === STUB_LIB_PATH ? PHOTON_RUNTIME_LIB : '';
+  return {
+    from: originFrom,
+    to: originTo,
+    kind: 'virtual' as const,
+    filePath: definition.fileName,
+    targetFrom: definition.textSpan.start,
+    targetTo: definition.textSpan.start + definition.textSpan.length,
+    title: definition.name || definition.fileName.split('/').pop() || 'Definition',
+    preview:
+      previewSource && definition.textSpan
+        ? buildPreview(previewSource, definition.textSpan.start, definition.textSpan.length)
+        : undefined,
+  };
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -406,6 +547,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           hover: getHover(msg.pos),
+        },
+      };
+    } else if (msg.type === 'definition') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          definition: getDefinition(msg.pos),
         },
       };
     } else {
