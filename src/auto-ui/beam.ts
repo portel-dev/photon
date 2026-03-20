@@ -138,6 +138,7 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
+import { generateServerCard } from '../server-card.js';
 import {
   handleStreamableHTTP,
   broadcastNotification,
@@ -1161,6 +1162,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(prm));
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // MCP Server Card (discovery metadata)
+      // Returns JSON describing this server's capabilities, tools, and photons
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/.well-known/mcp-server') {
+        const baseUrl = `http://${req.headers.host}`;
+        const card = generateServerCard(photons, { baseUrl });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(card));
         return;
       }
 

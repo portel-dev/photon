@@ -38,6 +38,7 @@ import type {
   ExternalMCPInfo,
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
+import { generateServerCard } from '../server-card.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
 import {
@@ -778,6 +779,14 @@ const handlers: Record<string, RequestHandler> = {
 
   ping: async (req) => {
     return { jsonrpc: '2.0', id: req.id, result: {} };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Server Card (discovery via MCP)
+  // ─────────────────────────────────────────────────────────────────────────────
+  'server/card': async (req, _session, ctx) => {
+    const card = generateServerCard(ctx.photons);
+    return { jsonrpc: '2.0', id: req.id, result: card };
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
