@@ -4138,30 +4138,9 @@ export class ResultViewer extends LitElement {
     const str = Array.isArray(data) ? data.join('\n\n') : String(data);
 
     if (marked) {
-      const { body: strippedStr, table: fmTable } = this._stripFrontMatter(str);
-      const mermaidBlocks: { id: string; code: string }[] = [];
-      const codeBlocks: { id: string; code: string; language: string }[] = [];
-
-      let processedStr = (fmTable + strippedStr).replace(
-        /```mermaid\s*\n([\s\S]*?)```/g,
-        (_match, code) => {
-          const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-          mermaidBlocks.push({ id, code: code.trim() });
-          return `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`;
-        }
-      );
-
-      processedStr = processedStr.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
-        const id = `code-${Math.random().toString(36).substr(2, 9)}`;
-        const language = lang || 'text';
-        codeBlocks.push({ id, code: code.trimEnd(), language });
-        return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
-      });
-
+      const { html: htmlContent, mermaidBlocks, codeBlocks } = this._parseRichMarkdown(str);
       this._pendingMermaidBlocks = mermaidBlocks;
       this._pendingCodeBlocks = codeBlocks;
-
-      const htmlContent = (window as any).marked.parse(processedStr);
 
       return html`
         <div class="markdown-body-wrapper">
@@ -4176,25 +4155,58 @@ export class ResultViewer extends LitElement {
     return html`<pre>${str}</pre>`;
   }
 
-  /** Parse a single markdown item, extracting mermaid and code blocks */
-  private _parseMarkdownItem(
+  private _parseRichMarkdown(
     text: string,
-    mermaidBlocks: { id: string; code: string }[],
-    codeBlocks: { id: string; code: string; language: string }[]
-  ): string {
-    const { body, table } = this._stripFrontMatter(text);
-    let processed = (table + body).replace(/```mermaid\s*\n([\s\S]*?)```/g, (_match, code) => {
-      const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-      mermaidBlocks.push({ id, code: code.trim() });
-      return `<div class="mermaid-placeholder" data-mermaid-id="${id}">Loading diagram...</div>`;
-    });
+    options?: { stripFrontMatter?: boolean; includeInlineStyles?: boolean }
+  ): {
+    html: string;
+    mermaidBlocks: { id: string; code: string }[];
+    codeBlocks: { id: string; code: string; language: string }[];
+  } {
+    const { stripFrontMatter = true, includeInlineStyles = false } = options || {};
+    const source = stripFrontMatter ? this._stripFrontMatter(text) : { body: text, table: '' };
+    const mermaidBlocks: { id: string; code: string }[] = [];
+    const codeBlocks: { id: string; code: string; language: string }[] = [];
+
+    const mermaidPlaceholder = (id: string) =>
+      includeInlineStyles
+        ? `<div class="mermaid-placeholder" data-mermaid-id="${id}" style="min-height: 100px; display: flex; align-items: center; justify-content: center; color: var(--t-muted);">Loading diagram...</div>`
+        : `<div class="mermaid-placeholder" data-mermaid-id="${id}">Loading diagram...</div>`;
+
+    let processed = (source.table + source.body).replace(
+      /```mermaid\s*\n([\s\S]*?)```/g,
+      (_match, code) => {
+        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        mermaidBlocks.push({ id, code: code.trim() });
+        return mermaidPlaceholder(id);
+      }
+    );
+
     processed = processed.replace(/```(\w+)?\s*\n([\s\S]*?)```/g, (_match, lang, code) => {
       const id = `code-${Math.random().toString(36).substr(2, 9)}`;
       const language = lang || 'text';
       codeBlocks.push({ id, code: code.trimEnd(), language });
       return `<div class="code-block-wrapper"><span class="language-label">${language}</span><pre data-code-id="${id}" class="language-${language}"><code class="language-${language}">Loading...</code></pre></div>`;
     });
-    return (window as any).marked.parse(processed);
+
+    const marked = (window as any).marked;
+    return {
+      html: marked ? marked.parse(processed) : processed,
+      mermaidBlocks,
+      codeBlocks,
+    };
+  }
+
+  /** Parse a single markdown item, extracting mermaid and code blocks */
+  private _parseMarkdownItem(
+    text: string,
+    mermaidBlocks: { id: string; code: string }[],
+    codeBlocks: { id: string; code: string; language: string }[]
+  ): string {
+    const parsed = this._parseRichMarkdown(text);
+    mermaidBlocks.push(...parsed.mermaidBlocks);
+    codeBlocks.push(...parsed.codeBlocks);
+    return parsed.html;
   }
 
   private _renderHtml(filteredData?: any): TemplateResult {
@@ -4607,9 +4619,16 @@ export class ResultViewer extends LitElement {
       );
     }
 
-    // Parse slide markdown
-    const marked = (window as any).marked;
-    const slideHtml = marked ? marked.parse(slideMarkdown) : slideMarkdown;
+    const {
+      html: slideHtml,
+      mermaidBlocks,
+      codeBlocks,
+    } = this._parseRichMarkdown(slideMarkdown, {
+      stripFrontMatter: false,
+      includeInlineStyles: true,
+    });
+    this._pendingMermaidBlocks = mermaidBlocks;
+    this._pendingCodeBlocks = codeBlocks;
 
     // Resolve theme: 'auto' inherits from Beam's active theme
     const resolvedTheme =
