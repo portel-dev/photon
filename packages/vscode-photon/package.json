@@ -1,0 +1,48 @@
+{
+  "name": "photon-vscode",
+  "displayName": "Photon",
+  "description": "Photon authoring support for .photon.ts files",
+  "version": "0.0.1",
+  "publisher": "portel-dev",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onCommand:photon.openInBeam",
+    "onCommand:photon.regenerateEditorCache",
+    "onCommand:photon.createPhoton"
+  ],
+  "main": "./extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "photon.openInBeam",
+        "title": "Photon: Open In Beam"
+      },
+      {
+        "command": "photon.regenerateEditorCache",
+        "title": "Photon: Regenerate Editor Cache"
+      },
+      {
+        "command": "photon.createPhoton",
+        "title": "Photon: Create Photon"
+      }
+    ],
+    "configuration": {
+      "title": "Photon",
+      "properties": {
+        "photon.beamUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Beam base URL used by the Open In Beam command."
+        }
+      }
+    }
+  }
+}
