@@ -635,8 +635,10 @@ Photon's protocol stack aligns with the emerging industry standard layers:
 |-------|----------|----------------------|
 | Agent ↔ Tool | **MCP** (Anthropic) | Core protocol — every `.photon.ts` is an MCP server |
 | Agent ↔ UI | **AG-UI** (open protocol) | Adapter layer on MCP transport — `ag-ui/run` + `ag-ui/event` |
-| Agent ↔ Agent | **A2A** (Google) | Planned — Agent Cards from photon metadata |
-| Observability | **OTel GenAI** (CNCF) | Planned — middleware pipeline instrumentation |
+| Async Operations | **MCP Tasks** | `tasks/create` + `tasks/get` — non-blocking long-running methods |
+| Server Discovery | **MCP Server Cards** | `GET /.well-known/mcp-server` — auto-generated from photon metadata |
+| Agent ↔ Agent | **A2A** (Google) | `GET /.well-known/agent.json` — Agent Cards with skills from methods |
+| Observability | **OTel GenAI** (CNCF) | `gen_ai.tool.call` spans on `executeTool` — opt-in via `@opentelemetry/api` |
 
 ### AG-UI Protocol Support
 
@@ -694,6 +696,63 @@ yield { ask: 'confirm', persistent: true, expires: '24h' }
 → exposed as approval:// MCP resources
 → resolved via beam/approval-response
 ```
+
+### MCP Tasks (Async Long-Running Operations)
+
+Non-blocking execution for methods that take time. Client gets a task ID immediately, polls for completion.
+
+```
+tasks/create { photon: "name", method: "tool", arguments: {...} }
+→ returns { taskId: "task_xxx", state: "working" }
+
+tasks/get { taskId: "task_xxx" }
+→ returns { state: "completed", result: {...} }
+```
+
+**Task states:** `working` → `completed` | `failed` | `cancelled`. Generator yields update progress; `yield { ask: ... }` sets `input_required`.
+
+**Storage:** `~/.photon/tasks/{taskId}.json`
+
+**Files:** `src/tasks/types.ts`, `src/tasks/store.ts`, handlers in `streamable-http-transport.ts`
+
+### MCP Server Cards (Discovery)
+
+Auto-generated metadata describing the server's capabilities, photons, and tools — enabling discovery without connecting.
+
+```
+GET /.well-known/mcp-server → ServerCard JSON
+```
+
+Also available via MCP: `server/card` handler.
+
+**Files:** `src/server-card.ts`, route in `beam.ts`
+
+### A2A Agent Cards (Multi-Agent Discovery)
+
+Each Beam instance is discoverable as an A2A agent. Photon methods become A2A skills.
+
+```
+GET /.well-known/agent.json → AgentCard JSON
+```
+
+Also available via MCP: `a2a/card` handler.
+
+**Capabilities auto-detected:** `tool_execution`, `stateful`, `streaming`, `ag-ui`
+
+**Files:** `src/a2a/types.ts`, `src/a2a/card-generator.ts`, route in `beam.ts`
+
+### OpenTelemetry GenAI (Observability)
+
+Optional instrumentation using OTel GenAI semantic conventions. Zero cost when `@opentelemetry/api` is not installed — falls back to no-op spans.
+
+```
+executeTool("photon", "method", params)
+→ creates span: gen_ai.tool.call { gen_ai.agent.name, gen_ai.tool.name, gen_ai.operation.name }
+```
+
+**Attributes:** `gen_ai.agent.name`, `gen_ai.tool.name`, `gen_ai.operation.name`, `photon.instance`, `photon.stateful`, `photon.caller`
+
+**Files:** `src/telemetry/otel.ts`, instrumentation in `src/loader.ts`
 
 ---
 
