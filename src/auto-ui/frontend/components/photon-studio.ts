@@ -29,6 +29,7 @@ import {
   type PhotonTsProjectFile,
   type PhotonTsRenamePlan,
   type PhotonTsReferences,
+  type PhotonTsSignatureHelp,
 } from '../services/photon-ts-worker-client.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
@@ -65,6 +66,7 @@ export class PhotonStudio extends LitElement {
     diagnostic: PhotonTsDiagnostic;
     fixes: PhotonTsCodeFix[];
   } | null = null;
+  @state() private _signatureHelp: PhotonTsSignatureHelp | null = null;
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -81,6 +83,7 @@ export class PhotonStudio extends LitElement {
   private _projectSupportFiles: PhotonTsProjectFile[] = [];
   private _importSignature = '';
   private _projectRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private _signatureHelpToken = 0;
 
   static styles = css`
     :host {
@@ -634,6 +637,40 @@ export class PhotonStudio extends LitElement {
       white-space: nowrap;
     }
 
+    .signature-help-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 12px 10px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(88, 166, 255, 0.06);
+    }
+
+    .signature-call {
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--t-primary, #e0e0e0);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .signature-parameter {
+      color: #9fb3c8;
+    }
+
+    .signature-parameter.active {
+      color: #79c0ff;
+      font-weight: 700;
+    }
+
+    .signature-doc {
+      font-size: var(--text-xs);
+      line-height: 1.45;
+      color: var(--t-muted, #a8b3c7);
+      white-space: pre-wrap;
+    }
+
     .kbd {
       display: inline-block;
       padding: 0 4px;
@@ -723,6 +760,7 @@ export class PhotonStudio extends LitElement {
       // Auto-parse on load
       void this._parse();
       void this._refreshTypeScriptDiagnostics();
+      void this._refreshSignatureHelp();
     } catch (err: any) {
       this._error = err.message || 'Failed to load source';
       this._loading = false;
@@ -859,7 +897,10 @@ export class PhotonStudio extends LitElement {
               this._scheduleProjectContextRefresh();
             }
             void this._refreshTypeScriptDiagnostics();
+            void this._refreshSignatureHelp(update.state.selection.main.head);
             this._scheduleParse();
+          } else if (update.selectionSet) {
+            void this._refreshSignatureHelp(update.state.selection.main.head);
           }
         }),
         EditorView.domEventHandlers({
@@ -1194,6 +1235,7 @@ export class PhotonStudio extends LitElement {
     this._importSignature = this._extractImportSignature(this._source);
     await this._syncTypeScriptProject().catch(() => {});
     await this._refreshTypeScriptDiagnostics();
+    await this._refreshSignatureHelp();
     showToast(successMessage, 'success');
     this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
   }
@@ -1361,6 +1403,7 @@ export class PhotonStudio extends LitElement {
           }
           void this._syncTypeScriptProject().catch(() => {});
           void this._refreshTypeScriptDiagnostics();
+          void this._refreshSignatureHelp();
           showToast('Saved and reloaded', 'success');
           this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
         } else {
@@ -1397,6 +1440,7 @@ export class PhotonStudio extends LitElement {
     this._importSignature = this._extractImportSignature(this._source);
     void this._refreshProjectContext().catch(() => {});
     void this._refreshTypeScriptDiagnostics();
+    void this._refreshSignatureHelp();
 
     // Update editor content
     if (this._editorView) {
@@ -1427,6 +1471,58 @@ export class PhotonStudio extends LitElement {
         this._tsDiagnostics = [];
       }
     }
+  }
+
+  private async _refreshSignatureHelp(pos = this._editorView?.state.selection.main.head ?? 0) {
+    const token = ++this._signatureHelpToken;
+    if (!this._tsWorkerClient || !this._filePath) {
+      this._signatureHelp = null;
+      return;
+    }
+
+    try {
+      const signatureHelp = await this._tsWorkerClient.signatureHelp(
+        this._filePath,
+        this._source,
+        pos
+      );
+      if (token === this._signatureHelpToken) {
+        this._signatureHelp = signatureHelp;
+      }
+    } catch {
+      if (token === this._signatureHelpToken) {
+        this._signatureHelp = null;
+      }
+    }
+  }
+
+  private _renderSignatureHelp() {
+    const activeItem =
+      this._signatureHelp?.items[this._signatureHelp.activeItem] || this._signatureHelp?.items[0];
+    if (!activeItem) return null;
+
+    const activeParameter = activeItem.parameters[this._signatureHelp?.activeParameter ?? 0];
+
+    return html`
+      <div class="signature-help-bar">
+        <div class="signature-call">
+          ${activeItem.prefix}${activeItem.parameters.map((parameter, index) => {
+            const isActive = index === (this._signatureHelp?.activeParameter ?? 0);
+            return html`${index > 0 ? activeItem.separator : ''}<span
+                class="signature-parameter ${isActive ? 'active' : ''}"
+                >${parameter.text}</span
+              >`;
+          })}${activeItem.suffix}
+        </div>
+        ${activeParameter?.documentation || activeItem.documentation
+          ? html`
+              <div class="signature-doc">
+                ${activeParameter?.documentation || activeItem.documentation}
+              </div>
+            `
+          : ''}
+      </div>
+    `;
   }
 
   private _close() {
@@ -1559,6 +1655,7 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
+      ${this._signatureHelp ? this._renderSignatureHelp() : ''}
       ${this._renamePreview
         ? html`
             <div class="rename-panel">

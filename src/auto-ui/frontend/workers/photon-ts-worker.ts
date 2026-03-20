@@ -76,6 +76,14 @@ type WorkerRequest =
       from: number;
       to: number;
       errorCode: number;
+    }
+  | {
+      id: number;
+      type: 'signatureHelp';
+      filePath: string;
+      source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
+      pos: number;
     };
 
 type WorkerResponse =
@@ -177,6 +185,23 @@ type WorkerResponse =
             changeCount: number;
           }>;
         }>;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        signatureHelp: {
+          items: Array<{
+            prefix: string;
+            suffix: string;
+            separator: string;
+            parameters: Array<{ text: string; documentation?: string }>;
+            documentation?: string;
+          }>;
+          activeItem: number;
+          activeParameter: number;
+        } | null;
       };
     }
   | { id: number; ok: false; error: string };
@@ -871,6 +896,32 @@ function getCodeFixes(from: number, to: number, errorCode: number) {
     .filter((fix): fix is NonNullable<typeof fix> => fix !== null);
 }
 
+function getSignatureHelp(pos: number) {
+  const shadowPos = sourceToShadowPos(pos);
+  const help =
+    languageService.getSignatureHelpItems(currentFilePath, shadowPos, undefined) ||
+    (shadowPos > 0
+      ? languageService.getSignatureHelpItems(currentFilePath, shadowPos - 1, undefined)
+      : undefined);
+
+  if (!help || help.items.length === 0) return null;
+
+  return {
+    items: help.items.map((item) => ({
+      prefix: ts.displayPartsToString(item.prefixDisplayParts),
+      suffix: ts.displayPartsToString(item.suffixDisplayParts),
+      separator: ts.displayPartsToString(item.separatorDisplayParts),
+      parameters: item.parameters.map((parameter) => ({
+        text: ts.displayPartsToString(parameter.displayParts),
+        documentation: flattenParts(parameter.documentation) || undefined,
+      })),
+      documentation: flattenParts(item.documentation) || undefined,
+    })),
+    activeItem: help.selectedItemIndex,
+    activeParameter: help.argumentIndex,
+  };
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -926,6 +977,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           fixes: getCodeFixes(msg.from, msg.to, msg.errorCode),
+        },
+      };
+    } else if (msg.type === 'signatureHelp') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          signatureHelp: getSignatureHelp(msg.pos),
         },
       };
     } else {

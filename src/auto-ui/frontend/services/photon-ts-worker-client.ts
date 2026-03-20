@@ -73,6 +73,18 @@ export interface PhotonTsCodeFix {
   files: PhotonTsCodeFixFile[];
 }
 
+export interface PhotonTsSignatureHelp {
+  items: Array<{
+    prefix: string;
+    suffix: string;
+    separator: string;
+    parameters: Array<{ text: string; documentation?: string }>;
+    documentation?: string;
+  }>;
+  activeItem: number;
+  activeParameter: number;
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -187,6 +199,19 @@ export class PhotonTsWorkerClient {
       to,
       errorCode,
     }).then((r) => r.fixes);
+  }
+
+  signatureHelp(
+    filePath: string,
+    source: string,
+    pos: number
+  ): Promise<PhotonTsSignatureHelp | null> {
+    return this.request<{ signatureHelp: PhotonTsSignatureHelp | null }>({
+      type: 'signatureHelp',
+      filePath,
+      source,
+      pos,
+    }).then((r) => r.signatureHelp);
   }
 
   async completions(
