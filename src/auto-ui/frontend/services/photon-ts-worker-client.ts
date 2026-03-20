@@ -8,6 +8,15 @@ export interface PhotonTsDiagnostic {
   code?: number;
 }
 
+export interface PhotonTsHover {
+  from: number;
+  to: number;
+  kind: string;
+  display: string;
+  documentation?: string;
+  tags?: Array<{ name: string; text?: string }>;
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -63,6 +72,15 @@ export class PhotonTsWorkerClient {
       filePath,
       source,
     }).then((r) => r.diagnostics);
+  }
+
+  hover(filePath: string, source: string, pos: number): Promise<PhotonTsHover | null> {
+    return this.request<{ hover: PhotonTsHover | null }>({
+      type: 'hover',
+      filePath,
+      source,
+      pos,
+    }).then((r) => r.hover);
   }
 
   async completions(

@@ -30,6 +30,13 @@ type WorkerRequest =
       type: 'diagnostics';
       filePath: string;
       source: string;
+    }
+  | {
+      id: number;
+      type: 'hover';
+      filePath: string;
+      source: string;
+      pos: number;
     };
 
 type WorkerResponse =
@@ -52,6 +59,20 @@ type WorkerResponse =
           severity: DiagnosticSeverity;
           code?: number;
         }>;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      result: {
+        hover: {
+          from: number;
+          to: number;
+          kind: string;
+          display: string;
+          documentation?: string;
+          tags?: Array<{ name: string; text?: string }>;
+        } | null;
       };
     }
   | { id: number; ok: false; error: string };
@@ -331,6 +352,37 @@ function getCompletions(pos: number, explicit: boolean) {
   }));
 }
 
+function flattenParts(parts: readonly ts.SymbolDisplayPart[] | undefined): string {
+  return parts ? ts.displayPartsToString(parts).trim() : '';
+}
+
+function getHover(pos: number) {
+  const shadowPos = sourceToShadowPos(pos);
+  const info =
+    languageService.getQuickInfoAtPosition(currentFilePath, shadowPos) ||
+    (shadowPos > 0
+      ? languageService.getQuickInfoAtPosition(currentFilePath, shadowPos - 1)
+      : undefined);
+
+  if (!info) return null;
+
+  const display = flattenParts(info.displayParts);
+  const documentation = flattenParts(info.documentation);
+  const tags = (info.tags || []).map((tag) => ({
+    name: tag.name,
+    text: flattenParts(tag.text) || undefined,
+  }));
+
+  return {
+    from: shadowToSourcePos(info.textSpan.start),
+    to: shadowToSourcePos(info.textSpan.start + info.textSpan.length),
+    kind: info.kind,
+    display,
+    documentation: documentation || undefined,
+    tags: tags.length > 0 ? tags : undefined,
+  };
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
@@ -346,6 +398,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         ok: true,
         result: {
           diagnostics: getDiagnostics(),
+        },
+      };
+    } else if (msg.type === 'hover') {
+      response = {
+        id: msg.id,
+        ok: true,
+        result: {
+          hover: getHover(msg.pos),
         },
       };
     } else {

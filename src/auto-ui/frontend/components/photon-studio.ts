@@ -6,7 +6,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { EditorState, Prec } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap } from '@codemirror/commands';
@@ -23,6 +23,7 @@ import {
 import {
   PhotonTsWorkerClient,
   type PhotonTsDiagnostic,
+  type PhotonTsHover,
 } from '../services/photon-ts-worker-client.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
@@ -52,6 +53,7 @@ export class PhotonStudio extends LitElement {
   @state() private _filePath = '';
   @state() private _error = '';
   @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
+  @state() private _hoverEnabled = true;
 
   private _editorView: EditorView | null = null;
   private _parseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -247,6 +249,139 @@ export class PhotonStudio extends LitElement {
       flex-shrink: 0;
     }
 
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .status-pill.ok {
+      color: #7ee787;
+    }
+
+    .status-pill.warning {
+      color: #f2cc60;
+    }
+
+    .status-pill.error {
+      color: #ff7b72;
+    }
+
+    .problems-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 12px 10px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .problem-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      font-size: var(--text-xs);
+      line-height: 1.45;
+      color: var(--t-primary, #e0e0e0);
+    }
+
+    .problem-badge {
+      flex-shrink: 0;
+      min-width: 44px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    .problem-badge.error {
+      color: #ff7b72;
+      background: rgba(255, 123, 114, 0.12);
+    }
+
+    .problem-badge.warning {
+      color: #f2cc60;
+      background: rgba(242, 204, 96, 0.12);
+    }
+
+    .problem-badge.info {
+      color: #79c0ff;
+      background: rgba(121, 192, 255, 0.12);
+    }
+
+    .problem-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .problem-code {
+      color: var(--t-muted, #888);
+      margin-left: 6px;
+      white-space: nowrap;
+    }
+
+    .problem-more {
+      font-size: var(--text-xs);
+      color: var(--t-muted, #888);
+      padding-left: 52px;
+    }
+
+    .cm-tooltip.cm-photon-hover {
+      max-width: 420px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #151821;
+      color: #e6edf3;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+      padding: 10px 12px;
+      font-family: var(--font-sans, system-ui, sans-serif);
+    }
+
+    .cm-photon-hover-signature {
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      color: #c9d1d9;
+      margin-bottom: 8px;
+    }
+
+    .cm-photon-hover-kind {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(88, 166, 255, 0.14);
+      color: #79c0ff;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .cm-photon-hover-doc {
+      font-size: 12px;
+      line-height: 1.55;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+    }
+
+    .cm-photon-hover-tags {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #9fb3c8;
+    }
+
     .status-path {
       flex: 1;
       overflow: hidden;
@@ -370,6 +505,11 @@ export class PhotonStudio extends LitElement {
         })
       );
     });
+    const tsHover = hoverTooltip(async (_view, pos) => {
+      if (!this._hoverEnabled || !tsWorker || !this._filePath) return null;
+      const hover = await tsWorker.hover(this._filePath, this._source, pos).catch(() => null);
+      return this._createHoverTooltip(hover);
+    });
 
     const state = EditorState.create({
       doc: this._source,
@@ -378,6 +518,7 @@ export class PhotonStudio extends LitElement {
         javascript({ typescript: true }),
         isDark ? oneDark : lightTheme,
         tsLint,
+        tsHover,
         // Add photon JSDoc completions via language data (merges with basicSetup's autocompletion)
         EditorState.languageData.of(() => [
           { autocomplete: docblockCompletions },
@@ -441,6 +582,63 @@ export class PhotonStudio extends LitElement {
       state,
       parent: container as HTMLElement,
     });
+  }
+
+  private _createHoverTooltip(hover: PhotonTsHover | null) {
+    if (!hover || hover.from === hover.to) return null;
+    return {
+      pos: hover.from,
+      end: hover.to,
+      above: true,
+      create: () => {
+        const dom = document.createElement('div');
+        dom.className = 'cm-photon-hover';
+
+        const kind = document.createElement('div');
+        kind.className = 'cm-photon-hover-kind';
+        kind.textContent = hover.kind;
+        dom.appendChild(kind);
+
+        if (hover.display) {
+          const signature = document.createElement('div');
+          signature.className = 'cm-photon-hover-signature';
+          signature.textContent = hover.display;
+          dom.appendChild(signature);
+        }
+
+        if (hover.documentation) {
+          const doc = document.createElement('div');
+          doc.className = 'cm-photon-hover-doc';
+          doc.textContent = hover.documentation;
+          dom.appendChild(doc);
+        }
+
+        if (hover.tags?.length) {
+          const tags = document.createElement('div');
+          tags.className = 'cm-photon-hover-tags';
+          for (const tagEntry of hover.tags) {
+            const row = document.createElement('div');
+            row.textContent = tagEntry.text
+              ? `@${tagEntry.name} ${tagEntry.text}`
+              : `@${tagEntry.name}`;
+            tags.appendChild(row);
+          }
+          dom.appendChild(tags);
+        }
+
+        return { dom };
+      },
+    };
+  }
+
+  private _diagnosticSeverityClass(): 'ok' | 'warning' | 'error' {
+    if (this._tsDiagnostics.some((diag) => diag.severity === 'error')) return 'error';
+    if (this._tsDiagnostics.some((diag) => diag.severity === 'warning')) return 'warning';
+    return 'ok';
+  }
+
+  private _visibleDiagnostics() {
+    return this._tsDiagnostics.slice(0, 3);
   }
 
   private _scheduleParse() {
@@ -626,14 +824,41 @@ export class PhotonStudio extends LitElement {
 
       <div class="status-bar">
         <span class="status-path" title="${this._filePath}">${this._filePath}</span>
-        <span>
+        <span class="status-pill ${this._diagnosticSeverityClass()}">
           TS
           ${this._tsDiagnostics.length === 0
             ? 'clean'
             : `${this._tsDiagnostics.length} issue${this._tsDiagnostics.length === 1 ? '' : 's'}`}
         </span>
+        <span class="status-pill">Hover types on</span>
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
+
+      ${this._tsDiagnostics.length > 0
+        ? html`
+            <div class="problems-panel">
+              ${this._visibleDiagnostics().map(
+                (diag) => html`
+                  <div class="problem-item">
+                    <span class="problem-badge ${diag.severity}">${diag.severity}</span>
+                    <div class="problem-text">
+                      ${diag.message}
+                      ${diag.code ? html`<span class="problem-code">ts(${diag.code})</span>` : ''}
+                    </div>
+                  </div>
+                `
+              )}
+              ${this._tsDiagnostics.length > 3
+                ? html`
+                    <div class="problem-more">
+                      +${this._tsDiagnostics.length - 3} more
+                      issue${this._tsDiagnostics.length - 3 === 1 ? '' : 's'}
+                    </div>
+                  `
+                : ''}
+            </div>
+          `
+        : ''}
     `;
   }
 }
