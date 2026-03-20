@@ -371,6 +371,76 @@ function createPhotonDefinitionProvider() {
   };
 }
 
+function createPhotonReferenceProvider() {
+  return {
+    async provideReferences(document, position) {
+      if (!isPhotonDocument(document)) return [];
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const references = await session.references(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        supportFiles
+      );
+      if (!references) return [];
+
+      const locations = [];
+      for (const item of references.items) {
+        const targetDocument =
+          item.filePath === document.fileName
+            ? document
+            : await vscode.workspace.openTextDocument(item.filePath);
+        locations.push(
+          new vscode.Location(
+            targetDocument.uri,
+            new vscode.Range(
+              targetDocument.positionAt(item.from),
+              targetDocument.positionAt(item.to)
+            )
+          )
+        );
+      }
+      return locations;
+    },
+  };
+}
+
+function createPhotonRenameProvider() {
+  return {
+    prepareRename(document, position) {
+      return document.getWordRangeAtPosition(position);
+    },
+    async provideRenameEdits(document, position, newName) {
+      if (!isPhotonDocument(document)) return null;
+      const session = await getDirectSession();
+      const supportFiles = await collectSupportFiles(document);
+      const rename = await session.rename(
+        document.fileName,
+        document.getText(),
+        document.offsetAt(position),
+        newName,
+        supportFiles
+      );
+      if (!rename) return null;
+
+      const edit = new vscode.WorkspaceEdit();
+      for (const file of rename.files) {
+        const targetDocument =
+          file.filePath === document.fileName
+            ? document
+            : await vscode.workspace.openTextDocument(file.filePath);
+        const fullRange = new vscode.Range(
+          targetDocument.positionAt(0),
+          targetDocument.positionAt(targetDocument.getText().length)
+        );
+        edit.replace(targetDocument.uri, fullRange, file.source);
+      }
+      return edit;
+    },
+  };
+}
+
 function activate(context) {
   const selector = { language: 'typescript', scheme: 'file', pattern: '**/*.photon.ts' };
   diagnosticsCollection = vscode.languages.createDiagnosticCollection('photon');
@@ -405,7 +475,9 @@ function activate(context) {
       '{'
     ),
     vscode.languages.registerHoverProvider(selector, createPhotonHoverProvider()),
-    vscode.languages.registerDefinitionProvider(selector, createPhotonDefinitionProvider())
+    vscode.languages.registerDefinitionProvider(selector, createPhotonDefinitionProvider()),
+    vscode.languages.registerReferenceProvider(selector, createPhotonReferenceProvider()),
+    vscode.languages.registerRenameProvider(selector, createPhotonRenameProvider())
   );
 
   for (const document of vscode.workspace.textDocuments) {
