@@ -16,12 +16,14 @@ type WorkerRequest =
       type: 'sync';
       filePath: string;
       source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
     }
   | {
       id: number;
       type: 'completions';
       filePath: string;
       source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
       explicit: boolean;
     }
@@ -30,12 +32,14 @@ type WorkerRequest =
       type: 'diagnostics';
       filePath: string;
       source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
     }
   | {
       id: number;
       type: 'hover';
       filePath: string;
       source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
     }
   | {
@@ -43,6 +47,7 @@ type WorkerRequest =
       type: 'definition';
       filePath: string;
       source: string;
+      supportFiles?: Array<{ path: string; source: string }>;
       pos: number;
     };
 
@@ -89,7 +94,7 @@ type WorkerResponse =
         definition: {
           from: number;
           to: number;
-          kind: 'source' | 'virtual';
+          kind: 'source' | 'project' | 'virtual';
           filePath: string;
           targetFrom: number;
           targetTo: number;
@@ -232,6 +237,7 @@ let currentSource = '';
 let currentFilePath = VIRTUAL_SOURCE_PATH;
 let shadow: ShadowTransform = { content: '', insertionPos: 0, delta: 0 };
 let version = 0;
+const projectFiles = new Map<string, { content: string; version: number }>();
 
 function normalizePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -265,14 +271,19 @@ function shadowToSourcePos(pos: number): number {
 }
 
 const languageService = ts.createLanguageService({
-  getScriptFileNames: () => [STUB_LIB_PATH, currentFilePath],
-  getScriptVersion: () => String(version),
+  getScriptFileNames: () => [STUB_LIB_PATH, currentFilePath, ...projectFiles.keys()],
+  getScriptVersion: (fileName) => {
+    if (fileName === STUB_LIB_PATH) return '1';
+    if (normalizePath(fileName) === normalizePath(currentFilePath)) return String(version);
+    return String(projectFiles.get(normalizePath(fileName))?.version ?? 0);
+  },
   getScriptSnapshot: (fileName) => {
     if (fileName === STUB_LIB_PATH) return ts.ScriptSnapshot.fromString(PHOTON_RUNTIME_LIB);
     if (normalizePath(fileName) === normalizePath(currentFilePath)) {
       return ts.ScriptSnapshot.fromString(shadow.content);
     }
-    return undefined;
+    const entry = projectFiles.get(normalizePath(fileName));
+    return entry ? ts.ScriptSnapshot.fromString(entry.content) : undefined;
   },
   getCurrentDirectory: () => '/',
   getCompilationSettings: () => ({
@@ -287,24 +298,53 @@ const languageService = ts.createLanguageService({
   }),
   getDefaultLibFileName: () => 'lib.d.ts',
   fileExists: (fileName) =>
-    fileName === STUB_LIB_PATH || normalizePath(fileName) === normalizePath(currentFilePath),
+    fileName === STUB_LIB_PATH ||
+    normalizePath(fileName) === normalizePath(currentFilePath) ||
+    projectFiles.has(normalizePath(fileName)),
   readFile: (fileName) => {
     if (fileName === STUB_LIB_PATH) return PHOTON_RUNTIME_LIB;
     if (normalizePath(fileName) === normalizePath(currentFilePath)) return shadow.content;
+    const entry = projectFiles.get(normalizePath(fileName));
+    if (entry) return entry.content;
     return undefined;
   },
   readDirectory: () => [],
   directoryExists: (dirName) =>
     dirName === '/' ||
     dirName === '/__photon__' ||
-    normalizePath(currentFilePath).startsWith(normalizePath(dirName)),
+    normalizePath(currentFilePath).startsWith(normalizePath(dirName)) ||
+    Array.from(projectFiles.keys()).some((fileName) =>
+      normalizePath(fileName).startsWith(normalizePath(dirName))
+    ),
 });
 
-function syncDocument(filePath: string, source: string): void {
+function syncDocument(
+  filePath: string,
+  source: string,
+  supportFiles?: Array<{ path: string; source: string }>
+): void {
   currentFilePath = normalizePath(filePath || VIRTUAL_SOURCE_PATH);
   currentSource = source;
   shadow = buildShadowSource(source);
   version++;
+  if (!supportFiles) return;
+  const nextFiles = new Set<string>();
+  for (const supportFile of supportFiles) {
+    const normalizedPath = normalizePath(supportFile.path);
+    if (!normalizedPath || normalizedPath === currentFilePath) continue;
+    nextFiles.add(normalizedPath);
+    const existing = projectFiles.get(normalizedPath);
+    if (existing?.content === supportFile.source) continue;
+    projectFiles.set(normalizedPath, {
+      content: supportFile.source,
+      version: (existing?.version ?? 0) + 1,
+    });
+  }
+  for (const existingPath of Array.from(projectFiles.keys())) {
+    if (!nextFiles.has(existingPath)) {
+      projectFiles.delete(existingPath);
+    }
+  }
 }
 
 function mapKind(kind: string): CompletionKind {
@@ -508,11 +548,15 @@ function getDefinition(pos: number) {
     };
   }
 
-  const previewSource = definition.fileName === STUB_LIB_PATH ? PHOTON_RUNTIME_LIB : '';
+  const normalizedDefinitionPath = normalizePath(definition.fileName);
+  const previewSource =
+    definition.fileName === STUB_LIB_PATH
+      ? PHOTON_RUNTIME_LIB
+      : projectFiles.get(normalizedDefinitionPath)?.content || '';
   return {
     from: originFrom,
     to: originTo,
-    kind: 'virtual' as const,
+    kind: definition.fileName === STUB_LIB_PATH ? ('virtual' as const) : ('project' as const),
     filePath: definition.fileName,
     targetFrom: definition.textSpan.start,
     targetTo: definition.textSpan.start + definition.textSpan.length,
@@ -528,7 +572,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
 
   try {
-    syncDocument(msg.filePath, msg.source);
+    syncDocument(msg.filePath, msg.source, msg.supportFiles);
 
     let response: WorkerResponse;
     if (msg.type === 'sync') {

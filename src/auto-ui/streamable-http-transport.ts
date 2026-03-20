@@ -20,7 +20,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import { readdir, stat, readFile, writeFile } from 'fs/promises';
-import { join, dirname } from 'path';
+import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
 import type {
@@ -731,6 +731,26 @@ const handlers: Record<string, RequestHandler> = {
     });
 
     tools.push({
+      name: 'beam/studio-project',
+      'x-photon-internal': true,
+      description: 'Resolve local support files for Studio TypeScript context',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the photon to resolve from',
+          },
+          source: {
+            type: 'string',
+            description: 'Current unsaved source code to resolve imports from',
+          },
+        },
+        required: ['name', 'source'],
+      },
+    });
+
+    tools.push({
       name: 'beam/studio-parse',
       'x-photon-internal': true,
       description: 'Parse photon source and return extracted schema',
@@ -801,6 +821,10 @@ const handlers: Record<string, RequestHandler> = {
 
     if (name === 'beam/studio-write') {
       return handleBeamStudioWrite(req, ctx, args || {});
+    }
+
+    if (name === 'beam/studio-project') {
+      return handleBeamStudioProject(req, ctx, args || {});
     }
 
     if (name === 'beam/studio-parse') {
@@ -2167,6 +2191,128 @@ async function handleBeamReconnectMCP(
   }
 }
 
+interface StudioSupportFile {
+  path: string;
+  source: string;
+}
+
+function extractRelativeImportSpecifiers(source: string): string[] {
+  const matches = new Set<string>();
+  const patterns = [
+    /(?:import|export)\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?['"]([^'"]+)['"]/g,
+    /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1]?.trim();
+      if (specifier?.startsWith('.')) matches.add(specifier);
+    }
+  }
+
+  return Array.from(matches);
+}
+
+function resolveImportCandidates(fromPath: string, specifier: string): string[] {
+  const basePath = resolve(dirname(fromPath), specifier);
+  const hasExtension = extname(basePath).length > 0;
+  const candidates = hasExtension
+    ? [basePath]
+    : [
+        `${basePath}.ts`,
+        `${basePath}.tsx`,
+        `${basePath}.mts`,
+        `${basePath}.cts`,
+        `${basePath}.js`,
+        `${basePath}.mjs`,
+        `${basePath}.cjs`,
+        `${basePath}.d.ts`,
+        join(basePath, 'index.ts'),
+        join(basePath, 'index.tsx'),
+        join(basePath, 'index.mts'),
+        join(basePath, 'index.cts'),
+        join(basePath, 'index.js'),
+        join(basePath, 'index.d.ts'),
+      ];
+
+  return candidates.map((candidate) => normalize(candidate));
+}
+
+async function collectStudioSupportFiles(
+  entryPath: string,
+  source: string,
+  workingDir?: string
+): Promise<StudioSupportFile[]> {
+  const supportFiles: StudioSupportFile[] = [];
+  const visited = new Set<string>([normalize(entryPath)]);
+  const queue: Array<{ path: string; source: string }> = [{ path: entryPath, source }];
+  const maxFiles = 24;
+
+  while (queue.length > 0 && supportFiles.length < maxFiles) {
+    const current = queue.shift()!;
+    for (const specifier of extractRelativeImportSpecifiers(current.source)) {
+      const candidates = resolveImportCandidates(current.path, specifier);
+      let resolvedPath: string | null = null;
+      let resolvedSource: string | null = null;
+
+      for (const candidate of candidates) {
+        if (visited.has(candidate)) continue;
+        try {
+          const fileSource = await readFile(candidate, 'utf-8');
+          resolvedPath = candidate;
+          resolvedSource = fileSource;
+          break;
+        } catch {
+          // Try next candidate extension
+        }
+      }
+
+      if (!resolvedPath || resolvedSource == null) continue;
+
+      visited.add(resolvedPath);
+      supportFiles.push({ path: resolvedPath, source: resolvedSource });
+      queue.push({ path: resolvedPath, source: resolvedSource });
+
+      if (resolvedPath.endsWith('.photon.ts') || resolvedPath.endsWith('.photon.tsx')) {
+        const declarationPath = await writePhotonEditorDeclaration(
+          resolvedPath,
+          resolvedSource,
+          workingDir
+        ).catch(() => null);
+        if (declarationPath) {
+          try {
+            const declarationSource = await readFile(declarationPath, 'utf-8');
+            if (!visited.has(normalize(declarationPath))) {
+              visited.add(normalize(declarationPath));
+              supportFiles.push({ path: declarationPath, source: declarationSource });
+            }
+          } catch {
+            // Ignore missing generated declaration reads.
+          }
+        }
+      }
+
+      if (supportFiles.length >= maxFiles) break;
+    }
+  }
+
+  return supportFiles;
+}
+
+async function buildStudioProjectPayload(
+  photonPath: string,
+  source: string,
+  workingDir?: string
+): Promise<{ declarationPath: string | null; supportFiles: StudioSupportFile[] }> {
+  const declarationPath = await writePhotonEditorDeclaration(photonPath, source, workingDir).catch(
+    () => null
+  );
+  const supportFiles = await collectStudioSupportFiles(photonPath, source, workingDir).catch(
+    () => []
+  );
+  return { declarationPath, supportFiles };
+}
+
 /**
  * Handle beam/studio-read — read a photon source file for editing
  */
@@ -2203,8 +2349,10 @@ async function handleBeamStudioRead(
 
   try {
     const source = await readFile(photon.path, 'utf-8');
-    const declarationPath = await writePhotonEditorDeclaration(photon.path, source).catch(
-      () => null
+    const { declarationPath, supportFiles } = await buildStudioProjectPayload(
+      photon.path,
+      source,
+      ctx.workingDir
     );
     return {
       jsonrpc: '2.0',
@@ -2213,7 +2361,7 @@ async function handleBeamStudioRead(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ source, path: photon.path, declarationPath }),
+            text: JSON.stringify({ source, path: photon.path, declarationPath, supportFiles }),
           },
         ],
         isError: false,
@@ -2268,8 +2416,10 @@ async function handleBeamStudioWrite(
   try {
     // Write source to disk
     await writeFile(photon.path, source, 'utf-8');
-    const declarationPath = await writePhotonEditorDeclaration(photon.path, source).catch(
-      () => null
+    const { declarationPath, supportFiles } = await buildStudioProjectPayload(
+      photon.path,
+      source,
+      ctx.workingDir
     );
 
     // Parse the new source for preview
@@ -2340,7 +2490,7 @@ async function handleBeamStudioWrite(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ success: true, parseResult, declarationPath }),
+            text: JSON.stringify({ success: true, parseResult, declarationPath, supportFiles }),
           },
         ],
         isError: false,
@@ -2353,6 +2503,59 @@ async function handleBeamStudioWrite(
       id: req.id,
       result: {
         content: [{ type: 'text', text: JSON.stringify({ success: false, error: message }) }],
+        isError: true,
+      },
+    };
+  }
+}
+
+async function handleBeamStudioProject(
+  req: JSONRPCRequest,
+  ctx: HandlerContext,
+  args: Record<string, unknown>
+): Promise<JSONRPCResponse> {
+  const { name: photonName, source } = args as { name: string; source: string };
+
+  if (!photonName || typeof source !== 'string') {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: 'Error: photon name and source are required' }],
+        isError: true,
+      },
+    };
+  }
+
+  const photon = ctx.photons.find((p) => p.name === photonName);
+  if (!photon || !photon.path) {
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error: photon "${photonName}" not found or has no path` }],
+        isError: true,
+      },
+    };
+  }
+
+  try {
+    const payload = await buildStudioProjectPayload(photon.path, source, ctx.workingDir);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
+        isError: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: {
+        content: [{ type: 'text', text: `Error resolving project context: ${message}` }],
         isError: true,
       },
     };

@@ -20,12 +20,17 @@ export interface PhotonTsHover {
 export interface PhotonTsDefinition {
   from: number;
   to: number;
-  kind: 'source' | 'virtual';
+  kind: 'source' | 'project' | 'virtual';
   filePath: string;
   targetFrom: number;
   targetTo: number;
   title: string;
   preview?: string;
+}
+
+export interface PhotonTsProjectFile {
+  path: string;
+  source: string;
 }
 
 interface WorkerSuccess<T> {
@@ -73,8 +78,8 @@ export class PhotonTsWorkerClient {
     });
   }
 
-  sync(filePath: string, source: string): Promise<void> {
-    return this.request<void>({ type: 'sync', filePath, source });
+  sync(filePath: string, source: string, supportFiles: PhotonTsProjectFile[] = []): Promise<void> {
+    return this.request<void>({ type: 'sync', filePath, source, supportFiles });
   }
 
   diagnostics(filePath: string, source: string): Promise<PhotonTsDiagnostic[]> {

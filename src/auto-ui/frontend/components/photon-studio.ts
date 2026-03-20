@@ -25,6 +25,7 @@ import {
   type PhotonTsDefinition,
   type PhotonTsDiagnostic,
   type PhotonTsHover,
+  type PhotonTsProjectFile,
 } from '../services/photon-ts-worker-client.js';
 import type { PhotonTemplate } from './studio-templates.js';
 import type { ParseResult } from './studio-preview.js';
@@ -62,6 +63,9 @@ export class PhotonStudio extends LitElement {
   private static readonly PARSE_DEBOUNCE_MS = 1500;
   private _tsWorkerClient: PhotonTsWorkerClient | null = null;
   private _diagnosticRequestToken = 0;
+  private _projectSupportFiles: PhotonTsProjectFile[] = [];
+  private _importSignature = '';
+  private _projectRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   static styles = css`
     :host {
@@ -475,6 +479,10 @@ export class PhotonStudio extends LitElement {
       clearTimeout(this._parseDebounceTimer);
       this._parseDebounceTimer = null;
     }
+    if (this._projectRefreshTimer) {
+      clearTimeout(this._projectRefreshTimer);
+      this._projectRefreshTimer = null;
+    }
     this._tsWorkerClient?.destroy();
     this._tsWorkerClient = null;
   }
@@ -500,11 +508,13 @@ export class PhotonStudio extends LitElement {
       this._source = parsed.source;
       this._originalSource = parsed.source;
       this._filePath = parsed.path || '';
+      this._projectSupportFiles = parsed.supportFiles || [];
+      this._importSignature = this._extractImportSignature(this._source);
       this._dirty = false;
       this._loading = false;
       this._tsWorkerClient?.destroy();
       this._tsWorkerClient = new PhotonTsWorkerClient();
-      await this._tsWorkerClient.sync(this._filePath, this._source).catch(() => {});
+      await this._syncTypeScriptProject().catch(() => {});
       await this.updateComplete;
       this._initEditor();
       // Auto-parse on load
@@ -622,7 +632,12 @@ export class PhotonStudio extends LitElement {
             this._source = update.state.doc.toString();
             this._dirty = this._source !== this._originalSource;
             this._definitionPreview = null;
-            void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+            void this._syncTypeScriptProject().catch(() => {});
+            const nextImportSignature = this._extractImportSignature(this._source);
+            if (nextImportSignature !== this._importSignature) {
+              this._importSignature = nextImportSignature;
+              this._scheduleProjectContextRefresh();
+            }
             void this._refreshTypeScriptDiagnostics();
             this._scheduleParse();
           }
@@ -739,6 +754,45 @@ export class PhotonStudio extends LitElement {
     }, PhotonStudio.PARSE_DEBOUNCE_MS);
   }
 
+  private _extractImportSignature(source: string): string {
+    return source
+      .split('\n')
+      .filter((line) => /^\s*(import|export)\b/.test(line))
+      .join('\n');
+  }
+
+  private _scheduleProjectContextRefresh() {
+    if (this._projectRefreshTimer) {
+      clearTimeout(this._projectRefreshTimer);
+    }
+    this._projectRefreshTimer = setTimeout(() => {
+      this._projectRefreshTimer = null;
+      void this._refreshProjectContext();
+    }, 500);
+  }
+
+  private async _syncTypeScriptProject() {
+    if (!this._tsWorkerClient || !this._filePath) return;
+    await this._tsWorkerClient.sync(this._filePath, this._source, this._projectSupportFiles);
+  }
+
+  private async _refreshProjectContext() {
+    if (!this.photonName) return;
+    try {
+      const result = await mcpClient.callTool('beam/studio-project', {
+        name: this.photonName,
+        source: this._source,
+      });
+      const text = result?.content?.[0]?.text;
+      if (!text) return;
+      const parsed = JSON.parse(text);
+      this._projectSupportFiles = parsed.supportFiles || [];
+      await this._syncTypeScriptProject();
+    } catch {
+      // Keep last-known project context if support-file resolution fails.
+    }
+  }
+
   private async _save() {
     if (this._saving || !this._dirty) return;
     this._saving = true;
@@ -753,10 +807,12 @@ export class PhotonStudio extends LitElement {
         if (parsed.success) {
           this._originalSource = this._source;
           this._dirty = false;
+          this._projectSupportFiles = parsed.supportFiles || [];
+          this._importSignature = this._extractImportSignature(this._source);
           if (parsed.parseResult) {
             this._parseResult = parsed.parseResult;
           }
-          void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+          void this._syncTypeScriptProject().catch(() => {});
           void this._refreshTypeScriptDiagnostics();
           showToast('Saved and reloaded', 'success');
           this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
@@ -791,7 +847,8 @@ export class PhotonStudio extends LitElement {
     this._source = template.source;
     this._dirty = this._source !== this._originalSource;
     this._parseResult = null;
-    void this._tsWorkerClient?.sync(this._filePath, this._source).catch(() => {});
+    this._importSignature = this._extractImportSignature(this._source);
+    void this._refreshProjectContext().catch(() => {});
     void this._refreshTypeScriptDiagnostics();
 
     // Update editor content
