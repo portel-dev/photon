@@ -21,6 +21,7 @@ import {
   photonRuntimeCompletions,
 } from './docblock-completions.js';
 import {
+  type PhotonTsCodeFix,
   PhotonTsWorkerClient,
   type PhotonTsDefinition,
   type PhotonTsDiagnostic,
@@ -60,6 +61,10 @@ export class PhotonStudio extends LitElement {
   @state() private _definitionPreview: PhotonTsDefinition | null = null;
   @state() private _referencesPreview: PhotonTsReferences | null = null;
   @state() private _renamePreview: PhotonTsRenamePlan | null = null;
+  @state() private _codeFixPreview: {
+    diagnostic: PhotonTsDiagnostic;
+    fixes: PhotonTsCodeFix[];
+  } | null = null;
   @state() private _readOnlySourcePreview: {
     title: string;
     filePath: string;
@@ -401,6 +406,15 @@ export class PhotonStudio extends LitElement {
       background: rgba(242, 204, 96, 0.08);
     }
 
+    .code-fix-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(121, 192, 255, 0.08);
+    }
+
     .rename-summary {
       font-size: var(--text-sm);
       color: var(--t-primary, #e0e0e0);
@@ -423,6 +437,11 @@ export class PhotonStudio extends LitElement {
       border-radius: 10px;
       padding: 10px 12px;
       background: rgba(255, 255, 255, 0.03);
+      cursor: pointer;
+    }
+
+    .rename-file-item:hover {
+      background: rgba(255, 255, 255, 0.06);
     }
 
     .rename-file-meta {
@@ -566,6 +585,26 @@ export class PhotonStudio extends LitElement {
       font-size: var(--text-xs);
       color: var(--t-muted, #888);
       padding-left: 52px;
+    }
+
+    .problem-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .problem-action-btn {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--t-primary, #e0e0e0);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .problem-action-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .cm-tooltip.cm-photon-hover {
@@ -842,6 +881,7 @@ export class PhotonStudio extends LitElement {
             this._definitionPreview = null;
             this._referencesPreview = null;
             this._renamePreview = null;
+            this._codeFixPreview = null;
             void this._syncTypeScriptProject().catch(() => {});
             const nextImportSignature = this._extractImportSignature(this._source);
             if (nextImportSignature !== this._importSignature) {
@@ -965,6 +1005,7 @@ export class PhotonStudio extends LitElement {
       this._definitionPreview = null;
       this._readOnlySourcePreview = null;
       this._renamePreview = null;
+      this._codeFixPreview = null;
       this._focusEditorSpan(definition.targetFrom, definition.targetTo);
       return;
     }
@@ -983,6 +1024,7 @@ export class PhotonStudio extends LitElement {
     this._definitionPreview = definition;
     this._referencesPreview = null;
     this._renamePreview = null;
+    this._codeFixPreview = null;
     showToast(`Opened ${definition.title} definition preview`, 'info');
   }
 
@@ -1003,6 +1045,7 @@ export class PhotonStudio extends LitElement {
     this._readOnlySourcePreview = null;
     this._referencesPreview = references;
     this._renamePreview = null;
+    this._codeFixPreview = null;
     showToast(
       `${references.items.length} reference${references.items.length === 1 ? '' : 's'} for ${references.symbolName}`,
       'info'
@@ -1177,45 +1220,11 @@ export class PhotonStudio extends LitElement {
     const nextSource = currentFile?.source ?? this._source;
 
     try {
-      const result = await mcpClient.callTool('beam/studio-apply-files', {
-        name: this.photonName,
-        source: nextSource,
-        files: renamePlan.files.map((file) => ({
-          path: file.filePath,
-          source: file.source,
-        })),
-      });
-      const text = result?.content?.[0]?.text;
-      if (!text) throw new Error('Empty response');
-      const parsed = JSON.parse(text);
-      if (!parsed.success) throw new Error(parsed.error || 'Rename failed');
-
-      if (currentFile && this._editorView) {
-        this._editorView.dispatch({
-          changes: {
-            from: 0,
-            to: this._editorView.state.doc.length,
-            insert: currentFile.source,
-          },
-        });
-      }
-
-      this._source = nextSource;
-      this._originalSource = nextSource;
-      this._dirty = false;
-      this._definitionPreview = null;
-      this._referencesPreview = null;
-      this._renamePreview = null;
-      this._readOnlySourcePreview = null;
-      this._projectSupportFiles = parsed.supportFiles || [];
-      this._importSignature = this._extractImportSignature(this._source);
-      await this._syncTypeScriptProject().catch(() => {});
-      void this._refreshTypeScriptDiagnostics();
-
       const projectEditCount = renamePlan.files.filter((file) => file.kind === 'project').length;
-      showToast(
-        `Renamed ${renamePlan.symbolName} to ${renamePlan.nextName}${projectEditCount > 0 ? ` across ${projectEditCount + 1} files` : ''}`,
-        'success'
+      await this._applyFileEdits(
+        renamePlan.files.map((file) => ({ filePath: file.filePath, source: file.source })),
+        nextSource,
+        `Renamed ${renamePlan.symbolName} to ${renamePlan.nextName}${projectEditCount > 0 ? ` across ${projectEditCount + 1} files` : ''}`
       );
     } catch (error) {
       showToast(
@@ -1248,6 +1257,88 @@ export class PhotonStudio extends LitElement {
     };
   }
 
+  private async _applyFileEdits(
+    files: Array<{ filePath: string; source: string }>,
+    nextSource: string,
+    successMessage: string
+  ) {
+    const result = await mcpClient.callTool('beam/studio-apply-files', {
+      name: this.photonName,
+      source: nextSource,
+      files: files.map((file) => ({
+        path: file.filePath,
+        source: file.source,
+      })),
+    });
+    const text = result?.content?.[0]?.text;
+    if (!text) throw new Error('Empty response');
+    const parsed = JSON.parse(text);
+    if (!parsed.success) throw new Error(parsed.error || 'Failed to apply editor changes');
+
+    if (this._editorView) {
+      this._editorView.dispatch({
+        changes: {
+          from: 0,
+          to: this._editorView.state.doc.length,
+          insert: nextSource,
+        },
+      });
+    }
+
+    this._source = nextSource;
+    this._originalSource = nextSource;
+    this._dirty = false;
+    this._definitionPreview = null;
+    this._referencesPreview = null;
+    this._renamePreview = null;
+    this._codeFixPreview = null;
+    this._readOnlySourcePreview = null;
+    this._projectSupportFiles = parsed.supportFiles || [];
+    this._importSignature = this._extractImportSignature(this._source);
+    await this._syncTypeScriptProject().catch(() => {});
+    await this._refreshTypeScriptDiagnostics();
+    showToast(successMessage, 'success');
+    this.dispatchEvent(new CustomEvent('studio-saved', { bubbles: true, composed: true }));
+  }
+
+  private _previewCodeFixFile(fix: PhotonTsCodeFix) {
+    const currentFile = fix.files.find((file) => file.kind === 'source') || fix.files[0];
+    if (!currentFile) return;
+
+    const previousSource =
+      currentFile.kind === 'source'
+        ? this._source
+        : this._getProjectFileSource(currentFile.filePath) || '';
+    const firstChangedLine = this._findFirstChangedLine(previousSource, currentFile.source);
+    this._readOnlySourcePreview = {
+      title: fix.description,
+      filePath: currentFile.filePath,
+      source: currentFile.source,
+      line: firstChangedLine,
+    };
+  }
+
+  private async _applyCodeFix(fix: PhotonTsCodeFix) {
+    const currentFile = fix.files.find((file) => file.kind === 'source');
+    if (!currentFile) {
+      showToast('Quick fix is missing the current photon source', 'error');
+      return;
+    }
+
+    try {
+      await this._applyFileEdits(
+        fix.files.map((file) => ({ filePath: file.filePath, source: file.source })),
+        currentFile.source,
+        `Applied quick fix: ${fix.description}`
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error ? `Quick fix failed: ${error.message}` : 'Quick fix failed',
+        'error'
+      );
+    }
+  }
+
   private _diagnosticSeverityClass(): 'ok' | 'warning' | 'error' {
     if (this._tsDiagnostics.some((diag) => diag.severity === 'error')) return 'error';
     if (this._tsDiagnostics.some((diag) => diag.severity === 'warning')) return 'warning';
@@ -1262,8 +1353,45 @@ export class PhotonStudio extends LitElement {
     this._definitionPreview = null;
     this._referencesPreview = null;
     this._renamePreview = null;
+    this._codeFixPreview = null;
     const span = this._normalizeEditorTokenSpan(diag.from, Math.max(diag.to, diag.from + 1));
     this._focusEditorSpan(span.from, span.to);
+  }
+
+  private async _loadCodeFixes(diag: PhotonTsDiagnostic) {
+    if (!this._tsWorkerClient || !this._filePath || !diag.code) {
+      showToast('No quick fixes available for this issue', 'warning');
+      return;
+    }
+
+    try {
+      const fixes = await this._tsWorkerClient.codeFixes(
+        this._filePath,
+        this._source,
+        diag.from,
+        diag.to,
+        diag.code
+      );
+
+      if (!fixes.length) {
+        showToast('TypeScript did not return a quick fix for this issue', 'warning');
+        return;
+      }
+
+      this._definitionPreview = null;
+      this._referencesPreview = null;
+      this._renamePreview = null;
+      this._codeFixPreview = { diagnostic: diag, fixes };
+      this._previewCodeFixFile(fixes[0]);
+      showToast(`${fixes.length} quick fix${fixes.length === 1 ? '' : 'es'} available`, 'info');
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? `Quick fix lookup failed: ${error.message}`
+          : 'Quick fix lookup failed',
+        'error'
+      );
+    }
   }
 
   private _scheduleParse() {
@@ -1590,6 +1718,74 @@ export class PhotonStudio extends LitElement {
             </div>
           `
         : ''}
+      ${this._codeFixPreview
+        ? html`
+            <div class="code-fix-panel">
+              <div class="definition-header">
+                <div>
+                  <div class="definition-title">Quick Fixes</div>
+                  <div class="rename-summary">${this._codeFixPreview.diagnostic.message}</div>
+                  <div class="references-count">
+                    ${this._codeFixPreview.fixes.length}
+                    fix${this._codeFixPreview.fixes.length === 1 ? '' : 'es'} available
+                  </div>
+                </div>
+                <button
+                  class="toolbar-btn"
+                  @click=${() => {
+                    this._codeFixPreview = null;
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              <div class="rename-file-list">
+                ${this._codeFixPreview.fixes.map((fix) => {
+                  const totalChanges = fix.files.reduce(
+                    (count, file) => count + file.changeCount,
+                    0
+                  );
+                  return html`
+                    <div
+                      class="rename-file-item"
+                      @click=${() => {
+                        this._previewCodeFixFile(fix);
+                      }}
+                    >
+                      <div class="rename-file-meta">
+                        <span>${fix.description}</span>
+                        <span>${totalChanges} edit${totalChanges === 1 ? '' : 's'}</span>
+                      </div>
+                      <div class="reference-preview">
+                        ${fix.files.map((file) => file.filePath.split('/').pop()).join(', ')}
+                      </div>
+                      <div class="problem-actions">
+                        <button
+                          class="problem-action-btn"
+                          @click=${(event: Event) => {
+                            event.stopPropagation();
+                            this._previewCodeFixFile(fix);
+                          }}
+                        >
+                          Preview
+                        </button>
+                        <button
+                          class="problem-action-btn"
+                          @click=${(event: Event) => {
+                            event.stopPropagation();
+                            void this._applyCodeFix(fix);
+                          }}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                })}
+              </div>
+            </div>
+          `
+        : ''}
       ${this._readOnlySourcePreview
         ? html`
             <div class="read-source-panel">
@@ -1752,6 +1948,21 @@ ${this._readOnlySourcePreview.source.split('\n').map(
                     <div class="problem-text">
                       ${diag.message}
                       ${diag.code ? html`<span class="problem-code">ts(${diag.code})</span>` : ''}
+                      ${diag.code
+                        ? html`
+                            <div class="problem-actions">
+                              <button
+                                class="problem-action-btn"
+                                @click=${(event: Event) => {
+                                  event.stopPropagation();
+                                  void this._loadCodeFixes(diag);
+                                }}
+                              >
+                                Quick Fixes
+                              </button>
+                            </div>
+                          `
+                        : ''}
                     </div>
                   </div>
                 `

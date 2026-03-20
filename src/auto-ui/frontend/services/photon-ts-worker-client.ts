@@ -16,6 +16,18 @@ import type {
   PhotonTsRenamePlan,
 } from '../../../editor-support/photon-ts-types.js';
 
+export interface PhotonTsCodeFixFile {
+  kind: 'source' | 'project';
+  filePath: string;
+  source: string;
+  changeCount: number;
+}
+
+export interface PhotonTsCodeFix {
+  description: string;
+  files: PhotonTsCodeFixFile[];
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -113,6 +125,23 @@ export class PhotonTsWorkerClient {
       pos,
       newName,
     }).then((r) => r.rename);
+  }
+
+  codeFixes(
+    filePath: string,
+    source: string,
+    from: number,
+    to: number,
+    errorCode: number
+  ): Promise<PhotonTsCodeFix[]> {
+    return this.request<{ fixes: PhotonTsCodeFix[] }>({
+      type: 'codeFixes',
+      filePath,
+      source,
+      from,
+      to,
+      errorCode,
+    }).then((r) => r.fixes);
   }
 
   async completions(
