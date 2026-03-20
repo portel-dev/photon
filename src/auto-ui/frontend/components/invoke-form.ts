@@ -715,7 +715,11 @@ export class InvokeForm extends LitElement {
       void this._resolveChoiceFromFields();
     }
     // Apply shared values from URL (takes priority over persisted values)
-    if (changedProps.has('sharedValues') && this.sharedValues) {
+    if (
+      changedProps.has('sharedValues') &&
+      this.sharedValues &&
+      Object.keys(this.sharedValues).length > 0
+    ) {
       this._values = { ...this._values, ...this.sharedValues };
       showToast('Form pre-filled from shared link', 'info');
     }
@@ -2454,8 +2458,12 @@ export class InvokeForm extends LitElement {
         const value = this._values[key];
         const isRequired = Array.isArray(requiredList) ? requiredList.includes(key) : !!s.required;
 
-        // Required check
-        if (isRequired && (value === undefined || value === null || value === '')) {
+        // Required check (boolean false is a valid value, not "empty")
+        if (
+          isRequired &&
+          (value === undefined || value === null || value === '') &&
+          value !== false
+        ) {
           errors[key] = 'This field is required';
           continue;
         }

@@ -152,7 +152,10 @@ export class CodeInput extends LitElement {
         </div>
         <div class="footer">
           <span>${lang}</span>
-          <span>${this._lineCount} lines, ${charCount} chars</span>
+          <span
+            >${this._lineCount} ${this._lineCount === 1 ? 'line' : 'lines'}, ${charCount}
+            ${charCount === 1 ? 'char' : 'chars'}</span
+          >
         </div>
       </div>
     `;

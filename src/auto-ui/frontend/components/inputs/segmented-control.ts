@@ -131,6 +131,8 @@ export class SegmentedControl extends LitElement {
   }
 
   private _capitalize(s: string): string {
+    // Short all-letter values (xs, xl, sm, md, lg) → uppercase as abbreviations
+    if (s.length <= 3 && /^[a-z]+$/.test(s)) return s.toUpperCase();
     return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
