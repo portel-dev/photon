@@ -59,6 +59,12 @@ export class PhotonStudio extends LitElement {
   @state() private _tsDiagnostics: PhotonTsDiagnostic[] = [];
   @state() private _definitionPreview: PhotonTsDefinition | null = null;
   @state() private _referencesPreview: PhotonTsReferences | null = null;
+  @state() private _readOnlySourcePreview: {
+    title: string;
+    filePath: string;
+    source: string;
+    line: number;
+  } | null = null;
   @state() private _hoverEnabled = true;
 
   private _editorView: EditorView | null = null;
@@ -379,6 +385,54 @@ export class PhotonStudio extends LitElement {
       color: var(--t-primary, #e0e0e0);
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .read-source-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .read-source-scroll {
+      max-height: 320px;
+      overflow: auto;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.24);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .read-source-code {
+      margin: 0;
+      padding: 12px 0;
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--t-primary, #e0e0e0);
+      white-space: pre;
+    }
+
+    .read-source-line {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr);
+      gap: 12px;
+      padding: 0 12px;
+    }
+
+    .read-source-line.active {
+      background: rgba(88, 166, 255, 0.14);
+    }
+
+    .read-source-line-number {
+      color: var(--t-muted, #888);
+      text-align: right;
+      user-select: none;
+    }
+
+    .read-source-line-text {
+      overflow-x: auto;
     }
 
     .problem-item {
@@ -790,12 +844,24 @@ export class PhotonStudio extends LitElement {
 
     if (definition.kind === 'source') {
       this._definitionPreview = null;
+      this._readOnlySourcePreview = null;
       this._editorView.dispatch({
         selection: { anchor: definition.targetFrom, head: definition.targetTo },
         effects: EditorView.scrollIntoView(definition.targetFrom, { y: 'center' }),
       });
       this._editorView.focus();
       return;
+    }
+
+    if (definition.kind === 'project') {
+      this._openReadOnlySourcePreview(
+        definition.title,
+        definition.filePath,
+        this._lineNumberForPos(
+          this._getProjectFileSource(definition.filePath) || '',
+          definition.targetFrom
+        )
+      );
     }
 
     this._definitionPreview = definition;
@@ -817,6 +883,7 @@ export class PhotonStudio extends LitElement {
     }
 
     this._definitionPreview = null;
+    this._readOnlySourcePreview = null;
     this._referencesPreview = references;
     showToast(
       `${references.items.length} reference${references.items.length === 1 ? '' : 's'} for ${references.symbolName}`,
@@ -826,6 +893,7 @@ export class PhotonStudio extends LitElement {
 
   private _openReference(item: PhotonTsReferences['items'][number]) {
     if (item.kind === 'source' && this._editorView) {
+      this._readOnlySourcePreview = null;
       this._editorView.dispatch({
         selection: { anchor: item.from, head: item.to },
         effects: EditorView.scrollIntoView(item.from, { y: 'center' }),
@@ -834,16 +902,40 @@ export class PhotonStudio extends LitElement {
       return;
     }
 
-    this._definitionPreview = {
-      kind: 'project',
-      filePath: item.filePath,
-      from: item.from,
-      to: item.to,
-      targetFrom: item.from,
-      targetTo: item.to,
-      title: `${this._referencesPreview?.symbolName || 'Reference'} reference`,
-      preview: item.preview,
-    };
+    this._openReadOnlySourcePreview(
+      `${this._referencesPreview?.symbolName || 'Reference'} reference`,
+      item.filePath,
+      item.line
+    );
+  }
+
+  private _getProjectFileSource(filePath: string): string | null {
+    return this._projectSupportFiles.find((file) => file.path === filePath)?.source || null;
+  }
+
+  private _lineNumberForPos(source: string, pos: number): number {
+    if (!source) return 1;
+    return source.slice(0, Math.max(0, pos)).split('\n').length;
+  }
+
+  private _openReadOnlySourcePreview(title: string, filePath: string, line: number) {
+    const source = this._getProjectFileSource(filePath);
+    if (!source) {
+      this._definitionPreview = {
+        kind: 'project',
+        filePath,
+        from: 0,
+        to: 0,
+        targetFrom: 0,
+        targetTo: 0,
+        title,
+        preview: 'Source preview unavailable for this file.',
+      };
+      return;
+    }
+
+    this._definitionPreview = null;
+    this._readOnlySourcePreview = { title, filePath, source, line };
   }
 
   private async _renameSymbol(pos = this._editorView?.state.selection.main.head ?? 0) {
@@ -1206,6 +1298,42 @@ export class PhotonStudio extends LitElement {
         <span><span class="kbd">Cmd+S</span> Save</span>
       </div>
 
+      ${this._readOnlySourcePreview
+        ? html`
+            <div class="read-source-panel">
+              <div class="definition-header">
+                <div>
+                  <div class="definition-title">${this._readOnlySourcePreview.title}</div>
+                  <div class="definition-path">${this._readOnlySourcePreview.filePath}</div>
+                </div>
+                <button
+                  class="toolbar-btn"
+                  @click=${() => {
+                    this._readOnlySourcePreview = null;
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              <div class="read-source-scroll">
+                <pre class="read-source-code">
+${this._readOnlySourcePreview.source.split('\n').map(
+                    (line, index) => html`
+                      <div
+                        class="read-source-line ${index + 1 === this._readOnlySourcePreview!.line
+                          ? 'active'
+                          : ''}"
+                      >
+                        <span class="read-source-line-number">${index + 1}</span>
+                        <span class="read-source-line-text">${line || ' '}</span>
+                      </div>
+                    `
+                  )}</pre
+                >
+              </div>
+            </div>
+          `
+        : ''}
       ${this._definitionPreview
         ? html`
             <div class="definition-panel">
