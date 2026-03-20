@@ -5,8 +5,42 @@
   "version": "0.0.1",
   "publisher": "portel-dev",
   "private": true,
+  "license": "MIT",
+  "keywords": [
+    "photon",
+    "typescript",
+    "mcp",
+    "beam",
+    "vscode"
+  ],
   "engines": {
     "vscode": "^1.90.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/portel-dev/photon.git"
+  },
+  "homepage": "https://github.com/portel-dev/photon",
+  "bugs": {
+    "url": "https://github.com/portel-dev/photon/issues"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.cjs",
+    "check": "node -c ./extension.cjs",
+    "package": "npm run build && npx @vscode/vsce package --allow-missing-repository",
+    "vscode:prepublish": "npm run build"
+  },
+  "files": [
+    "extension.cjs",
+    "README.md",
+    "package.json",
+    ".generated/**"
+  ],
+  "dependencies": {
+    "typescript": "^5.7.3"
   },
   "categories": [
     "Programming Languages",
@@ -39,6 +73,25 @@
         "title": "Photon: Go To Photon Symbol"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "photon.openInBeam",
+          "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "photon.openInBeam",
+          "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
+        },
+        {
+          "command": "photon.goToSymbol",
+          "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
+        }
+      ]
+    },
     "configuration": {
       "title": "Photon",
       "properties": {

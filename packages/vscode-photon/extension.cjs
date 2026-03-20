@@ -6,6 +6,7 @@ const { pathToFileURL } = require('node:url');
 const vscode = require('vscode');
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
+const BUNDLED_DIST_DIR = path.join(__dirname, '.generated', 'photon-dist');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const TEMPLATE_PATH = path.join(ROOT_DIR, 'templates', 'photon.template.ts');
 const IMPORT_RE = /\b(?:import|export)\b[\s\S]*?\bfrom\s*['"](\.[^'"]+)['"]|import\s*['"](\.[^'"]+)['"]/g;
@@ -53,10 +54,14 @@ async function loadPhotonModule(modulePath) {
   return import(pathToFileURL(modulePath).href);
 }
 
+function getPhotonRuntimeDir() {
+  return require('node:fs').existsSync(BUNDLED_DIST_DIR) ? BUNDLED_DIST_DIR : DIST_DIR;
+}
+
 async function getDirectSession() {
   if (!directSessionPromise) {
     directSessionPromise = loadPhotonModule(
-      path.join(DIST_DIR, 'editor-support', 'photon-ts-direct-session.js')
+      path.join(getPhotonRuntimeDir(), 'editor-support', 'photon-ts-direct-session.js')
     ).then((mod) => mod.createDirectPhotonTsSession());
   }
   return directSessionPromise;
@@ -65,7 +70,7 @@ async function getDirectSession() {
 async function ensureDeclarationForDocument(document) {
   if (!isPhotonDocument(document) || document.isUntitled) return null;
   const { ensurePhotonEditorDeclaration } = await loadPhotonModule(
-    path.join(DIST_DIR, 'photon-editor-declarations.js')
+    path.join(getPhotonRuntimeDir(), 'photon-editor-declarations.js')
   );
   return ensurePhotonEditorDeclaration(document.fileName, document.getText(), getBaseDir(document));
 }
@@ -87,7 +92,7 @@ async function regenerateWorkspaceDeclarations() {
   );
 
   const { ensurePhotonEditorDeclaration } = await loadPhotonModule(
-    path.join(DIST_DIR, 'photon-editor-declarations.js')
+    path.join(getPhotonRuntimeDir(), 'photon-editor-declarations.js')
   );
 
   for (const uri of files) {
@@ -327,7 +332,7 @@ async function openCurrentPhotonInBeam() {
 
 async function buildDocblockCompletions() {
   const { buildPhotonDocblockTagCatalog } = await loadPhotonModule(
-    path.join(DIST_DIR, 'editor-support', 'docblock-tag-catalog.js')
+    path.join(getPhotonRuntimeDir(), 'editor-support', 'docblock-tag-catalog.js')
   );
   return buildPhotonDocblockTagCatalog('1.0.0');
 }

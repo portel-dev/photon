@@ -18,3 +18,14 @@ Current MVP:
 - creates a new photon from the built-in template
 
 This package is intentionally thin and reuses the shared editor-support modules in the main Photon repo.
+
+## Dogfooding
+
+1. From the repo root, run `npm run build`.
+2. From this folder, run `npm run build`.
+3. Open VS Code and use `Developer: Install Extension from Location...` on `packages/vscode-photon`.
+
+To build a `.vsix` for local testing:
+
+1. From the repo root, run `npm run build`.
+2. From this folder, run `npm run package`.

@@ -1,0 +1,3 @@
+.generated/
+*.vsix
+node_modules/

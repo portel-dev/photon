@@ -1,0 +1,4 @@
+.gitignore
+scripts/**
+node_modules/.cache/**
+**/*.map
