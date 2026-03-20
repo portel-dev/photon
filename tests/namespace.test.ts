@@ -300,8 +300,38 @@ describe('Photon Base Class APIs', () => {
 
     const templatesDir = (photon as any).assets('templates');
     // On macOS, /var → /private/var via realpathSync, so compare with realpath
-    const expectedDir = path.join(fs.realpathSync(realDir), 'todo', 'assets', 'templates');
+    const expectedDir = path.join(fs.realpathSync(realDir), 'todo', 'templates');
     expect(templatesDir).toBe(expectedDir);
+  });
+
+  it('assets() can load text content with options', async () => {
+    const { Photon } = await import('@portel/photon-core');
+    const photon = new Photon();
+
+    const realDir = path.join(testDir, 'real-src-load');
+    await fsp.mkdir(path.join(realDir, 'todo'), { recursive: true });
+    const realFile = path.join(realDir, 'todo.photon.ts');
+    await fsp.writeFile(realFile, '');
+    await fsp.writeFile(path.join(realDir, 'todo', 'slides.md'), '# Hello');
+    (photon as any)._photonFilePath = realFile;
+
+    const loaded = (photon as any).assets('slides.md', { load: true });
+    expect(loaded).toBe('# Hello');
+  });
+
+  it('assets() accepts boolean shorthand for load', async () => {
+    const { Photon } = await import('@portel/photon-core');
+    const photon = new Photon();
+
+    const realDir = path.join(testDir, 'real-src-bool');
+    await fsp.mkdir(path.join(realDir, 'todo'), { recursive: true });
+    const realFile = path.join(realDir, 'todo.photon.ts');
+    await fsp.writeFile(realFile, '');
+    await fsp.writeFile(path.join(realDir, 'todo', 'slides.md'), '# Boolean');
+    (photon as any)._photonFilePath = realFile;
+
+    const loaded = (photon as any).assets('slides.md', true);
+    expect(loaded).toBe('# Boolean');
   });
 
   it('storage() throws without _photonFilePath', () => {

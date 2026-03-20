@@ -5,7 +5,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { realpathSync, existsSync, mkdirSync, symlinkSync, type Dirent } from 'fs';
+import { realpathSync, existsSync, mkdirSync, symlinkSync, readFileSync, type Dirent } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -872,6 +872,8 @@ export class PhotonLoader {
           this.log(`🔍 Detected capabilities for ${name}: ${[...caps].join(', ')}`);
         }
 
+        this.injectPathHelpers(instance, tsContent);
+
         if (caps.has('emit')) {
           // Inject emit() that reads from executionContext (set during executeTool)
           // Falls back to last known outputHandler for timer-based emits after method returns
@@ -1220,6 +1222,7 @@ export class PhotonLoader {
 
       // Extract assets from source and discover asset folder
       const assets = await this.discoverAssets(absolutePath, tsContent || '');
+      this.attachAssetsToInstance(instance, assets);
 
       const counts = [
         tools.length > 0 ? `${tools.length} tools` : null,
@@ -1391,6 +1394,7 @@ export class PhotonLoader {
     // Detect and inject capabilities for plain classes
     if (tsContent && typeof instance.executeTool !== 'function') {
       const caps = detectCapabilities(tsContent);
+      this.injectPathHelpers(instance, tsContent);
 
       if (caps.has('emit')) {
         instance.emit = (data: any) => {
@@ -1566,6 +1570,7 @@ export class PhotonLoader {
 
     // Discover assets (for @ui)
     const assets = await this.discoverAssets(absolutePath, tsContent);
+    this.attachAssetsToInstance(instance, assets);
 
     this.log(`✅ Loaded (preloaded): ${name} (${tools.length} tools)`);
 
@@ -3947,6 +3952,116 @@ Run: photon mcp ${mcpName} --config
     this.generateAssetURIs(basename, assets);
 
     return assets;
+  }
+
+  /**
+   * Expose discovered asset metadata on the instance without breaking Photon.assets().
+   *
+   * Photon subclasses inherit an `assets(subpath)` method from photon-core. We bind that
+   * method and decorate the function object with discovered metadata so both of these work:
+   * - `this.assets('templates')`
+   * - `this.assets.ui`
+   *
+   * Plain classes don't have the inherited method, so they receive the metadata object directly.
+   */
+  private attachAssetsToInstance(
+    instance: Record<string, unknown>,
+    assets: PhotonAssets | undefined
+  ): void {
+    if (!assets) {
+      return;
+    }
+
+    const existingAssets = instance.assets;
+
+    if (typeof existingAssets === 'function') {
+      const boundAssets = existingAssets.bind(instance) as typeof existingAssets & PhotonAssets;
+      Object.assign(boundAssets, assets);
+      Object.defineProperty(instance, 'assets', {
+        value: boundAssets,
+        configurable: true,
+        enumerable: false,
+        writable: false,
+      });
+      return;
+    }
+
+    Object.defineProperty(instance, 'assets', {
+      value: assets,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+
+  /**
+   * Inject Photon path helpers for plain classes that use them without extending Photon.
+   */
+  private injectPathHelpers(instance: Record<string, unknown>, source: string): void {
+    if (!source) {
+      return;
+    }
+
+    if (/this\.storage\s*\(/.test(source) && typeof instance.storage !== 'function') {
+      instance.storage = (subpath: string) => {
+        if (!instance._photonFilePath || typeof instance._photonFilePath !== 'string') {
+          throw new Error(
+            'storage() requires _photonFilePath to be set by the runtime loader. ' +
+              'Ensure this photon is loaded through the standard runtime.'
+          );
+        }
+        const dir = path.dirname(instance._photonFilePath);
+        const name = path.basename(instance._photonFilePath).replace(/\.photon\.(ts|js)$/, '');
+        const target = path.join(dir, name, subpath);
+        mkdirSync(target, { recursive: true });
+        return target;
+      };
+    }
+
+    if (/this\.assets\s*\(/.test(source) && typeof instance.assets !== 'function') {
+      instance.assets = (
+        subpath: string,
+        options?: boolean | { load?: boolean; encoding?: BufferEncoding | null }
+      ) => {
+        const normalized = typeof options === 'boolean' ? { load: options } : (options ?? {});
+        if (!instance._photonFilePath || typeof instance._photonFilePath !== 'string') {
+          throw new Error(
+            'assets() requires _photonFilePath to be set by the runtime loader. ' +
+              'Ensure this photon is loaded through the standard runtime.'
+          );
+        }
+        const realPath = realpathSync(instance._photonFilePath);
+        const dir = path.dirname(realPath);
+        const name = path.basename(realPath).replace(/\.photon\.(ts|js)$/, '');
+        const root = path.join(dir, name);
+        const legacyRoot = path.join(root, 'assets');
+        const assetRoot = existsSync(root) ? root : existsSync(legacyRoot) ? legacyRoot : root;
+        const assetPath = path.join(assetRoot, subpath);
+
+        if (!normalized.load) {
+          return assetPath;
+        }
+        if (normalized.encoding === null) {
+          return readFileSync(assetPath);
+        }
+        return readFileSync(assetPath, normalized.encoding ?? 'utf-8');
+      };
+    }
+
+    if (/this\.assetUrl\s*\(/.test(source) && typeof instance.assetUrl !== 'function') {
+      instance.assetUrl = (subpath: string) => {
+        const name = (
+          typeof instance._photonName === 'string' && instance._photonName
+            ? instance._photonName
+            : instance.constructor?.name || ''
+        )
+          .replace(/MCP$/, '')
+          .replace(/([A-Z])/g, '-$1')
+          .toLowerCase()
+          .replace(/^-/, '');
+        return `/api/assets/${encodeURIComponent(name)}/${subpath}`;
+      };
+    }
   }
 
   /**

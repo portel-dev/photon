@@ -4,6 +4,7 @@
 
 import { PhotonLoader } from '../dist/loader.js';
 import { strict as assert } from 'assert';
+import * as fsSync from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -93,8 +94,15 @@ async function runTests() {
       const result = await loader.loadFile(testFile);
 
       assert.equal(result.statics.length, 1, 'Should have 1 static');
-      assert.equal(result.statics[0].uri, 'readme://{projectType}', 'Should preserve URI parameters');
-      assert.ok(result.statics[0].inputSchema.properties.projectType, 'Should have projectType in schema');
+      assert.equal(
+        result.statics[0].uri,
+        'readme://{projectType}',
+        'Should preserve URI parameters'
+      );
+      assert.ok(
+        result.statics[0].inputSchema.properties.projectType,
+        'Should have projectType in schema'
+      );
 
       console.log('✅ Load MCP with parameterized static');
     }
@@ -142,7 +150,7 @@ async function runTests() {
       await fs.writeFile(testFile, content2, 'utf-8');
 
       // Small delay to ensure file is written
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const result2 = await loader.reloadFile(testFile);
       assert.equal(result2.tools.length, 2, 'Should have 2 tools after reload');
@@ -202,6 +210,84 @@ async function runTests() {
       assert.equal(result.assets!.resources[0].id, 'config', 'Resource id should be config');
 
       console.log('✅ Auto-discover assets from folder structure');
+    }
+
+    // Test 5b: Instance assets preserves callable API and exposes metadata
+    {
+      const photonName = 'test-instance-assets';
+      const photonFile = path.join(testDir, `${photonName}.photon.ts`);
+      const assetFolder = path.join(testDir, photonName);
+
+      await fs.mkdir(path.join(assetFolder, 'ui'), { recursive: true });
+      await fs.writeFile(path.join(assetFolder, 'ui', 'dashboard.html'), '<html>Dashboard</html>');
+
+      const content = `
+        import { Photon } from '@portel/photon-core';
+
+        export default class TestInstanceAssets extends Photon {
+          async doSomething() { return true; }
+        }
+      `;
+      await fs.writeFile(photonFile, content, 'utf-8');
+
+      const result = await loader.loadFile(photonFile);
+      const instanceAssets = (result.instance as any).assets;
+
+      assert.equal(typeof instanceAssets, 'function', 'Instance assets should remain callable');
+      assert.ok(Array.isArray(instanceAssets.ui), 'Instance assets should expose UI metadata');
+      assert.equal(instanceAssets.ui[0].id, 'dashboard', 'Instance UI metadata should be attached');
+      const expectedAssetsDir = path.join(fsSync.realpathSync(testDir), photonName, 'ui');
+      assert.equal(
+        instanceAssets('ui'),
+        expectedAssetsDir,
+        'Instance assets() should still resolve file paths'
+      );
+
+      console.log('✅ Instance assets preserves callable API and metadata');
+    }
+
+    // Test 5c: Plain classes get callable assets() helper when they use it
+    {
+      const photonName = 'test-plain-assets-v3';
+      const photonFile = path.join(testDir, `${photonName}.photon.ts`);
+      const assetFolder = path.join(testDir, photonName);
+
+      await fs.mkdir(path.join(assetFolder, 'ui'), { recursive: true });
+      await fs.writeFile(path.join(assetFolder, 'ui', 'slides.md'), '# Slides');
+
+      const content = `
+        export default class TestPlainAssets {
+          readSlides() {
+            // cache-bust: exercise injected assets helper + boolean shorthand
+            return this.assets('ui/slides.md');
+          }
+        }
+      `;
+      await fs.writeFile(photonFile, content, 'utf-8');
+
+      const result = await loader.loadFile(photonFile);
+      const instanceAssets = (result.instance as any).assets;
+      const expectedSlidesPath = path.join(
+        fsSync.realpathSync(testDir),
+        photonName,
+        'ui',
+        'slides.md'
+      );
+
+      assert.equal(typeof instanceAssets, 'function', 'Plain class assets should be callable');
+      assert.equal(
+        (result.instance as any).readSlides(),
+        expectedSlidesPath,
+        'Plain class assets() should resolve through Photon helper semantics'
+      );
+      assert.equal(
+        (result.instance as any).assets('ui/slides.md', true),
+        '# Slides',
+        'Plain class assets() should accept boolean shorthand for loading'
+      );
+      assert.ok(Array.isArray(instanceAssets.ui), 'Plain class assets should expose UI metadata');
+
+      console.log('✅ Plain classes get callable assets helper');
     }
 
     // Test 6: Method-level @ui linking
@@ -278,7 +364,7 @@ async function runTests() {
 
       assert.ok(result.assets, 'Should have assets');
       // Explicit declaration + auto-discovered
-      const hasCustomForm = result.assets!.ui.some(u => u.id === 'custom-form');
+      const hasCustomForm = result.assets!.ui.some((u) => u.id === 'custom-form');
       assert.ok(hasCustomForm, 'Should have explicitly declared custom-form UI');
 
       console.log('✅ Explicit @ui declaration with path');
@@ -310,13 +396,20 @@ async function runTests() {
       subject.pathExists = async () => false;
       subject.fetchPhotonFromMarketplace = async () => cachedPath;
 
-      const resolved = await subject.resolvePhotonPath({
-        name: 'child',
-        source: 'community/child-photon',
-        sourceType: 'marketplace',
-      }, currentPhoton);
+      const resolved = await subject.resolvePhotonPath(
+        {
+          name: 'child',
+          source: 'community/child-photon',
+          sourceType: 'marketplace',
+        },
+        currentPhoton
+      );
 
-      assert.equal(resolved, cachedPath, 'Should return cached marketplace path when local search fails');
+      assert.equal(
+        resolved,
+        cachedPath,
+        'Should return cached marketplace path when local search fails'
+      );
       subject.pathExists = originalPathExists;
       console.log('✅ Marketplace photon resolution falls back to cached download');
     }
@@ -325,10 +418,11 @@ async function runTests() {
     {
       const subject: any = new PhotonLoader();
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () => ({
-        ok: true,
-        text: async () => 'export default class GithubPhoton {}',
-      }) as any;
+      globalThis.fetch = async () =>
+        ({
+          ok: true,
+          text: async () => 'export default class GithubPhoton {}',
+        }) as any;
 
       let capturedLabel = '';
       let capturedContent = '';
@@ -364,10 +458,17 @@ async function runTests() {
       const sanitized = subject.sanitizeCacheLabel(spec);
       const cacheDir = path.join(os.homedir(), '.photon', '.cache', 'npm', sanitized);
 
-      subject.ensureNpmPackageInstalled = async (_cacheDir: string, _packageSpec: string, packageName: string) => {
+      subject.ensureNpmPackageInstalled = async (
+        _cacheDir: string,
+        _packageSpec: string,
+        packageName: string
+      ) => {
         const pkgRoot = path.join(cacheDir, 'node_modules', packageName);
         await fs.mkdir(pkgRoot, { recursive: true });
-        await fs.writeFile(path.join(pkgRoot, 'index.photon.ts'), 'export default class NpmPhoton {}');
+        await fs.writeFile(
+          path.join(pkgRoot, 'index.photon.ts'),
+          'export default class NpmPhoton {}'
+        );
       };
 
       const resolved = await subject.resolveNpmPhoton(dep);

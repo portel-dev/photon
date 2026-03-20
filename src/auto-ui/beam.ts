@@ -1281,15 +1281,19 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
           res.end('Photon not found');
           return;
         }
-        // Resolve asset path: {photonDir}/{photonBaseName}/assets/{assetPath}
+        // Resolve asset path using the same convention as Photon.assets():
+        // preferred {photonDir}/{photonBaseName}/{assetPath}, legacy fallback
+        // {photonDir}/{photonBaseName}/assets/{assetPath}.
         const realPath = realpathSync(photon.path);
         const photonDir = path.dirname(realPath);
         const baseName = path.basename(realPath).replace(/\.photon\.(ts|js)$/, '');
-        const fullPath = path.join(photonDir, baseName, 'assets', assetPath);
+        const assetsRoot = path.join(photonDir, baseName);
+        const legacyAssetsRoot = path.join(assetsRoot, 'assets');
+        const activeRoot = existsSync(assetsRoot) ? assetsRoot : legacyAssetsRoot;
+        const fullPath = path.join(activeRoot, assetPath);
 
         // Security: ensure resolved path is within the assets directory
-        const assetsRoot = path.join(photonDir, baseName, 'assets');
-        if (!fullPath.startsWith(assetsRoot)) {
+        if (!fullPath.startsWith(activeRoot)) {
           res.writeHead(403);
           res.end('Forbidden');
           return;
