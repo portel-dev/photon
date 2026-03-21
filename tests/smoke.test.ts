@@ -158,11 +158,11 @@ async function runAll() {
 
     try {
       // Use CLI (not beam) — simpler to test dir creation
-      const { stderr } = photonExecAll('portel-dev/photons/todo add --text "fresh dir test"', dir);
+      const { stderr } = photonExecAll('portel-dev/photons/math calculate --expression "2+2"', dir);
       assert.ok(fs.existsSync(dir), 'Dir should be auto-created');
       assert.ok(
         fs.existsSync(path.join(dir, 'marketplaces.json')) ||
-          fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
+          fs.existsSync(path.join(dir, 'portel-dev', 'math.photon.ts')),
         'Should have created marketplace config or installed photon'
       );
     } finally {
@@ -172,15 +172,15 @@ async function runAll() {
 
   // ── 2. Simple name auto-install from marketplace ────────────────────────
 
-  await test('CLI: simple name auto-installs from marketplace (portel-dev/photons/todo)', async () => {
+  await test('CLI: simple name auto-installs from marketplace (portel-dev/photons/math)', async () => {
     const dir = freshDir();
     try {
-      const result = photonExec('portel-dev/photons/todo add --text "smoke test"', dir);
-      assert.ok(result.includes('smoke test'), 'Should return the added todo');
+      const result = photonExec('portel-dev/photons/math calculate --expression "2+2"', dir);
+      assert.ok(result.includes('4'), 'Should return calculation result');
 
       // Verify file was installed
-      const installed = path.join(dir, 'portel-dev', 'todo.photon.ts');
-      assert.ok(fs.existsSync(installed), 'todo.photon.ts should be installed in namespace dir');
+      const installed = path.join(dir, 'portel-dev', 'math.photon.ts');
+      assert.ok(fs.existsSync(installed), 'math.photon.ts should be installed in namespace dir');
     } finally {
       cleanup(dir);
     }
@@ -193,7 +193,7 @@ async function runAll() {
     try {
       // Claw depends on whatsapp + agent-router, which depends on 4 runners
       const { stdout, stderr } = photonExecAll(
-        'portel-dev/photons/todo add --text "dep test"',
+        'portel-dev/photons/math calculate --expression "3+3"',
         dir
       );
 
@@ -231,8 +231,8 @@ async function runAll() {
   await test('CLI implicit: photon owner/repo/name method works', async () => {
     const dir = freshDir();
     try {
-      const result = photonExec('portel-dev/photons/todo add --text "implicit test"', dir);
-      assert.ok(result.includes('implicit test'), 'Should return the added todo');
+      const result = photonExec('portel-dev/photons/math calculate --expression "5+5"', dir);
+      assert.ok(result.includes('10'), 'Should return calculation result');
     } finally {
       cleanup(dir);
     }
@@ -243,8 +243,8 @@ async function runAll() {
   await test('CLI explicit: photon cli owner/repo/name method works', async () => {
     const dir = freshDir();
     try {
-      const result = photonExec('cli portel-dev/photons/todo add --text "explicit test"', dir);
-      assert.ok(result.includes('explicit test'), 'Should return the added todo');
+      const result = photonExec('cli portel-dev/photons/math calculate --expression "7+7"', dir);
+      assert.ok(result.includes('14'), 'Should return calculation result');
     } finally {
       cleanup(dir);
     }
@@ -299,12 +299,12 @@ async function runAll() {
   await test('MCP: STDIO mode returns valid tools/list response', async () => {
     const dir = freshDir();
     try {
-      // Pre-install todo
-      photonExec('portel-dev/photons/todo add --text "mcp setup"', dir);
+      // Pre-install math
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
       const transport = new StdioClientTransport({
         command: 'node',
-        args: [CLI_PATH, 'mcp', 'todo'],
+        args: [CLI_PATH, 'mcp', 'math'],
         env: { ...process.env, PHOTON_DIR: dir },
       });
 
@@ -316,8 +316,7 @@ async function runAll() {
       assert.ok(tools.length > 0, 'Should have at least one tool');
 
       const toolNames = tools.map((t) => t.name);
-      assert.ok(toolNames.includes('add'), 'Should have "add" tool');
-      assert.ok(toolNames.includes('list'), 'Should have "list" tool');
+      assert.ok(toolNames.includes('calculate'), 'Should have "calculate" tool');
 
       await client.close();
     } finally {
@@ -338,18 +337,18 @@ async function runAll() {
   await test('Beam: photon beam <simple-name> auto-installs and starts', async () => {
     const dir = freshDir();
     try {
-      // Pre-install todo
-      photonExec('portel-dev/photons/todo add --text "pre-install"', dir);
+      // Pre-install math
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
-      const { proc, port } = await startBeamAndWait(dir, 'todo', 20_000);
+      const { proc, port } = await startBeamAndWait(dir, 'math', 20_000);
       try {
         assert.ok(port, 'Should detect port');
         const diag = await fetchDiagnostics(port!);
         assert.ok(diag.photonVersion, 'Should return version');
-        // Verify todo is installed on disk (Beam may still be loading it)
+        // Verify math is installed on disk (Beam may still be loading it)
         assert.ok(
-          fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
-          'todo.photon.ts should be installed'
+          fs.existsSync(path.join(dir, 'portel-dev', 'math.photon.ts')),
+          'math.photon.ts should be installed'
         );
       } finally {
         killProc(proc);
@@ -490,7 +489,7 @@ async function runAll() {
     try {
       // Run CLI from a directory that has nothing to do with photon
       const result = execSync(
-        `node ${CLI_PATH} portel-dev/photons/todo add --text "foreign dir test"`,
+        `node ${CLI_PATH} portel-dev/photons/math calculate --expression "9+9"`,
         {
           env: { ...process.env, PHOTON_DIR: dir },
           cwd: unrelatedCwd,
@@ -499,11 +498,11 @@ async function runAll() {
           stdio: ['pipe', 'pipe', 'pipe'],
         }
       );
-      assert.ok(result.includes('foreign dir test'), 'Should return the added todo');
+      assert.ok(result.includes('18'), 'Should return calculation result');
 
       // Verify photon was installed in PHOTON_DIR, not cwd
       assert.ok(
-        fs.existsSync(path.join(dir, 'portel-dev', 'todo.photon.ts')),
+        fs.existsSync(path.join(dir, 'portel-dev', 'math.photon.ts')),
         'Photon should be in PHOTON_DIR, not cwd'
       );
       assert.ok(
@@ -577,10 +576,10 @@ async function runAll() {
     const dir = freshDir();
     try {
       // First run — installs from marketplace
-      const result1 = photonExec('portel-dev/photons/todo add --text "first run"', dir);
-      assert.ok(result1.includes('first run'), 'First run should succeed');
+      const result1 = photonExec('portel-dev/photons/math calculate --expression "10+10"', dir);
+      assert.ok(result1.includes('20'), 'First run should succeed');
 
-      const installedFile = path.join(dir, 'portel-dev', 'todo.photon.ts');
+      const installedFile = path.join(dir, 'portel-dev', 'math.photon.ts');
       assert.ok(fs.existsSync(installedFile), 'Should be installed');
       const mtime1 = fs.statSync(installedFile).mtimeMs;
 
@@ -588,8 +587,8 @@ async function runAll() {
       await new Promise((r) => setTimeout(r, 100));
 
       // Second run — should skip install, still work
-      const result2 = photonExec('portel-dev/photons/todo add --text "second run"', dir);
-      assert.ok(result2.includes('second run'), 'Second run should succeed');
+      const result2 = photonExec('portel-dev/photons/math calculate --expression "20+20"', dir);
+      assert.ok(result2.includes('40'), 'Second run should succeed');
 
       const mtime2 = fs.statSync(installedFile).mtimeMs;
       assert.ok(mtime1 === mtime2, 'File should not be re-written on second run');
@@ -646,11 +645,11 @@ export default class ConfigTest extends PhotonMCP {
   await test('SSE: photon sse <name> starts HTTP server with MCP endpoint', async () => {
     const dir = freshDir();
     try {
-      // Pre-install todo
-      photonExec('portel-dev/photons/todo add --text "sse setup"', dir);
+      // Pre-install math
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
       const ssePort = 4600;
-      const proc = spawn('node', [CLI_PATH, 'sse', 'todo', '--port', String(ssePort)], {
+      const proc = spawn('node', [CLI_PATH, 'sse', 'math', '--port', String(ssePort)], {
         env: { ...process.env, PHOTON_DIR: dir },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -718,14 +717,14 @@ export default class ConfigTest extends PhotonMCP {
   await test('CLI: photon info shows installed photons in table format', async () => {
     const dir = freshDir();
     try {
-      // Install todo first
-      photonExec('portel-dev/photons/todo add --text "info test"', dir);
+      // Install math first
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
       const result = photonExec('info', dir);
       // Should show a table with the installed photon
       assert.ok(
-        result.includes('todo') || result.includes('todo-list'),
-        'Should list the installed todo photon'
+        result.includes('math') || result.includes('calculator'),
+        'Should list the installed math photon'
       );
       // Should show table-like output (has column headers or box drawing)
       assert.ok(
@@ -746,12 +745,12 @@ export default class ConfigTest extends PhotonMCP {
       // fully isolate this. Instead, verify the CLI works even when the daemon
       // needs to handle a brand-new PHOTON_DIR it hasn't seen before.
       // This tests the auto-registration path.
-      const result = photonExec('portel-dev/photons/todo add --text "cold start test"', dir);
-      assert.ok(result.includes('cold start test'), 'Should work with auto-started daemon');
+      const result = photonExec('portel-dev/photons/math calculate --expression "4+4"', dir);
+      assert.ok(result.includes('8'), 'Should work with auto-started daemon');
 
       // Run a second command to verify daemon stays healthy (each CLI spawn is independent)
-      const result2 = photonExec('portel-dev/photons/todo add --text "second call"', dir);
-      assert.ok(result2.includes('second call'), 'Second CLI call should also work');
+      const result2 = photonExec('portel-dev/photons/math calculate --expression "8+8"', dir);
+      assert.ok(result2.includes('16'), 'Second CLI call should also work');
     } finally {
       cleanup(dir);
     }
@@ -862,12 +861,12 @@ export default class ConfigTest extends PhotonMCP {
   await test('MCP: tool call returns correct result through protocol', async () => {
     const dir = freshDir();
     try {
-      // Pre-install todo
-      photonExec('portel-dev/photons/todo add --text "mcp call test"', dir);
+      // Pre-install math
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
       const transport = new StdioClientTransport({
         command: 'node',
-        args: [CLI_PATH, 'mcp', 'todo'],
+        args: [CLI_PATH, 'mcp', 'math'],
         env: { ...process.env, PHOTON_DIR: dir },
       });
 
@@ -875,20 +874,16 @@ export default class ConfigTest extends PhotonMCP {
 
       await client.connect(transport);
 
-      // Actually invoke the 'add' tool
+      // Actually invoke the 'calculate' tool
       const result = await client.callTool({
-        name: 'add',
-        arguments: { text: 'protocol test item' },
+        name: 'calculate',
+        arguments: { expression: '2 + 3' },
       });
 
       assert.ok(result.content, 'Should return content');
       assert.ok(!result.isError, 'Should not be an error');
-      // The add tool returns the created todo object with id, done, createdAt
       const text = JSON.stringify(result.content);
-      assert.ok(
-        text.includes('"id"') || text.includes('id'),
-        'Tool result should contain a created todo with id'
-      );
+      assert.ok(text.includes('5'), 'Tool result should contain the calculation result');
 
       await client.close();
     } finally {
@@ -901,12 +896,12 @@ export default class ConfigTest extends PhotonMCP {
   await test('CLI: photon search returns results in table format', async () => {
     const dir = freshDir();
     try {
-      const { stdout, stderr } = photonExecAll('search todo', dir);
+      const { stdout, stderr } = photonExecAll('search math', dir);
       const combined = stdout + stderr;
-      // Should find the todo photon in marketplace results
+      // Should find the math photon in marketplace results
       assert.ok(
-        combined.includes('todo') || combined.includes('Todo'),
-        'Search should find todo photon'
+        combined.includes('math') || combined.includes('Math') || combined.includes('calculator'),
+        'Search should find math photon'
       );
       // Should be in table format
       assert.ok(
@@ -923,11 +918,11 @@ export default class ConfigTest extends PhotonMCP {
   await test('MCP: --config generates configuration template', async () => {
     const dir = freshDir();
     try {
-      // Pre-install todo
-      photonExec('portel-dev/photons/todo add --text "config test"', dir);
+      // Pre-install math
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
 
       // --config outputs to stderr, capture with 2>&1
-      const combined = execSync(`node ${CLI_PATH} mcp todo --config 2>&1`, {
+      const combined = execSync(`node ${CLI_PATH} mcp math --config 2>&1`, {
         env: { ...process.env, PHOTON_DIR: dir },
         timeout: 15_000,
         encoding: 'utf-8',
@@ -941,7 +936,7 @@ export default class ConfigTest extends PhotonMCP {
           combined.includes('No configuration required'),
         'Should show configuration info'
       );
-      assert.ok(combined.includes('todo'), 'Should reference the photon name');
+      assert.ok(combined.includes('math'), 'Should reference the photon name');
       // Should not crash or show stack traces
       assert.ok(!combined.includes('at Object.<anonymous>'), 'Should not include stack traces');
     } finally {
@@ -954,8 +949,8 @@ export default class ConfigTest extends PhotonMCP {
   await test('CLI: --json flag outputs valid parseable JSON', async () => {
     const dir = freshDir();
     try {
-      photonExec('portel-dev/photons/todo add --text "json test"', dir);
-      const result = photonExec('cli todo add --text "json output" --json', dir);
+      photonExec('portel-dev/photons/math calculate --expression "1+1"', dir);
+      const result = photonExec('cli math calculate --expression "1+1" --json', dir);
 
       // Should be parseable JSON
       let parsed: any;
@@ -964,7 +959,7 @@ export default class ConfigTest extends PhotonMCP {
       } catch {
         assert.fail(`Output should be valid JSON, got: ${result.substring(0, 100)}`);
       }
-      assert.ok(parsed !== null && typeof parsed === 'object', 'Should parse to an object');
+      assert.ok(parsed !== null && parsed !== undefined, 'Should parse to a valid value');
     } finally {
       cleanup(dir);
     }
