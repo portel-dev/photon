@@ -82,13 +82,10 @@ main() {
 
 # Step 1: Parameters
 
-Methods receive typed parameters. The runtime auto-generates forms.
-
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
   <div>
-
-```typescript
-export default class Calculator {
+    <p style="margin:0 0 12px;">Methods receive typed parameters. The runtime auto-generates forms.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.85em;"><code class="language-typescript">export default class Calculator {
   /**
    * Add two numbers
    * @param a First number
@@ -97,27 +94,57 @@ export default class Calculator {
   add({ a, b }: { a: number; b: number }) {
     return { result: a + b };
   }
-}
-```
-
+}</code></pre>
+    <ul style="font-size:0.9em;margin:10px 0 0;padding-left:1.2em;">
+      <li>TypeScript types → JSON Schema → auto UI form</li>
+      <li><code>@param</code> descriptions become field labels</li>
+    </ul>
   </div>
   <div>
-    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — Beam auto-generates this form:</p>
-    <div data-embed="calculator/add" data-embed-height="280"></div>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">Live — Beam auto-generates this form:</p>
+    <div data-embed="math/calculate" data-embed-height="300"></div>
   </div>
 </div>
 
 ---
 
-# Step 2: Output Formats
+# Beam Generates the UI and CLI
 
-Tell the UI how to render results with `@format`.
+<div style="display:grid;grid-template-columns:0.96fr 1.04fr;gap:28px;align-items:start;">
+  <div>
+    <p style="font-size:1.08em;opacity:0.86;margin:0 0 0.9em;">
+      Once your method has typed params, Beam gives you:
+    </p>
+    <ul style="font-size:1.02em;line-height:1.65;margin:0 0 1.2em 1.1em;">
+      <li>a form with the right input widgets</li>
+      <li>a live CLI command you can copy</li>
+      <li>the same tool callable from Beam, CLI, and MCP</li>
+    </ul>
+    <img
+      src="beam-search-cli.png"
+      alt="CLI preview in Beam"
+      style="width:100%;display:block;border-radius:14px;box-shadow:0 16px 36px rgba(0,0,0,0.2);"
+    />
+  </div>
+  <div>
+    <img
+      src="beam-search-panel.png"
+      alt="Beam form and CLI preview"
+      style="width:100%;display:block;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,0.28);"
+    />
+  </div>
+</div>
+
+---
+
+<!-- transition: cover -->
+
+# Step 2: Output Formats
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
   <div>
-
-```typescript
-export default class Dashboard {
+    <p style="margin:0 0 12px;">Tell the UI how to render results with <code>@format</code>.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.82em;"><code class="language-typescript">export default class Dashboard {
   /** @format table */
   users() {
     return [
@@ -131,14 +158,12 @@ export default class Dashboard {
     return { value: 73, max: 100,
              label: "CPU", unit: "%" };
   }
-}
-```
-
+}</code></pre>
   </div>
   <div>
-    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — table and gauge rendering:</p>
-    <div data-embed="render-showcase/table" data-embed-height="200"></div>
-    <div data-embed="render-showcase/gauge" data-embed-height="160" style="margin-top:12px;"></div>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">Live — table and gauge rendering:</p>
+    <div data-embed="render-showcase/table" data-embed-height="180"></div>
+    <div data-embed="render-showcase/gauge" data-embed-height="150" style="margin-top:12px;"></div>
   </div>
 </div>
 
@@ -153,7 +178,6 @@ export default class Dashboard {
 | **Metrics** | metric, gauge, progress, badge, stat-group |
 | **Content** | markdown, code, json, mermaid, diff, log |
 | **Visuals** | timeline, calendar, map, heatmap, network, qr |
-| **Design** | hero, banner, carousel, gallery, masonry, profile |
 | **Layout** | steps, kanban, comparison, invoice, feature-grid |
 | **Media** | image, embed, slides |
 
@@ -161,58 +185,32 @@ If you don't specify `@format`, it auto-detects from data shape.
 
 ---
 
-<!-- transition: cover -->
-
 # Step 3: Input Formats
-
-Control how form fields render with `{@format}` on params.
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
   <div>
-
-```typescript
-export default class UserForm {
-  /**
-   * Register a user
-   * @param email Email {@format email}
-   * @param password Secret {@format password}
-   * @param birthday Date {@format date}
-   * @param role Role {@format segmented}
-   * @param tags Interests {@format tags}
-   */
-  register({ email, password, birthday,
-             role, tags }: { ... }) {
-    return { email, role };
-  }
-}
-```
-
+    <p style="margin:0 0 12px;">Control how form fields render with <code>{@format}</code> on params.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.82em;"><code class="language-typescript">/**
+ * @param email Email {@format email}
+ * @param password Secret {@format password}
+ * @param birthday Date {@format date}
+ * @param role Role {@format segmented}
+ * @param tags Interests {@format tags}
+ */
+register({ email, password,
+           birthday, role, tags }: {
+  email: string;
+  password: string;
+  birthday: string;
+  role: "admin" | "editor" | "viewer";
+  tags: string[];
+}) { ... }</code></pre>
   </div>
   <div>
-    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — specialized input widgets:</p>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">Live — specialized input widgets:</p>
     <div data-embed="input-showcase/register" data-embed-height="340"></div>
   </div>
 </div>
-
----
-
-# Input Widgets
-
-| Format | Widget |
-|--------|--------|
-| `email` | Email input with validation |
-| `password` | Masked with show/hide toggle |
-| `url` | URL input with open-link button |
-| `color` | Color swatch + hex input |
-| `date` | Calendar with year/month drill-down |
-| `tags` | Chip/pill input (Enter to add) |
-| `rating` | Star rating (1-5) |
-| `segmented` | Horizontal pill bar for enums |
-| `radio` | Vertical radio buttons |
-| `code` | Editor with line numbers |
-| `markdown` | Split editor with live preview |
-
-**Smart defaults**: `birthday` opens 25 years ago, `expiry` starts in future.
 
 ---
 
@@ -222,11 +220,8 @@ export default class UserForm {
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
   <div>
-
-Add `@stateful` to persist data between calls.
-
-```typescript
-/**
+    <p style="margin:0 0 12px;">Add <code>@stateful</code> to persist data between calls.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.82em;"><code class="language-typescript">/**
  * @stateful
  */
 export default class TodoList {
@@ -244,14 +239,12 @@ export default class TodoList {
       name: text, status: "pending"
     }));
   }
-}
-```
-
+}</code></pre>
   </div>
   <div>
-    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — state persists across calls:</p>
-    <div data-embed="todo/add" data-embed-height="200"></div>
-    <div data-embed="todo/list" data-embed-height="200" style="margin-top:12px;"></div>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">State persists to <code>~/.photon/state/</code></p>
+    <div data-embed="todo/add" data-embed-height="180"></div>
+    <div data-embed="todo/list" data-embed-height="180" style="margin-top:12px;"></div>
   </div>
 </div>
 
@@ -259,25 +252,32 @@ export default class TodoList {
 
 # Step 5: Real-time Updates
 
-Use `this.emit()` for live events and `this.render()` for streaming.
-
-```typescript
-export default class Monitor {
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
+    <p style="margin:0 0 12px;">Generator methods stream results in real-time.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.82em;"><code class="language-typescript">export default class Monitor {
   /** @format gauge */
   async *cpu() {
     for (let i = 0; i < 10; i++) {
-      const value = Math.round(30 + Math.random() * 50);
-      yield { emit: "render", format: "gauge",
-              value: { value, max: 100, label: "CPU" } };
-      await new Promise(r => setTimeout(r, 1000));
+      const value = Math.round(
+        30 + Math.random() * 50);
+      yield { emit: "render",
+              format: "gauge",
+              value: { value, max: 100,
+                       label: "CPU" } };
+      await new Promise(r =>
+        setTimeout(r, 1000));
     }
-    return { value: 42, max: 100, label: "CPU", unit: "%" };
+    return { value: 42, max: 100,
+             label: "CPU", unit: "%" };
   }
-}
-```
-
-Generator methods (`async *`) stream results in real-time.
-`yield { emit: "render" }` updates the UI live.
+}</code></pre>
+  </div>
+  <div>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;"><code>yield { emit: "render" }</code> updates the UI live.</p>
+    <div data-embed="render-showcase/gauge" data-embed-height="300"></div>
+  </div>
+</div>
 
 ---
 
@@ -285,34 +285,30 @@ Generator methods (`async *`) stream results in real-time.
 
 # Step 6: Custom UI
 
-For full control, create a `.photon.html` template.
-
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
   <div>
-
-```html
-<!-- dashboard.photon.html -->
-<h1>My Dashboard</h1>
-<div data-method="cpu"></div>
-<div data-method="memory"></div>
-<div data-method="requests"></div>
-<button data-method="restart"
-        data-target="#status">
+    <p style="margin:0 0 12px;">For full control, create a <code>.photon.html</code> template.</p>
+    <pre style="background:rgba(0,0,0,0.28);padding:16px;border-radius:12px;overflow:auto;font-size:0.85em;"><code class="language-html">&lt;!-- dashboard.photon.html --&gt;
+&lt;h1&gt;My Dashboard&lt;/h1&gt;
+&lt;div data-method="cpu"&gt;&lt;/div&gt;
+&lt;div data-method="memory"&gt;&lt;/div&gt;
+&lt;button data-method="restart"
+        data-target="#status"&gt;
   Restart
-</button>
-<span id="status"></span>
-```
-
-**Just `data-method`** — format, live updates, theme all auto-inferred.
-
+&lt;/button&gt;
+&lt;span id="status"&gt;&lt;/span&gt;</code></pre>
+    <p style="font-size:0.9em;margin:10px 0 0;">Just <code>data-method</code> — format, live updates, theme all auto-inferred.</p>
   </div>
   <div>
-    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">The same bindings now work in slides too:</p>
-    <div class="demo-box">
-      <div data-method="walkthrough/greet"
-           data-args='{"name":"Photon User"}'
-           data-format="text">
-      </div>
+    <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">Live — the same bindings work in slides too:</p>
+    <div class="demo-box" style="background:rgba(128,128,128,0.1);border:1px solid rgba(128,128,128,0.2);border-radius:8px;padding:16px;margin:0;">
+      <button data-method="walkthrough/greet"
+              data-args='{"name":"Photon User"}'
+              data-target="#greet-result"
+              style="padding:8px 20px;border-radius:6px;background:rgba(125,211,252,0.2);border:1px solid rgba(125,211,252,0.4);color:inherit;cursor:pointer;font-size:1em;">
+        Say Hello
+      </button>
+      <div id="greet-result" style="margin-top:12px;font-size:1.3em;min-height:1.5em;"></div>
     </div>
   </div>
 </div>
@@ -339,7 +335,7 @@ Your photon works on every MCP client — zero changes needed.
 
 # Interactive Slides
 
-These slides use two new features you can use in any presentation photon:
+These slides use two features you can add to any presentation photon:
 
 | Feature | How |
 |---------|-----|
@@ -347,16 +343,16 @@ These slides use two new features you can use in any presentation photon:
 | **MCP calls** | `data-method="photon/method"` makes live tool calls |
 | **Transitions** | `transition: fade` in frontmatter or `<!-- transition: slide -->` per-slide |
 
-Every code example you saw had a **live Beam panel** next to it — not a screenshot.
+Every code example had a **live Beam panel** next to it — not a screenshot.
 
 ---
 
 # What's Next?
 
 ### Explore the examples:
-- `examples/render-showcase.photon.ts` — all 48 output formats
-- `examples/input-showcase.photon.ts` — all input widgets
-- `examples/pizzaz-shop.photon.ts` — real-world e-commerce
+- `render-showcase.photon.ts` — all 48 output formats
+- `input-showcase.photon.ts` — all input widgets
+- `pizzaz-shop.photon.ts` — real-world e-commerce
 
 ### Resources:
 - **Docs**: `docs/reference/DOCBLOCK-TAGS.md`

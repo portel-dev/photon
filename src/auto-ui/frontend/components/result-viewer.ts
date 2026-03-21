@@ -4690,8 +4690,10 @@ export class ResultViewer extends LitElement {
     const viewportStyle = bgOverride + colorOverride;
 
     const showPaginate = config.paginate === 'true';
-    const headerText = config.header || '';
-    const footerText = config.footer || '';
+    // Strip surrounding quotes from header/footer (YAML values may include them)
+    const stripQuotes = (s: string) => s.replace(/^["']|["']$/g, '');
+    const headerText = stripQuotes(config.header || '');
+    const footerText = stripQuotes(config.footer || '');
 
     // Determine current transition for data attributes
     const currentTransition = this._getSlideTransition(idx);
@@ -4761,7 +4763,7 @@ export class ResultViewer extends LitElement {
         .slides-viewport {
           aspect-ratio: 16 / 9;
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: center;
           padding: 48px 64px;
           overflow: auto;
@@ -4850,6 +4852,23 @@ export class ResultViewer extends LitElement {
           gap: 12px;
           padding: 10px;
           background: rgba(0, 0, 0, 0.3);
+          opacity: 0;
+          transition: opacity 0.25s ease;
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          z-index: 10;
+        }
+        .slides-container:hover .slides-controls,
+        .slides-container:focus-within .slides-controls {
+          opacity: 1;
+        }
+        .slides-container:fullscreen .slides-controls {
+          opacity: 0;
+        }
+        .slides-container:fullscreen:hover .slides-controls {
+          opacity: 1;
         }
         .slides-btn {
           background: rgba(255, 255, 255, 0.1);
@@ -4890,6 +4909,15 @@ export class ResultViewer extends LitElement {
           font-size: 11px;
           opacity: 0.5;
           border-top: 1px solid rgba(128, 128, 128, 0.15);
+        }
+        .slides-container:fullscreen .slides-header,
+        .slides-container:fullscreen .slides-footer {
+          opacity: 0;
+          transition: opacity 0.25s ease;
+        }
+        .slides-container:fullscreen:hover .slides-header,
+        .slides-container:fullscreen:hover .slides-footer {
+          opacity: 0.5;
         }
 
         /* ═══ THEMES ═══ */
