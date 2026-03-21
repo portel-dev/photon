@@ -49,9 +49,43 @@ All three produce the same result: `"Hello, World!"`
 
 ---
 
+# This Walkthrough Is a Photon Too
+
+<div style="display:grid;grid-template-columns:0.92fr 1.08fr;gap:28px;align-items:center;">
+  <div>
+    <p style="font-size:1.1em;opacity:0.86;margin:0 0 0.9em;">
+      The walkthrough itself is just a photon with a <code>main()</code> method.
+      Beam launches it as an app automatically.
+    </p>
+    <pre style="margin:0;background:rgba(0,0,0,0.28);padding:18px;border-radius:14px;overflow:auto;"><code class="language-typescript">/**
+ * @format slides
+ */
+main() {
+  return this.assets('slides.md', true)
+}</code></pre>
+    <p style="font-size:0.95em;opacity:0.72;margin:1em 0 0;">
+      Markdown + assets folder = a full in-product walkthrough.
+    </p>
+  </div>
+  <div>
+    <img
+      src="walkthrough-app-panel.png"
+      alt="Walkthrough running as a Beam app"
+      style="width:100%;display:block;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,0.28);"
+    />
+  </div>
+</div>
+
+---
+
+<!-- transition: slide -->
+
 # Step 1: Parameters
 
 Methods receive typed parameters. The runtime auto-generates forms.
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
 
 ```typescript
 export default class Calculator {
@@ -66,9 +100,12 @@ export default class Calculator {
 }
 ```
 
-- TypeScript types → JSON Schema → auto UI form
-- `@param` descriptions become field labels
-- Required vs optional detected from `?` modifier
+  </div>
+  <div>
+    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — Beam auto-generates this form:</p>
+    <div data-embed="calculator/add" data-embed-height="280"></div>
+  </div>
+</div>
 
 ---
 
@@ -76,30 +113,34 @@ export default class Calculator {
 
 Tell the UI how to render results with `@format`.
 
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
+
 ```typescript
 export default class Dashboard {
   /** @format table */
   users() {
     return [
-      { name: "Alice", role: "Admin", status: "Active" },
-      { name: "Bob", role: "Editor", status: "Offline" },
+      { name: "Alice", role: "Admin" },
+      { name: "Bob", role: "Editor" },
     ];
   }
 
   /** @format gauge */
   cpu() {
-    return { value: 73, max: 100, label: "CPU", unit: "%" };
-  }
-
-  /** @format chart:bar */
-  revenue() {
-    return [
-      { month: "Jan", amount: 12400 },
-      { month: "Feb", amount: 15800 },
-    ];
+    return { value: 73, max: 100,
+             label: "CPU", unit: "%" };
   }
 }
 ```
+
+  </div>
+  <div>
+    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — table and gauge rendering:</p>
+    <div data-embed="render-showcase/table" data-embed-height="200"></div>
+    <div data-embed="render-showcase/gauge" data-embed-height="160" style="margin-top:12px;"></div>
+  </div>
+</div>
 
 ---
 
@@ -120,9 +161,14 @@ If you don't specify `@format`, it auto-detects from data shape.
 
 ---
 
+<!-- transition: cover -->
+
 # Step 3: Input Formats
 
 Control how form fields render with `{@format}` on params.
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
 
 ```typescript
 export default class UserForm {
@@ -130,25 +176,23 @@ export default class UserForm {
    * Register a user
    * @param email Email {@format email}
    * @param password Secret {@format password}
-   * @param birthday Date of birth {@format date}
-   * @param role User role {@format segmented}
+   * @param birthday Date {@format date}
+   * @param role Role {@format segmented}
    * @param tags Interests {@format tags}
-   * @param bio About you {@format markdown}
    */
-  register({
-    email, password, birthday, role, tags, bio
-  }: {
-    email: string;
-    password: string;
-    birthday: string;
-    role: "admin" | "editor" | "viewer";
-    tags: string[];
-    bio: string;
-  }) {
-    return { email, role, tags: tags.length };
+  register({ email, password, birthday,
+             role, tags }: { ... }) {
+    return { email, role };
   }
 }
 ```
+
+  </div>
+  <div>
+    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — specialized input widgets:</p>
+    <div data-embed="input-showcase/register" data-embed-height="340"></div>
+  </div>
+</div>
 
 ---
 
@@ -172,7 +216,12 @@ export default class UserForm {
 
 ---
 
+<!-- transition: slide -->
+
 # Step 4: Stateful Photons
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
 
 Add `@stateful` to persist data between calls.
 
@@ -185,22 +234,26 @@ export default class TodoList {
 
   add({ text }: { text: string }) {
     this.items.push(text);
-    return { added: text, total: this.items.length };
+    return { added: text,
+             total: this.items.length };
   }
 
   /** @format list */
   list() {
-    return this.items.map((text, i) => ({
-      name: text,
-      status: "pending"
+    return this.items.map(text => ({
+      name: text, status: "pending"
     }));
   }
 }
 ```
 
-- State persists to `~/.photon/state/`
-- Auto-emits events on every method call
-- Supports named instances (multiple boards, profiles, etc.)
+  </div>
+  <div>
+    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">Live — state persists across calls:</p>
+    <div data-embed="todo/add" data-embed-height="200"></div>
+    <div data-embed="todo/list" data-embed-height="200" style="margin-top:12px;"></div>
+  </div>
+</div>
 
 ---
 
@@ -228,24 +281,41 @@ Generator methods (`async *`) stream results in real-time.
 
 ---
 
+<!-- transition: reveal -->
+
 # Step 6: Custom UI
 
 For full control, create a `.photon.html` template.
 
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+  <div>
+
 ```html
-<!-- ui/dashboard.photon.html -->
+<!-- dashboard.photon.html -->
 <h1>My Dashboard</h1>
 <div data-method="cpu"></div>
 <div data-method="memory"></div>
 <div data-method="requests"></div>
 <button data-method="restart"
-        data-target="#status">Restart</button>
+        data-target="#status">
+  Restart
+</button>
 <span id="status"></span>
 ```
 
 **Just `data-method`** — format, live updates, theme all auto-inferred.
 
-Or use `.html` for full JavaScript control with the `window.photon` API.
+  </div>
+  <div>
+    <p style="font-size:0.9em;opacity:0.7;margin:0 0 8px;">The same bindings now work in slides too:</p>
+    <div class="demo-box">
+      <div data-method="walkthrough/greet"
+           data-args='{"name":"Photon User"}'
+           data-format="text">
+      </div>
+    </div>
+  </div>
+</div>
 
 ---
 
@@ -265,6 +335,22 @@ Your photon works on every MCP client — zero changes needed.
 
 ---
 
+<!-- transition: zoom -->
+
+# Interactive Slides
+
+These slides use two new features you can use in any presentation photon:
+
+| Feature | How |
+|---------|-----|
+| **Live embeds** | `data-embed="photon/method"` renders Beam UI in an iframe |
+| **MCP calls** | `data-method="photon/method"` makes live tool calls |
+| **Transitions** | `transition: fade` in frontmatter or `<!-- transition: slide -->` per-slide |
+
+Every code example you saw had a **live Beam panel** next to it — not a screenshot.
+
+---
+
 # What's Next?
 
 ### Explore the examples:
@@ -280,52 +366,3 @@ Your photon works on every MCP client — zero changes needed.
 ### The philosophy:
 > Every method is a tool. Every file is a server.
 > No boilerplate. No configuration. Just build.
-
----
-
-<!-- transition: slide -->
-
-# Interactive Slides
-
-Slides can make **live MCP calls** using `data-method` attributes.
-
-The same declarative binding system from `.photon.html` dashboards works inside slides — methods must be fully qualified: `photonName/methodName`.
-
-```html
-<div data-method="math/calculate"
-     data-args='{"expression":"2+2"}'>
-</div>
-```
-
----
-
-<!-- transition: zoom -->
-
-# Live Demo
-
-<div class="demo-box">
-  <p>Click the button to run a live calculation:</p>
-  <button data-method="walkthrough/greet"
-          data-args='{"name":"Photon User"}'
-          data-target="#greet-result">
-    Say Hello
-  </button>
-  <div id="greet-result" style="margin-top:12px;font-size:1.3em;"></div>
-</div>
-
----
-
-# Transition Types
-
-Slides support 6 transition types via frontmatter or per-slide comments:
-
-| Directive | Effect |
-|-----------|--------|
-| `transition: fade` | Opacity crossfade (default) |
-| `transition: slide` | Slide left/right |
-| `transition: cover` | New slide covers old |
-| `transition: reveal` | Old slide reveals new |
-| `transition: zoom` | Zoom in/out |
-| `transition: none` | Instant switch |
-
-Set globally in frontmatter or per-slide with `<!-- transition: type -->`

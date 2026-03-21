@@ -5180,6 +5180,18 @@ export class ResultViewer extends LitElement {
           padding: 16px;
           margin: 12px 0;
         }
+
+        /* ═══ EMBED IFRAMES ═══ */
+        .slides-content .slide-embed {
+          width: 100%;
+          border: none;
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.15);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+        .slides-content [data-embed] {
+          margin: 12px 0;
+        }
       </style>
     `;
   }
@@ -5238,6 +5250,42 @@ export class ResultViewer extends LitElement {
     }
     this._slidesRefreshTimers = [];
     this._slidesBoundElements.clear();
+
+    // Process data-embed elements — render as iframes pointing to Beam focus mode
+    const embeds = root.querySelectorAll('.slides-content [data-embed]');
+    embeds.forEach((el) => {
+      if (this._slidesBoundElements.has(el)) return;
+      this._slidesBoundElements.add(el);
+
+      const embedPath = el.getAttribute('data-embed') || '';
+      const paramsRaw = el.getAttribute('data-embed-params') || '';
+      const height = el.getAttribute('data-embed-height') || '320';
+
+      // Build URL: /photon/method?focus=1&params...
+      let url = `/${embedPath}?focus=1`;
+      if (paramsRaw) {
+        try {
+          const params = JSON.parse(paramsRaw) as Record<string, unknown>;
+          for (const [key, value] of Object.entries(params)) {
+            const encoded =
+              typeof value === 'object'
+                ? JSON.stringify(value)
+                : String(value as string | number | boolean);
+            url += `&${encodeURIComponent(key)}=${encodeURIComponent(encoded)}`;
+          }
+        } catch {
+          /* invalid params JSON */
+        }
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.className = 'slide-embed';
+      iframe.style.height = `${height}px`;
+      iframe.setAttribute('loading', 'lazy');
+      el.innerHTML = '';
+      el.appendChild(iframe);
+    });
 
     const elements = root.querySelectorAll('.slides-content [data-method]');
     if (elements.length === 0) return;
