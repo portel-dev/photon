@@ -16,6 +16,7 @@ Current MVP:
 - caches imported support files so editor features stay responsive in larger photon workspaces
 - adds clearer per-file labels and confirmation hints for multi-file Photon edits
 - shows Photon status in the VS Code status bar for the active `.photon.ts` file
+- adds a cache-details command for inspecting declaration/runtime/support-file state
 - opens the current photon in Beam
 - creates a new photon from the built-in template
 

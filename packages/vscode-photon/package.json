@@ -55,7 +55,8 @@
     "onCommand:photon.regenerateEditorCache",
     "onCommand:photon.createPhoton",
     "onCommand:photon.goToSymbol",
-    "onCommand:photon.showStatus"
+    "onCommand:photon.showStatus",
+    "onCommand:photon.showCacheDetails"
   ],
   "main": "./extension.cjs",
   "contributes": {
@@ -79,6 +80,10 @@
       {
         "command": "photon.showStatus",
         "title": "Photon: Show Status"
+      },
+      {
+        "command": "photon.showCacheDetails",
+        "title": "Photon: Show Cache Details"
       }
     ],
     "menus": {
@@ -100,6 +105,10 @@
         },
         {
           "command": "photon.showStatus",
+          "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
+        },
+        {
+          "command": "photon.showCacheDetails",
           "when": "resourceExtname == .ts && resourceFilename =~ /.*\\.photon\\.ts$/"
         }
       ]

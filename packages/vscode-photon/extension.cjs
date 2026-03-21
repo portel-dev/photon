@@ -309,6 +309,50 @@ async function refreshActivePhotonStatus() {
   await refreshPhotonStatus(activeDocument, diagnostics, declarationPath);
 }
 
+function getActivePhotonDocument() {
+  const activeDocument = vscode.window.activeTextEditor?.document;
+  if (!activeDocument || !isPhotonDocument(activeDocument)) {
+    return null;
+  }
+  return activeDocument;
+}
+
+async function showPhotonCacheDetails() {
+  const activeDocument = getActivePhotonDocument();
+  if (!activeDocument) {
+    vscode.window.showInformationMessage('Open a .photon.ts file to inspect Photon cache details.');
+    return;
+  }
+
+  const declarationPath = await ensureDeclarationForDocument(activeDocument);
+  const supportFiles = await collectSupportFiles(activeDocument);
+  const supportGraph = supportGraphCache.get(activeDocument.fileName);
+  const runtimeDir = getPhotonRuntimeDir();
+  const lines = [
+    `Photon: ${photonNameFromPath(activeDocument.fileName)}`,
+    `File: ${activeDocument.fileName}`,
+    `Runtime: ${runtimeDir === BUNDLED_DIST_DIR ? 'bundled extension runtime' : 'repo dist fallback'}`,
+    `Declaration cache: ${declarationPath || 'not generated'}`,
+    `Support dependencies: ${supportFiles.length}`,
+    `Resolved import cache entries: ${resolvedImportCache.size}`,
+    `Support file cache entries: ${supportFileCache.size}`,
+    `Support graph cache entries: ${supportGraphCache.size}`,
+  ];
+
+  if (supportGraph?.dependencyPaths?.length) {
+    lines.push('', 'Dependencies:');
+    for (const dependencyPath of supportGraph.dependencyPaths) {
+      lines.push(`- ${dependencyPath}`);
+    }
+  }
+
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: `# Photon Cache Details\n\n${lines.join('\n')}`,
+  });
+  await vscode.window.showTextDocument(document, { preview: false });
+}
+
 async function refreshDiagnostics(document) {
   if (!diagnosticsCollection) return;
   if (!isPhotonDocument(document) || document.isUntitled) {
@@ -897,15 +941,14 @@ function activate(context) {
     vscode.commands.registerCommand('photon.createPhoton', () => void createPhotonFromTemplate()),
     vscode.commands.registerCommand('photon.goToSymbol', () => void goToPhotonSymbol()),
     vscode.commands.registerCommand('photon.showStatus', async () => {
-      if (!lastStatusSummary) {
-        await refreshActivePhotonStatus();
-      }
+      if (!lastStatusSummary) await refreshActivePhotonStatus();
       if (!lastStatusSummary) {
         vscode.window.showInformationMessage('Open a .photon.ts file to see Photon status.');
         return;
       }
       vscode.window.showInformationMessage(lastStatusSummary.tooltip.replace(/\n/g, ' • '));
     }),
+    vscode.commands.registerCommand('photon.showCacheDetails', () => void showPhotonCacheDetails()),
     vscode.languages.registerCompletionItemProvider(
       selector,
       createPhotonCompletionProvider(),
