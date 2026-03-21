@@ -165,44 +165,6 @@ export class PhotonTsWorkerClient {
     return this.session.outline(filePath, source);
   }
 
-  codeFixes(
-    filePath: string,
-    source: string,
-    from: number,
-    to: number,
-    errorCode: number
-  ): Promise<PhotonTsCodeFix[]> {
-    return this.request<{ fixes: PhotonTsCodeFix[] }>({
-      type: 'codeFixes',
-      filePath,
-      source,
-      from,
-      to,
-      errorCode,
-    }).then((r) => r.fixes);
-  }
-
-  signatureHelp(
-    filePath: string,
-    source: string,
-    pos: number
-  ): Promise<PhotonTsSignatureHelp | null> {
-    return this.request<{ signatureHelp: PhotonTsSignatureHelp | null }>({
-      type: 'signatureHelp',
-      filePath,
-      source,
-      pos,
-    }).then((r) => r.signatureHelp);
-  }
-
-  outline(filePath: string, source: string): Promise<PhotonTsOutlineItem[]> {
-    return this.request<{ outline: PhotonTsOutlineItem[] }>({
-      type: 'outline',
-      filePath,
-      source,
-    }).then((r) => r.outline);
-  }
-
   async completions(
     filePath: string,
     source: string,
