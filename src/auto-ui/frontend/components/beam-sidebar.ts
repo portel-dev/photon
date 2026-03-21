@@ -396,6 +396,7 @@ export class BeamSidebar extends LitElement {
       .photon-icon.emoji-icon {
         background: transparent;
         font-size: 20px;
+        overflow: hidden;
       }
 
       .photon-item.internal {
