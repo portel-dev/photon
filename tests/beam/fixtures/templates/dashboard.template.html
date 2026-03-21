@@ -1,0 +1,230 @@
+<!--
+  Metrics Dashboard Template
+
+  A dashboard for displaying metrics with refresh capability.
+
+  Usage:
+  1. Copy this file to your photon directory
+  2. Add @ui dashboard ./dashboard.template.html to your class JSDoc
+  3. Implement the methods referenced by data-method attributes
+
+  Example photon:
+
+  /**
+   * System Monitor
+   * @ui dashboard ./dashboard.template.html
+   */
+  export default class SystemMonitor {
+    async getCPU(): Promise<{ usage: number; cores: number }> { ... }
+    async getMemory(): Promise<{ used: number; total: number }> { ... }
+    async getDisk(): Promise<{ used: number; total: number }> { ... }
+    async getNetwork(): Promise<{ bytesIn: number; bytesOut: number }> { ... }
+    async refresh(): Promise<void> { ... }
+  }
+-->
+
+<div class="dashboard">
+  <!-- Header -->
+  <div class="dashboard-header">
+    <h2 class="dashboard-title">System Monitor</h2>
+    <button data-method="refresh" class="btn-refresh">
+      <span class="refresh-icon">&#x21BB;</span>
+      Refresh
+    </button>
+  </div>
+
+  <!-- Metrics Grid -->
+  <div class="metrics-grid">
+    <!-- CPU Card -->
+    <div class="metric-card" data-method="getCPU">
+      <div class="metric-icon">&#x1F4BB;</div>
+      <div class="metric-info">
+        <span class="metric-label">CPU Usage</span>
+        <span class="metric-value" data-result>--</span>
+      </div>
+    </div>
+
+    <!-- Memory Card -->
+    <div class="metric-card" data-method="getMemory">
+      <div class="metric-icon">&#x1F4BE;</div>
+      <div class="metric-info">
+        <span class="metric-label">Memory</span>
+        <span class="metric-value" data-result>--</span>
+      </div>
+    </div>
+
+    <!-- Disk Card -->
+    <div class="metric-card" data-method="getDisk">
+      <div class="metric-icon">&#x1F4BD;</div>
+      <div class="metric-info">
+        <span class="metric-label">Disk Space</span>
+        <span class="metric-value" data-result>--</span>
+      </div>
+    </div>
+
+    <!-- Network Card -->
+    <div class="metric-card" data-method="getNetwork">
+      <div class="metric-icon">&#x1F310;</div>
+      <div class="metric-info">
+        <span class="metric-label">Network</span>
+        <span class="metric-value" data-result>--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="dashboard-status">
+    <span class="status-dot"></span>
+    <span class="status-text">Last updated: <span data-bind="lastUpdated">Never</span></span>
+  </div>
+</div>
+
+<style>
+  .dashboard {
+    width: 100%;
+    max-width: 600px;
+    padding: 24px;
+    background: var(--bg-secondary, #1a1a1a);
+    border-radius: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color, #333);
+  }
+
+  .dashboard-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+  }
+
+  .btn-refresh {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent, #3b82f6);
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-refresh:hover {
+    background: var(--accent-hover, #2563eb);
+    transform: translateY(-1px);
+  }
+
+  .btn-refresh:active {
+    transform: translateY(0);
+  }
+
+  .refresh-icon {
+    font-size: 16px;
+    transition: transform 0.3s ease;
+  }
+
+  .btn-refresh:hover .refresh-icon {
+    transform: rotate(180deg);
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .metric-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: var(--bg-tertiary, #0f0f0f);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .metric-card:hover {
+    border-color: var(--accent, #3b82f6);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  }
+
+  .metric-icon {
+    font-size: 32px;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary, #1a1a1a);
+    border-radius: 10px;
+  }
+
+  .metric-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .metric-label {
+    font-size: 12px;
+    color: var(--text-secondary, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .metric-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+  }
+
+  .dashboard-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #333);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #27ae60;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .status-text {
+    font-size: 12px;
+    color: var(--text-secondary, #888);
+  }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+    .metrics-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

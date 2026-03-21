@@ -22,8 +22,10 @@ test('Template engine functions are embedded in BEAM', async () => {
   await withBeam(async (beam) => {
     // Check that the template engine functions exist in the page
     const hasInitBindings = await beam.page.evaluate(() => {
-      return typeof (window as any).initTemplateBindings === 'function' ||
-             document.body.innerHTML.includes('initTemplateBindings');
+      return (
+        typeof (window as any).initTemplateBindings === 'function' ||
+        document.body.innerHTML.includes('initTemplateBindings')
+      );
     });
     // The function should be defined in the embedded JavaScript
     assert.ok(hasInitBindings, 'initTemplateBindings function should be available');
@@ -33,8 +35,10 @@ test('Template engine functions are embedded in BEAM', async () => {
 test('Template loading function is available', async () => {
   await withBeam(async (beam) => {
     const hasLoadTemplate = await beam.page.evaluate(() => {
-      return typeof (window as any).loadTemplate === 'function' ||
-             document.body.innerHTML.includes('loadTemplate');
+      return (
+        typeof (window as any).loadTemplate === 'function' ||
+        document.body.innerHTML.includes('loadTemplate')
+      );
     });
     assert.ok(hasLoadTemplate, 'loadTemplate function should be available');
   }, opts);
@@ -48,32 +52,34 @@ test('Template loading styles are present', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
     // Check for template engine CSS classes
-    assert.ok(html.includes('.template-loading') || html.includes('template-loading'),
-      'Template loading styles should be present');
+    assert.ok(
+      html.includes('.template-loading') || html.includes('template-loading'),
+      'Template loading styles should be present'
+    );
   }, opts);
 });
 
 test('Template error styles are present', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
-    assert.ok(html.includes('.template-error') || html.includes('template-error'),
-      'Template error styles should be present');
+    assert.ok(
+      html.includes('.template-error') || html.includes('template-error'),
+      'Template error styles should be present'
+    );
   }, opts);
 });
 
 test('Data-method button styles are present', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
-    assert.ok(html.includes('[data-method]'),
-      'Data-method attribute styles should be present');
+    assert.ok(html.includes('[data-method]'), 'Data-method attribute styles should be present');
   }, opts);
 });
 
 test('Data-result container styles are present', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
-    assert.ok(html.includes('[data-result]'),
-      'Data-result attribute styles should be present');
+    assert.ok(html.includes('[data-result]'), 'Data-result attribute styles should be present');
   }, opts);
 });
 
@@ -85,8 +91,7 @@ test('JSON.parse is used for data-args parsing', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
     // The template engine uses JSON.parse for data-args
-    assert.ok(html.includes('JSON.parse'),
-      'Template engine should use JSON.parse for data-args');
+    assert.ok(html.includes('JSON.parse'), 'Template engine should use JSON.parse for data-args');
   }, opts);
 });
 
@@ -94,8 +99,7 @@ test('Event listener binding is implemented', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
     // Check for addEventListener in the template engine code
-    assert.ok(html.includes('addEventListener'),
-      'Template engine should bind event listeners');
+    assert.ok(html.includes('addEventListener'), 'Template engine should bind event listeners');
   }, opts);
 });
 
@@ -106,8 +110,10 @@ test('Event listener binding is implemented', async () => {
 test('updateTemplateBindings function is available', async () => {
   await withBeam(async (beam) => {
     const hasUpdateBindings = await beam.page.evaluate(() => {
-      return typeof (window as any).updateTemplateBindings === 'function' ||
-             document.body.innerHTML.includes('updateTemplateBindings');
+      return (
+        typeof (window as any).updateTemplateBindings === 'function' ||
+        document.body.innerHTML.includes('updateTemplateBindings')
+      );
     });
     assert.ok(hasUpdateBindings, 'updateTemplateBindings function should be available');
   }, opts);
@@ -117,8 +123,7 @@ test('data-bind attribute handling is implemented', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
     // Check for data-bind handling in template engine
-    assert.ok(html.includes('data-bind'),
-      'Template engine should handle data-bind attributes');
+    assert.ok(html.includes('data-bind'), 'Template engine should handle data-bind attributes');
   }, opts);
 });
 
@@ -126,8 +131,7 @@ test('data-if attribute handling is implemented', async () => {
   await withBeam(async (beam) => {
     const html = await beam.page.content();
     // Check for data-if handling (conditional visibility)
-    assert.ok(html.includes('data-if'),
-      'Template engine should handle data-if attributes');
+    assert.ok(html.includes('data-if'), 'Template engine should handle data-if attributes');
   }, opts);
 });
 
@@ -138,8 +142,10 @@ test('data-if attribute handling is implemented', async () => {
 test('Smart rendering function is available', async () => {
   await withBeam(async (beam) => {
     const hasSmartRender = await beam.page.evaluate(() => {
-      return typeof (window as any).renderSmartResult === 'function' ||
-             document.body.innerHTML.includes('renderSmartResult');
+      return (
+        typeof (window as any).renderSmartResult === 'function' ||
+        document.body.innerHTML.includes('renderSmartResult')
+      );
     });
     assert.ok(hasSmartRender, 'renderSmartResult function should be available');
   }, opts);
@@ -148,8 +154,10 @@ test('Smart rendering function is available', async () => {
 test('Field analyzer function is available', async () => {
   await withBeam(async (beam) => {
     const hasAnalyzer = await beam.page.evaluate(() => {
-      return typeof (window as any).analyzeFields === 'function' ||
-             document.body.innerHTML.includes('analyzeFields');
+      return (
+        typeof (window as any).analyzeFields === 'function' ||
+        document.body.innerHTML.includes('analyzeFields')
+      );
     });
     assert.ok(hasAnalyzer, 'analyzeFields function should be available');
   }, opts);
@@ -158,8 +166,10 @@ test('Field analyzer function is available', async () => {
 test('Layout selector function is available', async () => {
   await withBeam(async (beam) => {
     const hasSelector = await beam.page.evaluate(() => {
-      return typeof (window as any).selectLayout === 'function' ||
-             document.body.innerHTML.includes('selectLayout');
+      return (
+        typeof (window as any).selectLayout === 'function' ||
+        document.body.innerHTML.includes('selectLayout')
+      );
     });
     assert.ok(hasSelector, 'selectLayout function should be available');
   }, opts);
@@ -171,7 +181,7 @@ test('Layout selector function is available', async () => {
 
 test('Example templates exist', async () => {
   const fs = await import('fs/promises');
-  const templatesDir = path.join(__dirname, '../../examples/templates');
+  const templatesDir = path.join(__dirname, './fixtures/templates');
 
   const files = await fs.readdir(templatesDir);
 
@@ -183,7 +193,7 @@ test('Example templates exist', async () => {
 
 test('Remote template has correct structure', async () => {
   const fs = await import('fs/promises');
-  const templatePath = path.join(__dirname, '../../examples/templates/remote.template.html');
+  const templatePath = path.join(__dirname, './fixtures/templates/remote.template.html');
   const content = await fs.readFile(templatePath, 'utf-8');
 
   // Check for required template attributes
@@ -196,7 +206,7 @@ test('Remote template has correct structure', async () => {
 
 test('Keypad template has correct structure', async () => {
   const fs = await import('fs/promises');
-  const templatePath = path.join(__dirname, '../../examples/templates/keypad.template.html');
+  const templatePath = path.join(__dirname, './fixtures/templates/keypad.template.html');
   const content = await fs.readFile(templatePath, 'utf-8');
 
   // Check for numeric buttons
@@ -208,7 +218,7 @@ test('Keypad template has correct structure', async () => {
 
 test('Dashboard template has correct structure', async () => {
   const fs = await import('fs/promises');
-  const templatePath = path.join(__dirname, '../../examples/templates/dashboard.template.html');
+  const templatePath = path.join(__dirname, './fixtures/templates/dashboard.template.html');
   const content = await fs.readFile(templatePath, 'utf-8');
 
   // Check for dashboard elements
@@ -220,7 +230,7 @@ test('Dashboard template has correct structure', async () => {
 
 test('Player template has correct structure', async () => {
   const fs = await import('fs/promises');
-  const templatePath = path.join(__dirname, '../../examples/templates/player.template.html');
+  const templatePath = path.join(__dirname, './fixtures/templates/player.template.html');
   const content = await fs.readFile(templatePath, 'utf-8');
 
   // Check for player controls

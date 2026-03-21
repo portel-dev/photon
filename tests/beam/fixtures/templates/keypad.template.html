@@ -1,0 +1,143 @@
+<!--
+  Numeric Keypad Template
+
+  A simple numeric keypad for entering codes, PINs, or numbers.
+
+  Usage:
+  1. Copy this file to your photon directory
+  2. Add @ui keypad ./keypad.template.html to your class JSDoc
+  3. Implement the methods referenced by data-method attributes
+
+  Example photon:
+
+  /**
+   * Code Entry System
+   * @ui keypad ./keypad.template.html
+   */
+  export default class CodeEntry {
+    async pressKey(params: { key: string }): Promise<void> { ... }
+    async clear(): Promise<void> { ... }
+    async submit(): Promise<boolean> { ... }
+  }
+-->
+
+<div class="keypad-container">
+  <!-- Display -->
+  <div class="keypad-display" data-result>
+    <span class="display-placeholder">Enter code...</span>
+  </div>
+
+  <!-- Keypad Grid -->
+  <div class="keypad-grid">
+    <button data-method="pressKey" data-args='{"key": "1"}' class="key">1</button>
+    <button data-method="pressKey" data-args='{"key": "2"}' class="key">2</button>
+    <button data-method="pressKey" data-args='{"key": "3"}' class="key">3</button>
+    <button data-method="pressKey" data-args='{"key": "4"}' class="key">4</button>
+    <button data-method="pressKey" data-args='{"key": "5"}' class="key">5</button>
+    <button data-method="pressKey" data-args='{"key": "6"}' class="key">6</button>
+    <button data-method="pressKey" data-args='{"key": "7"}' class="key">7</button>
+    <button data-method="pressKey" data-args='{"key": "8"}' class="key">8</button>
+    <button data-method="pressKey" data-args='{"key": "9"}' class="key">9</button>
+    <button data-method="clear" class="key key-action key-clear">C</button>
+    <button data-method="pressKey" data-args='{"key": "0"}' class="key">0</button>
+    <button data-method="submit" class="key key-action key-enter">&#x2713;</button>
+  </div>
+
+  <!-- Status -->
+  <div class="keypad-status" data-if="statusMessage">
+    <span data-bind="statusMessage"></span>
+  </div>
+</div>
+
+<style>
+  .keypad-container {
+    width: 300px;
+    padding: 24px;
+    background: var(--bg-secondary, #1a1a1a);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .keypad-display {
+    background: var(--bg-tertiary, #0f0f0f);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 24px;
+    letter-spacing: 8px;
+    color: var(--text-primary, #fff);
+  }
+
+  .display-placeholder {
+    color: var(--text-muted, #666);
+    font-size: 14px;
+    letter-spacing: normal;
+  }
+
+  .keypad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .key {
+    height: 64px;
+    border: none;
+    border-radius: 12px;
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-primary, #fff);
+    font-size: 24px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .key:hover {
+    background: var(--accent, #3b82f6);
+    transform: scale(1.02);
+  }
+
+  .key:active {
+    transform: scale(0.98);
+  }
+
+  .key-action {
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .key-clear {
+    background: #e74c3c;
+    color: white;
+  }
+
+  .key-clear:hover {
+    background: #c0392b;
+  }
+
+  .key-enter {
+    background: #27ae60;
+    color: white;
+  }
+
+  .key-enter:hover {
+    background: #219a52;
+  }
+
+  .keypad-status {
+    margin-top: 16px;
+    padding: 12px;
+    text-align: center;
+    border-radius: 8px;
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-secondary, #888);
+    font-size: 14px;
+  }
+</style>
