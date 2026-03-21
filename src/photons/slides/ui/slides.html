@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Slides</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --surface: rgba(11, 20, 36, 0.94);
+      --surface-2: rgba(17, 29, 49, 0.96);
+      --surface-3: rgba(22, 37, 63, 0.96);
+      --line: rgba(151, 176, 220, 0.16);
+      --line-strong: rgba(116, 196, 255, 0.28);
+      --text: #edf4ff;
+      --muted: #8ea4c8;
+      --accent: #67c7ff;
+      --accent-2: #6ef1c2;
+      --accent-soft: rgba(103, 199, 255, 0.14);
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      color: var(--text);
+      font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(103, 199, 255, 0.16), transparent 24%),
+        radial-gradient(circle at 80% 0%, rgba(110, 241, 194, 0.1), transparent 20%),
+        linear-gradient(180deg, #07111f 0%, #050b15 100%);
+    }
+
+    body {
+      padding: 18px;
+    }
+
+    button,
+    select,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select,
+    input[type="text"] {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      padding: 11px 14px;
+    }
+
+    button {
+      cursor: pointer;
+      transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, rgba(103, 199, 255, 0.22), rgba(110, 241, 194, 0.14));
+      border-color: rgba(103, 199, 255, 0.34);
+    }
+
+    button.ghost {
+      background: transparent;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 288px minmax(0, 1fr);
+      gap: 18px;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .sidebar,
+    .shell,
+    .card {
+      min-height: 0;
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 16px;
+      overflow: hidden;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 18px;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 8px 0;
+    }
+
+    .deck-title {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .deck-title h1 {
+      margin-top: 6px;
+      font-size: 26px;
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-family: "Space Grotesk", "Inter", sans-serif;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .deck-title p {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .top-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 338px;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .main-column {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .rail {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    }
+
+    .card-header h2,
+    .card-header h3 {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .card-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .compact {
+      padding: 14px 18px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .toolbar-spacer {
+      flex: 1;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .metric-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-family: "Space Grotesk", "Inter", sans-serif;
+    }
+
+    .stage-card {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .stage-wrap {
+      padding: 16px;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .stage-shell {
+      background:
+        radial-gradient(circle at top, rgba(103, 199, 255, 0.07), transparent 32%),
+        linear-gradient(180deg, #0b1526 0%, #08111f 100%);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      min-height: 420px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .stage {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background: #0f172a;
+    }
+
+    .stage.fit section {
+      width: 1280px;
+      height: 720px;
+      transform-origin: top left;
+      transform: scale(var(--slide-scale, 1));
+      margin: 0;
+    }
+
+    .stage.actual section {
+      width: 1280px;
+      min-height: 720px;
+      margin: 0;
+    }
+
+    .stage section {
+      overflow: hidden;
+    }
+
+    .editor-card {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 280px;
+      max-height: 34vh;
+    }
+
+    .editor-toolbar {
+      padding: 14px 18px 0;
+    }
+
+    textarea {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      outline: none;
+      resize: none;
+      background: rgba(6, 11, 21, 0.9);
+      color: var(--text);
+      padding: 16px 18px 18px;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .deck-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .deck-item {
+      width: 100%;
+      text-align: left;
+      padding: 14px;
+      border-radius: 16px;
+    }
+
+    .deck-item.active {
+      background: linear-gradient(135deg, rgba(103, 199, 255, 0.16), rgba(110, 241, 194, 0.1));
+      border-color: rgba(103, 199, 255, 0.4);
+    }
+
+    .deck-item strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .deck-meta {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .upcoming {
+      padding: 14px;
+    }
+
+    .upcoming-stage {
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #101827;
+      aspect-ratio: 16 / 9;
+    }
+
+    .upcoming-stage section {
+      width: 1280px;
+      height: 720px;
+      transform: scale(0.25);
+      transform-origin: top left;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .upcoming-empty {
+      display: grid;
+      place-items: center;
+      height: 100%;
+      color: var(--muted);
+      font-size: 13px;
+      background: linear-gradient(180deg, #111a2d 0%, #0b1322 100%);
+    }
+
+    .filmstrip {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .thumb {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .thumb.active {
+      border-color: rgba(103, 199, 255, 0.45);
+      box-shadow: 0 0 0 1px rgba(103, 199, 255, 0.18) inset;
+    }
+
+    .thumb.drag-over {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 2px rgba(110, 241, 194, 0.3);
+    }
+
+    .thumb.dragging {
+      opacity: 0.4;
+    }
+
+    .thumb-label {
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .thumb-stage {
+      height: 126px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+
+    .thumb-stage section {
+      width: 1280px;
+      height: 720px;
+      transform: scale(0.175);
+      transform-origin: top left;
+      margin: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255,255,255,0.03);
+      font-size: 11px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .snapshot-preview {
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* ── Modals ─────────────────────────────────────────── */
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 6, 23, 0.72);
+      z-index: 50;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: min(420px, calc(100vw - 32px));
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(8, 12, 24, 0.98);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .modal.wide {
+      width: min(560px, calc(100vw - 32px));
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .modal-field {
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    /* ── Slide Type Picker ──────────────────────────────── */
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .layout-card {
+      padding: 16px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .layout-card:hover {
+      border-color: var(--line-strong);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .layout-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .layout-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .layout-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .layout-desc {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ── Context Menu ──────────────────────────────────── */
+
+    .context-menu {
+      position: fixed;
+      z-index: 100;
+      min-width: 160px;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(8, 12, 24, 0.98);
+      box-shadow: var(--shadow);
+      display: none;
+    }
+
+    .context-menu.open {
+      display: block;
+    }
+
+    .context-menu-item {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .context-menu-item:hover {
+      background: rgba(255,255,255,0.06);
+    }
+
+    .context-menu-item.danger {
+      color: #f87171;
+    }
+
+    .context-menu-divider {
+      height: 1px;
+      background: var(--line);
+      margin: 4px 8px;
+    }
+
+    @media (max-width: 1380px) {
+      .workspace {
+        grid-template-columns: minmax(0, 1fr) 300px;
+      }
+
+      .status-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 1180px) {
+      html,
+      body {
+        overflow: auto;
+        height: auto;
+      }
+
+      .app {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .editor-card {
+        max-height: none;
+      }
+
+      .stage-shell {
+        min-height: 360px;
+      }
+
+      .rail {
+        grid-template-rows: auto auto auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="eyebrow">Slides Workspace</div>
+        <h2 style="margin-top:8px;font-size:22px;font-family:'Space Grotesk','Inter',sans-serif;letter-spacing:-0.03em;">Deck Library</h2>
+        <p class="card-subtitle">Markdown-first authoring with a synced presenter state.</p>
+      </div>
+
+      <div class="toolbar">
+        <button class="primary" id="new-deck">New Deck</button>
+        <button class="ghost" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div class="deck-list" id="deck-list"></div>
+
+      <div>
+        <div class="hint" id="folder-path">~/Documents/slides</div>
+        <div class="links" style="margin-top:10px;">
+          <a href="https://marp.app/" target="_blank" rel="noreferrer">Marp</a>
+          <a href="https://marpit.marp.app/directives" target="_blank" rel="noreferrer">Directives</a>
+          <a href="https://marpit.marp.app/theme-css" target="_blank" rel="noreferrer">Theme CSS</a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div class="deck-title">
+          <div class="eyebrow">Presenter View</div>
+          <h1 id="top-title">Slides</h1>
+          <p id="top-subtitle">Shared navigation, deck editing, and export for AI review.</p>
+        </div>
+        <div class="top-actions">
+          <button id="save-btn" class="primary">Save</button>
+          <button id="snapshot-btn">Capture Slide</button>
+          <button id="matrix-btn">Capture Matrix</button>
+          <button id="copy-snapshot-btn">Copy Image Path</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <div class="main-column">
+          <div class="status-strip">
+            <div class="metric">
+              <div class="metric-label">Current Slide</div>
+              <div class="metric-value" id="metric-current">1 / 1</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Control</div>
+              <div class="metric-value" id="metric-lock">Locked</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Theme</div>
+              <div class="metric-value" id="metric-theme">default</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Preview</div>
+              <div class="metric-value" id="metric-preview">fit</div>
+            </div>
+          </div>
+
+          <section class="card stage-card">
+            <div class="card-header">
+              <div>
+                <h2>Main Stage</h2>
+                <div class="card-subtitle" id="stage-caption">Slide preview for the shared presentation.</div>
+              </div>
+              <div class="toolbar">
+                <button id="prev-btn">Previous</button>
+                <button id="next-btn" class="primary">Next</button>
+                <button id="fullscreen-btn">Fullscreen</button>
+                <button id="lock-btn"></button>
+              </div>
+            </div>
+            <div class="stage-wrap">
+              <div class="stage-shell">
+                <div class="stage fit" id="stage"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card editor-card">
+            <div class="card-header">
+              <div>
+                <h3>Markdown Editor</h3>
+                <div class="card-subtitle" id="editor-title">Edit the active deck and save it back to disk.</div>
+              </div>
+              <div class="toolbar">
+                <select id="theme-select">
+                  <option value="default">Theme: default</option>
+                  <option value="gaia">Theme: gaia</option>
+                  <option value="uncover">Theme: uncover</option>
+                </select>
+                <select id="preview-select">
+                  <option value="fit">Preview: fit</option>
+                  <option value="actual">Preview: actual</option>
+                  <option value="overview">Preview: overview</option>
+                </select>
+              </div>
+            </div>
+            <textarea id="markdown" spellcheck="false"></textarea>
+          </section>
+        </div>
+
+        <aside class="rail">
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <h3>Presenter Controls</h3>
+                <div class="card-subtitle">Local presenter mode lets you navigate while the deck is locked.</div>
+              </div>
+            </div>
+            <div class="compact">
+              <div class="toolbar">
+                <label class="badge">
+                  <input type="checkbox" id="presenter-mode" />
+                  Presenter Mode
+                </label>
+                <div class="badge" id="status-badge">Waiting for deck</div>
+              </div>
+              <div class="hint" id="snapshot-path" style="margin-top:12px;"></div>
+              <img id="snapshot-preview" class="snapshot-preview" hidden alt="Slide snapshot preview" style="margin-top:12px;" />
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <h3>Upcoming</h3>
+                <div class="card-subtitle">The next slide in the shared sequence.</div>
+              </div>
+            </div>
+            <div class="upcoming">
+              <div class="upcoming-stage" id="upcoming-stage"></div>
+            </div>
+          </section>
+
+          <section class="card" style="display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;">
+            <div class="card-header">
+              <div>
+                <h3>Filmstrip</h3>
+                <div class="card-subtitle">Drag to reorder. Right-click for options.</div>
+              </div>
+              <button class="ghost" id="add-slide-btn" style="padding:8px 12px;font-size:18px;line-height:1;" title="Add slide">+</button>
+            </div>
+            <div class="filmstrip" id="filmstrip"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <!-- Elicitation Modal -->
+  <div class="modal-backdrop" id="elicitation-modal" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-title" id="elicitation-message"></div>
+      <div id="elicitation-body"></div>
+      <div class="modal-actions">
+        <button id="elicitation-cancel">Cancel</button>
+        <button class="primary" id="elicitation-submit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide Type Picker Modal -->
+  <div class="modal-backdrop" id="slide-picker-modal" aria-hidden="true">
+    <div class="modal wide">
+      <div class="modal-title">Add Slide</div>
+      <p class="hint">Choose a layout template for the new slide.</p>
+      <div class="layout-grid" id="layout-grid"></div>
+      <div class="modal-actions">
+        <button id="picker-cancel">Cancel</button>
+        <button class="primary" id="picker-add">Add Slide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filmstrip Context Menu -->
+  <div class="context-menu" id="context-menu">
+    <button class="context-menu-item" data-action="insert-after">Insert After</button>
+    <button class="context-menu-item" data-action="duplicate">Duplicate</button>
+    <div class="context-menu-divider"></div>
+    <button class="context-menu-item danger" data-action="delete">Delete</button>
+  </div>
+
+  <script>
+    const slidesApp = window["slides"];
+    const state = {
+      deck: null,
+      snapshot: null
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    // ── Layout definitions (mirrors photon's SLIDE_LAYOUTS) ──
+    const LAYOUTS = [
+      { name: "title",      icon: "T",  desc: "Title slide" },
+      { name: "content",    icon: "=",  desc: "Bullet points" },
+      { name: "two-column", icon: "||", desc: "Side-by-side" },
+      { name: "image",      icon: "I",  desc: "Background image" },
+      { name: "quote",      icon: "Q",  desc: "Blockquote" },
+      { name: "code",       icon: "<>", desc: "Code block" },
+      { name: "blank",      icon: "+",  desc: "Empty slide" },
+    ];
+
+    let pickerSelectedLayout = "content";
+    let pickerInsertIndex = null;
+    let contextMenuSlideIndex = null;
+
+    function parseResult(raw) {
+      if (raw && raw.content && Array.isArray(raw.content)) {
+        const textPart = raw.content.find((item) => item.type === "text" && typeof item.text === "string");
+        if (textPart) {
+          try {
+            return JSON.parse(textPart.text);
+          } catch {
+            return textPart.text;
+          }
+        }
+      }
+      return raw;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function canControl() {
+      return !state.deck?.locked || el("presenter-mode").checked;
+    }
+
+    function showMessage(text) {
+      el("snapshot-path").textContent = text;
+    }
+
+    function saveLocalState() {
+      window.photon?.setWidgetState?.({
+        presenterMode: el("presenter-mode").checked
+      });
+    }
+
+    async function call(name, args = {}) {
+      return parseResult(await window.photon.callTool(name, args));
+    }
+
+    async function refresh() {
+      state.deck = parseResult(await slidesApp.status());
+      renderAll();
+    }
+
+    async function saveDeck(file) {
+      const markdown = el("markdown").value;
+      state.deck = await call("save", { file, markdown, activate: true });
+      renderAll();
+    }
+
+    function renderAll() {
+      renderSidebar();
+      renderHeader();
+      renderMetrics();
+      renderStage();
+      renderEditor();
+      renderRail();
+      renderSnapshot();
+    }
+
+    function renderSidebar() {
+      el("folder-path").textContent = state.deck?.folder || "~/Documents/slides";
+      const decks = state.deck?.decks || [];
+      const list = el("deck-list");
+      list.innerHTML = decks.map((deck) => `
+        <button class="deck-item ${deck.file === state.deck.currentDeck ? "active" : ""}" data-file="${escapeHtml(deck.file)}">
+          <strong>${escapeHtml(deck.title)}</strong>
+          <div class="deck-meta">${escapeHtml(deck.file)}</div>
+        </button>
+      `).join("");
+
+      list.querySelectorAll("[data-file]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          await call("open", { file: button.dataset.file });
+          await refresh();
+        });
+      });
+    }
+
+    function renderHeader() {
+      if (!state.deck) return;
+      el("top-title").textContent = state.deck.currentDeck.replace(/\.md$/i, "");
+      el("top-subtitle").textContent = `${state.deck.slideCount} slide${state.deck.slideCount === 1 ? "" : "s"} in sync across the shared presentation instance.`;
+      el("stage-caption").textContent = `Showing slide ${state.deck.currentSlide + 1} of ${state.deck.slideCount}`;
+    }
+
+    function renderMetrics() {
+      if (!state.deck) return;
+      el("metric-current").textContent = `${state.deck.currentSlide + 1} / ${state.deck.slideCount}`;
+      el("metric-lock").textContent = state.deck.locked ? "Locked" : "Open";
+      el("metric-theme").textContent = state.deck.theme;
+      el("metric-preview").textContent = state.deck.preview;
+    }
+
+    function renderEditor() {
+      if (!state.deck) return;
+      el("markdown").value = state.deck.markdown || "";
+      el("editor-title").textContent = `Editing ${state.deck.currentDeck}`;
+      el("theme-select").value = state.deck.theme;
+      el("preview-select").value = state.deck.preview;
+    }
+
+    function renderStage() {
+      if (!state.deck) return;
+      const stage = el("stage");
+      const preview = state.deck.preview;
+      const css = `<style>${state.deck.rendered.css}</style>`;
+      const currentHtml = state.deck.current?.html || "";
+
+      if (preview === "overview") {
+        stage.className = "stage actual";
+        stage.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;padding:16px;">
+            ${state.deck.rendered.slides.map((slide, index) => `
+              <div class="thumb ${index === state.deck.currentSlide ? "active" : ""}" data-stage-slide="${index}">
+                <div class="thumb-label"><span>Slide ${index + 1}</span><span>${index === state.deck.currentSlide ? "Live" : ""}</span></div>
+                <div class="thumb-stage">${css}${slide}</div>
+              </div>
+            `).join("")}
+          </div>`;
+        stage.querySelectorAll("[data-stage-slide]").forEach((thumb) => {
+          thumb.addEventListener("click", async () => {
+            if (!canControl()) return;
+            await call("go", { index: Number(thumb.dataset.stageSlide) });
+            await refresh();
+          });
+        });
+        return;
+      }
+
+      stage.className = `stage ${preview === "actual" ? "actual" : "fit"}`;
+      stage.innerHTML = `${css}${currentHtml}`;
+
+      if (preview === "fit") {
+        requestAnimationFrame(() => {
+          const scale = Math.min(
+            stage.clientWidth / 1280 || 1,
+            stage.clientHeight / 720 || 1
+          );
+          stage.style.setProperty("--slide-scale", String(scale));
+        });
+      }
+    }
+
+    function renderRail() {
+      if (!state.deck) return;
+      const disabled = !canControl();
+      el("prev-btn").disabled = disabled;
+      el("next-btn").disabled = disabled;
+      el("lock-btn").textContent = state.deck.locked ? "Release Control" : "Lock Control";
+      el("lock-btn").disabled = !el("presenter-mode").checked && state.deck.locked;
+      el("status-badge").textContent = state.deck.locked
+        ? (el("presenter-mode").checked ? "Presenter override active" : "Audience locked")
+        : "Navigation open";
+
+      const nextIndex = state.deck.currentSlide + 1;
+      const upcoming = el("upcoming-stage");
+      if (nextIndex < state.deck.slideCount) {
+        upcoming.innerHTML = `<style>${state.deck.rendered.css}</style>${state.deck.rendered.slides[nextIndex]}`;
+      } else {
+        upcoming.innerHTML = `<div class="upcoming-empty">End of deck</div>`;
+      }
+
+      renderFilmstrip();
+    }
+
+    function renderFilmstrip() {
+      const filmstrip = el("filmstrip");
+      const css = `<style>${state.deck.rendered.css}</style>`;
+      filmstrip.innerHTML = state.deck.rendered.slides.map((slide, index) => `
+        <div class="thumb ${index === state.deck.currentSlide ? "active" : ""}"
+             data-slide="${index}" draggable="true">
+          <div class="thumb-label">
+            <span>Slide ${index + 1}</span>
+            <span>${index === state.deck.currentSlide ? "Live" : ""}</span>
+          </div>
+          <div class="thumb-stage">${css}${slide}</div>
+        </div>
+      `).join("");
+
+      filmstrip.querySelectorAll("[data-slide]").forEach((thumb) => {
+        const idx = Number(thumb.dataset.slide);
+
+        // Click to navigate
+        thumb.addEventListener("click", async () => {
+          if (!canControl()) return;
+          await call("go", { index: idx });
+          await refresh();
+        });
+
+        // Context menu
+        thumb.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          showContextMenu(e.clientX, e.clientY, idx);
+        });
+
+        // Drag and drop
+        thumb.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", String(idx));
+          e.dataTransfer.effectAllowed = "move";
+          thumb.classList.add("dragging");
+        });
+
+        thumb.addEventListener("dragend", () => {
+          thumb.classList.remove("dragging");
+          filmstrip.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+        });
+
+        thumb.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          thumb.classList.add("drag-over");
+        });
+
+        thumb.addEventListener("dragleave", () => {
+          thumb.classList.remove("drag-over");
+        });
+
+        thumb.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          thumb.classList.remove("drag-over");
+          const from = Number(e.dataTransfer.getData("text/plain"));
+          const to = idx;
+          if (from !== to) {
+            await call("move", { from, to });
+            await refresh();
+          }
+        });
+      });
+    }
+
+    function renderSnapshot() {
+      const preview = el("snapshot-preview");
+      if (!state.snapshot) {
+        preview.hidden = true;
+        return;
+      }
+
+      if (state.snapshot.dataUrl) {
+        preview.src = state.snapshot.dataUrl;
+      }
+      preview.hidden = !state.snapshot.dataUrl;
+      showMessage(`Image saved: ${state.snapshot.path}`);
+    }
+
+    // ── Slide Type Picker ──────────────────────────────────
+
+    function openSlidePicker(insertIndex) {
+      pickerInsertIndex = insertIndex;
+      pickerSelectedLayout = "content";
+
+      const grid = el("layout-grid");
+      grid.innerHTML = LAYOUTS.map((l) => `
+        <div class="layout-card ${l.name === pickerSelectedLayout ? "selected" : ""}" data-layout="${l.name}">
+          <div class="layout-icon">${escapeHtml(l.icon)}</div>
+          <div class="layout-name">${escapeHtml(l.name)}</div>
+          <div class="layout-desc">${escapeHtml(l.desc)}</div>
+        </div>
+      `).join("");
+
+      grid.querySelectorAll("[data-layout]").forEach((card) => {
+        card.addEventListener("click", () => {
+          pickerSelectedLayout = card.dataset.layout;
+          grid.querySelectorAll(".layout-card").forEach((c) => c.classList.remove("selected"));
+          card.classList.add("selected");
+        });
+      });
+
+      const modal = el("slide-picker-modal");
+      modal.classList.add("open");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeSlidePicker() {
+      const modal = el("slide-picker-modal");
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    el("add-slide-btn").addEventListener("click", () => {
+      const insertAt = state.deck ? state.deck.currentSlide + 1 : 0;
+      openSlidePicker(insertAt);
+    });
+
+    el("picker-cancel").addEventListener("click", closeSlidePicker);
+
+    el("picker-add").addEventListener("click", async () => {
+      closeSlidePicker();
+      await call("add", { layout: pickerSelectedLayout, index: pickerInsertIndex });
+      await refresh();
+    });
+
+    // ── Context Menu ────────────────────────────────────────
+
+    function showContextMenu(x, y, slideIndex) {
+      contextMenuSlideIndex = slideIndex;
+      const menu = el("context-menu");
+      menu.style.left = `${x}px`;
+      menu.style.top = `${y}px`;
+      menu.classList.add("open");
+    }
+
+    function hideContextMenu() {
+      el("context-menu").classList.remove("open");
+      contextMenuSlideIndex = null;
+    }
+
+    document.addEventListener("click", hideContextMenu);
+    document.addEventListener("contextmenu", (e) => {
+      if (!e.target.closest("[data-slide]")) hideContextMenu();
+    });
+
+    el("context-menu").querySelectorAll("[data-action]").forEach((item) => {
+      item.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const action = item.dataset.action;
+        const idx = contextMenuSlideIndex;
+        hideContextMenu();
+        if (idx == null) return;
+
+        if (action === "insert-after") {
+          openSlidePicker(idx + 1);
+        } else if (action === "duplicate") {
+          await call("duplicate", { index: idx });
+          await refresh();
+        } else if (action === "delete") {
+          await call("remove", { index: idx });
+          await refresh();
+        }
+      });
+    });
+
+    // ── Elicitation Handler ─────────────────────────────────
+
+    async function askUser(event) {
+      return new Promise((resolve) => {
+        const modal = el("elicitation-modal");
+        const message = el("elicitation-message");
+        const body = el("elicitation-body");
+        const cancel = el("elicitation-cancel");
+        const submit = el("elicitation-submit");
+
+        message.textContent = event.message || "Input required";
+        body.innerHTML = "";
+        cancel.hidden = false;
+        submit.textContent = event.ask === "confirm" ? "Confirm" : "Submit";
+
+        let getValue = () => null;
+
+        if (event.ask === "confirm") {
+          body.innerHTML = `<div class="hint">Choose whether to continue this action.</div>`;
+          getValue = () => true;
+        } else if (event.ask === "select") {
+          const select = document.createElement("select");
+          select.className = "modal-field";
+          (event.options || []).forEach((option) => {
+            const normalized = typeof option === "string" ? { value: option, label: option } : option;
+            const optionEl = document.createElement("option");
+            optionEl.value = normalized.value;
+            optionEl.textContent = normalized.label;
+            if (event.default === normalized.value) optionEl.selected = true;
+            select.appendChild(optionEl);
+          });
+          body.appendChild(select);
+          getValue = () => select.value;
+          setTimeout(() => select.focus(), 0);
+        } else {
+          const input = document.createElement("input");
+          input.className = "modal-field";
+          input.type = event.ask === "number" ? "number" : (event.ask === "password" ? "password" : "text");
+          if (event.default !== undefined) input.value = String(event.default);
+          if (event.placeholder) input.placeholder = event.placeholder;
+          if (event.min !== undefined) input.min = String(event.min);
+          if (event.max !== undefined) input.max = String(event.max);
+          if (event.step !== undefined) input.step = String(event.step);
+          body.appendChild(input);
+          getValue = () => event.ask === "number" ? Number(input.value) : input.value;
+          setTimeout(() => input.focus(), 0);
+          input.addEventListener("keydown", (keyboardEvent) => {
+            if (keyboardEvent.key === "Enter") {
+              keyboardEvent.preventDefault();
+              submit.click();
+            }
+          });
+        }
+
+        function cleanup(value) {
+          modal.classList.remove("open");
+          modal.setAttribute("aria-hidden", "true");
+          submit.onclick = null;
+          cancel.onclick = null;
+          resolve(value);
+        }
+
+        cancel.onclick = () => cleanup(event.ask === "confirm" ? false : null);
+        submit.onclick = () => cleanup(getValue());
+
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+      });
+    }
+
+    // ── Event Handlers ──────────────────────────────────────
+
+    el("save-btn").addEventListener("click", async () => {
+      await saveDeck(state.deck?.currentDeck);
+    });
+
+    el("new-deck").addEventListener("click", async () => {
+      state.deck = await call("create", {});
+      renderAll();
+    });
+
+    el("refresh-btn").addEventListener("click", refresh);
+
+    el("prev-btn").addEventListener("click", async () => {
+      if (!canControl()) return;
+      await call("previous", {});
+      await refresh();
+    });
+
+    el("next-btn").addEventListener("click", async () => {
+      if (!canControl()) return;
+      await call("next", {});
+      await refresh();
+    });
+
+    el("lock-btn").addEventListener("click", async () => {
+      if (!el("presenter-mode").checked && state.deck?.locked) return;
+      await call("lock", { locked: !state.deck.locked });
+      await refresh();
+    });
+
+    el("theme-select").addEventListener("change", async (event) => {
+      await call("theme", { name: event.target.value });
+      await refresh();
+    });
+
+    el("preview-select").addEventListener("change", async (event) => {
+      await call("preview", { mode: event.target.value });
+      await refresh();
+    });
+
+    el("presenter-mode").addEventListener("change", () => {
+      saveLocalState();
+      renderRail();
+    });
+
+    el("fullscreen-btn").addEventListener("click", async () => {
+      const stage = el("stage");
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (stage.requestFullscreen) {
+        await stage.requestFullscreen();
+      }
+    });
+
+    el("snapshot-btn").addEventListener("click", async () => {
+      state.snapshot = await call("snapshot", {});
+      renderSnapshot();
+    });
+
+    el("matrix-btn").addEventListener("click", async () => {
+      state.snapshot = await call("matrix", {});
+      renderSnapshot();
+    });
+
+    el("copy-snapshot-btn").addEventListener("click", async () => {
+      if (!state.snapshot) {
+        state.snapshot = await call("snapshot", {});
+      }
+      try {
+        await navigator.clipboard.writeText(state.snapshot.path);
+        showMessage(`Copied image path: ${state.snapshot.path}`);
+      } catch {
+        showMessage(`Copy failed. Image path: ${state.snapshot.path}`);
+      }
+      renderSnapshot();
+    });
+
+    window.addEventListener("photon:state-restored", (event) => {
+      if (event.detail && typeof event.detail.presenterMode === "boolean") {
+        el("presenter-mode").checked = event.detail.presenterMode;
+      }
+    });
+
+    window.photon.onElicitation(askUser);
+
+    window.photon.onResult((result) => {
+      const parsed = parseResult(result);
+      if (parsed && parsed.currentDeck && parsed.rendered) {
+        state.deck = parsed;
+        renderAll();
+      }
+    });
+
+    window.photon.onEmit((event) => {
+      const name = event?.event;
+      if (name === "slideChanged" || name === "deckChanged" || name === "lockChanged" || name === "themeChanged" || name === "previewChanged") {
+        refresh();
+      }
+    });
+
+    window.addEventListener("keydown", async (event) => {
+      if (event.target.tagName === "TEXTAREA" || event.target.tagName === "INPUT") return;
+      if (!canControl()) return;
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        await call("next", {});
+        await refresh();
+      }
+      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        await call("previous", {});
+        await refresh();
+      }
+    });
+
+    refresh();
+  </script>
+</body>
+</html>

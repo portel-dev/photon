@@ -4770,10 +4770,11 @@ export class ResultViewer extends LitElement {
         .slides-viewport {
           aspect-ratio: 16 / 9;
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           justify-content: center;
           padding: 48px 64px;
           overflow: hidden;
+          container-type: size;
         }
         .slides-container:fullscreen .slides-viewport {
           flex: 1;
@@ -4784,19 +4785,20 @@ export class ResultViewer extends LitElement {
           width: 100%;
           max-width: 960px;
           line-height: 1.6;
+          font-size: clamp(1rem, 2.2cqi, 2rem);
         }
         .slides-content h1 {
-          font-size: 2.4em;
+          font-size: clamp(1.8em, 5cqi, 3.2em);
           margin: 0 0 0.4em;
           font-weight: 700;
         }
         .slides-content h2 {
-          font-size: 1.8em;
+          font-size: clamp(1.4em, 3.5cqi, 2.4em);
           margin: 0 0 0.4em;
           font-weight: 600;
         }
         .slides-content h3 {
-          font-size: 1.3em;
+          font-size: clamp(1.1em, 2.5cqi, 1.6em);
           margin: 0 0 0.3em;
         }
         .slides-content p {
@@ -4854,27 +4856,33 @@ export class ResultViewer extends LitElement {
         }
         .slides-controls {
           display: flex;
-          align-items: center;
+          align-items: flex-end;
           justify-content: center;
           gap: 12px;
-          padding: 10px;
-          background: rgba(0, 0, 0, 0.3);
+          padding: 80px 10px 10px;
+          background: linear-gradient(
+            to bottom,
+            transparent 0%,
+            transparent 60px,
+            rgba(0, 0, 0, 0.5) 60px
+          );
+          backdrop-filter: blur(4px);
           opacity: 0;
-          transition: opacity 0.25s ease;
+          transition: opacity 0.3s ease;
           position: absolute;
           bottom: 0;
           left: 0;
           right: 0;
           z-index: 10;
         }
-        .slides-container:hover .slides-controls,
+        .slides-controls:hover,
         .slides-container:focus-within .slides-controls {
           opacity: 1;
         }
         .slides-container:fullscreen .slides-controls {
           opacity: 0;
         }
-        .slides-container:fullscreen:hover .slides-controls {
+        .slides-container:fullscreen .slides-controls:hover {
           opacity: 1;
         }
         .slides-btn {
