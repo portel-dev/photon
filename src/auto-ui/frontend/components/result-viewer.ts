@@ -4774,7 +4774,6 @@ export class ResultViewer extends LitElement {
           justify-content: center;
           padding: 48px 64px;
           overflow: hidden;
-          container-type: size;
         }
         .slides-container:fullscreen .slides-viewport {
           flex: 1;
@@ -4785,20 +4784,19 @@ export class ResultViewer extends LitElement {
           width: 100%;
           max-width: 960px;
           line-height: 1.6;
-          font-size: clamp(1rem, 2.2cqi, 2rem);
         }
         .slides-content h1 {
-          font-size: clamp(1.8em, 5cqi, 3.2em);
+          font-size: 2.4em;
           margin: 0 0 0.4em;
           font-weight: 700;
         }
         .slides-content h2 {
-          font-size: clamp(1.4em, 3.5cqi, 2.4em);
+          font-size: 1.8em;
           margin: 0 0 0.4em;
           font-weight: 600;
         }
         .slides-content h3 {
-          font-size: clamp(1.1em, 2.5cqi, 1.6em);
+          font-size: 1.3em;
           margin: 0 0 0.3em;
         }
         .slides-content p {
@@ -5292,8 +5290,8 @@ export class ResultViewer extends LitElement {
     const content = root.querySelector('.slides-content') as HTMLElement;
     if (!viewport || !content) return;
 
-    // Reset any previous scale
-    content.style.transform = '';
+    // Reset any previous zoom so we measure natural size
+    content.style.zoom = '';
 
     // Wait a frame for layout to settle (images, embeds)
     requestAnimationFrame(() => {
@@ -5302,12 +5300,21 @@ export class ResultViewer extends LitElement {
       const viewH = viewport.clientHeight - padV;
       const viewW = viewport.clientWidth - padH;
       const contentH = content.scrollHeight;
+      const contentW = content.scrollWidth;
 
-      if (contentH <= 0 || viewH <= 0 || contentH <= viewH) return; // fits or invalid
+      if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) return;
 
-      const scale = Math.max(0.55, viewH / contentH);
-      content.style.transformOrigin = 'top center';
-      content.style.transform = `scale(${scale})`;
+      // Scale to fit: zoom up or down so content fills the viewport
+      // Use zoom instead of transform so embedded components scale too
+      const scaleH = viewH / contentH;
+      const scaleW = viewW / contentW;
+      const zoom = Math.min(scaleH, scaleW);
+
+      // Clamp: don't go below 0.5 or above 2.5
+      const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
+      if (Math.abs(clampedZoom - 1) > 0.02) {
+        content.style.zoom = String(clampedZoom);
+      }
     });
   }
 
