@@ -4720,10 +4720,9 @@ export class ResultViewer extends LitElement {
         <div class="slides-viewport">
           <div class="slides-content">${unsafeHTML(slideHtml)}</div>
         </div>
-        ${footerText || showPaginate
+        ${footerText
           ? html`<div class="slides-footer">
               <span>${footerText}</span>
-              ${showPaginate ? html`<span>${idx + 1} / ${total}</span>` : ''}
             </div>`
           : ''}
         <div class="slides-controls">
