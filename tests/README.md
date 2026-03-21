@@ -79,7 +79,7 @@ import { MCPTestClient, validators } from '../src/test-client.js';
 const client = new MCPTestClient();
 
 // Start MCP server
-await client.start('node', ['dist/cli.js', 'examples/your-mcp.photon.ts'], {
+await client.start('node', ['dist/cli.js', 'your-mcp.photon.ts'], {
   ENV_VAR: 'value',
 });
 

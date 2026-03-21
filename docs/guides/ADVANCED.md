@@ -1006,4 +1006,4 @@ export default class RealtimeData {
 - [MCP Protocol Specification](https://modelcontextprotocol.io/docs)
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/)
 - [Node.js Best Practices](https://github.com/goldbergyoni/nodebestpractices)
-- [Photon Examples](./examples/)
+- [Photon Examples](https://github.com/portel-dev/photon-examples)

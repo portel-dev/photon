@@ -773,7 +773,7 @@ Renderers auto-detect dark/light mode from the host theme. Colors, borders, and 
 
 ### Example Photon
 
-See `examples/render-showcase.photon.ts` for a complete working example with all 11 format types rendered in a custom dashboard.
+See [render-showcase.photon.ts](https://github.com/portel-dev/photon-examples/blob/main/local/render-showcase.photon.ts) for a complete working example with all 11 format types rendered in a custom dashboard.
 
 ---
 

@@ -340,7 +340,7 @@ renderer.renderProgress(value, total);
 ## Examples
 
 See:
-- `examples/` folder for example Photon implementations
+- [photon-examples](https://github.com/portel-dev/photon-examples) for example Photon implementations
 - `photon beam` command for interactive demos
 - Tests in `tests/` for component usage
 

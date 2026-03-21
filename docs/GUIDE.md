@@ -2353,7 +2353,7 @@ MY_TOOL_DEBUG=true photon my-tool --dev
 
 ### Getting Help
 
-1. **Check examples:** `examples/` directory has working MCPs
+1. **Check examples:** [photon-examples](https://github.com/portel-dev/photon-examples) has working MCPs
 2. **Read logs:** stderr output shows detailed error messages
 3. **Validate:** Use `photon maker validate my-tool`
 4. **GitHub Issues:** https://github.com/portel-dev/photon/issues
@@ -2446,7 +2446,7 @@ Compile with esbuild's bundling (automatic in Photon).
 **Next Steps:**
 
 1. Create your first MCP: `photon maker new my-tool`
-2. Study examples: `examples/` directory
+2. Study examples: [photon-examples](https://github.com/portel-dev/photon-examples)
 3. Test in dev mode: `photon mcp my-tool --dev`
 4. Deploy to Claude Desktop: `photon info my-tool --mcp`
 
