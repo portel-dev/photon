@@ -30,6 +30,38 @@ import type {
   PhotonTsWorkerResponse,
 } from '../../../editor-support/photon-ts-protocol.js';
 
+export interface PhotonTsCodeFixFile {
+  kind: 'source' | 'project';
+  filePath: string;
+  source: string;
+  changeCount: number;
+}
+
+export interface PhotonTsCodeFix {
+  description: string;
+  files: PhotonTsCodeFixFile[];
+}
+
+export interface PhotonTsSignatureHelp {
+  items: Array<{
+    prefix: string;
+    suffix: string;
+    separator: string;
+    parameters: Array<{ text: string; documentation?: string }>;
+    documentation?: string;
+  }>;
+  activeItem: number;
+  activeParameter: number;
+}
+
+export interface PhotonTsOutlineItem {
+  text: string;
+  kind: string;
+  from: number;
+  to: number;
+  level: number;
+}
+
 interface WorkerSuccess<T> {
   id: number;
   ok: true;
@@ -131,6 +163,44 @@ export class PhotonTsWorkerClient {
 
   outline(filePath: string, source: string): Promise<PhotonTsOutlineItem[]> {
     return this.session.outline(filePath, source);
+  }
+
+  codeFixes(
+    filePath: string,
+    source: string,
+    from: number,
+    to: number,
+    errorCode: number
+  ): Promise<PhotonTsCodeFix[]> {
+    return this.request<{ fixes: PhotonTsCodeFix[] }>({
+      type: 'codeFixes',
+      filePath,
+      source,
+      from,
+      to,
+      errorCode,
+    }).then((r) => r.fixes);
+  }
+
+  signatureHelp(
+    filePath: string,
+    source: string,
+    pos: number
+  ): Promise<PhotonTsSignatureHelp | null> {
+    return this.request<{ signatureHelp: PhotonTsSignatureHelp | null }>({
+      type: 'signatureHelp',
+      filePath,
+      source,
+      pos,
+    }).then((r) => r.signatureHelp);
+  }
+
+  outline(filePath: string, source: string): Promise<PhotonTsOutlineItem[]> {
+    return this.request<{ outline: PhotonTsOutlineItem[] }>({
+      type: 'outline',
+      filePath,
+      source,
+    }).then((r) => r.outline);
   }
 
   async completions(

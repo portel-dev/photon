@@ -23,6 +23,9 @@ import { readdir, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, extname, resolve, normalize } from 'path';
 import { homedir } from 'os';
 import { PHOTON_VERSION } from '../version.js';
+import { AGUIEventType } from '../ag-ui/types.js';
+import { proxyExternalAgent, createAGUIOutputHandler } from '../ag-ui/adapter.js';
+import type { RunAgentInput } from '../ag-ui/types.js';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -35,8 +38,20 @@ import type {
   ExternalMCPInfo,
 } from './types.js';
 import { buildToolMetadataExtensions } from './types.js';
+import { generateServerCard } from '../server-card.js';
 import { audit } from '../shared/audit.js';
 import { writePhotonEditorDeclaration } from '../photon-editor-declarations.js';
+import {
+  createTask,
+  getTask,
+  updateTask,
+  listTasks,
+  cleanExpiredTasks,
+  registerController,
+  unregisterController,
+  getController,
+} from '../tasks/store.js';
+import { generateAgentCard } from '../a2a/card-generator.js';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // JWT HELPERS
@@ -111,6 +126,109 @@ interface PendingElicitation {
   timer?: ReturnType<typeof setTimeout>;
 }
 const pendingElicitations = new Map<string, PendingElicitation>();
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PERSISTENT APPROVALS — durable HITL that survives navigation/restart
+// ════════════════════════════════════════════════════════════════════════════════
+
+interface PersistentApproval {
+  id: string;
+  runId?: string;
+  photon: string;
+  method: string;
+  message: string;
+  preview?: unknown;
+  destructive?: boolean;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+}
+
+const APPROVALS_DIR = join(homedir(), '.photon', 'state');
+
+function approvalsPath(photonName: string): string {
+  return join(APPROVALS_DIR, photonName, 'approvals.json');
+}
+
+async function loadApprovals(photonName: string): Promise<PersistentApproval[]> {
+  try {
+    const data = await readFile(approvalsPath(photonName), 'utf-8');
+    return JSON.parse(data) as PersistentApproval[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveApprovals(photonName: string, approvals: PersistentApproval[]): Promise<void> {
+  const dir = dirname(approvalsPath(photonName));
+  const { mkdirSync } = await import('fs');
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    /* exists */
+  }
+  await writeFile(approvalsPath(photonName), JSON.stringify(approvals, null, 2));
+}
+
+async function addApproval(approval: PersistentApproval): Promise<void> {
+  const approvals = await loadApprovals(approval.photon);
+  approvals.push(approval);
+  await saveApprovals(approval.photon, approvals);
+}
+
+async function resolveApproval(
+  photonName: string,
+  approvalId: string,
+  status: 'approved' | 'rejected'
+): Promise<PersistentApproval | undefined> {
+  const approvals = await loadApprovals(photonName);
+  const idx = approvals.findIndex((a) => a.id === approvalId);
+  if (idx === -1) return undefined;
+  approvals[idx].status = status;
+  await saveApprovals(photonName, approvals);
+  return approvals[idx];
+}
+
+async function getAllPendingApprovals(photonNames: string[]): Promise<PersistentApproval[]> {
+  const all: PersistentApproval[] = [];
+  const now = new Date().toISOString();
+  for (const name of photonNames) {
+    const approvals = await loadApprovals(name);
+    for (const a of approvals) {
+      if (a.status === 'pending') {
+        // Auto-expire
+        if (a.expiresAt && a.expiresAt < now) {
+          a.status = 'expired';
+        } else {
+          all.push(a);
+        }
+      }
+    }
+    // Persist any expirations
+    if (approvals.some((a) => a.status === 'expired')) {
+      await saveApprovals(name, approvals);
+    }
+  }
+  return all;
+}
+
+function parseDurationToMs(duration: string): number {
+  const match = duration.match(/^(\d+)(s|m|h|d)$/);
+  if (!match) return 5 * 60 * 1000; // default 5 min
+  const value = parseInt(match[1], 10);
+  switch (match[2]) {
+    case 's':
+      return value * 1000;
+    case 'm':
+      return value * 60 * 1000;
+    case 'h':
+      return value * 60 * 60 * 1000;
+    case 'd':
+      return value * 24 * 60 * 60 * 1000;
+    default:
+      return 5 * 60 * 1000;
+  }
+}
 
 // Clean up old sessions periodically (30 min timeout)
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -292,6 +410,27 @@ interface HandlerContext {
  * Mirrors server.ts formatResult(): strings returned as-is, objects/arrays JSON-stringified,
  * other primitives converted via String().
  */
+/**
+ * Extract tool arguments from AG-UI messages.
+ * Uses the last user message content, attempting JSON parse first.
+ */
+function extractArgsFromMessages(
+  messages?: Array<{ role: string; content: string }>
+): Record<string, unknown> | undefined {
+  if (!messages || messages.length === 0) return undefined;
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  if (!lastUser) return undefined;
+  try {
+    const parsed = JSON.parse(lastUser.content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON — wrap as message arg
+  }
+  return { message: lastUser.content };
+}
+
 function formatResultText(result: any): string {
   if (result === undefined || result === null) return 'Done';
   if (typeof result === 'string') return result;
@@ -373,6 +512,13 @@ const handlers: Record<string, RequestHandler> = {
           tools: { listChanged: true },
           prompts: { listChanged: true },
           resources: { listChanged: true },
+          tasks: {},
+          experimental: {
+            'ag-ui': {
+              version: '0.1.0',
+              events: Object.values(AGUIEventType),
+            },
+          },
         },
         // SEP-1596 inspired: configuration schema for unconfigured photons
         // Uses JSON Schema for rich UI generation
@@ -385,6 +531,136 @@ const handlers: Record<string, RequestHandler> = {
   'notifications/initialized': async (req, session) => {
     // Notification - no response needed
     return { jsonrpc: '2.0' } as JSONRPCResponse;
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AG-UI Protocol
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  'ag-ui/run': async (req, session, ctx) => {
+    const params = req.params as {
+      agentUrl?: string;
+      photon?: string;
+      method?: string;
+      input: RunAgentInput;
+    };
+
+    if (!params?.input) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required field: input (RunAgentInput)' },
+      } as JSONRPCResponse;
+    }
+
+    if (!ctx.broadcast) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32600, message: 'No SSE connection for AG-UI event streaming' },
+      } as JSONRPCResponse;
+    }
+
+    const broadcast = ctx.broadcast;
+
+    // ── Proxy mode: forward to external AG-UI agent ──
+    if (params.agentUrl) {
+      try {
+        await proxyExternalAgent(params.agentUrl, params.input, broadcast);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        broadcast({
+          jsonrpc: '2.0',
+          method: 'ag-ui/event',
+          params: {
+            type: AGUIEventType.RUN_ERROR,
+            message: `Proxy error: ${message}`,
+            timestamp: Date.now(),
+          },
+        });
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: { success: true },
+      };
+    }
+
+    // ── Local mode: execute photon method with AG-UI events ──
+    if (!params.photon || !params.method) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: {
+          code: -32602,
+          message: 'Either agentUrl (proxy) or photon+method (local) must be provided',
+        },
+      } as JSONRPCResponse;
+    }
+
+    const photonName = params.photon;
+    const methodName = params.method;
+    const runId = params.input.runId;
+
+    // Find the photon MCP instance
+    const mcp = ctx.photonMCPs.get(photonName);
+    if (!mcp) {
+      broadcast({
+        jsonrpc: '2.0',
+        method: 'ag-ui/event',
+        params: {
+          type: AGUIEventType.RUN_ERROR,
+          message: `Photon not found: ${photonName}`,
+          timestamp: Date.now(),
+        },
+      });
+      return { jsonrpc: '2.0', id: req.id, result: { success: false } };
+    }
+
+    const agui = createAGUIOutputHandler(photonName, methodName, runId, broadcast);
+
+    try {
+      // Build args from input messages (last user message content) or forwarded props
+      const args =
+        (params.input.forwardedProps as Record<string, unknown>) ||
+        extractArgsFromMessages(params.input.messages) ||
+        {};
+
+      let result: any;
+      if (ctx.loader) {
+        result = await ctx.loader.executeTool(mcp, methodName, args, {
+          outputHandler: agui.outputHandler,
+          caller: ctx.caller,
+        });
+      } else {
+        const method = mcp.instance[methodName];
+        if (typeof method !== 'function') {
+          agui.error(`Method not found: ${photonName}/${methodName}`);
+          return { jsonrpc: '2.0', id: req.id, result: { success: false } };
+        }
+        result = await method.call(mcp.instance, args);
+      }
+
+      // Handle async generators
+      if (result && typeof result[Symbol.asyncIterator] === 'function') {
+        const iterator = result[Symbol.asyncIterator]();
+        while (true) {
+          const { value, done } = await iterator.next();
+          if (done) {
+            agui.finish(value);
+            break;
+          }
+          agui.outputHandler(value);
+        }
+      } else {
+        agui.finish(result);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      agui.error(message);
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { success: true } };
   },
 
   // Handle elicitation response from frontend
@@ -423,6 +699,67 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0', id: req.id, result: { success: true } } as JSONRPCResponse;
   },
 
+  // Handle persistent approval response from approvals panel
+  'beam/approval-response': async (req, session, ctx) => {
+    const params = req.params as
+      | { approvalId?: string; photon?: string; approved?: boolean }
+      | undefined;
+
+    if (!params?.approvalId || !params?.photon) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing approvalId or photon' },
+      } as JSONRPCResponse;
+    }
+
+    const status = params.approved ? 'approved' : 'rejected';
+    const approval = await resolveApproval(params.photon, params.approvalId, status);
+
+    if (!approval) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Approval not found or already resolved' },
+      } as JSONRPCResponse;
+    }
+
+    // If the elicitation is still in-flight (user responded via panel before timeout),
+    // resolve it through the normal elicitation path
+    const pending = pendingElicitations.get(params.approvalId);
+    if (pending) {
+      pendingElicitations.delete(params.approvalId);
+      if (pending.timer) clearTimeout(pending.timer);
+      if (params.approved) {
+        pending.resolve(true);
+      } else {
+        pending.reject(new Error('Approval rejected by user'));
+      }
+    }
+
+    // Broadcast approval state change for UI updates
+    if (ctx.broadcast) {
+      ctx.broadcast({
+        jsonrpc: '2.0',
+        method: 'beam/approval-resolved',
+        params: { approvalId: params.approvalId, photon: params.photon, status },
+      });
+    }
+
+    return { jsonrpc: '2.0', id: req.id, result: { success: true, status } } as JSONRPCResponse;
+  },
+
+  // List all pending approvals (for sidebar badge)
+  'beam/approvals-list': async (req, session, ctx) => {
+    const photonNames = ctx.photons.map((p: any) => p.name);
+    const approvals = await getAllPendingApprovals(photonNames);
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: { approvals },
+    } as JSONRPCResponse;
+  },
+
   // Client notifies what resource they're viewing (for on-demand subscriptions)
   // photonId: hash of photon path (unique across servers)
   // itemId: whatever the photon uses to identify the item (e.g., board name)
@@ -441,8 +778,40 @@ const handlers: Record<string, RequestHandler> = {
     return { jsonrpc: '2.0' } as JSONRPCResponse;
   },
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // A2A Agent Card (via MCP transport)
+  // ─────────────────────────────────────────────────────────────────────────────
+  'a2a/card': async (req, session, ctx) => {
+    const configuredPhotons = ctx.photons
+      .filter((p): p is PhotonInfo => p.configured)
+      .filter((p) => !p.internal);
+    const card = generateAgentCard(
+      configuredPhotons.map((p) => ({
+        name: p.name,
+        description: p.description,
+        stateful: p.stateful,
+        icon: p.icon,
+        methods: p.methods.map((m) => ({
+          name: m.name,
+          description: m.description,
+          params: m.params,
+        })),
+      })),
+      { version: PHOTON_VERSION }
+    );
+    return { jsonrpc: '2.0', id: req.id, result: card } as JSONRPCResponse;
+  },
+
   ping: async (req) => {
     return { jsonrpc: '2.0', id: req.id, result: {} };
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Server Card (discovery via MCP)
+  // ─────────────────────────────────────────────────────────────────────────────
+  'server/card': async (req, _session, ctx) => {
+    const card = generateServerCard(ctx.photons);
+    return { jsonrpc: '2.0', id: req.id, result: card };
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1334,6 +1703,7 @@ const handlers: Record<string, RequestHandler> = {
       };
 
       // Create inputProvider to handle ask yields (elicitation)
+      // Supports persistent: true for durable approvals that survive navigation/restart
       const inputProvider = async (ask: any): Promise<any> => {
         if (!ctx.broadcast) {
           throw new Error('No broadcast connection for elicitation');
@@ -1341,6 +1711,10 @@ const handlers: Record<string, RequestHandler> = {
 
         // Generate unique elicitation ID
         const elicitationId = randomUUID();
+        const isPersistent = ask.persistent === true;
+
+        // Determine timeout: persistent asks use 'expires' field, default 5 min
+        const timeoutMs = isPersistent && ask.expires ? parseDurationToMs(ask.expires) : 300000;
 
         return new Promise((resolve, reject) => {
           // Store pending elicitation
@@ -1351,23 +1725,54 @@ const handlers: Record<string, RequestHandler> = {
           };
           pendingElicitations.set(elicitationId, pending);
 
+          // For persistent asks, write to approvals.json for durability
+          if (isPersistent) {
+            const approval: PersistentApproval = {
+              id: elicitationId,
+              photon: photonName,
+              method: methodName,
+              message: ask.message || `Confirm ${methodName}?`,
+              preview: ask.preview,
+              destructive: ask.destructive,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
+            };
+            // Write async — don't block the elicitation broadcast
+            addApproval(approval).catch(() => {});
+          }
+
           // Broadcast elicitation request to frontend
           ctx.broadcast!({
             jsonrpc: '2.0',
             method: 'beam/elicitation',
             params: {
               elicitationId,
+              persistent: isPersistent || undefined,
+              destructive: ask.destructive || undefined,
               ...ask,
             },
           });
 
-          // Timeout after 5 minutes (timer cleared on normal resolve)
-          pending.timer = setTimeout(() => {
-            if (pendingElicitations.has(elicitationId)) {
-              pendingElicitations.delete(elicitationId);
-              reject(new Error('Elicitation timeout - no response received'));
-            }
-          }, 300000);
+          // Timeout — for persistent asks, mark as pending (not reject)
+          pending.timer = setTimeout(
+            () => {
+              if (pendingElicitations.has(elicitationId)) {
+                pendingElicitations.delete(elicitationId);
+                if (isPersistent) {
+                  // Don't reject — the approval stays in approvals.json for later
+                  // Resolve with undefined to indicate "no immediate response"
+                  // The caller should check for this and handle gracefully
+                  reject(
+                    new Error('Approval pending — user can respond later via approvals panel')
+                  );
+                } else {
+                  reject(new Error('Elicitation timeout - no response received'));
+                }
+              }
+            },
+            isPersistent ? Math.min(timeoutMs, 60000) : 300000
+          ); // Persistent: shorter in-flight timeout (1 min), actual expiry handled by approvals.json
         });
       };
 
@@ -1561,11 +1966,47 @@ const handlers: Record<string, RequestHandler> = {
       }
     }
 
+    // Add pending approval resources (approval:// scheme)
+    const photonNames = ctx.photons.map((p: any) => p.name);
+    const pendingApprovals = await getAllPendingApprovals(photonNames);
+    for (const approval of pendingApprovals) {
+      resources.push({
+        uri: `approval://${approval.photon}/${approval.id}`,
+        name: `Pending: ${approval.message}`,
+        mimeType: 'application/json',
+        description: `Approval request from ${approval.photon}.${approval.method}`,
+      });
+    }
+
     return { jsonrpc: '2.0', id: req.id, result: { resources } };
   },
 
   'resources/read': async (req, session, ctx) => {
     const { uri } = req.params as { uri: string };
+
+    // Parse approval:// URI
+    const approvalMatch = uri.match(/^approval:\/\/([^/]+)\/(.+)$/);
+    if (approvalMatch) {
+      const [, photonName, approvalId] = approvalMatch;
+      const approvals = await loadApprovals(photonName);
+      const approval = approvals.find((a) => a.id === approvalId);
+      if (!approval) {
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `Approval not found: ${uri}` },
+        };
+      }
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          contents: [
+            { uri, mimeType: 'application/json', text: JSON.stringify(approval, null, 2) },
+          ],
+        },
+      };
+    }
 
     // Parse ui:// URI
     const match = uri.match(/^ui:\/\/([^/]+)\/(.+)$/);
@@ -1684,6 +2125,167 @@ const handlers: Record<string, RequestHandler> = {
         error: { code: -32603, message: `Prompt execution failed: ${message}` },
       };
     }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // MCP Tasks (2025-11-25 spec)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  'tasks/create': async (req, session, ctx) => {
+    const {
+      photon: photonName,
+      method: methodName,
+      params,
+    } = req.params as {
+      photon: string;
+      method: string;
+      params?: Record<string, unknown>;
+    };
+
+    if (!photonName || !methodName) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required params: photon, method' },
+      };
+    }
+
+    const mcp = ctx.photonMCPs.get(photonName);
+    if (!mcp) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Photon not found: ${photonName}` },
+      };
+    }
+
+    const task = createTask(photonName, methodName, params);
+    const controller = new AbortController();
+    registerController(task.id, controller);
+
+    // Run execution in background — don't await
+    const taskId = task.id;
+    void (async () => {
+      try {
+        let result: any;
+        if (ctx.loader) {
+          result = await ctx.loader.executeTool(mcp, methodName, params || {}, {
+            caller: ctx.caller,
+            signal: controller.signal,
+          });
+        } else {
+          const method = mcp.instance?.[methodName];
+          if (typeof method === 'function') {
+            result = await method.call(mcp.instance, params || {});
+          } else {
+            throw new Error(`Method ${methodName} not found on ${photonName}`);
+          }
+        }
+
+        // Handle async generators
+        if (result && typeof result[Symbol.asyncIterator] === 'function') {
+          const chunks: any[] = [];
+          const iterator = result[Symbol.asyncIterator]();
+          while (true) {
+            if (controller.signal.aborted) {
+              updateTask(taskId, { state: 'cancelled' });
+              unregisterController(taskId);
+              return;
+            }
+            const { value, done } = await iterator.next();
+            if (done) {
+              result = value !== undefined ? value : chunks;
+              break;
+            }
+            if (value?.emit === 'progress' && typeof value.percent === 'number') {
+              updateTask(taskId, {
+                progress: { percent: value.percent, message: value.message },
+              });
+            } else if (value?.ask) {
+              updateTask(taskId, { state: 'input_required' });
+            } else {
+              chunks.push(value);
+            }
+          }
+        }
+
+        if (!controller.signal.aborted) {
+          updateTask(taskId, { state: 'completed', result });
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          const message = err instanceof Error ? err.message : String(err);
+          updateTask(taskId, { state: 'failed', error: message });
+        }
+      } finally {
+        unregisterController(taskId);
+      }
+    })();
+
+    return {
+      jsonrpc: '2.0',
+      id: req.id,
+      result: { task: { id: task.id, state: task.state, createdAt: task.createdAt } },
+    };
+  },
+
+  'tasks/get': async (req, _session, _ctx) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required param: id' },
+      };
+    }
+    const task = getTask(id);
+    if (!task) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${id}` },
+      };
+    }
+    return { jsonrpc: '2.0', id: req.id, result: { task } };
+  },
+
+  'tasks/list': async (req, _session, _ctx) => {
+    const { photon: photonFilter } = (req.params || {}) as { photon?: string };
+    const tasks = listTasks(photonFilter);
+    return { jsonrpc: '2.0', id: req.id, result: { tasks } };
+  },
+
+  'tasks/cancel': async (req, _session, _ctx) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: 'Missing required param: id' },
+      };
+    }
+    const task = getTask(id);
+    if (!task) {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Task not found: ${id}` },
+      };
+    }
+    if (task.state !== 'working' && task.state !== 'input_required') {
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        error: { code: -32602, message: `Cannot cancel task in state: ${task.state}` },
+      };
+    }
+    const controller = getController(id);
+    if (controller) {
+      controller.abort();
+    }
+    const updated = updateTask(id, { state: 'cancelled' });
+    unregisterController(id);
+    return { jsonrpc: '2.0', id: req.id, result: { task: updated } };
   },
 };
 

@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
+import { startToolSpan } from './telemetry/otel.js';
 import { spawn } from 'child_process';
 import {
   Photon,
@@ -3151,7 +3152,30 @@ Run: photon mcp ${mcpName} --config
     const audit = getAuditTrail();
     const { finish: auditFinish } = audit.start(mcp.name, toolName, parameters || {});
 
+    // Start OTel span for tool execution (no-op if SDK not installed)
+    const span = startToolSpan(mcp.name, toolName, parameters);
+    if (mcp.instance?.instanceName) {
+      span.setAttribute('photon.instance', mcp.instance.instanceName);
+    }
+    if (options?.caller) {
+      span.setAttribute('photon.caller', JSON.stringify(options.caller));
+    }
+
     try {
+      // Extract _clientState from args before schema validation
+      // This is auto-injected by the bridge when custom UI has widgetState set
+      let clientState: Record<string, unknown> | undefined;
+      if (parameters && typeof parameters === 'object' && '_clientState' in parameters) {
+        clientState = parameters._clientState as Record<string, unknown>;
+        parameters = { ...parameters };
+        delete parameters._clientState;
+      }
+
+      // Make client state available on the instance for this execution
+      if (mcp.instance && clientState !== undefined) {
+        mcp.instance._clientState = clientState;
+      }
+
       // Check for configuration errors before executing tool
       if (mcp.instance._photonConfigError) {
         throw new Error(mcp.instance._photonConfigError);
@@ -3163,6 +3187,7 @@ Run: photon mcp ${mcpName} --config
           outputHandler: options?.outputHandler,
           inputProvider: options?.inputProvider,
         });
+        span.setStatus('OK');
         auditFinish(result);
         return result;
       }
@@ -3213,6 +3238,7 @@ Run: photon mcp ${mcpName} --config
 
         const result = await executeBase();
         this.progressRenderer.done();
+        span.setStatus('OK');
         auditFinish(result);
 
         // CRITICAL FIX: Emit @stateful events at executeTool level
@@ -3415,6 +3441,7 @@ Run: photon mcp ${mcpName} --config
         if (execResult.runId) {
           error.runId = execResult.runId;
         }
+        span.setStatus('ERROR', error.message);
         auditFinish(null, error);
         throw error;
       }
@@ -3430,19 +3457,24 @@ Run: photon mcp ${mcpName} --config
           status: execResult.status,
           result: execResult.result,
         };
+        span.setStatus('OK');
         auditFinish(execResult.result);
         return wrappedResult;
       }
 
       // For ephemeral execution, return result directly
+      span.setStatus('OK');
       auditFinish(execResult.result);
       return execResult.result;
     } catch (error) {
       // Clear progress on error too
       this.progressRenderer.done();
+      span.setStatus('ERROR', error instanceof Error ? error.message : String(error));
       auditFinish(null, error as Error);
       this.logger.error(`Tool execution failed: ${toolName} - ${getErrorMessage(error)}`);
       throw error;
+    } finally {
+      span.end();
     }
   }
 

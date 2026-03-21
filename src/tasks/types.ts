@@ -1,11 +1,12 @@
 /**
- * MCP Task Types
+ * MCP Tasks Types
  *
- * Defines the shape of async tasks used for fire-and-forget operations.
- * Tasks persist to disk at ~/.photon/tasks/ as individual JSON files.
+ * Task state machine for async long-running operations (MCP 2025-11-25 spec).
+ * States: working → completed | failed | cancelled
+ *         working → input_required → working (when resuming)
  */
 
-export type TaskState = 'working' | 'completed' | 'failed' | 'cancelled';
+export type TaskState = 'working' | 'input_required' | 'completed' | 'failed' | 'cancelled';
 
 export interface Task {
   id: string;
@@ -13,7 +14,7 @@ export interface Task {
   method: string;
   params?: Record<string, unknown>;
   state: TaskState;
-  progress?: number;
+  progress?: { percent: number; message?: string };
   result?: unknown;
   error?: string;
   createdAt: string;

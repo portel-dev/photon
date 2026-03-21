@@ -201,12 +201,12 @@ await test('updateTask transitions state and adds result', () => {
   const updated = updateTask(task.id, {
     state: 'completed',
     result: { answer: 42 },
-    progress: 1.0,
+    progress: { percent: 1.0, message: 'Done' },
   });
   assert(updated !== null, 'Should return updated task');
   assert(updated!.state === 'completed', 'State should be completed');
   assert((updated!.result as any).answer === 42, 'Should have result');
-  assert(updated!.progress === 1.0, 'Should have progress 1.0');
+  assert(updated!.progress?.percent === 1.0, 'Should have progress 1.0');
 });
 
 await test('updateTask can set failed state with error', () => {

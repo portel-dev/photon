@@ -1306,6 +1306,18 @@ export class PhotonStudio extends LitElement {
     return 1;
   }
 
+  private _findFirstChangedLine(previousSource: string, nextSource: string): number {
+    const previousLines = previousSource.split('\n');
+    const nextLines = nextSource.split('\n');
+    const max = Math.max(previousLines.length, nextLines.length);
+    for (let index = 0; index < max; index++) {
+      if ((previousLines[index] || '') !== (nextLines[index] || '')) {
+        return index + 1;
+      }
+    }
+    return 1;
+  }
+
   private async _renameSymbol(pos = this._editorView?.state.selection.main.head ?? 0) {
     if (!this._tsWorkerClient || !this._filePath) return;
 

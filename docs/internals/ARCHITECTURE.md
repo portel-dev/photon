@@ -441,6 +441,7 @@ All clients use the same daemon session ID (`shared-{photonName}`) for stateful 
 | CLI ↔ Photon (stateless) | Direct method call | In-process |
 | CLI ↔ Photon (`@stateful`) | Daemon Unix Socket | Shared session via daemon |
 | Beam ↔ Photon (`@stateful`) | Daemon Unix Socket | Routed through daemon for shared instance |
+| External Agent ↔ Beam | AG-UI over MCP | `ag-ui/run` + `ag-ui/event` notifications |
 
 ### Real-Time Flow
 
@@ -626,6 +627,135 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ---
 
+## Protocol Interoperability
+
+Photon's protocol stack aligns with the emerging industry standard layers:
+
+| Layer | Standard | Photon Implementation |
+|-------|----------|----------------------|
+| Agent ↔ Tool | **MCP** (Anthropic) | Core protocol — every `.photon.ts` is an MCP server |
+| Agent ↔ UI | **AG-UI** (open protocol) | Adapter layer on MCP transport — `ag-ui/run` + `ag-ui/event` |
+| Async Operations | **MCP Tasks** | `tasks/create` + `tasks/get` — non-blocking long-running methods |
+| Server Discovery | **MCP Server Cards** | `GET /.well-known/mcp-server` — auto-generated from photon metadata |
+| Agent ↔ Agent | **A2A** (Google) | `GET /.well-known/agent.json` — Agent Cards with skills from methods |
+| Observability | **OTel GenAI** (CNCF) | `gen_ai.tool.call` spans on `executeTool` — opt-in via `@opentelemetry/api` |
+
+### AG-UI Protocol Support
+
+AG-UI events flow as MCP notifications over the existing SSE transport. No separate endpoint.
+
+**Two modes:**
+
+1. **Proxy** — external AG-UI agents (LangGraph, CrewAI, Google ADK, etc.) stream through Beam:
+   ```
+   ag-ui/run { agentUrl: "https://agent.example.com", input: RunAgentInput }
+   → proxies SSE events as ag-ui/event MCP notifications
+   ```
+
+2. **Local** — Photon methods emit AG-UI-compatible events:
+   ```
+   ag-ui/run { photon: "name", method: "tool", input: RunAgentInput }
+   → wraps yields (stream, progress, emit) as AG-UI events
+   ```
+
+**Event mapping:**
+
+| Photon Yield | AG-UI Event |
+|---|---|
+| Stream chunks (strings) | `TEXT_MESSAGE_START` / `CONTENT` / `END` |
+| `yield { emit: 'progress' }` | `STEP_STARTED` / `STEP_FINISHED` |
+| Channel events (patches) | `STATE_DELTA` (RFC 6902 JSON Patch) |
+| `this.emit()` | `CUSTOM` event |
+| Tool result | `STATE_SNAPSHOT` + `RUN_FINISHED` |
+| Error | `RUN_ERROR` |
+
+**Spec compliance:**
+- MCP: Custom notifications are legal per JSON-RPC 2.0. Advertised via `experimental.ag-ui` capability.
+- AG-UI: Transport-agnostic by design. Events arrive in order via SSE. Terminal event guaranteed.
+
+**Files:** `src/ag-ui/types.ts`, `src/ag-ui/adapter.ts`, handler in `streamable-http-transport.ts`
+
+### Bidirectional State Exposure
+
+Custom UIs passively expose context to photon methods via `_clientState`:
+
+```
+UI sets widgetState → bridge auto-attaches as _clientState →
+loader strips before schema validation → available as this._clientState
+```
+
+CLI calls without widgetState work unchanged — the field is optional.
+
+### Persistent Approval Queue
+
+Durable human-in-the-loop that survives navigation and restart:
+
+```
+yield { ask: 'confirm', persistent: true, expires: '24h' }
+→ written to ~/.photon/state/{photon}/approvals.json
+→ exposed as approval:// MCP resources
+→ resolved via beam/approval-response
+```
+
+### MCP Tasks (Async Long-Running Operations)
+
+Non-blocking execution for methods that take time. Client gets a task ID immediately, polls for completion.
+
+```
+tasks/create { photon: "name", method: "tool", arguments: {...} }
+→ returns { taskId: "task_xxx", state: "working" }
+
+tasks/get { taskId: "task_xxx" }
+→ returns { state: "completed", result: {...} }
+```
+
+**Task states:** `working` → `completed` | `failed` | `cancelled`. Generator yields update progress; `yield { ask: ... }` sets `input_required`.
+
+**Storage:** `~/.photon/tasks/{taskId}.json`
+
+**Files:** `src/tasks/types.ts`, `src/tasks/store.ts`, handlers in `streamable-http-transport.ts`
+
+### MCP Server Cards (Discovery)
+
+Auto-generated metadata describing the server's capabilities, photons, and tools — enabling discovery without connecting.
+
+```
+GET /.well-known/mcp-server → ServerCard JSON
+```
+
+Also available via MCP: `server/card` handler.
+
+**Files:** `src/server-card.ts`, route in `beam.ts`
+
+### A2A Agent Cards (Multi-Agent Discovery)
+
+Each Beam instance is discoverable as an A2A agent. Photon methods become A2A skills.
+
+```
+GET /.well-known/agent.json → AgentCard JSON
+```
+
+Also available via MCP: `a2a/card` handler.
+
+**Capabilities auto-detected:** `tool_execution`, `stateful`, `streaming`, `ag-ui`
+
+**Files:** `src/a2a/types.ts`, `src/a2a/card-generator.ts`, route in `beam.ts`
+
+### OpenTelemetry GenAI (Observability)
+
+Optional instrumentation using OTel GenAI semantic conventions. Zero cost when `@opentelemetry/api` is not installed — falls back to no-op spans.
+
+```
+executeTool("photon", "method", params)
+→ creates span: gen_ai.tool.call { gen_ai.agent.name, gen_ai.tool.name, gen_ai.operation.name }
+```
+
+**Attributes:** `gen_ai.agent.name`, `gen_ai.tool.name`, `gen_ai.operation.name`, `photon.instance`, `photon.stateful`, `photon.caller`
+
+**Files:** `src/telemetry/otel.ts`, instrumentation in `src/loader.ts`
+
+---
+
 ## Related Documentation
 
 - [DAEMON-PUBSUB.md](./DAEMON-PUBSUB.md) - Detailed pub/sub protocol
@@ -634,4 +764,4 @@ Run manually: `bash .git/hooks/pre-commit`
 
 ---
 
-*Last updated: February 2026*
+*Last updated: March 2026*

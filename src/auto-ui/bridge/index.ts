@@ -307,6 +307,10 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
       if (options && options.instance !== undefined) {
         callArgs = Object.assign({}, callArgs, { _targetInstance: options.instance });
       }
+      // Auto-attach widgetState as _clientState so photon methods can see UI context
+      if (widgetState && Object.keys(widgetState).length > 0) {
+        callArgs = Object.assign({}, callArgs, { _clientState: widgetState });
+      }
       postToHost({
         jsonrpc: '2.0',
         id: callId,

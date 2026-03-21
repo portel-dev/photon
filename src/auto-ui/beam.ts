@@ -138,6 +138,7 @@ import {
   generateTemplateEngineCSS,
 } from './rendering/template-engine.js';
 import { generateOpenAPISpec } from './openapi-generator.js';
+import { generateServerCard } from '../server-card.js';
 import {
   handleStreamableHTTP,
   broadcastNotification,
@@ -198,6 +199,7 @@ import {
 } from './beam/photon-management.js';
 export type { PhotonConfig } from './beam/types.js';
 export type { BeamState } from './beam/types.js';
+import { generateAgentCard } from '../a2a/card-generator.js';
 
 // Note: PhotonInfo, UnconfiguredPhotonInfo, AnyPhotonInfo, ConfigParam, MethodInfo,
 // InvokeRequest, ConfigureRequest, ElicitationResponse, CancelRequest, ReloadRequest,
@@ -1130,6 +1132,39 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       });
 
       // ══════════════════════════════════════════════════════════════════════════
+      // A2A Agent Card Discovery (Google A2A Protocol)
+      // Returns Agent Card describing this agent's capabilities and skills
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/.well-known/agent.json') {
+        const configuredPhotons = photons
+          .filter((p): p is PhotonInfo => p.configured)
+          .filter((p) => !p.internal);
+        const card = generateAgentCard(
+          configuredPhotons.map((p) => ({
+            name: p.name,
+            description: p.description,
+            stateful: p.stateful,
+            icon: p.icon,
+            methods: p.methods.map((m) => ({
+              name: m.name,
+              description: m.description,
+              params: m.params,
+            })),
+          })),
+          {
+            baseUrl: `http://${req.headers.host}`,
+            version: PHOTON_VERSION,
+          }
+        );
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify(card));
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
       // MCP OAuth Protected Resource Metadata (RFC 9728)
       // Tells MCP clients where to authenticate when @auth is required
       // ══════════════════════════════════════════════════════════════════════════
@@ -1161,6 +1196,18 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(prm));
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // MCP Server Card (discovery metadata)
+      // Returns JSON describing this server's capabilities, tools, and photons
+      // ══════════════════════════════════════════════════════════════════════════
+      if (url.pathname === '/.well-known/mcp-server') {
+        const baseUrl = `http://${req.headers.host}`;
+        const card = generateServerCard(photons, { baseUrl });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(card));
         return;
       }
 

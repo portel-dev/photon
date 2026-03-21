@@ -15,6 +15,7 @@ import {
   warning as warningIcon,
   xMark,
   docs,
+  shieldCheck,
 } from '../icons.js';
 
 interface PhotonItem {
@@ -530,6 +531,26 @@ export class BeamSidebar extends LitElement {
         flex-shrink: 0;
       }
 
+      .approval-badge-btn {
+        position: relative;
+      }
+
+      .approval-badge {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        font-size: 9px;
+        min-width: 14px;
+        height: 14px;
+        line-height: 14px;
+        text-align: center;
+        padding: 0 3px;
+        background: hsl(30, 90%, 50%);
+        color: white;
+        border-radius: 7px;
+        font-weight: 700;
+      }
+
       .marketplace-btn {
         width: 100%;
         margin-top: var(--space-md);
@@ -761,6 +782,9 @@ export class BeamSidebar extends LitElement {
 
   @property({ type: Number })
   updatesAvailable = 0;
+
+  @property({ type: Number })
+  pendingApprovals = 0;
 
   @state()
   private _searchQuery = '';
@@ -1103,6 +1127,22 @@ export class BeamSidebar extends LitElement {
       </nav>
 
       <div class="sidebar-footer">
+        ${this.pendingApprovals > 0
+          ? html`
+              <button
+                class="footer-link approval-badge-btn"
+                @click=${() =>
+                  this.dispatchEvent(
+                    new CustomEvent('show-approvals', { bubbles: true, composed: true })
+                  )}
+                title="Pending approvals (${this.pendingApprovals})"
+                aria-label="Show pending approvals"
+              >
+                ${shieldCheck}
+                <span class="approval-badge">${this.pendingApprovals}</span>
+              </button>
+            `
+          : ''}
         <button
           class="footer-link"
           @click=${() =>
