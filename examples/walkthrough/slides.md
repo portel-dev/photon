@@ -110,12 +110,12 @@ main() {
 
 # Beam Generates the UI and CLI
 
-<div style="display:grid;grid-template-columns:0.96fr 1.04fr;gap:28px;align-items:start;">
+<div style="display:grid;grid-template-columns:0.96fr 1.04fr;gap:20px;align-items:start;">
   <div>
-    <p style="font-size:1.08em;opacity:0.86;margin:0 0 0.9em;">
+    <p style="font-size:0.95em;opacity:0.86;margin:0 0 0.7em;">
       Once your method has typed params, Beam gives you:
     </p>
-    <ul style="font-size:1.02em;line-height:1.65;margin:0 0 1.2em 1.1em;">
+    <ul style="font-size:0.9em;line-height:1.5;margin:0 0 0.8em 1.1em;">
       <li>a form with the right input widgets</li>
       <li>a live CLI command you can copy</li>
       <li>the same tool callable from Beam, CLI, and MCP</li>
@@ -123,14 +123,14 @@ main() {
     <img
       src="beam-search-cli.png"
       alt="CLI preview in Beam"
-      style="width:100%;display:block;border-radius:14px;box-shadow:0 16px 36px rgba(0,0,0,0.2);"
+      style="width:100%;max-height:140px;object-fit:contain;display:block;border-radius:12px;box-shadow:0 12px 28px rgba(0,0,0,0.2);"
     />
   </div>
   <div>
     <img
       src="beam-search-panel.png"
       alt="Beam form and CLI preview"
-      style="width:100%;display:block;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,0.28);"
+      style="width:100%;max-height:320px;object-fit:contain;display:block;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,0.28);"
     />
   </div>
 </div>
@@ -243,8 +243,11 @@ export default class TodoList {
   </div>
   <div>
     <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">State persists to <code>~/.photon/state/</code></p>
-    <div data-embed="todo/add" data-embed-height="180"></div>
-    <div data-embed="todo/list" data-embed-height="180" style="margin-top:12px;"></div>
+    <ul style="font-size:0.88em;line-height:1.6;padding-left:1.2em;">
+      <li>Auto-emits events on every method call</li>
+      <li>Supports named instances (multiple boards, profiles)</li>
+      <li>Survives restarts — JSON files in the state dir</li>
+    </ul>
   </div>
 </div>
 
@@ -302,13 +305,13 @@ export default class TodoList {
   <div>
     <p style="font-size:0.85em;opacity:0.7;margin:0 0 8px;">Live — the same bindings work in slides too:</p>
     <div class="demo-box" style="background:rgba(128,128,128,0.1);border:1px solid rgba(128,128,128,0.2);border-radius:8px;padding:16px;margin:0;">
-      <button data-method="walkthrough/greet"
-              data-args='{"name":"Photon User"}'
-              data-target="#greet-result"
+      <button data-method="math/calculate"
+              data-args='{"expression":"sqrt(144) + 7"}'
+              data-target="#calc-result"
               style="padding:8px 20px;border-radius:6px;background:rgba(125,211,252,0.2);border:1px solid rgba(125,211,252,0.4);color:inherit;cursor:pointer;font-size:1em;">
-        Say Hello
+        Calculate sqrt(144) + 7
       </button>
-      <div id="greet-result" style="margin-top:12px;font-size:1.3em;min-height:1.5em;"></div>
+      <div id="calc-result" style="margin-top:12px;font-size:1.3em;min-height:1.5em;"></div>
     </div>
   </div>
 </div>

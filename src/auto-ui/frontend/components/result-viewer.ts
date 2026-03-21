@@ -4384,9 +4384,10 @@ export class ResultViewer extends LitElement {
       this._reRenderMermaidOnThemeChange();
     }
 
-    // Bind declarative data-method elements in slides after render
+    // Bind declarative data-method elements and auto-scale slides after render
     if (changedProperties.has('result') && this.layout === 'slides') {
       this._bindSlideElements();
+      this._autoScaleSlide();
     }
   }
 
@@ -4652,6 +4653,9 @@ export class ResultViewer extends LitElement {
     const total = slides.length;
     const idx = this._slidesCurrentIndex;
 
+    // Helper to strip surrounding quotes from YAML values
+    const stripQuotes = (s: string) => s.replace(/^["']|["']$/g, '');
+
     // Resolve base URL for relative paths (images, links)
     // Set via frontmatter: baseUrl: /custom/path/
     // Default: /api/assets/{photonName}/ (relative to photon's asset directory)
@@ -4696,8 +4700,6 @@ export class ResultViewer extends LitElement {
     const viewportStyle = bgOverride + colorOverride;
 
     const showPaginate = config.paginate === 'true';
-    // Strip surrounding quotes from header/footer (YAML values may include them)
-    const stripQuotes = (s: string) => s.replace(/^["']|["']$/g, '');
     const headerText = stripQuotes(config.header || '');
     const footerText = stripQuotes(config.footer || '');
 
@@ -4772,7 +4774,7 @@ export class ResultViewer extends LitElement {
           align-items: flex-start;
           justify-content: center;
           padding: 48px 64px;
-          overflow: auto;
+          overflow: hidden;
         }
         .slides-container:fullscreen .slides-viewport {
           flex: 1;
@@ -5270,8 +5272,36 @@ export class ResultViewer extends LitElement {
   }
 
   private _afterSlideRender(): void {
-    // Bind declarative data-method elements after slide content renders
-    void this.updateComplete.then(() => this._bindSlideElements());
+    void this.updateComplete.then(() => {
+      this._bindSlideElements();
+      this._autoScaleSlide();
+    });
+  }
+
+  private _autoScaleSlide(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const viewport = root.querySelector('.slides-viewport') as HTMLElement;
+    const content = root.querySelector('.slides-content') as HTMLElement;
+    if (!viewport || !content) return;
+
+    // Reset any previous scale
+    content.style.transform = '';
+
+    // Wait a frame for layout to settle (images, embeds)
+    requestAnimationFrame(() => {
+      const padV = 96; // 48px top + 48px bottom padding
+      const padH = 128; // 64px left + 64px right padding
+      const viewH = viewport.clientHeight - padV;
+      const viewW = viewport.clientWidth - padH;
+      const contentH = content.scrollHeight;
+
+      if (contentH <= 0 || viewH <= 0 || contentH <= viewH) return; // fits or invalid
+
+      const scale = Math.max(0.55, viewH / contentH);
+      content.style.transformOrigin = 'top center';
+      content.style.transform = `scale(${scale})`;
+    });
   }
 
   private _bindSlideElements(): void {
