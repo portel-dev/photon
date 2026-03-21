@@ -1,6 +1,7 @@
 ---
 marp: true
 theme: default
+transition: fade
 paginate: true
 header: "📖 Photon Walkthrough"
 footer: "portel.dev/photon"
@@ -279,3 +280,52 @@ Your photon works on every MCP client — zero changes needed.
 ### The philosophy:
 > Every method is a tool. Every file is a server.
 > No boilerplate. No configuration. Just build.
+
+---
+
+<!-- transition: slide -->
+
+# Interactive Slides
+
+Slides can make **live MCP calls** using `data-method` attributes.
+
+The same declarative binding system from `.photon.html` dashboards works inside slides — methods must be fully qualified: `photonName/methodName`.
+
+```html
+<div data-method="math/calculate"
+     data-args='{"expression":"2+2"}'>
+</div>
+```
+
+---
+
+<!-- transition: zoom -->
+
+# Live Demo
+
+<div class="demo-box">
+  <p>Click the button to run a live calculation:</p>
+  <button data-method="walkthrough/greet"
+          data-args='{"name":"Photon User"}'
+          data-target="#greet-result">
+    Say Hello
+  </button>
+  <div id="greet-result" style="margin-top:12px;font-size:1.3em;"></div>
+</div>
+
+---
+
+# Transition Types
+
+Slides support 6 transition types via frontmatter or per-slide comments:
+
+| Directive | Effect |
+|-----------|--------|
+| `transition: fade` | Opacity crossfade (default) |
+| `transition: slide` | Slide left/right |
+| `transition: cover` | New slide covers old |
+| `transition: reveal` | Old slide reveals new |
+| `transition: zoom` | Zoom in/out |
+| `transition: none` | Instant switch |
+
+Set globally in frontmatter or per-slide with `<!-- transition: type -->`

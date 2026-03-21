@@ -5,6 +5,7 @@ import { theme, Theme } from '../styles/theme.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
+import { mcpClient } from '../services/mcp-client.js';
 
 type LayoutType =
   | 'table'
@@ -4382,6 +4383,11 @@ export class ResultViewer extends LitElement {
     if (changedProperties.has('theme') && changedProperties.get('theme') !== undefined) {
       this._reRenderMermaidOnThemeChange();
     }
+
+    // Bind declarative data-method elements in slides after render
+    if (changedProperties.has('result') && this.layout === 'slides') {
+      this._bindSlideElements();
+    }
   }
 
   private _highlightCodeBlocks(blocks: { id: string; code: string; language: string }[]) {
@@ -4579,6 +4585,11 @@ export class ResultViewer extends LitElement {
 
   private _slidesCurrentIndex = 0;
   private _slidesFullscreen = false;
+  private _slidesDirection: 'forward' | 'backward' = 'forward';
+  private _slidesTransitions: Map<number, string> = new Map(); // per-slide transition overrides
+  private _slidesDefaultTransition = 'fade';
+  private _slidesBoundElements: Set<Element> = new Set();
+  private _slidesRefreshTimers: number[] = [];
 
   private _parseSlides(raw: string): {
     slides: string[];
@@ -4598,11 +4609,27 @@ export class ResultViewer extends LitElement {
       }
     }
 
+    // Extract global default transition from frontmatter
+    if (config.transition) {
+      this._slidesDefaultTransition = config.transition.split(/\s+/)[0] || 'fade';
+    } else {
+      this._slidesDefaultTransition = 'fade';
+    }
+
     // Split by --- slide separator (must be on its own line)
     const slides = content
       .split(/\n---\s*\n/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
+
+    // Parse per-slide transition overrides from HTML comments
+    this._slidesTransitions.clear();
+    slides.forEach((slide, i) => {
+      const match = slide.match(/<!--\s*transition:\s*(\w+)\s*-->/);
+      if (match) {
+        this._slidesTransitions.set(i, match[1]);
+      }
+    });
 
     // Default theme: match Beam's active theme (dark→default, light→uncover)
     const defaultTheme = 'auto';
@@ -4666,10 +4693,15 @@ export class ResultViewer extends LitElement {
     const headerText = config.header || '';
     const footerText = config.footer || '';
 
+    // Determine current transition for data attributes
+    const currentTransition = this._getSlideTransition(idx);
+
     return html`
       <div
         class="slides-container ${themeClass}"
         id="slides-root"
+        data-transition="${currentTransition}"
+        data-direction="${this._slidesDirection}"
         @keydown=${(e: KeyboardEvent) => this._slidesKeydown(e, total)}
         tabindex="0"
         style="${viewportStyle}"
@@ -4688,10 +4720,7 @@ export class ResultViewer extends LitElement {
           <button
             class="slides-btn"
             ?disabled=${idx === 0}
-            @click=${() => {
-              this._slidesCurrentIndex = idx - 1;
-              this.requestUpdate();
-            }}
+            @click=${() => this._slidesNavigate(idx - 1, total)}
           >
             ◀
           </button>
@@ -4699,10 +4728,7 @@ export class ResultViewer extends LitElement {
           <button
             class="slides-btn"
             ?disabled=${idx === total - 1}
-            @click=${() => {
-              this._slidesCurrentIndex = idx + 1;
-              this.requestUpdate();
-            }}
+            @click=${() => this._slidesNavigate(idx + 1, total)}
           >
             ▶
           </button>
@@ -4928,31 +4954,488 @@ export class ResultViewer extends LitElement {
         .slides-theme-dracula .slides-controls {
           background: #191a21;
         }
+
+        /* ═══ VIEW TRANSITIONS ═══ */
+        .slides-content {
+          view-transition-name: slide-content;
+        }
+
+        /* Fade */
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes fadeOut {
+          from {
+            opacity: 1;
+          }
+          to {
+            opacity: 0;
+          }
+        }
+
+        /* Slide */
+        @keyframes slideOutLeft {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-100%);
+          }
+        }
+        @keyframes slideInRight {
+          from {
+            transform: translateX(100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        @keyframes slideOutRight {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(100%);
+          }
+        }
+        @keyframes slideInLeft {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+
+        /* Cover */
+        @keyframes coverIn {
+          from {
+            transform: translateX(100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        @keyframes coverInReverse {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        @keyframes stayPut {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+
+        /* Reveal */
+        @keyframes revealOut {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-100%);
+          }
+        }
+        @keyframes revealOutReverse {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(100%);
+          }
+        }
+
+        /* Zoom */
+        @keyframes zoomIn {
+          from {
+            transform: scale(0.8);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        @keyframes zoomOut {
+          from {
+            transform: scale(1);
+            opacity: 1;
+          }
+          to {
+            transform: scale(1.2);
+            opacity: 0;
+          }
+        }
+
+        /* Transition: fade (default) */
+        ::view-transition-old(slide-content) {
+          animation: fadeOut 0.4s ease;
+        }
+        ::view-transition-new(slide-content) {
+          animation: fadeIn 0.4s ease;
+        }
+
+        /* Transition: slide forward */
+        :host([data-slides-transition='slide'][data-slides-direction='forward'])
+          ::view-transition-old(slide-content) {
+          animation: slideOutLeft 0.4s ease;
+        }
+        :host([data-slides-transition='slide'][data-slides-direction='forward'])
+          ::view-transition-new(slide-content) {
+          animation: slideInRight 0.4s ease;
+        }
+        :host([data-slides-transition='slide'][data-slides-direction='backward'])
+          ::view-transition-old(slide-content) {
+          animation: slideOutRight 0.4s ease;
+        }
+        :host([data-slides-transition='slide'][data-slides-direction='backward'])
+          ::view-transition-new(slide-content) {
+          animation: slideInLeft 0.4s ease;
+        }
+
+        /* Transition: cover */
+        :host([data-slides-transition='cover'][data-slides-direction='forward'])
+          ::view-transition-old(slide-content) {
+          animation: stayPut 0.4s ease;
+        }
+        :host([data-slides-transition='cover'][data-slides-direction='forward'])
+          ::view-transition-new(slide-content) {
+          animation: coverIn 0.4s ease;
+        }
+        :host([data-slides-transition='cover'][data-slides-direction='backward'])
+          ::view-transition-old(slide-content) {
+          animation: stayPut 0.4s ease;
+        }
+        :host([data-slides-transition='cover'][data-slides-direction='backward'])
+          ::view-transition-new(slide-content) {
+          animation: coverInReverse 0.4s ease;
+        }
+
+        /* Transition: reveal */
+        :host([data-slides-transition='reveal'][data-slides-direction='forward'])
+          ::view-transition-old(slide-content) {
+          animation: revealOut 0.4s ease;
+        }
+        :host([data-slides-transition='reveal'][data-slides-direction='forward'])
+          ::view-transition-new(slide-content) {
+          animation: stayPut 0.4s ease;
+        }
+        :host([data-slides-transition='reveal'][data-slides-direction='backward'])
+          ::view-transition-old(slide-content) {
+          animation: revealOutReverse 0.4s ease;
+        }
+        :host([data-slides-transition='reveal'][data-slides-direction='backward'])
+          ::view-transition-new(slide-content) {
+          animation: stayPut 0.4s ease;
+        }
+
+        /* Transition: zoom */
+        :host([data-slides-transition='zoom']) ::view-transition-old(slide-content) {
+          animation: zoomOut 0.4s ease;
+        }
+        :host([data-slides-transition='zoom']) ::view-transition-new(slide-content) {
+          animation: zoomIn 0.4s ease;
+        }
+
+        /* ═══ DECLARATIVE BINDING STYLES ═══ */
+        .slides-content [data-method] {
+          position: relative;
+        }
+        .slides-content [data-method].loading::after {
+          content: '';
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(128, 128, 128, 0.3);
+          border-top-color: currentColor;
+          border-radius: 50%;
+          animation: spin 0.6s linear infinite;
+          margin-left: 8px;
+          vertical-align: middle;
+        }
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .slides-content [data-method].error {
+          color: #f87171;
+          font-style: italic;
+        }
+        .slides-content .demo-box {
+          background: rgba(128, 128, 128, 0.1);
+          border: 1px solid rgba(128, 128, 128, 0.2);
+          border-radius: 8px;
+          padding: 16px;
+          margin: 12px 0;
+        }
       </style>
     `;
+  }
+
+  private _getSlideTransition(slideIndex: number): string {
+    return this._slidesTransitions.get(slideIndex) ?? this._slidesDefaultTransition;
+  }
+
+  private _slidesNavigate(newIndex: number, total: number): void {
+    if (newIndex < 0 || newIndex >= total || newIndex === this._slidesCurrentIndex) return;
+
+    this._slidesDirection = newIndex > this._slidesCurrentIndex ? 'forward' : 'backward';
+    const transition = this._getSlideTransition(newIndex);
+
+    // Set data attributes on host for CSS view-transition selectors
+    this.setAttribute('data-slides-transition', transition);
+    this.setAttribute('data-slides-direction', this._slidesDirection);
+
+    if (transition === 'none' || !('startViewTransition' in document)) {
+      this._slidesCurrentIndex = newIndex;
+      this.requestUpdate();
+      this._afterSlideRender();
+      return;
+    }
+
+    // Use View Transition API — scoped to document since shadow DOM ::view-transition
+    // pseudo-elements are matched on the document level in current implementations
+    (document as any)
+      .startViewTransition(() => {
+        this._slidesCurrentIndex = newIndex;
+        this.requestUpdate();
+        // Return a promise that resolves after Lit's update cycle
+        return this.updateComplete;
+      })
+      .finished.then(() => {
+        this._afterSlideRender();
+      })
+      .catch(() => {
+        // View transition was skipped — still bind elements
+        this._afterSlideRender();
+      });
+  }
+
+  private _afterSlideRender(): void {
+    // Bind declarative data-method elements after slide content renders
+    void this.updateComplete.then(() => this._bindSlideElements());
+  }
+
+  private _bindSlideElements(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    // Clear previous refresh timers
+    for (const timer of this._slidesRefreshTimers) {
+      clearInterval(timer);
+    }
+    this._slidesRefreshTimers = [];
+    this._slidesBoundElements.clear();
+
+    const elements = root.querySelectorAll('.slides-content [data-method]');
+    if (elements.length === 0) return;
+
+    elements.forEach((el) => {
+      if (this._slidesBoundElements.has(el)) return;
+      this._slidesBoundElements.add(el);
+
+      const method = el.getAttribute('data-method') || '';
+      const format = el.getAttribute('data-format') || '';
+      const field = el.getAttribute('data-field') || '';
+      const argsRaw = el.getAttribute('data-args') || '{}';
+      const trigger = el.getAttribute('data-trigger') || this._inferTrigger(el);
+      const targetSel = el.getAttribute('data-target') || '';
+      const refresh = el.getAttribute('data-refresh') || '';
+
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(argsRaw);
+      } catch {
+        /* invalid JSON, use empty */
+      }
+
+      const invoke = async () => {
+        const target = targetSel ? (root.querySelector(targetSel) ?? el) : el;
+        target.classList.add('loading');
+        target.classList.remove('error');
+
+        try {
+          const result = await mcpClient.callTool(method, args);
+          const data = mcpClient.parseToolResult(result);
+          target.classList.remove('loading');
+
+          if (result.isError) {
+            target.classList.add('error');
+            target.textContent = String(data) || 'Error';
+            return;
+          }
+
+          this._renderBindingResult(target as HTMLElement, data, format, field);
+        } catch (err) {
+          target.classList.remove('loading');
+          target.classList.add('error');
+          target.textContent = err instanceof Error ? err.message : 'Failed';
+        }
+      };
+
+      if (trigger === 'load') {
+        void invoke();
+      } else if (trigger === 'click') {
+        el.addEventListener('click', () => void invoke(), { once: false });
+        // Add pointer cursor for clickable elements
+        (el as HTMLElement).style.cursor = 'pointer';
+      }
+
+      // Polling via data-refresh
+      if (refresh) {
+        const ms = this._parseRefreshInterval(refresh);
+        if (ms > 0) {
+          const timer = window.setInterval(() => void invoke(), ms);
+          this._slidesRefreshTimers.push(timer);
+        }
+      }
+    });
+  }
+
+  private _inferTrigger(el: Element): string {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'button' || tag === 'a') return 'click';
+    return 'load';
+  }
+
+  private _parseRefreshInterval(value: string): number {
+    const match = value.match(/^(\d+)(s|ms|m)?$/);
+    if (!match) return 0;
+    const num = parseInt(match[1], 10);
+    const unit = match[2] || 's';
+    if (unit === 'ms') return num;
+    if (unit === 'm') return num * 60000;
+    return num * 1000;
+  }
+
+  private _renderBindingResult(
+    target: HTMLElement,
+    data: unknown,
+    format: string,
+    field: string
+  ): void {
+    // Extract nested field if specified
+    let value = data;
+    if (field && typeof data === 'object' && data !== null) {
+      const parts = field.split('.');
+      let current: any = data;
+      for (const part of parts) {
+        if (current == null) break;
+        current = current[part];
+      }
+      value = current;
+    }
+
+    if (format === 'text' || !format) {
+      // Plain text rendering
+      target.textContent =
+        value == null
+          ? ''
+          : typeof value === 'object'
+            ? JSON.stringify(value, null, 2)
+            : String(value as string | number | boolean);
+    } else if (format === 'json') {
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.textContent = JSON.stringify(value, null, 2);
+      pre.appendChild(code);
+      target.innerHTML = '';
+      target.appendChild(pre);
+    } else if (format === 'html') {
+      target.innerHTML = String(value);
+    } else {
+      // For format renderers (gauge, table, metric, etc.) —
+      // render as formatted text with the value, keeping it simple.
+      // The full format renderer from photon-renderers.js could be loaded lazily,
+      // but for slides we use a lightweight inline approach.
+      this._renderSlideFormat(target, value, format);
+    }
+  }
+
+  private _renderSlideFormat(target: HTMLElement, data: unknown, format: string): void {
+    // Lightweight format rendering for slides — covers common cases
+    if (format === 'gauge' && typeof data === 'object' && data !== null) {
+      const d = data as Record<string, any>;
+      const value = d.value ?? 0;
+      const max = d.max ?? 100;
+      const label = d.label ?? '';
+      const unit = d.unit ?? '';
+      const pct = Math.min(100, Math.max(0, (value / max) * 100));
+      target.innerHTML = `
+        <div style="text-align:center;">
+          <div style="font-size:2em;font-weight:700;">${value}${unit}</div>
+          <div style="margin:8px auto;width:120px;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
+            <div style="width:${pct}%;height:100%;background:var(--color-accent, #7dd3fc);border-radius:4px;transition:width 0.3s;"></div>
+          </div>
+          ${label ? `<div style="font-size:0.85em;opacity:0.7;">${label}</div>` : ''}
+        </div>`;
+    } else if (format === 'metric' && typeof data === 'object' && data !== null) {
+      const d = data as Record<string, any>;
+      const value = d.value ?? d.count ?? '';
+      const label = d.label ?? d.name ?? '';
+      target.innerHTML = `
+        <div style="text-align:center;">
+          <div style="font-size:2.2em;font-weight:700;">${value}</div>
+          ${label ? `<div style="font-size:0.85em;opacity:0.7;">${label}</div>` : ''}
+        </div>`;
+    } else if (format === 'progress' && typeof data === 'object' && data !== null) {
+      const d = data as Record<string, any>;
+      const value = d.value ?? d.progress ?? 0;
+      const total = d.total ?? d.max ?? 100;
+      const pct = Math.min(100, Math.max(0, (value / total) * 100));
+      target.innerHTML = `
+        <div style="width:100%;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:var(--color-accent, #7dd3fc);border-radius:4px;transition:width 0.3s;"></div>
+        </div>
+        <div style="font-size:0.85em;opacity:0.7;margin-top:4px;">${Math.round(pct)}%</div>`;
+    } else if (format === 'table' && Array.isArray(data) && data.length > 0) {
+      const keys = Object.keys(data[0]);
+      const headerRow = keys.map((k) => `<th>${k}</th>`).join('');
+      const bodyRows = data
+        .map((row) => {
+          const r = row as Record<string, any>;
+          return `<tr>${keys.map((k) => `<td>${r[k] ?? ''}</td>`).join('')}</tr>`;
+        })
+        .join('');
+      target.innerHTML = `<table style="border-collapse:collapse;width:100%;"><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    } else {
+      // Fallback: render as text
+      target.textContent =
+        typeof data === 'object'
+          ? JSON.stringify(data, null, 2)
+          : String((data ?? '') as string | number | boolean);
+    }
   }
 
   private _slidesKeydown(e: KeyboardEvent, total: number): void {
     if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
       e.preventDefault();
       if (this._slidesCurrentIndex < total - 1) {
-        this._slidesCurrentIndex++;
-        this.requestUpdate();
+        this._slidesNavigate(this._slidesCurrentIndex + 1, total);
       }
     } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
       e.preventDefault();
       if (this._slidesCurrentIndex > 0) {
-        this._slidesCurrentIndex--;
-        this.requestUpdate();
+        this._slidesNavigate(this._slidesCurrentIndex - 1, total);
       }
     } else if (e.key === 'Home') {
       e.preventDefault();
-      this._slidesCurrentIndex = 0;
-      this.requestUpdate();
+      this._slidesNavigate(0, total);
     } else if (e.key === 'End') {
       e.preventDefault();
-      this._slidesCurrentIndex = total - 1;
-      this.requestUpdate();
+      this._slidesNavigate(total - 1, total);
     } else if (e.key === 'f' || e.key === 'F') {
       e.preventDefault();
       this._slidesToggleFullscreen();
