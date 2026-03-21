@@ -4653,10 +4653,11 @@ export class ResultViewer extends LitElement {
     const idx = this._slidesCurrentIndex;
 
     // Resolve base URL for relative paths (images, links)
-    // Priority: frontmatter baseUrl > default /api/assets/{photon}/
+    // Set via frontmatter: baseUrl: /custom/path/
+    // Default: /api/assets/{photonName}/ (relative to photon's asset directory)
+    const rawBaseUrl = stripQuotes(config.baseUrl || '');
     const baseUrl =
-      config.baseUrl ||
-      (this.photonName ? `/api/assets/${encodeURIComponent(this.photonName)}/` : '');
+      rawBaseUrl || (this.photonName ? `/api/assets/${encodeURIComponent(this.photonName)}/` : '');
 
     // Rewrite relative paths in markdown before parsing
     let slideMarkdown = current;
@@ -4665,6 +4666,11 @@ export class ResultViewer extends LitElement {
       slideMarkdown = slideMarkdown.replace(
         /(!?\[([^\]]*)\])\((?!https?:\/\/|\/|data:)([^)]+)\)/g,
         (_, prefix, _alt, relPath) => `${prefix}(${baseUrl}${relPath})`
+      );
+      // Rewrite HTML src="relative/path" (img, iframe, etc.) but not absolute/protocol URLs
+      slideMarkdown = slideMarkdown.replace(
+        /(\bsrc=["'])(?!https?:\/\/|\/|data:)([^"']+)(["'])/g,
+        (_, pre, relPath, post) => `${pre}${baseUrl}${relPath}${post}`
       );
     }
 
