@@ -6,7 +6,7 @@
  * @tags presentation, slides, markdown, marp, ai-controlled-presentation
  * @icon 🎞️
  * @stateful
- * @ui slides ./slides/ui/slides.html
+ * @ui slides ./ui/slides.html
  */
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
