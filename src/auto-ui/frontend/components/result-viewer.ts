@@ -4724,42 +4724,41 @@ export class ResultViewer extends LitElement {
         ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
           <div class="slides-content motion-fade-in">${unsafeHTML(slideHtml)}</div>
+          <div class="slides-controls">
+            <button
+              class="slides-btn"
+              ?disabled=${idx === 0}
+              @click=${() => this._slidesNavigate(idx - 1, total)}
+            >
+              ◀
+            </button>
+            <span class="slides-counter">${idx + 1} / ${total}</span>
+            <button
+              class="slides-btn"
+              ?disabled=${idx === total - 1}
+              @click=${() => this._slidesNavigate(idx + 1, total)}
+            >
+              ▶
+            </button>
+            <button
+              class="slides-btn slides-fullscreen-btn"
+              title="Fullscreen (F)"
+              @click=${() => this._slidesToggleFullscreen()}
+            >
+              ⛶
+            </button>
+          </div>
         </div>
         ${footerText
           ? html`<div class="slides-footer">
               <span>${footerText}</span>
             </div>`
           : ''}
-        <div class="slides-controls">
-          <button
-            class="slides-btn"
-            ?disabled=${idx === 0}
-            @click=${() => this._slidesNavigate(idx - 1, total)}
-          >
-            ◀
-          </button>
-          <span class="slides-counter">${idx + 1} / ${total}</span>
-          <button
-            class="slides-btn"
-            ?disabled=${idx === total - 1}
-            @click=${() => this._slidesNavigate(idx + 1, total)}
-          >
-            ▶
-          </button>
-          <button
-            class="slides-btn slides-fullscreen-btn"
-            title="Fullscreen (F)"
-            @click=${() => this._slidesToggleFullscreen()}
-          >
-            ⛶
-          </button>
-        </div>
       </div>
       <style>
         .slides-container {
           position: relative;
           border-radius: var(--radius-md, 8px);
-          overflow: hidden;
           outline: none;
           background: #1a1a2e;
           color: #e5e5e5;
@@ -4779,6 +4778,7 @@ export class ResultViewer extends LitElement {
           justify-content: center;
           padding: 48px 64px;
           overflow: hidden;
+          position: relative;
         }
         .slides-container:fullscreen .slides-viewport {
           flex: 1;
@@ -4859,17 +4859,12 @@ export class ResultViewer extends LitElement {
         }
         .slides-controls {
           display: flex;
-          align-items: flex-end;
+          align-items: center;
           justify-content: center;
           gap: 12px;
-          padding: 80px 10px 10px;
-          background: linear-gradient(
-            to bottom,
-            transparent 0%,
-            transparent 60px,
-            rgba(0, 0, 0, 0.5) 60px
-          );
-          backdrop-filter: blur(4px);
+          padding: 10px 16px;
+          background: rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(8px);
           opacity: 0;
           transition: opacity 0.3s ease;
           position: absolute;
@@ -4878,14 +4873,14 @@ export class ResultViewer extends LitElement {
           right: 0;
           z-index: 10;
         }
-        .slides-controls:hover,
+        .slides-viewport:hover .slides-controls,
         .slides-container:focus-within .slides-controls {
           opacity: 1;
         }
         .slides-container:fullscreen .slides-controls {
           opacity: 0;
         }
-        .slides-container:fullscreen .slides-controls:hover {
+        .slides-container:fullscreen:hover .slides-controls {
           opacity: 1;
         }
         .slides-btn {
