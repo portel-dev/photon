@@ -8,84 +8,150 @@
   <style>
     :root {
       --ai-accent: #67c7ff;
-      --bg-primary: var(--color-background, #0a0e1a);
-      --text-primary: var(--color-text, #e5e5e5);
+      --bg: #0a0e1a;
+      --surface: rgba(15, 20, 35, 0.95);
+      --line: rgba(255,255,255,0.1);
+      --text: #e5e5e5;
+      --muted: rgba(255,255,255,0.45);
+      --spring: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; }
 
     body {
-      margin: 0;
-      padding: 0;
-      background: var(--bg-primary);
-      color: var(--text-primary);
+      background: var(--bg);
+      color: var(--text);
       overflow: hidden;
       font-family: system-ui, -apple-system, sans-serif;
+      height: 100vh;
+      width: 100vw;
     }
+
+    /* ── Marp Viewport ── */
 
     #marp-container {
-      width: 100vw;
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #marp-container section {
-      display: none;
-      flex-shrink: 0;
       width: 100%;
       height: 100%;
+      position: relative;
+      overflow: hidden;
     }
 
-    #marp-container section.active {
+    /* Marp with inlineSVG renders <svg> inside each <section>.
+       We hide all sections then show the active one scaled to fill. */
+    #marp-container > section,
+    #marp-container > svg {
+      display: none;
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    #marp-container > section.active,
+    #marp-container > svg.active {
       display: block;
+    }
+
+    /* Scale Marp's internal SVG to fill viewport */
+    #marp-container > section.active > svg,
+    #marp-container > svg.active {
+      width: 100% !important;
+      height: 100% !important;
     }
 
     /* ── Slide Transitions ── */
 
-    .transition-forward section.active {
-      animation: slide-from-right 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+    @keyframes t-fade {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
-
-    .transition-backward section.active {
-      animation: slide-from-left 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-
-    .transition-fade section.active {
-      animation: fade-scale-in 0.4s ease-out both;
-    }
-
-    @keyframes slide-from-right {
-      from { opacity: 0; transform: translateX(60px); }
+    @keyframes t-slide-right {
+      from { opacity: 0; transform: translateX(80px); }
       to { opacity: 1; transform: translateX(0); }
     }
-
-    @keyframes slide-from-left {
-      from { opacity: 0; transform: translateX(-60px); }
+    @keyframes t-slide-left {
+      from { opacity: 0; transform: translateX(-80px); }
       to { opacity: 1; transform: translateX(0); }
     }
-
-    @keyframes fade-scale-in {
-      from { opacity: 0; transform: scale(0.97); }
+    @keyframes t-slide-up {
+      from { opacity: 0; transform: translateY(60px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes t-scale {
+      from { opacity: 0; transform: scale(0.85); }
       to { opacity: 1; transform: scale(1); }
     }
+    @keyframes t-flip {
+      from { opacity: 0; transform: perspective(1200px) rotateY(90deg); }
+      to { opacity: 1; transform: perspective(1200px) rotateY(0); }
+    }
+    @keyframes t-zoom {
+      from { opacity: 0; transform: scale(1.3); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes t-drop {
+      from { opacity: 0; transform: translateY(-80px) scale(0.9); }
+      50% { opacity: 1; transform: translateY(8px) scale(1.02); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes t-rotate {
+      from { opacity: 0; transform: rotate(-8deg) scale(0.9); }
+      to { opacity: 1; transform: rotate(0) scale(1); }
+    }
 
-    /* ── Controls ── */
+    /* Apply transition to active slide based on container's data-transition */
+    [data-transition="fade"] > .active { animation: t-fade 0.5s ease-out both; }
+    [data-transition="slide"] > .active { animation: t-slide-right 0.5s var(--spring) both; }
+    [data-transition="slide-back"] > .active { animation: t-slide-left 0.5s var(--spring) both; }
+    [data-transition="push"] > .active { animation: t-slide-up 0.5s var(--spring) both; }
+    [data-transition="scale"] > .active { animation: t-scale 0.5s var(--spring) both; }
+    [data-transition="flip"] > .active { animation: t-flip 0.6s var(--spring) both; }
+    [data-transition="zoom"] > .active { animation: t-zoom 0.5s var(--spring) both; }
+    [data-transition="drop"] > .active { animation: t-drop 0.6s var(--spring) both; }
+    [data-transition="rotate"] > .active { animation: t-rotate 0.5s var(--spring) both; }
+    [data-transition="none"] > .active { animation: none; }
+
+    /* ── Element Build Animations ── */
+
+    @keyframes el-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes el-slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes el-slide-right { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes el-scale { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+    @keyframes el-flip { from { opacity: 0; transform: perspective(600px) rotateX(90deg); } to { opacity: 1; transform: perspective(600px) rotateX(0); } }
+    @keyframes el-typewriter { from { max-width: 0; } to { max-width: 100%; } }
+
+    /* Element animations applied via data attributes in Marp markdown HTML comments */
+    [data-build="fade"] { animation: el-fade-in 0.4s ease-out both; }
+    [data-build="slide-up"] { animation: el-slide-up 0.4s var(--spring) both; }
+    [data-build="slide-right"] { animation: el-slide-right 0.4s var(--spring) both; }
+    [data-build="scale"] { animation: el-scale 0.4s var(--spring) both; }
+    [data-build="flip"] { animation: el-flip 0.5s var(--spring) both; }
+
+    /* Stagger children of elements marked with data-stagger */
+    [data-stagger] > * { animation: el-slide-up 0.35s var(--spring) both; }
+    [data-stagger] > *:nth-child(1) { animation-delay: 0s; }
+    [data-stagger] > *:nth-child(2) { animation-delay: 0.08s; }
+    [data-stagger] > *:nth-child(3) { animation-delay: 0.16s; }
+    [data-stagger] > *:nth-child(4) { animation-delay: 0.24s; }
+    [data-stagger] > *:nth-child(5) { animation-delay: 0.32s; }
+    [data-stagger] > *:nth-child(6) { animation-delay: 0.40s; }
+    [data-stagger] > *:nth-child(n+7) { animation-delay: 0.48s; }
+
+    /* ── Controls Bar ── */
 
     .controls {
       position: fixed;
       bottom: 0;
       left: 0;
       right: 0;
-      z-index: 100;
+      z-index: 200;
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 20px;
-      padding: 14px 24px;
-      background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
-      backdrop-filter: blur(8px);
+      gap: 12px;
+      padding: 12px 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 70%, transparent);
+      backdrop-filter: blur(12px);
       opacity: 0;
       transition: opacity 0.3s ease;
     }
@@ -95,32 +161,45 @@
       opacity: 1;
     }
 
-    .controls button {
+    .ctrl-btn {
       background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.15);
-      color: #e5e5e5;
+      border: 1px solid var(--line);
+      color: var(--text);
       cursor: pointer;
-      font-size: 16px;
-      padding: 8px 18px;
+      font-size: 14px;
+      padding: 7px 14px;
       border-radius: 8px;
-      transition: background 0.15s, transform 0.15s;
+      transition: background 0.15s, transform 0.1s;
+      white-space: nowrap;
     }
 
-    .controls button:hover {
-      background: rgba(255,255,255,0.15);
-      transform: translateY(-1px);
+    .ctrl-btn:hover { background: rgba(255,255,255,0.15); transform: translateY(-1px); }
+    .ctrl-btn:disabled { opacity: 0.25; cursor: default; transform: none; }
+    .ctrl-btn.active { background: rgba(103,199,255,0.2); border-color: rgba(103,199,255,0.4); }
+
+    .ctrl-select {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--line);
+      color: var(--text);
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
     }
 
-    .controls button:disabled {
-      opacity: 0.3;
-      cursor: default;
-      transform: none;
+    .ctrl-select option { background: #1a1e2e; }
+
+    .ctrl-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--line);
+      flex-shrink: 0;
     }
 
     .progress {
       font-size: 13px;
-      color: rgba(255,255,255,0.5);
-      min-width: 60px;
+      color: var(--muted);
+      min-width: 55px;
       text-align: center;
       font-variant-numeric: tabular-nums;
     }
@@ -132,48 +211,36 @@
       top: 0;
       left: 0;
       right: 0;
-      z-index: 100;
+      z-index: 200;
       padding: 10px 20px;
       font-size: 12px;
-      color: rgba(255,255,255,0.35);
+      color: var(--muted);
       display: flex;
       align-items: center;
       gap: 8px;
       opacity: 0;
       transition: opacity 0.3s ease;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent);
     }
 
-    body:hover .title-bar {
-      opacity: 1;
-    }
+    body:hover .title-bar { opacity: 1; }
 
-    .ai-pulse {
-      width: 6px;
-      height: 6px;
+    .ai-dot {
+      width: 6px; height: 6px;
       background: var(--ai-accent);
       border-radius: 50%;
-      animation: pulse 2s infinite;
+      animation: pulse 2.5s infinite;
     }
 
     @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(103, 199, 255, 0.5); }
-      70% { box-shadow: 0 0 0 8px rgba(103, 199, 255, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(103, 199, 255, 0); }
+      0% { box-shadow: 0 0 0 0 rgba(103,199,255,0.5); }
+      70% { box-shadow: 0 0 0 6px rgba(103,199,255,0); }
+      100% { box-shadow: 0 0 0 0 rgba(103,199,255,0); }
     }
 
     /* ── Fullscreen ── */
-
-    body:fullscreen .controls,
-    body:fullscreen .title-bar {
-      opacity: 0;
-    }
-
-    body:fullscreen:hover .controls,
-    body:fullscreen:hover .title-bar {
-      opacity: 1;
-    }
-
-    /* ── Reduced Motion ── */
+    body:fullscreen .controls, body:fullscreen .title-bar { opacity: 0; }
+    body:fullscreen:hover .controls, body:fullscreen:hover .title-bar { opacity: 1; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -184,18 +251,36 @@
   </style>
 </head>
 <body>
+
   <div class="title-bar">
-    <div class="ai-pulse"></div>
+    <div class="ai-dot"></div>
     <span id="deck-name">Slides</span>
   </div>
 
   <div id="marp-container"></div>
 
   <div class="controls">
-    <button id="prev-btn" disabled>◀</button>
+    <button class="ctrl-btn" id="prev-btn" disabled>◀</button>
     <span class="progress" id="progress">0 / 0</span>
-    <button id="next-btn" disabled>▶</button>
-    <button id="fs-btn" title="Fullscreen (F)">⛶</button>
+    <button class="ctrl-btn" id="next-btn" disabled>▶</button>
+
+    <div class="ctrl-divider"></div>
+
+    <select class="ctrl-select" id="transition-select" title="Slide transition">
+      <option value="fade">Fade</option>
+      <option value="slide">Slide</option>
+      <option value="push">Push Up</option>
+      <option value="scale">Scale</option>
+      <option value="flip">Flip</option>
+      <option value="zoom">Zoom</option>
+      <option value="drop">Drop</option>
+      <option value="rotate">Rotate</option>
+      <option value="none">None</option>
+    </select>
+
+    <div class="ctrl-divider"></div>
+
+    <button class="ctrl-btn" id="fs-btn" title="Fullscreen (F)">⛶</button>
   </div>
 
   <script>
@@ -204,28 +289,47 @@
     let totalSlides = 0;
     let prevIdx = -1;
 
-    function updateSlide(direction) {
-      const container = document.getElementById("marp-container");
-      const sections = container.querySelectorAll("section");
+    // Per-slide transition map: slideIndex → transitionName
+    // Stored in markdown via HTML comments: <!-- transition: flip -->
+    const slideTransitions = {};
+    let globalTransition = "fade";
 
-      // Remove old transition classes
-      container.classList.remove("transition-forward", "transition-backward", "transition-fade");
+    // ── Core ──
+
+    function getTransitionForSlide(idx) {
+      return slideTransitions[idx] || globalTransition;
+    }
+
+    function updateSlide() {
+      const container = document.getElementById("marp-container");
+      const children = container.querySelectorAll(":scope > section, :scope > svg");
 
       // Determine transition
+      let transition = "fade";
       if (prevIdx >= 0 && prevIdx !== currentIdx) {
-        container.classList.add(currentIdx > prevIdx ? "transition-forward" : "transition-backward");
-      } else if (direction === "fade") {
-        container.classList.add("transition-fade");
+        transition = getTransitionForSlide(currentIdx);
+        // For "slide" type, reverse direction when going backward
+        if (transition === "slide" && currentIdx < prevIdx) {
+          transition = "slide-back";
+        }
       }
 
-      sections.forEach((s, i) => {
+      // Force reflow to restart animation
+      container.removeAttribute("data-transition");
+      void container.offsetHeight;
+      container.setAttribute("data-transition", transition);
+
+      children.forEach((s, i) => {
         s.classList.toggle("active", i === currentIdx);
       });
 
       prevIdx = currentIdx;
       document.getElementById("progress").textContent = `${currentIdx + 1} / ${totalSlides}`;
       document.getElementById("prev-btn").disabled = currentIdx === 0;
-      document.getElementById("next-btn").disabled = currentIdx === totalSlides - 1;
+      document.getElementById("next-btn").disabled = currentIdx >= totalSlides - 1;
+
+      // Update transition dropdown to show current slide's transition
+      document.getElementById("transition-select").value = getTransitionForSlide(currentIdx);
     }
 
     function parseMCP(raw) {
@@ -238,13 +342,34 @@
       return raw;
     }
 
+    function parseSlideTransitions() {
+      // Extract <!-- transition: xxx --> from each slide's HTML
+      const container = document.getElementById("marp-container");
+      const children = container.querySelectorAll(":scope > section, :scope > svg");
+      children.forEach((section, i) => {
+        const html = section.innerHTML;
+        const match = html.match(/<!--\s*transition:\s*(\w+)\s*-->/);
+        if (match) {
+          slideTransitions[i] = match[1];
+        }
+      });
+    }
+
     function handleRender(data) {
-      document.getElementById("marp-container").innerHTML = data.html || "";
+      const container = document.getElementById("marp-container");
+      container.innerHTML = data.html || "";
       document.getElementById("marp-style").innerHTML = data.css || "";
-      totalSlides = data.total || 0;
+
+      // Count slides (sections or top-level SVGs)
+      const children = container.querySelectorAll(":scope > section, :scope > svg");
+      totalSlides = children.length;
       currentIdx = data.current || 0;
       prevIdx = -1;
-      updateSlide("fade");
+
+      // Parse per-slide transitions from HTML comments
+      parseSlideTransitions();
+
+      updateSlide();
     }
 
     function handleData(data) {
@@ -259,12 +384,11 @@
       }
     }
 
-    // ── Event Handlers ──
+    // ── Controls ──
 
     document.getElementById("prev-btn").addEventListener("click", async () => {
       if (slidesApp) {
-        const result = parseMCP(await slidesApp.previous());
-        handleData(result);
+        handleData(parseMCP(await slidesApp.previous()));
       } else if (currentIdx > 0) {
         prevIdx = currentIdx;
         currentIdx--;
@@ -274,13 +398,19 @@
 
     document.getElementById("next-btn").addEventListener("click", async () => {
       if (slidesApp) {
-        const result = parseMCP(await slidesApp.next());
-        handleData(result);
+        handleData(parseMCP(await slidesApp.next()));
       } else if (currentIdx < totalSlides - 1) {
         prevIdx = currentIdx;
         currentIdx++;
         updateSlide();
       }
+    });
+
+    document.getElementById("transition-select").addEventListener("change", (e) => {
+      const value = e.target.value;
+      // Set transition for current slide
+      slideTransitions[currentIdx] = value;
+      globalTransition = value;
     });
 
     document.getElementById("fs-btn").addEventListener("click", () => {
@@ -290,6 +420,8 @@
         document.body.requestFullscreen();
       }
     });
+
+    // ── Keyboard ──
 
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") {
@@ -311,7 +443,7 @@
       }
     });
 
-    // ── Bridge Setup ──
+    // ── Bridge ──
 
     if (slidesApp) {
       window.photon?.onResult?.((result) => {
@@ -321,12 +453,10 @@
       window.photon?.onEmit?.((event) => {
         const name = event?.event;
         if (name === "slideChanged" || name === "deckChanged") {
-          // Re-fetch full state
           slidesApp.main().then(r => handleData(parseMCP(r)));
         }
       });
 
-      // Initial load
       slidesApp.main().then(r => handleData(parseMCP(r)));
     }
   </script>
