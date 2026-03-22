@@ -32,6 +32,8 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
           author: source.metadata?.author || '',
           tags: source.metadata?.tags || [],
           marketplace: source.marketplace.name,
+          icon: source.metadata?.icon,
+          internal: source.metadata?.internal,
           installed: state.photonMCPs.has(name),
         });
       }

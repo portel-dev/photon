@@ -302,7 +302,7 @@ export class PhotonDocExtractor {
       const stats = await fs.stat(assetFolder);
       if (stats.isDirectory()) {
         // Only scan recognized asset subdirectories, not runtime data folders
-        const ASSET_SUBDIRS = ['ui', 'prompts', 'resources'];
+        const ASSET_SUBDIRS = ['ui', 'prompts', 'resources', 'assets'];
 
         const findFiles = async (currentDir: string, relativePath: string) => {
           const entries = await fs.readdir(currentDir, { withFileTypes: true });
