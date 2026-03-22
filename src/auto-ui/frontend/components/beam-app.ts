@@ -2765,6 +2765,11 @@ export class BeamApp extends LitElement {
       this._methodPickerPanelId = null;
       this._splitPanels = [];
 
+      if (photonName === 'marketplace') {
+        this._view = 'marketplace';
+        return;
+      }
+
       if (!photonName || photonName === 'home') {
         this._selectedPhoton = null;
         this._selectedMethod = null;
@@ -2870,7 +2875,9 @@ export class BeamApp extends LitElement {
 
   private _updateRoute(replace = false) {
     let path: string;
-    if (!this._selectedPhoton) {
+    if (this._view === 'marketplace') {
+      path = '/marketplace';
+    } else if (!this._selectedPhoton) {
       path = '/';
     } else {
       path = '/' + this._selectedPhoton.name;
@@ -3703,7 +3710,10 @@ export class BeamApp extends LitElement {
         <div style="margin-bottom: var(--space-md);">
           <button
             style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-            @click=${() => (this._view = 'list')}
+            @click=${() => {
+              this._view = 'list';
+              this._updateRoute();
+            }}
           >
             ← Back to Dashboard
           </button>
@@ -3723,7 +3733,10 @@ export class BeamApp extends LitElement {
         <div style="margin-bottom: var(--space-md);">
           <button
             style="background:none; border:none; color:var(--accent-secondary); cursor:pointer;"
-            @click=${() => (this._view = 'list')}
+            @click=${() => {
+              this._view = 'list';
+              this._updateRoute();
+            }}
           >
             ← Back to Dashboard
           </button>
@@ -4031,7 +4044,10 @@ export class BeamApp extends LitElement {
                     (e.currentTarget as HTMLElement).style.background = 'none';
                     (e.currentTarget as HTMLElement).style.color = 'var(--t-secondary)';
                   }}
-                  @click=${() => (this._view = 'marketplace')}
+                  @click=${() => {
+                    this._view = 'marketplace';
+                    this._updateRoute();
+                  }}
                 >
                   <span style="font-size: 1rem; width: 20px; text-align: center;">📦</span>
                   Browse Marketplace
@@ -4714,6 +4730,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
   private _handleMarketplaceMobile() {
     this._closeSidebar();
     this._view = 'marketplace';
+    this._updateRoute();
   }
 
   private async _handleReconnectMCP(e: CustomEvent) {
@@ -7219,6 +7236,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       }
       if (this._view === 'marketplace') {
         this._view = 'list';
+        this._updateRoute();
         return;
       }
     }
@@ -7241,6 +7259,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // p to show marketplace
     if (e.key === 'p') {
       this._view = 'marketplace';
+      this._updateRoute();
       return;
     }
 

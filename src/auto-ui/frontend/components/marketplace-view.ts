@@ -1683,8 +1683,9 @@ export class MarketplaceView extends LitElement {
         composed: true,
       })
     );
-    // Re-fetch items after sync to pick up update info from fresh manifests
+    // Re-fetch items and source counts after sync to pick up fresh manifests
     setTimeout(() => {
+      void this._fetchSources();
       void this._fetchItems();
     }, 2000);
   }

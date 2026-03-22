@@ -96,23 +96,21 @@ const METADATA_FILE = path.join(CONFIG_DIR, '.metadata.json');
 // Cache is considered stale after 24 hours
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Default marketplace - can be overridden via PHOTON_DEFAULT_MARKETPLACE env var
-// Format: "owner/repo" (e.g., "portel-dev/photons")
-function getDefaultMarketplace(): Marketplace {
-  const defaultRepo = process.env.PHOTON_DEFAULT_MARKETPLACE || 'portel-dev/photons';
-  const [owner, repo] = defaultRepo.includes('/')
-    ? defaultRepo.split('/')
-    : ['portel-dev', 'photons'];
-  const fullRepo = `${owner}/${repo}`;
+// Built-in marketplaces that ship with the runtime
+const BUILT_IN_MARKETPLACES: Array<{ repo: string; name: string }> = [
+  { repo: 'portel-dev/photons', name: 'photons' },
+  { repo: 'portel-dev/photon-examples', name: 'photon-examples' },
+];
 
-  return {
-    name: repo,
-    repo: fullRepo,
-    url: `https://raw.githubusercontent.com/${fullRepo}/main`,
+function getDefaultMarketplaces(): Marketplace[] {
+  return BUILT_IN_MARKETPLACES.map(({ repo, name }) => ({
+    name,
+    repo,
+    url: `https://raw.githubusercontent.com/${repo}/main`,
     sourceType: 'github',
-    source: fullRepo,
+    source: repo,
     enabled: true,
-  };
+  }));
 }
 
 /**
@@ -203,16 +201,35 @@ export class MarketplaceManager {
         this.logger.warn(
           `Corrupted marketplaces.json, resetting to defaults: ${getErrorMessage(parseError)}`
         );
-        this.config = {
-          marketplaces: [getDefaultMarketplace()],
-        };
+        this.config = { marketplaces: getDefaultMarketplaces() };
         await this.save();
       }
     } else {
-      // Initialize with default marketplace
-      this.config = {
-        marketplaces: [getDefaultMarketplace()],
-      };
+      this.config = { marketplaces: getDefaultMarketplaces() };
+      await this.save();
+    }
+
+    // Ensure all built-in marketplaces are present (handles upgrades)
+    await this.ensureBuiltInMarketplaces();
+  }
+
+  /**
+   * Ensure all built-in marketplaces exist in config.
+   * Handles upgrades where new built-in marketplaces are added.
+   */
+  private async ensureBuiltInMarketplaces() {
+    const defaults = getDefaultMarketplaces();
+    let changed = false;
+
+    for (const def of defaults) {
+      const exists = this.config.marketplaces.some((m) => m.source === def.source);
+      if (!exists) {
+        this.config.marketplaces.push(def);
+        changed = true;
+      }
+    }
+
+    if (changed) {
       await this.save();
     }
   }
@@ -453,10 +470,12 @@ export class MarketplaceManager {
       return false;
     }
 
-    // Prevent removing the default marketplace
-    const defaultMarketplace = getDefaultMarketplace();
-    if (this.config.marketplaces[index].url === defaultMarketplace.url) {
-      throw new Error('Cannot remove the default photons marketplace');
+    // Prevent removing built-in marketplaces
+    const builtInUrls = new Set(getDefaultMarketplaces().map((m) => m.url));
+    if (builtInUrls.has(this.config.marketplaces[index].url)) {
+      throw new Error(
+        `Cannot remove the built-in '${this.config.marketplaces[index].name}' marketplace`
+      );
     }
 
     this.config.marketplaces.splice(index, 1);
