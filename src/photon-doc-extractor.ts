@@ -345,15 +345,33 @@ export class PhotonDocExtractor {
   private async extractTools(): Promise<Tool[]> {
     const tools: Tool[] = [];
 
-    // Find all async methods (including generators with async *)
-    const methodRegex = /async\s+(\*?)\s*(\w+)\s*\(([^)]*)\)/g;
+    // Find all public methods: sync, async, and async generators
+    // Matches: "  methodName(", "  async methodName(", "  async *methodName("
+    // Excludes: "function ", "=> {", and non-indented lines (not class methods)
+    const methodRegex = /^[ \t]+(async\s+)?(\*?)\s*(\w+)\s*\(([^)]*)\)/gm;
     let match;
 
     while ((match = methodRegex.exec(this.content)) !== null) {
-      const isGenerator = match[1] === '*';
-      const methodName = match[2];
-      const methodSignatureParams = match[3] || '';
+      const isAsync = !!match[1];
+      const isGenerator = match[2] === '*';
+      const methodName = match[3];
+      const methodSignatureParams = match[4] || '';
       const methodIndex = match.index;
+
+      // Skip constructor, property assignments, and non-method patterns
+      if (
+        methodName === 'constructor' ||
+        methodName === 'if' ||
+        methodName === 'for' ||
+        methodName === 'while' ||
+        methodName === 'switch' ||
+        methodName === 'catch' ||
+        methodName === 'function' ||
+        methodName === 'return' ||
+        methodName === 'super'
+      ) {
+        continue;
+      }
 
       // Skip private methods (starting with _), lifecycle methods, and test methods
       if (
