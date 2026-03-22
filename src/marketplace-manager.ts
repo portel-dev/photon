@@ -99,7 +99,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 // Built-in marketplaces that ship with the runtime
 const BUILT_IN_MARKETPLACES: Array<{ repo: string; name: string }> = [
   { repo: 'portel-dev/photons', name: 'photons' },
-  { repo: 'portel-dev/photon-examples', name: 'photon-examples' },
+  { repo: 'portel-dev/photon-examples', name: 'examples' },
 ];
 
 function getDefaultMarketplaces(): Marketplace[] {
@@ -222,9 +222,12 @@ export class MarketplaceManager {
     let changed = false;
 
     for (const def of defaults) {
-      const exists = this.config.marketplaces.some((m) => m.source === def.source);
-      if (!exists) {
+      const existing = this.config.marketplaces.find((m) => m.source === def.source);
+      if (!existing) {
         this.config.marketplaces.push(def);
+        changed = true;
+      } else if (existing.name !== def.name) {
+        existing.name = def.name;
         changed = true;
       }
     }
