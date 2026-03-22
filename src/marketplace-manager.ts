@@ -242,6 +242,14 @@ export class MarketplaceManager {
   }
 
   /**
+   * Check if a marketplace is built-in (cannot be removed)
+   */
+  isBuiltIn(source: string): boolean {
+    const builtInSources = new Set(BUILT_IN_MARKETPLACES.map((m) => m.repo));
+    return builtInSources.has(source);
+  }
+
+  /**
    * Get all marketplaces
    */
   getAll(): Marketplace[] {
@@ -1130,6 +1138,10 @@ export class MarketplaceManager {
    * e.g., 'portel-dev/skills' → 'portel-dev'
    */
   private extractNamespace(marketplace: Marketplace): string | null {
+    // Built-in marketplaces install flat (no namespace subdirectory)
+    if (this.isBuiltIn(marketplace.source)) {
+      return null;
+    }
     if (marketplace.repo) {
       const parts = marketplace.repo.split('/');
       if (parts.length >= 2) {

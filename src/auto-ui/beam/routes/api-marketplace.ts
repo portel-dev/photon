@@ -324,6 +324,7 @@ export const handleMarketplaceRoutes: RouteHandler = async (req, res, url, state
             source: source.source,
             sourceType: source.sourceType,
             enabled: source.enabled,
+            builtIn: state.marketplace.isBuiltIn(source.source),
             photonCount: manifest?.photons?.length || 0,
             lastUpdated: source.lastUpdated,
           };

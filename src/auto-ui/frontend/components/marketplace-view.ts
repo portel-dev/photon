@@ -28,6 +28,7 @@ interface MarketplaceSource {
   source: string;
   sourceType: string;
   enabled: boolean;
+  builtIn: boolean;
   photonCount: number;
 }
 
@@ -133,17 +134,14 @@ export class MarketplaceView extends LitElement {
       .card-title-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: var(--space-sm);
+        flex-wrap: wrap;
+        gap: 4px var(--space-sm);
       }
 
       .card-title {
         font-weight: 600;
         font-size: var(--text-lg);
         color: var(--t-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
 
       .card-author {
@@ -1041,16 +1039,18 @@ export class MarketplaceView extends LitElement {
               >
                 ${source.name}
                 <span class="count">${source.photonCount}</span>
-                <span
-                  class="remove-btn"
-                  @click=${(e: Event) => {
-                    e.stopPropagation();
-                    void this._removeSource(source.name);
-                  }}
-                  title="Remove marketplace"
-                  aria-label="Remove marketplace"
-                  >${xMark}</span
-                >
+                ${source.builtIn
+                  ? ''
+                  : html`<span
+                      class="remove-btn"
+                      @click=${(e: Event) => {
+                        e.stopPropagation();
+                        void this._removeSource(source.name);
+                      }}
+                      title="Remove marketplace"
+                      aria-label="Remove marketplace"
+                      >${xMark}</span
+                    >`}
               </button>
             `
           )}
