@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
-import { theme, forms, type Theme } from '../styles/index.js';
+import { theme, forms, motion, type Theme } from '../styles/index.js';
 import {
   starFilled,
   starOutline,
@@ -50,6 +50,7 @@ export class BeamSidebar extends LitElement {
   static styles = [
     theme,
     forms,
+    motion,
     css`
       :host {
         display: flex;
@@ -1237,7 +1238,7 @@ export class BeamSidebar extends LitElement {
         </svg>
       </div>
       <ul
-        class="photon-list ${collapsed ? 'collapsed' : ''}"
+        class="photon-list motion-stagger ${collapsed ? 'collapsed' : ''}"
         role="listbox"
         aria-labelledby=${headerId}
         style="max-height: ${collapsed ? '0' : items.length * 52 + 'px'}"

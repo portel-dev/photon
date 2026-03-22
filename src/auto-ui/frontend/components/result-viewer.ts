@@ -2,6 +2,7 @@ import { LitElement, html, css, svg, TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { theme, Theme } from '../styles/theme.js';
+import { motion } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { formatLabel } from '../utils/format-label.js';
 import { link, expand } from '../icons.js';
@@ -89,6 +90,7 @@ async function loadChartJS(): Promise<any> {
 export class ResultViewer extends LitElement {
   static styles = [
     theme,
+    motion,
     css`
       :host {
         display: block;
@@ -2770,7 +2772,10 @@ export class ResultViewer extends LitElement {
                 </div>
               </div>
             `}
-        <div class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}">
+        <div
+          class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}"
+          data-enter="scale-in"
+        >
           ${this._renderContent(layout, filteredData)}
         </div>
       </div>
@@ -3602,7 +3607,7 @@ export class ResultViewer extends LitElement {
             )}
           </tr>
         </thead>
-        <tbody>
+        <tbody class="motion-stagger">
           ${pageData.map(
             (row) => html`
               <tr class="${this._getItemAnimationClass(row)} ${this._getItemWarmthClass(row)}">
@@ -3718,7 +3723,7 @@ export class ResultViewer extends LitElement {
             </div>
           `
         : ''}
-      <ul class="smart-list">
+      <ul class="smart-list motion-stagger">
         ${data.map((item) => this._renderListItem(item))}
       </ul>
     `;
@@ -4718,7 +4723,7 @@ export class ResultViewer extends LitElement {
       >
         ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
-          <div class="slides-content">${unsafeHTML(slideHtml)}</div>
+          <div class="slides-content motion-fade-in">${unsafeHTML(slideHtml)}</div>
         </div>
         ${footerText
           ? html`<div class="slides-footer">

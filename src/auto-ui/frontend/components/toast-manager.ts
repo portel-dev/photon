@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { theme } from '../styles/theme.js';
+import { theme, motion } from '../styles/index.js';
 
 interface ToastAction {
   label: string;
@@ -19,6 +19,7 @@ interface Toast {
 export class ToastManager extends LitElement {
   static styles = [
     theme,
+    motion,
     css`
       :host {
         position: fixed;
@@ -44,35 +45,13 @@ export class ToastManager extends LitElement {
         color: var(--t-primary);
         font-size: var(--text-md);
         pointer-events: auto;
-        animation: slideIn 0.3s ease-out;
+        animation: motion-slide-up var(--motion-normal) var(--motion-ease-out) both;
         max-width: 350px;
         box-shadow: var(--shadow-lg);
       }
 
       .toast.exiting {
-        animation: slideOut 0.3s ease-in forwards;
-      }
-
-      @keyframes slideIn {
-        from {
-          transform: translateX(100%);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-
-      @keyframes slideOut {
-        from {
-          transform: translateX(0);
-          opacity: 1;
-        }
-        to {
-          transform: translateX(100%);
-          opacity: 0;
-        }
+        animation: motion-slide-out-down var(--motion-normal) var(--motion-ease-in-out) both;
       }
 
       .icon {

@@ -169,6 +169,22 @@ export interface PhotonBridge {
 
   /** Check if running inside ChatGPT (has window.openai) */
   isChatGPT: boolean;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Motion
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Universal motion API for animations and transitions */
+  motion: {
+    /** Apply an enter animation to an element */
+    enter(el: any, effect?: string): void;
+    /** Apply an exit animation, returns Promise that resolves after element is removed */
+    exit(el: any, effect?: string): Promise<void>;
+    /** Add stagger animation to a container's children */
+    stagger(container: any): void;
+    /** Apply a depth/perspective preset to an element */
+    depth(el: any, preset?: string): void;
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -397,6 +413,48 @@ export function createPhotonBridge(): PhotonBridge {
     get isChatGPT() {
       return isChatGPT;
     },
+
+    // Motion API
+    motion: {
+      enter(el: any, effect = 'fade-in') {
+        if (!el) return;
+        el.classList.add(`motion-${effect}`);
+      },
+      exit(el: any, effect = 'fade-out'): Promise<void> {
+        if (!el) return Promise.resolve();
+        el.classList.add(`motion-${effect}`);
+        return new Promise<void>((resolve) => {
+          const onEnd = () => {
+            el.removeEventListener('animationend', onEnd);
+            el.remove();
+            resolve();
+          };
+          el.addEventListener('animationend', onEnd);
+          setTimeout(() => {
+            if (el.parentElement) {
+              el.removeEventListener('animationend', onEnd);
+              el.remove();
+              resolve();
+            }
+          }, 1000);
+        });
+      },
+      stagger(container: any) {
+        if (container) container.classList.add('motion-stagger');
+      },
+      depth(el: any, preset = 'float') {
+        if (!el) return;
+        const parent = el.parentElement;
+        if (parent && !parent.classList.contains('motion-perspective')) {
+          parent.classList.add('motion-perspective');
+        }
+        if (preset === 'tilt' || preset === 'tilt-right') {
+          el.classList.add(`motion-${preset}`);
+        } else {
+          el.classList.add(`motion-depth-${preset}`);
+        }
+      },
+    },
   };
 }
 
@@ -478,7 +536,35 @@ export function generateBridgeLoaderScript(): string {
     get locale() { return ctx.locale; },
     get photon() { return ctx.photon; },
     get method() { return ctx.method; },
-    get isChatGPT() { return typeof window.openai !== 'undefined'; }
+    get isChatGPT() { return typeof window.openai !== 'undefined'; },
+    motion: {
+      enter: function(el, effect) {
+        if (!el) return;
+        el.classList.add('motion-' + (effect || 'fade-in'));
+      },
+      exit: function(el, effect) {
+        if (!el) return Promise.resolve();
+        effect = effect || 'fade-out';
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          el.remove(); return Promise.resolve();
+        }
+        el.classList.add('motion-' + effect);
+        return new Promise(function(resolve) {
+          function onEnd() { el.removeEventListener('animationend', onEnd); el.remove(); resolve(); }
+          el.addEventListener('animationend', onEnd);
+          setTimeout(function() { if (el.parentElement) { el.removeEventListener('animationend', onEnd); el.remove(); resolve(); } }, 1000);
+        });
+      },
+      stagger: function(container) { if (container) container.classList.add('motion-stagger'); },
+      depth: function(el, preset) {
+        if (!el) return;
+        preset = preset || 'float';
+        var parent = el.parentElement;
+        if (parent && !parent.classList.contains('motion-perspective')) parent.classList.add('motion-perspective');
+        if (preset === 'tilt' || preset === 'tilt-right') el.classList.add('motion-' + preset);
+        else el.classList.add('motion-depth-' + preset);
+      }
+    }
   };
 })();
 </script>`;

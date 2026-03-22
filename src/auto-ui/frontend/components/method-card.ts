@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { theme, badges } from '../styles/index.js';
+import { theme, badges, motion } from '../styles/index.js';
 import { showToast } from './toast-manager.js';
 import { pencil, formInput, play, user, bot, users, sizedIcon } from '../icons.js';
 
@@ -31,6 +31,7 @@ export class MethodCard extends LitElement {
   static styles = [
     theme,
     badges,
+    motion,
     css`
       :host {
         display: block;
@@ -503,7 +504,8 @@ export class MethodCard extends LitElement {
 
     return html`
       <div
-        class="card glass-panel ${isTyped ? 'typed' : ''}"
+        class="card glass-panel motion-scale-in ${isTyped ? 'typed' : ''}"
+        data-enter="scale-in"
         style="${isTyped ? `--type-accent: ${typeAccent}` : ''}"
         role="button"
         tabindex="0"
