@@ -624,6 +624,105 @@
       margin: 4px 8px;
     }
 
+    /* ── Motion & Transitions ──────────────────────── */
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes scale-in {
+      from { opacity: 0; transform: scale(0.94); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes slide-from-right {
+      from { opacity: 0; transform: translateX(40px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes slide-from-left {
+      from { opacity: 0; transform: translateX(-40px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Stage slide transition */
+    .stage-transition {
+      animation: fade-in 0.35s ease-out both;
+    }
+
+    .stage-transition-forward {
+      animation: slide-from-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .stage-transition-backward {
+      animation: slide-from-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    /* Filmstrip stagger entrance */
+    .filmstrip .thumb {
+      animation: slide-up 0.3s ease-out both;
+    }
+
+    .filmstrip .thumb:nth-child(1) { animation-delay: 0ms; }
+    .filmstrip .thumb:nth-child(2) { animation-delay: 40ms; }
+    .filmstrip .thumb:nth-child(3) { animation-delay: 80ms; }
+    .filmstrip .thumb:nth-child(4) { animation-delay: 120ms; }
+    .filmstrip .thumb:nth-child(5) { animation-delay: 160ms; }
+    .filmstrip .thumb:nth-child(6) { animation-delay: 200ms; }
+    .filmstrip .thumb:nth-child(7) { animation-delay: 240ms; }
+    .filmstrip .thumb:nth-child(n+8) { animation-delay: 280ms; }
+
+    /* Deck list stagger */
+    .deck-list .deck-item {
+      animation: slide-up 0.25s ease-out both;
+    }
+
+    .deck-list .deck-item:nth-child(1) { animation-delay: 0ms; }
+    .deck-list .deck-item:nth-child(2) { animation-delay: 40ms; }
+    .deck-list .deck-item:nth-child(3) { animation-delay: 80ms; }
+    .deck-list .deck-item:nth-child(4) { animation-delay: 120ms; }
+    .deck-list .deck-item:nth-child(n+5) { animation-delay: 160ms; }
+
+    /* Modal entrance */
+    .modal-backdrop.open .modal {
+      animation: scale-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    /* Context menu entrance */
+    .context-menu.open {
+      animation: scale-in 0.15s ease-out both;
+    }
+
+    /* Metric cards subtle entrance */
+    .metric {
+      animation: fade-in 0.3s ease-out both;
+    }
+
+    .status-strip .metric:nth-child(1) { animation-delay: 0ms; }
+    .status-strip .metric:nth-child(2) { animation-delay: 50ms; }
+    .status-strip .metric:nth-child(3) { animation-delay: 100ms; }
+    .status-strip .metric:nth-child(4) { animation-delay: 150ms; }
+
+    /* Upcoming slide transition */
+    .upcoming-stage {
+      transition: opacity 0.3s ease;
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
     @media (max-width: 1380px) {
       .workspace {
         grid-template-columns: minmax(0, 1fr) 300px;
@@ -854,7 +953,8 @@
     const slidesApp = window["slides"];
     const state = {
       deck: null,
-      snapshot: null
+      snapshot: null,
+      prevSlide: -1
     };
 
     const el = (id) => document.getElementById(id);
@@ -1007,7 +1107,17 @@
       }
 
       stage.className = `stage ${preview === "actual" ? "actual" : "fit"}`;
-      stage.innerHTML = `${css}${currentHtml}`;
+
+      // Determine transition direction
+      const currentIdx = state.deck.currentSlide;
+      const prevIdx = state.prevSlide;
+      let transitionClass = "stage-transition";
+      if (prevIdx >= 0 && prevIdx !== currentIdx) {
+        transitionClass = currentIdx > prevIdx ? "stage-transition-forward" : "stage-transition-backward";
+      }
+      state.prevSlide = currentIdx;
+
+      stage.innerHTML = `${css}<div class="${transitionClass}">${currentHtml}</div>`;
 
       if (preview === "fit") {
         requestAnimationFrame(() => {
