@@ -21,6 +21,7 @@ interface MarketplaceItem {
   installed?: boolean;
   hasUpdate?: boolean;
   latestVersion?: string;
+  displayName?: string;
 }
 
 interface MarketplaceSource {
@@ -1176,7 +1177,9 @@ export class MarketplaceView extends LitElement {
           <div class="modal-header">
             <div class="detail-header">
               ${item.icon ? html`<span class="photon-icon">${item.icon}</span>` : ''}
-              <span class="card-title" id="detail-modal-title">${item.name}</span>
+              <span class="card-title" id="detail-modal-title"
+                >${item.displayName || item.name}</span
+              >
               <div
                 class="tag"
                 style="background: var(--accent-secondary); color: white; font-weight: 600;"
@@ -1357,7 +1360,7 @@ export class MarketplaceView extends LitElement {
           </div>
           <div class="card-content">
             <div class="card-title-row">
-              <span class="card-title">${item.name}</span>
+              <span class="card-title">${item.displayName || item.name}</span>
               <div class="card-meta">
                 ${item.internal
                   ? html`<span class="source-pill source-internal">System</span>`
@@ -1475,6 +1478,7 @@ export class MarketplaceView extends LitElement {
       });
       const data = await res.json();
       this._allItems = data.photons || [];
+      this._disambiguateNames();
       this._applyFilter();
     } catch (e) {
       console.error('Failed to fetch marketplace', e);
@@ -1499,6 +1503,17 @@ export class MarketplaceView extends LitElement {
       for (const tag of item.tags) tags.add(tag);
     }
     return [...tags].sort();
+  }
+
+  private _disambiguateNames() {
+    const counts = new Map<string, number>();
+    for (const item of this._allItems) {
+      counts.set(item.name, (counts.get(item.name) || 0) + 1);
+    }
+    for (const item of this._allItems) {
+      item.displayName =
+        (counts.get(item.name) || 0) > 1 ? `${item.name} (${item.marketplace})` : item.name;
+    }
   }
 
   private _applyFilter() {
