@@ -2766,6 +2766,9 @@ export class BeamApp extends LitElement {
       this._splitPanels = [];
 
       if (photonName === 'marketplace') {
+        this._selectedPhoton = null;
+        this._selectedMethod = null;
+        this._lastResult = null;
         this._view = 'marketplace';
         return;
       }
@@ -7277,6 +7280,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
         this._handleBackFromMethod();
       } else if (this._view === 'marketplace') {
         this._view = 'list';
+        this._updateRoute();
       }
       return;
     }
