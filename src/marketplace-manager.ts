@@ -1107,10 +1107,17 @@ export class MarketplaceManager {
       // Download and save all declared assets into the photon's assets/ directory
       if (result.metadata.assets && result.metadata.assets.length > 0) {
         const assets = await this.fetchAssets(result.marketplace, result.metadata.assets);
+        // Asset paths in manifest are repo-relative (e.g., "walkthrough/assets/slides.md")
+        // but installDir already targets the photon's data dir, so strip the
+        // "<photon-name>/" prefix to avoid double nesting
+        const assetPrefix = `${name}/`;
         for (const [assetPath, assetContent] of assets) {
           const safePath = validateAssetPath(assetPath);
-          const assetTarget = path.join(assetsDir, safePath);
-          if (!isPathWithin(assetTarget, assetsDir)) continue;
+          const relativePath = safePath.startsWith(assetPrefix)
+            ? safePath.slice(assetPrefix.length)
+            : safePath;
+          const assetTarget = path.join(photonDataDir, relativePath);
+          if (!isPathWithin(assetTarget, photonDataDir)) continue;
           await fs.mkdir(path.dirname(assetTarget), { recursive: true });
           await fs.writeFile(assetTarget, assetContent, 'utf-8');
           assetsInstalled.push(assetPath);

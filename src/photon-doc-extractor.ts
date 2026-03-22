@@ -301,9 +301,6 @@ export class PhotonDocExtractor {
     try {
       const stats = await fs.stat(assetFolder);
       if (stats.isDirectory()) {
-        // Only scan recognized asset subdirectories, not runtime data folders
-        const ASSET_SUBDIRS = ['ui', 'prompts', 'resources', 'assets'];
-
         const findFiles = async (currentDir: string, relativePath: string) => {
           const entries = await fs.readdir(currentDir, { withFileTypes: true });
           for (const entry of entries) {
@@ -313,24 +310,13 @@ export class PhotonDocExtractor {
             if (entry.isDirectory()) {
               await findFiles(entryPath, entryRelative);
             } else {
-              // Add relative path from photon file's directory
-              // e.g. test-ui/ui/index.html
               assets.add(path.join(basename, entryRelative));
             }
           }
         };
 
-        for (const subdir of ASSET_SUBDIRS) {
-          const subdirPath = path.join(assetFolder, subdir);
-          try {
-            const subdirStats = await fs.stat(subdirPath);
-            if (subdirStats.isDirectory()) {
-              await findFiles(subdirPath, subdir);
-            }
-          } catch {
-            // Subdir doesn't exist, skip
-          }
-        }
+        // Scan all files in the asset folder (root + subdirectories)
+        await findFiles(assetFolder, '');
       }
     } catch {
       // Asset folder doesn't exist, ignore
