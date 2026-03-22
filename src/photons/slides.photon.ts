@@ -1,8 +1,8 @@
 /**
  * Slides — AI-Native Presentation Tool
  *
- * Manages presentations using the Marp Markdown format.
- * Supports real-time AI-controlled slide transitions and high-fidelity rendering.
+ * Each instance is a deck: `_use('quarterly-review')` → `quarterly-review.md`.
+ * Pass a full path to open any markdown file: `_use('/path/to/deck.md')`.
  *
  * @version 1.0.0
  * @runtime ^1.14.0
@@ -13,7 +13,7 @@
  * @ui dashboard ./ui/slides.html
  */
 import * as fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -37,7 +37,6 @@ Ask me to:
 - "Go to the next slide"
 `;
 
-// Lazy-loaded Marp dependency
 let Marp: any;
 
 export default class Slides {
@@ -46,14 +45,32 @@ export default class Slides {
     folder: path.join(os.homedir(), 'Documents', 'slides'),
   };
 
-  // Injected by runtime
   declare memory: {
     get<T>(key: string): Promise<T | null>;
     set(key: string, value: unknown): Promise<void>;
   };
   declare emit: (payload: { event: string; data: unknown }) => void;
+  declare instanceName: string;
 
   private marp: any;
+
+  // ── File Resolution (same pattern as Spreadsheet) ───────────────────────
+
+  private get defaultFolder(): string {
+    return this.settings?.folder || path.join(os.homedir(), 'Documents', 'slides');
+  }
+
+  private get deckPath(): string {
+    const name = this.instanceName || 'slides';
+    if (path.isAbsolute(name)) return name.endsWith('.md') ? name : name + '.md';
+    if (name.includes('/') || name.includes('\\')) {
+      const resolved = path.resolve(name);
+      return resolved.endsWith('.md') ? resolved : resolved + '.md';
+    }
+    const dir = this.defaultFolder;
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    return path.join(dir, name.endsWith('.md') ? name : name + '.md');
+  }
 
   async onInitialize() {
     const marpId = '@marp-team/marp-core';
@@ -61,22 +78,19 @@ export default class Slides {
     Marp = marpModule.Marp || marpModule.default;
     this.marp = new Marp({ container: false, inlineSVG: true, html: true });
 
-    await fs.mkdir(this.settings.folder, { recursive: true });
+    // Ensure folder exists
+    const dir = this.defaultFolder;
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-    // Ensure default deck exists
-    const defaultPath = path.join(this.settings.folder, 'slides.md');
-    if (!existsSync(defaultPath)) {
-      await fs.writeFile(defaultPath, DEFAULT_DECK, 'utf8');
+    // Create default deck if this is the default instance and file doesn't exist
+    if (!existsSync(this.deckPath)) {
+      await fs.writeFile(this.deckPath, DEFAULT_DECK, 'utf8');
     }
 
-    // Initialize state if not present
-    const current = await this.memory.get<any>('state');
-    if (!current) {
-      await this.memory.set('state', {
-        currentDeck: 'slides.md',
-        currentSlide: 0,
-        markdown: DEFAULT_DECK,
-      });
+    // Initialize slide position if not stored
+    const state = await this.memory.get<any>('state');
+    if (!state) {
+      await this.memory.set('state', { currentSlide: 0 });
     }
   }
 
@@ -88,12 +102,9 @@ export default class Slides {
    * @autorun
    */
   async main() {
+    const markdown = await this.readDeck();
     const state = await this.getState();
-    if (!state.markdown) {
-      state.markdown = await this.readDeckFile(state.currentDeck);
-      await this.memory.set('state', state);
-    }
-    return this.renderDeck(state);
+    return this.renderResult(markdown, state.currentSlide);
   }
 
   /**
@@ -101,8 +112,9 @@ export default class Slides {
    * @ui dashboard
    */
   async next() {
+    const markdown = await this.readDeck();
+    const total = this.countSlides(markdown);
     const state = await this.getState();
-    const total = this.countSlides(state.markdown);
     if (state.currentSlide < total - 1) {
       state.currentSlide++;
       await this.memory.set('state', state);
@@ -131,8 +143,9 @@ export default class Slides {
    * @ui dashboard
    */
   async go({ index }: { index: number }) {
+    const markdown = await this.readDeck();
+    const total = this.countSlides(markdown);
     const state = await this.getState();
-    const total = this.countSlides(state.markdown);
     state.currentSlide = clamp(Math.trunc(index), 0, Math.max(total - 1, 0));
     await this.memory.set('state', state);
     this.emit({ event: 'slideChanged', data: { type: 'nav', index: state.currentSlide } });
@@ -142,17 +155,19 @@ export default class Slides {
   // ── Deck Management ─────────────────────────────────────────────────────
 
   /**
-   * List saved markdown decks
+   * List saved decks in the slides folder
    * @readOnly
    */
   async list() {
-    const entries = await fs.readdir(this.settings.folder, { withFileTypes: true });
+    const dir = this.defaultFolder;
+    if (!existsSync(dir)) return { folder: dir, decks: [] };
+    const entries = await fs.readdir(dir, { withFileTypes: true });
     const decks = await Promise.all(
       entries
         .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
         .map(async (e) => {
-          const stat = await fs.stat(path.join(this.settings.folder, e.name));
-          const md = await fs.readFile(path.join(this.settings.folder, e.name), 'utf8');
+          const stat = await fs.stat(path.join(dir, e.name));
+          const md = await fs.readFile(path.join(dir, e.name), 'utf8');
           return {
             file: e.name,
             title: firstHeading(md) || e.name.replace(/\.md$/i, ''),
@@ -160,94 +175,58 @@ export default class Slides {
           };
         })
     );
-    return {
-      folder: this.settings.folder,
-      decks: decks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    };
+    return { folder: dir, decks: decks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) };
   }
 
   /**
-   * Load a deck from markdown string or file
-   * @param source Marp Markdown content or filename in slides folder
+   * Read the current deck's markdown
+   * @readOnly
+   */
+  async read() {
+    return { file: path.basename(this.deckPath), markdown: await this.readDeck() };
+  }
+
+  /**
+   * Save markdown to the current deck
+   * @param markdown Full Marp markdown content
    * @ui dashboard
    */
-  async load({ source }: { source: string }) {
-    let markdown = source;
-    const filePath = path.join(this.settings.folder, this.normalizeFileName(source));
-    if (source.endsWith('.md') && existsSync(filePath)) {
-      markdown = await fs.readFile(filePath, 'utf8');
-    }
-
+  async save({ markdown }: { markdown: string }) {
+    await fs.writeFile(this.deckPath, markdown, 'utf8');
     const state = await this.getState();
-    state.markdown = markdown;
-    state.currentSlide = 0;
-    state.currentDeck = this.normalizeFileName(source);
-    await this.memory.set('state', state);
-
-    const result = this.renderDeck(state);
+    const result = this.renderResult(markdown, state.currentSlide);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
 
   /**
-   * Save the current deck to a file
-   * @param file Filename (defaults to current deck)
-   * @param markdown Optional markdown override
-   * @ui dashboard
-   */
-  async save(params?: { file?: string; markdown?: string }) {
-    const state = await this.getState();
-    const file = this.normalizeFileName(params?.file || state.currentDeck || 'slides.md');
-    const markdown = params?.markdown || state.markdown;
-    const fullPath = path.join(this.settings.folder, file);
-    await fs.writeFile(fullPath, markdown, 'utf8');
-
-    state.currentDeck = file;
-    state.markdown = markdown;
-    await this.memory.set('state', state);
-
-    const result = this.renderDeck(state);
-    this.emit({ event: 'deckChanged', data: result });
-    return result;
-  }
-
-  /**
-   * Update the full markdown content
+   * Update the full markdown and re-render
    * @param markdown New Marp markdown content
    * @ui dashboard
    */
   async update({ markdown }: { markdown: string }) {
-    const state = await this.getState();
-    state.markdown = markdown;
-    await this.memory.set('state', state);
-
-    const result = this.renderDeck(state);
-    this.emit({ event: 'deckChanged', data: result });
-    return result;
+    return this.save({ markdown });
   }
 
   // ── Slide-Level Operations ──────────────────────────────────────────────
 
   /**
    * Insert a new slide at a position
-   * @param markdown Slide markdown content
+   * @param markdown Slide content
    * @param index Position to insert (appends if omitted)
    * @ui dashboard
    */
   async add(params?: { markdown?: string; index?: number }) {
-    const state = await this.getState();
-    const { frontmatter, slides } = splitMarpMarkdown(state.markdown);
+    const md = await this.readDeck();
+    const { frontmatter, slides } = splitMarpMarkdown(md);
     const content = params?.markdown ?? '';
     const index =
       params?.index != null ? clamp(Math.trunc(params.index), 0, slides.length) : slides.length;
-
     slides.splice(index, 0, content);
-    state.markdown = joinMarpMarkdown(frontmatter, slides);
-    state.currentSlide = index;
-    await this.memory.set('state', state);
-    await this.saveDeckFile(state.currentDeck, state.markdown);
-
-    const result = this.renderDeck(state);
+    const newMd = joinMarpMarkdown(frontmatter, slides);
+    await fs.writeFile(this.deckPath, newMd, 'utf8');
+    await this.memory.set('state', { currentSlide: index });
+    const result = this.renderResult(newMd, index);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
@@ -259,16 +238,13 @@ export default class Slides {
    * @ui dashboard
    */
   async edit({ index, markdown }: { index: number; markdown: string }) {
-    const state = await this.getState();
-    const { frontmatter, slides } = splitMarpMarkdown(state.markdown);
+    const md = await this.readDeck();
+    const { frontmatter, slides } = splitMarpMarkdown(md);
     const i = clamp(Math.trunc(index), 0, Math.max(slides.length - 1, 0));
-
     slides[i] = markdown;
-    state.markdown = joinMarpMarkdown(frontmatter, slides);
-    await this.memory.set('state', state);
-    await this.saveDeckFile(state.currentDeck, state.markdown);
-
-    const result = this.renderDeck(state);
+    const newMd = joinMarpMarkdown(frontmatter, slides);
+    await fs.writeFile(this.deckPath, newMd, 'utf8');
+    const result = this.renderResult(newMd, i);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
@@ -280,43 +256,38 @@ export default class Slides {
    * @ui dashboard
    */
   async move({ from, to }: { from: number; to: number }) {
-    const state = await this.getState();
-    const { frontmatter, slides } = splitMarpMarkdown(state.markdown);
+    const md = await this.readDeck();
+    const { frontmatter, slides } = splitMarpMarkdown(md);
     const f = clamp(Math.trunc(from), 0, Math.max(slides.length - 1, 0));
     const t = clamp(Math.trunc(to), 0, Math.max(slides.length - 1, 0));
-    if (f === t) return this.renderDeck(state);
-
+    if (f === t) return this.renderResult(md, f);
     const [slide] = slides.splice(f, 1);
     slides.splice(t, 0, slide);
-    state.markdown = joinMarpMarkdown(frontmatter, slides);
-    state.currentSlide = t;
-    await this.memory.set('state', state);
-    await this.saveDeckFile(state.currentDeck, state.markdown);
-
-    const result = this.renderDeck(state);
+    const newMd = joinMarpMarkdown(frontmatter, slides);
+    await fs.writeFile(this.deckPath, newMd, 'utf8');
+    await this.memory.set('state', { currentSlide: t });
+    const result = this.renderResult(newMd, t);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
 
   /**
    * Delete a slide
-   * @param index Slide index to remove
+   * @param index Slide index
    * @destructive
    * @ui dashboard
    */
   async remove({ index }: { index: number }) {
-    const state = await this.getState();
-    const { frontmatter, slides } = splitMarpMarkdown(state.markdown);
+    const md = await this.readDeck();
+    const { frontmatter, slides } = splitMarpMarkdown(md);
     if (slides.length <= 1) return { error: 'Cannot remove the last slide' };
-
     const i = clamp(Math.trunc(index), 0, Math.max(slides.length - 1, 0));
     slides.splice(i, 1);
-    state.markdown = joinMarpMarkdown(frontmatter, slides);
-    state.currentSlide = clamp(state.currentSlide, 0, Math.max(slides.length - 1, 0));
-    await this.memory.set('state', state);
-    await this.saveDeckFile(state.currentDeck, state.markdown);
-
-    const result = this.renderDeck(state);
+    const newMd = joinMarpMarkdown(frontmatter, slides);
+    await fs.writeFile(this.deckPath, newMd, 'utf8');
+    const cur = clamp(i, 0, Math.max(slides.length - 1, 0));
+    await this.memory.set('state', { currentSlide: cur });
+    const result = this.renderResult(newMd, cur);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
@@ -327,52 +298,62 @@ export default class Slides {
    * @ui dashboard
    */
   async duplicate({ index }: { index: number }) {
-    const state = await this.getState();
-    const { frontmatter, slides } = splitMarpMarkdown(state.markdown);
+    const md = await this.readDeck();
+    const { frontmatter, slides } = splitMarpMarkdown(md);
     const i = clamp(Math.trunc(index), 0, Math.max(slides.length - 1, 0));
-
     slides.splice(i + 1, 0, slides[i]);
-    state.markdown = joinMarpMarkdown(frontmatter, slides);
-    state.currentSlide = i + 1;
-    await this.memory.set('state', state);
-    await this.saveDeckFile(state.currentDeck, state.markdown);
-
-    const result = this.renderDeck(state);
+    const newMd = joinMarpMarkdown(frontmatter, slides);
+    await fs.writeFile(this.deckPath, newMd, 'utf8');
+    await this.memory.set('state', { currentSlide: i + 1 });
+    const result = this.renderResult(newMd, i + 1);
     this.emit({ event: 'deckChanged', data: result });
     return result;
   }
 
-  // ── Read-Only ───────────────────────────────────────────────────────────
+  // ── Context ─────────────────────────────────────────────────────────────
 
   /**
    * Current presentation state for AI context
    * @readOnly
    */
   async status() {
+    const md = await this.readDeck();
+    const { slides } = splitMarpMarkdown(md);
     const state = await this.getState();
-    const { slides } = splitMarpMarkdown(state.markdown);
     return {
+      file: path.basename(this.deckPath),
       currentSlide: state.currentSlide,
       totalSlides: slides.length,
       currentContent: slides[state.currentSlide],
       nextSlidePreview: slides[state.currentSlide + 1] || null,
-      currentDeck: state.currentDeck,
-      markdown: state.markdown,
+      markdown: md,
     };
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
 
-  private renderDeck(state: any) {
-    const { html, css } = this.marp.render(state.markdown);
+  private async readDeck(): Promise<string> {
+    try {
+      return await fs.readFile(this.deckPath, 'utf8');
+    } catch {
+      return DEFAULT_DECK;
+    }
+  }
+
+  private async getState() {
+    return (await this.memory.get<any>('state')) || { currentSlide: 0 };
+  }
+
+  private renderResult(markdown: string, currentSlide: number) {
+    const { html, css } = this.marp.render(markdown);
     const total = (html.match(/<section/g) || []).length;
     return {
       type: 'render',
       html,
       css,
       total,
-      current: state.currentSlide,
-      markdown: state.markdown,
+      current: clamp(currentSlide, 0, Math.max(total - 1, 0)),
+      markdown,
     };
   }
 
@@ -380,64 +361,33 @@ export default class Slides {
     const { html } = this.marp.render(markdown);
     return (html.match(/<section/g) || []).length;
   }
-
-  private async getState() {
-    let state = await this.memory.get<any>('state');
-    if (!state) {
-      const markdown = await this.readDeckFile('slides.md');
-      state = { currentDeck: 'slides.md', currentSlide: 0, markdown };
-      await this.memory.set('state', state);
-    }
-    return state;
-  }
-
-  private async readDeckFile(file: string): Promise<string> {
-    try {
-      return await fs.readFile(path.join(this.settings.folder, file), 'utf8');
-    } catch {
-      return DEFAULT_DECK;
-    }
-  }
-
-  private async saveDeckFile(file: string, markdown: string) {
-    const fullPath = path.join(this.settings.folder, this.normalizeFileName(file));
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, markdown, 'utf8');
-  }
-
-  private normalizeFileName(file: string) {
-    const trimmed = path.basename(file || 'slides.md').trim() || 'slides.md';
-    return trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
-  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(Number.isFinite(value) ? value : min, min), max);
+function clamp(v: number, min: number, max: number) {
+  return Math.min(Math.max(Number.isFinite(v) ? v : min, min), max);
 }
 
-function firstHeading(markdown: string) {
-  const match = markdown.match(/^#\s+(.+)$/m);
-  return match?.[1]?.trim() || '';
+function firstHeading(md: string) {
+  return md.match(/^#\s+(.+)$/m)?.[1]?.trim() || '';
 }
 
 function splitMarpMarkdown(markdown: string) {
-  const frontmatterMatch = markdown.match(/^---\n[\s\S]*?\n---\n*/);
-  const frontmatter = frontmatterMatch ? frontmatterMatch[0].trimEnd() : '---\nmarp: true\n---';
-  const body = frontmatterMatch ? markdown.slice(frontmatterMatch[0].length) : markdown;
-
+  const fm = markdown.match(/^---\n[\s\S]*?\n---\n*/);
+  const frontmatter = fm ? fm[0].trimEnd() : '---\nmarp: true\n---';
+  const body = fm ? markdown.slice(fm[0].length) : markdown;
   const slides: string[] = [];
-  let current: string[] = [];
+  let cur: string[] = [];
   for (const line of body.split('\n')) {
     if (line.trim() === '---') {
-      slides.push(current.join('\n').trim());
-      current = [];
+      slides.push(cur.join('\n').trim());
+      cur = [];
       continue;
     }
-    current.push(line);
+    cur.push(line);
   }
-  slides.push(current.join('\n').trim());
+  slides.push(cur.join('\n').trim());
   return { frontmatter, slides: slides.filter((s) => s.length > 0) };
 }
 
