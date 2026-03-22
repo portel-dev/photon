@@ -16,6 +16,48 @@ import { SchemaExtractor } from '@portel/photon-core';
 // Timeout for marketplace fetch requests
 const FETCH_TIMEOUT_MS = 10 * 1000;
 
+/**
+ * Get GitHub auth headers for private repo access.
+ * Checks GITHUB_TOKEN env var first, then falls back to `gh auth token`.
+ */
+let _ghToken: string | null = null;
+let _ghTokenChecked = false;
+
+/**
+ * Get GitHub auth token for private repo access.
+ * Checks GITHUB_TOKEN env var first, then falls back to `gh auth token`.
+ * Cached after first call.
+ */
+function getGitHubToken(): string | null {
+  if (_ghTokenChecked) return _ghToken;
+  _ghTokenChecked = true;
+  _ghToken = process.env.GITHUB_TOKEN || null;
+  if (!_ghToken) {
+    try {
+      const { execSync } = require('child_process');
+      _ghToken = execSync('gh auth token 2>/dev/null', { encoding: 'utf-8' }).trim() || null;
+    } catch {
+      _ghToken = null;
+    }
+  }
+  return _ghToken;
+}
+
+/**
+ * Fetch with GitHub auth headers if a token is available.
+ * Falls back to unauthenticated fetch for public repos.
+ */
+function ghFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getGitHubToken();
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
 type MarketplaceSourceType = 'github' | 'git-ssh' | 'url' | 'local';
 
 export interface Marketplace {
@@ -541,10 +583,9 @@ export class MarketplaceManager {
           return (await response.json()) as MarketplaceManifest;
         }
       } else {
-        // GitHub sources (github, git-ssh)
+        // GitHub sources (github, git-ssh) — includes auth for private repos
         const url = `${marketplace.url}/.marketplace/photons.json`;
-        const response = await fetch(url, {
-          // Add timeout to prevent hanging
+        const response = await ghFetch(url, {
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
 
@@ -770,9 +811,9 @@ export class MarketplaceManager {
             content = await fs.readFile(mcpPath, 'utf-8');
           }
         } else {
-          // Remote fetch (GitHub, URL)
+          // Remote fetch — ghFetch adds auth for private repos
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url, {
+          const response = await ghFetch(url, {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
 
@@ -855,14 +896,12 @@ export class MarketplaceManager {
             results.set(assetPath, content);
           }
         } else {
-          // Remote fetch
-          // Use the marketplace URL as base, ensuring no double slashes
+          // Remote fetch — ghFetch adds auth for private repos
           const baseUrl = marketplace.url.replace(/\/$/, '');
-          // Ensure asset path doesn't start with slash
           const cleanPath = assetPath.replace(/^\//, '');
           const url = `${baseUrl}/${cleanPath}`;
 
-          const response = await fetch(url, {
+          const response = await ghFetch(url, {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (response.ok) {
@@ -951,9 +990,9 @@ export class MarketplaceManager {
             content = await fs.readFile(mcpPath, 'utf-8');
           }
         } else {
-          // Remote fetch (GitHub, URL)
+          // Remote fetch — ghFetch adds auth for private repos
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url, {
+          const response = await ghFetch(url, {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
 
@@ -1018,7 +1057,7 @@ export class MarketplaceManager {
         // Fallback: check if exact filename exists (for marketplaces without manifest)
         try {
           const url = `${marketplace.url}/${query}.photon.ts`;
-          const response = await fetch(url, {
+          const response = await ghFetch(url, {
             method: 'HEAD',
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
@@ -1270,9 +1309,9 @@ export class MarketplaceManager {
             content = await fs.readFile(mcpPath, 'utf-8');
           }
         } else {
-          // Remote fetch (GitHub, URL)
+          // Remote fetch — ghFetch adds auth for private repos
           const url = `${marketplace.url}/${mcpName}.photon.ts`;
-          const response = await fetch(url, {
+          const response = await ghFetch(url, {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
 
@@ -1782,7 +1821,7 @@ export class MarketplaceManager {
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${photonName}.photon.ts`;
     let content: string;
     try {
-      const response = await fetch(rawUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      const response = await ghFetch(rawUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
