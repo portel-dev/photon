@@ -253,6 +253,7 @@ export class BeamApp extends LitElement {
 
       .main-area {
         flex: 1;
+        min-width: 0;
         position: relative;
         overflow-y: auto;
         overflow-x: hidden;
@@ -4487,14 +4488,20 @@ ${photon.errorMessage || 'Unknown error'}</pre
           // Split view: app on one side, additional panels on the other
           if (this._splitPanels.length > 0) {
             return html`
-              <div style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden;">
+              <div
+                style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden; width: 100%;"
+              >
                 <!-- App Panel (primary) — no title bar, app has its own chrome -->
-                <div style="flex: 1; min-height: 0; overflow: hidden;">${appRenderer}</div>
+                <div style="flex: 1; min-width: 0; min-height: 0; overflow: hidden;">
+                  ${appRenderer}
+                </div>
 
                 <!-- Additional Panels -->
                 ${this._splitPanels.map(
                   (panel) => html`
-                    <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+                    <div
+                      style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+                    >
                       ${panel.type === 'method'
                         ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                         : this._renderSourcePanel(panel.id)}
@@ -4558,10 +4565,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
         // Non-app linked UI — split view support
         if (this._splitPanels.length > 0) {
           return html`
-            <div style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden;">
+            <div
+              style="display: flex; gap: 1px; height: calc(100vh - 60px); overflow: hidden; width: 100%;"
+            >
               <!-- Linked UI Panel (primary) -->
               <div
-                style="flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;"
+                style="flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative;"
               >
                 <div
                   style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); background: var(--bg-glass); flex-shrink: 0;"
@@ -4591,7 +4600,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
               <!-- Additional Panels -->
               ${this._splitPanels.map(
                 (panel) => html`
-                  <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+                  <div
+                    style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+                  >
                     ${panel.type === 'method'
                       ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                       : this._renderSourcePanel(panel.id)}
@@ -5044,9 +5055,11 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Split view mode — N panels
     if (this._splitPanels.length > 0) {
       return html`
-        <div style="display: flex; gap: 1px; height: 100%; overflow: hidden;">
+        <div style="display: flex; gap: 1px; height: 100%; overflow: hidden; width: 100%;">
           <!-- Primary Panel -->
-          <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+          <div
+            style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+          >
             ${this._renderSinglePanel({
               photon: this._selectedPhoton,
               method: this._selectedMethod,
@@ -5081,7 +5094,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
           <!-- Additional Panels -->
           ${this._splitPanels.map(
             (panel) => html`
-              <div style="flex: 1; min-height: 0; background: var(--bg-panel);">
+              <div
+                style="flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--bg-panel);"
+              >
                 ${panel.type === 'method'
                   ? this._renderSinglePanel(this._buildAdditionalPanelOpts(panel))
                   : this._renderSourcePanel(panel.id)}
