@@ -120,6 +120,7 @@ export class ActivityLog extends LitElement {
         font-size: var(--text-md);
         display: flex;
         gap: var(--space-md);
+        overflow: visible;
       }
 
       .meta {
@@ -138,7 +139,9 @@ export class ActivityLog extends LitElement {
       .content {
         color: var(--t-primary);
         flex: 1;
-        word-break: break-all;
+        min-width: 0;
+        word-break: break-word;
+        overflow-wrap: break-word;
       }
 
       .duration {
