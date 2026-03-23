@@ -26,10 +26,13 @@ export class ToastManager extends LitElement {
         bottom: var(--space-lg);
         right: var(--space-lg);
         z-index: 9999;
+        pointer-events: none;
+      }
+
+      .toast-container {
         display: flex;
         flex-direction: column-reverse;
         gap: var(--space-sm);
-        pointer-events: none;
       }
 
       .toast {
@@ -178,7 +181,7 @@ export class ToastManager extends LitElement {
 
   render() {
     return html`
-      <div role="status" aria-live="polite" aria-atomic="false">
+      <div class="toast-container" role="status" aria-live="polite" aria-atomic="false">
         ${this._toasts.map(
           (toast) => html`
             <div
