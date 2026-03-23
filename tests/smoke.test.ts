@@ -178,9 +178,9 @@ async function runAll() {
       const result = photonExec('portel-dev/photons/math calculate --expression "2+2"', dir);
       assert.ok(result.includes('4'), 'Should return calculation result');
 
-      // Verify file was installed
-      const installed = path.join(dir, 'portel-dev', 'math.photon.ts');
-      assert.ok(fs.existsSync(installed), 'math.photon.ts should be installed in namespace dir');
+      // Verify file was installed (flat in PHOTON_DIR, not namespaced)
+      const installed = path.join(dir, 'math.photon.ts');
+      assert.ok(fs.existsSync(installed), 'math.photon.ts should be installed');
     } finally {
       cleanup(dir);
     }
@@ -345,9 +345,9 @@ async function runAll() {
         assert.ok(port, 'Should detect port');
         const diag = await fetchDiagnostics(port!);
         assert.ok(diag.photonVersion, 'Should return version');
-        // Verify math is installed on disk (Beam may still be loading it)
+        // Verify math is installed on disk (flat in PHOTON_DIR)
         assert.ok(
-          fs.existsSync(path.join(dir, 'portel-dev', 'math.photon.ts')),
+          fs.existsSync(path.join(dir, 'math.photon.ts')),
           'math.photon.ts should be installed'
         );
       } finally {
@@ -500,13 +500,13 @@ async function runAll() {
       );
       assert.ok(result.includes('18'), 'Should return calculation result');
 
-      // Verify photon was installed in PHOTON_DIR, not cwd
+      // Verify photon was installed in PHOTON_DIR (flat), not cwd
       assert.ok(
-        fs.existsSync(path.join(dir, 'portel-dev', 'math.photon.ts')),
+        fs.existsSync(path.join(dir, 'math.photon.ts')),
         'Photon should be in PHOTON_DIR, not cwd'
       );
       assert.ok(
-        !fs.existsSync(path.join(unrelatedCwd, 'portel-dev')),
+        !fs.existsSync(path.join(unrelatedCwd, 'math.photon.ts')),
         'Nothing should be written to cwd'
       );
     } finally {
@@ -579,7 +579,7 @@ async function runAll() {
       const result1 = photonExec('portel-dev/photons/math calculate --expression "10+10"', dir);
       assert.ok(result1.includes('20'), 'First run should succeed');
 
-      const installedFile = path.join(dir, 'portel-dev', 'math.photon.ts');
+      const installedFile = path.join(dir, 'math.photon.ts');
       assert.ok(fs.existsSync(installedFile), 'Should be installed');
       const mtime1 = fs.statSync(installedFile).mtimeMs;
 
