@@ -11,7 +11,7 @@ import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as crypto from 'crypto';
 import { startToolSpan } from './telemetry/otel.js';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import {
   Photon,
   SchemaExtractor,
@@ -118,6 +118,24 @@ import { createLogger, Logger, type LogLevel } from './shared/logger.js';
 import { getErrorMessage, wrapError } from './shared/error-handler.js';
 import { validateOrThrow, assertString, notEmpty, hasExtension } from './shared/validation.js';
 import { warnIfDangerous } from './shared/security.js';
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PACKAGE MANAGER DETECTION
+// ════════════════════════════════════════════════════════════════════════════════
+
+let _cachedPM: string | null = null;
+
+/** Detect preferred package manager. Prefers bun for speed, falls back to npm. */
+function detectPreferredPackageManager(): string {
+  if (_cachedPM) return _cachedPM;
+  try {
+    execSync('bun --version', { stdio: 'ignore' });
+    _cachedPM = 'bun';
+  } catch {
+    _cachedPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  }
+  return _cachedPM;
+}
 
 // ════════════════════════════════════════════════════════════════════════════════
 // FUNCTIONAL TAG MIDDLEWARE TYPES
@@ -2920,12 +2938,12 @@ export class PhotonLoader {
       return;
     }
 
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    await this.runCommand(
-      npmCmd,
-      ['install', packageSpec, '--omit=dev', '--silent', '--no-save'],
-      cacheDir
-    );
+    const pm = detectPreferredPackageManager();
+    const pmArgs =
+      pm === 'bun'
+        ? ['add', packageSpec, '--production', '--silent']
+        : ['install', packageSpec, '--omit=dev', '--silent', '--no-save'];
+    await this.runCommand(pm, pmArgs, cacheDir);
   }
 
   private async findPhotonFile(dir: string, depth = 0): Promise<string | null> {

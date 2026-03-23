@@ -38,8 +38,20 @@ async function extractConstructorParams(
 async function getGlobalPhotonPath(): Promise<string | null> {
   const { execSync } = await import('child_process');
   try {
-    const npmRoot = execSync('npm root -g', { encoding: 'utf-8' }).trim();
-    const photonBin = path.join(npmRoot, '@portel/photon/dist/cli.js');
+    // Try bun global root first, then npm
+    let globalRoot: string | null = null;
+    try {
+      globalRoot = execSync('bun pm ls -g --parseable', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      })
+        .trim()
+        .split('\n')[0];
+    } catch {}
+    if (!globalRoot) {
+      globalRoot = execSync('npm root -g', { encoding: 'utf-8' }).trim();
+    }
+    const photonBin = path.join(globalRoot, '@portel/photon/dist/cli.js');
     const { existsSync } = await import('fs');
     if (existsSync(photonBin)) {
       return `node ${photonBin}`;

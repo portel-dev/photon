@@ -6,6 +6,14 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
 import { execSync, spawn } from 'child_process';
+
+function detectPM(): string {
+  try {
+    execSync('bun --version', { stdio: 'ignore' });
+    return 'bun';
+  } catch {}
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { SchemaExtractor } from '@portel/photon-core';
@@ -176,7 +184,7 @@ export async function deployToCloudflare(options: CloudflareDeployOptions): Prom
   // Check if wrangler is available
   logger.info('Installing dependencies...');
   try {
-    execSync('npm install', { cwd: outputDir, stdio: 'pipe' });
+    execSync(detectPM() + ' install', { cwd: outputDir, stdio: 'pipe' });
   } catch (error) {
     logger.error('Failed to install dependencies');
     logger.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -246,7 +254,7 @@ export async function devCloudflare(options: CloudflareDeployOptions): Promise<v
   const outputDir = options.outputDir || path.join(process.cwd(), `.cf-${photonName}`);
 
   logger.info('Installing dependencies...');
-  execSync('npm install', { cwd: outputDir, stdio: 'pipe' });
+  execSync(detectPM() + ' install', { cwd: outputDir, stdio: 'pipe' });
 
   logger.info('Starting local Cloudflare Workers dev server...');
 
