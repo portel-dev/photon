@@ -1376,7 +1376,7 @@ export class MarketplaceView extends LitElement {
             ${item.author && item.author !== 'Unknown'
               ? html`<div class="card-author">by ${item.author}</div>`
               : ''}
-            <div class="card-desc">${item.description}</div>
+            <div class="card-desc" title="${item.description}">${item.description}</div>
             ${item.tags.length > 0
               ? html`<div class="tags">
                   ${item.tags.map((tag) => html`<span class="tag">${tag}</span>`)}
