@@ -302,6 +302,20 @@ export class BeamApp extends LitElement {
         max-width: 100% !important;
       }
 
+      /* In view=form mode, let the form expand to fill the viewport height
+         so fields aren't clipped in short iframes */
+      :host(.view-form) .method-detail {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100vh !important;
+        overflow: auto !important;
+      }
+      :host(.view-form) invoke-form {
+        flex: 1 !important;
+        overflow: auto !important;
+      }
+
       .result-chrome {
         display: flex;
         align-items: center;
@@ -2180,6 +2194,18 @@ export class BeamApp extends LitElement {
       this._verboseLogging = true;
     }
 
+    // Apply view mode class synchronously BEFORE any rendering to prevent chrome flash.
+    // The full route handling happens later in _handleRouteChange after MCP connects,
+    // but the CSS class must be on the host element immediately so chrome is never painted.
+    const earlyParams = new URLSearchParams(window.location.search);
+    const earlyView = earlyParams.get('view');
+    if (earlyView === 'form' || earlyView === 'result') {
+      this._viewMode = earlyView;
+      this.classList.add(`view-${earlyView}`);
+      this._focusMode = true;
+      this.classList.add('focus-mode');
+    }
+
     // Click outside to close settings menu
     document.addEventListener('click', this._handleDocumentClick);
 
@@ -2599,6 +2625,15 @@ export class BeamApp extends LitElement {
 
       // Handle render events — intermediate formatted results from this.render()
       mcpClient.on('render', (data: any) => {
+        // Only apply render events for the currently selected photon/method.
+        // The server broadcasts to ALL SSE clients; without this guard,
+        // an embed iframe's streaming gauge would overwrite the parent's slides.
+        if (data?.photon && data?.method) {
+          const currentPhoton = this._selectedPhoton?.name;
+          const currentMethod = this._selectedMethod?.name;
+          if (data.photon !== currentPhoton || data.method !== currentMethod) return;
+        }
+
         // Handle render:clear — remove intermediate output
         if (data?.clear) {
           this._lastResult = null;
@@ -2964,10 +2999,7 @@ export class BeamApp extends LitElement {
             this.classList.add('focus-mode');
           }
           // Auto-scale content to fill viewport in embed/view modes.
-          // Only when this IS the viewport (not when embedded inside a slide iframe).
-          if (window.parent === window) {
-            this._setupViewModeScaling();
-          }
+          this._setupViewModeScaling();
         }
         for (const [key, value] of params) {
           if (key === 'focus' || key === 'view') continue; // UI mode flags, not shared params
