@@ -231,6 +231,8 @@ export class BeamApp extends LitElement {
         display: none !important;
       }
 
+      :host(.view-result) .mobile-menu-btn,
+      :host(.view-result) .background-glow,
       :host(.view-result) .focus-toolbar,
       :host(.view-result) .main-toolbar,
       :host(.view-result) .method-toolbar,
@@ -240,6 +242,8 @@ export class BeamApp extends LitElement {
       :host(.view-result) .glass-panel > div > p,
       :host(.view-result) app-layout,
       :host(.view-result) .result-chrome,
+      :host(.view-form) .mobile-menu-btn,
+      :host(.view-form) .background-glow,
       :host(.view-form) .focus-toolbar,
       :host(.view-form) .main-toolbar,
       :host(.view-form) .method-toolbar,
@@ -2959,8 +2963,11 @@ export class BeamApp extends LitElement {
             this._focusMode = true;
             this.classList.add('focus-mode');
           }
-          // Auto-scale content to fill viewport in embed/view modes
-          this._setupViewModeScaling();
+          // Auto-scale content to fill viewport in embed/view modes.
+          // Only when this IS the viewport (not when embedded inside a slide iframe).
+          if (window.parent === window) {
+            this._setupViewModeScaling();
+          }
         }
         for (const [key, value] of params) {
           if (key === 'focus' || key === 'view') continue; // UI mode flags, not shared params
@@ -5588,7 +5595,9 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 ></custom-ui-renderer>
               `
             : html`
-                ${this._viewMode === 'full'
+                ${this._viewMode === 'full' &&
+                opts.method?.outputFormat !== 'slides' &&
+                !opts.appSurface
                   ? html`<div class="result-chrome">
                       <span class="result-chrome-title">Result</span>
                       <div class="result-chrome-actions">
