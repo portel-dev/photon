@@ -2191,20 +2191,14 @@ export class BeamApp extends LitElement {
 
     // PWA: Register service worker and install prompt listener
     this._initPWA();
-
-    // View mode auto-scaling: scale result/form content to fill the viewport
-    if (this._viewMode !== 'full') {
-      this._setupViewModeScaling();
-    }
   }
 
   private _viewScaleObserver: ResizeObserver | null = null;
 
   private _setupViewModeScaling(): void {
     const scale = () => {
-      const mainArea = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
       const rv = this.shadowRoot?.querySelector('result-viewer') as HTMLElement;
-      if (!mainArea || !rv) return;
+      if (!rv) return;
 
       // Measure the actual rendered content inside result-viewer's shadow DOM
       const rvContent = rv.shadowRoot?.querySelector('.content') as HTMLElement;
@@ -2213,20 +2207,21 @@ export class BeamApp extends LitElement {
       // Reset zoom to measure natural size
       rv.style.zoom = '';
 
-      const areaW = mainArea.clientWidth;
-      const areaH = mainArea.clientHeight;
-      const contentW = rvContent.scrollWidth || rvContent.offsetWidth;
+      const viewportH = window.innerHeight;
+      const viewportW = window.innerWidth;
       const contentH = rvContent.scrollHeight || rvContent.offsetHeight;
+      const contentW = rvContent.scrollWidth || rvContent.offsetWidth;
 
-      if (contentW <= 0 || contentH <= 0 || areaW <= 0 || areaH <= 0) return;
+      if (contentH <= 0 || viewportH <= 0) return;
 
-      const pad = 40; // breathing room
-      const scaleX = (areaW - pad) / contentW;
-      const scaleY = (areaH - pad) / contentH;
-      const zoom = Math.min(scaleX, scaleY);
-      const clamped = Math.max(0.5, Math.min(3, zoom));
+      // Scale based on height — content typically spans full width already.
+      // CSS zoom on the result-viewer will enlarge text, rows, and spacing
+      // proportionally while the container clips any horizontal overflow.
+      const pad = 32;
+      const zoom = (viewportH - pad) / contentH;
+      const clamped = Math.max(0.8, Math.min(3, zoom));
 
-      if (clamped > 1.05) {
+      if (clamped > 1.02) {
         rv.style.zoom = String(clamped);
       }
     };
@@ -2240,12 +2235,8 @@ export class BeamApp extends LitElement {
         return;
       }
       scale();
-      // Re-scale on viewport resize
-      const mainArea = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
-      if (mainArea) {
-        this._viewScaleObserver = new ResizeObserver(() => requestAnimationFrame(scale));
-        this._viewScaleObserver.observe(mainArea);
-      }
+      // Re-scale on window resize
+      window.addEventListener('resize', () => requestAnimationFrame(scale));
     };
 
     setTimeout(poll, 500);
@@ -2968,6 +2959,8 @@ export class BeamApp extends LitElement {
             this._focusMode = true;
             this.classList.add('focus-mode');
           }
+          // Auto-scale content to fill viewport in embed/view modes
+          this._setupViewModeScaling();
         }
         for (const [key, value] of params) {
           if (key === 'focus' || key === 'view') continue; // UI mode flags, not shared params
