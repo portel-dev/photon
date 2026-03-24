@@ -837,6 +837,30 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 
       // Get UI assets for linking
       const uiAssets = mcp.assets?.ui || [];
+      // If loader didn't resolve UI assets but source has @ui tags,
+      // extract them from source to populate linkedUi for sidebar
+      if (uiAssets.length === 0 && schemaSource) {
+        const uiTagRegex = /^\s*\*\s*@ui\s+(\S+)(?:\s+(\S+))?/gm;
+        let uiMatch;
+        const classUiMatch = schemaSource.match(/^\s*\*\s*@ui\s+(\S+)\s+(\.\/\S+)/m);
+        if (classUiMatch) {
+          // Class-level @ui tag with file path: @ui dashboard ./ui/dashboard.html
+          const uiId = classUiMatch[1]; // e.g., "dashboard"
+          // Add synthetic asset entry for all methods tagged with this @ui id
+          schemas.forEach((schema: any) => {
+            // Check if method has @ui tag matching this id
+            const methodSource = schemaSource.match(
+              new RegExp(
+                `@ui\\s+${uiId}[\\s\\n]*\\*/[\\s\\n]*(?:async\\s+)?${schema.name}\\s*\\(`,
+                'm'
+              )
+            );
+            if (methodSource) {
+              uiAssets.push({ id: uiId, linkedTool: schema.name });
+            }
+          });
+        }
+      }
 
       // Filter out lifecycle methods
       const lifecycleMethods = ['onInitialize', 'onShutdown', 'constructor'];
