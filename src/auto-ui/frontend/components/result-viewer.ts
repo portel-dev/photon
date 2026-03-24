@@ -4032,7 +4032,17 @@ export class ResultViewer extends LitElement {
           ${hasChildren
             ? html`
                 <span class="tree-toggle" @click=${() => this._toggleNode(path)}>
-                  ${isExpanded ? '▼' : '▶'}
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    style="transition:transform 0.15s;${isExpanded
+                      ? 'transform:rotate(90deg)'
+                      : ''}"
+                  >
+                    <polygon points="6,3 20,12 6,21"></polygon>
+                  </svg>
                 </span>
               `
             : html`<span class="tree-toggle"></span>`}
@@ -4391,8 +4401,7 @@ export class ResultViewer extends LitElement {
 
     // Bind declarative data-method elements and auto-scale slides after render
     if (changedProperties.has('result') && this.layout === 'slides') {
-      this._bindSlideElements();
-      this._autoScaleSlide();
+      this._afterSlideRender();
     }
   }
 
@@ -4596,6 +4605,7 @@ export class ResultViewer extends LitElement {
   private _slidesDefaultTransition = 'fade';
   private _slidesBoundElements: Set<Element> = new Set();
   private _slidesRefreshTimers: number[] = [];
+  private _slidesResizeObserver: ResizeObserver | null = null;
 
   private _parseSlides(raw: string): {
     slides: string[];
@@ -4728,14 +4738,25 @@ export class ResultViewer extends LitElement {
       >
         ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
-          <div class="slides-content motion-fade-in">${unsafeHTML(slideHtml)}</div>
+          <div class="slides-content">${unsafeHTML(slideHtml)}</div>
           <div class="slides-controls">
             <button
               class="slides-btn"
               ?disabled=${idx === 0}
               @click=${() => this._slidesNavigate(idx - 1, total)}
             >
-              ◀
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
             </button>
             <span class="slides-counter">${idx + 1} / ${total}</span>
             <button
@@ -4743,14 +4764,38 @@ export class ResultViewer extends LitElement {
               ?disabled=${idx === total - 1}
               @click=${() => this._slidesNavigate(idx + 1, total)}
             >
-              ▶
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
             </button>
             <button
               class="slides-btn slides-fullscreen-btn"
               title="Fullscreen (F)"
               @click=${() => this._slidesToggleFullscreen()}
             >
-              ⛶
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+                ></path>
+              </svg>
             </button>
           </div>
         </div>
@@ -4794,6 +4839,17 @@ export class ResultViewer extends LitElement {
           width: 100%;
           max-width: 960px;
           line-height: 1.6;
+        }
+        .slides-prerender {
+          position: absolute;
+          left: -9999px;
+          top: 0;
+          width: 100%;
+          max-width: 960px;
+          line-height: 1.6;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: -1;
         }
         .slides-content h1 {
           font-size: 2.4em;
@@ -5200,6 +5256,9 @@ export class ResultViewer extends LitElement {
         /* ═══ DECLARATIVE BINDING STYLES ═══ */
         .slides-content [data-method] {
           position: relative;
+          max-height: 50vh;
+          overflow: hidden;
+          contain: layout;
         }
         .slides-content [data-method].loading::after {
           content: '';
@@ -5289,10 +5348,19 @@ export class ResultViewer extends LitElement {
       this._bindSlideElements();
       // Scale immediately for static content
       this._autoScaleSlide();
-      // Re-scale after async data-method bindings complete (gauge, metric, etc.)
-      // This ensures content rendered by async invoke() is measured correctly
-      setTimeout(() => this._autoScaleSlide(), 500);
-      setTimeout(() => this._autoScaleSlide(), 1500);
+
+      // Watch for content size changes from async data-method bindings (gauge, metric, etc.)
+      // ResizeObserver fires automatically when async content renders, replacing hardcoded timeouts
+      if (this._slidesResizeObserver) {
+        this._slidesResizeObserver.disconnect();
+      }
+      const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+      if (content) {
+        this._slidesResizeObserver = new ResizeObserver(() => {
+          this._autoScaleSlide();
+        });
+        this._slidesResizeObserver.observe(content);
+      }
     });
   }
 
@@ -5303,22 +5371,32 @@ export class ResultViewer extends LitElement {
     const content = root.querySelector('.slides-content') as HTMLElement;
     if (!viewport || !content) return;
 
-    // Measure at current zoom to avoid visible flash (reset→measure→reapply).
-    // If content already has zoom, temporarily read natural size via CSS trick.
-    const currentZoom = content.style.zoom;
-    if (currentZoom) {
-      content.style.zoom = '1';
+    // Use a hidden prerender div to measure natural content size without flashing.
+    // The prerender div mirrors slides-content styles but is positioned offscreen,
+    // so resetting its zoom to 1 for measurement is invisible to the user.
+    let prerender = root.querySelector('.slides-prerender') as HTMLElement;
+    if (!prerender) {
+      prerender = document.createElement('div');
+      prerender.className = 'slides-prerender';
+      viewport.appendChild(prerender);
     }
 
-    const padV = 96; // 48px top + 48px bottom padding
-    const padH = 128; // 64px left + 64px right padding
+    // Copy current slide content into prerender div for measurement
+    prerender.innerHTML = content.innerHTML;
+    prerender.style.zoom = '1';
+
+    const padV = viewport.classList.contains('slides-viewport')
+      ? document.fullscreenElement
+        ? 128
+        : 96 // 64+64 fullscreen, 48+48 normal
+      : 96;
+    const padH = document.fullscreenElement ? 240 : 128; // 120+120 fullscreen, 64+64 normal
     const viewH = viewport.clientHeight - padV;
     const viewW = viewport.clientWidth - padH;
-    const contentH = content.scrollHeight;
-    const contentW = content.scrollWidth;
+    const contentH = prerender.scrollHeight;
+    const contentW = prerender.scrollWidth;
 
     if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) {
-      if (currentZoom) content.style.zoom = currentZoom;
       return;
     }
 
@@ -6007,12 +6085,17 @@ export class ResultViewer extends LitElement {
               this._toggleNode(nodeKey);
             }}
           >
-            <span
-              style="font-size:0.7rem;display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
+            <svg
+              width="8"
+              height="8"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style="display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
                 ? '90deg'
                 : '0deg'});"
-              >▶</span
             >
+              <polygon points="6,3 20,12 6,21"></polygon>
+            </svg>
             ${this._formatColumnName(key)} <span style="opacity:0.6;">(${value.length})</span>
           </button>
           ${isExpanded
@@ -6091,12 +6174,17 @@ export class ResultViewer extends LitElement {
               this._toggleNode(nodeKey);
             }}
           >
-            <span
-              style="font-size:0.7rem;display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
+            <svg
+              width="8"
+              height="8"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style="display:inline-block;transition:transform 0.15s;transform:rotate(${isExpanded
                 ? '90deg'
                 : '0deg'});"
-              >▶</span
             >
+              <polygon points="6,3 20,12 6,21"></polygon>
+            </svg>
             ${this._formatColumnName(key)} <span style="opacity:0.6;">(${entries.length})</span>
           </button>
           ${isExpanded
