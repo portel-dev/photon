@@ -5304,6 +5304,9 @@ export class ResultViewer extends LitElement {
         }
         .slides-content [data-embed] {
           margin: 12px 0;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
         }
       </style>
     `;
@@ -5489,6 +5492,7 @@ export class ResultViewer extends LitElement {
       iframe.src = url;
       iframe.className = 'slide-embed';
       iframe.style.height = `${height}px`;
+      iframe.style.flex = '1';
       iframe.setAttribute('loading', 'lazy');
       el.innerHTML = '';
       el.appendChild(iframe);
