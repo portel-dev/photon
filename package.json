@@ -71,6 +71,7 @@
     "test:e2e": "npm run build && npx playwright test",
     "test:e2e:ui": "npm run build && npx playwright test --ui",
     "test:visual": "npm run build && npm run build:beam && npx tsx tests/beam/visual/visual.test.ts",
+    "test:promises": "npm run build && npm run build:beam && npx tsx tests/promises.test.ts",
     "release": "release-it",
     "release:minor": "release-it minor",
     "release:major": "release-it major",

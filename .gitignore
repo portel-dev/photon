@@ -9,6 +9,8 @@ dist/
 coverage/
 tests/**/debug/
 tests/**/snapshots/visual/
+tests/**/snapshots/promises/
+promise-report.json
 .vscode/
 .idea/
 CLAUDE.md
