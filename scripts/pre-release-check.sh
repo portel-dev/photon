@@ -170,6 +170,13 @@ else
   echo "  ⏭ Lookout not available (no MLX or photon not installed) — skipping"
 fi
 
+# ─── 8. Promise validation (core intents — release gate) ────
+echo ""
+echo "▶ Step 8: Promise validation"
+echo "  Running promise validation suite..."
+npm run test:promises
+echo "  ✓ Platform promises validated"
+
 echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✓ All pre-release checks passed"
