@@ -102,6 +102,8 @@ export class DaemonManager {
 
   /**
    * Start the daemon. No-op if already running.
+   * Uses a filesystem lock to prevent cross-process races where multiple
+   * processes (Beam, CLI, MCP) each decide the daemon is dead and all spawn one.
    */
   async start(quiet = false): Promise<void> {
     if (this.fsm.state === 'running') {
@@ -129,19 +131,42 @@ export class DaemonManager {
       return;
     }
 
-    // Socket unresponsive → cleanup stale state
-    this.cleanupStale();
-
-    // Transition to starting
-    if (this.fsm.state !== 'stopped') this.resyncFromDisk();
-    this.fsm.transition('starting');
+    // Acquire cross-process lock before spawning.
+    // This serializes startup so only one process spawns the daemon.
+    const lockAcquired = await this.acquireStartupLock();
+    if (!lockAcquired) {
+      // Another process is starting the daemon — wait for it to become available
+      await this.waitForDaemon(quiet);
+      return;
+    }
 
     try {
-      await this.spawnDaemon(quiet);
-      this.fsm.transition('running');
-    } catch (error) {
-      this.fsm.transition('stopped');
-      throw error;
+      // Re-check after acquiring lock — another process may have started it
+      if (await this.isSocketAlive()) {
+        if (this.fsm.state === 'stopped') {
+          this.fsm.transition('starting');
+          this.fsm.transition('running');
+        }
+        if (!quiet) this.logger.debug('Global daemon started by another process');
+        return;
+      }
+
+      // Socket unresponsive → cleanup stale state
+      this.cleanupStale();
+
+      // Transition to starting
+      if (this.fsm.state !== 'stopped') this.resyncFromDisk();
+      this.fsm.transition('starting');
+
+      try {
+        await this.spawnDaemon(quiet);
+        this.fsm.transition('running');
+      } catch (error) {
+        this.fsm.transition('stopped');
+        throw error;
+      }
+    } finally {
+      this.releaseStartupLock();
     }
   }
 
@@ -212,6 +237,115 @@ export class DaemonManager {
   // ═══════════════════════════════════════════════════════════════════════════
   // PRIVATE
   // ═══════════════════════════════════════════════════════════════════════════
+
+  private get lockFile(): string {
+    return path.join(this.ctx.baseDir, 'daemon.lock');
+  }
+
+  /**
+   * Acquire a cross-process startup lock using atomic O_EXCL file creation.
+   * Returns true if lock acquired, false if another process holds it.
+   * Handles stale locks (lock holder PID is dead).
+   */
+  private async acquireStartupLock(): Promise<boolean> {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        // O_CREAT | O_EXCL | O_WRONLY — atomic: fails if file already exists
+        const fd = fs.openSync(
+          this.lockFile,
+          fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY
+        );
+        // Write our PID so stale locks can be detected
+        fs.writeSync(fd, process.pid.toString());
+        fs.closeSync(fd);
+        return true;
+      } catch (err: any) {
+        if (err.code !== 'EEXIST') throw err;
+
+        // Lock file exists — check if holder is still alive
+        try {
+          const holderPid = parseInt(fs.readFileSync(this.lockFile, 'utf-8').trim(), 10);
+          if (holderPid && !isNaN(holderPid)) {
+            try {
+              process.kill(holderPid, 0); // signal 0 = test if alive
+              // Holder is alive — lock is valid, we lost the race
+              return false;
+            } catch {
+              // Holder is dead — stale lock, remove and retry
+              this.logger.debug('Removing stale daemon startup lock', { stalePid: holderPid });
+              try {
+                fs.unlinkSync(this.lockFile);
+              } catch {
+                /* race with another cleanup */
+              }
+              continue;
+            }
+          }
+        } catch {
+          // Can't read lock file — remove and retry
+          try {
+            fs.unlinkSync(this.lockFile);
+          } catch {
+            /* ignore */
+          }
+          continue;
+        }
+
+        // If we get here, lock exists but we couldn't determine holder — back off
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private releaseStartupLock(): void {
+    try {
+      // Only remove if we own it (our PID is in it)
+      const content = fs.readFileSync(this.lockFile, 'utf-8').trim();
+      if (content === process.pid.toString()) {
+        fs.unlinkSync(this.lockFile);
+      }
+    } catch {
+      // Lock file already removed or never created
+    }
+  }
+
+  /**
+   * Wait for another process to finish starting the daemon.
+   * Polls socket availability with a timeout.
+   */
+  private async waitForDaemon(quiet: boolean): Promise<void> {
+    const maxWait = 5000;
+    const interval = 200;
+    let waited = 0;
+
+    while (waited < maxWait) {
+      await new Promise((resolve) => setTimeout(resolve, interval));
+      waited += interval;
+
+      if (await this.isSocketAlive()) {
+        if (this.fsm.state === 'stopped') {
+          this.fsm.transition('starting');
+          this.fsm.transition('running');
+        }
+        if (!quiet) this.logger.debug('Daemon started by another process');
+        return;
+      }
+    }
+
+    // Timeout — the other process may have failed. Try starting ourselves.
+    if (!quiet)
+      this.logger.warn('Timed out waiting for daemon from another process, attempting start');
+    // Clean stale lock if holder died during startup
+    try {
+      fs.unlinkSync(this.lockFile);
+    } catch {
+      /* ignore */
+    }
+    // Recursive call — will re-attempt lock acquisition
+    return this.start(quiet);
+  }
 
   private isPidAlive(): boolean {
     if (!fs.existsSync(this.ctx.pidFile)) return false;
