@@ -4878,14 +4878,16 @@ export class ResultViewer extends LitElement {
           right: 0;
           z-index: 10;
         }
-        .slides-viewport:hover .slides-controls,
+        .slides-controls:hover,
         .slides-container:focus-within .slides-controls {
           opacity: 1;
         }
         .slides-container:fullscreen .slides-controls {
           opacity: 0;
+          /* Extend hit area upward so cursor near bottom reveals controls */
+          padding-top: 40px;
         }
-        .slides-container:fullscreen:hover .slides-controls {
+        .slides-container:fullscreen .slides-controls:hover {
           opacity: 1;
         }
         .slides-btn {
