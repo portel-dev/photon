@@ -4694,9 +4694,14 @@ export class ResultViewer extends LitElement {
     this._pendingMermaidBlocks = mermaidBlocks;
     this._pendingCodeBlocks = codeBlocks;
 
-    // Resolve theme: 'auto' inherits from Beam's active theme
+    // Resolve theme: 'auto' and 'default' inherit from Beam's active theme
+    // Both use CSS variables, so they automatically adapt to light/dark mode
     const resolvedTheme =
-      rawTheme === 'auto' ? (this.theme === 'light' ? 'uncover' : 'default') : rawTheme;
+      rawTheme === 'auto' || rawTheme === 'default'
+        ? this.theme === 'light'
+          ? 'uncover'
+          : 'default'
+        : rawTheme;
     const themeClass = `slides-theme-${resolvedTheme}`;
 
     // Frontmatter-driven inline overrides
@@ -4935,12 +4940,21 @@ export class ResultViewer extends LitElement {
 
         /* ═══ THEMES ═══ */
         .slides-theme-default {
-          background: #1a1a2e;
-          color: #e5e5e5;
+          background: var(--bg-primary, #1a1a2e);
+          color: var(--text-primary, #e5e5e5);
         }
         .slides-theme-default .slides-content h1,
         .slides-theme-default .slides-content h2 {
-          color: #7dd3fc;
+          color: var(--accent-primary, #7dd3fc);
+        }
+
+        .slides-theme-uncover {
+          background: var(--bg-primary, #fafafa);
+          color: var(--text-primary, #333);
+        }
+        .slides-theme-uncover .slides-content h1,
+        .slides-theme-uncover .slides-content h2 {
+          color: var(--accent-primary, #1a1a2e);
         }
 
         .slides-theme-gaia {
@@ -4955,24 +4969,16 @@ export class ResultViewer extends LitElement {
           background: rgba(0, 0, 0, 0.2);
         }
 
-        .slides-theme-uncover {
-          background: #fafafa;
-          color: #333;
-        }
-        .slides-theme-uncover .slides-content h1,
-        .slides-theme-uncover .slides-content h2 {
-          color: #1a1a2e;
-        }
         .slides-theme-uncover .slides-controls {
-          background: rgba(0, 0, 0, 0.05);
+          background: rgba(128, 128, 128, 0.08);
         }
         .slides-theme-uncover .slides-btn {
-          color: #333;
-          border-color: rgba(0, 0, 0, 0.15);
-          background: rgba(0, 0, 0, 0.05);
+          color: var(--text-primary, #333);
+          border-color: var(--border-primary, rgba(0, 0, 0, 0.15));
+          background: rgba(128, 128, 128, 0.05);
         }
         .slides-theme-uncover .slides-btn:hover:not(:disabled) {
-          background: rgba(0, 0, 0, 0.1);
+          background: rgba(128, 128, 128, 0.12);
         }
 
         .slides-theme-rose {
