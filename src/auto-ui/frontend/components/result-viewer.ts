@@ -5354,9 +5354,10 @@ export class ResultViewer extends LitElement {
       const embedPath = el.getAttribute('data-embed') || '';
       const paramsRaw = el.getAttribute('data-embed-params') || '';
       const height = el.getAttribute('data-embed-height') || '320';
+      const embedView = el.getAttribute('data-embed-view') || 'form';
 
-      // Build URL: /photon/method?focus=1&params...
-      let url = `/${embedPath}?focus=1`;
+      // Build URL: /photon/method?view=form (isolated rendering, no chrome)
+      let url = `/${embedPath}?view=${embedView}`;
       if (paramsRaw) {
         try {
           const params = JSON.parse(paramsRaw) as Record<string, unknown>;
@@ -5596,6 +5597,8 @@ export class ResultViewer extends LitElement {
         .then(() => {
           this._slidesFullscreen = true;
           el.focus();
+          // Re-scale after fullscreen dimensions are applied
+          requestAnimationFrame(() => this._autoScaleSlide());
         })
         .catch(() => {});
     } else {
@@ -5603,6 +5606,8 @@ export class ResultViewer extends LitElement {
         .exitFullscreen()
         .then(() => {
           this._slidesFullscreen = false;
+          // Re-scale back to normal dimensions
+          requestAnimationFrame(() => this._autoScaleSlide());
         })
         .catch(() => {});
     }
