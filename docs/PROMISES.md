@@ -7,6 +7,21 @@ and architectural decision must trace back to one of these promises. If a change
 doesn't serve a promise, it doesn't belong. If a promise isn't validated, it's just
 marketing.
 
+## Overview
+
+| # | Intent | Promises | Assertions | Priority |
+|---|--------|----------|------------|----------|
+| [1](#intent-1-single-file-full-stack) | Single File, Full Stack | 3 | 11 | P0 — Core |
+| [2](#intent-2-human--agent-same-surface) | Human + Agent, Same Surface | 3 | 10 | P0 — Core |
+| [3](#intent-3-zero-config) | Zero Config | 3 | 11 | P0 — Core |
+| [4](#intent-4-format-driven-rendering) | Format-Driven Rendering | 3 | 12 | P1 — Essential |
+| [5](#intent-5-stateful-by-annotation) | Stateful by Annotation | 3 | 10 | P1 — Essential |
+| [6](#intent-6-composable) | Composable | 2 | 8 | P1 — Essential |
+| [7](#intent-7-portable) | Portable | 2 | 7 | P2 — Important |
+| [8](#intent-8-resilient-by-default) | Resilient by Default | 2 | 9 | P2 — Important |
+| [9](#intent-9-secure-by-default) | Secure by Default | 2 | 7 | P2 — Important |
+| | **Total** | **23** | **85** | |
+
 ## How to Read This
 
 - **Intents** are foundational — they define *what Photon is*
