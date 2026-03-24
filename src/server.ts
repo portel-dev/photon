@@ -1240,6 +1240,16 @@ export class PhotonServer {
     const isStateful = result && typeof result === 'object' && result._stateful === true;
     const actualResult = isStateful ? result.result : result;
 
+    // _meta format transformation: if the result was transformed by _meta.format,
+    // return the pre-formatted text with its MIME type directly
+    if (actualResult && typeof actualResult === 'object' && actualResult._metaFormatted === true) {
+      const content: any = { type: 'text', text: actualResult.text };
+      if (actualResult.mimeType) {
+        content.annotations = { mimeType: actualResult.mimeType };
+      }
+      return { content: [content], isError: false };
+    }
+
     // Build content with optional annotations
     const content: any = {
       type: 'text',

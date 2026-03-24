@@ -1672,6 +1672,13 @@ export async function runMethod(
     // Check for -y flag (non-interactive mode, for agents/scripts)
     const nonInteractive = args.includes('-y');
 
+    // Check for --format <type> flag (maps to _meta.format)
+    let cliFormat: string | undefined;
+    const formatIndex = args.indexOf('--format');
+    if (formatIndex !== -1 && args[formatIndex + 1]) {
+      cliFormat = args[formatIndex + 1];
+    }
+
     // Check for --resume <runId> flag
     let resumeRunId: string | undefined;
     const resumeIndex = args.indexOf('--resume');
@@ -1685,11 +1692,21 @@ export async function runMethod(
         arg !== '--json' &&
         arg !== '-y' &&
         arg !== '--resume' &&
-        (resumeIndex === -1 || i !== resumeIndex + 1)
+        arg !== '--format' &&
+        (resumeIndex === -1 || i !== resumeIndex + 1) &&
+        (formatIndex === -1 || i !== formatIndex + 1)
     );
 
     // Parse arguments
-    const parsedArgs = parseCliArgs(filteredArgs, method.params);
+    const parsedArgs: Record<string, any> = parseCliArgs(filteredArgs, method.params);
+
+    // Inject _meta from CLI flags (--format maps to _meta.format)
+    if (cliFormat) {
+      parsedArgs._meta = {
+        ...((parsedArgs._meta as Record<string, unknown>) || {}),
+        format: cliFormat,
+      };
+    }
 
     // Validate required parameters
     const missing: string[] = [];
@@ -1834,6 +1851,12 @@ export async function runMethod(
 
     // Clear any intermediate render output before displaying final result
     clearRenderZone();
+
+    // _meta format transformation: pre-formatted text outputs directly
+    if (actualResult && typeof actualResult === 'object' && actualResult._metaFormatted === true) {
+      console.log(actualResult.text);
+      process.exit(0);
+    }
 
     // Display result
     if (jsonOutput) {

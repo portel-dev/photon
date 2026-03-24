@@ -29,6 +29,7 @@ interface Tool {
   isGenerator?: boolean;
   outputFormat?: string;
   layoutHints?: Record<string, string>;
+  exportFormats?: string[];
 }
 
 type PhotonType = 'workflow' | 'streaming' | 'api';
@@ -685,6 +686,17 @@ export class PhotonDocExtractor {
       }
     }
 
+    // Extract @export tag — declares supported export formats for _meta.format
+    // Format: @export csv,json,yaml
+    const exportMatch = jsdoc.match(/@export\s+([a-z,\s]+)/i);
+    let exportFormats: string[] | undefined;
+    if (exportMatch) {
+      exportFormats = exportMatch[1]
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    }
+
     return {
       name: methodName,
       description,
@@ -692,6 +704,7 @@ export class PhotonDocExtractor {
       example,
       outputFormat,
       layoutHints,
+      exportFormats,
     };
   }
 

@@ -125,6 +125,7 @@ These tags are placed in the JSDoc comment immediately before a tool method.
 | `@returns` | Describes the return value. Can include `{@label}`. | `@returns The greeting message {@label Say Hello}` |
 | `@example` | Provides a code example. | `@example await tool.greet({ name: 'World' })` |
 | `@format` | Hints the output format for CLI/Web interfaces. Values: `table`, `list`, `card`, `grid`, `tree`, `json`, `markdown`, `mermaid`, `code`, `slides`, `chart:bar`, `chart:hbar`, `metric`, `gauge`, `stat-group`, `heatmap`, `calendar`, `map`, `network`, `cron`, `timeline`, `steps`, `kanban`, `comparison`, `diff`, `log`, `embed`, `image`, `carousel`, `gallery`, `masonry`, `hero`, `banner`, `quote`, `profile`, `feature-grid`, `invoice`, `dashboard`, `panels`, `tabs`, `qr`, etc. | `@format table` |
+| `@export` | Declares supported export formats for `_meta.format` client requests. Comma-separated. If absent, `json` and `yaml` are always available. | `@export csv,json,yaml,markdown` |
 | `@icon` | Sets the tool icon (emoji, icon name, or image path). | `@icon 🧮` or `@icon ./calc.png` |
 | `@icons` | Declares icon image variants with size/theme. | `@icons ./calc-48.png 48x48 dark` |
 | `@autorun` | Auto-execute when selected in Beam UI (for idempotent methods). | `@autorun` |

@@ -465,6 +465,15 @@ function buildToolResult(
   result: any,
   methodInfo?: MethodInfo
 ): { content: any[]; isError: false; structuredContent?: any; [key: string]: unknown } {
+  // _meta format transformation: pre-formatted text bypasses normal formatting
+  if (result && typeof result === 'object' && result._metaFormatted === true) {
+    const content: any = { type: 'text', text: result.text };
+    if (result.mimeType) {
+      content.annotations = { mimeType: result.mimeType };
+    }
+    return { content: [content], isError: false };
+  }
+
   const text = formatResultText(result);
   const toolResult: {
     content: any[];

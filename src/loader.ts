@@ -3189,6 +3189,16 @@ Run: photon mcp ${mcpName} --config
         delete parameters._clientState;
       }
 
+      // Extract _meta system hints before schema validation.
+      // _meta is a transport-agnostic namespace for format, viewport, fields, locale.
+      // Methods never see it — it drives post-processing of the result.
+      let _meta: import('./meta.js').MetaParams | undefined;
+      if (parameters && typeof parameters === 'object' && '_meta' in parameters) {
+        _meta = parameters._meta as import('./meta.js').MetaParams;
+        parameters = { ...parameters };
+        delete parameters._meta;
+      }
+
       // Make client state available on the instance for this execution
       if (mcp.instance && clientState !== undefined) {
         mcp.instance._clientState = clientState;
@@ -3365,6 +3375,11 @@ Run: photon mcp ${mcpName} --config
           }
         }
 
+        // Apply _meta post-processing (format transformation, field selection)
+        if (_meta) {
+          const { applyMeta } = await import('./meta.js');
+          return applyMeta(result, _meta, toolMeta?.exportFormats);
+        }
         return result;
       }
 
@@ -3483,6 +3498,11 @@ Run: photon mcp ${mcpName} --config
       // For ephemeral execution, return result directly
       span.setStatus('OK');
       auditFinish(execResult.result);
+      // Apply _meta post-processing (format transformation, field selection)
+      if (_meta) {
+        const { applyMeta } = await import('./meta.js');
+        return applyMeta(execResult.result, _meta, toolMeta?.exportFormats);
+      }
       return execResult.result;
     } catch (error) {
       // Clear progress on error too
