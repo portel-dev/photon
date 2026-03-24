@@ -2184,9 +2184,6 @@ export class ResultViewer extends LitElement {
   @property({ type: Boolean })
   live = false;
 
-  @property({ type: Boolean })
-  appSurface = false;
-
   // Key for persisting heat timestamps across refresh (e.g. "photonName/methodName")
   @property({ type: String })
   resultKey?: string;
@@ -2733,45 +2730,7 @@ export class ResultViewer extends LitElement {
     }
 
     return html`
-      <div class="container glass-panel ${this.appSurface ? 'app-surface' : ''}">
-        ${this.appSurface
-          ? ''
-          : html`
-              <div class="header">
-                <span class="title">Result</span>
-                <div class="filter-container">
-                  <input
-                    type="text"
-                    class="filter-input"
-                    placeholder="Filter results..."
-                    .value=${this._filterQuery}
-                    @input=${(e: Event) => this._handleFilterInput(e)}
-                    @keydown=${(e: Event) => this._handleFilterKeydown(e as KeyboardEvent)}
-                  />
-                  ${isFiltered
-                    ? html`
-                        <span class="filter-count filtered">${filteredCount} / ${totalCount}</span>
-                      `
-                    : ''}
-                </div>
-                <div class="actions">
-                  ${layout !== 'json' ? html`<span class="format-badge">${layout}</span>` : ''}
-                  <button @click=${() => this._copy()}>Copy</button>
-                  <button @click=${() => this._downloadSmart(layout)}>
-                    ↓ ${this._getDownloadLabel(layout)}
-                  </button>
-                  ${this._isTabularData()
-                    ? html`<button @click=${() => this._download('csv')}>↓ CSV</button>`
-                    : ''}
-                  <button @click=${() => this._share()} title="Share link to this result">
-                    ${link} Share
-                  </button>
-                  <button @click=${() => this._fullscreen()} title="Full screen result">
-                    ${expand}
-                  </button>
-                </div>
-              </div>
-            `}
+      <div class="container">
         <div
           class="content ${this._isTextLayout(layout) ? 'content-text' : 'content-structured'}"
           data-enter="scale-in"
@@ -6404,7 +6363,7 @@ ${str}</pre
     return '';
   }
 
-  private _copy() {
+  copy() {
     const text =
       typeof this.result === 'object' ? JSON.stringify(this.result, null, 2) : String(this.result);
 
@@ -6412,7 +6371,7 @@ ${str}</pre
     showToast('Copied to clipboard', 'success');
   }
 
-  private _share() {
+  share() {
     this.dispatchEvent(
       new CustomEvent('share', {
         bubbles: true,
@@ -6421,7 +6380,7 @@ ${str}</pre
     );
   }
 
-  private _fullscreen() {
+  fullscreen() {
     const container = this.shadowRoot?.querySelector('.container') as HTMLElement;
     if (!container) return;
     if (document.fullscreenElement) {
@@ -6431,7 +6390,7 @@ ${str}</pre
     }
   }
 
-  private _isTabularData(): boolean {
+  isTabularData(): boolean {
     return (
       Array.isArray(this.result) &&
       this.result.length > 0 &&
@@ -6440,7 +6399,8 @@ ${str}</pre
     );
   }
 
-  private _getDownloadLabel(layout: LayoutType): string {
+  getDownloadLabel(layout?: LayoutType): string {
+    if (!layout) layout = this._selectLayout();
     switch (layout) {
       case 'markdown':
         return 'MD';
@@ -6455,7 +6415,8 @@ ${str}</pre
     }
   }
 
-  private _downloadSmart(layout: LayoutType) {
+  downloadSmart(layout?: LayoutType) {
+    if (!layout) layout = this._selectLayout();
     let content: string;
     let mimeType: string;
     let extension: string;
@@ -6505,13 +6466,13 @@ ${str}</pre
     showToast(`Downloaded as ${filename}`, 'success');
   }
 
-  private _download(format: 'json' | 'csv') {
+  download(format: 'json' | 'csv') {
     let content: string;
     let mimeType: string;
     let filename: string;
     const timestamp = new Date().toISOString().slice(0, 10);
 
-    if (format === 'csv' && this._isTabularData()) {
+    if (format === 'csv' && this.isTabularData()) {
       content = this._convertToCsv(this.result);
       mimeType = 'text/csv';
       filename = `result-${timestamp}.csv`;

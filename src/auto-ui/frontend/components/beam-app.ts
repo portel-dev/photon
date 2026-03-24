@@ -252,12 +252,56 @@ export class BeamApp extends LitElement {
         padding: 0 !important;
       }
 
-      /* In view modes, strip the method name dropdown bar and form chrome */
+      /* In view modes, strip ALL chrome — panel header, method bar, form chrome */
       :host(.view-result) .method-name-bar,
       :host(.view-result) .form-chrome,
+      :host(.view-result) .panel-header,
+      :host(.view-result) .method-detail > div:first-child,
       :host(.view-form) .method-name-bar,
-      :host(.view-form) .form-chrome {
+      :host(.view-form) .form-chrome,
+      :host(.view-form) .panel-header {
         display: none !important;
+      }
+
+      /* In view modes, remove glass-panel styling for seamless embed */
+      :host(.view-result) .method-detail,
+      :host(.view-form) .method-detail {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+
+      .result-chrome {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+        font-size: 12px;
+      }
+      .result-chrome-title {
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        opacity: 0.6;
+      }
+      .result-chrome-actions {
+        display: flex;
+        gap: 6px;
+      }
+      .result-chrome-actions button {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.12));
+        background: transparent;
+        color: var(--text-secondary, #aaa);
+        font-size: 11px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .result-chrome-actions button:hover {
+        background: rgba(128, 128, 128, 0.1);
       }
 
       .form-chrome {
@@ -5211,6 +5255,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       formParams: this._lastFormParams,
       onSubmit: (e: Event) => void this._handleExecute(e as CustomEvent),
       onCancel: () => this._handleBackFromMethod(),
+      appSurface: this._viewMode !== 'full',
       panelLabel: 'Primary',
       instance: this._currentInstance,
       instances: this._instances,
@@ -5274,6 +5319,7 @@ ${photon.errorMessage || 'Unknown error'}</pre
       >
         <!-- Panel Header: LED + Method ▼ + instance-panel + [+] + [⋯] + [×] -->
         <div
+          class="panel-header"
           style="display: flex; align-items: center; gap: 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); flex-shrink: 0; position: relative;"
         >
           <!-- LED dot (stateful/live indicator) -->
@@ -5465,6 +5511,30 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 ></custom-ui-renderer>
               `
             : html`
+                ${this._viewMode === 'full'
+                  ? html`<div class="result-chrome">
+                      <span class="result-chrome-title">Result</span>
+                      <div class="result-chrome-actions">
+                        <button
+                          @click=${() => {
+                            const rv: any = this.shadowRoot?.querySelector('result-viewer');
+                            rv?.copy();
+                          }}
+                        >
+                          Copy
+                        </button>
+                        <button
+                          @click=${() => {
+                            const rv: any = this.shadowRoot?.querySelector('result-viewer');
+                            rv?.downloadSmart();
+                          }}
+                        >
+                          ↓ Export
+                        </button>
+                        <button @click=${() => this._handleShareResult()}>Share</button>
+                      </div>
+                    </div>`
+                  : ''}
                 <result-viewer
                   .result=${opts.result}
                   .outputFormat=${opts.method?.outputFormat}
@@ -5472,7 +5542,6 @@ ${photon.errorMessage || 'Unknown error'}</pre
                   .photonName=${opts.photon?.name}
                   .theme=${this._theme}
                   .live=${this._currentCollectionName !== null}
-                  .appSurface=${!!opts.appSurface}
                   .resultKey=${opts.photon && opts.method
                     ? `${opts.photon.name}/${opts.method.name}`
                     : undefined}
