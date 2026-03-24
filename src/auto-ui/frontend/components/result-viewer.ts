@@ -4441,6 +4441,49 @@ export class ResultViewer extends LitElement {
     }
   }
 
+  /**
+   * Highlight inline HTML <code class="language-*"> elements that weren't
+   * created by _parseRichMarkdown (e.g., hand-written HTML in slides).
+   * These bypass the fenced code block regex but have language class hints.
+   */
+  private _highlightInlineCodeElements(): void {
+    const Prism = (window as any).Prism;
+    if (!Prism) return;
+
+    const codeElements = this.shadowRoot?.querySelectorAll('code[class*="language-"]');
+    if (!codeElements) return;
+
+    const langMap: Record<string, string> = {
+      ts: 'typescript',
+      js: 'javascript',
+      py: 'python',
+      sh: 'bash',
+      shell: 'bash',
+      yml: 'yaml',
+      md: 'markdown',
+    };
+
+    codeElements.forEach((el) => {
+      // Skip already-highlighted elements (Prism adds .token spans)
+      if (el.querySelector('.token')) return;
+
+      const classMatch = el.className.match(/language-(\w+)/);
+      if (!classMatch) return;
+
+      const rawLang = classMatch[1];
+      const prismLang = langMap[rawLang] || rawLang;
+      const grammar = Prism.languages[prismLang] || Prism.languages['text'];
+      if (!grammar) return;
+
+      try {
+        const code = el.textContent || '';
+        el.innerHTML = Prism.highlight(code, grammar, prismLang);
+      } catch {
+        // Leave as plain text
+      }
+    });
+  }
+
   private _reRenderMermaidOnThemeChange() {
     // Find all existing mermaid wrappers and re-render them
     const wrappers = this.shadowRoot?.querySelectorAll('.mermaid-wrapper');
@@ -4608,6 +4651,7 @@ export class ResultViewer extends LitElement {
   private _slidesResizeObserver: ResizeObserver | null = null;
   private _slidesScaleDebounce: ReturnType<typeof setTimeout> | null = null;
   private _slidesScaling = false;
+  private _slidesLastZoom = '';
 
   private _parseSlides(raw: string): {
     slides: string[];
@@ -5348,6 +5392,8 @@ export class ResultViewer extends LitElement {
   private _afterSlideRender(): void {
     void this.updateComplete.then(() => {
       this._bindSlideElements();
+      // Highlight inline HTML <code class="language-*"> elements (not captured by fenced regex)
+      this._highlightInlineCodeElements();
       // Scale immediately for static content
       this._autoScaleSlide();
 
@@ -5366,7 +5412,7 @@ export class ResultViewer extends LitElement {
           if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
           this._slidesScaleDebounce = setTimeout(() => {
             this._autoScaleSlide();
-          }, 100);
+          }, 250);
         });
         this._slidesResizeObserver.observe(content);
       }
@@ -5395,8 +5441,15 @@ export class ResultViewer extends LitElement {
         viewport.appendChild(prerender);
       }
 
-      // Copy current slide content into prerender div for measurement
+      // Copy current slide content into prerender div for measurement.
+      // Strip iframes — they continue receiving streams in the hidden div,
+      // causing ResizeObserver thrashing from gauge animations.
       prerender.innerHTML = content.innerHTML;
+      prerender.querySelectorAll('iframe').forEach((iframe) => {
+        const placeholder = document.createElement('div');
+        placeholder.style.height = iframe.style.height || '200px';
+        iframe.replaceWith(placeholder);
+      });
       prerender.style.zoom = '1';
 
       const padV = document.fullscreenElement ? 128 : 96; // 64+64 fullscreen, 48+48 normal
@@ -5417,10 +5470,12 @@ export class ResultViewer extends LitElement {
 
       // Clamp: don't go below 0.5 or above 2.5
       const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
-      if (Math.abs(clampedZoom - 1) > 0.02) {
-        content.style.zoom = String(clampedZoom);
-      } else {
-        content.style.zoom = '';
+      const newZoom = Math.abs(clampedZoom - 1) > 0.02 ? String(clampedZoom) : '';
+
+      // Only update if zoom actually changed — prevents ResizeObserver from re-triggering
+      if (newZoom !== this._slidesLastZoom) {
+        this._slidesLastZoom = newZoom;
+        content.style.zoom = newZoom;
       }
     } finally {
       // Release guard after a frame so the ResizeObserver callback
