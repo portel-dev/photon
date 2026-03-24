@@ -219,14 +219,12 @@ export class BeamApp extends LitElement {
         display: none !important;
       }
 
-      /* View modes: isolate form or result for testing/embedding */
+      /* View modes: isolate form or result for testing/embedding.
+         Hides ALL chrome — method selector, description, CLI preview, activity log,
+         toolbars, focus toolbar. Only the target component renders. */
       :host(.view-result) invoke-form,
       :host(.view-result) .progress-container,
       :host(.view-result) .result-empty,
-      :host(.view-result) .method-description {
-        display: none !important;
-      }
-
       :host(.view-form) result-viewer,
       :host(.view-form) custom-ui-renderer,
       :host(.view-form) .result-empty {
@@ -234,25 +232,34 @@ export class BeamApp extends LitElement {
       }
 
       :host(.view-result) .focus-toolbar,
-      :host(.view-form) .focus-toolbar {
-        display: none !important;
-      }
-
-      /* In isolated view modes, hide everything except the target component */
       :host(.view-result) .method-toolbar,
-      :host(.view-result) activity-log,
-      :host(.view-result) .method-header,
       :host(.view-result) .method-description,
+      :host(.view-result) .method-header,
+      :host(.view-result) activity-log,
+      :host(.view-result) .glass-panel > div > p,
+      :host(.view-result) app-layout,
+      :host(.view-form) .focus-toolbar,
       :host(.view-form) .method-toolbar,
+      :host(.view-form) .method-header,
+      :host(.view-form) .method-description,
       :host(.view-form) activity-log,
-      :host(.view-form) .method-header {
+      :host(.view-form) app-layout {
         display: none !important;
       }
 
-      /* Remove padding in isolated view modes for tight screenshots */
       :host(.view-result) .main-area,
       :host(.view-form) .main-area {
         padding: 0 !important;
+      }
+
+      /* In view modes, strip the method name dropdown bar and CLI preview */
+      :host(.view-result) .method-name-bar,
+      :host(.view-result) .cli-preview,
+      :host(.view-result) .cli-block,
+      :host(.view-form) .method-name-bar,
+      :host(.view-form) .cli-preview,
+      :host(.view-form) .cli-block {
+        display: none !important;
       }
 
       .focus-toolbar {

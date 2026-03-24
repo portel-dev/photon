@@ -5356,10 +5356,11 @@ export class ResultViewer extends LitElement {
       const embedPath = el.getAttribute('data-embed') || '';
       const paramsRaw = el.getAttribute('data-embed-params') || '';
       const height = el.getAttribute('data-embed-height') || '320';
-      const embedView = el.getAttribute('data-embed-view') || 'form';
+      const embedView = el.getAttribute('data-embed-view') || '';
 
-      // Build URL: /photon/method?view=form (isolated rendering, no chrome)
-      let url = `/${embedPath}?view=${embedView}`;
+      // Build URL: embed view uses ?view=result by default (show output),
+      // or ?view=form if explicitly requested. Falls back to focus mode.
+      let url = embedView ? `/${embedPath}?view=${embedView}` : `/${embedPath}?view=result`;
       if (paramsRaw) {
         try {
           const params = JSON.parse(paramsRaw) as Record<string, unknown>;
