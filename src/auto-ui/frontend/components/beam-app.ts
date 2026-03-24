@@ -252,14 +252,50 @@ export class BeamApp extends LitElement {
         padding: 0 !important;
       }
 
-      /* In view modes, strip the method name dropdown bar and CLI preview */
+      /* In view modes, strip the method name dropdown bar and form chrome */
       :host(.view-result) .method-name-bar,
-      :host(.view-result) .cli-preview,
-      :host(.view-result) .cli-block,
+      :host(.view-result) .form-chrome,
       :host(.view-form) .method-name-bar,
-      :host(.view-form) .cli-preview,
-      :host(.view-form) .cli-block {
+      :host(.view-form) .form-chrome {
         display: none !important;
+      }
+
+      .form-chrome {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 16px;
+        border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+      }
+      .form-chrome button {
+        padding: 8px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.12));
+        transition:
+          background 0.15s,
+          opacity 0.15s;
+      }
+      .form-chrome .btn-secondary {
+        background: transparent;
+        color: var(--text-secondary, #aaa);
+      }
+      .form-chrome .btn-secondary:hover {
+        background: rgba(128, 128, 128, 0.1);
+      }
+      .form-chrome .btn-primary {
+        background: var(--accent-primary, #7dd3fc);
+        color: #000;
+        border-color: transparent;
+        font-weight: 600;
+      }
+      .form-chrome .btn-primary:hover {
+        opacity: 0.9;
+      }
+      .form-chrome button:disabled {
+        opacity: 0.4;
+        cursor: default;
       }
 
       .focus-toolbar {
@@ -5366,6 +5402,38 @@ ${photon.errorMessage || 'Unknown error'}</pre
                 @submit=${opts.onSubmit}
                 @cancel=${opts.onCancel}
               ></invoke-form>
+              ${this._viewMode === 'full'
+                ? html`
+                    <div class="form-chrome">
+                      <button
+                        class="btn-secondary"
+                        @click=${() => {
+                          const form: any = this.shadowRoot?.querySelector('invoke-form');
+                          form?.handleCancel();
+                        }}
+                        ?disabled=${opts.executing}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        class="btn-primary"
+                        @click=${() => {
+                          const form: any = this.shadowRoot?.querySelector('invoke-form');
+                          form?.handleSubmit();
+                        }}
+                        ?disabled=${opts.executing}
+                      >
+                        ${opts.executing
+                          ? html`<span class="btn-loading"
+                              ><span class="spinner"></span>Executing...</span
+                            >`
+                          : hasParams
+                            ? 'Execute'
+                            : 'Re-execute'}
+                      </button>
+                    </div>
+                  `
+                : ''}
             `}
         ${opts.progress
           ? html`

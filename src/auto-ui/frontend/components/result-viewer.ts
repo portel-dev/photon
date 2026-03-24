@@ -4606,6 +4606,8 @@ export class ResultViewer extends LitElement {
   private _slidesBoundElements: Set<Element> = new Set();
   private _slidesRefreshTimers: number[] = [];
   private _slidesResizeObserver: ResizeObserver | null = null;
+  private _slidesScaleDebounce: ReturnType<typeof setTimeout> | null = null;
+  private _slidesScaling = false;
 
   private _parseSlides(raw: string): {
     slides: string[];
@@ -5350,14 +5352,21 @@ export class ResultViewer extends LitElement {
       this._autoScaleSlide();
 
       // Watch for content size changes from async data-method bindings (gauge, metric, etc.)
-      // ResizeObserver fires automatically when async content renders, replacing hardcoded timeouts
+      // ResizeObserver fires automatically when async content renders, replacing hardcoded timeouts.
+      // Debounce to prevent infinite loop: zoom change → resize → zoom change → ...
       if (this._slidesResizeObserver) {
         this._slidesResizeObserver.disconnect();
       }
       const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
       if (content) {
         this._slidesResizeObserver = new ResizeObserver(() => {
-          this._autoScaleSlide();
+          // Guard: don't re-enter while _autoScaleSlide is applying zoom
+          if (this._slidesScaling) return;
+          // Debounce: coalesce rapid resize events into one scale pass
+          if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
+          this._slidesScaleDebounce = setTimeout(() => {
+            this._autoScaleSlide();
+          }, 100);
         });
         this._slidesResizeObserver.observe(content);
       }
@@ -5371,46 +5380,54 @@ export class ResultViewer extends LitElement {
     const content = root.querySelector('.slides-content') as HTMLElement;
     if (!viewport || !content) return;
 
-    // Use a hidden prerender div to measure natural content size without flashing.
-    // The prerender div mirrors slides-content styles but is positioned offscreen,
-    // so resetting its zoom to 1 for measurement is invisible to the user.
-    let prerender = root.querySelector('.slides-prerender') as HTMLElement;
-    if (!prerender) {
-      prerender = document.createElement('div');
-      prerender.className = 'slides-prerender';
-      viewport.appendChild(prerender);
-    }
+    // Guard against re-entrancy: setting zoom triggers ResizeObserver,
+    // which would call _autoScaleSlide again → infinite loop
+    this._slidesScaling = true;
 
-    // Copy current slide content into prerender div for measurement
-    prerender.innerHTML = content.innerHTML;
-    prerender.style.zoom = '1';
+    try {
+      // Use a hidden prerender div to measure natural content size without flashing.
+      // The prerender div mirrors slides-content styles but is positioned offscreen,
+      // so resetting its zoom to 1 for measurement is invisible to the user.
+      let prerender = root.querySelector('.slides-prerender') as HTMLElement;
+      if (!prerender) {
+        prerender = document.createElement('div');
+        prerender.className = 'slides-prerender';
+        viewport.appendChild(prerender);
+      }
 
-    const padV = viewport.classList.contains('slides-viewport')
-      ? document.fullscreenElement
-        ? 128
-        : 96 // 64+64 fullscreen, 48+48 normal
-      : 96;
-    const padH = document.fullscreenElement ? 240 : 128; // 120+120 fullscreen, 64+64 normal
-    const viewH = viewport.clientHeight - padV;
-    const viewW = viewport.clientWidth - padH;
-    const contentH = prerender.scrollHeight;
-    const contentW = prerender.scrollWidth;
+      // Copy current slide content into prerender div for measurement
+      prerender.innerHTML = content.innerHTML;
+      prerender.style.zoom = '1';
 
-    if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) {
-      return;
-    }
+      const padV = document.fullscreenElement ? 128 : 96; // 64+64 fullscreen, 48+48 normal
+      const padH = document.fullscreenElement ? 240 : 128; // 120+120 fullscreen, 64+64 normal
+      const viewH = viewport.clientHeight - padV;
+      const viewW = viewport.clientWidth - padH;
+      const contentH = prerender.scrollHeight;
+      const contentW = prerender.scrollWidth;
 
-    // Scale to fit: zoom up or down so content fills the viewport
-    const scaleH = viewH / contentH;
-    const scaleW = viewW / contentW;
-    const zoom = Math.min(scaleH, scaleW);
+      if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) {
+        return;
+      }
 
-    // Clamp: don't go below 0.5 or above 2.5
-    const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
-    if (Math.abs(clampedZoom - 1) > 0.02) {
-      content.style.zoom = String(clampedZoom);
-    } else {
-      content.style.zoom = '';
+      // Scale to fit: zoom up or down so content fills the viewport
+      const scaleH = viewH / contentH;
+      const scaleW = viewW / contentW;
+      const zoom = Math.min(scaleH, scaleW);
+
+      // Clamp: don't go below 0.5 or above 2.5
+      const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
+      if (Math.abs(clampedZoom - 1) > 0.02) {
+        content.style.zoom = String(clampedZoom);
+      } else {
+        content.style.zoom = '';
+      }
+    } finally {
+      // Release guard after a frame so the ResizeObserver callback
+      // triggered by our zoom change is suppressed
+      requestAnimationFrame(() => {
+        this._slidesScaling = false;
+      });
     }
   }
 

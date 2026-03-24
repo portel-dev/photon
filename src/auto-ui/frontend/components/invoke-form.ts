@@ -907,86 +907,14 @@ export class InvokeForm extends LitElement {
     const hasParams =
       properties && typeof properties === 'object' && Object.keys(properties).length > 0;
 
-    // For no-param methods, show minimal UI with just a re-execute button
+    // No-param methods render nothing — parent handles execute/cancel chrome
     if (!hasParams) {
-      return html`
-        <div class="form-container">
-          <div class="actions no-params">
-            <button
-              class="btn-secondary"
-              @click=${() => this._handleCancel()}
-              ?disabled=${this.loading}
-            >
-              Cancel
-            </button>
-            <button
-              class="btn-primary"
-              @click=${() => this._handleSubmit()}
-              ?disabled=${this.loading}
-            >
-              ${this.loading
-                ? html`<span class="btn-loading"
-                    ><span class="spinner"></span>Executing${this._elapsedMs >= 1000
-                      ? html` <span style="font-variant-numeric: tabular-nums; opacity: 0.7;"
-                          >${(this._elapsedMs / 1000).toFixed(1)}s</span
-                        >`
-                      : ''}...</span
-                  >`
-                : 'Re-execute'}
-            </button>
-          </div>
-        </div>
-      `;
+      return html`<div class="form-container"></div>`;
     }
-
-    // Check if we have complex types that benefit from JSON view
-    const hasComplexTypes = this._hasComplexTypes();
 
     return html`
       <div class="form-container">
-        ${hasComplexTypes
-          ? html`
-              <div class="view-tabs" role="tablist" aria-label="Editor mode">
-                <button
-                  class="view-tab ${this._viewMode === 'form' ? 'active' : ''}"
-                  role="tab"
-                  aria-selected="${this._viewMode === 'form'}"
-                  @click=${() => this._switchToFormView()}
-                >
-                  Visual Editor
-                </button>
-                <button
-                  class="view-tab ${this._viewMode === 'json' ? 'active' : ''}"
-                  role="tab"
-                  aria-selected="${this._viewMode === 'json'}"
-                  @click=${() => this._switchToJsonView()}
-                >
-                  JSON Editor
-                </button>
-              </div>
-            `
-          : ''}
         ${this._viewMode === 'form' ? this._renderFields() : this._renderJsonEditor()}
-
-        <div class="actions">
-          <button
-            class="btn-secondary"
-            @click=${() => this._handleCancel()}
-            ?disabled=${this.loading}
-          >
-            Cancel
-          </button>
-          <button
-            class="btn-primary"
-            @click=${() => this._handleSubmit()}
-            ?disabled=${this.loading}
-          >
-            ${this.loading
-              ? html`<span class="btn-loading"><span class="spinner"></span>Executing...</span>`
-              : 'Execute'}
-          </button>
-        </div>
-        ${this._renderCliCommand()}
       </div>
     `;
   }
@@ -2447,7 +2375,8 @@ export class InvokeForm extends LitElement {
     }
   }
 
-  private _handleSubmit() {
+  /** Validate and submit the form. Called by parent chrome wrapper. */
+  handleSubmit() {
     const properties = (this.params as any).properties || this.params;
     const requiredList = (this.params as any).required || [];
     const errors: Record<string, string> = {};
@@ -2518,7 +2447,8 @@ export class InvokeForm extends LitElement {
     this.dispatchEvent(new CustomEvent('submit', { detail: { args: this._values } }));
   }
 
-  private _handleCancel() {
+  /** Cancel with dirty check. Called by parent chrome wrapper. */
+  handleCancel() {
     if (this.isDirty && !confirm('You have unsaved changes. Discard them?')) {
       return;
     }
