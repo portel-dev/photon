@@ -5279,7 +5279,12 @@ export class ResultViewer extends LitElement {
   private _afterSlideRender(): void {
     void this.updateComplete.then(() => {
       this._bindSlideElements();
+      // Scale immediately for static content
       this._autoScaleSlide();
+      // Re-scale after async data-method bindings complete (gauge, metric, etc.)
+      // This ensures content rendered by async invoke() is measured correctly
+      setTimeout(() => this._autoScaleSlide(), 500);
+      setTimeout(() => this._autoScaleSlide(), 1500);
     });
   }
 
@@ -5290,32 +5295,37 @@ export class ResultViewer extends LitElement {
     const content = root.querySelector('.slides-content') as HTMLElement;
     if (!viewport || !content) return;
 
-    // Reset any previous zoom so we measure natural size
-    content.style.zoom = '';
+    // Measure at current zoom to avoid visible flash (reset→measure→reapply).
+    // If content already has zoom, temporarily read natural size via CSS trick.
+    const currentZoom = content.style.zoom;
+    if (currentZoom) {
+      content.style.zoom = '1';
+    }
 
-    // Wait a frame for layout to settle (images, embeds)
-    requestAnimationFrame(() => {
-      const padV = 96; // 48px top + 48px bottom padding
-      const padH = 128; // 64px left + 64px right padding
-      const viewH = viewport.clientHeight - padV;
-      const viewW = viewport.clientWidth - padH;
-      const contentH = content.scrollHeight;
-      const contentW = content.scrollWidth;
+    const padV = 96; // 48px top + 48px bottom padding
+    const padH = 128; // 64px left + 64px right padding
+    const viewH = viewport.clientHeight - padV;
+    const viewW = viewport.clientWidth - padH;
+    const contentH = content.scrollHeight;
+    const contentW = content.scrollWidth;
 
-      if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) return;
+    if (contentH <= 0 || viewH <= 0 || contentW <= 0 || viewW <= 0) {
+      if (currentZoom) content.style.zoom = currentZoom;
+      return;
+    }
 
-      // Scale to fit: zoom up or down so content fills the viewport
-      // Use zoom instead of transform so embedded components scale too
-      const scaleH = viewH / contentH;
-      const scaleW = viewW / contentW;
-      const zoom = Math.min(scaleH, scaleW);
+    // Scale to fit: zoom up or down so content fills the viewport
+    const scaleH = viewH / contentH;
+    const scaleW = viewW / contentW;
+    const zoom = Math.min(scaleH, scaleW);
 
-      // Clamp: don't go below 0.5 or above 2.5
-      const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
-      if (Math.abs(clampedZoom - 1) > 0.02) {
-        content.style.zoom = String(clampedZoom);
-      }
-    });
+    // Clamp: don't go below 0.5 or above 2.5
+    const clampedZoom = Math.max(0.5, Math.min(2.5, zoom));
+    if (Math.abs(clampedZoom - 1) > 0.02) {
+      content.style.zoom = String(clampedZoom);
+    } else {
+      content.style.zoom = '';
+    }
   }
 
   private _bindSlideElements(): void {
@@ -5500,9 +5510,9 @@ export class ResultViewer extends LitElement {
       const unit = d.unit ?? '';
       const pct = Math.min(100, Math.max(0, (value / max) * 100));
       target.innerHTML = `
-        <div style="text-align:center;">
+        <div style="text-align:center;max-width:100%;">
           <div style="font-size:2em;font-weight:700;">${value}${unit}</div>
-          <div style="margin:8px auto;width:120px;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
+          <div style="margin:8px auto;width:60%;max-width:200px;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
             <div style="width:${pct}%;height:100%;background:var(--color-accent, #7dd3fc);border-radius:4px;transition:width 0.3s;"></div>
           </div>
           ${label ? `<div style="font-size:0.85em;opacity:0.7;">${label}</div>` : ''}

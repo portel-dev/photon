@@ -493,7 +493,12 @@ async function main() {
     const photonItem = page.locator('.photon-item').first();
     if (await photonItem.isVisible().catch(() => false)) {
       await photonItem.click();
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(2000);
+
+      // Scroll down — method cards may be below the fold
+      const main = page.locator('.main-content, main, .content').first();
+      await main.evaluate((el: Element) => el.scrollTo(0, el.scrollHeight)).catch(() => {});
+      await page.waitForTimeout(1000);
 
       const photonImg = path.join(screenshotDir, 'photon-view.png');
       await page.screenshot({ path: photonImg, fullPage: true });
