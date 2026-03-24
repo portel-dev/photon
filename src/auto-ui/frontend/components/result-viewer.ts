@@ -99,11 +99,11 @@ export class ResultViewer extends LitElement {
 
       .container {
         padding: var(--space-md);
-        background: var(--bg-glass);
-        border: 1px solid var(--border-glass);
-        border-radius: var(--radius-md);
         position: relative;
         overflow: hidden;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
       }
 
       .container.app-surface {
@@ -214,6 +214,7 @@ export class ResultViewer extends LitElement {
         font-size: var(--text-md);
         color: var(--t-primary);
         line-height: 1.5;
+        flex: 1;
       }
 
       /* Text-based formats: JSON, text, code, mermaid — preserve whitespace */

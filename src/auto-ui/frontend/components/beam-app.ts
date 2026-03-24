@@ -232,18 +232,22 @@ export class BeamApp extends LitElement {
       }
 
       :host(.view-result) .focus-toolbar,
+      :host(.view-result) .main-toolbar,
       :host(.view-result) .method-toolbar,
       :host(.view-result) .method-description,
       :host(.view-result) .method-header,
       :host(.view-result) activity-log,
       :host(.view-result) .glass-panel > div > p,
       :host(.view-result) app-layout,
+      :host(.view-result) .result-chrome,
       :host(.view-form) .focus-toolbar,
+      :host(.view-form) .main-toolbar,
       :host(.view-form) .method-toolbar,
       :host(.view-form) .method-header,
       :host(.view-form) .method-description,
       :host(.view-form) activity-log,
-      :host(.view-form) app-layout {
+      :host(.view-form) app-layout,
+      :host(.view-form) .result-chrome {
         display: none !important;
       }
 
@@ -263,13 +267,35 @@ export class BeamApp extends LitElement {
         display: none !important;
       }
 
-      /* In view modes, remove glass-panel styling for seamless embed */
+      /* In view modes, remove glass-panel styling and fill the viewport */
       :host(.view-result) .method-detail,
       :host(.view-form) .method-detail {
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
         padding: 0 !important;
+        margin: 0 !important;
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100% !important;
+      }
+
+      /* View modes: content fills and centers in the viewport */
+      :host(.view-result) .main-area,
+      :host(.view-form) .main-area {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+      }
+
+      /* Scale content to fill available space using container queries */
+      :host(.view-result) .main-area > *,
+      :host(.view-form) .main-area > * {
+        width: 100% !important;
+        max-width: 100% !important;
       }
 
       .result-chrome {
@@ -2165,6 +2191,64 @@ export class BeamApp extends LitElement {
 
     // PWA: Register service worker and install prompt listener
     this._initPWA();
+
+    // View mode auto-scaling: scale result/form content to fill the viewport
+    if (this._viewMode !== 'full') {
+      this._setupViewModeScaling();
+    }
+  }
+
+  private _viewScaleObserver: ResizeObserver | null = null;
+
+  private _setupViewModeScaling(): void {
+    const scale = () => {
+      const mainArea = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
+      const rv = this.shadowRoot?.querySelector('result-viewer') as HTMLElement;
+      if (!mainArea || !rv) return;
+
+      // Measure the actual rendered content inside result-viewer's shadow DOM
+      const rvContent = rv.shadowRoot?.querySelector('.content') as HTMLElement;
+      if (!rvContent) return;
+
+      // Reset zoom to measure natural size
+      rv.style.zoom = '';
+
+      const areaW = mainArea.clientWidth;
+      const areaH = mainArea.clientHeight;
+      const contentW = rvContent.scrollWidth || rvContent.offsetWidth;
+      const contentH = rvContent.scrollHeight || rvContent.offsetHeight;
+
+      if (contentW <= 0 || contentH <= 0 || areaW <= 0 || areaH <= 0) return;
+
+      const pad = 40; // breathing room
+      const scaleX = (areaW - pad) / contentW;
+      const scaleY = (areaH - pad) / contentH;
+      const zoom = Math.min(scaleX, scaleY);
+      const clamped = Math.max(0.5, Math.min(3, zoom));
+
+      if (clamped > 1.05) {
+        rv.style.zoom = String(clamped);
+      }
+    };
+
+    // Poll until content appears, then scale + observe
+    const poll = () => {
+      const rv = this.shadowRoot?.querySelector('result-viewer') as HTMLElement;
+      const content = rv?.shadowRoot?.querySelector('.content') as HTMLElement;
+      if (!content || content.scrollHeight < 10) {
+        setTimeout(poll, 300);
+        return;
+      }
+      scale();
+      // Re-scale on viewport resize
+      const mainArea = this.shadowRoot?.querySelector('.main-area') as HTMLElement;
+      if (mainArea) {
+        this._viewScaleObserver = new ResizeObserver(() => requestAnimationFrame(scale));
+        this._viewScaleObserver.observe(mainArea);
+      }
+    };
+
+    setTimeout(poll, 500);
   }
 
   disconnectedCallback() {
