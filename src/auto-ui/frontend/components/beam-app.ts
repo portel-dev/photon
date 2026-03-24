@@ -219,6 +219,42 @@ export class BeamApp extends LitElement {
         display: none !important;
       }
 
+      /* View modes: isolate form or result for testing/embedding */
+      :host(.view-result) invoke-form,
+      :host(.view-result) .progress-container,
+      :host(.view-result) .result-empty,
+      :host(.view-result) .method-description {
+        display: none !important;
+      }
+
+      :host(.view-form) result-viewer,
+      :host(.view-form) custom-ui-renderer,
+      :host(.view-form) .result-empty {
+        display: none !important;
+      }
+
+      :host(.view-result) .focus-toolbar,
+      :host(.view-form) .focus-toolbar {
+        display: none !important;
+      }
+
+      /* In isolated view modes, hide everything except the target component */
+      :host(.view-result) .method-toolbar,
+      :host(.view-result) activity-log,
+      :host(.view-result) .method-header,
+      :host(.view-result) .method-description,
+      :host(.view-form) .method-toolbar,
+      :host(.view-form) activity-log,
+      :host(.view-form) .method-header {
+        display: none !important;
+      }
+
+      /* Remove padding in isolated view modes for tight screenshots */
+      :host(.view-result) .main-area,
+      :host(.view-form) .main-area {
+        padding: 0 !important;
+      }
+
       .focus-toolbar {
         position: sticky;
         top: 0;
@@ -1785,6 +1821,7 @@ export class BeamApp extends LitElement {
   private _connectRetries = 0;
   @state() private _sidebarVisible = false;
   @state() private _focusMode = false;
+  @state() private _viewMode: 'full' | 'form' | 'result' = 'full';
   @state() private _photons: any[] = [];
   @state() private _externalMCPs: any[] = [];
   @state() private _selectedPhoton: any = null;
@@ -2750,8 +2787,19 @@ export class BeamApp extends LitElement {
           this._focusMode = true;
           this.classList.add('focus-mode');
         }
+        // View mode: isolate form or result rendering
+        const viewParam = params.get('view');
+        if (viewParam === 'form' || viewParam === 'result') {
+          this._viewMode = viewParam;
+          this.classList.add(`view-${viewParam}`);
+          // Implicitly enable focus mode for isolated views
+          if (!this._focusMode) {
+            this._focusMode = true;
+            this.classList.add('focus-mode');
+          }
+        }
         for (const [key, value] of params) {
-          if (key === 'focus') continue; // UI mode flag, not a shared param
+          if (key === 'focus' || key === 'view') continue; // UI mode flags, not shared params
           // Try to parse JSON values (objects, arrays, numbers, booleans)
           try {
             sharedParams[key] = JSON.parse(value);
@@ -2819,15 +2867,15 @@ export class BeamApp extends LitElement {
               // Store shared params to pre-populate form
               if (Object.keys(sharedParams).length > 0) {
                 this._sharedFormParams = sharedParams;
-              } else {
-                // Set _isExecuting BEFORE setting state to prevent iframe from rendering
-                // before the tool call starts (which would bypass elicitation)
-                if (this._willAutoInvoke(method)) {
-                  this._isExecuting = true;
-                }
+              }
+              // Set _isExecuting BEFORE setting state for auto-invoke or view=result mode
+              if (this._willAutoInvoke(method) || this._viewMode === 'result') {
+                this._isExecuting = true;
               }
               this._selectedMethod = method;
               this._view = 'form';
+              // Auto-invoke for URL-based routing (same as click-based method select)
+              this._maybeAutoInvoke(method);
 
               // Handle split view if additional methods are in URL
               if (secondMethodName) {
@@ -4953,7 +5001,10 @@ ${photon.errorMessage || 'Unknown error'}</pre
     // Teardown any active custom-ui-renderer before switching methods
     this._teardownActiveCustomUI();
     this._lastFormParams = {};
-    this._sharedFormParams = null;
+    // Preserve shared params in view mode (they come from URL and need to survive method selection)
+    if (this._viewMode === 'full') {
+      this._sharedFormParams = null;
+    }
     // Set _isExecuting BEFORE setting state to prevent iframe from rendering
     // before the tool call starts (which would bypass elicitation)
     if (this._willAutoInvoke(e.detail.method)) {
@@ -5711,9 +5762,12 @@ ${photon.errorMessage || 'Unknown error'}</pre
    * Auto-invokes when: method.autorun === true OR method has no parameters at all
    */
   private _maybeAutoInvoke(method: any) {
-    if (!this._willAutoInvoke(method)) return;
-    // Auto-invoke with empty args
-    void this._handleExecute(new CustomEvent('execute', { detail: { args: {} } }));
+    // In result view mode, always auto-invoke (using shared params from URL if available)
+    const forceInvoke = this._viewMode === 'result';
+    if (!forceInvoke && !this._willAutoInvoke(method)) return;
+    // Auto-invoke with shared params or empty args
+    const args = this._sharedFormParams ?? {};
+    void this._handleExecute(new CustomEvent('execute', { detail: { args } }));
   }
 
   private _handleBackFromMethod() {
