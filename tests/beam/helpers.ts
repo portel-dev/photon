@@ -47,6 +47,9 @@ export interface BeamContext {
   /** Take a screenshot for visual comparison */
   snapshot(name: string): Promise<void>;
 
+  /** Take a screenshot and return the file path */
+  screenshotTo(filePath: string): Promise<string>;
+
   /** Get the current result content */
   getResultContent(): Promise<string>;
 
@@ -300,6 +303,13 @@ function createBeamContext(page: Page, port: number): BeamContext {
       const element = page.locator(selector);
       const content = await element.textContent();
       assert.ok(content?.includes(text), `Expected "${text}" in ${selector}`);
+    },
+
+    async screenshotTo(filePath: string): Promise<string> {
+      const dir = path.dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      await page.screenshot({ path: filePath, fullPage: true });
+      return filePath;
     },
 
     async snapshot(name: string) {

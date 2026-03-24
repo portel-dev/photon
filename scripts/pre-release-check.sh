@@ -158,6 +158,18 @@ else
 fi
 
 # Restore original .photon (trap handles this)
+
+# ─── 7. Visual tests (optional — requires lookout + MLX) ────
+echo ""
+echo "▶ Step 7: Visual tests (lookout AI)"
+if command -v photon >/dev/null 2>&1 && photon lookout status -y 2>/dev/null | grep -q '"ready": true\|ready.*true'; then
+  echo "  Lookout available — running visual tests..."
+  npm run test:visual
+  echo "  ✓ Visual tests passed"
+else
+  echo "  ⏭ Lookout not available (no MLX or photon not installed) — skipping"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✓ All pre-release checks passed"
