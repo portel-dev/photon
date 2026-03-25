@@ -4721,7 +4721,10 @@ export class ResultViewer extends LitElement {
   /** Build an iframe srcdoc for a slide with the bridge loaded */
   private _buildSlideSrcdoc(
     slideHtml: string,
-    codeBlocks?: { id: string; code: string; language: string }[]
+    codeBlocks?: { id: string; code: string; language: string }[],
+    headerText?: string,
+    footerText?: string,
+    pageNum?: string
   ): string {
     const bridge = this._slidesBridgeScript || '';
     // Convert data-embed="photon/method" to data-method="method" for bridge binding.
@@ -4768,7 +4771,15 @@ ${bridge}
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
-  body { padding: 5vh 5vw; display: flex; flex-direction: column; justify-content: center; }
+  body { padding: 0; display: flex; flex-direction: column; }
+  .slide-header { padding: 8px 5vw; font-size: 12px; opacity: 0.6;
+    color: var(--color-on-surface-variant, inherit);
+    border-bottom: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
+  .slide-body { flex: 1; padding: 4vh 5vw; display: flex; flex-direction: column; justify-content: center;
+    overflow: hidden; }
+  .slide-footer { padding: 6px 5vw; font-size: 11px; opacity: 0.5; display: flex; justify-content: space-between;
+    color: var(--color-on-surface-variant, inherit);
+    border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
@@ -4868,7 +4879,11 @@ ${bridge}
   });
 <\/script>
 </head>
-<body>${html}</body>
+<body>
+${headerText ? `<div class="slide-header">${headerText}</div>` : ''}
+<div class="slide-body">${html}</div>
+${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</span><span>${pageNum || ''}</span></div>` : ''}
+</body>
 </html>`;
   }
 
@@ -4974,16 +4989,21 @@ ${bridge}
         tabindex="0"
         style="${viewportStyle}"
       >
-        ${headerText ? html`<div class="slides-header">${headerText}</div>` : ''}
         <div class="slides-viewport">
           <div class="slides-content">
             ${this._slidesBridgeScript
               ? html`<iframe
                   class="slide-bridge-frame"
-                  .srcdoc=${this._buildSlideSrcdoc(slideHtml, codeBlocks)}
+                  .srcdoc=${this._buildSlideSrcdoc(
+                    slideHtml,
+                    codeBlocks,
+                    headerText,
+                    footerText,
+                    showPaginate ? `${idx + 1} / ${total}` : ''
+                  )}
                   sandbox="allow-scripts allow-same-origin allow-popups"
                   frameborder="0"
-                  style="width:100%;height:100%;border:none;background:transparent;"
+                  style="width:100%;height:100%;border:none;"
                 ></iframe>`
               : unsafeHTML(slideHtml)}
           </div>
@@ -5047,7 +5067,7 @@ ${bridge}
             </button>
           </div>
         </div>
-        ${footerText
+        ${footerText && !this._slidesBridgeScript
           ? html`<div class="slides-footer">
               <span>${footerText}</span>
             </div>`
@@ -5884,14 +5904,35 @@ ${bridge}
     const content = root.querySelector('.slides-content') as HTMLElement;
     if (!viewport || !content) return;
 
-    // Guard against re-entrancy: setting zoom triggers ResizeObserver,
-    // which would call _autoScaleSlide again → infinite loop
     this._slidesScaling = true;
 
     try {
-      // Use a hidden prerender div to measure natural content size without flashing.
-      // The prerender div mirrors slides-content styles but is positioned offscreen,
-      // so resetting its zoom to 1 for measurement is invisible to the user.
+      // For bridge iframe slides: measure the iframe body's natural content size
+      const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+      if (iframe?.contentDocument?.body) {
+        const body = iframe.contentDocument.body;
+        // Reset zoom to measure natural size
+        body.style.zoom = '';
+        const bodyH = body.scrollHeight;
+        const bodyW = body.scrollWidth;
+        const viewH = viewport.clientHeight;
+        const viewW = viewport.clientWidth;
+
+        if (bodyH > 0 && viewH > 0 && bodyW > 0 && viewW > 0) {
+          const scaleH = viewH / bodyH;
+          const scaleW = viewW / bodyW;
+          const zoom = Math.min(scaleH, scaleW);
+          const clamped = Math.max(0.5, Math.min(2.5, zoom));
+          const newZoom = Math.abs(clamped - 1) > 0.02 ? String(clamped) : '';
+          if (newZoom !== this._slidesLastZoom) {
+            this._slidesLastZoom = newZoom;
+            body.style.zoom = newZoom;
+          }
+        }
+        return; // skip the prerender div path
+      }
+
+      // Non-iframe slides: use prerender div measurement (legacy path)
       let prerender = root.querySelector('.slides-prerender') as HTMLElement;
       if (!prerender) {
         prerender = document.createElement('div');
@@ -5899,19 +5940,16 @@ ${bridge}
         viewport.appendChild(prerender);
       }
 
-      // Copy current slide content into prerender div for measurement.
-      // Strip iframes — they continue receiving streams in the hidden div,
-      // causing ResizeObserver thrashing from gauge animations.
       prerender.innerHTML = content.innerHTML;
-      prerender.querySelectorAll('iframe').forEach((iframe) => {
+      prerender.querySelectorAll('iframe').forEach((el) => {
         const placeholder = document.createElement('div');
-        placeholder.style.height = iframe.style.height || '200px';
-        iframe.replaceWith(placeholder);
+        placeholder.style.height = el.style.height || '200px';
+        el.replaceWith(placeholder);
       });
       prerender.style.zoom = '1';
 
-      const padV = document.fullscreenElement ? 128 : 96; // 64+64 fullscreen, 48+48 normal
-      const padH = document.fullscreenElement ? 240 : 128; // 120+120 fullscreen, 64+64 normal
+      const padV = document.fullscreenElement ? 128 : 96;
+      const padH = document.fullscreenElement ? 240 : 128;
       const viewH = viewport.clientHeight - padV;
       const viewW = viewport.clientWidth - padH;
       const contentH = prerender.scrollHeight;
