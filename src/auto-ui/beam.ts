@@ -1949,10 +1949,11 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
       }
 
       // Pure view mode — serve lightweight bridge-powered page (no beam-app shell)
-      // Triggered by ?view=form|result|embed on any photon/method URL
+      // ?view=form serves full Beam (for custom input components like date picker)
+      // ?view=result|embed serves pure-view.html (lightweight bridge only)
       const viewParam = url.searchParams.get('view');
       if (
-        (viewParam === 'form' || viewParam === 'result' || viewParam === 'embed') &&
+        (viewParam === 'result' || viewParam === 'embed') &&
         url.pathname !== '/' &&
         !url.pathname.startsWith('/api')
       ) {
@@ -1975,8 +1976,8 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
             .replaceAll('__METHOD__', escapeHtml(methodName))
             .replaceAll('__ARGS__', argsJson);
 
-          // Add data-view override only if explicitly requesting form or result
-          if (viewParam === 'form' || viewParam === 'result') {
+          // Add data-view override only if explicitly requesting result
+          if (viewParam === 'result') {
             html = html.replace(
               'data-method=',
               `data-view="${escapeHtml(viewParam)}" data-method=`

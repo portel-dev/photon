@@ -4731,15 +4731,28 @@ export class ResultViewer extends LitElement {
     // The bridge is scoped to the photon, so strip the photon prefix.
     // e.g., data-embed="walkthrough/monitor" → data-method="monitor"
     const photonPrefix = this.photonName ? this.photonName + '/' : '';
-    let html = slideHtml
+    // Convert data-embed to data-method, but keep form embeds as iframes
+    // so they use Beam's full invoke-form with custom components (date picker, etc.)
+    let html = slideHtml;
+
+    // First: convert form embeds to iframes (before stripping data-embed)
+    html = html.replace(
+      /<div\s+data-embed="([^"]+)"\s+data-embed-view="form"(?:\s+data-embed-height="([^"]*)")?[^>]*><\/div>/g,
+      (_, path, height) => {
+        const h = height || '400';
+        return `<iframe src="/${path}?view=form" style="width:100%;height:${h}px;border:none;border-radius:8px;overflow:hidden;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>`;
+      }
+    );
+
+    // Then: convert remaining data-embed to data-method for inline rendering
+    html = html
       .replace(/data-embed="([^"]+)"/g, (_, path) => {
         const method = path.startsWith(photonPrefix) ? path.slice(photonPrefix.length) : path;
-        // Add data-live so the bridge subscribes to streaming updates
         return `data-method="${method}" data-live`;
       })
       .replace(/data-embed-params=/g, 'data-args=')
       .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;overflow:auto"')
-      .replace(/data-embed-view="[^"]*"/g, ''); // strip view hint (bridge auto-detects)
+      .replace(/data-embed-view="[^"]*"/g, '');
 
     // Inline code blocks: replace "Loading..." placeholders with actual code
     // so Prism.js can highlight them inside the iframe
