@@ -4775,8 +4775,7 @@ ${bridge}
   .slide-header { padding: 8px 5vw; font-size: 12px; opacity: 0.6;
     color: var(--color-on-surface-variant, inherit);
     border-bottom: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
-  .slide-body { flex: 1; padding: 4vh 5vw; display: flex; flex-direction: column; justify-content: center;
-    overflow: hidden; }
+  .slide-body { flex: 1; padding: 4vh 5vw; overflow: hidden; }
   .slide-footer { padding: 6px 5vw; font-size: 11px; opacity: 0.5; display: flex; justify-content: space-between;
     color: var(--color-on-surface-variant, inherit);
     border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
@@ -5220,8 +5219,7 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
         }
         .slides-container:fullscreen .slides-controls {
           opacity: 0;
-          /* Extend hit area upward so cursor near bottom reveals controls */
-          padding-top: 40px;
+          padding-top: 10px;
         }
         .slides-container:fullscreen .slides-controls:hover {
           opacity: 1;
@@ -5701,16 +5699,41 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     // DOM is already ready — no need for updateComplete here.
     this._bindSlideElements();
     this._highlightInlineCodeElements();
-    this._autoScaleSlide();
 
-    // Watch for content size changes from async data-method bindings
+    // For bridge iframe: wait for iframe load before scaling
+    const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
+    if (iframe) {
+      const onLoad = () => {
+        this._autoScaleSlide();
+        // Also scale when iframe content changes (async embeds loading)
+        try {
+          const body = iframe.contentDocument?.body;
+          if (body) {
+            new ResizeObserver(() => {
+              if (this._slidesScaling) return;
+              if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
+              this._slidesScaleDebounce = setTimeout(() => this._autoScaleSlide(), 400);
+            }).observe(body);
+          }
+        } catch {
+          /* cross-origin */
+        }
+      };
+      if (iframe.contentDocument?.readyState === 'complete') {
+        onLoad();
+      } else {
+        iframe.addEventListener('load', onLoad, { once: true });
+      }
+    } else {
+      this._autoScaleSlide();
+    }
+
+    // Watch for outer content size changes (non-iframe path)
     if (this._slidesResizeObserver) {
       this._slidesResizeObserver.disconnect();
     }
     const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
-
-    // Reveal content now that zoom is computed — prevents the size jump
-    if (content) {
+    if (content && !iframe) {
       this._slidesResizeObserver = new ResizeObserver(() => {
         if (this._slidesScaling) return;
         if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
@@ -5907,29 +5930,43 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._slidesScaling = true;
 
     try {
-      // For bridge iframe slides: measure the iframe body's natural content size
+      // For bridge iframe slides: measure natural content size inside iframe
       const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
       if (iframe?.contentDocument?.body) {
-        const body = iframe.contentDocument.body;
-        // Reset zoom to measure natural size
+        const doc = iframe.contentDocument;
+        const body = doc.body;
+        const slideBody = doc.querySelector('.slide-body') as HTMLElement;
+        if (!slideBody) {
+          return;
+        }
+
+        // Reset zoom and temporarily make body auto-height to measure natural content
         body.style.zoom = '';
-        const bodyH = body.scrollHeight;
-        const bodyW = body.scrollWidth;
+        const origH = body.style.height;
+        const origOverflow = body.style.overflow;
+        body.style.height = 'auto';
+        body.style.overflow = 'visible';
+
+        const naturalH = body.scrollHeight;
+        const naturalW = slideBody.scrollWidth;
+
+        // Restore
+        body.style.height = origH;
+        body.style.overflow = origOverflow;
+
         const viewH = viewport.clientHeight;
         const viewW = viewport.clientWidth;
 
-        if (bodyH > 0 && viewH > 0 && bodyW > 0 && viewW > 0) {
-          const scaleH = viewH / bodyH;
-          const scaleW = viewW / bodyW;
+        if (naturalH > 0 && viewH > 0 && naturalW > 0 && viewW > 0) {
+          const scaleH = viewH / naturalH;
+          const scaleW = viewW / naturalW;
           const zoom = Math.min(scaleH, scaleW);
           const clamped = Math.max(0.5, Math.min(2.5, zoom));
           const newZoom = Math.abs(clamped - 1) > 0.02 ? String(clamped) : '';
-          if (newZoom !== this._slidesLastZoom) {
-            this._slidesLastZoom = newZoom;
-            body.style.zoom = newZoom;
-          }
+          this._slidesLastZoom = newZoom;
+          body.style.zoom = newZoom;
         }
-        return; // skip the prerender div path
+        return;
       }
 
       // Non-iframe slides: use prerender div measurement (legacy path)
