@@ -132,12 +132,25 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
         if (m.outputFormat) meta.format = m.outputFormat;
         if (m.scheduled) meta.scheduled = m.scheduled;
         if (m.readOnlyHint) meta.readOnly = true;
-        // Only include methods that have relevant metadata
-        if (Object.keys(meta).length > 0) {
-          methodMeta[m.name] = meta;
+        // Include inputSchema for auto form/result detection and form generation
+        if (m.params && typeof m.params === 'object') {
+          const schema = m.params as {
+            type?: string;
+            properties?: Record<string, any>;
+            required?: string[];
+          };
+          if (schema.properties && Object.keys(schema.properties).length > 0) {
+            meta.inputSchema = {
+              type: schema.type || 'object',
+              properties: schema.properties,
+              required: schema.required,
+            };
+          }
         }
+        // Always include — inputSchema needed even without format/scheduled
+        methodMeta[m.name] = meta;
       }
-      if (Object.keys(methodMeta).length === 0) methodMeta = undefined;
+      // Keep methodMeta even if some entries are empty — inputSchema detection needs all methods
     }
 
     const { generateBridgeScript } = await import('../../bridge/index.js');
@@ -153,9 +166,21 @@ export const handleConfigRoutes: RouteHandler = async (req, res, url, state) => 
       methodMeta,
     });
 
-    res.setHeader('Content-Type', 'text/html');
-    res.writeHead(200);
-    res.end(script);
+    // When raw=1, serve as plain JavaScript (for <script src="..."> usage in pure-view).
+    // Otherwise serve as text/html (for iframe injection by custom-ui-renderer).
+    const raw = url.searchParams.get('raw') === '1';
+    if (raw) {
+      // Strip <script> wrapper tags to serve as raw JS
+      const jsOnly = script.replace(/^\s*<script>\n?/, '').replace(/\n?<\/script>\s*$/, '');
+      res.setHeader('Content-Type', 'application/javascript');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.writeHead(200);
+      res.end(jsOnly);
+    } else {
+      res.setHeader('Content-Type', 'text/html');
+      res.writeHead(200);
+      res.end(script);
+    }
     return true;
   }
 

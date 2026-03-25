@@ -2194,17 +2194,9 @@ export class BeamApp extends LitElement {
       this._verboseLogging = true;
     }
 
-    // Apply view mode class synchronously BEFORE any rendering to prevent chrome flash.
-    // The full route handling happens later in _handleRouteChange after MCP connects,
-    // but the CSS class must be on the host element immediately so chrome is never painted.
-    const earlyParams = new URLSearchParams(window.location.search);
-    const earlyView = earlyParams.get('view');
-    if (earlyView === 'form' || earlyView === 'result') {
-      this._viewMode = earlyView;
-      this.classList.add(`view-${earlyView}`);
-      this._focusMode = true;
-      this.classList.add('focus-mode');
-    }
+    // Note: ?view=form|result|embed URLs are now served by pure-view.html (bridge-powered)
+    // and never reach beam-app. The view mode CSS and focus mode are still used for the
+    // in-IDE focus toggle and any edge cases where view mode is set programmatically.
 
     // Click outside to close settings menu
     document.addEventListener('click', this._handleDocumentClick);

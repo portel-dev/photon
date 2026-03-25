@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="photon-template" content="true" />
+    <meta name="theme-color" content="#1a1b26" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        overflow: auto;
+        background: #1a1b26;
+        color: #c0caf5;
+        font-family: Inter, system-ui, sans-serif;
+      }
+
+      #pure-view {
+        width: 100%;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+
+      /* Prism.js Dark Theme (One Dark inspired) */
+      code[class*='language-'],
+      pre[class*='language-'] {
+        color: #abb2bf;
+        text-shadow: none;
+      }
+      .token.comment,
+      .token.prolog,
+      .token.doctype,
+      .token.cdata {
+        color: #5c6370;
+        font-style: italic;
+      }
+      .token.punctuation {
+        color: #abb2bf;
+      }
+      .token.property,
+      .token.tag,
+      .token.boolean,
+      .token.number,
+      .token.constant,
+      .token.symbol,
+      .token.deleted {
+        color: #e06c75;
+      }
+      .token.selector,
+      .token.attr-name,
+      .token.string,
+      .token.char,
+      .token.builtin,
+      .token.inserted {
+        color: #98c379;
+      }
+      .token.operator,
+      .token.entity,
+      .token.url,
+      .language-css .token.string,
+      .style .token.string {
+        color: #56b6c2;
+      }
+      .token.atrule,
+      .token.attr-value,
+      .token.keyword {
+        color: #c678dd;
+      }
+      .token.function,
+      .token.class-name {
+        color: #61afef;
+      }
+      .token.regex,
+      .token.important,
+      .token.variable {
+        color: #d19a66;
+      }
+    </style>
+
+    <!-- MCP Adapter: intercepts bridge postMessage calls and proxies to MCP HTTP -->
+    <script>
+    (function() {
+      var photonName = '__PHOTON__';
+      var mcpSessionId = null;
+
+      // Parse response — handles both JSON and SSE formats
+      function parseResponse(res) {
+        mcpSessionId = res.headers.get('mcp-session-id') || mcpSessionId;
+        var ct = res.headers.get('content-type') || '';
+        if (ct.indexOf('text/event-stream') !== -1) {
+          return res.text().then(function(text) {
+            var lines = text.split('\n');
+            for (var i = lines.length - 1; i >= 0; i--) {
+              if (lines[i].indexOf('data: ') === 0) {
+                try { return JSON.parse(lines[i].substring(6)); } catch(e) {}
+              }
+            }
+            return { error: { message: 'Failed to parse SSE response' } };
+          });
+        }
+        return res.json();
+      }
+
+      // Initialize MCP session
+      function initMCP() {
+        return fetch('/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            clientInfo: { name: 'pure-view', version: '1.0.0' }
+          }})
+        }).then(parseResponse);
+      }
+
+      // Call MCP tool
+      function callMCPTool(toolName, args) {
+        var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+        if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
+        return fetch('/mcp', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: {
+            name: toolName,
+            arguments: args || {}
+          }})
+        }).then(parseResponse);
+      }
+
+      // Parse MCP tool result to extract data
+      function parseToolResult(mcpResult) {
+        if (!mcpResult || !mcpResult.result) return mcpResult;
+        var r = mcpResult.result;
+        var content = r.content || [];
+        for (var i = 0; i < content.length; i++) {
+          if (content[i].type === 'text') {
+            try { return JSON.parse(content[i].text); } catch(e) { return content[i].text; }
+          }
+        }
+        if (r.structuredContent) return r.structuredContent;
+        return r;
+      }
+
+      // Listen for bridge messages (same-window postMessage)
+      window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (!msg || typeof msg !== 'object') return;
+
+        // Handle JSON-RPC tools/call from bridge
+        if (msg.jsonrpc === '2.0' && msg.method === 'tools/call' && msg.id != null) {
+          var toolName = photonName + '/' + (msg.params && msg.params.name || '');
+          var args = (msg.params && msg.params.arguments) || {};
+
+          var doCall = function() {
+            callMCPTool(toolName, args).then(function(result) {
+              var parsed = parseToolResult(result);
+              window.postMessage({ jsonrpc: '2.0', id: msg.id, result: parsed }, '*');
+            }).catch(function(err) {
+              window.postMessage({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: err.message } }, '*');
+            });
+          };
+
+          if (!mcpSessionId) {
+            initMCP().then(doCall).catch(function(err) {
+              window.postMessage({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'MCP init failed: ' + err.message } }, '*');
+            });
+          } else {
+            doCall();
+          }
+          return;
+        }
+
+        // Handle ui/initialize request from bridge
+        if (msg.jsonrpc === '2.0' && msg.method === 'ui/initialize' && msg.id != null) {
+          window.postMessage({ jsonrpc: '2.0', id: msg.id, result: {
+            hostContext: { theme: 'dark' }
+          }}, '*');
+          return;
+        }
+      });
+
+      // Pre-initialize MCP session
+      initMCP().catch(function(e) { console.warn('[pure-view] MCP init failed:', e); });
+    })();
+    </script>
+  </head>
+
+  <body>
+    <div id="pure-view" data-method="__METHOD__" data-args="__ARGS__"></div>
+    <script src="/api/platform-bridge?photon=__PHOTON__&raw=1"></script>
+  </body>
+</html>

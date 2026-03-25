@@ -15,6 +15,12 @@ export interface BridgeMethodMeta {
   scheduled?: string;
   /** True if method has no side effects (@readOnly) */
   readOnly?: boolean;
+  /** JSON Schema for method parameters — enables auto form/result detection and form generation */
+  inputSchema?: {
+    type?: string;
+    properties?: Record<string, any>;
+    required?: string[];
+  };
 }
 
 /**

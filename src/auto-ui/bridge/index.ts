@@ -887,6 +887,227 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
   // Track bound elements and their last results for theme-change re-rendering
   var _boundElements = [];
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FORM CSS (injected once on first form generation)
+  // ═══════════════════════════════════════════════════════════════════════════
+  var _formCSSInjected = false;
+  function _injectFormCSS() {
+    if (_formCSSInjected) return;
+    _formCSSInjected = true;
+    var style = document.createElement('style');
+    style.id = 'photon-form-css';
+    style.textContent = [
+      '.photon-auto-form { font-family: Inter, system-ui, sans-serif; max-width: 480px; margin: 0 auto; }',
+      '.photon-auto-form .pf-group { margin-bottom: 12px; }',
+      '.photon-auto-form label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: var(--photon-text, #c0caf5); }',
+      '.photon-auto-form label .pf-req { color: #f7768e; margin-left: 2px; }',
+      '.photon-auto-form input, .photon-auto-form select, .photon-auto-form textarea {',
+      '  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px;',
+      '  border: 1px solid var(--photon-border, #3b3d57); background: var(--photon-input-bg, #1e2030);',
+      '  color: var(--photon-text, #c0caf5); font-size: 14px; font-family: inherit; outline: none;',
+      '}',
+      '.photon-auto-form input:focus, .photon-auto-form select:focus, .photon-auto-form textarea:focus {',
+      '  border-color: var(--photon-accent, #7aa2f7);',
+      '}',
+      '.photon-auto-form input[type="checkbox"] { width: auto; margin-right: 8px; }',
+      '.photon-auto-form .pf-check-group { display: flex; align-items: center; }',
+      '.photon-auto-form .pf-desc { font-size: 11px; color: var(--photon-text-muted, #565f89); margin-top: 2px; }',
+      '.photon-auto-form button[type="submit"] {',
+      '  margin-top: 16px; padding: 10px 24px; border-radius: 6px; border: none; cursor: pointer;',
+      '  background: var(--photon-accent, #7aa2f7); color: #fff; font-size: 14px; font-weight: 500;',
+      '  font-family: inherit; width: 100%;',
+      '}',
+      '.photon-auto-form button[type="submit"]:hover { opacity: 0.9; }',
+      '.photon-auto-form button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }',
+      '.photon-auto-form .pf-result { margin-top: 16px; }',
+      '.photon-auto-form .pf-error { color: #f7768e; font-size: 13px; margin-top: 8px; }',
+    ].join('\\n');
+    document.head.appendChild(style);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FORM GENERATION (vanilla JS from JSON Schema)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _shouldShowForm(meta, args) {
+    // Explicit data-view overrides auto-detection
+    // Otherwise: show form if any required params are missing from args
+    var schema = meta.inputSchema;
+    if (!schema || !schema.properties) return false; // no params → result
+    var required = schema.required || [];
+    if (required.length === 0) return false; // no required params → result
+    for (var i = 0; i < required.length; i++) {
+      if (!(required[i] in args)) return true; // missing required → form
+    }
+    return false; // all required present → result
+  }
+
+  function _escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function _generateForm(el, method, meta, args, proxy, format, renderResult) {
+    _injectFormCSS();
+    var schema = meta.inputSchema;
+    var props = schema.properties || {};
+    var required = schema.required || [];
+    var keys = Object.keys(props);
+
+    var form = document.createElement('form');
+    form.className = 'photon-auto-form';
+    form.setAttribute('autocomplete', 'off');
+
+    for (var i = 0; i < keys.length; i++) {
+      (function(key) {
+        var prop = props[key];
+        var isReq = required.indexOf(key) !== -1;
+        var type = prop.type || 'string';
+        var group = document.createElement('div');
+        group.className = 'pf-group';
+
+        var prefilled = args[key] !== undefined ? args[key] : (prop.default !== undefined ? prop.default : '');
+
+        if (type === 'boolean') {
+          group.className += ' pf-check-group';
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.name = key;
+          cb.id = 'pf-' + key;
+          if (prefilled === true || prefilled === 'true') cb.checked = true;
+          var lbl = document.createElement('label');
+          lbl.htmlFor = 'pf-' + key;
+          lbl.textContent = prop.title || key;
+          group.appendChild(cb);
+          group.appendChild(lbl);
+        } else {
+          var lbl = document.createElement('label');
+          lbl.htmlFor = 'pf-' + key;
+          lbl.innerHTML = _escHtml(prop.title || key) + (isReq ? '<span class="pf-req">*</span>' : '');
+          group.appendChild(lbl);
+
+          var input;
+          if (prop.enum && prop.enum.length > 0) {
+            input = document.createElement('select');
+            input.name = key;
+            input.id = 'pf-' + key;
+            var placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select...';
+            input.appendChild(placeholder);
+            for (var j = 0; j < prop.enum.length; j++) {
+              var opt = document.createElement('option');
+              opt.value = prop.enum[j];
+              opt.textContent = prop.enum[j];
+              if (String(prefilled) === String(prop.enum[j])) opt.selected = true;
+              input.appendChild(opt);
+            }
+          } else if (type === 'number' || type === 'integer') {
+            input = document.createElement('input');
+            input.type = 'number';
+            input.name = key;
+            input.id = 'pf-' + key;
+            if (prop.minimum !== undefined) input.min = String(prop.minimum);
+            if (prop.maximum !== undefined) input.max = String(prop.maximum);
+            if (type === 'integer') input.step = '1';
+            if (prefilled !== '') input.value = String(prefilled);
+          } else if (prop.format === 'date') {
+            input = document.createElement('input');
+            input.type = 'date';
+            input.name = key;
+            input.id = 'pf-' + key;
+            if (prefilled) input.value = String(prefilled);
+          } else if (prop.maxLength && prop.maxLength > 200) {
+            input = document.createElement('textarea');
+            input.name = key;
+            input.id = 'pf-' + key;
+            input.rows = 4;
+            if (prefilled) input.value = String(prefilled);
+          } else {
+            input = document.createElement('input');
+            input.type = 'text';
+            input.name = key;
+            input.id = 'pf-' + key;
+            if (prefilled !== '') input.value = String(prefilled);
+          }
+
+          if (isReq) input.required = true;
+          if (prop.description) input.placeholder = prop.description;
+          group.appendChild(input);
+
+          if (prop.description) {
+            var desc = document.createElement('div');
+            desc.className = 'pf-desc';
+            desc.textContent = prop.description;
+            group.appendChild(desc);
+          }
+        }
+
+        form.appendChild(group);
+      })(keys[i]);
+    }
+
+    var submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.textContent = 'Run';
+    form.appendChild(submitBtn);
+
+    var resultDiv = document.createElement('div');
+    resultDiv.className = 'pf-result';
+    form.appendChild(resultDiv);
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Running...';
+
+      // Collect form values
+      var formArgs = {};
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        var prop = props[key];
+        var type = prop.type || 'string';
+        var inputEl = form.querySelector('[name="' + key + '"]');
+        if (!inputEl) continue;
+        if (type === 'boolean') {
+          formArgs[key] = inputEl.checked;
+        } else if (type === 'number' || type === 'integer') {
+          var val = inputEl.value;
+          if (val !== '') formArgs[key] = type === 'integer' ? parseInt(val, 10) : parseFloat(val);
+        } else {
+          var val = inputEl.value;
+          if (val !== '') formArgs[key] = val;
+        }
+      }
+
+      try {
+        var p = proxy[method](formArgs);
+        if (p && typeof p.then === 'function') {
+          p.then(function(r) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Run';
+            resultDiv.innerHTML = '';
+            if (format) {
+              window.photon.render(resultDiv, r, format);
+            } else {
+              renderResult(r);
+            }
+          }).catch(function(err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Run';
+            resultDiv.innerHTML = '<div class="pf-error">Error: ' + _escHtml(err.message) + '</div>';
+          });
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Run';
+        resultDiv.innerHTML = '<div class="pf-error">Error: ' + _escHtml(err.message) + '</div>';
+      }
+    });
+
+    el.innerHTML = '';
+    el.appendChild(form);
+  }
+
   function _bindElements() {
     if (!ctx.photon) return;
     var proxy = window[ctx.photon];
@@ -988,6 +1209,24 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
           _originalRender(result);
         };
 
+        // ── Auto-detect: form vs result ──
+        // data-view="form" forces form, data-view="result" forces invoke
+        // Otherwise: show form if required params are missing from args
+        var viewOverride = el.getAttribute('data-view');
+        var showForm = false;
+        if (viewOverride === 'form') {
+          showForm = true;
+        } else if (viewOverride === 'result') {
+          showForm = false;
+        } else {
+          showForm = _shouldShowForm(meta, args);
+        }
+
+        if (showForm && meta.inputSchema) {
+          _generateForm(el, method, meta, args, proxy, format, renderResult);
+          return; // form handles its own lifecycle
+        }
+
         // ── Call method and render ──
         function load() {
           el.classList.add('photon-loading');
@@ -1062,11 +1301,58 @@ export function generateBridgeScript(context: PhotonBridgeContext): string {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEWPORT-FILL SCALING (for standalone pure-view pages)
+  // ═══════════════════════════════════════════════════════════════════════════
+  function _setupViewportScaling() {
+    var container = document.getElementById('pure-view');
+    if (!container) return; // not a standalone pure-view page
+
+    var observer = new ResizeObserver(function() {
+      // Get the rendered content's natural size
+      var content = container.firstElementChild;
+      if (!content) return;
+
+      // Don't scale forms — they should stay at natural size
+      if (content.classList && content.classList.contains('photon-auto-form')) return;
+
+      var viewportH = window.innerHeight;
+      var viewportW = window.innerWidth;
+      var contentH = content.scrollHeight || content.offsetHeight;
+      var contentW = content.scrollWidth || content.offsetWidth;
+
+      if (contentH < 10 || contentW < 10) return; // not yet rendered
+
+      var pad = 32;
+      var zoomH = (viewportH - pad) / contentH;
+      var zoomW = (viewportW - pad) / contentW;
+      var zoom = Math.min(zoomH, zoomW);
+      var clamped = Math.max(0.5, Math.min(3, zoom));
+
+      if (clamped > 1.02 || clamped < 0.95) {
+        container.style.zoom = String(clamped);
+      } else {
+        container.style.zoom = '';
+      }
+    });
+
+    observer.observe(container);
+    window.addEventListener('resize', function() {
+      // Re-trigger observer measurement
+      if (container.firstElementChild) {
+        observer.unobserve(container);
+        observer.observe(container);
+      }
+    });
+  }
+
   // Only run declarative data binding for .photon.html templates
   // (signaled by <meta name="photon-template"> injected by custom-ui-renderer)
   function _maybeBindElements() {
     if (document.querySelector('meta[name="photon-template"]')) {
       _bindElements();
+      // Set up viewport scaling after binding (for pure-view standalone pages)
+      _setupViewportScaling();
     }
   }
 

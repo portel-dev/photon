@@ -4359,9 +4359,16 @@ export class ResultViewer extends LitElement {
       this._reRenderMermaidOnThemeChange();
     }
 
-    // Bind declarative data-method elements and auto-scale slides after render
+    // Bind declarative data-method elements and auto-scale slides after render.
+    // Double-deferred to ensure Lit's DOM update is fully flushed before binding.
     if (changedProperties.has('result') && this.layout === 'slides') {
-      this._afterSlideRender();
+      void this.updateComplete.then(() => {
+        // First rAF: Lit has committed to DOM
+        requestAnimationFrame(() => {
+          // Second rAF: browser has painted — DOM is fully stable
+          requestAnimationFrame(() => this._afterSlideRender());
+        });
+      });
     }
   }
 
@@ -4664,6 +4671,19 @@ export class ResultViewer extends LitElement {
 
     if (slides.length === 0) {
       return this._renderMarkdown(raw);
+    }
+
+    // Restore slide position from URL hash (e.g., #slide-5 → index 4)
+    try {
+      const hashMatch = window.location.hash.match(/^#slide-(\d+)$/);
+      if (hashMatch && this._slidesCurrentIndex === 0) {
+        const hashIndex = parseInt(hashMatch[1], 10) - 1;
+        if (hashIndex >= 0 && hashIndex < slides.length) {
+          this._slidesCurrentIndex = hashIndex;
+        }
+      }
+    } catch {
+      /* ignore in iframe contexts */
     }
 
     // Clamp index
@@ -5323,6 +5343,16 @@ export class ResultViewer extends LitElement {
     this._slidesDirection = newIndex > this._slidesCurrentIndex ? 'forward' : 'backward';
     const transition = this._getSlideTransition(newIndex);
 
+    // Persist slide position in URL hash for refresh/bookmark support
+    try {
+      const newHash = `#slide-${newIndex + 1}`;
+      if (window.location.hash !== newHash) {
+        history.replaceState(null, '', newHash);
+      }
+    } catch {
+      /* ignore in iframe contexts */
+    }
+
     // Set data attributes on host for CSS view-transition selectors
     this.setAttribute('data-slides-transition', transition);
     this.setAttribute('data-slides-direction', this._slidesDirection);
@@ -5371,11 +5401,12 @@ export class ResultViewer extends LitElement {
         this._slidesResizeObserver = new ResizeObserver(() => {
           // Guard: don't re-enter while _autoScaleSlide is applying zoom
           if (this._slidesScaling) return;
-          // Debounce: coalesce rapid resize events into one scale pass
+          // Debounce: wait for async data-method embeds to finish rendering
+          // before recalculating zoom (prevents visible resize jumps)
           if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
           this._slidesScaleDebounce = setTimeout(() => {
             this._autoScaleSlide();
-          }, 250);
+          }, 600);
         });
         this._slidesResizeObserver.observe(content);
       }
@@ -5460,43 +5491,83 @@ export class ResultViewer extends LitElement {
     this._slidesRefreshTimers = [];
     this._slidesBoundElements.clear();
 
-    // Process data-embed elements — render as iframes pointing to Beam focus mode
+    // Process data-embed elements — convert to inline data-method divs (no iframes).
+    // The existing data-method binding below will pick them up and call MCP directly.
     const embeds = root.querySelectorAll('.slides-content [data-embed]');
     embeds.forEach((el) => {
       if (this._slidesBoundElements.has(el)) return;
-      this._slidesBoundElements.add(el);
+      // Don't mark as bound yet — let the data-method binding below handle it
 
       const embedPath = el.getAttribute('data-embed') || '';
       const paramsRaw = el.getAttribute('data-embed-params') || '';
       const height = el.getAttribute('data-embed-height') || '320';
+
       const embedView = el.getAttribute('data-embed-view') || '';
 
-      // Build URL: embed view uses ?view=result by default (show output),
-      // or ?view=form if explicitly requested. Falls back to focus mode.
-      let url = embedView ? `/${embedPath}?view=${embedView}` : `/${embedPath}?view=result`;
-      if (paramsRaw) {
-        try {
-          const params = JSON.parse(paramsRaw) as Record<string, unknown>;
-          for (const [key, value] of Object.entries(params)) {
-            const encoded =
-              typeof value === 'object'
-                ? JSON.stringify(value)
-                : String(value as string | number | boolean);
-            url += `&${encodeURIComponent(key)}=${encodeURIComponent(encoded)}`;
+      // Form embeds need the pure-view iframe (inline binding doesn't support form rendering)
+      if (embedView === 'form') {
+        let url = `/${embedPath}?view=form`;
+        if (paramsRaw) {
+          try {
+            const params = JSON.parse(paramsRaw) as Record<string, unknown>;
+            for (const [key, value] of Object.entries(params)) {
+              const encoded =
+                typeof value === 'object'
+                  ? JSON.stringify(value)
+                  : String(value as string | number | boolean);
+              url += `&${encodeURIComponent(key)}=${encodeURIComponent(encoded)}`;
+            }
+          } catch {
+            /* invalid params JSON */
           }
-        } catch {
-          /* invalid params JSON */
+        }
+        const iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.className = 'slide-embed';
+        iframe.style.height = `${height}px`;
+        iframe.style.flex = '1';
+        iframe.style.border = 'none';
+        iframe.style.borderRadius = '8px';
+        iframe.setAttribute('loading', 'lazy');
+        el.innerHTML = '';
+        el.appendChild(iframe);
+        this._slidesBoundElements.add(el);
+        return;
+      }
+
+      // Convert data-embed="photon/method" to data-method="photon/method"
+      // This lets the inline binding call mcpClient.callTool() directly — no iframe needed
+      el.setAttribute('data-method', embedPath);
+      el.removeAttribute('data-embed');
+
+      // Convert data-embed-params to data-args
+      if (paramsRaw) {
+        el.setAttribute('data-args', paramsRaw);
+      }
+
+      // Resolve @format from method metadata (e.g., walkthrough/team → "table")
+      // Look up from beam-app's photon list via the DOM tree
+      if (!el.getAttribute('data-format')) {
+        const parts = embedPath.split('/');
+        if (parts.length === 2) {
+          try {
+            const beamApp =
+              (this.getRootNode() as ShadowRoot)?.host || document.querySelector('beam-app');
+            const photons = (beamApp as any)?._photons || [];
+            const photon = photons.find((p: any) => p.name === parts[0]);
+            const method = photon?.methods?.find((m: any) => m.name === parts[1]);
+            if (method?.outputFormat) {
+              el.setAttribute('data-format', method.outputFormat);
+            }
+          } catch {
+            /* format lookup failed, will render as raw */
+          }
         }
       }
 
-      const iframe = document.createElement('iframe');
-      iframe.src = url;
-      iframe.className = 'slide-embed';
-      iframe.style.height = `${height}px`;
-      iframe.style.flex = '1';
-      iframe.setAttribute('loading', 'lazy');
-      el.innerHTML = '';
-      el.appendChild(iframe);
+      // Set height constraint from data-embed-height
+      (el as HTMLElement).style.height = `${height}px`;
+      (el as HTMLElement).style.overflow = 'auto';
     });
 
     const elements = root.querySelectorAll('.slides-content [data-method]');
@@ -5625,57 +5696,49 @@ export class ResultViewer extends LitElement {
   }
 
   private _renderSlideFormat(target: HTMLElement, data: unknown, format: string): void {
-    // Lightweight format rendering for slides — covers common cases
-    if (format === 'gauge' && typeof data === 'object' && data !== null) {
-      const d = data as Record<string, any>;
-      const value = d.value ?? 0;
-      const max = d.max ?? 100;
-      const label = d.label ?? '';
-      const unit = d.unit ?? '';
-      const pct = Math.min(100, Math.max(0, (value / max) * 100));
-      target.innerHTML = `
-        <div style="text-align:center;max-width:100%;">
-          <div style="font-size:2em;font-weight:700;">${value}${unit}</div>
-          <div style="margin:8px auto;width:60%;max-width:200px;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
-            <div style="width:${pct}%;height:100%;background:var(--color-accent, #7dd3fc);border-radius:4px;transition:width 0.3s;"></div>
-          </div>
-          ${label ? `<div style="font-size:0.85em;opacity:0.7;">${label}</div>` : ''}
-        </div>`;
-    } else if (format === 'metric' && typeof data === 'object' && data !== null) {
-      const d = data as Record<string, any>;
-      const value = d.value ?? d.count ?? '';
-      const label = d.label ?? d.name ?? '';
-      target.innerHTML = `
-        <div style="text-align:center;">
-          <div style="font-size:2.2em;font-weight:700;">${value}</div>
-          ${label ? `<div style="font-size:0.85em;opacity:0.7;">${label}</div>` : ''}
-        </div>`;
-    } else if (format === 'progress' && typeof data === 'object' && data !== null) {
-      const d = data as Record<string, any>;
-      const value = d.value ?? d.progress ?? 0;
-      const total = d.total ?? d.max ?? 100;
-      const pct = Math.min(100, Math.max(0, (value / total) * 100));
-      target.innerHTML = `
-        <div style="width:100%;height:8px;background:rgba(128,128,128,0.2);border-radius:4px;overflow:hidden;">
-          <div style="width:${pct}%;height:100%;background:var(--color-accent, #7dd3fc);border-radius:4px;transition:width 0.3s;"></div>
-        </div>
-        <div style="font-size:0.85em;opacity:0.7;margin-top:4px;">${Math.round(pct)}%</div>`;
-    } else if (format === 'table' && Array.isArray(data) && data.length > 0) {
-      const keys = Object.keys(data[0]);
-      const headerRow = keys.map((k) => `<th>${k}</th>`).join('');
-      const bodyRows = data
-        .map((row) => {
-          const r = row as Record<string, any>;
-          return `<tr>${keys.map((k) => `<td>${r[k] ?? ''}</td>`).join('')}</tr>`;
-        })
-        .join('');
-      target.innerHTML = `<table style="border-collapse:collapse;width:100%;"><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    // Use the full photon renderers (same as bridge's photon.render())
+    // Lazy-load on first use from /api/photon-renderers.js
+    const win = window as any;
+    const doRender = () => {
+      if (win._photonRenderers?.render) {
+        win._photonRenderers.render(target, data, format);
+      } else {
+        // Final fallback: render as text
+        target.textContent =
+          typeof data === 'object'
+            ? JSON.stringify(data, null, 2)
+            : String((data ?? '') as string | number | boolean);
+      }
+    };
+
+    if (win._photonRenderers) {
+      doRender();
+    } else if (win._photonRenderersLoading) {
+      // Already loading — queue this render
+      win._photonRenderersQueue = win._photonRenderersQueue || [];
+      win._photonRenderersQueue.push(doRender);
     } else {
-      // Fallback: render as text
-      target.textContent =
-        typeof data === 'object'
-          ? JSON.stringify(data, null, 2)
-          : String((data ?? '') as string | number | boolean);
+      // Load the renderers script via fetch+eval (avoids strict MIME and quote escaping issues)
+      win._photonRenderersLoading = true;
+      win._photonRenderersQueue = [doRender];
+      fetch('/api/photon-renderers.js')
+        .then((r) => r.text())
+        .then((code) => {
+          try {
+            // eslint-disable-next-line no-eval
+            (0, eval)(code);
+          } catch {
+            /* renderer eval failed */
+          }
+          const queue = win._photonRenderersQueue || [];
+          win._photonRenderersQueue = [];
+          queue.forEach((fn: () => void) => fn());
+        })
+        .catch(() => {
+          const queue = win._photonRenderersQueue || [];
+          win._photonRenderersQueue = [];
+          queue.forEach((fn: () => void) => fn());
+        });
     }
   }
 

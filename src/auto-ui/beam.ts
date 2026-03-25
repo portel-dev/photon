@@ -23,7 +23,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
-import { setSecurityHeaders, SimpleRateLimiter } from '../shared/security.js';
+import { setSecurityHeaders, SimpleRateLimiter, escapeHtml } from '../shared/security.js';
 
 /**
  * Check if shell integration has been installed (photon init cli).
@@ -1945,6 +1945,50 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
 </html>`;
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html);
+        return;
+      }
+
+      // Pure view mode — serve lightweight bridge-powered page (no beam-app shell)
+      // Triggered by ?view=form|result|embed on any photon/method URL
+      const viewParam = url.searchParams.get('view');
+      if (
+        (viewParam === 'form' || viewParam === 'result' || viewParam === 'embed') &&
+        url.pathname !== '/' &&
+        !url.pathname.startsWith('/api')
+      ) {
+        try {
+          const pathParts = url.pathname.split('/').filter(Boolean);
+          const photonName = pathParts[0] || '';
+          const methodName = pathParts[1] || '';
+          const params: Record<string, string> = {};
+          for (const [k, v] of url.searchParams) {
+            if (k !== 'view') params[k] = v;
+          }
+
+          const pureViewPath = path.join(__dirname, 'frontend/pure-view.html');
+          let html = await fs.readFile(pureViewPath, 'utf-8');
+
+          // Replace placeholders
+          const argsJson = escapeHtml(JSON.stringify(params));
+          html = html
+            .replaceAll('__PHOTON__', encodeURIComponent(photonName))
+            .replaceAll('__METHOD__', escapeHtml(methodName))
+            .replaceAll('__ARGS__', argsJson);
+
+          // Add data-view override only if explicitly requesting form or result
+          if (viewParam === 'form' || viewParam === 'result') {
+            html = html.replace(
+              'data-method=',
+              `data-view="${escapeHtml(viewParam)}" data-method=`
+            );
+          }
+
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(html);
+        } catch (err) {
+          res.writeHead(500);
+          res.end('Error serving pure view: ' + String(err));
+        }
         return;
       }
 

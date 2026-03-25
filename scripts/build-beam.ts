@@ -8,12 +8,13 @@ const __dirname = path.dirname(__filename);
 
 const isWatch = process.argv.includes('--watch');
 
-// Copy index.html to dist
-function copyIndexHtml() {
-  const src = path.join(__dirname, '../src/auto-ui/frontend/index.html');
-  const dest = path.join(__dirname, '../dist/auto-ui/frontend/index.html');
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(src, dest);
+// Copy HTML templates to dist
+function copyHtmlTemplates() {
+  const frontendDir = path.join(__dirname, '../src/auto-ui/frontend');
+  const destDir = path.join(__dirname, '../dist/auto-ui/frontend');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.copyFileSync(path.join(frontendDir, 'index.html'), path.join(destDir, 'index.html'));
+  fs.copyFileSync(path.join(frontendDir, 'pure-view.html'), path.join(destDir, 'pure-view.html'));
 }
 
 async function build() {
@@ -42,7 +43,7 @@ async function build() {
   };
 
   if (isWatch) {
-    copyIndexHtml();
+    copyHtmlTemplates();
     const ctx = await esbuild.context({
       ...buildOptions,
       plugins: [
@@ -79,7 +80,7 @@ async function build() {
   } else {
     await esbuild.build(buildOptions);
     await esbuild.build(workerBuildOptions);
-    copyIndexHtml();
+    copyHtmlTemplates();
     console.log('⚡️ Beam UI bundle built');
   }
 }
