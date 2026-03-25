@@ -5929,41 +5929,45 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._slidesScaling = true;
 
     try {
-      // For bridge iframe slides: measure natural content size inside iframe
+      // For bridge iframe slides: use transform:scale on .slide-body
       const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
       if (iframe?.contentDocument?.body) {
         const doc = iframe.contentDocument;
-        const body = doc.body;
         const slideBody = doc.querySelector('.slide-body') as HTMLElement;
-        if (!slideBody) {
-          return;
-        }
+        if (!slideBody) return;
 
-        // Reset zoom and temporarily make body auto-height to measure natural content
-        body.style.zoom = '';
-        const origH = body.style.height;
-        const origOverflow = body.style.overflow;
-        body.style.height = 'auto';
-        body.style.overflow = 'visible';
+        // Reset any previous transform to measure natural size
+        slideBody.style.transform = '';
+        slideBody.style.transformOrigin = '';
 
-        const naturalH = body.scrollHeight;
+        // Measure natural content size (slideBody has overflow:hidden, use scrollHeight)
+        const naturalH = slideBody.scrollHeight;
         const naturalW = slideBody.scrollWidth;
 
-        // Restore
-        body.style.height = origH;
-        body.style.overflow = origOverflow;
+        // Available space = iframe viewport (which is the full slide viewport)
+        const iframeH = iframe.clientHeight;
+        const iframeW = iframe.clientWidth;
 
-        const viewH = viewport.clientHeight;
-        const viewW = viewport.clientWidth;
+        // Subtract header/footer heights
+        const header = doc.querySelector('.slide-header') as HTMLElement;
+        const footer = doc.querySelector('.slide-footer') as HTMLElement;
+        const headerH = header?.offsetHeight || 0;
+        const footerH = footer?.offsetHeight || 0;
+        const availH = iframeH - headerH - footerH;
 
-        if (naturalH > 0 && viewH > 0 && naturalW > 0 && viewW > 0) {
-          const scaleH = viewH / naturalH;
-          const scaleW = viewW / naturalW;
-          const zoom = Math.min(scaleH, scaleW);
-          const clamped = Math.max(0.5, Math.min(2.5, zoom));
-          const newZoom = Math.abs(clamped - 1) > 0.02 ? String(clamped) : '';
-          this._slidesLastZoom = newZoom;
-          body.style.zoom = newZoom;
+        if (naturalH > 0 && availH > 0 && naturalW > 0 && iframeW > 0) {
+          const scaleH = availH / naturalH;
+          const scaleW = iframeW / naturalW;
+          const scale = Math.min(scaleH, scaleW);
+          const clamped = Math.max(0.5, Math.min(2.5, scale));
+
+          if (Math.abs(clamped - 1) > 0.02) {
+            slideBody.style.transform = `scale(${clamped})`;
+            slideBody.style.transformOrigin = 'top left';
+            // Adjust container to match scaled size so it doesn't overflow
+            slideBody.style.width = `${100 / clamped}%`;
+            slideBody.style.height = `${availH / clamped}px`;
+          }
         }
         return;
       }
