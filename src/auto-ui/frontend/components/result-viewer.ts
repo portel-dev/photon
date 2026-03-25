@@ -4360,15 +4360,9 @@ export class ResultViewer extends LitElement {
     }
 
     // Bind declarative data-method elements and auto-scale slides after render.
-    // Double-deferred to ensure Lit's DOM update is fully flushed before binding.
+    // Use setTimeout to ensure the DOM is fully painted before binding.
     if (changedProperties.has('result') && this.layout === 'slides') {
-      void this.updateComplete.then(() => {
-        // First rAF: Lit has committed to DOM
-        requestAnimationFrame(() => {
-          // Second rAF: browser has painted — DOM is fully stable
-          requestAnimationFrame(() => this._afterSlideRender());
-        });
-      });
+      setTimeout(() => this._afterSlideRender(), 100);
     }
   }
 
@@ -5467,7 +5461,6 @@ export class ResultViewer extends LitElement {
       if (this._slidesResizeObserver) {
         this._slidesResizeObserver.disconnect();
       }
-      const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
       if (content) {
         this._slidesResizeObserver = new ResizeObserver(() => {
           if (this._slidesScaling) return;
@@ -5558,7 +5551,13 @@ export class ResultViewer extends LitElement {
           let data = this._slidesMcpCache.get(cacheKey);
           if (data === undefined) {
             try {
-              const result = await mcpClient.callTool(method, args);
+              // Timeout pre-render MCP calls (streaming generators can hang indefinitely)
+              const result = await Promise.race([
+                mcpClient.callTool(method, args),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error('pre-render timeout')), 5000)
+                ),
+              ]);
               data = mcpClient.parseToolResult(result);
               this._slidesMcpCache.set(cacheKey, data);
             } catch {
