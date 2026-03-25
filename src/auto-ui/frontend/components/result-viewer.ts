@@ -4784,6 +4784,46 @@ ${bridge}
   .token.function, .token.class-name { color: #61afef; }
   .token.regex, .token.variable { color: #d19a66; }
   .token.punctuation { color: var(--color-on-surface-variant, #abb2bf); }
+
+  /* ═══ Slide Layout Utilities ═══ */
+  /* Two-column grid — the most common slide layout */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .cols.center { align-items: center; }
+  .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+  .cols-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 24px; }
+  .gap-sm { gap: 16px; }
+  .gap-lg { gap: 32px; }
+
+  /* Typography */
+  .muted { opacity: 0.7; }
+  .small { font-size: 0.85em; }
+  .large { font-size: 1.2em; }
+  .caption { font-size: 0.8em; opacity: 0.6; margin-top: 4px; }
+
+  /* Cards — elevated surface for code, images, callouts */
+  .card { background: var(--color-surface-container, rgba(0,0,0,0.2));
+    border-radius: var(--radius-md, 12px); padding: 16px; overflow: hidden; }
+  .card img { width: 100%; display: block; border-radius: var(--radius-sm, 8px); }
+  .card-elevated { box-shadow: var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.2)); }
+
+  /* Callout / highlight box */
+  .callout { background: var(--color-primary-container, rgba(121,174,240,0.1));
+    border-left: 3px solid var(--color-primary, #79aef0);
+    padding: 12px 16px; border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0; }
+
+  /* Badge / chip */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: var(--radius-full, 999px);
+    font-size: 0.8em; background: var(--color-primary, #79aef0); color: var(--color-on-primary, #fff); }
+
+  /* Spacers */
+  .mt-0 { margin-top: 0; }
+  .mb-0 { margin-bottom: 0; }
+  .mt-1 { margin-top: 8px; }
+  .mt-2 { margin-top: 16px; }
+
+  /* Full-bleed image */
+  .hero { width: 100%; border-radius: var(--radius-lg, 14px);
+    box-shadow: var(--shadow-lg, 0 24px 60px rgba(0,0,0,0.28)); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"><\/script>
