@@ -5700,12 +5700,12 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._bindSlideElements();
     this._highlightInlineCodeElements();
 
-    // For bridge iframe: wait for iframe load before scaling
+    // For bridge iframe: scale after iframe loads its new srcdoc
     const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
     if (iframe) {
-      const onLoad = () => {
+      const doScale = () => {
         this._autoScaleSlide();
-        // Also scale when iframe content changes (async embeds loading)
+        // Watch for async embed content changes (gauge, table loading)
         try {
           const body = iframe.contentDocument?.body;
           if (body) {
@@ -5719,11 +5719,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
           /* cross-origin */
         }
       };
-      if (iframe.contentDocument?.readyState === 'complete') {
-        onLoad();
-      } else {
-        iframe.addEventListener('load', onLoad, { once: true });
-      }
+      // Always listen for load (srcdoc change triggers new load event)
+      iframe.addEventListener('load', doScale, { once: true });
+      // Also try after a short delay in case load already fired
+      setTimeout(doScale, 300);
     } else {
       this._autoScaleSlide();
     }
