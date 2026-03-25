@@ -4743,12 +4743,10 @@ export class ResultViewer extends LitElement {
 ${bridge}
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
     font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: transparent; color: var(--color-on-surface, #c0caf5);
+    background: transparent !important; color: var(--color-on-surface, #c0caf5);
     font-size: 16px; line-height: 1.6; }
-  body { padding: 48px 64px; display: flex; align-items: center; justify-content: center; }
-  body > * { max-width: 960px; width: 100%; }
   [data-method] { position: relative; max-height: 50vh; overflow: hidden; }
   [data-method].loading::after {
     content: ''; display: inline-block; width: 14px; height: 14px;
@@ -4764,7 +4762,29 @@ ${bridge}
   code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; }
   pre { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; overflow-x: auto; }
   img { max-width: 100%; border-radius: 4px; }
+  /* Prism dark theme */
+  code[class*="language-"], pre[class*="language-"] { color: #abb2bf; text-shadow: none; }
+  .token.comment, .token.prolog { color: #5c6370; font-style: italic; }
+  .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #e06c75; }
+  .token.selector, .token.string, .token.char, .token.builtin { color: #98c379; }
+  .token.operator, .token.entity, .token.url { color: #56b6c2; }
+  .token.atrule, .token.attr-value, .token.keyword { color: #c678dd; }
+  .token.function, .token.class-name { color: #61afef; }
+  .token.regex, .token.variable { color: #d19a66; }
+  .token.punctuation { color: #abb2bf; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"><\/script>
+<script>
+  // Highlight code blocks after bridge binds
+  document.addEventListener('DOMContentLoaded', function() {
+    if (window.Prism) {
+      setTimeout(function() { Prism.highlightAll(); }, 100);
+    }
+  });
+<\/script>
 </head>
 <body>${html}</body>
 </html>`;
