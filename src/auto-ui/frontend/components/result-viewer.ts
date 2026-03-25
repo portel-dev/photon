@@ -4360,10 +4360,19 @@ export class ResultViewer extends LitElement {
     }
 
     // Bind declarative data-method elements and auto-scale slides after render.
-    // Use setTimeout to ensure the DOM is fully painted before binding.
-    if (changedProperties.has('result') && this.layout === 'slides') {
-      setTimeout(() => this._afterSlideRender(), 100);
+    // Pattern: await updateComplete (Lit render committed) → rAF (browser layout ready)
+    if (changedProperties.has('result') && this.outputFormat === 'slides') {
+      void this._onSlidesRendered();
     }
+  }
+
+  private async _onSlidesRendered(): Promise<void> {
+    // Wait for Lit's render to fully commit to the DOM
+    await this.updateComplete;
+    // Wait for browser to complete layout (all microtask-based renders done)
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    // DOM is now fully ready for measurement and binding
+    this._afterSlideRender();
   }
 
   private _highlightCodeBlocks(blocks: { id: string; code: string; language: string }[]) {
@@ -5452,29 +5461,31 @@ export class ResultViewer extends LitElement {
   }
 
   private _afterSlideRender(): void {
-    void this.updateComplete.then(() => {
-      this._bindSlideElements();
-      this._highlightInlineCodeElements();
-      this._autoScaleSlide();
+    // Called from _onSlidesRendered (which awaits updateComplete + rAF)
+    // or from _slidesNavigate (after view transition completes).
+    // DOM is already ready — no need for updateComplete here.
+    this._bindSlideElements();
+    this._highlightInlineCodeElements();
+    this._autoScaleSlide();
 
-      // Watch for content size changes from async data-method bindings
-      if (this._slidesResizeObserver) {
-        this._slidesResizeObserver.disconnect();
-      }
-      if (content) {
-        this._slidesResizeObserver = new ResizeObserver(() => {
-          if (this._slidesScaling) return;
-          if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
-          this._slidesScaleDebounce = setTimeout(() => {
-            this._autoScaleSlide();
-          }, 600);
-        });
-        this._slidesResizeObserver.observe(content);
-      }
+    // Watch for content size changes from async data-method bindings
+    if (this._slidesResizeObserver) {
+      this._slidesResizeObserver.disconnect();
+    }
+    const content = this.shadowRoot?.querySelector('.slides-content') as HTMLElement;
+    if (content) {
+      this._slidesResizeObserver = new ResizeObserver(() => {
+        if (this._slidesScaling) return;
+        if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
+        this._slidesScaleDebounce = setTimeout(() => {
+          this._autoScaleSlide();
+        }, 600);
+      });
+      this._slidesResizeObserver.observe(content);
+    }
 
-      // Pre-render adjacent slides in background (triple-buffer)
-      this._preRenderAdjacentSlides();
-    });
+    // Pre-render adjacent slides in background (triple-buffer)
+    this._preRenderAdjacentSlides();
   }
 
   /**
