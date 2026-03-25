@@ -2005,15 +2005,35 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               '<script>window.__PHOTON_SHELL_INIT=true</script></head>'
             );
           }
-          // Pre-apply view mode class to prevent chrome flash in iframe embeds.
-          // beam-app's :host(.view-form) CSS hides sidebar/toolbar — adding the class
-          // before first paint eliminates the brief flash of full UI.
+          // Pre-apply view mode class and hide beam-app until shadow DOM is ready.
+          // Without this, the full Beam chrome (sidebar, toolbar) briefly flashes
+          // before the shadow DOM :host(.view-form) styles take effect.
           const viewMode = url.searchParams.get('view');
           if (viewMode === 'form' || viewMode === 'result') {
-            content = content.replace(
-              '<beam-app>',
-              `<beam-app class="view-${viewMode} focus-mode">`
-            );
+            content = content
+              .replace('<beam-app>', `<beam-app class="view-${viewMode} focus-mode">`)
+              .replace(
+                '</head>',
+                `<style>
+  /* Hide beam-app completely until first Lit render cycle completes.
+     The background matches the app's dark theme so the transition is seamless. */
+  beam-app.view-form, beam-app.view-result {
+    visibility: hidden;
+    background: #1a1b26;
+  }
+</style>
+<script>
+  // Reveal beam-app after first render — shadow DOM styles are active by then
+  customElements.whenDefined('beam-app').then(function() {
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        var app = document.querySelector('beam-app');
+        if (app) app.style.visibility = 'visible';
+      });
+    });
+  });
+</script></head>`
+              );
           }
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(content);

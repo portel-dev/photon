@@ -5722,7 +5722,12 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
       }
     };
 
-    if (transition === 'none' || !('startViewTransition' in document)) {
+    // Bridge iframe slides: skip View Transition API.
+    // The API captures a bitmap screenshot for cross-fade, but the iframe renders
+    // via transform:scale() at GPU level. The bitmap-to-live swap causes a visible
+    // quality shift ("crisp for a second, then blurry") because the captured bitmap
+    // is at device pixel ratio while the live transform renders differently.
+    if (transition === 'none' || !('startViewTransition' in document) || this._slidesBridgeScript) {
       this._slidesCurrentIndex = newIndex;
       this.requestUpdate();
       void this.updateComplete.then(() => afterRender());
