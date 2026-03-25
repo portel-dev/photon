@@ -4742,36 +4742,48 @@ export class ResultViewer extends LitElement {
 <meta name="photon-template" content="true">
 ${bridge}
 <style>
+  /* All colors derive from MCP host theme tokens — adapts to any client */
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: transparent !important; color: var(--color-on-surface, #c0caf5);
+    font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+    background: transparent !important;
+    color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
+  h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
+  a { color: var(--color-primary, var(--accent, #79aef0)); }
+  strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
   [data-method] { position: relative; max-height: 50vh; overflow: hidden; }
   [data-method].loading::after {
     content: ''; display: inline-block; width: 14px; height: 14px;
-    border: 2px solid rgba(128,128,128,0.3); border-top-color: currentColor;
+    border: 2px solid var(--color-outline-variant, rgba(128,128,128,0.3));
+    border-top-color: var(--color-primary, currentColor);
     border-radius: 50%; animation: spin 0.6s linear infinite;
     margin-left: 8px; vertical-align: middle;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  [data-method].error { color: #f87171; font-style: italic; }
+  [data-method].error { color: var(--color-error, var(--error, #f87171)); font-style: italic; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 8px 12px; border-bottom: 1px solid rgba(128,128,128,0.2); text-align: left; }
-  th { font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
-  code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; }
-  pre { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; overflow-x: auto; }
-  img { max-width: 100%; border-radius: 4px; }
-  /* Prism dark theme */
-  code[class*="language-"], pre[class*="language-"] { color: #abb2bf; text-shadow: none; }
-  .token.comment, .token.prolog { color: #5c6370; font-style: italic; }
+  th, td { padding: 8px 12px; border-bottom: 1px solid var(--color-outline-variant, var(--border-muted, rgba(128,128,128,0.2))); text-align: left; }
+  th { font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--color-on-surface-variant, var(--text-secondary, #b3b3b3)); }
+  code { font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace); font-size: 0.9em; }
+  pre { background: var(--color-surface-container, var(--bg-secondary, rgba(0,0,0,0.3)));
+    padding: 12px; border-radius: var(--radius-md, 8px); overflow-x: auto; }
+  code.inline, code:not([class]) { background: var(--color-surface-container-high, var(--bg-tertiary, rgba(128,128,128,0.15)));
+    padding: 2px 6px; border-radius: var(--radius-sm, 4px); }
+  img { max-width: 100%; border-radius: var(--radius-sm, 4px); }
+  blockquote { border-left: 3px solid var(--color-primary, var(--accent, #79aef0));
+    padding-left: 16px; margin-left: 0; color: var(--color-on-surface-variant, var(--text-secondary, #b3b3b3)); }
+  /* Syntax highlighting — uses fixed colors (language semantics, not theme-dependent) */
+  code[class*="language-"], pre[class*="language-"] { color: var(--color-on-surface, #abb2bf); text-shadow: none; }
+  .token.comment, .token.prolog { color: var(--color-on-surface-muted, #5c6370); font-style: italic; }
   .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #e06c75; }
   .token.selector, .token.string, .token.char, .token.builtin { color: #98c379; }
   .token.operator, .token.entity, .token.url { color: #56b6c2; }
   .token.atrule, .token.attr-value, .token.keyword { color: #c678dd; }
   .token.function, .token.class-name { color: #61afef; }
   .token.regex, .token.variable { color: #d19a66; }
-  .token.punctuation { color: #abb2bf; }
+  .token.punctuation { color: var(--color-on-surface-variant, #abb2bf); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"><\/script>
@@ -5119,17 +5131,17 @@ ${bridge}
           opacity: 1;
         }
         .slides-btn {
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          color: #e5e5e5;
+          background: var(--color-surface-container, rgba(255, 255, 255, 0.1));
+          border: 1px solid var(--color-outline-variant, rgba(255, 255, 255, 0.2));
+          color: var(--color-on-surface, #e5e5e5);
           padding: 6px 14px;
-          border-radius: 6px;
+          border-radius: var(--radius-sm, 6px);
           cursor: pointer;
           font-size: 14px;
           transition: background 0.15s;
         }
         .slides-btn:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.2);
+          background: var(--color-surface-container-high, rgba(255, 255, 255, 0.2));
         }
         .slides-btn:disabled {
           opacity: 0.3;
@@ -5148,7 +5160,8 @@ ${bridge}
           padding: 8px 24px;
           font-size: 12px;
           opacity: 0.6;
-          border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+          color: var(--color-on-surface-variant, inherit);
+          border-bottom: 1px solid var(--color-outline-variant, rgba(128, 128, 128, 0.15));
         }
         .slides-footer {
           display: flex;
@@ -5156,7 +5169,8 @@ ${bridge}
           padding: 6px 24px;
           font-size: 11px;
           opacity: 0.5;
-          border-top: 1px solid rgba(128, 128, 128, 0.15);
+          color: var(--color-on-surface-variant, inherit);
+          border-top: 1px solid var(--color-outline-variant, rgba(128, 128, 128, 0.15));
         }
         .slides-container:fullscreen .slides-header,
         .slides-container:fullscreen .slides-footer {
@@ -5170,21 +5184,21 @@ ${bridge}
 
         /* ═══ THEMES ═══ */
         .slides-theme-default {
-          background: var(--bg-primary, #1a1a2e);
-          color: var(--text-primary, #e5e5e5);
+          background: var(--color-surface, var(--bg, #1a1a2e));
+          color: var(--color-on-surface, var(--text, #e5e5e5));
         }
         .slides-theme-default .slides-content h1,
         .slides-theme-default .slides-content h2 {
-          color: var(--accent-primary, #7dd3fc);
+          color: var(--color-primary, var(--accent, #7dd3fc));
         }
 
         .slides-theme-uncover {
-          background: var(--bg-primary, #fafafa);
-          color: var(--text-primary, #333);
+          background: var(--color-surface-bright, var(--bg, #fafafa));
+          color: var(--color-on-surface, var(--text, #333));
         }
         .slides-theme-uncover .slides-content h1,
         .slides-theme-uncover .slides-content h2 {
-          color: var(--accent-primary, #1a1a2e);
+          color: var(--color-primary, var(--accent, #1a1a2e));
         }
 
         .slides-theme-gaia {
