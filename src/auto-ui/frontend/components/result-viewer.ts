@@ -4764,19 +4764,26 @@ export class ResultViewer extends LitElement {
 <meta name="photon-template" content="true">
 ${bridge}
 <style>
-  /* All colors derive from MCP host theme tokens — adapts to any client */
-  /* Background is transparent — the outer slide viewport provides the bg */
+  /* reveal.js-style scaling: fixed design canvas + transform:scale() */
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden;
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
-  body { padding: 0; display: flex; flex-direction: column; }
-  .slide-header { padding: 8px 5vw; font-size: 12px; opacity: 0.6;
+  /* Fixed design canvas — 960x540 (16:9), scaled to fit any viewport */
+  .slide-canvas {
+    position: absolute; width: 960px; height: 540px;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%) scale(var(--slide-scale, 1));
+    transform-origin: 50% 50%;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .slide-header { padding: 8px 40px; font-size: 12px; opacity: 0.6;
     color: var(--color-on-surface-variant, inherit);
     border-bottom: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
-  .slide-body { flex: 1; padding: 4vh 5vw; overflow: hidden; }
-  .slide-footer { padding: 6px 5vw; font-size: 11px; opacity: 0.5; display: flex; justify-content: space-between;
+  .slide-body { flex: 1; padding: 32px 48px; overflow: hidden; }
+  .slide-footer { padding: 6px 40px; font-size: 11px; opacity: 0.5; display: flex; justify-content: space-between;
     color: var(--color-on-surface-variant, inherit);
     border-top: 1px solid var(--color-outline-variant, rgba(128,128,128,0.15)); flex-shrink: 0; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
@@ -4879,9 +4886,24 @@ ${bridge}
 <\/script>
 </head>
 <body>
+<div class="slide-canvas">
 ${headerText ? `<div class="slide-header">${headerText}</div>` : ''}
 <div class="slide-body">${html}</div>
 ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</span><span>${pageNum || ''}</span></div>` : ''}
+</div>
+<script>
+  // reveal.js-style scaling: compute scale from viewport vs design size
+  function scaleSlide() {
+    var canvas = document.querySelector('.slide-canvas');
+    if (!canvas) return;
+    var scale = Math.min(window.innerWidth / 960, window.innerHeight / 540);
+    canvas.style.setProperty('--slide-scale', scale);
+  }
+  scaleSlide();
+  window.addEventListener('resize', scaleSlide);
+  // Re-scale after bridge initializes (theme tokens may change layout)
+  document.addEventListener('DOMContentLoaded', function() { setTimeout(scaleSlide, 100); });
+<\/script>
 </body>
 </html>`;
   }
@@ -5700,30 +5722,10 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._bindSlideElements();
     this._highlightInlineCodeElements();
 
-    // For bridge iframe: scale after iframe loads its new srcdoc
+    // Bridge iframe handles its own scaling via internal scaleSlide() script.
+    // Non-iframe slides still need external auto-scale.
     const iframe = this.shadowRoot?.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
-    if (iframe) {
-      const doScale = () => {
-        this._autoScaleSlide();
-        // Watch for async embed content changes (gauge, table loading)
-        try {
-          const body = iframe.contentDocument?.body;
-          if (body) {
-            new ResizeObserver(() => {
-              if (this._slidesScaling) return;
-              if (this._slidesScaleDebounce) clearTimeout(this._slidesScaleDebounce);
-              this._slidesScaleDebounce = setTimeout(() => this._autoScaleSlide(), 400);
-            }).observe(body);
-          }
-        } catch {
-          /* cross-origin */
-        }
-      };
-      // Always listen for load (srcdoc change triggers new load event)
-      iframe.addEventListener('load', doScale, { once: true });
-      // Also try after a short delay in case load already fired
-      setTimeout(doScale, 300);
-    } else {
+    if (!iframe) {
       this._autoScaleSlide();
     }
 
@@ -5929,48 +5931,11 @@ ${footerText || pageNum ? `<div class="slide-footer"><span>${footerText || ''}</
     this._slidesScaling = true;
 
     try {
-      // For bridge iframe slides: use transform:scale on .slide-body
+      // Bridge iframe slides use reveal.js-style fixed canvas scaling internally.
+      // The iframe's own scaleSlide() script handles viewport → 960x540 scaling.
+      // No external scaling needed.
       const iframe = content.querySelector('.slide-bridge-frame') as HTMLIFrameElement;
-      if (iframe?.contentDocument?.body) {
-        const doc = iframe.contentDocument;
-        const slideBody = doc.querySelector('.slide-body') as HTMLElement;
-        if (!slideBody) return;
-
-        // Reset any previous transform to measure natural size
-        slideBody.style.transform = '';
-        slideBody.style.transformOrigin = '';
-
-        // Measure natural content size (slideBody has overflow:hidden, use scrollHeight)
-        const naturalH = slideBody.scrollHeight;
-        const naturalW = slideBody.scrollWidth;
-
-        // Available space = iframe viewport (which is the full slide viewport)
-        const iframeH = iframe.clientHeight;
-        const iframeW = iframe.clientWidth;
-
-        // Subtract header/footer heights
-        const header = doc.querySelector('.slide-header') as HTMLElement;
-        const footer = doc.querySelector('.slide-footer') as HTMLElement;
-        const headerH = header?.offsetHeight || 0;
-        const footerH = footer?.offsetHeight || 0;
-        const availH = iframeH - headerH - footerH;
-
-        if (naturalH > 0 && availH > 0 && naturalW > 0 && iframeW > 0) {
-          const scaleH = availH / naturalH;
-          const scaleW = iframeW / naturalW;
-          const scale = Math.min(scaleH, scaleW);
-          const clamped = Math.max(0.5, Math.min(2.5, scale));
-
-          if (Math.abs(clamped - 1) > 0.02) {
-            slideBody.style.transform = `scale(${clamped})`;
-            slideBody.style.transformOrigin = 'top left';
-            // Adjust container to match scaled size so it doesn't overflow
-            slideBody.style.width = `${100 / clamped}%`;
-            slideBody.style.height = `${availH / clamped}px`;
-          }
-        }
-        return;
-      }
+      if (iframe) return;
 
       // Non-iframe slides: use prerender div measurement (legacy path)
       let prerender = root.querySelector('.slides-prerender') as HTMLElement;
