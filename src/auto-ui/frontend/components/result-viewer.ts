@@ -4764,11 +4764,11 @@ ${bridge}
   /* All colors derive from MCP host theme tokens — adapts to any client */
   /* Background is transparent — the outer slide viewport provides the bg */
   *, *::before, *::after { box-sizing: border-box; }
-  :root, html, body { background: transparent !important; background-color: transparent !important; }
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden;
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
+  body { padding: 48px 64px; display: flex; flex-direction: column; justify-content: center; }
   h1, h2, h3 { color: var(--color-primary, var(--accent, #79aef0)); }
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
@@ -4863,6 +4863,8 @@ ${bridge}
     if (window.Prism) {
       setTimeout(function() { Prism.highlightAll(); }, 100);
     }
+    // No bg override needed — iframe fills viewport edge-to-edge,
+    // bridge theme bg matches the slide container bg naturally.
   });
 <\/script>
 </head>
@@ -5086,7 +5088,10 @@ ${bridge}
           max-width: 960px;
           line-height: 1.6;
         }
-        /* When slide content is a bridge iframe, fill the viewport */
+        /* When slide content is a bridge iframe, fill the entire viewport edge-to-edge */
+        .slides-viewport:has(.slide-bridge-frame) {
+          padding: 0;
+        }
         .slides-content:has(.slide-bridge-frame) {
           max-width: none;
           height: 100%;
