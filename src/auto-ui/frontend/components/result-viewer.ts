@@ -4783,11 +4783,15 @@ ${bridge}
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
-  /* Fixed design canvas — 1280x720, scaled with CSS zoom (not transform) for crisp text */
+  /* Fixed design canvas — 1280x720, scaled with transform (reveal.js pattern) */
   .slide-canvas {
-    width: 1280px; height: 720px;
-    zoom: var(--slide-scale, 1);
-    margin: auto; /* centers in viewport when zoomed */
+    position: absolute; width: 1280px; height: 720px;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%) scale(var(--slide-scale, 1));
+    transform-origin: 50% 50%;
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
     display: flex; flex-direction: column;
     overflow: hidden;
   }
