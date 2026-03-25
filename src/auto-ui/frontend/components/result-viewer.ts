@@ -4751,7 +4751,7 @@ export class ResultViewer extends LitElement {
         return `data-method="${method}" data-live`;
       })
       .replace(/data-embed-params=/g, 'data-args=')
-      .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;overflow:auto"')
+      .replace(/data-embed-height="([^"]+)"/g, 'style="height:$1px;overflow:hidden"')
       .replace(/data-embed-view="[^"]*"/g, '');
 
     // Inline code blocks: replace "Loading..." placeholders with actual code
@@ -4783,15 +4783,16 @@ ${bridge}
     font-family: var(--font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
     color: var(--color-on-surface, var(--text, #e6e6e6));
     font-size: 16px; line-height: 1.6; }
-  /* Fixed design canvas — 1280x720, scaled with transform (reveal.js pattern) */
+  /* Fixed design canvas — 1280x720, scaled with transform (reveal.js pattern).
+     No will-change/backface-visibility — those GPU compositing hints can cause
+     Chrome to rasterize the layer at display size (post-transform) instead of
+     intrinsic size, producing blurry text on retina displays. Without them,
+     the transform still gets GPU-accelerated but rasterizes at 1280x720×dpr. */
   .slide-canvas {
     position: absolute; width: 1280px; height: 720px;
     left: 50%; top: 50%;
     transform: translate(-50%, -50%) scale(var(--slide-scale, 1));
     transform-origin: 50% 50%;
-    will-change: transform;
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
     display: flex; flex-direction: column;
     overflow: hidden;
   }
@@ -4808,7 +4809,7 @@ ${bridge}
   ul, ol { margin: 0.4em 0; padding-left: 1.2em; }
   a { color: var(--color-primary, var(--accent, #79aef0)); }
   strong { color: var(--color-on-surface, var(--text-primary, inherit)); }
-  [data-method] { position: relative; max-height: 50vh; overflow: hidden; }
+  [data-method] { position: relative; overflow: hidden; }
   [data-method].loading::after {
     content: ''; display: inline-block; width: 14px; height: 14px;
     border: 2px solid var(--color-outline-variant, rgba(128,128,128,0.3));

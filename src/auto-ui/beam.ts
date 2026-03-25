@@ -2014,21 +2014,26 @@ export async function startBeam(rawWorkingDir: string, port: number): Promise<vo
               .replace('<beam-app>', `<beam-app class="view-${viewMode} focus-mode">`)
               .replace(
                 '</head>',
-                `<style>
-  /* Hide beam-app completely until first Lit render cycle completes.
-     The background matches the app's dark theme so the transition is seamless. */
+                `<style id="view-mode-hide">
+  /* Dark background on body + hidden beam-app prevents any flash of chrome.
+     The body bg matches the app's dark theme so the iframe blends seamlessly. */
+  body { background: #111318 !important; }
   beam-app.view-form, beam-app.view-result {
     visibility: hidden;
-    background: #1a1b26;
   }
 </style>
 <script>
-  // Reveal beam-app after first render — shadow DOM styles are active by then
+  // Reveal beam-app after its first full render cycle — shadow DOM styles
+  // (which hide chrome) are active by then.
   customElements.whenDefined('beam-app').then(function() {
-    requestAnimationFrame(function() {
+    var app = document.querySelector('beam-app');
+    if (!app) return;
+    app.updateComplete.then(function() {
       requestAnimationFrame(function() {
-        var app = document.querySelector('beam-app');
-        if (app) app.style.visibility = 'visible';
+        // Remove the hide style entirely — shadow DOM :host(.view-form) takes over
+        var hideStyle = document.getElementById('view-mode-hide');
+        if (hideStyle) hideStyle.remove();
+        app.style.visibility = 'visible';
       });
     });
   });
